@@ -216,7 +216,7 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: published.appendingPathComponent("sequence.fa").path), "the staged FASTA stays")
     }
 
-    /// A write that fails leaves no folder (M839 of 2.12, lane 13.03). `writeFASTA` makes its kept folder before
+    /// A write that fails leaves no folder (M839 of 2.12, Phase 2.13). `writeFASTA` makes its kept folder before
     /// the write, so a write that threw left an empty folder under `.tmp/` that no row or record accounted for.
     func testAStagedInputWhoseWriteFailsLeavesNoFolderUnderTmp() async throws {
         let root = try TestTempDirectory.make(prefix: "staged-sequence-failed-write")

@@ -11,7 +11,7 @@ import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 
-/// Phase 2.12 lane 12.12 M1 (A48-GAP, QA 1), reduced by Phase 2.13 lane 13.03 (DEL-REST). A viewer whose
+/// Phase 2.12 lane 12.12 M1 (A48-GAP, QA 1), reduced by Phase 2.13 (DEL-REST). A viewer whose
 /// document has no reference bundle builds its region bundle with
 /// `lungfish-cli extract sequence <staged FASTA> <region> -o <name>.lungfishref`. The in-process route that
 /// built it before 2.12, `createExtractionBundleInProcess`, left with its hidden key, and so did the

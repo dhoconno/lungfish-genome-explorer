@@ -384,18 +384,4 @@ final class CrossProjectItemCopierTests: XCTestCase {
         XCTAssertEqual(Set(partition.projectItems.map(\.lastPathComponent)), [kraken.lastPathComponent, ref.lastPathComponent])
         XCTAssertEqual(partition.other.map(\.lastPathComponent), ["loose.fasta"])
     }
-
-    func testProvenanceReceiptRecordsSourceProject() throws {
-        let ref = try makeBundle("Reference Sequences/NC_045512.lungfishref", in: sourceProject, files: ["sequence.fasta": ">x\nACGT\n"])
-
-        let outcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject)
-
-        let receipt = try XCTUnwrap(ProvenanceEnvelopeReader.load(
-            fromSidecar: outcome.destinationURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        ))
-        let step = try XCTUnwrap(receipt.steps.first { $0.toolName == "lungfish-app" })
-        XCTAssertTrue(step.argv.contains("--source-project"))
-        XCTAssertTrue(step.argv.contains(sourceProject.standardizedFileURL.path))
-        XCTAssertNotNil(step.resolvedOptions["sourceProject"])
-    }
 }

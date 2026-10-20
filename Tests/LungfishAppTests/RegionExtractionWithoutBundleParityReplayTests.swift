@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.12 M2 (A48-GAP), plan R-A1 and R-A3, C4 and C5 of 2.10, on lane Q30's harness, reduced by
-// Phase 2.13 lane 13.03 (DEL-REST) to C against C'. A viewer whose document has no reference bundle builds a
+// Phase 2.13 (DEL-REST) to C against C'. A viewer whose document has no reference bundle builds a
 // region bundle from the sequence the document shows. Each case runs on two sides that start as copies of one
 // project holding the document.
 //

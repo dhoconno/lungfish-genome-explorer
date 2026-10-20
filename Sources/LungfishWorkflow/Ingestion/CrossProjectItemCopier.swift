@@ -228,13 +228,14 @@ package enum CrossProjectItemCopier {
 
     /// Copies one item into the target project and returns where it landed
     /// together with its missing-source record. `identity` is the command the
-    /// item's records name, today's app records unless a CLI run passes its own.
+    /// item's records name. The caller gives it, since no default could say
+    /// which command made the copy.
     package static func copy(
         itemAt sourceURL: URL,
         intoProject targetProjectURL: URL,
         requestedFolder: URL? = nil,
         now: Date = Date(),
-        identity: ProjectCopyRecordIdentity = .appLegacy,
+        identity: ProjectCopyRecordIdentity,
         checkCancellation: () throws -> Void = {}
     ) throws -> Outcome {
         let fileManager = FileManager.default
@@ -261,10 +262,7 @@ package enum CrossProjectItemCopier {
         let stage = try ProjectTempDirectory.create(prefix: "project-copy-", in: targetProjectURL)
         defer { try? fileManager.removeItem(at: stage) }
         let staged = stage.appendingPathComponent(destination.lastPathComponent, isDirectory: true)
-        try copyBytes(
-            kind: kind, from: source, to: staged, recordedAs: destination,
-            sourceProjectURL: sourceProjectURL, identity: identity
-        )
+        try copyBytes(kind: kind, from: source, to: staged, recordedAs: destination, identity: identity)
         try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
@@ -321,55 +319,24 @@ package enum CrossProjectItemCopier {
     /// Both branches name the command of `identity`.
     private static func copyBytes(
         kind: ItemKind, from source: URL, to staged: URL, recordedAs destination: URL,
-        sourceProjectURL: URL?, identity: ProjectCopyRecordIdentity
+        identity: ProjectCopyRecordIdentity
     ) throws {
+        let command: ProjectCopyCommandIdentity
+        switch identity {
+        case .command(let named):
+            command = named
+        }
         if kind == .fastqBundle {
-            let context: FASTQBundleCopyImportWorkflow.CommandContext
-            switch identity {
-            case .appLegacy:
-                context = fastqCopyContext(source: source, destination: destination, sourceProjectURL: sourceProjectURL)
-            case .command(let command):
-                context = command.fastqContext(destination: destination)
-            }
             do {
-                _ = try FASTQBundleCopyImportWorkflow().importBundle(sourceBundleURL: source, outputURL: staged, context: context)
+                _ = try FASTQBundleCopyImportWorkflow().importBundle(
+                    sourceBundleURL: source, outputURL: staged, context: command.fastqContext(destination: destination)
+                )
                 return
             } catch FASTQBundleCopyImportError.sourceProvenanceMissing {
                 copierLogger.info("Read bundle \(source.lastPathComponent, privacy: .public) has no provenance; using native copy")
             }
         }
-        var receipt: NativeCopyReceiptIdentity?
-        if case .command(let command) = identity {
-            receipt = command.nativeReceipt
-        }
-        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, sourceProjectURL: sourceProjectURL, receipt: receipt)
-    }
-
-    private static func fastqCopyContext(source: URL, destination: URL, sourceProjectURL: URL?) -> FASTQBundleCopyImportWorkflow.CommandContext {
-        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont", source.path, "--output", destination.path]
-        var resolved: [String: ParameterValue] = [
-            "input": .file(source),
-            "output": .file(destination),
-            "destinationBundle": .file(destination),
-            "sourceKind": .string("existing-fastq-bundle"),
-            "copyMode": .string("atomic-bundle-copy"),
-            "caller": .string("app-cross-project-copy"),
-        ]
-        if let sourceProjectURL {
-            resolved["sourceProject"] = .file(sourceProjectURL)
-        }
-        return FASTQBundleCopyImportWorkflow.CommandContext(
-            workflowName: "lungfish fastq import-ont",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "lungfish fastq import-ont",
-            toolVersion: WorkflowRun.currentAppVersion,
-            argv: argv,
-            durableReplayArgv: argv,
-            explicitOptions: ["input": .file(source), "output": .file(destination)],
-            defaultOptions: ["sourceKind": .string("raw-ont-directory"), "copyMode": .string("none")],
-            resolvedOptions: resolved,
-            runtimeIdentity: ProvenanceRuntimeIdentity()
-        )
+        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, receipt: command.nativeReceipt)
     }
 
     /// When the reads a result came from are present in the target project,

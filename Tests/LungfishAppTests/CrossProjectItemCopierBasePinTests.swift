@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Lane 12.18 M1 pins (QA 1). They pass at the base, before the copier moves
-// into Workflow and before `lungfish-cli project copy-item` exists, and they
-// hold the facts the move and the leaf keep: where each kind lands, how a name
-// is uniqued, the containment refusal on resolved paths, the read bundle's
-// copy record with its caller, and the native copy receipt. The kinds that
-// `CrossProjectItemCopierTests` already copies are not repeated here.
+// Lane 12.18 M1 pins (QA 1), reduced by Phase 2.13 (DEL-REST). They passed at the base, before the copier
+// moved into Workflow and before `lungfish-cli project copy-item` existed, and they hold the facts the move and
+// the leaf keep: where each kind lands, how a name is uniqued, the containment refusal on resolved paths, and
+// the read bundle's copy record with the command of its identity. The pins of the app's own records
+// (`fastq import-ont` with `caller` `app-cross-project-copy`, and the `Lungfish.app import-native` receipt) went
+// with the identity that wrote them. The kinds that `CrossProjectItemCopierTests` already copies are not
+// repeated here.
 
 import XCTest
 import LungfishCore
@@ -138,11 +139,11 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
 
     // MARK: - Records
 
-    func testReadBundleCopyRecordsFastqImportONTWithCallerAppCrossProjectCopy() throws {
+    func testReadBundleCopyNamesTheCommandOfItsIdentityAndKeepsItsCopyRecord() throws {
         let bundle = try makeReadBundleWithProvenance("Imports/HG002.lungfishfastq")
         let source = bundle.standardizedFileURL
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject, now: fixedNow)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject, now: fixedNow, identity: .neutral)
 
         let destination = outcome.destinationURL
         XCTAssertEqual(outcome.kind, .fastqBundle)
@@ -150,19 +151,17 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(
             fromSidecar: destination.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         ))
-        // The context names the source bundle as the input. The reader re-roots that path onto the copy, which has
-        // the same path inside the target project (PortablePath rerootSinglePath), so the record reads back as the copy.
-        let argv = [CLICommandIdentity.executableName, "fastq", "import-ont", destination.path, "--output", destination.path]
+        // The envelope names the command of the identity the copier was given, and the read bundle's copy adds
+        // its source kind and copy mode to the options of that identity.
+        let argv = [CLICommandIdentity.executableName, "project", "copy-item"]
         XCTAssertEqual(envelope.argv, argv)
         XCTAssertEqual(envelope.durableReplayArgv, argv)
-        XCTAssertEqual(envelope.workflowName, "lungfish fastq import-ont")
-        XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
-        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("app-cross-project-copy"))
+        XCTAssertEqual(envelope.workflowName, "lungfish project copy-item")
+        XCTAssertEqual(envelope.toolName, "lungfish project copy-item")
+        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"))
         XCTAssertEqual(envelope.options.resolvedDefaults["sourceKind"], .string("existing-fastq-bundle"))
         XCTAssertEqual(envelope.options.resolvedDefaults["copyMode"], .string("atomic-bundle-copy"))
-        XCTAssertNotNil(envelope.options.resolvedDefaults["sourceProject"])
-        XCTAssertEqual(envelope.options.defaults, ["sourceKind": .string("raw-ont-directory"), "copyMode": .string("none")])
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["source-fastq-tool", "lungfish fastq import-ont"])
+        XCTAssertEqual(envelope.steps.map(\.toolName), ["source-fastq-tool", "lungfish project copy-item"])
         XCTAssertEqual(envelope.steps.last?.argv, argv)
         XCTAssertEqual(envelope.steps.last?.durableReplayArgv, argv)
 
@@ -181,29 +180,5 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         XCTAssertEqual(record.sourceProjectPath, sourceProject.standardizedFileURL.path)
         XCTAssertEqual(record.targetProjectPath, targetProject.standardizedFileURL.path)
         XCTAssertEqual(record.links, [])
-    }
-
-    func testNativeCopyReceiptNamesTheAppImportNativeStepAndNoCaller() throws {
-        let ref = try makeBundle("Reference Sequences/NC_045512.lungfishref", files: ["sequence.fasta": ">x\nACGT\n"])
-
-        let outcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, now: fixedNow)
-
-        let receipt = try XCTUnwrap(ProvenanceEnvelopeReader.load(
-            fromSidecar: outcome.destinationURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        ))
-        XCTAssertEqual(receipt.workflowName, "Native document import")
-        XCTAssertEqual(receipt.toolName, "lungfish-app")
-        // As for a read bundle, the reader re-roots the source item onto the copy.
-        XCTAssertEqual(receipt.argv, [
-            "Lungfish.app", "import-native", outcome.destinationURL.standardizedFileURL.path,
-            "--output", outcome.destinationURL.standardizedFileURL.path,
-            "--source-project", sourceProject.standardizedFileURL.path,
-        ])
-        XCTAssertNil(receipt.durableReplayArgv)
-        XCTAssertNil(receipt.options.resolvedDefaults["caller"])
-        XCTAssertEqual(receipt.steps.map(\.toolName), ["lungfish-app"])
-        let record = try XCTUnwrap(ProjectItemCopyRecord.load(from: outcome.destinationURL))
-        XCTAssertEqual(record.copiedAt, fixedNow)
-        XCTAssertEqual(record.sourceItemPath, ref.standardizedFileURL.path)
     }
 }

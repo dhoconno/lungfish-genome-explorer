@@ -45,7 +45,7 @@ enum StagedSequenceInput {
             _ = try DurableReplace.replace(fastaData(records), named: fileName, in: folder)
         } catch {
             // The folder was made for this write and the marker keeps every sweep off it, so a write that failed
-            // removes it. No row began and no record names it (M839 of 2.12, lane 13.03).
+            // removes it. No row began and no record names it (M839 of 2.12, Phase 2.13).
             try? FileManager.default.removeItem(at: folder)
             throw error
         }

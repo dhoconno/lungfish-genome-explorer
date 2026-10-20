@@ -5,19 +5,18 @@
 // Phase 2.12 lane 12.18 (BIO rulings on `caller`, F3 and F4). The copier writes
 // two kinds of record. A read bundle goes through `FASTQBundleCopyImportWorkflow`,
 // whose envelope names a command, and every other kind gets the receipt of
-// `NativeProjectCopyImportService`. The identity says which command both name.
-// `.appLegacy` keeps today's bytes, `fastq import-ont` with `caller`
-// `app-cross-project-copy` for a read bundle and `Lungfish.app import-native` for
-// the rest, which side A of the `CrossProjectCopyRoute` key keeps for one release.
-// `.command` names the `lungfish project copy-item` run that made the copy.
+// `NativeProjectCopyImportService`. The identity says which command both name,
+// the `lungfish project copy-item` run that made the copy. The earlier `.appLegacy`
+// identity, which named the app's own `fastq import-ont` and `Lungfish.app
+// import-native` records for the hidden key `CrossProjectCopyRoute`, went with the
+// key in Phase 2.13. Records of that kind still replay
+// (`CrossProjectCopyLegacyRecordReplayTests`).
 
 import Foundation
 import LungfishCore
 
-/// The command a cross-project copy's records name.
+/// The command a cross-project copy's records name. One case is left, since only a CLI run copies a project item.
 package enum ProjectCopyRecordIdentity: Sendable, Equatable {
-    /// Today's records, frozen for side A of the cross-project copy.
-    case appLegacy
     /// A run of a CLI command, which both branches of the copier name.
     case command(ProjectCopyCommandIdentity)
 }

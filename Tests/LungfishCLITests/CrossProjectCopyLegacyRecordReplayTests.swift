@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.18, BIO ruling on `caller` (answer 3) as the ruling on F3 (section 1) re-rules it, frozen by
-// Phase 2.13 lane 13.03 (DEL-REST, review N1 item 3 of lane 12.18). A released Lungfish copied a read bundle
+// Phase 2.13 (DEL-REST, review N1 item 3 of lane 12.18). A released Lungfish copied a read bundle
 // between projects in its own process and recorded the copy as
 // `lungfish fastq import-ont <source> --output <destination>` with `caller` `app-cross-project-copy`. Such a
 // record keeps replaying through the built CLI, since `fastq import-ont` still takes an existing bundle.

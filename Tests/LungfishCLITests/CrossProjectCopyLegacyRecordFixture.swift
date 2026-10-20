@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.03 (DEL-REST), review N1 item 3 of lane 12.18. The in-app copier recorded a read
+// Phase 2.13 (DEL-REST), review N1 item 3 of lane 12.18. The in-app copier recorded a read
 // bundle's copy as `lungfish fastq import-ont <source> --output <copy>` with `caller` `app-cross-project-copy`.
 // This record was written once by that copier (`.appLegacy`, the default identity of
 // `CrossProjectItemCopier.copy`) from the read bundle below, in the layout `ProjectItemCopyRecordTests+SchemaOne.swift`

@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // A Lungfish item dropped into an open project is copied one row per item
-// (R4). On the `cli` route of the hidden key `CrossProjectCopyRoute` the row
-// records `lungfish-cli project copy-item`, which these tests parse with the
-// shipped parser (Phase 2.12 lane 12.18, gap id `cross-project-copy` closed).
-// On `legacy` the copy runs in the app and the row records no command until
-// 2.13 deletes the key. The row locks no bundle, so a reporter that refuses
-// every begin stands in for a refusal.
+// (R4). The row records `lungfish-cli project copy-item`, which these tests
+// parse with the shipped parser (Phase 2.12 lane 12.18, gap id
+// `cross-project-copy` closed). The hidden key `CrossProjectCopyRoute` and its
+// `legacy` route, whose row recorded no command, went in Phase 2.13. The row
+// locks no bundle, so a reporter that refuses every begin stands in for a
+// refusal.
 
 import XCTest
 @testable import LungfishApp
@@ -35,7 +35,6 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
             itemURL: itemURL,
             projectURL: projectURL,
             requestedFolder: nil,
-            route: .cli,
             routeContext: routeContext,
             reporter: reporter
         )
@@ -70,7 +69,6 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
                 itemURL: itemURL,
                 projectURL: projectURL,
                 requestedFolder: folder,
-                route: .cli,
                 routeContext: nil,
                 reporter: reporter
             )
@@ -87,7 +85,6 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
             itemURL: finderItem,
             projectURL: projectURL,
             requestedFolder: nil,
-            route: .cli,
             routeContext: nil,
             reporter: reporter
         )
@@ -97,23 +94,6 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
         XCTAssertNil(parsed.sourceProject)
     }
 
-    func testLegacyCopyRowRecordsNoCommandSinceTheCopyRunsInTheApp() throws {
-        let reporter = RecordingOperationReporter()
-
-        MainSplitViewController.beginCrossProjectCopyOperation(
-            itemURL: itemURL,
-            projectURL: projectURL,
-            requestedFolder: nil,
-            route: .legacy,
-            routeContext: routeContext,
-            reporter: reporter
-        )
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(item.title, "Copy Sample 1.lungfishfastq")
-        XCTAssertNil(item.cliCommand, "the in-process copy ran no command")
-    }
-
     func testRefusedCopyReturnsTheRefusalSoTheItemIsSkipped() {
         let reporter = RecordingOperationReporter(lockHeldBy: "Importing BAM")
 
@@ -121,7 +101,6 @@ final class MainSplitCrossProjectCopyOperationTests: XCTestCase {
             itemURL: itemURL,
             projectURL: projectURL,
             requestedFolder: nil,
-            route: .cli,
             routeContext: nil,
             reporter: reporter
         )

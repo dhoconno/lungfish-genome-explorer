@@ -7,10 +7,10 @@
 // `CLIBundleBuildRunner`, whose cancel goes through `CLISubprocessTransport`. ToolProcess signals the leaf's
 // process group and tree at once, and the leaf gets `CLIBundleBuildRunner.terminationGracePeriod` before SIGKILL.
 // `ProjectCopyItemSIGTERMTests` signals the leaf alone, once, on a quiet machine, and
-// `CrossProjectCopyRouteTests.testCLIRouteCancelReturnsTheCancelSoTheDropShowsNoAlert` gives the route a launch
+// `CrossProjectCopyRouteTests.testTheCancelIsReturnedSoTheDropShowsNoAlert` gives the route a launch
 // closure that throws, so neither one runs the transport, the row or the grace. Here the leaf copies an item that
 // holds a sparse file, with one busy thread for every active processor, five times. Side C is the drop helper
-// `copyDroppedProjectItem` on `cli` with a launch closure on the runner, cancelled once the leaf's stage appears
+// `copyDroppedProjectItem` with a launch closure on the runner, cancelled once the leaf's stage appears
 // in the target project's `.tmp` folder. Side C' is the harness's replay of the command side C recorded, cancelled
 // at the same point. Each ends cancelled inside the grace, publishes nothing, leaves no stage, leaves a record that
 // reads `cancelled` with exit status 125, and leaves no process of its tree. The row of side C reads Cancelled and
@@ -133,13 +133,13 @@ final class CrossProjectCopySIGTERMReplayTests: XCTestCase {
 
     // MARK: - Side C
 
-    /// The drop helper the sidebar calls on `cli`, with a launch closure on the runner, cancelled through the
+    /// The drop helper the sidebar calls, with a launch closure on the runner, cancelled through the
     /// runner once the leaf's stage appears. It keeps what its watch and its row showed in `transportCancel`.
     private func sideC(_ root: URL) async -> RouteParitySideOutcome {
         let target = Self.targetProject(in: root)
         let item = Self.sourceProject(in: root).appendingPathComponent(Self.relativePath, isDirectory: true)
         let start = MainSplitViewController.beginCrossProjectCopyOperation(
-            itemURL: item, projectURL: target, requestedFolder: nil, route: .cli, routeContext: nil
+            itemURL: item, projectURL: target, requestedFolder: nil, routeContext: nil
         )
         guard let operationID = start.startedID else {
             return RouteParitySideOutcome(end: .failed, detail: "the row was refused")
@@ -149,7 +149,7 @@ final class CrossProjectCopySIGTERMReplayTests: XCTestCase {
         let before = Set(ProcessTreeTerminator.descendantProcessIDs(of: getpid()))
         var watch: Task<(tree: [Int32], sent: ContinuousClock.Instant)?, Never>?
         let result = await MainSplitViewController.copyDroppedProjectItem(
-            item, intoProject: target, requestedFolder: nil, route: .cli, operationID: operationID
+            item, intoProject: target, requestedFolder: nil, operationID: operationID
         ) { arguments, id in
             watch = Task.detached { () -> (tree: [Int32], sent: ContinuousClock.Instant)? in
                 let reached = await LungfishTestSupport.waitUntil(

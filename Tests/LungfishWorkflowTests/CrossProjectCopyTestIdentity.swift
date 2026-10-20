@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.03 (review N1 item 1 of lane 12.18). The same neutral identity as the one in
+// Phase 2.13 (DEL-REST, review N1 item 1 of lane 12.18). The same neutral identity as the one in
 // `Tests/LungfishAppTests/CrossProjectCopyTestIdentity.swift`, since each test target is its own module. The
 // copier takes no default identity once `.appLegacy` goes, and these tests check the stage, the cancel gates and
 // the digests of a copy, not which command a record names.

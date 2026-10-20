@@ -7,26 +7,19 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
-/// The route of a project item dropped from another project onto the sidebar (Phase 2.12 lane 12.18, gap id
+/// The sidebar's copy of a project item dropped from another project (Phase 2.12 lane 12.18, gap id
 /// `cross-project-copy`).
 ///
-/// The default runs `lungfish-cli project copy-item` on `CLIBundleBuildRunner` for the app's Operations row.
+/// The sidebar runs `lungfish-cli project copy-item` on `CLIBundleBuildRunner` for the app's Operations row.
 /// The command builds the copy in the target project's `.tmp` folder, rewrites its links there, writes its
 /// records and publishes it with one rename, and the app writes nothing after it exits. The row records the
 /// command. Cancel goes through the transport, so the command gets SIGTERM and the runner's grace to stop
 /// before it publishes, and the row ends Cancelled.
 ///
-/// Side A against side C of `CrossProjectCopyParityReplayTests` declares the command and the `caller` the
-/// records name (BIO rulings on `caller`, answer 2, and on F4, section 2), so the in-process copy stays behind
-/// the hidden key `CrossProjectCopyRoute` for one release (decision C4 of 2.10, R-A1 and U-R1 of 2.12). Phase
-/// 2.13 (lane 13.03) deletes the key with the `legacy` code.
-enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
-    /// `CrossProjectItemCopier.copy` in this process, the route before Phase 2.12. Its row records no command,
-    /// and its records name `fastq import-ont` or `Lungfish.app import-native`.
-    case legacy
-    /// `lungfish-cli project copy-item` on `CLIBundleBuildRunner`, the default.
-    case cli
-
+/// `CrossProjectCopyParityReplayTests` compares the command's run with its replay. The hidden key
+/// `CrossProjectCopyRoute` and the in-process copy it chose for one release went in Phase 2.13 (decision C4 of
+/// 2.10, R-A1 and U-R1), so a value written for the key has no effect.
+enum CrossProjectCopyRoute {
     /// What a run of the command gives back to the row, the item it published and its `complete` message.
     struct Run: Sendable {
         let outputs: [String]
@@ -101,41 +94,5 @@ enum CrossProjectCopyRoute: String, Sendable, Equatable, CaseIterable {
         // project-copy.json lists every source file of the item, so it is read off the main actor.
         let record = await Task.detached(priority: .userInitiated) { ProjectItemCopyRecord.load(from: destination) }.value
         return Landed(destinationURL: destination, record: record)
-    }
-
-    /// The `legacy` route, the copier in this process off the main actor, as the sidebar ran it before 2.12.
-    static func copyInProcess(itemURL: URL, projectURL: URL, requestedFolder: URL?) async throws -> Landed {
-        let outcome = try await Task.detached(priority: .userInitiated) {
-            try CrossProjectItemCopier.copy(itemAt: itemURL, intoProject: projectURL, requestedFolder: requestedFolder)
-        }.value
-        return Landed(destinationURL: outcome.destinationURL, record: outcome.record)
-    }
-}
-
-/// Reads the route from the defaults it is given, so a test passes its own suite and never touches the
-/// user's defaults.
-struct CrossProjectCopyRouteSettings {
-    /// The hidden key, a new name under U-R1. It holds `cli` or `legacy`, or a Boolean that is true for the CLI
-    /// route, for example `defaults write com.lungfish.browser.preview CrossProjectCopyRoute legacy`.
-    static let defaultsKey = "CrossProjectCopyRoute"
-    /// The route of a key that is unset or holds a value this reader does not know.
-    static let defaultRoute: CrossProjectCopyRoute = .cli
-
-    let defaults: UserDefaults
-
-    var route: CrossProjectCopyRoute {
-        switch defaults.object(forKey: Self.defaultsKey) {
-        case let name as String:
-            return CrossProjectCopyRoute(rawValue: name.lowercased()) ?? Self.defaultRoute
-        case let usesCLI as Bool:
-            return usesCLI ? .cli : .legacy
-        default:
-            return Self.defaultRoute
-        }
-    }
-
-    /// The route a project item dropped from another project takes now, read from the app's defaults.
-    static var currentRoute: CrossProjectCopyRoute {
-        CrossProjectCopyRouteSettings(defaults: .standard).route
     }
 }

@@ -1,11 +1,11 @@
-// CrossProjectCopyRouteTests.swift - Each value of the hidden key CrossProjectCopyRoute
+// CrossProjectCopyRouteTests.swift - The sidebar's copy runs lungfish-cli project copy-item
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.18 (BIO ruling on `caller`, answer 5, U-R1). The key is new, hidden and defaults to
-// `cli`. On `cli` the sidebar's drop runs `lungfish-cli project copy-item` and the app copies nothing
-// itself. On `legacy` the copier runs in the app and no command runs. A test for each value, as FX53 did.
-// Lane 13.03 deletes the key, its `legacy` code and these tests' `legacy` cases.
+// Phase 2.12 lane 12.18 (BIO ruling on `caller`, answer 5, U-R1). A project item dropped from another project
+// runs `lungfish-cli project copy-item`, and the app copies nothing itself. The hidden key `CrossProjectCopyRoute`
+// and its `legacy` route, which copied in the app and ran no command, went in Phase 2.13, so these tests give
+// the drop helper a launch closure and check the command it runs and the cancel it returns.
 
 import XCTest
 @testable import LungfishApp
@@ -31,30 +31,13 @@ final class CrossProjectCopyRouteTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    func testUnsetKeyTakesTheCLIRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "cross-project-copy-route")
-        XCTAssertEqual(CrossProjectCopyRouteSettings.defaultsKey, "CrossProjectCopyRoute")
-        XCTAssertEqual(CrossProjectCopyRouteSettings(defaults: suite.defaults).route, .cli)
-    }
-
-    func testEachValueOfTheKeyNamesItsRoute() {
-        let suite = makeTestDefaultsSuite(prefix: "cross-project-copy-route")
-        let values: [(Any, CrossProjectCopyRoute)] = [
-            ("cli", .cli), ("legacy", .legacy), ("LEGACY", .legacy), (true, .cli), (false, .legacy), ("in-app", .cli),
-        ]
-        for (value, route) in values {
-            suite.defaults.set(value, forKey: CrossProjectCopyRouteSettings.defaultsKey)
-            XCTAssertEqual(CrossProjectCopyRouteSettings(defaults: suite.defaults).route, route, "\(value)")
-        }
-    }
-
-    func testCLIRouteRunsTheCommandAndCopiesNothingInTheApp() async throws {
+    func testTheDropRunsTheCommandAndCopiesNothingInTheApp() async throws {
         let item = try makeReferenceBundle()
         let landedPath = targetProject.appendingPathComponent("Reference Sequences/NC_045512.lungfishref").path
         var launched: [[String]] = []
 
         let result = await MainSplitViewController.copyDroppedProjectItem(
-            item, intoProject: targetProject, requestedFolder: nil, route: .cli, operationID: UUID()
+            item, intoProject: targetProject, requestedFolder: nil, operationID: UUID()
         ) { arguments, _ in
             launched.append(arguments)
             return CrossProjectCopyRoute.Run(outputs: [landedPath], message: "Copied NC_045512.lungfishref")
@@ -69,34 +52,17 @@ final class CrossProjectCopyRouteTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: targetProject.path), [], "the app copied nothing")
     }
 
-    func testCLIRouteCancelReturnsTheCancelSoTheDropShowsNoAlert() async throws {
+    func testTheCancelIsReturnedSoTheDropShowsNoAlert() async throws {
         let item = try makeReferenceBundle()
 
         let result = await MainSplitViewController.copyDroppedProjectItem(
-            item, intoProject: targetProject, requestedFolder: nil, route: .cli, operationID: UUID()
+            item, intoProject: targetProject, requestedFolder: nil, operationID: UUID()
         ) { _, _ in
             throw CancellationError()
         }
 
         guard case .failure(let error) = result else { return XCTFail("a cancelled run landed") }
         XCTAssertTrue(error is CancellationError, "\(error)")
-    }
-
-    func testLegacyRouteCopiesInTheAppAndRunsNoCommand() async throws {
-        let item = try makeReferenceBundle()
-
-        let result = await MainSplitViewController.copyDroppedProjectItem(
-            item, intoProject: targetProject, requestedFolder: nil, route: .legacy, operationID: UUID()
-        ) { arguments, _ in
-            XCTFail("legacy ran \(arguments)")
-            throw CancellationError()
-        }
-
-        let landed = try result.get()
-        XCTAssertEqual(landed.destinationURL.lastPathComponent, "NC_045512.lungfishref")
-        let sequence = landed.destinationURL.appendingPathComponent("sequence.fasta")
-        XCTAssertEqual(try String(contentsOf: sequence, encoding: .utf8), ">NC_045512\nACGTACGT\n")
-        XCTAssertNotNil(landed.record, "the in-process copy writes its record")
     }
 
     private func makeReferenceBundle() throws -> URL {
