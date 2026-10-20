@@ -166,56 +166,20 @@ public final class GzipInputStream: Sendable {
     ) throws {
         try Self.validateGzipHeader(at: url)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        var processStarted = false
-        var processWaited = false
-
-        defer {
-            if processStarted {
-                if process.isRunning {
-                    process.terminate()
-                }
-                if !processWaited {
-                    process.waitUntilExit()
-                }
-            }
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-        }
-
-        try process.run()
-        processStarted = true
+        // Leaving this function for any reason cancels the run, as in forEachLine.
+        let child = try GzipChildStream(decompressing: url)
+        defer { child.close() }
 
         while true {
             try Task.checkCancellation()
 
-            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            let chunk = child.readChunk(upTo: chunkSize)
             if chunk.isEmpty { break }
             try body(chunk)
         }
 
         try Task.checkCancellation()
-        process.waitUntilExit()
-        processWaited = true
-
-        if process.terminationStatus != 0 {
-            let stderrData = stderrHandle.readDataToEndOfFile()
-            let stderrText = String(data: stderrData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GzipError.decompressionFailed(
-                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
-            )
-        }
+        try child.finish()
     }
 
     /// Decompresses the entire file and returns the content as a string.
