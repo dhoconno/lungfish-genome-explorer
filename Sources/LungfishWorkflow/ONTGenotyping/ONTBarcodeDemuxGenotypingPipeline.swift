@@ -3615,7 +3615,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try DurableAtomicFileStore().createWitnessed(encoder.encode(definitionSet), named: url.lastPathComponent,
-            inOpenDirectory: directory, displayedAt: parent, mode: DurableAtomicFileStore.privateMode)
+            inOpenDirectory: directory, displayedAt: parent)
     }
 
     private func writeProvenance(
