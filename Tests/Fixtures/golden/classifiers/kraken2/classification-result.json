@@ -2,6 +2,7 @@
   "config" : {
     "confidence" : 0.2,
     "databaseCatalogID" : "kraken2-viral",
+    "databaseDigest" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
     "databaseInstallationRecipe" : {
       "archive" : {
         "url" : "https:\/\/genome-idx.s3.amazonaws.com\/kraken\/k2_viral_20260626.tar.gz"
@@ -9,7 +10,7 @@
     },
     "databaseName" : "Viral",
     "databasePath" : "file:\/\/\/Users\/Shared\/lungfish-golden\/storage\/databases\/kraken2\/viral",
-    "databaseVersion" : "unknown",
+    "databaseVersion" : "20260626",
     "extraArguments" : [
 
     ],

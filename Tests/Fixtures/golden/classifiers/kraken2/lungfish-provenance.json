@@ -101,6 +101,7 @@
       "role" : "input"
     },
     {
+      "checksumSHA256" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
       "fileSize" : 651204094,
       "format" : "unknown",
       "path" : "<storage-root>/databases/kraken2/viral",
@@ -223,7 +224,8 @@
         "value" : "kraken2-viral"
       },
       "databaseDigest" : {
-        "type" : "null"
+        "type" : "string",
+        "value" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01"
       },
       "databaseInstallationRecipe" : {
         "type" : "string",
@@ -239,7 +241,7 @@
       },
       "databaseVersion" : {
         "type" : "string",
-        "value" : "unknown"
+        "value" : "20260626"
       },
       "executionInputs" : {
         "type" : "array",
@@ -521,6 +523,7 @@
           "role" : "input"
         },
         {
+          "checksumSHA256" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
           "fileSize" : 651204094,
           "format" : "unknown",
           "path" : "<storage-root>/databases/kraken2/viral",
@@ -596,11 +599,12 @@
           }
         },
         "databaseDigest" : {
-          "type" : "null"
+          "type" : "string",
+          "value" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01"
         },
         "databaseIdentityStatus" : {
           "type" : "string",
-          "value" : "unresolved-bounded-metadata"
+          "value" : "provided-aggregate-digest"
         },
         "databasePath" : {
           "type" : "string",
