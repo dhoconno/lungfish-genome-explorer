@@ -372,7 +372,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             wallTimeSeconds: wallTime,
             stderr: ""
         )
-        let journalData = try ProvenanceJSON.encoder.encode(journal)
+        let journalData = try ProjectStorageRecordJSON.encode(journal)
         let operationDirectory = operationDirectoryURL(
             projectURL: project,
             cleanupID: request.cleanupID
@@ -462,7 +462,7 @@ public struct ProjectStorageCleanupReceiptWriter: Sendable {
             exitStatus: 0,
             stderr: ""
         )
-        let provenanceData = try ProvenanceJSON.encoder.encode(provenance)
+        let provenanceData = try ProvenanceWriter.package(provenance)
         try operations.cancellationCheck()
         for item in journalItems {
             guard try FileSystemObjectIdentity.noFollow(
