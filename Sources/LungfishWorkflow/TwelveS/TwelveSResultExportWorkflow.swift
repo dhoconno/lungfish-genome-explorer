@@ -436,17 +436,18 @@ private func writeWorkbook(sheets: [(name: String, rows: [[String]])], to output
                 encoding: .utf8
             )
     }
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-    process.currentDirectoryURL = buildURL
-    process.arguments = ["-qr", outputURL.path, "."]
-    let stderrPipe = Pipe()
-    process.standardError = stderrPipe
-    try process.run()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else {
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        throw TwelveSResultExportError.zipFailed(stderr)
+    let spec = ToolProcessSpec(
+        executableURL: URL(fileURLWithPath: "/usr/bin/zip"),
+        arguments: ["-qr", outputURL.path, "."],
+        environment: ToolProcessSpec.inheritedEnvironment(),
+        workingDirectory: buildURL,
+        stdout: .discard,
+        stderr: .capture(limit: 64 * 1024),
+        label: "zip"
+    )
+    let result = try ToolProcess.runBlocking(spec)
+    guard result.isSuccess else {
+        throw TwelveSResultExportError.zipFailed(result.stderrText)
     }
 }
 
