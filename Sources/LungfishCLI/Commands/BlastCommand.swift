@@ -479,14 +479,14 @@ func blastScanKrakenOutput(
     targetTaxIds: Set<Int>
 ) throws -> Set<String> {
     let stream = try blastOpenKrakenOutputStream(url: url)
-    let fileHandle = stream.fileHandle
+    defer { stream.cancel() }
 
     var matchingReadIds = Set<String>()
     var residual = Data()
     let bufferSize = 1_048_576 // 1 MB chunks
 
     while true {
-        let chunk = fileHandle.readData(ofLength: bufferSize)
+        let chunk = stream.read(upTo: bufferSize)
         if chunk.isEmpty { break }
 
         var data = residual + chunk
@@ -543,21 +543,42 @@ func blastScanKrakenOutput(
     return matchingReadIds
 }
 
+/// A plain Kraken output read through a file handle, or a gzip one read through `gzip -dc` on ToolProcess.
 private struct BlastKrakenOutputStream {
-    let fileHandle: FileHandle
-    let process: Process?
-    let stderr: Pipe?
+    let fileHandle: FileHandle?
+    let run: ToolProcessRun?
+
+    /// Up to `count` bytes, fewer only at the end, as `FileHandle.readData(ofLength:)` returns them.
+    func read(upTo count: Int) -> Data {
+        guard let run else { return fileHandle?.readData(ofLength: count) ?? Data() }
+        var data = Data()
+        while data.count < count {
+            let piece = run.stdout.read(upTo: count - data.count)
+            if piece.isEmpty { break }
+            data.append(piece)
+        }
+        return data
+    }
+
+    /// Stops a gzip that is still running, for a scan that ends early. Does nothing once it has ended.
+    func cancel() {
+        run?.cancel()
+    }
 
     func finish() throws {
-        fileHandle.closeFile()
-        guard let process else { return }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let stderrText = stderr.map {
-                String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            } ?? ""
+        fileHandle?.closeFile()
+        guard let run else { return }
+        let result: ToolProcessResult
+        do {
+            result = try run.waitBlocking()
+        } catch {
             throw CLIError.conversionFailed(
-                reason: "Failed to decompress Kraken output: \(stderrText)"
+                reason: "Failed to decompress Kraken output: \(error.localizedDescription)"
+            )
+        }
+        guard result.isSuccess else {
+            throw CLIError.conversionFailed(
+                reason: "Failed to decompress Kraken output: \(result.stderrText)"
             )
         }
     }
@@ -565,25 +586,20 @@ private struct BlastKrakenOutputStream {
 
 private func blastOpenKrakenOutputStream(url: URL) throws -> BlastKrakenOutputStream {
     if url.pathExtension.lowercased() == "gz" {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        return BlastKrakenOutputStream(
-            fileHandle: stdout.fileHandleForReading,
-            process: process,
-            stderr: stderr
-        )
+        let run = try ToolProcess.start(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+            arguments: ["-dc", url.path],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .stream,
+            label: "gzip -dc"
+        ))
+        return BlastKrakenOutputStream(fileHandle: nil, run: run)
     }
 
     guard let fileHandle = FileHandle(forReadingAtPath: url.path) else {
         throw CLIError.inputFileNotFound(path: url.path)
     }
-    return BlastKrakenOutputStream(fileHandle: fileHandle, process: nil, stderr: nil)
+    return BlastKrakenOutputStream(fileHandle: fileHandle, run: nil)
 }
 
 /// JSON shape printed by `lungfish blast verify --format json`.
