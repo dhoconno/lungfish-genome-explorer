@@ -119,7 +119,7 @@ extension FASTQOperationPlanner {
         let now = Date()
         let envelope = try builder.complete(exitStatus: 0, startedAt: now, endedAt: now)
 
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputDirectory)
+        try ProvenanceWriter().write(envelope, to: outputDirectory)
     }
 
     /// One argv for each invocation, in the order they ran. Each starts with `lungfish-cli`, and a

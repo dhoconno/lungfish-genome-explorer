@@ -1180,7 +1180,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         let startedAt = Date()
         let completedAt = startedAt
         let groupedMutations = Dictionary(grouping: mutations, by: { $0.bundleURL.standardizedFileURL })
-
+        let provenanceWriter = ProvenanceWriter()
         for (bundleURL, bundleMutations) in groupedMutations {
             let outputDescriptors = try bundleMutations.map {
                 try ProvenanceFileDescriptor.file(url: $0.targetURL, format: .json, role: .output)
@@ -1239,7 +1239,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                 startedAt: startedAt,
                 endedAt: completedAt
             )
-            try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+            try provenanceWriter.write(envelope, to: bundleURL)
         }
     }
 

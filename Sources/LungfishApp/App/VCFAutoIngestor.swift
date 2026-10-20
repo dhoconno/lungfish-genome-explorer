@@ -520,7 +520,7 @@ public enum VCFAutoIngestor {
             exitStatus: 0,
             stderr: nil
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func ingestProvenanceArgv(

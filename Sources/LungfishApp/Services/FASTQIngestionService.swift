@@ -599,7 +599,7 @@ public enum FASTQIngestionService {
             )
             $0.exitStatus = existingEnvelope.exitStatus ?? 0
         }
-        try ProvenanceWriter(signingProvider: nil).write(mergedEnvelope, to: bundleURL)
+        try ProvenanceWriter().write(mergedEnvelope, to: bundleURL)
     }
 
     nonisolated private static func sampleSheetMetadataCommand(

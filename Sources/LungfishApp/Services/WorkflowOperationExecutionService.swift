@@ -910,7 +910,7 @@ final class WorkflowOperationExecutionService {
             wallTimeSeconds: runClock.elapsed,
             exitStatus: 0
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: viewerBundleURL)
+        try ProvenanceWriter().write(envelope, to: viewerBundleURL)
     }
 
     private func preferredSelectionURL(

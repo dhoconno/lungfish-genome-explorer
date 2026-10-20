@@ -1479,7 +1479,7 @@ final class WorkflowOperationDialogState {
         .output(destinationURL, format: Self.barcodeDefinitionFileFormat(for: destinationURL), role: .output)
         .runtime(ProvenanceRuntimeIdentity())
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
-        try ProvenanceWriter(signingProvider: nil).write(
+        try ProvenanceWriter().write(
             envelope,
             toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL)
         )

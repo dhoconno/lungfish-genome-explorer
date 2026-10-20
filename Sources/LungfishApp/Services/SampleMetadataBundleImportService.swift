@@ -150,7 +150,7 @@ struct SampleMetadataBundleImportService {
                 startedAt: runClock.startedAt,
                 endedAt: runClock.now
             )
-            let provenanceURL = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+            let provenanceURL = try ProvenanceWriter().write(envelope, to: bundleURL)
             SampleMetadataEditPersistenceService().wire(store: store, bundleURL: bundleURL)
 
             return SampleMetadataBundleImportResult(
@@ -231,8 +231,7 @@ struct SampleMetadataEditPersistenceService {
         self.fileManager = fileManager
         self.writeProvenance = { envelope, bundleURL, mutationObserver in
             try ProvenanceWriter(
-                publicationMutationDidOccur: mutationObserver,
-                signingProvider: nil
+                publicationMutationDidOccur: mutationObserver
             ).write(envelope, to: bundleURL)
         }
     }

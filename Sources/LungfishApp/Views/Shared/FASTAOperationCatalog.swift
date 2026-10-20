@@ -218,7 +218,7 @@ enum FASTAOperationCatalog {
             exitStatus: 0,
             stderr: nil
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func durableInputDescriptor(_ url: URL) throws -> ProvenanceFileDescriptor {
