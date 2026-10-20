@@ -5,18 +5,6 @@
 import Foundation
 import LungfishIO
 
-public enum TaxTriageSerialBatchError: Error, LocalizedError, Sendable {
-    case allSamplesFailed([TaxTriageSampleFailure])
-
-    public var errorDescription: String? {
-        switch self {
-        case .allSamplesFailed(let failures):
-            let first = failures.first?.errorDescription ?? "No sample completed"
-            return "All TaxTriage samples failed. First failure: \(first)"
-        }
-    }
-}
-
 public struct TaxTriageSerialBatchRunner: Sendable {
     public typealias PipelineRun = @Sendable (
         TaxTriageConfig,
