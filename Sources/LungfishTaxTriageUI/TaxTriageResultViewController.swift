@@ -25,17 +25,8 @@ private struct TaxTriageDatabasePageSnapshot: Sendable {
     let totalMatchingRows: Int
 }
 
-private struct TaxTriageBAMReferenceSnapshot: Sendable {
-    let accessionLengths: [String: Int]
-    let accessionMappedReadCounts: [String: Int]
-    let parsedMappedReads: Bool
-}
-
-/// Mutable box for a background reader thread's pipe output, joined via
-/// `DispatchGroup.wait()` from a `Task.detached` body (never the main actor).
-private final class TaxTriagePipeReadBox: @unchecked Sendable {
-    var data = Data()
-}
+/// What `BAMReferenceSnapshotService` reads from a BAM, under the view's name.
+private typealias TaxTriageBAMReferenceSnapshot = BAMReferenceSnapshot
 
 /// Per-sample discovery result for the batch unique-read computation,
 /// produced off the main actor in `Task.detached` and applied back to
@@ -2547,107 +2538,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         indexPath: String?,
         samtoolsPath: String
     ) -> TaxTriageBAMReferenceSnapshot {
-        let samtoolsURL = URL(fileURLWithPath: samtoolsPath)
-        var accessionLengths: [String: Int] = [:]
-        var accessionMappedReadCounts: [String: Int] = [:]
-        var parsedMappedReads = false
-
-        func runSamtools(_ arguments: [String]) -> (status: Int32, stdout: String, stderr: String)? {
-            let proc = Process()
-            proc.executableURL = samtoolsURL
-            proc.arguments = arguments
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            proc.standardOutput = outPipe
-            proc.standardError = errPipe
-            do {
-                try proc.run()
-                // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock:
-                // reading stdout to EOF before touching stderr blocks forever if
-                // samtools writes more than one pipe buffer (64 KB) of warnings.
-                let outBox = TaxTriagePipeReadBox()
-                let errBox = TaxTriagePipeReadBox()
-                let group = DispatchGroup()
-                group.enter()
-                DispatchQueue.global(qos: .userInitiated).async {
-                    outBox.data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                    group.leave()
-                }
-                group.enter()
-                DispatchQueue.global(qos: .userInitiated).async {
-                    errBox.data = errPipe.fileHandleForReading.readDataToEndOfFile()
-                    group.leave()
-                }
-                group.wait()
-                proc.waitUntilExit()
-                return (
-                    proc.terminationStatus,
-                    String(data: outBox.data, encoding: .utf8) ?? "",
-                    String(data: errBox.data, encoding: .utf8) ?? ""
-                )
-            } catch {
-                logger.warning("Failed to run samtools \(arguments.joined(separator: " "), privacy: .public): \(error.localizedDescription, privacy: .public)")
-                return nil
-            }
-        }
-
-        // 1) Sequence lengths from header (does not require an index).
-        if let header = runSamtools(["view", "-H", bamPath]), header.status == 0 {
-            for line in header.stdout.components(separatedBy: .newlines) where line.hasPrefix("@SQ") {
-                let fields = line.components(separatedBy: "\t")
-                var name: String?
-                var length: Int?
-                for field in fields {
-                    if field.hasPrefix("SN:") {
-                        name = String(field.dropFirst(3))
-                    } else if field.hasPrefix("LN:") {
-                        length = Int(field.dropFirst(3))
-                    }
-                }
-                if let name, let length, length > 0 {
-                    accessionLengths[name] = length
-                }
-            }
-        }
-
-        // 2) idxstats for mapped read counts (prefer explicit index path when available).
-        let fm = FileManager.default
-        var idxstatsAttempts: [[String]] = []
-        if let indexPath, fm.fileExists(atPath: indexPath) {
-            idxstatsAttempts.append(["idxstats", "-X", bamPath, indexPath])
-        }
-        idxstatsAttempts.append(["idxstats", bamPath])
-
-        for args in idxstatsAttempts {
-            guard let result = runSamtools(args) else { continue }
-            guard result.status == 0 else {
-                if !result.stderr.isEmpty {
-                    logger.warning("samtools \(args.joined(separator: " "), privacy: .public) failed: \(result.stderr, privacy: .public)")
-                }
-                continue
-            }
-
-            for line in result.stdout.components(separatedBy: .newlines) {
-                let cols = line.components(separatedBy: "\t")
-                guard cols.count >= 4 else { continue }
-                let ref = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !ref.isEmpty, ref != "*" else { continue }
-                if let length = Int(cols[1]), length > 0 {
-                    accessionLengths[ref] = length
-                }
-                if let mappedReads = Int(cols[2]) {
-                    accessionMappedReadCounts[ref] = mappedReads
-                    parsedMappedReads = true
-                }
-            }
-            break
-        }
-
-        return TaxTriageBAMReferenceSnapshot(
-            accessionLengths: accessionLengths,
-            accessionMappedReadCounts: accessionMappedReadCounts,
-            parsedMappedReads: parsedMappedReads
-        )
+        BAMReferenceSnapshotService.snapshot(bamPath: bamPath, indexPath: indexPath, samtoolsPath: samtoolsPath)
     }
 
     private func mergeBAMReferenceSnapshot(_ snapshot: TaxTriageBAMReferenceSnapshot) {
