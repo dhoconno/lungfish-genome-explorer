@@ -216,6 +216,71 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: published.appendingPathComponent("sequence.fa").path), "the staged FASTA stays")
     }
 
+    /// A write that fails leaves no folder (M839 of 2.12, lane 13.03). `writeFASTA` makes its kept folder before
+    /// the write, so a write that threw left an empty folder under `.tmp/` that no row or record accounted for.
+    func testAStagedInputWhoseWriteFailsLeavesNoFolderUnderTmp() async throws {
+        let root = try TestTempDirectory.make(prefix: "staged-sequence-failed-write")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        do {
+            _ = try await StagedSequenceInput.writeFASTA(
+                [.init(name: "NC_TEST", bases: "ACGTACGT")], fileName: "inside/sequence.fa",
+                prefix: "extract-sequence-input-", projectURL: project
+            )
+            XCTFail("a name that is not one path component cannot be written")
+        } catch {
+            // The write failed, which is the case under test.
+        }
+
+        let temp = project.appendingPathComponent(".tmp", isDirectory: true)
+        let left = ((try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? [])
+            .filter { $0.hasPrefix("extract-sequence-input-") }
+        XCTAssertEqual(left, [], "a failed write removes the folder it made")
+    }
+
+    /// The catch of `launchExtractionBundle` (2.12 review of lane 12.12, Fix 2, wiring gap of M839). A run that
+    /// fails and published nothing removes its staged folder. A run the runner acknowledged as cancelled keeps
+    /// it, and so does a failure after the bundle was published, because their records name it. The runner is
+    /// the one seam, replaced here by a closure that throws, and the launch returns the task that ends the row.
+    func testTheCatchOfALaunchRemovesTheStagedFolderOnlyForAFailureThatPublishedNothing() async throws {
+        _ = NSApplication.shared // The failure alert reads NSApp.keyWindow.
+        let root = try TestTempDirectory.make(prefix: "launch-extraction-catch")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let output = project.appendingPathComponent("Extractions/Region 1.lungfishref", isDirectory: true)
+        let fileManager = FileManager.default
+        struct LaunchFailure: Error {}
+
+        func stage() async throws -> URL {
+            try await StagedSequenceInput.writeFASTA(
+                [.init(name: "NC_TEST", bases: "ACGTACGT")], fileName: "sequence.fa",
+                prefix: "extract-sequence-input-", projectURL: project
+            ).deletingLastPathComponent()
+        }
+        func launch(_ staged: URL, throwing error: any Error) async {
+            await SequenceViewerView.launchExtractionBundle(
+                arguments: ["extract", "sequence"], outputBundleURL: output, itemId: UUID(), stagedInput: staged,
+                launch: { _, _ in throw error }
+            ).value
+        }
+
+        let failed = try await stage()
+        await launch(failed, throwing: LaunchFailure())
+        XCTAssertFalse(fileManager.fileExists(atPath: failed.path), "a failure that published nothing removes the staged folder")
+
+        let cancelled = try await stage()
+        await launch(cancelled, throwing: CancellationError())
+        XCTAssertTrue(fileManager.fileExists(atPath: cancelled.path), "a cancel keeps the folder its record names")
+
+        let published = try await stage()
+        try fileManager.createDirectory(at: output, withIntermediateDirectories: true)
+        await launch(published, throwing: LaunchFailure())
+        XCTAssertTrue(fileManager.fileExists(atPath: published.path), "a failure after the bundle was published keeps the folder")
+    }
+
     func testExtractionBundleLaunchesNothingWhenTheBeginIsRefused() throws {
         // The row requests no lock, so no real center refuses it. A reporter
         // that refuses every begin proves the launch closure sits behind the

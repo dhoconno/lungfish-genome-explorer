@@ -12,7 +12,8 @@ import LungfishIO
 ///
 /// The contract, which every caller keeps (lane 12.34 may reuse the writer).
 /// - The caller writes before the row's `begin`, so the row records a command whose input exists, and
-///   a failure to write starts no row.
+///   a failure to write starts no row and leaves no folder, since `writeFASTA` removes the folder it
+///   made and rethrows.
 /// - Each call writes one file into a folder of its own under `<project>/.tmp/`, made by
 ///   `ProjectTempDirectory.create(prefix:in:keepIntermediates:)`, through one `DurableReplace.replace`,
 ///   so the name holds the whole file or nothing, on APFS and ExFAT alike (2.11 C1, SWIFT inv 82).
@@ -40,7 +41,14 @@ enum StagedSequenceInput {
     @concurrent
     static func writeFASTA(_ records: [Record], fileName: String, prefix: String, projectURL: URL?) async throws -> URL {
         let folder = try ProjectTempDirectory.create(prefix: prefix, in: projectURL, keepIntermediates: true)
-        _ = try DurableReplace.replace(fastaData(records), named: fileName, in: folder)
+        do {
+            _ = try DurableReplace.replace(fastaData(records), named: fileName, in: folder)
+        } catch {
+            // The folder was made for this write and the marker keeps every sweep off it, so a write that failed
+            // removes it. No row began and no record names it (M839 of 2.12, lane 13.03).
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
         return folder.appendingPathComponent(fileName)
     }
 

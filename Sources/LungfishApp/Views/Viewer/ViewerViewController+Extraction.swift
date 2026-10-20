@@ -440,13 +440,18 @@ extension SequenceViewerView {
     /// bundle the command's `complete` line names, a cancel the runner acknowledged on the row ends it
     /// Cancelled with no alert, and a failure fails it with the alert. A failure that published nothing
     /// also removes `stagedInput`, the folder of the FASTA the run read, since a failed run writes no
-    /// record that names it. A success and a cancel keep it, because their records name it.
-    private static func launchExtractionBundle(
-        arguments: [String], outputBundleURL: URL, itemId: UUID, stagedInput: URL? = nil
-    ) {
+    /// record that names it. A success and a cancel keep it, because their records name it. `launch` is the
+    /// runner, which a test replaces to reach the catch (M839 of 2.12), and the returned task ends with the row.
+    @discardableResult
+    static func launchExtractionBundle(
+        arguments: [String], outputBundleURL: URL, itemId: UUID, stagedInput: URL? = nil,
+        launch: @escaping @MainActor ([String], UUID) async throws -> CLISubprocessTransport.Result = {
+            try await CLIBundleBuildRunner.launch(arguments: $0, operationID: $1)
+        }
+    ) -> Task<Void, Never> {
         Task { @MainActor in
             do {
-                let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: itemId)
+                let run = try await launch(arguments, itemId)
                 let bundleURL = run.outputs.first.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? outputBundleURL
                 extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
                 _ = DownloadCenter.shared.complete(id: itemId, detail: run.message ?? "Bundle ready", bundleURLs: [bundleURL])
