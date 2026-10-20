@@ -219,34 +219,28 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
     }
 
     public static func detectTarVersion() async throws -> String {
-        try await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-            process.arguments = ["--version"]
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            process.waitUntilExit()
-            let text = String(
-                data: output.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
-            guard process.terminationStatus == 0 else {
-                throw MetagenomicsDatabaseInstallerError.toolFailed(
-                    tool: "tar",
-                    exitStatus: process.terminationStatus,
-                    stderr: String(text.prefix(16_384))
-                )
-            }
-            let tokens = text.split(whereSeparator: { $0.isWhitespace })
-            guard tokens.count >= 2 else {
-                throw MetagenomicsDatabaseInstallerError.invalidPayload(
-                    reason: "/usr/bin/tar did not report a version"
-                )
-            }
-            return tokens.prefix(2).joined(separator: " ")
-        }.value
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            label: "tar"
+        )
+        let result = try await ToolProcess.run(spec)
+        let text = result.stdoutText + result.stderrText
+        guard result.isSuccess else {
+            throw MetagenomicsDatabaseInstallerError.toolFailed(
+                tool: "tar",
+                exitStatus: result.status,
+                stderr: String(text.prefix(16_384))
+            )
+        }
+        let tokens = text.split(whereSeparator: { $0.isWhitespace })
+        guard tokens.count >= 2 else {
+            throw MetagenomicsDatabaseInstallerError.invalidPayload(
+                reason: "/usr/bin/tar did not report a version"
+            )
+        }
+        return tokens.prefix(2).joined(separator: " ")
     }
 
     public func extractionToolVersion() async throws -> String {
@@ -296,34 +290,30 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
         try Task.checkCancellation()
         let extractClock = ProvenanceRunClock()
         let resolvedTarVersion = try await extractionToolVersion()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["xzf", archive.path, "-C", destination.path]
-        let stdout = Pipe(); let stderr = Pipe()
-        process.standardOutput = stdout; process.standardError = stderr
-        let cancellation = TarProcessCancellationBox()
-        let state = TarProcessResultState()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                process.terminationHandler = { terminated in
-                    state.waitForDrains {
-                        guard state.finishOnce() else { return }
-                        continuation.resume(returning: MetagenomicsDatabaseToolResult(stdout: state.stdout, stderr: state.stderr, exitStatus: terminated.terminationStatus, argv: ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path], runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"), toolVersion: resolvedTarVersion, startedAt: extractClock.startedAt, completedAt: extractClock.now))
-                    }
-                }
-                state.drain(stdout.fileHandleForReading, into: .stdout)
-                state.drain(stderr.fileHandleForReading, into: .stderr)
-                do {
-                    try Task.checkCancellation()
-                    guard try cancellation.launch(process) else { throw CancellationError() }
-                } catch {
-                    guard state.finishOnce() else { return }
-                    continuation.resume(throwing: error)
-                }
-            }
-        } onCancel: {
-            cancellation.cancel()
+        let argv = ["/usr/bin/tar", "xzf", archive.path, "-C", destination.path]
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: Array(argv.dropFirst()),
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            label: "tar"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
         }
+        return MetagenomicsDatabaseToolResult(
+            stdout: "",
+            stderr: String(result.stderrWholeLines.prefix(16_384)),
+            exitStatus: result.status,
+            argv: argv,
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"),
+            toolVersion: resolvedTarVersion,
+            startedAt: extractClock.startedAt,
+            completedAt: extractClock.now
+        )
     }
 }
 
@@ -368,60 +358,6 @@ private final class InstallerLockedFlag: @unchecked Sendable {
     func testAndSet() -> Bool { lock.lock(); defer { lock.unlock() }; guard !value else { return false }; value = true; return true }
 }
 
-private final class TarProcessCancellationBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var process: Process?
-    private var cancelled = false
-
-    /// The check and launch share a lock with cancellation, so cancellation can
-    /// either prevent launch or terminate an already-running tar process.
-    func launch(_ process: Process) throws -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard !cancelled else { return false }
-        try process.run()
-        self.process = process
-        return true
-    }
-
-    func cancel() {
-        lock.lock(); cancelled = true
-        let running = process
-        lock.unlock()
-        if running?.isRunning == true { running?.terminate() }
-    }
-}
-
-private final class TarProcessResultState: @unchecked Sendable {
-    enum Stream { case stdout, stderr }
-    private let lock = NSLock()
-    private let drains = DispatchGroup()
-    private var stdoutData = Data()
-    private var stderrData = Data()
-    private var completed = false
-
-    func drain(_ handle: FileHandle, into stream: Stream) {
-        drains.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = handle.readDataToEndOfFile()
-            self.lock.lock()
-            switch stream {
-            case .stdout:
-                let remaining = max(0, 16_384 - self.stdoutData.count)
-                self.stdoutData.append(data.prefix(remaining))
-            case .stderr:
-                let remaining = max(0, 16_384 - self.stderrData.count)
-                self.stderrData.append(data.prefix(remaining))
-            }
-            self.lock.unlock()
-            self.drains.leave()
-        }
-    }
-
-    func waitForDrains(_ body: @escaping @Sendable () -> Void) { drains.notify(queue: .global(qos: .utility), execute: body) }
-    func finishOnce() -> Bool { lock.lock(); defer { lock.unlock() }; guard !completed else { return false }; completed = true; return true }
-    var stdout: String { lock.lock(); defer { lock.unlock() }; return String(data: stdoutData, encoding: .utf8) ?? "" }
-    var stderr: String { lock.lock(); defer { lock.unlock() }; return String(data: stderrData, encoding: .utf8) ?? "" }
-}
 
 public struct MetagenomicsDatabaseInstallResult: Sendable {
     public let finalURL: URL
