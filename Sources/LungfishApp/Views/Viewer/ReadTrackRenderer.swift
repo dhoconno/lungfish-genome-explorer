@@ -633,6 +633,9 @@ public enum ReadTrackRenderer {
             self.colorMode = colorMode
         }
     }
+}
+
+extension ReadTrackRenderer {
 
     // MARK: - Packed Read Rendering (Tier 2)
 
@@ -1060,6 +1063,9 @@ public enum ReadTrackRenderer {
 
         context.restoreGState()
     }
+}
+
+extension ReadTrackRenderer {
 
     // MARK: - Base-Level Rendering (Tier 3)
 
@@ -1190,7 +1196,7 @@ public enum ReadTrackRenderer {
     // MARK: - Private Drawing Helpers
 
     /// Pre-computed glyph metrics for nucleotide characters, avoiding per-character CoreText layout.
-    private struct GlyphCache {
+    struct GlyphCache {
         let font: CTFont
         var glyphs: [UInt8: CGGlyph] = [:]      // ASCII byte -> glyph
         var advances: [UInt8: CGSize] = [:]      // ASCII byte -> glyph size
@@ -1222,7 +1228,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Draws individual bases using CTFont glyph rendering (50-100x faster than NSString.draw).
-    private static func drawReadBases(
+    static func drawReadBases(
         read: AlignedRead,
         frame: ReferenceFrame,
         refBytes: [UInt8]?,
@@ -1376,7 +1382,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Returns color for an ASCII byte (uppercase). Zero-allocation.
-    private static func colorForByte(_ byte: UInt8, a: CGColor, t: CGColor, c: CGColor, g: CGColor, n: CGColor) -> CGColor {
+    static func colorForByte(_ byte: UInt8, a: CGColor, t: CGColor, c: CGColor, g: CGColor, n: CGColor) -> CGColor {
         switch byte {
         case 65: return a  // A
         case 84, 85: return t  // T or U
@@ -1559,7 +1565,7 @@ public enum ReadTrackRenderer {
     /// Returns true when a reference byte is a "no call" — an assembly gap (`N`) or any other
     /// byte that isn't a concrete ACGTU base or a recognized IUPAC ambiguity code. No-call
     /// reference positions must never manufacture a false mismatch.
-    private static func isNoCallReferenceByte(_ refByte: UInt8) -> Bool {
+    static func isNoCallReferenceByte(_ refByte: UInt8) -> Bool {
         switch refByte {
         case 0x41, 0x43, 0x47, 0x54, 0x55: // A C G T U
             return false
@@ -1574,7 +1580,7 @@ public enum ReadTrackRenderer {
 
     /// Returns true when a read base (uppercased ASCII) is a valid expansion of an IUPAC
     /// ambiguity code reference byte. Byte-switch only — no allocations, safe for the hot draw path.
-    private static func isEquivalentToIUPACCode(_ readByte: UInt8, _ refByte: UInt8) -> Bool {
+    static func isEquivalentToIUPACCode(_ readByte: UInt8, _ refByte: UInt8) -> Bool {
         switch refByte {
         case 0x52: return readByte == 0x41 || readByte == 0x47 // R = A/G
         case 0x59: return readByte == 0x43 || readByte == 0x54 || readByte == 0x55 // Y = C/T
@@ -1592,7 +1598,7 @@ public enum ReadTrackRenderer {
 
     /// Returns true when a byte is a recognized IUPAC ambiguity code (excludes A/C/G/T/U/N,
     /// which are handled separately).
-    private static func isIUPACAmbiguityCode(_ byte: UInt8) -> Bool {
+    static func isIUPACAmbiguityCode(_ byte: UInt8) -> Bool {
         switch byte {
         case 0x52, 0x59, 0x53, 0x57, 0x4B, 0x4D, 0x42, 0x44, 0x48, 0x56: // R Y S W K M B D H V
             return true
@@ -1618,12 +1624,15 @@ public enum ReadTrackRenderer {
     static func shouldShowNoReferenceBadge(hasReference: Bool, hasMDTags: Bool) -> Bool {
         !hasReference && !hasMDTags
     }
+}
+
+extension ReadTrackRenderer {
 
     /// Draws colored tick marks at mismatch positions on a packed read bar.
     ///
     /// Uses ASCII byte comparison (zero allocations) instead of Character/String conversion.
     /// At wider zoom levels, mismatches within the same pixel column are coalesced.
-    private static func drawMismatchTicks(
+    static func drawMismatchTicks(
         read: AlignedRead,
         frame: ReferenceFrame,
         refBytes: [UInt8]?,
@@ -1742,7 +1751,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Uppercases an ASCII nucleotide string in-place as bytes (faster than String.uppercased()).
-    private static func uppercaseASCIIBytes(_ s: String) -> [UInt8] {
+    static func uppercaseASCIIBytes(_ s: String) -> [UInt8] {
         var bytes = Array(s.utf8)
         for i in bytes.indices {
             if bytes[i] >= 0x61, bytes[i] <= 0x7A { // a-z
@@ -1753,7 +1762,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Base-equivalence comparison that treats DNA/RNA thymine-uracil as a match.
-    private static func isEquivalentBase(_ a: UInt8, _ b: UInt8) -> Bool {
+    static func isEquivalentBase(_ a: UInt8, _ b: UInt8) -> Bool {
         if a == b { return true }
         // Treat T and U as equivalent for RNA-vs-DNA views.
         return (a == 0x54 && b == 0x55) || (a == 0x55 && b == 0x54)
@@ -1893,7 +1902,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Draws semi-opaque column overlays for masked (high-gap) positions.
-    private static func drawMaskedColumns(
+    static func drawMaskedColumns(
         _ maskedPositions: Set<Int>,
         frame: ReferenceFrame,
         context: CGContext,
@@ -1933,7 +1942,7 @@ public enum ReadTrackRenderer {
     /// Soft clips are bases present in the read but not part of the alignment.
     /// They appear as translucent extensions beyond the aligned portion,
     /// indicating where the read sequence continues past the alignment boundary.
-    private static func drawSoftClipExtensions(
+    static func drawSoftClipExtensions(
         read: AlignedRead,
         frame: ReferenceFrame,
         context: CGContext,
@@ -1975,7 +1984,7 @@ public enum ReadTrackRenderer {
     ///
     /// Deletions are shown as dashed dark gray lines; introns are shown as
     /// thin solid lighter lines (matching IGV convention for RNA-seq data).
-    private static func drawDeletions(
+    static func drawDeletions(
         read: AlignedRead,
         frame: ReferenceFrame,
         context: CGContext,
@@ -2011,7 +2020,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Draws small insertion ticks (for packed mode).
-    private static func drawInsertionTicks(
+    static func drawInsertionTicks(
         read: AlignedRead,
         frame: ReferenceFrame,
         context: CGContext,
@@ -2026,7 +2035,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Draws insertion markers with triangle indicators (for base mode).
-    private static func drawInsertionMarkers(
+    static func drawInsertionMarkers(
         read: AlignedRead,
         frame: ReferenceFrame,
         context: CGContext,
@@ -2062,7 +2071,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Returns a compact insertion label suitable for the current zoom level.
-    private static func insertionLabel(for bases: String, pixelsPerBase: Double) -> String? {
+    static func insertionLabel(for bases: String, pixelsPerBase: Double) -> String? {
         let count = bases.count
         guard count > 0 else { return nil }
 
@@ -2084,7 +2093,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Draws the overflow indicator bar at the bottom of the track.
-    private static func drawOverflowIndicator(
+    static func drawOverflowIndicator(
         context: CGContext,
         rect: CGRect,
         overflow: Int,
@@ -2120,7 +2129,7 @@ public enum ReadTrackRenderer {
 
     /// Returns alpha value for a given mapping quality.
     /// MAPQ 255 means "unavailable" per SAM spec — rendered at slightly reduced opacity.
-    private static func mapqAlpha(_ mapq: UInt8) -> CGFloat {
+    static func mapqAlpha(_ mapq: UInt8) -> CGFloat {
         switch mapq {
         case 255:      return 0.85  // Unavailable quality — distinct from high-quality
         case 40..<255: return 1.0
@@ -2148,6 +2157,9 @@ public enum ReadTrackRenderer {
             return CGFloat(rowCount) * (metrics.baseReadHeight + metrics.rowGap)
         }
     }
+}
+
+extension ReadTrackRenderer {
 
     // MARK: - Intelligent Downsampling
 
@@ -2198,7 +2210,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Reservoir sampling: picks `count` random elements from `source`.
-    private static func reservoirSample(_ source: [AlignedRead], count: Int) -> [AlignedRead] {
+    static func reservoirSample(_ source: [AlignedRead], count: Int) -> [AlignedRead] {
         guard count > 0 else { return [] }
         guard source.count > count else { return source }
 
@@ -2393,7 +2405,7 @@ public enum ReadTrackRenderer {
 
     /// Returns a sort key for the base at a reference position in a read.
     /// Used for base-at-position sorting to investigate variants.
-    private nonisolated static func baseAtRefPos(_ read: AlignedRead, pos: Int) -> UInt8 {
+    nonisolated static func baseAtRefPos(_ read: AlignedRead, pos: Int) -> UInt8 {
         guard pos >= read.position, pos < read.alignmentEnd else { return 255 }
         let seqBytes = Array(read.sequence.utf8)
         var byteIndex = 0
