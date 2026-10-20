@@ -7,11 +7,12 @@
 // row T5 of the bioinformatics expert's inventory of the TaxTriage record for that phase, and the comment states the
 // fact in full.
 //
-// No Nextflow, container or network is involved. `TaxTriageSerialBatchRunner(runPipeline:)` takes a stand-in
-// for the engine, so the root record the runner writes is the product's own. The record a single run writes
-// for itself is built from `TaxTriagePipeline.provenanceParameters` and `recordReadSetSteps`, the two
-// helpers the run calls. What the run does between them (the TaxTriage step with the argv that ran, the
-// removal of the split halves) needs the engine, and the stand-in engine of lane TF-G pins it later.
+// No Nextflow, container or network is involved. Since 2.13 K1b the batch cases run the batch result of
+// `TaxTriageAnalysisRunTool`, the one the executor publishes at the root of a TaxTriage batch, from unit reports that
+// stand in for the engine. They ran `TaxTriageSerialBatchRunner`, whose root record no route wrote after 2.12 K1, and
+// the facts only that root record held went with it. The record a single run writes for itself is built from
+// `TaxTriagePipeline.provenanceParameters` and `recordReadSetSteps`, the two helpers the run calls. What the run does
+// between them needs the engine, and `TaxTriageSampleRecordFreezeTests` pins it on the stand-in engine of lane TF-G.
 
 import XCTest
 import LungfishIO
@@ -56,40 +57,49 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         }
     }
 
-    private actor SeenConfigs {
-        private(set) var configs: [TaxTriageConfig] = []
-        func add(_ config: TaxTriageConfig) { configs.append(config) }
-    }
-
-    /// The runner with a stand-in for the engine. The stand-in writes `files` (sample-relative templates) into the
-    /// sample's folder, answers a result that lists them all as the real run lists what is on disk, and throws for
-    /// the sample ids in `failing`. `ignored` are the task failures Nextflow ignored for a sample.
-    private func runner(
-        _ seen: SeenConfigs,
+    /// 2.13 K1b. The batch result of `batch` as `TaxTriageAnalysisRunTool` publishes it at the batch root, from one unit
+    /// per sample in its own folder of the root. Each unit stands in for the engine. It writes `files` (sample-relative
+    /// templates) into its folder and its result lists them all, as the real run lists what is on disk. It fails for
+    /// the sample ids in `failing` with the reason its launch gave, and `ignored` are the task failures Nextflow ignored
+    /// for a sample. Nil when no sample completed.
+    private func publishedBatch(
+        _ batch: TaxTriageConfig,
         files: [String] = TaxTriageRecordFreezeTests.keptByTheRecord,
         failing: Set<String> = [],
         ignored: [String: [TaxTriageIgnoredFailure]] = [:]
-    ) -> TaxTriageSerialBatchRunner {
-        TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
-            await seen.add(sampleConfig)
-            let id = sampleConfig.samples[0].sampleId
-            if failing.contains(id) {
-                throw NSError(domain: "TaxTriageRecordFreezeTests", code: 42, userInfo: [NSLocalizedDescriptionKey: "synthetic failure of \(id)"])
+    ) throws -> TaxTriageResult? {
+        let units = try batch.samples.enumerated().map { index, sample -> AnalysisUnitReport<TaxTriageUnitResult> in
+            let id = sample.sampleId
+            let folder = batchRoot.appendingPathComponent(id, isDirectory: true)
+            // The executor makes the root and each unit's folder before the unit runs.
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            guard !failing.contains(id) else {
+                return AnalysisUnitReport(
+                    index: index, label: id, sampleName: id, directory: folder, outcome: .failed(reason: "synthetic failure of \(id)")
+                )
             }
-            let urls = try TaxTriageRecordFreezeTests.write(
-                TaxTriageRecordFreezeTests.paths(files, for: id),
-                in: sampleConfig.outputDirectory
-            )
-            return TaxTriageResult(
+            var sampleConfig = batch
+            sampleConfig.samples = [sample]
+            sampleConfig.outputDirectory = folder
+            sampleConfig.sourceBundleURLs = batch.sourceBundleURLs.map { [$0[index]] }
+            let urls = try Self.write(Self.paths(files, for: id), in: folder)
+            let result = TaxTriageResult(
                 config: sampleConfig,
                 runtime: 1.5,
                 exitCode: 0,
-                outputDirectory: sampleConfig.outputDirectory,
+                outputDirectory: folder,
                 reportFiles: urls.filter { $0.lastPathComponent.hasSuffix(".odr.txt") },
                 allOutputFiles: urls,
+                sourceBundleURLs: sampleConfig.sourceBundleURLs,
                 ignoredFailures: ignored[id] ?? []
             )
-        })
+            let value = TaxTriageUnitResult(result: result)
+            return AnalysisUnitReport(
+                index: index, label: id, sampleName: id, directory: folder,
+                outcome: result.ignoredFailures.isEmpty ? .completed(value) : .completedWithWarning(value, reason: "ignored task failures")
+            )
+        }
+        return try TaxTriageAnalysisRunTool.publishAggregateResult(of: units, planned: batch.samples, root: batchRoot)
     }
 
     private var batchRoot: URL { root.appendingPathComponent("batch", isDirectory: true) }
@@ -139,14 +149,6 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         return path
     }
 
-    private func relativeSet(_ descriptors: [ProvenanceFileDescriptor], to directory: URL) -> [String] {
-        descriptors.map { relative($0.path, to: directory) }.sorted()
-    }
-
-    private func sampleSteps(_ envelope: ProvenanceEnvelope) -> [ProvenanceStep] {
-        envelope.steps.filter { $0.toolName == "taxtriage" }
-    }
-
     private func makeFixtures() throws -> ReadSetFixtures {
         try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
     }
@@ -164,158 +166,50 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         )
     }
 
-    // MARK: - BIO T2, where a run goes
+    // MARK: - BIO T2, T3 and T4, where a run goes and what the batch record holds
 
-    /// BIO T2. One sample runs straight into the output folder and the runner writes nothing of its own, so the
-    /// record of that run is the one `TaxTriagePipeline.run` writes.
-    func testASingleSampleRunsStraightIntoTheOutputFolderAndTheRunnerWritesNothing() async throws {
-        let seen = SeenConfigs()
-        let single = config([sample("Alpha")], bundles: [URL(fileURLWithPath: "/data/Alpha.lungfishfastq")])
-
-        let result = try await runner(seen, files: []).run(config: single)
-
-        let configs = await seen.configs
-        XCTAssertEqual(configs, [single], "the engine gets the config as it was given, in the output folder itself")
-        XCTAssertEqual(result.outputDirectory, single.outputDirectory)
-        for name in [ProvenanceRecorder.provenanceFilename, "taxtriage-result.json"] {
-            XCTAssertFalse(
-                FileManager.default.fileExists(atPath: single.outputDirectory.appendingPathComponent(name).path),
-                "the runner writes no \(name) for one sample"
-            )
-        }
-    }
-
-    /// BIO T2. Several samples run one Nextflow each, into a folder of the root named for the sample, and the runner
-    /// writes the root record and the aggregate result. A sample id is made into a folder name, so `S 2` is `S_2`.
-    func testSeveralSamplesRunOneEachIntoAFolderOfTheRootAndTheRunnerWritesTheBatchRecord() async throws {
-        let seen = SeenConfigs()
-        let bundles = ["Alpha", "S 2", "Gamma"].map { URL(fileURLWithPath: "/data/\($0).lungfishfastq") }
-        let batch = config(["Alpha", "S 2", "Gamma"].map(sample), bundles: bundles)
-
-        let result = try await runner(seen, files: ["report/x.odr.txt"]).run(config: batch)
-
-        let configs = await seen.configs
-        XCTAssertEqual(configs.map { $0.samples.map(\.sampleId) }, [["Alpha"], ["S 2"], ["Gamma"]], "one engine run per sample, in order")
-        XCTAssertEqual(configs.map { $0.outputDirectory.lastPathComponent }, ["Alpha", "S_2", "Gamma"])
-        XCTAssertEqual(
-            configs.map { $0.outputDirectory.deletingLastPathComponent().standardizedFileURL },
-            [batchRoot.standardizedFileURL, batchRoot.standardizedFileURL, batchRoot.standardizedFileURL]
-        )
-        XCTAssertEqual(configs.map { $0.sourceBundleURLs ?? [] }, bundles.map { [$0] }, "each run names its own bundle")
-        XCTAssertEqual(result.outputDirectory, batchRoot)
-        for name in [ProvenanceRecorder.provenanceFilename, "taxtriage-result.json"] {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: batchRoot.appendingPathComponent(name).path), name)
-        }
-        XCTAssertEqual(try record(in: batchRoot).workflowName, "TaxTriage Serial Batch")
-    }
-
-    // MARK: - BIO T3 and T4, the command and the tool
-
-    /// BIO T3. The root record holds a `taxtriage` step per sample whose argv the runner rebuilds as `nextflow run ...`
-    /// from the config. It is not the argv that ran, which is the managed micromamba path and its arguments and carries
-    /// `-c`, `-with-trace` and `-w` (the sample's own record holds that one). The sample's folder is `--outdir`.
-    func testTheBatchRecordHoldsOneRebuiltNextflowCommandPerSample() async throws {
-        let batch = config([sample("Alpha"), sample("Beta")], everySetting: true)
-        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
-
-        _ = try await runner(SeenConfigs(), files: []).run(config: batch)
-
-        let envelope = try record(in: batchRoot)
-        let steps = sampleSteps(envelope)
-        XCTAssertEqual(steps.count, 2)
-        for (step, id) in zip(steps, ["Alpha", "Beta"]) {
-            let folder = batchRoot.appendingPathComponent(id, isDirectory: true).path
-            XCTAssertEqual(step.argv, [
-                "nextflow", "run", pin.repository, "-r", batch.launchRevision(pin: pin), "-profile", "docker",
-                "--input", folder + "/samplesheet.csv", "--outdir", folder, "--db", "/db/viral-kraken2",
-                "--top_hits_count", "7", "--k2_confidence", "0.3", "--rank", "G", "--max_memory", "8.GB", "--max_cpus", "4",
-                "--skip_assembly", "--skip_krona", "--remove_taxids", "9606 10090", "--foo", "bar",
-            ], id)
-            XCTAssertNil(step.durableReplayArgv)
-            for launchOnly in ["-c", "-with-trace", "-w"] {
-                XCTAssertFalse(step.argv.contains(launchOnly), "the rebuilt command lacks \(launchOnly), which the launch carries")
-            }
-        }
-        let launch = TaxTriagePipeline().buildNextflowArguments(config: batch, pin: pin)
-        XCTAssertTrue(launch.contains("-with-trace"), "the launch arguments carry what the rebuilt command lacks")
-        let last = try XCTUnwrap(envelope.steps.last)
-        XCTAssertEqual(last.toolName, "lungfish-app-taxtriage-serial-batch")
-        XCTAssertEqual(last.argv, ["lungfish-app", "taxtriage-serial-batch", "--output", batchRoot.path])
-        XCTAssertEqual(last.toolVersion, WorkflowRun.currentAppVersion)
-        XCTAssertEqual(relativeSet(last.outputs, to: batchRoot), ["taxtriage-result.json"])
-    }
-
-    /// BIO T4. The batch record names the tool `taxtriage` and its version is the revision, a commit, with the release
-    /// tag beside it. The sample's own record names the tool `TaxTriage` and holds the same two values (not reachable
-    /// without the engine). No step or option holds the Nextflow version.
-    func testTheSampleStepsNameTheToolTaxtriageAtTheRevisionWithTheReleaseTagBeside() async throws {
-        let batch = config([sample("Alpha"), sample("Beta")])
-
-        _ = try await runner(SeenConfigs(), files: []).run(config: batch)
-
-        let envelope = try record(in: batchRoot)
-        let pin = try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin()
-        let revision = pin.revision
-        XCTAssertNil(batch.revision, "nil runs the commit the lock pins (N4)")
-        XCTAssertEqual(revision.count, 40, "the revision is a commit")
-        XCTAssertTrue(revision.allSatisfy(\.isHexDigit), revision)
-        let tag = try XCTUnwrap(TaxTriageConfig.githubReleaseVersion(for: revision, pin: pin))
-        XCTAssertTrue(tag.hasPrefix("v"), "the release tag is beside the revision, it is not the version: \(tag)")
-        for step in sampleSteps(envelope) {
-            XCTAssertEqual(step.toolVersion, revision)
-            XCTAssertEqual(step.githubReleaseVersion, tag)
-        }
-        XCTAssertEqual(envelope.toolName, "taxtriage")
-        XCTAssertEqual(envelope.toolVersion, revision)
-        XCTAssertEqual(envelope.githubReleaseVersion, tag)
-        XCTAssertEqual(envelope.options.explicit["revision"], .string(revision))
-        XCTAssertEqual(envelope.options.explicit["github_release_version"], .string(tag))
-        XCTAssertFalse(
-            String(describing: envelope.options.explicit).lowercased().contains("nextflow"),
-            "no option holds a Nextflow version"
-        )
-    }
+    // 2.13 K1b. Four cases ran the serial runner and pinned its root record, which no route wrote after 2.12 K1. They
+    // went with it, and each fact the executor holds is pinned on the executor.
+    // - BIO T2, one sample. The runner handed one sample straight to the pipeline and wrote nothing of its own. The
+    //   executor runs one sample in the folder it names (`.sharedBatchRoot` or `.singleFolder`,
+    //   `TaxTriageAnalysisRunToolPlanTests`), and its root record takes the pipeline's place
+    //   (`TaxTriageAnalysisRunToolReplayTests.testAPlainOutputIsOneLaunchInTheResultFolderWhoseStepTheRootRecordHolds`).
+    // - BIO T2, several samples. One launch per sample, in a folder of the root that the one sanitizer names, with the
+    //   root record and the batch result at the root (`TaxTriageAnalysisRunToolPlanTests`,
+    //   `TaxTriageAnalysisRunToolReplayTests.testABatchIsOneLaunchPerSampleFolderAndEachSampleKeepsItsOwnRecord`). The
+    //   workflow name `TaxTriage Serial Batch` was the runner's alone. The executor's is `lungfish.taxtriage.run`.
+    // - BIO T3. The runner rebuilt a `nextflow run` argv for each sample and closed its record with a step of its own,
+    //   `lungfish-app-taxtriage-serial-batch` with the argv `lungfish-app taxtriage-serial-batch --output <root>`. Both
+    //   were the runner's alone. A sample's own record holds the argv that ran
+    //   (`TaxTriageSampleRecordFreezeTests.testAPlainSampleRecordsTheArgvThatRanAsItsOneStep`).
+    // - BIO T4. The tool `taxtriage` at the revision, with the release tag beside it, which the same case pins on a
+    //   sample's own record.
 
     // MARK: - BIO T5, a failed sample
 
-    /// BIO T5. A sample whose run throws is a step with exit 1, no outputs and the error as stderr, and the batch
-    /// ends `completed` while any sample completed. The result lists the failure.
-    func testAFailedSampleIsAStepWithExitOneAndNoOutputsAndTheBatchStillCompletes() async throws {
+    /// BIO T5. A sample whose run fails is a sample failure of the batch result, with the reason its launch gave, and
+    /// the batch result exits 0 while any sample completed. Retargeted by 2.13 K1b onto the batch result of
+    /// `TaxTriageAnalysisRunTool`. The failed sample's step in the serial runner's root record (exit 1, no outputs, the
+    /// error as stderr) and that record's `completed` went with the runner. On the executor the failed sample keeps its
+    /// own record and the root record its status, which case X4 of `TaxTriageCLIGUIParityReplayTests` pins.
+    func testAFailedSampleIsASampleFailureOfTheBatchResultAndTheBatchStillCompletes() throws {
         let batch = config(["GoodA", "Bad", "GoodB"].map(sample))
 
-        let result = try await runner(SeenConfigs(), files: ["report/x.odr.txt"], failing: ["Bad"]).run(config: batch)
+        let result = try XCTUnwrap(try publishedBatch(batch, files: ["report/x.odr.txt"], failing: ["Bad"]))
 
-        let envelope = try record(in: batchRoot)
-        let steps = sampleSteps(envelope)
-        XCTAssertEqual(steps.map(\.exitStatus), [0, 1, 0])
-        XCTAssertEqual(steps.map { $0.outputs.isEmpty }, [false, true, false])
-        XCTAssertEqual(steps[1].stderr, "synthetic failure of Bad")
-        XCTAssertEqual(steps[1].argv.first, "nextflow", "a failed sample's command is rebuilt the same way")
-        let outdir = try XCTUnwrap(steps[1].argv.firstIndex(of: "--outdir"))
-        XCTAssertEqual(steps[1].argv[outdir + 1], batchRoot.appendingPathComponent("Bad").path)
-        XCTAssertEqual(envelope.status, .completed)
         XCTAssertEqual(result.sampleFailures.map(\.sampleID), ["Bad"])
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertEqual(try TaxTriageResult.load(from: batchRoot).sampleFailures.map(\.errorDescription), ["synthetic failure of Bad"])
     }
 
-    /// BIO T5. When every sample fails, the batch throws, the record ends `failed` with every step at exit 1, and no
-    /// aggregate result is written.
-    func testWhenEverySampleFailsTheBatchThrowsAndTheRecordEndsFailed() async throws {
+    /// BIO T5. When every sample fails, no batch result is written. Retargeted by 2.13 K1b. The serial runner threw
+    /// `TaxTriageSerialBatchError.allSamplesFailed` and saved its root record `failed` with a step at exit 1 for each
+    /// sample. The executor keeps each sample's own record, and the error's words stay those the app shows for such a
+    /// batch (`CLIClassifierRunner`).
+    func testWhenEverySampleFailsNoBatchResultIsWritten() throws {
         let batch = config(["A", "B"].map(sample))
 
-        do {
-            _ = try await runner(SeenConfigs(), failing: ["A", "B"]).run(config: batch)
-            XCTFail("the batch must throw when no sample completed")
-        } catch let error as TaxTriageSerialBatchError {
-            guard case .allSamplesFailed(let failures) = error else { return XCTFail("\(error)") }
-            XCTAssertEqual(failures.map(\.sampleID), ["A", "B"])
-        }
-
-        let envelope = try record(in: batchRoot)
-        XCTAssertEqual(envelope.status, .failed)
-        XCTAssertEqual(envelope.steps.map(\.exitStatus), [1, 1])
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["taxtriage", "taxtriage"])
+        XCTAssertNil(try publishedBatch(batch, failing: ["A", "B"]), "no batch result when no sample completed")
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchRoot.appendingPathComponent("taxtriage-result.json").path))
     }
 
@@ -391,23 +285,10 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         )
     }
 
-    /// BIO T6. The batch record holds the same sixteen settings and the release tag as options, under the workflow
-    /// `taxtriage-serial-batch`. It holds no plan and no split, because each sample's own record holds those.
-    func testTheBatchRecordHoldsTheSameSettingsAndNoPlan() async throws {
-        let fixtures = try makeFixtures()
-        let mixed = try await planned(fixtures.mixedRoot, as: "mixed", in: fixtures)
-        let batch = config([mixed, sample("B")], everySetting: true)
-
-        _ = try await runner(SeenConfigs(), files: []).run(config: batch)
-
-        let options = try record(in: batchRoot).options.explicit
-        XCTAssertEqual(Set(options.keys), Self.settingKeys.union(["github_release_version"]))
-        XCTAssertEqual(options["workflow"], .string("taxtriage-serial-batch"))
-        XCTAssertEqual(options["sample_count"], .integer(2))
-        XCTAssertNotNil(mixed.readSetPlan?.provenanceParameters["readSetPlan"], "the first sample has a plan to record")
-        XCTAssertNil(options["read_set_plans"], "the plan is not in the batch record")
-        XCTAssertFalse(String(describing: options).contains("viral-kraken2"))
-    }
+    // BIO T6, the batch record. `testTheBatchRecordHoldsTheSameSettingsAndNoPlan` pinned the options of the serial
+    // runner's root record, under the workflow `taxtriage-serial-batch`, and went with that record in 2.13 K1b. The root
+    // record of a batch on the executor keeps the run-level values only (B12 row 256), which
+    // `TaxTriageAnalysisRunToolReplayTests` and case X3 of `TaxTriageCLIGUIParityReplayTests` pin.
 
     /// Saves a run holding `parameters` with the pipeline's own save, as a TaxTriage run saves its record, and reads
     /// the record back.
@@ -543,9 +424,11 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
     /// BIO T9. A virtual bundle is materialized before TaxTriage reads it, and the read set plan of TaxTriage has no
     /// step of its own (the capability `pairs_only_when_all_paired` never writes one), so nothing records the
-    /// materialization. The batch record holds one `taxtriage` step per sample and the batch step and nothing between,
-    /// and it names the materialized file where the bundle should be. The bundle appears only in the result file
-    /// `taxtriage-result.json`, which the sidebar reads, never in the record.
+    /// materialization. The bundle appears only in the result file `taxtriage-result.json`, which the sidebar reads.
+    /// Retargeted by 2.13 K1b onto the batch result of `TaxTriageAnalysisRunTool`. The serial runner's root record, with
+    /// a `taxtriage` step per sample and its own batch step, went with the runner. A sample's own record names the
+    /// materialized file and no step for it
+    /// (`TaxTriageSampleRecordFreezeTests.testAMaterializedSampleRecordsTheMaterializedFileAndNoStepForIt`).
     func testAMaterializedVirtualBundleRecordsNoStepAndNoLineageToItsBundle() async throws {
         let fixtures = try makeFixtures()
         let materialized = root.appendingPathComponent("materialized-inputs", isDirectory: true)
@@ -561,72 +444,35 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let single = try XCTUnwrap(recorded)
         XCTAssertEqual(single.steps.count, 0, "a sample's own record has no step for the materialization either")
 
-        _ = try await runner(SeenConfigs(), files: []).run(config: config([a, b], bundles: bundles))
+        let result = try XCTUnwrap(try publishedBatch(config([a, b], bundles: bundles), files: []))
 
-        let envelope = try record(in: batchRoot)
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["taxtriage", "taxtriage", "lungfish-app-taxtriage-serial-batch"])
-        let text = try String(contentsOf: batchRoot.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
-        for bundle in bundles {
-            XCTAssertFalse(text.contains(bundle.deletingPathExtension().lastPathComponent), "the record names no bundle")
-        }
+        XCTAssertEqual(result.sourceBundleURLs, bundles)
         XCTAssertEqual(try TaxTriageResult.load(from: batchRoot).sourceBundleURLs, bundles, "only the result file names them")
     }
 
-    /// BIO T10. The record names the materialized input files, with their digests. At the base the caller removed the
-    /// folder they were written into when the run ended (the GUI in a `defer` of its TaxTriage launch in
-    /// `AppDelegate+Classification`, the CLI route in `<output>/.lungfish-taxtriage-inputs`), and the test removed it
-    /// the same way, so the record named files that no longer existed. Decision O1, applied by lane B2 at both callers,
-    /// keeps them where the record says (`TaxTriageKeptInputsReplayTests` runs both callers). The test no longer
-    /// removes the folder, and the assertion on the files was flipped by B2, and the test's name with it.
-    func testTheRecordNamesMaterializedInputsThatTheCallerKeeps() async throws {
-        let fixtures = try makeFixtures()
-        let materialized = root.appendingPathComponent("materialized-inputs", isDirectory: true)
-        let a = try await planned(fixtures.subsetOfSingle, as: "A", in: fixtures, materializeInto: materialized)
-        let b = try await planned(fixtures.subsetOfInterleaved, as: "B", in: fixtures, materializeInto: materialized)
-        let names = [a.fastq1, b.fastq1].map { relative($0.path, to: materialized) }
-        for (file, name) in zip([a.fastq1, b.fastq1], names) {
-            XCTAssertNotEqual(name, file.standardizedFileURL.path, "written inside the folder the caller named")
-        }
-
-        _ = try await runner(SeenConfigs(), files: []).run(config: config([a, b]))
-
-        let envelope = try record(in: batchRoot)
-        let inputs = sampleSteps(envelope).map(\.inputs)
-        XCTAssertEqual(inputs.map { $0.map { relative($0.path, to: materialized) } }, names.map { [$0] })
-        XCTAssertTrue(inputs.joined().allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil }, "recorded with a digest while the files exist")
-        XCTAssertEqual(relativeSet(envelope.steps.last?.inputs ?? [], to: materialized), names.sorted())
-
-        let reread = try record(in: batchRoot)
-        let namedNow = reread.steps.flatMap(\.inputs).map(\.path)
-        XCTAssertEqual(namedNow.count, 4, "two samples, named by their step and by the batch step")
-        XCTAssertTrue(
-            namedNow.allSatisfy { FileManager.default.fileExists(atPath: $0) },
-            "flipped by B2 (O1), every input the record names exists"
-        )
-    }
+    // BIO T10. `testTheRecordNamesMaterializedInputsThatTheCallerKeeps` ran the serial runner and read the inputs its
+    // root record named, and went with that record in 2.13 K1b. A sample's own record names its materialized input with
+    // its digest (`TaxTriageSampleRecordFreezeTests.testAMaterializedSampleRecordsTheMaterializedFileAndNoStepForIt`),
+    // and `TaxTriageKeptInputsReplayTests` keeps those inputs where the record says (O1).
 
     // MARK: - BIO T11, the files a record names
 
-    /// BIO T11. A sample's step names every file of its result folder except those under `work`, `download` and
-    /// `workflow-source`, so it names `count/`, the fastp FASTQ and the other folders that `build-db taxtriage` removes
-    /// afterwards (see `BuildDbTaxTriageCleanupFreezeTests`). The batch result and the batch record's last step name the
-    /// same files, and the last step names only `taxtriage-result.json` as an output.
-    func testTheRecordNamesEveryOutputFileExceptWorkDownloadAndWorkflowSource() async throws {
+    /// BIO T11. A batch result names every file of its samples' folders except those under `work`, `download` and
+    /// `workflow-source`, and `taxtriage-result.json`, so it names `count/`, the fastp FASTQ and the other folders that
+    /// `build-db taxtriage` removes afterwards (see `BuildDbTaxTriageCleanupFreezeTests`). Retargeted by 2.13 K1b onto
+    /// the batch result of `TaxTriageAnalysisRunTool`. The serial runner's root record named the same files on each
+    /// sample's step and sorted its result by path. The executor keeps the samples' request order
+    /// (`TaxTriageAggregateResultDurabilityTests`), and a sample's own record names its files
+    /// (`TaxTriageSampleRecordFreezeTests.testAPlainSampleRecordsTheArgvThatRanAsItsOneStep`).
+    func testTheBatchResultNamesEveryOutputFileExceptWorkDownloadAndWorkflowSource() throws {
         XCTAssertEqual(TaxTriageOutputArtifactPolicy.prunableDirectoryNames, ["work", "download", "workflow-source"])
         let files = Self.keptByTheRecord + Self.prunedFromTheRecord
         let batch = config(["A", "B"].map(sample))
 
-        let result = try await runner(SeenConfigs(), files: files).run(config: batch)
+        let result = try XCTUnwrap(try publishedBatch(batch, files: files))
 
-        let envelope = try record(in: batchRoot)
-        let steps = sampleSteps(envelope)
-        for (step, id) in zip(steps, ["A", "B"]) {
-            let folder = batchRoot.appendingPathComponent(id, isDirectory: true)
-            XCTAssertEqual(relativeSet(step.outputs, to: folder), Self.paths(Self.keptByTheRecord, for: id).sorted(), id)
-        }
         let expected = (["A", "B"].flatMap { id in Self.paths(Self.keptByTheRecord, for: id).map { "\(id)/\($0)" } } + ["taxtriage-result.json"]).sorted()
-        XCTAssertEqual(result.allOutputFiles.map { relative($0.path, to: batchRoot) }, expected, "sorted by path, as the runner sorts")
-        XCTAssertEqual(envelope.steps.last?.outputs.count, 1)
+        XCTAssertEqual(result.allOutputFiles.map { relative($0.path, to: batchRoot) }.sorted(), expected)
         // The rule is by path component below the output folder, wherever the component sits.
         let policy = TaxTriageOutputArtifactPolicy.self
         XCTAssertFalse(policy.isRetainedOutputFile(batchRoot.appendingPathComponent("A/report/work/x.tsv"), outputDirectory: batchRoot))
@@ -635,13 +481,12 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
     // MARK: - BIO T14, an ignored task failure
 
-    /// BIO T14. Nextflow exits 0 when TaxTriage ignores an errored task. The failure is in `taxtriage-result.json`
-    /// and in the GUI log. At the base the sample's step had exit 0 and no stderr, the failure text appeared nowhere in
-    /// the record, and the run was `completed`. Plan decision T8 keeps the run `completed` and gives the record one
-    /// warning line per failure. Lane B2 flipped the assertions on stderr and on the record text, and the test's name
-    /// with them. The step of the sample whose task failed holds the warning line the sample's own record holds, and
-    /// the other sample's step holds none.
-    func testAnIgnoredTaskFailureLeavesExitZeroAWarningLineAndACompletedRun() async throws {
+    /// BIO T14. Nextflow exits 0 when TaxTriage ignores an errored task, and the failure is in `taxtriage-result.json`.
+    /// Retargeted by 2.13 K1b onto the batch result of `TaxTriageAnalysisRunTool`, which keeps the failure. The warning
+    /// line on the failed sample's step of the serial runner's root record went with the runner. A sample's own record
+    /// holds that line and stays completed
+    /// (`TaxTriageSampleRecordFreezeTests.testAnIgnoredTaskFailureLeavesExitZeroAWarningLineAndACompletedRecord`).
+    func testAnIgnoredTaskFailureIsKeptInTheBatchResult() throws {
         let failure = TaxTriageIgnoredFailure(
             processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN",
             processName: "MINIMAP2_ALIGN",
@@ -652,23 +497,9 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
             diagnostic: "Killed: minimap2 -ax sr -t 14"
         )
 
-        let result = try await runner(SeenConfigs(), files: ["report/x.odr.txt"], ignored: ["A": [failure]])
-            .run(config: config(["A", "B"].map(sample)))
+        let result = try XCTUnwrap(try publishedBatch(config(["A", "B"].map(sample)), files: ["report/x.odr.txt"], ignored: ["A": [failure]]))
 
         XCTAssertEqual(result.ignoredFailures, [failure])
         XCTAssertEqual(try TaxTriageResult.load(from: batchRoot).ignoredFailures, [failure])
-        let envelope = try record(in: batchRoot)
-        let steps = sampleSteps(envelope)
-        XCTAssertEqual(steps.map(\.exitStatus), [0, 0])
-        XCTAssertEqual(
-            steps.map(\.stderr),
-            [TaxTriageRecordFacts.warningLines(for: [failure]).joined(separator: "\n"), nil],
-            "flipped by B2 (T8), the failure is one warning line on its sample's step"
-        )
-        XCTAssertEqual(envelope.status, .completed)
-        let text = try String(contentsOf: batchRoot.appendingPathComponent(ProvenanceRecorder.provenanceFilename), encoding: .utf8)
-        for word in ["MINIMAP2_ALIGN", "Killed"] {
-            XCTAssertTrue(text.contains(word), "flipped by B2 (T8), the record holds \(word) in the warning line")
-        }
     }
 }
