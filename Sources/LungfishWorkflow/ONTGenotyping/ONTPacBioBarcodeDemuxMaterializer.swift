@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public struct ONTPacBioBarcodeDemuxMaterializationRequest: Sendable {
@@ -1063,37 +1064,29 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
         }
 
         private static func gzipFile(_ inputURL: URL, to outputURL: URL) throws -> ExactGzipRun {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-n", "-c", inputURL.path]
-
-            FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-            let outputHandle = try FileHandle(forWritingTo: outputURL)
-            defer { try? outputHandle.close() }
-            let stderrPipe = Pipe()
-            process.standardOutput = outputHandle
-            process.standardError = stderrPipe
-
             let runClock = ProvenanceRunClock()
-            try process.run()
-            process.waitUntilExit()
+            let result = try ToolProcess.runBlocking(ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+                arguments: ["-n", "-c", inputURL.path],
+                environment: ["PATH": "/usr/bin:/bin"],
+                stdout: .file(outputURL),
+                label: "gzip -n -c"
+            ))
             let wallTime = runClock.elapsed
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: stderrData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stderr = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            guard process.terminationStatus == 0 else {
+            guard result.isSuccess else {
                 throw ONTPacBioBarcodeDemuxMaterializerError.gzipFailed(
                     outputURL,
-                    process.terminationStatus,
-                    stderr
+                    result.status,
+                    stderr.isEmpty ? (result.incompleteOutputReason ?? "") : stderr
                 )
             }
             return ExactGzipRun(
                 argv: ["/usr/bin/gzip", "-n", "-c", inputURL.path],
                 inputPath: inputURL.path,
                 outputPath: outputURL.path,
-                exitStatus: process.terminationStatus,
+                exitStatus: result.status,
                 wallTimeSeconds: wallTime,
                 stderr: stderr.isEmpty ? nil : stderr
             )
