@@ -286,6 +286,14 @@ public actor PreparedAlignmentAttachmentService {
             )
         } catch {
             for url in promotedURLs.reversed() {
+                // The BAM and index came from outside the bundle, so give them back and never delete what this run did
+                // not make. A BAM whose staged path is taken, or whose move back fails, stays in the bundle.
+                if let staged = (url == bamURL ? request.stagedBAMURL : url == indexURL ? request.stagedIndexURL : nil) {
+                    if !fileManager.fileExists(atPath: staged.path) {
+                        try? fileManager.moveItem(at: url, to: staged)
+                    }
+                    continue
+                }
                 try? fileManager.removeItem(at: url)
             }
             try? originalManifestData.write(to: manifestURL, options: .atomic)

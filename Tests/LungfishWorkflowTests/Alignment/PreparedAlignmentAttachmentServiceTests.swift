@@ -147,7 +147,70 @@ final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
         XCTAssertEqual(metadataDB.getFileInfo("unmapped_reads"), "5633894")
     }
 
+    /// 2.13 lane 13.16, review Fix 1. The attach moves the staged BAM and index into the bundle, and a caller such as
+    /// `bam adopt-mapping` stages the user's only copy. When a later step throws, the attach gives both back to the
+    /// staged paths, removes only what it made and restores the manifest's bytes.
+    func testAFailedAttachReturnsTheStagedBAMAndIndex() async throws {
+        let failures: [(String, PreparedAlignmentAttachmentService)] = [
+            ("metadata", PreparedAlignmentAttachmentService(metadataCollector: FailingPreparedAlignmentMetadataCollector())),
+            ("manifest", PreparedAlignmentAttachmentService(
+                metadataCollector: StubPreparedAlignmentMetadataCollector(),
+                manifestSaver: { _, _ in throw CocoaError(.fileWriteUnknown) }
+            )),
+        ]
+        for (step, service) in failures {
+            let bundleURL = try makeMinimalBundle(named: "failed-\(step)")
+            let staging = tempDir.appendingPathComponent("staging-\(step)", isDirectory: true)
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            let (stagedBAM, stagedIndex) = try makeStagedArtifacts(in: staging)
+            let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+            let manifestBefore = try Data(contentsOf: manifestURL)
+
+            do {
+                _ = try await service.attach(request: failingRequest(bundleURL: bundleURL, bam: stagedBAM, index: stagedIndex))
+                XCTFail("the \(step) step throws, so the attach throws")
+            } catch {}
+
+            XCTAssertEqual(try? Data(contentsOf: stagedBAM), Data("bam-bytes".utf8), "\(step): the staged BAM is back with its bytes")
+            XCTAssertEqual(try? Data(contentsOf: stagedIndex), Data("bai-bytes".utf8), "\(step): the staged index is back with its bytes")
+            let left = try FileManager.default.contentsOfDirectory(atPath: bundleURL.appendingPathComponent("alignments").path)
+            XCTAssertEqual(left, [], "\(step): the bundle keeps no BAM, index or stats database of the run")
+            XCTAssertEqual(try Data(contentsOf: manifestURL), manifestBefore, "\(step): manifest.json holds its original bytes")
+        }
+    }
+
+    /// Review Fix 1, ruling 1. When a file already sits at the staged path the BAM cannot go back, so the attach
+    /// leaves it in the bundle and never deletes it.
+    func testAFailedAttachNeverDeletesABAMItCannotGiveBack() async throws {
+        let bundleURL = try makeMinimalBundle(named: "failed-occupied")
+        let (stagedBAM, stagedIndex) = try makeStagedArtifacts(in: tempDir)
+        let service = PreparedAlignmentAttachmentService(
+            metadataCollector: FailingPreparedAlignmentMetadataCollector(occupying: stagedBAM)
+        )
+
+        do {
+            _ = try await service.attach(request: failingRequest(bundleURL: bundleURL, bam: stagedBAM, index: stagedIndex))
+            XCTFail("the metadata step throws, so the attach throws")
+        } catch {}
+
+        let bundleBAM = bundleURL.appendingPathComponent("alignments/aln_failed.bam")
+        XCTAssertEqual(try? Data(contentsOf: bundleBAM), Data("bam-bytes".utf8), "the BAM stays in the bundle when its staged path is taken")
+        XCTAssertEqual(try? Data(contentsOf: stagedBAM), Data("newer".utf8), "the file at the staged path is left alone")
+        XCTAssertEqual(try? Data(contentsOf: stagedIndex), Data("bai-bytes".utf8), "the index still goes back")
+    }
+
     // MARK: - Fixtures
+
+    private func failingRequest(bundleURL: URL, bam: URL, index: URL) -> PreparedAlignmentAttachmentRequest {
+        PreparedAlignmentAttachmentRequest(
+            bundleURL: bundleURL,
+            stagedBAMURL: bam,
+            stagedIndexURL: index,
+            outputTrackID: "aln_failed",
+            outputTrackName: "failed",
+            relativeDirectory: "alignments"
+        )
+    }
 
     private func makeMinimalBundle(named name: String) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(name).lungfishref", isDirectory: true)
@@ -188,6 +251,24 @@ final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
         try Data("bam-bytes".utf8).write(to: bam)
         try Data("bai-bytes".utf8).write(to: index)
         return (bam, index)
+    }
+}
+
+/// A metadata collector whose step throws, as samtools does on a file it cannot read. When `occupying` names a path,
+/// it first writes a file there, so the attach finds the staged path taken.
+private struct FailingPreparedAlignmentMetadataCollector: PreparedAlignmentMetadataCollecting {
+    var occupying: URL?
+
+    func collectMetadata(
+        bamURL: URL,
+        indexURL: URL,
+        format: AlignmentFormat,
+        referenceFastaPath: String?
+    ) async throws -> PreparedAlignmentMetadataSnapshot {
+        if let occupying {
+            try Data("newer".utf8).write(to: occupying)
+        }
+        throw CocoaError(.fileReadCorruptFile)
     }
 }
 

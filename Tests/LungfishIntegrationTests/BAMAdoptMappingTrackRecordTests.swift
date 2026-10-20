@@ -86,6 +86,32 @@ struct BAMAdoptMappingTrackRecordTests {
             "the rollback leaves what the run did not make"
         )
     }
+
+    /// Review Fix 1. The attach itself fails, here in its metadata step on a BAM samtools cannot read, so the adopt's
+    /// rollback never runs. The attach gives the BAM and index back to the mapping folder and the bundle keeps none
+    /// of the run's files.
+    @Test("an adopt whose attach fails returns the BAM")
+    func testAnAdoptWhoseAttachFailsReturnsTheBAM() async throws {
+        let scene = try AdoptScene.make("adopt-attach-failed")
+        defer { scene.cleanup() }
+        let folder = try scene.stageMappingFolder(named: "unreadable")
+        let bam = folder.appendingPathComponent("sorted.bam")
+        let index = folder.appendingPathComponent("sorted.bam.bai")
+        try Data("not a BAM".utf8).write(to: bam)
+        try Data("not an index".utf8).write(to: index)
+        try AdoptableMappingRecord.write(into: folder)
+        let filesBefore = scene.bundleFiles()
+        let manifestBefore = try Data(contentsOf: scene.manifestURL)
+
+        await #expect(throws: (any Error).self) {
+            try await scene.adopt(folder, trackID: "unreadable")
+        }
+
+        #expect((try? Data(contentsOf: bam)) == Data("not a BAM".utf8), "the mapping folder holds its BAM again with its bytes")
+        #expect((try? Data(contentsOf: index)) == Data("not an index".utf8), "the mapping folder holds its index again with its bytes")
+        #expect(scene.bundleFiles() == filesBefore, "the bundle keeps none of the run's files")
+        #expect(try Data(contentsOf: scene.manifestURL) == manifestBefore, "manifest.json holds its original bytes")
+    }
 }
 
 /// A bundle with one alignment track, and mapping folders to adopt into it.
