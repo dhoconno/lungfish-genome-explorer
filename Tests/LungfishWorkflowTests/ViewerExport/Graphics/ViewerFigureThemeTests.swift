@@ -28,6 +28,19 @@ final class ViewerFigureThemeTests: XCTestCase {
                 "variantGutterSeparator", "variantDataBackground", "variantSummaryBorder", "variantRowSeparator",
                 "variantLabelMargin", "variantScrollTrack", "variantScrollThumb", "readBaseA", "readBaseC",
                 "readBaseG", "readBaseT", "readBaseN",
+                // Appended by lane 13.29 M3 for the annotation track.
+                "annotationGene", "annotationMRNA", "annotationTranscript", "annotationCDS", "annotationORF",
+                "annotationTranslation", "annotationExon", "annotationIntron", "annotationUTR", "annotationTRNA",
+                "annotationRRNA", "annotationRegion", "annotationPromoter", "annotationEnhancer", "annotationSilencer",
+                "annotationTerminator", "annotationPolyASignal", "annotationRegulatory", "annotationNcRNA",
+                "annotationPrimer", "annotationRestrictionSite", "annotationVariation", "annotationInsertion",
+                "annotationDeletion", "annotationRepeatRegion", "annotationStemLoop", "annotationMiscFeature",
+                "annotationPseudogene", "annotationMobileElement", "annotationMatPeptide", "annotationSigPeptide",
+                "annotationTransitPeptide", "annotationMiscBinding", "annotationProteinBind", "annotationAmplicon",
+                "annotationContig", "annotationGap", "annotationScaffold", "annotationSource", "annotationCustom",
+                "annotationBarcode5p", "annotationBarcode3p", "annotationAdapter5p", "annotationAdapter3p",
+                "annotationPrimer5p", "annotationPrimer3p", "annotationTrimQuality", "annotationTrimFixed",
+                "annotationOrientMarker", "annotationUmiRegion", "annotationContaminantMatch", "text",
             ]
         )
         XCTAssertEqual(ViewerFigureAppearance.allCases.map(\.rawValue), ["light", "dark"])
@@ -58,7 +71,7 @@ final class ViewerFigureThemeTests: XCTestCase {
             differing,
             [
                 .textBackground, .windowBackground, .separator, .label, .secondaryLabel, .tertiaryLabel, .systemGray,
-                .controlBackground, .quaternarySystemFill,
+                .controlBackground, .quaternarySystemFill, .text,
             ]
         )
     }

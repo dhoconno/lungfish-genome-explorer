@@ -166,6 +166,115 @@ public enum ViewerFigureColorRole: String, Sendable, Hashable, Codable, CaseIter
     case readBaseT
     /// `SemanticColors.DNA.baseN`, a read mismatch at any other letter.
     case readBaseN
+
+    // Annotation feature colours (lane 13.29 M3), one role for each `AnnotationType.defaultColor`
+    // of LungfishCore, as the live viewer draws it through `NSColor(calibratedRed:...)`. The
+    // figure's annotation track picks one with `ViewerFigureAnnotationColors.role(for:)`.
+
+    /// `AnnotationType` `.gene`.
+    case annotationGene
+    /// `AnnotationType` `.mRNA`.
+    case annotationMRNA
+    /// `AnnotationType` `.transcript`.
+    case annotationTranscript
+    /// `AnnotationType` `.cds`.
+    case annotationCDS
+    /// `AnnotationType` `.orf`.
+    case annotationORF
+    /// `AnnotationType` `.translation`.
+    case annotationTranslation
+    /// `AnnotationType` `.exon`.
+    case annotationExon
+    /// `AnnotationType` `.intron`.
+    case annotationIntron
+    /// `AnnotationType` `.utr5` and `.utr3`.
+    case annotationUTR
+    /// `AnnotationType` `.tRNA`.
+    case annotationTRNA
+    /// `AnnotationType` `.rRNA`.
+    case annotationRRNA
+    /// `AnnotationType` `.region`.
+    case annotationRegion
+    /// `AnnotationType` `.promoter`.
+    case annotationPromoter
+    /// `AnnotationType` `.enhancer`.
+    case annotationEnhancer
+    /// `AnnotationType` `.silencer`.
+    case annotationSilencer
+    /// `AnnotationType` `.terminator`.
+    case annotationTerminator
+    /// `AnnotationType` `.polyASignal`.
+    case annotationPolyASignal
+    /// `AnnotationType` `.regulatory`.
+    case annotationRegulatory
+    /// `AnnotationType` `.ncRNA`.
+    case annotationNcRNA
+    /// `AnnotationType` `.primer` and `.primerPair`.
+    case annotationPrimer
+    /// `AnnotationType` `.restrictionSite`.
+    case annotationRestrictionSite
+    /// `AnnotationType` `.snp` and `.variation`.
+    case annotationVariation
+    /// `AnnotationType` `.insertion`.
+    case annotationInsertion
+    /// `AnnotationType` `.deletion`.
+    case annotationDeletion
+    /// `AnnotationType` `.repeatRegion`.
+    case annotationRepeatRegion
+    /// `AnnotationType` `.stem_loop`.
+    case annotationStemLoop
+    /// `AnnotationType` `.misc_feature`.
+    case annotationMiscFeature
+    /// `AnnotationType` `.pseudogene`.
+    case annotationPseudogene
+    /// `AnnotationType` `.mobileElement`.
+    case annotationMobileElement
+    /// `AnnotationType` `.mat_peptide`.
+    case annotationMatPeptide
+    /// `AnnotationType` `.sig_peptide`.
+    case annotationSigPeptide
+    /// `AnnotationType` `.transit_peptide`.
+    case annotationTransitPeptide
+    /// `AnnotationType` `.misc_binding`.
+    case annotationMiscBinding
+    /// `AnnotationType` `.protein_bind`.
+    case annotationProteinBind
+    /// `AnnotationType` `.amplicon`.
+    case annotationAmplicon
+    /// `AnnotationType` `.contig`.
+    case annotationContig
+    /// `AnnotationType` `.gap`.
+    case annotationGap
+    /// `AnnotationType` `.scaffold`.
+    case annotationScaffold
+    /// `AnnotationType` `.source`.
+    case annotationSource
+    /// `AnnotationType` `.custom`.
+    case annotationCustom
+    /// `AnnotationType` `.barcode5p`.
+    case annotationBarcode5p
+    /// `AnnotationType` `.barcode3p`.
+    case annotationBarcode3p
+    /// `AnnotationType` `.adapter5p`.
+    case annotationAdapter5p
+    /// `AnnotationType` `.adapter3p`.
+    case annotationAdapter3p
+    /// `AnnotationType` `.primer5p`.
+    case annotationPrimer5p
+    /// `AnnotationType` `.primer3p`.
+    case annotationPrimer3p
+    /// `AnnotationType` `.trimQuality`.
+    case annotationTrimQuality
+    /// `AnnotationType` `.trimFixed`.
+    case annotationTrimFixed
+    /// `AnnotationType` `.orientMarker`.
+    case annotationOrientMarker
+    /// `AnnotationType` `.umiRegion`.
+    case annotationUmiRegion
+    /// `AnnotationType` `.contaminantMatch`.
+    case annotationContaminantMatch
+    /// `NSColor.textColor`, annotation labels and strand arrows.
+    case text
 }
 
 /// The colours of a figure in one appearance, fixed sRGB values and never a dynamic colour.
@@ -210,6 +319,7 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
         case .baseN: Self.baseN
         case .controlBackground: ViewerFigureColor(white: 1)
         case .quaternarySystemFill: ViewerFigureColor(white: 0, alpha: 0.0275)
+        case .text: ViewerFigureColor(white: 0)
         case .forwardRead, .forwardReadStroke, .reverseRead, .reverseReadStroke, .forwardCoverage, .reverseCoverage,
              .matchDot, .insertion, .deletion, .softClip, .insertNormal, .insertTooSmall, .insertTooLarge,
              .insertInterchromosomal, .insertAbnormalOrientation, .firstInPair, .secondInPair, .splitRead,
@@ -217,7 +327,18 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
              .baseReadNeutralBackground, .baseReadNeutralStroke, .intron, .mateLink, .variantGutterBackground,
              .variantGutterSeparator, .variantDataBackground, .variantSummaryBorder, .variantRowSeparator,
              .variantLabelMargin, .variantScrollTrack, .variantScrollThumb, .readBaseA, .readBaseC, .readBaseG,
-             .readBaseT, .readBaseN:
+             .readBaseT, .readBaseN, .annotationGene, .annotationMRNA, .annotationTranscript, .annotationCDS,
+             .annotationORF, .annotationTranslation, .annotationExon, .annotationIntron, .annotationUTR,
+             .annotationTRNA, .annotationRRNA, .annotationRegion, .annotationPromoter, .annotationEnhancer,
+             .annotationSilencer, .annotationTerminator, .annotationPolyASignal, .annotationRegulatory,
+             .annotationNcRNA, .annotationPrimer, .annotationRestrictionSite, .annotationVariation,
+             .annotationInsertion, .annotationDeletion, .annotationRepeatRegion, .annotationStemLoop,
+             .annotationMiscFeature, .annotationPseudogene, .annotationMobileElement, .annotationMatPeptide,
+             .annotationSigPeptide, .annotationTransitPeptide, .annotationMiscBinding, .annotationProteinBind,
+             .annotationAmplicon, .annotationContig, .annotationGap, .annotationScaffold, .annotationSource,
+             .annotationCustom, .annotationBarcode5p, .annotationBarcode3p, .annotationAdapter5p,
+             .annotationAdapter3p, .annotationPrimer5p, .annotationPrimer3p, .annotationTrimQuality,
+             .annotationTrimFixed, .annotationOrientMarker, .annotationUmiRegion, .annotationContaminantMatch:
             Self.trackColor(role)
         }
     }
@@ -239,6 +360,7 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
         case .baseN: Self.baseN
         case .controlBackground: ViewerFigureColor(white: 0.1176)
         case .quaternarySystemFill: ViewerFigureColor(white: 1, alpha: 0.0275)
+        case .text: ViewerFigureColor(white: 1)
         case .forwardRead, .forwardReadStroke, .reverseRead, .reverseReadStroke, .forwardCoverage, .reverseCoverage,
              .matchDot, .insertion, .deletion, .softClip, .insertNormal, .insertTooSmall, .insertTooLarge,
              .insertInterchromosomal, .insertAbnormalOrientation, .firstInPair, .secondInPair, .splitRead,
@@ -246,7 +368,18 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
              .baseReadNeutralBackground, .baseReadNeutralStroke, .intron, .mateLink, .variantGutterBackground,
              .variantGutterSeparator, .variantDataBackground, .variantSummaryBorder, .variantRowSeparator,
              .variantLabelMargin, .variantScrollTrack, .variantScrollThumb, .readBaseA, .readBaseC, .readBaseG,
-             .readBaseT, .readBaseN:
+             .readBaseT, .readBaseN, .annotationGene, .annotationMRNA, .annotationTranscript, .annotationCDS,
+             .annotationORF, .annotationTranslation, .annotationExon, .annotationIntron, .annotationUTR,
+             .annotationTRNA, .annotationRRNA, .annotationRegion, .annotationPromoter, .annotationEnhancer,
+             .annotationSilencer, .annotationTerminator, .annotationPolyASignal, .annotationRegulatory,
+             .annotationNcRNA, .annotationPrimer, .annotationRestrictionSite, .annotationVariation,
+             .annotationInsertion, .annotationDeletion, .annotationRepeatRegion, .annotationStemLoop,
+             .annotationMiscFeature, .annotationPseudogene, .annotationMobileElement, .annotationMatPeptide,
+             .annotationSigPeptide, .annotationTransitPeptide, .annotationMiscBinding, .annotationProteinBind,
+             .annotationAmplicon, .annotationContig, .annotationGap, .annotationScaffold, .annotationSource,
+             .annotationCustom, .annotationBarcode5p, .annotationBarcode3p, .annotationAdapter5p,
+             .annotationAdapter3p, .annotationPrimer5p, .annotationPrimer3p, .annotationTrimQuality,
+             .annotationTrimFixed, .annotationOrientMarker, .annotationUmiRegion, .annotationContaminantMatch:
             Self.trackColor(role)
         }
     }
@@ -298,6 +431,58 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
         .readBaseG: ViewerFigureColor(SemanticColors.DNA.baseG),
         .readBaseT: ViewerFigureColor(SemanticColors.DNA.baseT),
         .readBaseN: ViewerFigureColor(SemanticColors.DNA.baseN),
+        // `AnnotationType.defaultColor`, calibrated RGB converted to sRGB.
+        .annotationGene: ViewerFigureColor(red: 0.2398, green: 0.6658, blue: 0.8382),
+        .annotationMRNA: ViewerFigureColor(red: 0.2479, green: 0.5841, blue: 0.9209),
+        .annotationTranscript: ViewerFigureColor(red: 0.4761, green: 0.488, blue: 0.7531),
+        .annotationCDS: ViewerFigureColor(red: 0.844, green: 0.4811, blue: 0.2575),
+        .annotationORF: ViewerFigureColor(red: 0.0809, green: 0.6065, blue: 0.3175),
+        .annotationTranslation: ViewerFigureColor(red: 0.7157, green: 0.36, blue: 0.7958),
+        .annotationExon: ViewerFigureColor(red: 0.6639, green: 0.6557, blue: 0.2579),
+        .annotationIntron: ViewerFigureColor(red: 0.6662, green: 0.5715, blue: 0.4751),
+        .annotationUTR: ViewerFigureColor(red: 0.759, green: 0.3848, blue: 0.3715),
+        .annotationTRNA: ViewerFigureColor(red: 0.2297, green: 0.7438, blue: 0.6645),
+        .annotationRRNA: ViewerFigureColor(red: 0.47, green: 0.6678, blue: 0.8381),
+        .annotationRegion: ViewerFigureColor(red: 0.6199, green: 0.5718, blue: 0.5244),
+        .annotationPromoter: ViewerFigureColor(red: 0.9249, green: 0.6611, blue: 0.1225),
+        .annotationEnhancer: ViewerFigureColor(red: 0.8815, green: 0.7452, blue: 0.256),
+        .annotationSilencer: ViewerFigureColor(red: 0.756, green: 0.5696, blue: 0.2577),
+        .annotationTerminator: ViewerFigureColor(red: 0.6681, green: 0.4773, blue: 0.3717),
+        .annotationPolyASignal: ViewerFigureColor(red: 0.8418, green: 0.6158, blue: 0.1942),
+        .annotationRegulatory: ViewerFigureColor(red: 0.9673, green: 0.5753, blue: 0.1225),
+        .annotationNcRNA: ViewerFigureColor(red: 0.3555, green: 0.7422, blue: 0.5723),
+        .annotationPrimer: ViewerFigureColor(red: 0.2177, green: 0.8194, blue: 0.2584),
+        .annotationRestrictionSite: ViewerFigureColor(red: 0.846, green: 0.2873, blue: 0.2579),
+        .annotationVariation: ViewerFigureColor(red: 0.8464, green: 0.3266, blue: 0.8379),
+        .annotationInsertion: ViewerFigureColor(red: 0.2287, green: 0.7378, blue: 0.3719),
+        .annotationDeletion: ViewerFigureColor(red: 0.9286, green: 0.3935, blue: 0.3707),
+        .annotationRepeatRegion: ViewerFigureColor(red: 0.6699, green: 0.3948, blue: 0.6645),
+        .annotationStemLoop: ViewerFigureColor(red: 0.5695, green: 0.6575, blue: 0.4751),
+        .annotationMiscFeature: ViewerFigureColor(red: 0.6188, green: 0.6188, blue: 0.6188),
+        .annotationPseudogene: ViewerFigureColor(red: 0.5725, green: 0.5774, blue: 0.7091),
+        .annotationMobileElement: ViewerFigureColor(red: 0.758, green: 0.4951, blue: 0.7527),
+        .annotationMatPeptide: ViewerFigureColor(red: 0.7601, green: 0.2973, blue: 0.5722),
+        .annotationSigPeptide: ViewerFigureColor(red: 0.5628, green: 0.8231, blue: 0.3709),
+        .annotationTransitPeptide: ViewerFigureColor(red: 0.3663, green: 0.5763, blue: 0.7531),
+        .annotationMiscBinding: ViewerFigureColor(red: 0.6686, green: 0.4975, blue: 0.8381),
+        .annotationProteinBind: ViewerFigureColor(red: 0.4785, green: 0.3951, blue: 0.7531),
+        .annotationAmplicon: ViewerFigureColor(red: 0.3607, green: 0.653, blue: 0.372),
+        .annotationContig: ViewerFigureColor(red: 0.5248, green: 0.5281, blue: 0.6191),
+        .annotationGap: ViewerFigureColor(red: 0.6642, green: 0.6642, blue: 0.6642),
+        .annotationScaffold: ViewerFigureColor(red: 0.5734, green: 0.5241, blue: 0.4754),
+        .annotationSource: ViewerFigureColor(red: 0.4756, green: 0.4756, blue: 0.4756),
+        .annotationCustom: ViewerFigureColor(red: 0.5723, green: 0.5723, blue: 0.5723),
+        .annotationBarcode5p: ViewerFigureColor(red: 0, green: 0.7857, blue: 0.7092),
+        .annotationBarcode3p: ViewerFigureColor(red: 0, green: 0.6569, blue: 0.6192),
+        .annotationAdapter5p: ViewerFigureColor(red: 0.9679, green: 0.53, blue: 0),
+        .annotationAdapter3p: ViewerFigureColor(red: 0.8866, green: 0.4337, blue: 0),
+        .annotationPrimer5p: ViewerFigureColor(red: 0.0297, green: 0.7352, blue: 0.1289),
+        .annotationPrimer3p: ViewerFigureColor(red: 0, green: 0.6041, blue: 0.0516),
+        .annotationTrimQuality: ViewerFigureColor(red: 0.7948, green: 0.7836, blue: 0),
+        .annotationTrimFixed: ViewerFigureColor(red: 0.7083, green: 0.699, blue: 0.1948),
+        .annotationOrientMarker: ViewerFigureColor(red: 0.6713, green: 0.3169, blue: 0.8382),
+        .annotationUmiRegion: ViewerFigureColor(red: 0.9301, green: 0.2323, blue: 0.6641),
+        .annotationContaminantMatch: ViewerFigureColor(red: 0.9298, green: 0.1951, blue: 0.1254),
     ]
 
     // Colours that are the same in both appearances.

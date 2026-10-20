@@ -73,7 +73,20 @@ final class ViewerFigureThemeParityTests: XCTestCase {
         case .readBaseG: Self.srgb(SemanticColors.DNA.baseG)
         case .readBaseT: Self.srgb(SemanticColors.DNA.baseT)
         case .readBaseN: Self.srgb(SemanticColors.DNA.baseN)
+        case .text: .textColor
+        // The annotation roles (lane 13.29 M3), each the `defaultColor` of the types that map to
+        // it, as `SequenceViewerView.cachedColors(for:)` builds it. A role no type maps to gets
+        // `.clear` and fails.
+        default: Self.annotationLive(role)
         }
+    }
+
+    private static func annotationLive(_ role: ViewerFigureColorRole) -> NSColor {
+        let types = AnnotationType.allCases.filter { ViewerFigureAnnotationColors.role(for: $0) == role }
+        let colors = Set(types.map { "\($0.defaultColor.red) \($0.defaultColor.green) \($0.defaultColor.blue)" })
+        guard let type = types.first, colors.count == 1 else { return .clear }
+        let color = type.defaultColor
+        return NSColor(calibratedRed: CGFloat(color.red), green: CGFloat(color.green), blue: CGFloat(color.blue), alpha: 1)
     }
 
     private static func srgb(_ hex: HexColor) -> NSColor {
