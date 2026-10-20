@@ -21,7 +21,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "EsVirituResu
 /// per-key task-chaining design rather than a shared import (round-3 review
 /// fix, R3ML EsViritu batch manifest write race).
 ///
-/// `scheduleBatchUniqueReadComputation` (below) processes batch samples one
+/// The per-sample unique-read computation (deleted in 13.53) processed batch samples one
 /// at a time in a single `Task`, but each sample's completion previously
 /// kicked off its OWN unserialized `Task.detached` to update the shared
 /// `EsVirituBatchAggregatedManifest` on disk (R3-R3ML-5). Those detached
@@ -194,22 +194,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Path to the BAM index (.csi/.bai), if available.
     var bamIndexURL: URL?
 
-    /// Background task computing unique reads across all samples in batch mode.
-    private var batchUniqueReadComputationTask: Task<Void, Never>?
-
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
-
-    /// Sidecar filename for persisted unique read counts.
-    ///
-    /// Versioned `v2` because unique-read counts before this fix
-    /// were computed from `AlignmentDataProvider.fetchReads(maxReads:
-    /// 100_000)`, capping any contig with more than 100,000 mapped reads at
-    /// that ceiling. The `v2` counter streams the whole contig through
-    /// `countUniqueReads` with no cap, so a `v1` sidecar's values cannot be
-    /// trusted and must be recomputed rather than read back.
-    private static let uniqueReadsSidecar = "esviritu-unique-reads.v2.json"
 
     // MARK: - Child Views
 
@@ -223,21 +210,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private var splitViewBottomConstraint: NSLayoutConstraint?
     private let contentTypographyApplicator = ContentTypographyViewApplicator()
     private var contentTypographyObservation: ContentTypographyViewObservation?
-
-    // MARK: - Custom Action Bar Buttons
-
-    /// "Recompute Unique Reads" button — only shown in batch mode.
-    private let recomputeUniqueReadsButton: NSButton = {
-        let btn = NSButton()
-        btn.title = "Recompute Unique Reads"
-        btn.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Recompute Unique Reads")
-        btn.bezelStyle = .accessoryBarAction
-        btn.imagePosition = .imageLeading
-        LungfishKitControlStyle.applyInspectorMetrics(to: btn)
-        btn.setContentHuggingPriority(.required, for: .horizontal)
-        btn.isHidden = true  // shown only in batch mode
-        return btn
-    }()
 
     // MARK: - Multi-Selection Placeholder
 
@@ -364,9 +336,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []
-
-    /// Batch rows whose persisted unique-read value was absent/zero and should be recomputed from BAM.
-    private var batchRowsNeedingUniqueComputation: Set<String> = []
 
     /// Flat table used in batch mode (placed inside the right pane of `splitView`).
     private(set) var batchTableView = BatchEsVirituTableView()
@@ -579,7 +548,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         batchAssemblyLookup.removeAll()
         batchBAMLookup.removeAll()
         batchBAMIndexLookup.removeAll()
-        batchRowsNeedingUniqueComputation.removeAll()
 
         let allSampleIds = sampleEntries.map(\.id)
         let dbRows = (try? db.fetchRows(samples: allSampleIds)) ?? []
@@ -604,10 +572,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             let coverageValues = group.compactMap(\.meanCoverage)
             let avgDepth = coverageValues.isEmpty ? 0.0 :
                 coverageValues.reduce(0, +) / Double(coverageValues.count)
-
-            if totalReads > 0, group.contains(where: { ($0.uniqueReads ?? 0) <= 0 }) {
-                batchRowsNeedingUniqueComputation.insert(key)
-            }
 
             batchRows.append(BatchEsVirituRow(
                 sample: first.sample,
@@ -880,187 +844,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     // MARK: - Batch Unique Read Computation
 
-    /// Schedules background unique-read computation for all batch samples that have BAM
-    /// files available but whose rows still show 0 unique reads.
-    ///
-    /// Iterates each sample in `batchBAMLookup`, skips samples where ALL assemblies already
-    /// have non-zero unique reads, and launches a single `Task.detached` that processes
-    /// samples sequentially. As each sample completes, `allBatchRows` is updated and
-    /// `applyBatchSampleFilter()` is called to refresh the table.
-    private func scheduleBatchUniqueReadComputation() {
-        batchUniqueReadComputationTask?.cancel()
-
-        // Collect samples that need computation: have a BAM but lack unique-read data.
-        struct SampleWork {
-            let sampleId: String
-            let assemblies: [ViralAssembly]
-            let bamURL: URL
-            let bamIndexURL: URL
-            let resultDir: URL
-        }
-
-        var workItems: [SampleWork] = []
-
-        for (sampleId, bamURL) in batchBAMLookup {
-            guard let bamIndexURL = batchBAMIndexLookup[sampleId] else { continue }
-
-            // Collect this sample's assemblies from batchAssemblyLookup.
-            let assemblies = batchAssemblyLookup
-                .compactMap { key, value -> ViralAssembly? in
-                    guard key.hasPrefix("\(sampleId)\t") else { return nil }
-                    return value
-                }
-            guard !assemblies.isEmpty else { continue }
-
-            // Check whether all assemblies already have unique reads in allBatchRows.
-            let existingRows = allBatchRows.filter { $0.sample == sampleId }
-            let allHaveUniqueReads = existingRows.allSatisfy { row in
-                row.uniqueReads > 0 && !batchRowsNeedingUniqueComputation.contains("\(row.sample)\t\(row.assembly)")
-            }
-            if allHaveUniqueReads { continue }
-
-            // Derive result dir from bamURL: <resultDir>/<sampleId>_temp/<bamName>
-            // so resultDir = bamURL.deletingLastPathComponent().deletingLastPathComponent()
-            let resultDir = bamURL
-                .deletingLastPathComponent()  // <sampleId>_temp/
-                .deletingLastPathComponent()  // <resultDir>/
-
-            workItems.append(SampleWork(
-                sampleId: sampleId,
-                assemblies: assemblies.sorted { $0.totalReads > $1.totalReads },
-                bamURL: bamURL,
-                bamIndexURL: bamIndexURL,
-                resultDir: resultDir
-            ))
-        }
-
-        guard !workItems.isEmpty else {
-            logger.debug("scheduleBatchUniqueReadComputation: All samples already have unique reads")
-            return
-        }
-
-        logger.info("scheduleBatchUniqueReadComputation: Starting computation for \(workItems.count) sample(s)")
-
-        batchUniqueReadComputationTask = Task { [weak self] in
-            for work in workItems {
-                if Task.isCancelled { return }
-
-                let provider = AlignmentDataProvider(
-                    alignmentPath: work.bamURL.path,
-                    indexPath: work.bamIndexURL.path
-                )
-
-                // Compute unique reads per assembly for this sample.
-                var uniqueByAssembly: [String: Int] = [:]
-
-                for assembly in work.assemblies {
-                    if Task.isCancelled { return }
-
-                    var assemblyUniqueTotal = 0
-                    var fetchedAny = false
-
-                    for contig in assembly.contigs {
-                        if Task.isCancelled { return }
-                        guard contig.length > 0 else { continue }
-
-                        // Stream the whole contig through the
-                        // uncapped counter instead of fetchReads(maxReads:)
-                        // + AlignedRead.deduplicatedReadCount(from:), which
-                        // silently undercounted any contig with more than
-                        // 100,000 mapped reads and buffered up to 500 MB of
-                        // SAM text per contig to do it.
-                        guard let uniqueCount = try? await provider.countUniqueReads(
-                            chromosome: contig.accession,
-                            start: 0,
-                            end: contig.length,
-                            excludeFlags: 0x904
-                        ), uniqueCount > 0 else { continue }
-
-                        fetchedAny = true
-                        assemblyUniqueTotal += uniqueCount
-                    }
-
-                    if fetchedAny || assembly.contigs.count == 1 {
-                        uniqueByAssembly[assembly.assembly] = BatchEsVirituRow.normalizedUniqueReads(
-                            stored: assemblyUniqueTotal,
-                            readCount: assembly.totalReads
-                        )
-                    }
-                }
-
-                if Task.isCancelled { return }
-                if uniqueByAssembly.isEmpty { continue }
-
-                let sampleId = work.sampleId
-                let resultDir = work.resultDir
-                let assemblyCount = uniqueByAssembly.count
-
-                logger.info("scheduleBatchUniqueReadComputation: Computed unique reads for \(sampleId, privacy: .public) — \(assemblyCount) assemblies")
-
-                // Capture a snapshot for the main-actor closure.
-                let snapshotByAssembly = uniqueByAssembly
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-
-                        // Update allBatchRows for this sample's assemblies.
-                        self.allBatchRows = self.allBatchRows.map { row in
-                            guard row.sample == sampleId,
-                                  let newCount = snapshotByAssembly[row.assembly] else {
-                                return row
-                            }
-                            self.batchRowsNeedingUniqueComputation.remove("\(row.sample)\t\(row.assembly)")
-                            return BatchEsVirituRow(
-                                sample: row.sample,
-                                virusName: row.virusName,
-                                family: row.family,
-                                assembly: row.assembly,
-                                readCount: row.readCount,
-                                uniqueReads: newCount,
-                                rpkmf: row.rpkmf,
-                                coverageBreadth: row.coverageBreadth,
-                                coverageDepth: row.coverageDepth
-                            )
-                        }
-                        self.applyBatchSampleFilter()
-
-                        // Persist the unique reads sidecar for this sample.
-                        self.persistBatchUniqueReads(
-                            uniqueByAssembly: snapshotByAssembly,
-                            toResultDir: resultDir
-                        )
-
-                        // Update the materialized batch aggregated manifest with new unique
-                        // reads so future opens get fully-populated rows from cache.
-                        self.updateEsVirituBatchAggregatedManifestUniqueReads()
-                    }
-                }
-            }
-        }
-    }
-
-    /// Persists unique read counts for a single batch sample to its result directory sidecar.
-    private func persistBatchUniqueReads(uniqueByAssembly: [String: Int], toResultDir resultDir: URL) {
-        let cache = UniqueReadCache(byAssembly: uniqueByAssembly, byContig: [:])
-        let sidecarURL = resultDir.appendingPathComponent(Self.uniqueReadsSidecar)
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(cache)
-            try data.write(to: sidecarURL)
-            logger.info("Persisted batch unique reads for \(uniqueByAssembly.count) assemblies at \(resultDir.lastPathComponent, privacy: .public)")
-        } catch {
-            logger.warning("Failed to persist batch unique reads: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     // MARK: - Unique Read Helpers
-
-    /// Sidecar data structure for persisted unique read counts.
-    private struct UniqueReadCache: Codable {
-        var byAssembly: [String: Int]
-        var byContig: [String: Int]
-    }
 
     // MARK: - Setup: Summary Bar
 
@@ -1272,10 +1056,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self?.showProvenancePopover(relativeTo: sender)
         }
 
-        // Custom button: Recompute Unique Reads (hidden until batch mode is active)
-        recomputeUniqueReadsButton.target = self
-        recomputeUniqueReadsButton.action = #selector(recomputeUniqueReadsTapped)
-        actionBar.addCustomButton(recomputeUniqueReadsButton)
+        reserveTheSpaceOfTheDeletedRecomputeButton()
 
         NotificationCenter.default.addObserver(
             self,
@@ -1283,6 +1064,17 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             name: .metagenomicsLayoutSwapRequested,
             object: nil
         )
+    }
+
+    /// The hidden "Recompute Unique Reads" button this bar held (170 pt plus a 6 pt gap, after Extract FASTQ) set
+    /// where the info text starts and how narrow this view can get. Deleting it (13.53) moved both, so this
+    /// keeps the 176 pt. The bar chains the info text to its last button with one leading constraint, found
+    /// here by its first item. If the bar stops using one, nothing moves.
+    private func reserveTheSpaceOfTheDeletedRecomputeButton() {
+        let infoTextLeading = actionBar.constraints.first {
+            $0.firstItem === actionBar.infoLabel && $0.firstAttribute == .leading
+        }
+        infoTextLeading?.constant += 176
     }
 
     private func setBatchBAMContext(forSample sampleId: String?) {
@@ -1294,68 +1086,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
         bamURL = batchBAMLookup[sampleId]
         bamIndexURL = batchBAMIndexLookup[sampleId]
-    }
-
-    // MARK: - Recompute Unique Reads
-
-    @objc private func recomputeUniqueReadsTapped() {
-        recomputeAllUniqueReads()
-    }
-
-    /// Clears all cached unique read data and restarts computation from BAM files for
-    /// all assemblies across all samples in batch mode.
-    func recomputeAllUniqueReads() {
-        // 1. Mark positive-read rows for recomputation. The display layer still
-        //    normalizes them to at least one unique read while recomputation runs.
-        allBatchRows = allBatchRows.map { row in
-            if row.readCount > 0 {
-                batchRowsNeedingUniqueComputation.insert("\(row.sample)\t\(row.assembly)")
-            }
-            return BatchEsVirituRow(
-                sample: row.sample,
-                virusName: row.virusName,
-                family: row.family,
-                assembly: row.assembly,
-                readCount: row.readCount,
-                uniqueReads: 0,
-                rpkmf: row.rpkmf,
-                coverageBreadth: row.coverageBreadth,
-                coverageDepth: row.coverageDepth
-            )
-        }
-        applyBatchSampleFilter()
-
-        // 2. Delete on-disk caches.
-        if let batchURL {
-            // Delete the materialized aggregated manifest so next open re-parses fresh.
-            let manifestURL = batchURL.appendingPathComponent(EsVirituBatchAggregatedManifest.filename)
-            try? FileManager.default.removeItem(at: manifestURL)
-
-            // Delete per-sample unique reads sidecars.
-            for sample in sampleEntries {
-                // Derive the result directory from batchBAMLookup if available,
-                // otherwise fall back to a <batchURL>/<sampleId> subdir convention.
-                let resultDir: URL
-                if let bamURL = batchBAMLookup[sample.id] {
-                    resultDir = bamURL
-                        .deletingLastPathComponent()  // <sampleId>_temp/
-                        .deletingLastPathComponent()  // <resultDir>/
-                } else {
-                    resultDir = batchURL.appendingPathComponent(sample.id)
-                }
-                let cacheURL = resultDir.appendingPathComponent(Self.uniqueReadsSidecar)
-                try? FileManager.default.removeItem(at: cacheURL)
-            }
-        }
-
-        // 3. Cancel any existing computation.
-        batchUniqueReadComputationTask?.cancel()
-
-        // 4. Restart computation for all assemblies.
-        scheduleBatchUniqueReadComputation()
-
-        // 5. Update info text to indicate recompute is in progress.
-        actionBar.updateInfoText("Recomputing unique reads for all assemblies\u{2026}")
     }
 
     // MARK: - Classifier extraction wiring
