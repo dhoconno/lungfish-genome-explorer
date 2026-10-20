@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 struct NaoMgsPartitionResult: Sendable {
@@ -198,28 +199,33 @@ private func streamNaoMgsLines(
     from url: URL,
     process: (_ lineNumber: Int, _ line: String) throws -> Void
 ) throws {
-    let readHandle: FileHandle
-    var gzipProcess: Process?
+    let plainHandle: FileHandle?
+    let decompression: ToolProcessRun?
 
     if url.pathExtension.lowercased() == "gz" {
         guard let decompressorURL = NaoMgsSamplePartitioner.managedDecompressorURL() else {
             throw NaoMgsSamplePartitionerError.managedPigzNotFound(url)
         }
-        let processHandle = Process()
         // Prefer pigz for parallel decompression (4-8× faster on multi-core).
-        processHandle.executableURL = decompressorURL
-        processHandle.arguments = ["-dc", url.path]
-        let pipe = Pipe()
-        processHandle.standardOutput = pipe
-        processHandle.standardError = FileHandle.nullDevice
-        try processHandle.run()
-        readHandle = pipe.fileHandleForReading
-        gzipProcess = processHandle
+        decompression = try ToolProcess.start(ToolProcessSpec(
+            executableURL: decompressorURL,
+            arguments: ["-dc", url.path],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .stream,
+            stderr: .discard,
+            label: "pigz -dc"
+        ))
+        plainHandle = nil
     } else {
-        readHandle = try FileHandle(forReadingFrom: url)
+        decompression = nil
+        plainHandle = try FileHandle(forReadingFrom: url)
     }
 
-    defer { try? readHandle.close() }
+    // A line callback that throws stops pigz here. Cancelling a run that has ended does nothing.
+    defer {
+        try? plainHandle?.close()
+        decompression?.cancel()
+    }
 
     let chunkSize = 4_194_304
     var partial = Data()
@@ -234,7 +240,8 @@ private func streamNaoMgsLines(
     }
 
     while true {
-        let chunk = readHandle.readData(ofLength: chunkSize)
+        let chunk = decompression?.stdout.readUntilFull(chunkSize)
+            ?? plainHandle?.readData(ofLength: chunkSize) ?? Data()
         if chunk.isEmpty { break }
 
         partial.append(chunk)
@@ -260,10 +267,10 @@ private func streamNaoMgsLines(
         try process(lineNumber, line)
     }
 
-    if let gzipProcess {
-        gzipProcess.waitUntilExit()
-        guard gzipProcess.terminationReason == .exit, gzipProcess.terminationStatus == 0 else {
-            throw NaoMgsSamplePartitionerError.gzipFailed(url, gzipProcess.terminationStatus)
+    if let decompression {
+        let result = try decompression.waitBlocking()
+        guard result.isSuccess else {
+            throw NaoMgsSamplePartitionerError.gzipFailed(url, result.status)
         }
     }
 }
