@@ -61,8 +61,12 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
         var derived = false
         /// With `derived`, the plain track is not hidden, so its rows are exported with the iVar track's.
         var showsPlainTrack = false
+        /// With `derived`, the fixture adds `chr2`, the track `cds2` and the `chr2` calls, and side A builds its
+        /// features as the viewer does while it shows `chr2` (lane 13.38 M1, BIO ruling on M854 item 5).
+        var addsChr2 = false
         var description: String {
             "\(tab.rawValue)-\(format.rawValue)" + (derived ? "-derived" : "") + (showsPlainTrack ? "-both" : "")
+                + (addsChr2 ? "-chr2" : "")
         }
     }
 

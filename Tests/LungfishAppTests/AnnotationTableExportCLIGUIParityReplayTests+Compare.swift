@@ -92,7 +92,9 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
         let runs = try await harness.run(
             in: deepRoot(parityCase.description),
-            fixture: parityCase.derived ? Self.makeDerivedFixture : Self.makeFixture,
+            fixture: { root in
+                if parityCase.derived { try Self.makeDerivedFixture(root, addsChr2: parityCase.addsChr2) } else { try Self.makeFixture(root) }
+            },
             sideA: { root in try await self.sideA(root, parityCase) },
             sideC: { root in try await self.sideC(root, parityCase) }
         )

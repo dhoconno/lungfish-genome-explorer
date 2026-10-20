@@ -201,35 +201,45 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     /// The second bundle: the genome with its index, an annotation database of the two CDS, an iVar track whose
     /// manifest source is `iVar` and whose `path` is the overlay VCF, and a plain track. The iVar track holds a
     /// variant outside every CDS, an indel in `cdsF`, a synonymous change in its first block, a missense change in its
-    /// second block and a missense change in `cdsR`. The plain track holds one variant in the intron.
-    static func makeDerivedFixture(_ root: URL) throws {
+    /// second block and a missense change in `cdsR`. The plain track holds one variant in the intron. With `addsChr2`
+    /// the genome gains `chr2`, the track `cds` its `chr2` CDS, a second track `cds2` follows it with its own
+    /// database, and the iVar track gains the `chr2` calls (`+CDSShapes.swift`).
+    static func makeDerivedFixture(_ root: URL, addsChr2: Bool = false) throws {
         let fileManager = FileManager.default
         let bundle = bundleURL(in: root)
         for folder in ["genome", "annotations", "variants"] {
             try fileManager.createDirectory(at: bundle.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
         }
-        try (">chr1\n" + derivedGenome + "\n").write(
+        try (">chr1\n" + derivedGenome + "\n" + (addsChr2 ? ">chr2\n" + chr2Genome + "\n" : "")).write(
             to: bundle.appendingPathComponent("genome/sequence.fa"), atomically: true, encoding: .utf8
         )
-        try "chr1\t120\t6\t120\t121\n".write(
+        try ("chr1\t120\t6\t120\t121\n" + (addsChr2 ? chr2IndexLine : "")).write(
             to: bundle.appendingPathComponent("genome/sequence.fa.fai"), atomically: true, encoding: .utf8
         )
         let bed = root.appendingPathComponent("cds.bed")
         try ("chr1\t10\t90\tcdsF\t0\t+\t10\t90\t0,0,0\t2\t30,30\t0,50\tCDS\tgene=geneF\n"
-            + "chr1\t96\t117\tcdsR\t0\t-\t96\t117\t0,0,0\t1\t21\t0\tCDS\tgene=geneR\n")
+            + "chr1\t96\t117\tcdsR\t0\t-\t96\t117\t0,0,0\t1\t21\t0\tCDS\tgene=geneR\n" + (addsChr2 ? chr2CDSLines : ""))
             .write(to: bed, atomically: true, encoding: .utf8)
         _ = try AnnotationDatabase.createFromBED(bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/cds.db"))
         try fileManager.removeItem(at: bed)
+        if addsChr2 {
+            let secondBED = root.appendingPathComponent("cds2.bed")
+            try chr2CDS2Lines.write(to: secondBED, atomically: true, encoding: .utf8)
+            _ = try AnnotationDatabase.createFromBED(bedURL: secondBED, outputURL: bundle.appendingPathComponent("annotations/cds2.db"))
+            try fileManager.removeItem(at: secondBED)
+        }
 
         let format = "GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ"
-        let calls: [(position: Int, ref: String, alt: String, type: String, depth: Int, frequency: String)] = [
+        let calls: [DerivedCall] = [
             (4, "C", "G", "SNP", 90, "1"), (14, "AA", "A", "INDEL", 50, "0.5"), (31, "T", "C", "SNP", 200, "0.75"),
             (65, "G", "C", "SNP", 120, "0.5"), (110, "C", "T", "SNP", 80, "0.25"),
         ]
-        let body = calls.map { call in
-            "chr1\t\(call.position)\t.\t\(call.ref)\t\(call.alt)\t.\tPASS\tTYPE=\(call.type)\t\(format)\t"
+        let line = { (chromosome: String, call: DerivedCall) in
+            "\(chromosome)\t\(call.position)\t.\t\(call.ref)\t\(call.alt)\t.\tPASS\tTYPE=\(call.type)\t\(format)\t"
                 + "1:\(call.depth):0:0:0:\(call.depth):1:66:\(call.frequency)"
-        }.joined(separator: "\n")
+        }
+        let body = (calls.map { line("chr1", $0) } + (addsChr2 ? chr2Calls.map { line("chr2", $0) } : []))
+            .joined(separator: "\n")
         let ivarVCF = bundle.appendingPathComponent("variants/ivar.vcf")
         try "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample-a\n\(body)\n"
             .write(to: ivarVCF, atomically: true, encoding: .utf8)
@@ -247,14 +257,16 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
             identifier: "org.lungfish.test.annotation-table-parity-derived",
             source: SourceInfo(organism: "Test", assembly: "fixture"),
             genome: GenomeInfo(
-                path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 120,
+                path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 120 + (addsChr2 ? Int64(chr2Genome.count) : 0),
                 chromosomes: [ChromosomeInfo(name: "chr1", length: 120, offset: 6, lineBases: 120, lineWidth: 121)]
+                    + (addsChr2 ? [chr2Info] : [])
             ),
-            annotations: [AnnotationTrackInfo(id: cdsTrackID, name: "CDS", path: "annotations/cds.bb", databasePath: "annotations/cds.db")],
+            annotations: [AnnotationTrackInfo(id: cdsTrackID, name: "CDS", path: "annotations/cds.bb", databasePath: "annotations/cds.db")]
+                + (addsChr2 ? [AnnotationTrackInfo(id: cds2TrackID, name: "CDS 2", path: "annotations/cds2.bb", databasePath: "annotations/cds2.db")] : []),
             variants: [
                 VariantTrackInfo(
                     id: ivarTrackID, name: "iVar calls", path: "variants/ivar.vcf", indexPath: "variants/ivar.db",
-                    databasePath: "variants/ivar.db", variantCount: 5, source: "iVar"
+                    databasePath: "variants/ivar.db", variantCount: calls.count + (addsChr2 ? chr2Calls.count : 0), source: "iVar"
                 ),
                 VariantTrackInfo(
                     id: plainTrackID, name: "Plain calls", path: "variants/plain.vcf", indexPath: "variants/plain.db",
@@ -280,6 +292,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         case .variants:
             names += ["annotations/cds.db", "genome/sequence.fa", "variants/ivar.db", "variants/ivar.vcf"]
             if parityCase.showsPlainTrack { names.append("variants/plain.db") }
+            if parityCase.addsChr2 { names.append("annotations/cds2.db") }
         case .genotypes: names += ["variants/ivar.db", "variants/ivar.vcf"]
         case .samples: names += ["variants/ivar.db", "variants/plain.db"]
         }
@@ -293,8 +306,10 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
 
     /// The coding bases of `annotation` read from `derivedGenome` here: the exons in order on the forward strand, and
     /// the reverse complement of the exons from the last on the reverse strand, with the frame at the first base.
-    /// This is the context the viewer caches for a CDS it shows whole, and the leaf does not read it.
-    static func explicitCodingContext(_ annotation: SequenceAnnotation) -> VariantTableCodingFeatures.Context? {
+    /// This is the context the viewer caches for a CDS it shows whole, and the leaf does not read it. It is never nil,
+    /// and the call site wraps it, so no fixture CDS falls back to the leaf's own derivation without a sign
+    /// (Optional 4 of the 12.39 fix-2 review).
+    static func explicitCodingContext(_ annotation: SequenceAnnotation) -> VariantTableCodingFeatures.Context {
         let genome = Array(derivedGenome)
         var bases: [Character] = []
         var positions: [Int] = []
@@ -338,12 +353,15 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         let overlay = await VariantFormatOverlayLoader.load(
             sources: VariantFormatOverlaySource.iVarSources(bundle: bundle, databases: handles, aliasMaps: &aliasMaps)
         )
-        let features = VariantTableCodingFeatures.features(
+        let chr2 = parityCase.addsChr2 ? try chr2ViewerFeatures(bundle: bundle) : nil
+        let features = try chr2?.features ?? VariantTableCodingFeatures.features(
             annotations: try bundle.getAnnotationsSync(trackId: cdsTrackID, region: GenomicRegion(chromosome: "chr1", start: 0, end: 120)),
             fallbackChromosome: "chr1",
             chromosomeName: { bundle.chromosome(named: $0)?.name ?? $0 },
-            context: { explicitCodingContext($0) }
+            context: { Optional(explicitCodingContext($0)) }
         )
+        let codingFeatureRegion = chr2?.region
+            ?? AnnotationTableFeatureRegion(chromosome: "chr1", start: 0, end: 120, trackIDs: [cdsTrackID])
         let resolver = try VariantTableExportResolverSnapshot(
             features: features, variantChromosomeAliasMap: [:],
             referenceChromosomeAliases: VariantTableCodingFeatures.referenceAliases(chromosomes: manifest.genome?.chromosomes ?? []),
@@ -352,11 +370,12 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         let sources = AnnotationTableExportSources(
             manifestURL: folder.appendingPathComponent(BundleManifest.filename),
             genomeURL: folder.appendingPathComponent("genome/sequence.fa"),
-            annotationDatabases: [.init(trackID: cdsTrackID, url: cds)],
+            annotationDatabases: [.init(trackID: cdsTrackID, url: cds)]
+                + (parityCase.addsChr2 ? [.init(trackID: cds2TrackID, url: folder.appendingPathComponent("annotations/cds2.db"))] : []),
             variantDatabases: [.init(trackID: ivarTrackID, url: ivarDB), .init(trackID: plainTrackID, url: plainDB)],
             overlayURLsByTrack: Dictionary(grouping: overlay.sourceIdentities, by: \.trackID)
                 .mapValues { identities in identities.map(\.url).sorted { $0.path < $1.path } },
-            codingFeatureTrackIDs: parityCase.tab == .variants ? [cdsTrackID] : nil
+            codingFeatureTrackIDs: parityCase.tab == .variants ? codingFeatureRegion.trackIDs : nil
         )
         switch parityCase.tab {
         case .annotations:
@@ -377,7 +396,8 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
             let rows = try AnnotationTableVariantQueryRequest(
                 context: AnnotationVariantQueryContext(
                     databases: handles, trackNames: [ivarTrackID: "iVar calls", plainTrackID: "Plain calls"],
-                    trackChromosomes: [ivarTrackID: ["chr1"], plainTrackID: ["chr1"]], annotationDatabases: [],
+                    trackChromosomes: [ivarTrackID: parityCase.addsChr2 ? ["chr1", "chr2"] : ["chr1"], plainTrackID: ["chr1"]],
+                    annotationDatabases: [],
                     infoKeys: ["AF", "ALT_FREQ", "ALT_QUAL", "DP", "TYPE"], variantAliasMap: [:], formatOverlay: overlay
                 ),
                 query: .init(), types: [], infoFilters: [],
@@ -420,8 +440,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
                 table: AnnotationTableExportSelection(
                     scope: "allMatching", columns: derivedVariantColumns,
                     numericColumnIDs: derivedNumericColumnIDs.sorted(), integerColumnIDs: ["info_DP"],
-                    variantChromosomeAliases: [:],
-                    codingFeatureRegion: AnnotationTableFeatureRegion(chromosome: "chr1", start: 0, end: 120, trackIDs: [cdsTrackID])
+                    variantChromosomeAliases: [:], codingFeatureRegion: codingFeatureRegion
                 )
             )
         case .samples:
