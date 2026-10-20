@@ -464,9 +464,13 @@ public actor EsVirituDatabaseManager {
         do {
             result = try await ToolProcess.run(spec)
         } catch ToolProcessError.cancelled {
+            // A cancelled, failed or refused extract leaves no half-extracted database,
+            // which isInstalled() would read.
+            try? FileManager.default.removeItem(at: destination)
             throw CancellationError()
         }
         guard result.isSuccess else {
+            try? FileManager.default.removeItem(at: destination)
             throw EsVirituDatabaseError.extractionFailed(result.stderrText)
         }
         // tar refuses `..` and absolute names and a write through a link, but it extracts
@@ -474,6 +478,7 @@ public actor EsVirituDatabaseManager {
         do {
             try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
         } catch DemoProjectError.unsafeArchive(let reason) {
+            try? FileManager.default.removeItem(at: destination)
             throw EsVirituDatabaseError.extractionFailed("The archive was refused because it is unsafe: \(reason)")
         }
     }
