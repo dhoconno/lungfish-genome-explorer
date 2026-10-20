@@ -11,10 +11,29 @@
 
 import XCTest
 import AppKit
+import CryptoKit
 @testable import LungfishTaxTriageUI
 @testable import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
+
+/// Records every request the view hands its alignment viewer, so no real viewer reads a BAM.
+@MainActor
+private final class StoredCountsRecordingViewer: NSObject, ClassifierAlignmentViewerProviding {
+    let viewController = NSViewController()
+    private(set) var status: ClassifierAlignmentViewerStatus = .idle
+    var onStatusChanged: (@MainActor @Sendable (ClassifierAlignmentViewerStatus) -> Void)?
+    private(set) var requests: [ClassifierAlignmentEvidenceRequest] = []
+
+    override init() {
+        super.init()
+        viewController.view = NSView()
+    }
+
+    func display(_ request: ClassifierAlignmentEvidenceRequest) { requests.append(request) }
+    func clear() {}
+}
 
 @MainActor
 final class TaxTriageExportPinTests: XCTestCase {
@@ -53,6 +72,100 @@ final class TaxTriageExportPinTests: XCTestCase {
         XCTAssertEqual(fields.first { $0[1] == "OrgA" }?[uniqueColumn], "40")
         XCTAssertEqual(fields.first { $0[1] == "OrgB" }?[uniqueColumn], "")
         XCTAssertNil(source.uniqueReadsByKey["S1\tOrgB"], "a NULL fills no key, as the page snapshot leaves it")
+    }
+
+    // MARK: - A database result shows its stored unique reads and writes nothing (13.53, BIO-TT-ROUTES item 8)
+
+    /// A production result opens only through `configureFromDatabase`. The view shows the stored `unique_reads`,
+    /// leaves a NULL without a key, and selecting a row changes no file of the result folder. The folder holds a
+    /// stale `batch-unique-reads.v2.json` that names a count for the NULL row and a batch manifest, so a route that
+    /// reads the first, or deletes or rewrites either, fails here. Both rows name the sarscov2 fixture BAM with its
+    /// stored accession length, so no samtools runs and the test needs no tool.
+    func testOpeningADatabaseResultShowsTheStoredUniqueReadsAndWritesNothing() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("TaxTriageExportPin-stored-\(UUID().uuidString)", isDirectory: true)
+        let minimap = root.appendingPathComponent("S1/minimap2", isDirectory: true)
+        try fm.createDirectory(at: minimap, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.copyItem(at: Self.sarsCoV2BAM, to: minimap.appendingPathComponent("S1.bam"))
+        try fm.copyItem(
+            at: URL(fileURLWithPath: Self.sarsCoV2BAM.path + ".bai"),
+            to: minimap.appendingPathComponent("S1.bam.bai")
+        )
+        try Data(#"{"sampleOrganism":{"S1\tOrgB":7}}"#.utf8)
+            .write(to: root.appendingPathComponent("batch-unique-reads.v2.json"))
+        try Data("{}".utf8).write(to: root.appendingPathComponent(TaxTriageBatchManifest.filename))
+        let database = try TaxTriageDatabase.create(
+            at: root.appendingPathComponent("taxtriage.sqlite"),
+            rows: [
+                Self.rowOfTheFixtureBAM("OrgA", 1, reads: 50, uniqueReads: 40),
+                Self.rowOfTheFixtureBAM("OrgB", 2, reads: 30, uniqueReads: nil),
+            ],
+            metadata: ["tool": "taxtriage"]
+        )
+        let before = try Self.fileDigests(in: root)
+
+        let recorder = StoredCountsRecordingViewer()
+        let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = makeTestDefaultsSuite(prefix: "TaxTriageExportPinTests").defaults
+        vc.classifierAlignmentViewerFactory = { recorder }
+        _ = vc.view
+        vc.configureFromDatabase(database, resultURL: root)
+        waitForRows(vc) { $0.count == 2 }
+        XCTAssertEqual(vc.testBatchFlatTableView.uniqueReadsByKey, ["S1\tOrgA": 40])
+
+        for index in 0..<2 {
+            vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+            let deadline = Date().addingTimeInterval(30)
+            while recorder.requests.count < index + 1 && Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            XCTAssertEqual(recorder.requests.count, index + 1, "row \(index) did not open its contig")
+            XCTAssertEqual(vc.testBatchFlatTableView.uniqueReadsByKey, ["S1\tOrgA": 40], "after selecting row \(index)")
+        }
+
+        XCTAssertEqual(try Self.fileDigests(in: root), before, "opening and selecting changed the result folder")
+        withExtendedLifetime(database) {}
+    }
+
+    private static let sarsCoV2BAM = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/sarscov2/test.paired_end.sorted.bam")
+
+    /// The relative path of every file and folder under `root`, with the file's SHA-256 or `directory`.
+    private static func fileDigests(in root: URL) throws -> [String: String] {
+        let base = root.resolvingSymlinksInPath()
+        var digests: [String: String] = [:]
+        let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey])
+        while let url = walker?.nextObject() as? URL {
+            let relative = String(url.resolvingSymlinksInPath().path.dropFirst(base.path.count + 1))
+            if try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                digests[relative] = "directory"
+            } else {
+                let digest = SHA256.hash(data: try Data(contentsOf: url))
+                digests[relative] = digest.map { String(format: "%02x", $0) }.joined()
+            }
+        }
+        return digests
+    }
+
+    private static func rowOfTheFixtureBAM(
+        _ organism: String, _ taxId: Int, reads: Int, uniqueReads: Int?
+    ) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: "S1", organism: organism, taxId: taxId, status: nil, tassScore: 0.5,
+            readsAligned: reads, uniqueReads: uniqueReads, pctReads: nil, pctAlignedReads: nil,
+            coverageBreadth: 50, meanCoverage: nil, meanDepth: nil, confidence: "High",
+            k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
+            mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
+            k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil, hhsPercentile: nil,
+            isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
+            isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil, bamPath: "S1/minimap2/S1.bam",
+            bamIndexPath: "S1/minimap2/S1.bam.bai", primaryAccession: "MT192765.1", accessionLength: 29_829
+        )
     }
 
     private static func rowStoringUniqueReads(
