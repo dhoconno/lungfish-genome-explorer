@@ -473,6 +473,107 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         try selectAndAssert(sample: "sample-1", organism: "Alpha virus", contig: "NC_1001", "after a multi-row selection")
     }
 
+    // MARK: - 6. A row opens its own sample's reference and nobody else's (13.66, F-BTT2)
+
+    /// A controller over `fixture` whose alignment viewer is `recorder`, with the rows loaded and the table's
+    /// first selection settled, so `recorder.requests` holds only what a later selection adds.
+    private func makeRecordedController(
+        _ fixture: Fixture, recorder: RecordingEvidenceViewer
+    ) -> TaxTriageResultViewController {
+        let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = makeTestDefaultsSuite(prefix: "TaxTriageDatabaseModeTests").defaults
+        vc.classifierAlignmentViewerFactory = { recorder }
+        _ = vc.view
+        vc.configureFromDatabase(fixture.database, resultURL: fixture.root)
+        fixture.waitForRows(vc) { $0.count == 4 }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        return vc
+    }
+
+    /// Selects the flat-table row of `sample` and `organism`, then spins the run loop until `settled` holds.
+    /// The wait ends the moment the condition holds, with a 30 s ceiling.
+    private func selectRow(
+        of vc: TaxTriageResultViewController, sample: String, organism: String, until settled: () -> Bool
+    ) throws {
+        let index = try XCTUnwrap(vc.testBatchFlatTableView.displayedRows.firstIndex {
+            $0.sample == sample && $0.organism == organism
+        }, "\(sample) \(organism) is not in the flat table")
+        vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        let deadline = Date().addingTimeInterval(30)
+        while !settled(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    /// A guard, green at the base. Two samples that hold one taxon at different primary accessions open each
+    /// its own: sample-2's Alpha virus opens NC_2002 on sample-2's BAM and sample-1's opens NC_1001 on sample-1's.
+    func testASharedTaxonOpensEachSamplesOwnAccession() throws {
+        let fixture = try Fixture(writeSidecar: false)
+        defer { fixture.cleanUp() }
+        let recorder = RecordingEvidenceViewer()
+        let vc = makeRecordedController(fixture, recorder: recorder)
+
+        for (sample, contig) in [("sample-2", "NC_2002"), ("sample-1", "NC_1001")] {
+            try selectRow(of: vc, sample: sample, organism: "Alpha virus") {
+                recorder.requests.last.map { $0.bamURL == fixture.bamURL(for: sample) && $0.contig.name == contig } ?? false
+            }
+            let request = try XCTUnwrap(recorder.requests.last, sample)
+            XCTAssertEqual(request.bamURL, fixture.bamURL(for: sample), sample)
+            XCTAssertEqual(request.contig.name, contig, sample)
+            XCTAssertEqual(request.sample.canonicalID, sample, sample)
+        }
+    }
+
+    /// The defect, red at the base. sample-2 holds Alpha virus (taxID 1001) with no primary accession, as build-db
+    /// writes it when the sample's gcfmap has no match, while sample-1 holds the same taxon at NC_1001. At the base
+    /// the row opened sample-2's BAM at NC_1001, the other sample's contig and stored length.
+    func testARowWithNoAccessionOfItsOwnOpensNoOtherSamplesContig() throws {
+        let fixture = try Fixture(writeSidecar: false, sample2AlphaAccession: nil)
+        defer { fixture.cleanUp() }
+        let recorder = RecordingEvidenceViewer()
+        let vc = makeRecordedController(fixture, recorder: recorder)
+
+        try selectRow(of: vc, sample: "sample-1", organism: "Alpha virus") {
+            recorder.requests.last?.contig.name == "NC_1001"
+        }
+        XCTAssertEqual(recorder.requests.last?.bamURL, fixture.bamURL(for: "sample-1"), "the row with an accession opens its own")
+        XCTAssertFalse(vc.testingIsDetailPaneCollapsed, "the pane is open before the row with no accession is selected")
+
+        let requestsBefore = recorder.requests.count
+        try selectRow(of: vc, sample: "sample-2", organism: "Alpha virus") {
+            recorder.requests.count > requestsBefore || vc.testingIsDetailPaneCollapsed
+        }
+        let added = recorder.requests.dropFirst(requestsBefore).map { "\($0.contig.name) on \($0.bamURL.lastPathComponent)" }
+        XCTAssertEqual(added, [], "a row with no accession of its own opens no reference, its own or another sample's")
+        XCTAssertTrue(vc.testingIsDetailPaneCollapsed, "a row with no accession of its own collapses the alignment pane")
+    }
+
+    /// The defect on the BLAST Verify side, red at the base. The same row passes the host no accession, so the
+    /// app says "No reference accessions available for BLAST verification." where it sent sample-1's NC_1001
+    /// with sample-2's BAM. The closure is called once for a row with no accessions, since the app words the refusal.
+    func testBlastVerifyOfARowWithNoAccessionOfItsOwnSendsNoOtherSamplesAccession() throws {
+        let fixture = try Fixture(writeSidecar: false, sample2AlphaAccession: nil)
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+        fixture.waitForRows(vc) { $0.count == 4 }
+        var sent: [(sample: String?, readCount: Int, accessions: [String]?, bamURL: URL?)] = []
+        vc.onBlastVerification = { organism, readCount, accessions, bamURL, _ in
+            sent.append((organism.sample, readCount, accessions, bamURL))
+        }
+
+        let metric = try XCTUnwrap(vc.testBatchFlatTableView.displayedRows.first {
+            $0.sample == "sample-2" && $0.organism == "Alpha virus"
+        })
+        vc.testBatchFlatTableView.onBlastVerifyRequested?(metric, 3)
+
+        XCTAssertEqual(sent.count, 1, "the request reaches the host once, which words what it lacks")
+        let request = try XCTUnwrap(sent.first)
+        XCTAssertEqual(request.sample, "sample-2")
+        XCTAssertEqual(request.readCount, 3)
+        XCTAssertEqual(request.bamURL, fixture.bamURL(for: "sample-2"), "the request still names the row's own BAM")
+        XCTAssertEqual(request.accessions ?? [], [], "no other sample's accession goes to BLAST")
+    }
+
     // MARK: - Fixture
 
     private struct Fixture {
@@ -480,11 +581,14 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         let database: TaxTriageDatabase
         let samples: [String]
 
+        /// `sample2AlphaAccession` is the primary accession of sample-2's Alpha virus row. Pass nil for the row
+        /// build-db writes with a NULL accession, which the page snapshot leaves out of the accession maps.
         init(
             writeSidecar: Bool,
             storedOutputDirectory: String? = nil,
             negativeControl: String? = nil,
-            samples: [String] = ["sample-1", "sample-2"]
+            samples: [String] = ["sample-1", "sample-2"],
+            sample2AlphaAccession: String? = "NC_2002"
         ) throws {
             let fm = FileManager.default
             root = fm.temporaryDirectory
@@ -517,7 +621,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             ]
             if samples.contains("sample-2") {
                 rows.append(Self.row(sample: "sample-2", organism: "Gamma virus", taxId: 2001, tass: 0.50, reads: 12, confidence: "Medium", accession: "NC_2001"))
-                rows.append(Self.row(sample: "sample-2", organism: "Alpha virus", taxId: 1001, tass: 0.20, reads: 3, confidence: "Low", accession: "NC_2002"))
+                rows.append(Self.row(sample: "sample-2", organism: "Alpha virus", taxId: 1001, tass: 0.20, reads: 3, confidence: "Low", accession: sample2AlphaAccession))
             }
             database = try TaxTriageDatabase.create(
                 at: root.appendingPathComponent("taxtriage.sqlite"),
@@ -593,7 +697,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             tass: Double,
             reads: Int,
             confidence: String,
-            accession: String
+            accession: String?
         ) -> TaxTriageTaxonomyRow {
             TaxTriageTaxonomyRow(
                 sample: sample,

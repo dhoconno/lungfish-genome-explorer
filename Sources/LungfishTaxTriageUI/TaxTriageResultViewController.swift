@@ -1726,19 +1726,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func accessions(for metric: TaxTriageMetric) -> [String]? {
-        if let taxID = metric.taxId,
-           let sampleId = metric.sample,
-           let sampleTaxMap = taxIDToAccessionsBySample[sampleId],
-           let bySampleTaxID = sampleTaxMap[taxID],
-           !bySampleTaxID.isEmpty {
-            return rankAccessionsByReadSupport(bySampleTaxID)
+        // A row of a sample reads that sample's maps and no other's (13.66). The maps merged over every loaded
+        // sample hold the other samples' accessions, which this sample's BAM and stored lengths do not describe.
+        if let sampleId = metric.sample {
+            if let taxID = metric.taxId, let own = taxIDToAccessionsBySample[sampleId]?[taxID], !own.isEmpty {
+                return rankAccessionsByReadSupport(own)
+            }
+            let sampleMap = organismToAccessionsBySample[sampleId] ?? [:]
+            return lookupAccessions(for: normalizedOrganismName(metric.organism), in: sampleMap)
         }
-
         if let taxID = metric.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
             return rankAccessionsByReadSupport(byTaxID)
         }
-
-        return accessions(for: metric.organism, sampleId: metric.sample)
+        return accessions(for: metric.organism)
     }
 
     private func accessions(for organismName: String, sampleId: String? = nil) -> [String]? {
