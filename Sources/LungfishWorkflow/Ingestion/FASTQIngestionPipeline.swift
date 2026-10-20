@@ -998,9 +998,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-
-
-
     /// Interleaves R1/R2 in Swift and pipes the stream through bgzip or pigz.
     ///
     /// This is the tool-free path for a paired import without storage
@@ -1051,28 +1048,31 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 try? outputHandle.close()
                 try? stderrHandle.close()
             }
-            let process = Process()
-            process.executableURL = executableURL
-            process.arguments = args
-            let stdin = Pipe()
-            process.standardInput = stdin
-            process.standardOutput = outputHandle
-            process.standardError = stderrHandle
-            try process.run()
-
-            let writer = stdin.fileHandleForWriting
+            let run = try ToolProcess.start(ToolProcessSpec(
+                executableURL: executableURL, arguments: args, environment: ToolProcessSpec.inheritedEnvironment(),
+                stdin: .stream, stdout: .descriptor(outputHandle.fileDescriptor),
+                stderr: .descriptor(stderrHandle.fileDescriptor), label: tool.executableName
+            ))
+            guard run.pid != nil else {
+                _ = try run.waitBlocking()  // throws the launch failure
+                throw FASTQIngestionError.compressionFailed("cannot launch \(tool.executableName)")
+            }
+            let feed = ToolProcessStdinFeed(stdin: run.stdin)
             let counts: FASTQPairInterleaver.Counts
             do {
-                counts = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: writer)
-                try writer.close()
+                counts = try FASTQPairInterleaver.interleave(r1: r1, r2: r2, to: feed.writer)
             } catch {
-                try? writer.close()
-                if process.isRunning { process.terminate() }
-                process.waitUntilExit()
+                run.cancel()  // stops the compressor and releases a write that waits on it
+                feed.finish()
+                _ = try? run.waitBlocking()
                 throw error
             }
-            process.waitUntilExit()
-            return (counts, process.terminationStatus)
+            feed.finish()
+            let result = try run.waitBlocking()
+            if result.status == 0, let incomplete = result.incompleteOutputReason {
+                throw FASTQIngestionError.compressionFailed(incomplete)
+            }
+            return (counts, result.status)
         }
         let outcome: (counts: FASTQPairInterleaver.Counts, exitCode: Int32)
         do {
