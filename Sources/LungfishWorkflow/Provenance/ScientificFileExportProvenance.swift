@@ -274,6 +274,53 @@ public enum ScientificFileExportProvenance {
         }
     }
 
+    /// Writes a folder of files with one record inside it that names every file as an output, then publishes the
+    /// folder by one exclusive rename (Phase 2.13 lane 13.30, the bulk form of `bundle export-graphic`). The record
+    /// has the shape of the single-file transaction's, with `outputs` naming each file at its published path.
+    /// `writeOutputs` writes the files into the staged folder it is given and returns their names in order. The
+    /// folder must not exist. A throw from `writeOutputs`, such as a cancel, removes the staged folder, so no folder,
+    /// file or record appears.
+    @discardableResult
+    public static func writeFolderAtomically(
+        _ request: Request,
+        writeOutputs: (URL) throws -> [String]
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let folderURL = request.outputURL.standardizedFileURL
+        guard !fileManager.fileExists(atPath: folderURL.path) else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: folderURL.path])
+        }
+        let inputDescriptors = try request.sourceURLs.map {
+            try inputDescriptor(for: $0, excluding: [folderURL.path])
+        }
+        let stagedURL = folderURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(folderURL.lastPathComponent).\(UUID()).export.tmp", isDirectory: true)
+        try fileManager.createDirectory(at: stagedURL, withIntermediateDirectories: false)
+        defer { try? fileManager.removeItem(at: stagedURL) }
+        let names = try writeOutputs(stagedURL)
+        guard !names.isEmpty, Set(names).count == names.count,
+              names.allSatisfy({ !$0.contains("/") && !$0.hasPrefix(".") }) else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: stagedURL.path])
+        }
+        let outputDescriptors = try names.map { name -> ProvenanceFileDescriptor in
+            let stagedFile = stagedURL.appendingPathComponent(name)
+            guard try stagedFile.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSFilePathErrorKey: stagedFile.path])
+            }
+            let staged = ProvenanceRecorder.fileRecord(url: stagedFile, format: request.outputFormat, role: .output)
+            return ProvenanceFileDescriptor(fileRecord: FileRecord(
+                path: folderURL.appendingPathComponent(name).path, sha256: staged.sha256,
+                sizeBytes: staged.sizeBytes, format: staged.format, role: staged.role))
+        }
+        let envelope = envelope(
+            for: request.completedNow(), inputDescriptors: inputDescriptors, outputDescriptors: outputDescriptors
+        )
+        try ProvenanceWriter(signingProvider: nil)
+            .write(envelope, toSidecar: stagedURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        _ = try PortableRename.exclusive(stagedURL, to: folderURL)
+        return folderURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+    }
+
     private static func isExistingDirectory(_ url: URL, fileManager: FileManager) -> Bool {
         var isDirectory: ObjCBool = false
         return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -292,6 +339,16 @@ public enum ScientificFileExportProvenance {
         inputDescriptors: [ProvenanceFileDescriptor],
         outputDescriptor: ProvenanceFileDescriptor
     ) -> ProvenanceEnvelope {
+        envelope(for: request, inputDescriptors: inputDescriptors, outputDescriptors: [outputDescriptor])
+    }
+
+    /// The record of one run. Its `output` is the first output, and `outputs` and `files` name every output.
+    private static func envelope(
+        for request: Request,
+        inputDescriptors: [ProvenanceFileDescriptor],
+        outputDescriptors: [ProvenanceFileDescriptor]
+    ) -> ProvenanceEnvelope {
+        let outputDescriptor = outputDescriptors[0]
         let toolVersion = WorkflowRun.currentAppVersion
         let step = ProvenanceStep(
             toolName: request.toolName,
@@ -300,7 +357,7 @@ public enum ScientificFileExportProvenance {
             durableReplayArgv: request.durableReplayArgv ?? request.argv,
             resolvedOptions: request.resolved,
             inputs: inputDescriptors,
-            outputs: [outputDescriptor],
+            outputs: outputDescriptors,
             exitStatus: 0,
             wallTimeSeconds: request.completedAt.timeIntervalSince(request.startedAt),
             stderr: nil,
@@ -322,9 +379,9 @@ public enum ScientificFileExportProvenance {
                 resolvedDefaults: request.resolved
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(),
-            files: inputDescriptors + [outputDescriptor],
+            files: inputDescriptors + outputDescriptors,
             output: outputDescriptor,
-            outputs: [outputDescriptor],
+            outputs: outputDescriptors,
             steps: [step],
             wallTimeSeconds: request.completedAt.timeIntervalSince(request.startedAt),
             exitStatus: 0,

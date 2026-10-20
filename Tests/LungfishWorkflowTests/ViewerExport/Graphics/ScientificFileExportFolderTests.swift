@@ -1,0 +1,90 @@
+// ScientificFileExportFolderTests.swift - The staged-folder transaction of a bulk viewer export
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 2.13 lane 13.30 (GFX-2), MANAGER 3. The bulk form of `bundle export-graphic` writes one folder of figures
+// with one record that names every figure as an output, published once, and a cancel leaves no folder.
+
+import Foundation
+import LungfishCore
+@testable import LungfishWorkflow
+import XCTest
+
+final class ScientificFileExportFolderTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ExportFolder-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func request(sources: [URL], folder: URL) -> ScientificFileExportProvenance.Request {
+        .cliLeaf(
+            workflowName: "lungfish bundle export-graphic", sourceURLs: sources, outputURL: folder,
+            outputFormat: FileFormat(rawValue: "png"), argv: ["lungfish-cli", "bundle", "export-graphic"],
+            resolved: ["figureCount": .integer(2)], runClock: ProvenanceRunClock()
+        )
+    }
+
+    private func leftovers() throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasSuffix(".export.tmp") }
+    }
+
+    func testAFolderIsPublishedOnceWithOneRecordNamingEveryFile() throws {
+        let input = root.appendingPathComponent("regions.bed")
+        try "chr1\t0\t10\n".write(to: input, atomically: true, encoding: .utf8)
+        let folder = root.appendingPathComponent("figures", isDirectory: true)
+        let sidecar = try ScientificFileExportProvenance.writeFolderAtomically(request(sources: [input], folder: folder)) { staged in
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+            try Data("first".utf8).write(to: staged.appendingPathComponent("a.png"))
+            try Data("second".utf8).write(to: staged.appendingPathComponent("b.png"))
+            return ["a.png", "b.png"]
+        }
+        XCTAssertEqual(sidecar.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+        XCTAssertEqual(sidecar.deletingLastPathComponent().standardizedFileURL, folder.standardizedFileURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+        let outputs = envelope.files.filter { $0.role == .output }
+        XCTAssertEqual(outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, ["a.png", "b.png"])
+        XCTAssertEqual(envelope.outputs.count, 2)
+        for output in outputs {
+            let published = folder.appendingPathComponent(URL(fileURLWithPath: output.path).lastPathComponent)
+            XCTAssertEqual(output.checksumSHA256, try ProvenanceFileHasher.sha256(of: published))
+        }
+        let inputs = envelope.files.filter { $0.role == .input }
+        XCTAssertEqual(inputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, ["regions.bed"])
+        XCTAssertEqual(inputs.first?.checksumSHA256, try ProvenanceFileHasher.sha256(of: input))
+        XCTAssertEqual(envelope.tool.kind, "cli")
+        XCTAssertEqual(envelope.options.resolvedDefaults["figureCount"], .integer(2))
+        XCTAssertEqual(try leftovers(), [])
+    }
+
+    func testAThrowLeavesNoFolderNoRecordAndNoStagedFolder() throws {
+        let folder = root.appendingPathComponent("figures", isDirectory: true)
+        XCTAssertThrowsError(try ScientificFileExportProvenance.writeFolderAtomically(request(sources: [], folder: folder)) { staged in
+            try Data("first".utf8).write(to: staged.appendingPathComponent("a.png"))
+            throw CancellationError()
+        }) { error in
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertEqual(try leftovers(), [])
+    }
+
+    func testAnExistingFolderIsRefusedAndKept() throws {
+        let folder = root.appendingPathComponent("figures", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let kept = folder.appendingPathComponent("kept.png")
+        try Data("kept".utf8).write(to: kept)
+        XCTAssertThrowsError(try ScientificFileExportProvenance.writeFolderAtomically(request(sources: [], folder: folder)) { _ in
+            XCTFail("an existing folder is refused before any write")
+            return []
+        })
+        XCTAssertEqual(try Data(contentsOf: kept), Data("kept".utf8))
+        XCTAssertEqual(try leftovers(), [])
+    }
+}
