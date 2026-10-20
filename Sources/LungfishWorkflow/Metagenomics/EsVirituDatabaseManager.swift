@@ -448,7 +448,7 @@ public actor EsVirituDatabaseManager {
     }
 
     /// Extracts a tar.gz archive to the specified directory on ``ToolProcess``.
-    private func extractTarball(at tarball: URL, to destination: URL) async throws {
+    func extractTarball(at tarball: URL, to destination: URL) async throws {
         let spec = ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
             arguments: [
@@ -468,6 +468,13 @@ public actor EsVirituDatabaseManager {
         }
         guard result.isSuccess else {
             throw EsVirituDatabaseError.extractionFailed(result.stderrText)
+        }
+        // tar refuses `..` and absolute names and a write through a link, but it extracts
+        // a symbolic link that leaves the folder, as SafeZipExtractor refuses.
+        do {
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+        } catch DemoProjectError.unsafeArchive(let reason) {
+            throw EsVirituDatabaseError.extractionFailed("The archive was refused because it is unsafe: \(reason)")
         }
     }
 
