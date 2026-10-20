@@ -2473,40 +2473,32 @@ extension DemultiplexingPipeline {
     func countReadsInFASTQ(url: URL) -> Int {
         let isGzipped = url.pathExtension.lowercased() == "gz"
 
-        let process = Process()
-        if isGzipped {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
-            process.arguments = [url.path]
-            logger.info("Running count helper: /usr/bin/gzcat \(url.path, privacy: .public)")
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/bin/cat")
-            process.arguments = [url.path]
-            logger.info("Running count helper: /bin/cat \(url.path, privacy: .public)")
-        }
-
-        let countProcess = Process()
-        countProcess.executableURL = URL(fileURLWithPath: "/usr/bin/wc")
-        countProcess.arguments = ["-l"]
+        let reader = isGzipped ? "/usr/bin/gzcat" : "/bin/cat"
+        logger.info("Running count helper: \(reader, privacy: .public) \(url.path, privacy: .public)")
         logger.info("Running count helper: /usr/bin/wc -l")
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        countProcess.standardInput = pipe
-
-        let outputPipe = Pipe()
-        countProcess.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-        countProcess.standardError = FileHandle.nullDevice
-
+        // A reader that fails still lets wc count what it wrote, so the stages run to completion.
+        let environment = ["PATH": "/usr/bin:/bin"]
         do {
-            try process.run()
-            try countProcess.run()
+            let run = try ToolProcess.startPipeline([
+                ToolProcessSpec(
+                    executableURL: URL(fileURLWithPath: reader),
+                    arguments: [url.path],
+                    environment: environment,
+                    stderr: .discard,
+                    label: URL(fileURLWithPath: reader).lastPathComponent
+                ),
+                ToolProcessSpec(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/wc"),
+                    arguments: ["-l"],
+                    environment: environment,
+                    stderr: .discard,
+                    label: "wc -l"
+                ),
+            ], failurePolicy: .runToCompletion)
+            let result = try run.waitBlocking()
 
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            countProcess.waitUntilExit()
-
-            if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let str = result.stages.last?.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines),
                let lineCount = Int(str) {
                 return lineCount / 4  // 4 lines per FASTQ record
             }
