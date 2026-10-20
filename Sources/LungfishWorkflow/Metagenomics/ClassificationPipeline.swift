@@ -2126,8 +2126,6 @@ public actor ClassificationPipeline {
             "confidence": .number(config.confidence),
             "minimumHitGroups": .integer(config.minimumHitGroups),
             "threads": .integer(config.threads),
-            "pairedEnd": .boolean(config.isPairedEnd),
-            "readFormat": .string(config.readFormat.rawValue),
             "memoryMapping": .boolean(config.memoryMapping),
             "quickMode": .boolean(config.quickMode),
             "inputFormat": .string(config.inputFormat.rawValue),
@@ -2172,8 +2170,6 @@ public actor ClassificationPipeline {
             "confidence": .number(requestedConfig.confidence),
             "minimumHitGroups": .integer(requestedConfig.minimumHitGroups),
             "threads": .integer(requestedConfig.threads),
-            "pairedEnd": .boolean(requestedConfig.isPairedEnd),
-            "readFormat": .string(requestedConfig.readFormat.rawValue),
             "memoryMapping": .boolean(requestedConfig.memoryMapping),
             "quickMode": .boolean(requestedConfig.quickMode),
             "inputFormat": .string(requestedConfig.inputFormat.rawValue),
@@ -2209,6 +2205,10 @@ public actor ClassificationPipeline {
             "profileState": .string(profileState ?? outcome.state.rawValue),
         ]
         resolvedDefaults.merge(requestedConfig.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
+        // No read format is explicit, since a planned one looks the same. A changed request is resolved (SW26 note 2).
+        if requestedConfig.readFormat != effectiveConfig.readFormat {
+            resolvedDefaults["requestedReadFormat"] = .string(requestedConfig.readFormat.rawValue)
+        }
         if let resolution {
             let request = requestedConfig.brackenProfileRequest ?? .automaticDefault
             explicit["brackenRankRequest"] = .string(request.rank.provenanceValue)

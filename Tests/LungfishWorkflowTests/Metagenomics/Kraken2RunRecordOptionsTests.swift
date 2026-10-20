@@ -82,6 +82,28 @@ final class Kraken2RunRecordOptionsTests: XCTestCase {
         XCTAssertNil(options.readSetPlan, "single reads record no read-set plan")
     }
 
+    /// 2.13 lane 13.15, SW26 note 2. A typed `--read-format auto` is the explicit `auto` the user gave, and the format
+    /// the run resolved stays a resolved option.
+    func testATypedAutoReadFormatIsRecordedAsTheChoiceGiven() throws {
+        let made = try result(withBracken: false)
+        let request = Kraken2RunRequest(inputArguments: ["reads.fastq"], databaseName: "Viral")
+        let argv = ["lungfish-cli", "kraken2", "classify", "reads.fastq", "--db", "Viral", "--read-format", "auto"]
+
+        let options = Kraken2RunRecordOptions.rootOptions(
+            config: made.result.config,
+            outcome: .notRequested,
+            request: request,
+            argv: argv,
+            originalInputURLs: made.result.config.inputFiles,
+            executionInputURLs: made.result.config.inputFiles
+        )
+
+        XCTAssertEqual(request.readFormat, .auto)
+        XCTAssertEqual(options.explicit["readFormat"], .string("auto"))
+        XCTAssertEqual(options.resolved["readFormat"], .string(made.result.config.readFormat.rawValue))
+        XCTAssertNotEqual(made.result.config.readFormat.rawValue, "auto", "the run resolved a format")
+    }
+
     /// B16. The pipeline writes the read-set plan under the resolved options itself, so the convergence changes
     /// the defaults and moves no plan. A plan that an earlier build filed among the explicit options stays there,
     /// and the one reader still finds it.

@@ -304,17 +304,9 @@
       "type" : "integer",
       "value" : 2
     },
-    "pairedEnd" : {
-      "type" : "boolean",
-      "value" : false
-    },
     "quickMode" : {
       "type" : "boolean",
       "value" : false
-    },
-    "readFormat" : {
-      "type" : "string",
-      "value" : "unpaired"
     },
     "threads" : {
       "type" : "integer",
@@ -447,17 +439,9 @@
       "type" : "integer",
       "value" : 2
     },
-    "pairedEnd" : {
-      "type" : "boolean",
-      "value" : false
-    },
     "quickMode" : {
       "type" : "boolean",
       "value" : false
-    },
-    "readFormat" : {
-      "type" : "string",
-      "value" : "unpaired"
     },
     "threads" : {
       "type" : "integer",

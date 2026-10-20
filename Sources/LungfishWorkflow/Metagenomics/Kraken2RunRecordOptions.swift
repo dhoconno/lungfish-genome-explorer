@@ -93,7 +93,8 @@ public enum Kraken2RunRecordOptions {
         if given(["--preset"]) { options["preset"] = .string(request.preset.rawValue) }
         if given(["--db-digest"]), let digest = request.databaseDigest { options["databaseDigest"] = .string(digest) }
         if given(["--paired"]) { options["pairedEnd"] = .boolean(config.isPairedEnd) }
-        if given(["--read-format"]) { options["readFormat"] = .string(config.readFormat.rawValue) }
+        // The choice typed, `auto` included. The format the run resolved is a resolved option (SW26 note 2).
+        if given(["--read-format"]) { options["readFormat"] = .string(request.readFormat.rawValue) }
         if given(["--recursive"]) { options["recursive"] = .boolean(true) }
         if given(["--profile"]) { options["profile"] = .boolean(true) }
         if given(["--confidence"]) { options["confidence"] = .number(config.confidence) }
