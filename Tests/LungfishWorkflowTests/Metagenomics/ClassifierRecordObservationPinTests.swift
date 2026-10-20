@@ -67,6 +67,21 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
         ])
     }
 
+    /// 2.13 lane 13.15 pin (BIO-13.15-SW26 item 5). The build's EsViritu release stays the `githubReleaseVersion` of the
+    /// EsViritu step and a parameter of the legacy run, wherever the record's options file it.
+    func testTheEsVirituReleaseVersionStaysOnTheStepAndInTheRunParameters() async throws {
+        let run = try StandInEsVirituRun()
+        defer { run.remove() }
+
+        _ = try await EsVirituPipeline(condaManager: run.condaManager).detect(config: run.config)
+
+        let release = EsVirituPipeline.esVirituGithubReleaseVersion
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.config.outputDirectory))
+        XCTAssertEqual(envelope.steps.first { $0.toolName == "EsViritu" }?.githubReleaseVersion, release)
+        let legacy = try XCTUnwrap(ProvenanceRecorder.load(from: run.config.outputDirectory))
+        XCTAssertEqual(legacy.parameters["github_release_version"], .string(release))
+    }
+
     // MARK: - The probe and the peak memory
 
     /// The `bracken --help` probe that picks the CLI dialect runs before the profiling launch and never becomes a step.
