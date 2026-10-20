@@ -35,14 +35,19 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
 
     private let executableURL: URL?
     private let outputTailLimit: Int
+    private let cliLocator: @Sendable () -> URL?
     private let cancellation = CLIRunCancellation()
 
+    /// - Parameter cliLocator: Finds the CLI when `executableURL` is nil, `CLIBinaryLocator` in
+    ///   production. A test passes its own to see where the lookup runs.
     init(
         executableURL: URL? = nil,
-        outputTailLimit: Int = ProcessViralReconWorkflowProcessRunner.defaultOutputTailLimit
+        outputTailLimit: Int = ProcessViralReconWorkflowProcessRunner.defaultOutputTailLimit,
+        cliLocator: @escaping @Sendable () -> URL? = { CLIBinaryLocator.cliBinaryPath() }
     ) {
         self.executableURL = executableURL
         self.outputTailLimit = outputTailLimit
+        self.cliLocator = cliLocator
     }
 
     func runLungfishCLI(
@@ -51,8 +56,19 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> ViralReconWorkflowProcessResult {
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        guard let cliURL = executableURL ?? CLIBinaryLocator.cliBinaryPath() else {
-            throw LungfishCLIRunner.RunError.cliNotFound
+        let cliURL: URL
+        if let executableURL {
+            cliURL = executableURL
+        } else {
+            // The lookup can run `swift build --show-bin-path`, which waits on the build lock another
+            // build holds (R6 of M879). This runner is main-actor isolated, so the lookup runs on a
+            // detached task and the main actor stays free while it waits.
+            let locate = cliLocator
+            let located = await Task.detached(priority: .userInitiated) { locate() }.value
+            guard let located else {
+                throw LungfishCLIRunner.RunError.cliNotFound
+            }
+            cliURL = located
         }
         var spec = CLIProcessLauncher.spec(
             executableURL: cliURL,

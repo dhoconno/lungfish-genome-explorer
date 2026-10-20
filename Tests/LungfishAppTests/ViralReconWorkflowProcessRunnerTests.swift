@@ -8,10 +8,26 @@
 // process and what the runner hands back. Nothing here needs Nextflow or Docker.
 
 import Foundation
+import Synchronization
 import XCTest
 @testable import LungfishApp
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
+
+/// Records whether each stand-in CLI lookup ran on the main thread. A plain class outside the test
+/// case, so the `@Sendable` lookup closure can call it from any thread.
+private final class LookupThreadRecorder: Sendable {
+    private let calls = Mutex<[Bool]>([])
+
+    func record(isMainThread: Bool) {
+        calls.withLock { $0.append(isMainThread) }
+    }
+
+    var recorded: [Bool] {
+        calls.withLock { $0 }
+    }
+}
 
 @MainActor
 final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
@@ -25,6 +41,34 @@ final class ViralReconWorkflowProcessRunnerTests: XCTestCase {
     override func tearDown() async throws {
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
+    }
+
+    // MARK: - Locating the CLI
+
+    /// With no executable the runner asks `CLIBinaryLocator`, whose SwiftPM probe runs
+    /// `swift build --show-bin-path` and can wait on the build lock another build holds (the 2.12
+    /// verify run waited 884 s on it, R6 of M879). The runner is main-actor isolated, so a lookup made
+    /// in its own body blocks the main thread. The lookup has to leave the main actor (Phase 2.13
+    /// lane 13.11). A lookup that finds no CLI ends the run before any launch.
+    func testTheCLILookupLeavesTheMainThread() async throws {
+        let lookup = LookupThreadRecorder()
+        let runner = ProcessViralReconWorkflowProcessRunner(cliLocator: {
+            lookup.record(isMainThread: Thread.isMainThread)
+            return nil
+        })
+
+        do {
+            _ = try await runner.runLungfishCLI(
+                arguments: [],
+                workingDirectory: scratch,
+                outputHandler: nil
+            )
+            XCTFail("a lookup that finds no CLI must throw")
+        } catch LungfishCLIRunner.RunError.cliNotFound {
+            // The run ends before any launch.
+        }
+
+        XCTAssertEqual(lookup.recorded, [false], "the lookup must run once, and not on the main thread")
     }
 
     // MARK: - Cancel
