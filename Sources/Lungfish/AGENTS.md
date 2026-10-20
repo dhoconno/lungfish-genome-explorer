@@ -4,11 +4,11 @@ Line numbers were checked at commit a0eec8b32.
 
 ## Purpose
 
-The app's `main.swift`. It answers the relocation smoke request, wires the Sparkle updater to `AppDelegate`, and starts NSApplication. It holds no feature logic and should stay that way.
+The app's `main.swift`. It answers the relocation smoke request, arms ToolProcess's main-thread guard in a debug build, wires the Sparkle updater to `AppDelegate`, and starts NSApplication. It holds no feature logic and should stay that way.
 
 ## Allowed imports
 
-LungfishApp, Sparkle, AppKit and Foundation. Sparkle is declared only on this target so that `lungfish-cli` never inherits the updater (comment on the Sparkle dependency in Package.swift).
+LungfishApp, LungfishCore, Sparkle, AppKit and Foundation. LungfishCore is declared for `ToolProcessMainThreadGuard.arm()` (Phase 2.13 lane 13.05). Sparkle is declared only on this target so that `lungfish-cli` never inherits the updater (comment on the Sparkle dependency in Package.swift).
 
 ## Entry points
 

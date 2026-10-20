@@ -60,6 +60,7 @@ extension ToolProcess {
         onEvent: (@Sendable (ToolProcessEvent) -> Void)? = nil,
         onLaunch: (@Sendable (Int32) -> Void)? = nil
     ) throws(ToolProcessError) -> ToolProcessResult {
+        ToolProcessMainThreadGuard.check("runBlocking")
         try refuseStream(spec, in: "runBlocking")
         let run = ToolProcessRun(try singleExecution(spec, onEvent: onEvent, onLaunch: onLaunch))
         // Registered before the launch, so a cancellation that comes first
@@ -125,7 +126,8 @@ public final class ToolProcessRun: Sendable {
     ///
     /// - Throws: ``ToolProcessError``.
     public func waitBlocking() throws(ToolProcessError) -> ToolProcessResult {
-        try waiter.waitBlocking(closing: stdout).get().stages[0]
+        ToolProcessMainThreadGuard.check("ToolProcessRun.waitBlocking")
+        return try waiter.waitBlocking(closing: stdout).get().stages[0]
     }
 
     /// Suspends until the run is over, closes ``stdout`` and returns the

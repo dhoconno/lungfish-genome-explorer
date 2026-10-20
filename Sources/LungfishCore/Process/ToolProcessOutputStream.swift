@@ -58,6 +58,7 @@ public final class ToolProcessOutputStream: Sendable {
     /// the run has ended and nothing is left in the pipe. Never call it on
     /// the main thread.
     public func read(upTo count: Int) -> Data {
+        ToolProcessMainThreadGuard.check("read(upTo:)")
         precondition(count > 0, "read(upTo:) needs a positive count")
         return channel.read(upTo: count)
     }

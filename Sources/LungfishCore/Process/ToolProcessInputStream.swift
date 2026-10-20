@@ -59,6 +59,7 @@ public final class ToolProcessInputStream: Sendable {
     ///
     /// - Throws: ``WriteError``. The process is not stopped by it.
     public func writeBlocking(_ data: Data) throws(WriteError) {
+        ToolProcessMainThreadGuard.check("writeBlocking")
         let waiter = ToolProcessWriteWaiter()
         channel.write(data) { waiter.finish($0) }
         if let error = waiter.wait() {

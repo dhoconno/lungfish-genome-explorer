@@ -108,7 +108,8 @@ public final class ToolPipelineRun: Sendable {
     ///
     /// - Throws: ``ToolProcessError``.
     public func waitBlocking() throws(ToolProcessError) -> ToolPipelineResult {
-        try waiter.waitBlocking(closing: stdout).get()
+        ToolProcessMainThreadGuard.check("ToolPipelineRun.waitBlocking")
+        return try waiter.waitBlocking(closing: stdout).get()
     }
 
     /// Suspends until every stage is over, closes ``stdout`` and returns the

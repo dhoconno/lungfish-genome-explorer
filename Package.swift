@@ -483,6 +483,7 @@ let package = Package(
             name: "Lungfish",
             dependencies: [
                 "LungfishApp",
+                "LungfishCore",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Lungfish",

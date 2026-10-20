@@ -5,6 +5,7 @@
 import Foundation
 import AppKit
 import LungfishApp
+import LungfishCore
 import Sparkle
 
 if let smokeOutput = DebugRelocationSmoke.outputIfRequested(arguments: CommandLine.arguments) {
@@ -62,6 +63,12 @@ if Array(CommandLine.arguments.dropFirst()) == ["--debug-dependency-plan-status"
     RunLoop.main.run()
     exit(1)
 }
+
+// A debug app traps a blocking ToolProcess call on the main thread, from the
+// delegate and the updater on. The diagnostic branches above stay unarmed.
+#if DEBUG
+ToolProcessMainThreadGuard.arm()
+#endif
 
 // Launch AppKit on the main thread using a single event loop.
 // Avoid nested/dual run-loop patterns (e.g. app.run + dispatchMain) which can
