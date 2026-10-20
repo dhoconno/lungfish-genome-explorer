@@ -995,15 +995,7 @@ public actor NCBIService: DatabaseService {
         let extractDir = destination.appendingPathComponent("ncbi_dataset_extract", isDirectory: true)
         try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-q", "-o", zipDestination.path, "-d", extractDir.path]
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw DatabaseServiceError.parseError(message: "Failed to extract Datasets ZIP (exit \(process.terminationStatus))")
-        }
+        try await NCBIDatasetsArchive.extract(zipDestination, to: extractDir)
 
         // Clean up the ZIP file
         try? FileManager.default.removeItem(at: zipDestination)
