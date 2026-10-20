@@ -346,31 +346,6 @@ final class ProjectTempDirectoryTests: XCTestCase {
         XCTAssertFalse(owned.toolVersion.isEmpty)
     }
 
-    // MARK: - cleanStale
-
-    func testCleanStaleRefusesUnmarkedLegacyChildren() throws {
-        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
-        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        let staleDir = tmpRoot.appendingPathComponent("legacy-unmarked", isDirectory: true)
-        try FileManager.default.createDirectory(at: staleDir, withIntermediateDirectories: false)
-
-        // Backdate staleDir modification date to 25 hours ago
-        let twentyFiveHoursAgo = Date(timeIntervalSinceNow: -25 * 3600)
-        try FileManager.default.setAttributes(
-            [.modificationDate: twentyFiveHoursAgo],
-            ofItemAtPath: staleDir.path
-        )
-
-        // Clean entries older than 24 hours
-        try ProjectTempDirectory.cleanStale(in: projectDir, olderThan: 24 * 3600)
-
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: staleDir.path),
-            "Age alone must never authorize removal of an unmarked legacy child"
-        )
-    }
-
     func testCleanAllDetachesVerifiedTerminalDirectoryAndPreservesSwapReplacement() throws {
         let projectDir = testRoot.appendingPathComponent("swap.lungfish", isDirectory: true)
         let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)

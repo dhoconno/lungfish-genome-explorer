@@ -74,30 +74,6 @@ final class ProjectTempCleanupTests: XCTestCase {
         XCTAssertEqual(usage, 0)
     }
 
-    // MARK: - cleanStale
-
-    func testCleanStalePreservesOldActiveDirectory() throws {
-        let recentDir = try makeOwnedTemp(prefix: "recent-")
-        let staleDir = try makeOwnedTemp(prefix: "stale-")
-
-        // Backdate staleDir to 25 hours ago
-        let twentyFiveHoursAgo = Date(timeIntervalSinceNow: -25 * 3600)
-        try FileManager.default.setAttributes(
-            [.modificationDate: twentyFiveHoursAgo],
-            ofItemAtPath: staleDir.path
-        )
-
-        // Clean entries older than 24 hours
-        try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 3600)
-
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: staleDir.path),
-            "Age alone does not prove an active owner is dead"
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: recentDir.path),
-                      "Recent directory should still exist")
-    }
-
     func testCleanupRemovesTerminalAttestedDirectory() throws {
         let tmpRoot = ProjectTempDirectory.tempRoot(for: projectURL)
         try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
@@ -128,24 +104,6 @@ final class ProjectTempCleanupTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: terminal.path))
     }
 
-    func testCleanStaleKeepsAllRecentDirectories() throws {
-        let dir1 = try makeOwnedTemp(prefix: "a-")
-        let dir2 = try makeOwnedTemp(prefix: "b-")
-
-        // Both are brand new — nothing should be removed
-        try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 3600)
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: dir1.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: dir2.path))
-    }
-
-    func testCleanStaleNoOpWhenTmpMissing() throws {
-        // No .tmp/ exists — should not throw
-        XCTAssertNoThrow(
-            try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 3600)
-        )
-    }
-
     func testDebugEscapedTempScanTimerIsRetainedAndInvalidated() {
         let source = combinedAppDelegateSource()
 
@@ -173,7 +131,6 @@ final class ProjectTempCleanupTests: XCTestCase {
         }
 
         XCTAssertFalse(body.contains("cleanAll"))
-        XCTAssertFalse(body.contains("cleanStale"))
         XCTAssertFalse(body.contains("ProjectStorageScanner"))
         XCTAssertFalse(body.contains("cleanProjectTempOnOpen"))
         XCTAssertTrue(body.contains("startProjectTempCleanupTimer"))
@@ -186,11 +143,6 @@ final class ProjectTempCleanupTests: XCTestCase {
             source.contains("ProjectStorageAutomaticCleanupService")
         )
         XCTAssertTrue(source.contains("Task.detached(priority: .utility)"))
-        XCTAssertFalse(
-            source.contains(
-                "ProjectTempDirectory.cleanStale(in: projectURL"
-            )
-        )
         XCTAssertFalse(
             source.contains("ProjectTempDirectory.cleanAll(in:")
         )

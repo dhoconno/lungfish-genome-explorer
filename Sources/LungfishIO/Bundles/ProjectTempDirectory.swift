@@ -433,37 +433,8 @@ public enum ProjectTempDirectory {
     ) throws {
         try cleanCandidates(
             in: projectURL,
-            olderThan: nil,
             beforeDetach: beforeDetach,
             operations: operations
-        )
-    }
-
-    // MARK: - cleanStale
-
-    /// Removes terminal, attested children inside `.tmp/` whose modification
-    /// date is older than `maxAge`.
-    ///
-    /// Subdirectories modified more recently than `maxAge` are left untouched.
-    /// Does nothing if `.tmp/` does not exist.
-    ///
-    /// - Parameters:
-    ///   - projectURL: The `.lungfish` project directory.
-    ///   - maxAge: Maximum age in seconds. Entries older than this are removed.
-    @available(
-        *,
-        deprecated,
-        message: "Age is not cleanup authority. Use ProjectStorageAutomaticCleanupService."
-    )
-    public static func cleanStale(
-        in projectURL: URL,
-        olderThan maxAge: TimeInterval
-    ) throws {
-        try cleanCandidates(
-            in: projectURL,
-            olderThan: Date(timeIntervalSinceNow: -maxAge),
-            beforeDetach: { _ in },
-            operations: .init()
         )
     }
 
@@ -472,7 +443,6 @@ public enum ProjectTempDirectory {
     /// quarantined entry is proven to have the inode that was inspected.
     private static func cleanCandidates(
         in projectURL: URL,
-        olderThan cutoff: Date?,
         beforeDetach: (URL) throws -> Void,
         operations: CleanupOperations
     ) throws {
@@ -521,13 +491,6 @@ public enum ProjectTempDirectory {
                 marker.state != .active,
                 !marker.keepIntermediates else {
                     continue
-                }
-                if let cutoff {
-                    let modified = Date(
-                        timeIntervalSince1970: TimeInterval(candidateInfo.st_mtimespec.tv_sec)
-                            + TimeInterval(candidateInfo.st_mtimespec.tv_nsec) / 1_000_000_000
-                    )
-                    guard modified < cutoff else { continue }
                 }
 
                 try beforeDetach(entryURL)
