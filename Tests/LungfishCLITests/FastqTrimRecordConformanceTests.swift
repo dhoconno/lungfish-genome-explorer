@@ -10,10 +10,11 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
-/// The record that `FastqTrimSubcommand.writeProvenance` hands to `recordFASTQNativeToolProvenance`, taken with the real
-/// fastp on a fixed six-read file. M3 of lane 13.13 reaches the writer from that function by a form the ratchet reads,
-/// and this pin shows that the record stays the same. The pin holds the stable facts of the record. The ids, the dates,
-/// the durations and the tool versions change on every run, so they stay out of it.
+/// The record that `FastqTrimSubcommand.recordTrimProvenance` hands to `recordFASTQNativeToolProvenance`, taken with the
+/// real fastp on a fixed six-read file. M3 of lane 13.13 renames that function, which encodes and writes nothing, so
+/// that the ratchet stops reading it as a writer copy, and this pin shows that the record stays the same. The pin holds
+/// the stable facts of the record. The ids, the dates, the durations and the tool versions change on every run, so they
+/// stay out of it.
 final class FastqTrimRecordConformanceTests: XCTestCase {
     private var root: URL!
 

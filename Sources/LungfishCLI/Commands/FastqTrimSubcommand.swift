@@ -70,7 +70,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
             failureLabel: "fastp combined trim",
             stepNamePrefix: "lungfish fastq trim"
         )
-        try await writeProvenance(input: resolvedInput, outcome: outcome, pairingDecision: pairingDecision, runClock: runClock)
+        try await recordTrimProvenance(input: resolvedInput, outcome: outcome, pairingDecision: pairingDecision, runClock: runClock)
         FileHandle.standardError.write(Data("Adapter and quality trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -105,7 +105,9 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         )
     }
 
-    private func writeProvenance(
+    /// Records the run through `recordFASTQNativeToolProvenance`, which writes with
+    /// `CLIProvenanceSupport.recordSingleStepRun` and `ProvenanceWriter`, as every fastq subcommand does.
+    private func recordTrimProvenance(
         input: FASTQSubcommandInput,
         outcome: FastpPairedRunOutcome,
         pairingDecision: FASTQPairingDecision,
