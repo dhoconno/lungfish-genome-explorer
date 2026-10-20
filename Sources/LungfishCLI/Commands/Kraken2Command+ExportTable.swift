@@ -161,6 +161,18 @@ extension Kraken2Command {
                 } catch {
                     throw ViewerExportRefusal("The Kraken2 database at \(databaseURL.path) cannot be read. \(error)")
                 }
+                if database.needsRebuild {
+                    // BIO-R1 items 7 and 8 (Phase 2.13 lane 13.35). A database of the older builder may hold
+                    // Bracken's estimates under headers that name Kraken2's reads. The leaf never rebuilds it, since
+                    // that would change the input its record names by digest, and the reports only choose the message.
+                    let closing = Kraken2TaxonomyTableExport.reportsAvailable(in: databaseURL.deletingLastPathComponent())
+                        ? "Open the result in Lungfish to rebuild it from its reports, then export again."
+                        : "Its reports are gone, so it cannot be rebuilt or exported."
+                    throw ViewerExportRefusal(
+                        "The Kraken2 database at \(databaseURL.path) was built by an older version of Lungfish and may hold "
+                            + "Bracken's estimates in place of Kraken2's read counts. \(closing)"
+                    )
+                }
                 let known = try database.fetchSamples().map(\.sample).sorted()
                 let unknown = requested.filter { !known.contains($0) }
                 guard unknown.isEmpty else {

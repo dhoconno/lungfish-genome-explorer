@@ -9,6 +9,7 @@
 // columns shown. Kraken2TableExportCLIGUIParityReplayTests runs the command.
 
 import AppKit
+import SQLite3
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -145,6 +146,48 @@ final class TaxonomyTableExportRowTests: XCTestCase {
         guard case .failed(let failure) = outcome else { return XCTFail("the leaf failed, the run ended \(outcome)") }
         XCTAssertFalse(failure.message.isEmpty)
         XCTAssertEqual(calls.messages, [failure.message])
+    }
+
+    /// Phase 2.13 lane 13.35, BIO-R1 F9 and item 11. The sidebar shows a stale database whose reports are gone, so
+    /// its Export reaches the leaf. The leaf refuses it before it writes, and the failure handler gets the leaf's
+    /// message, which the existing failure alert shows.
+    func testExportOfAShownStaleDatabaseEndsInTheLeafsRefusal() async throws {
+        let shown = try makeDatabaseView()
+        await shown.view.sampleMetadataCacheRefresh?.value
+        var handle: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(shown.folder.appendingPathComponent("kraken2.sqlite").path, &handle), SQLITE_OK)
+        XCTAssertEqual(
+            sqlite3_exec(
+                handle, "DELETE FROM metadata WHERE key = '\(Kraken2Database.formatVersionMetadataKey)'", nil, nil, nil
+            ),
+            SQLITE_OK
+        )
+        sqlite3_close(handle)
+
+        let outputURL = scratch.appendingPathComponent("stale.tsv")
+        let invocation = try XCTUnwrap(shown.view.taxonomyExportInvocation(format: .tsv, outputURL: outputURL))
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(
+                buildProductsDirectory: Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+            ),
+            "No lungfish-cli beside the test products and none named by LUNGFISH_CLI_PATH"
+        )
+        let calls = TaxonomyFailureCalls()
+        let begun = try XCTUnwrap(TaxonomyViewController.beginTaxonomyTableExportOperation(
+            invocation: invocation,
+            runner: CLIViewerExportRunner(cliURLOverride: cli),
+            reporter: RecordingOperationReporter()
+        ) { failure in calls.messages.append(failure.message) })
+        let outcome = await begun.task.value
+
+        guard case .failed(let failure) = outcome else {
+            return XCTFail("the leaf refuses a stale database, the run ended \(outcome)")
+        }
+        XCTAssertTrue(
+            failure.message.contains("Its reports are gone, so it cannot be rebuilt or exported."), failure.message
+        )
+        XCTAssertEqual(calls.messages, [failure.message])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
     // MARK: - Fixture

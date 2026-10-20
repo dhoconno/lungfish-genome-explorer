@@ -7,6 +7,7 @@
 // its own sample's metadata, names only the files it read, and parses the arguments the app's begin helper builds.
 
 import ArgumentParser
+import SQLite3
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -229,6 +230,58 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         XCTAssertEqual(try leaf.invocation().canonicalArgv(), [CLICommandIdentity.executableName] + arguments)
         XCTAssertEqual(Array(arguments.prefix(3)), Kraken2TaxonomyTableExport.commandPath)
         XCTAssertEqual(Kraken2Command.ExportTableSubcommand.configuration.commandName, Kraken2TaxonomyTableExport.commandPath.last)
+    }
+
+    // MARK: - KR-STALE (Phase 2.13 lane 13.35, BIO-R1 items 7 and 8)
+
+    /// Ages the database to the older builder's format by deleting the format key, as `TaxonomyReopenBrackenTests` does.
+    private func makeDatabaseStale() {
+        var handle: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(database.path, &handle), SQLITE_OK)
+        defer { sqlite3_close(handle) }
+        XCTAssertEqual(
+            sqlite3_exec(
+                handle, "DELETE FROM metadata WHERE key = '\(Kraken2Database.formatVersionMetadataKey)'", nil, nil, nil
+            ),
+            SQLITE_OK
+        )
+    }
+
+    /// For one sample and for a merge alike, the leaf refuses the stale database with exit 3 and before any write, so
+    /// neither the output nor its record sidecar exists. Only the closing words depend on the reports.
+    private func assertStaleRefusal(closing: String, line: UInt = #line) {
+        let reason = "was built by an older version of Lungfish and may hold Bracken's estimates in place of Kraken2's read counts. "
+        for extra in [[], ["--sample", "sample-A"]] {
+            let output = folder.appendingPathComponent("stale-\(UUID().uuidString).tsv")
+            XCTAssertThrowsError(
+                try command(leafArguments(database, output: output, extra: extra)).export(), line: line
+            ) { error in
+                guard let message = (error as? ViewerExportRefusal)?.message else { return XCTFail("\(error)", line: line) }
+                XCTAssertTrue(message.hasPrefix("The Kraken2 database at "), message, line: line)
+                XCTAssertTrue(message.hasSuffix("kraken2.sqlite " + reason + closing), message, line: line)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), line: line)
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path), line: line
+            )
+        }
+    }
+
+    /// R3. The database may hold Bracken's estimates under headers that name Kraken2's reads. With its reports in
+    /// the folder the message says to open the result in Lungfish, which rebuilds it.
+    func testTheLeafRefusesAStaleDatabaseWithItsReportsPresent() throws {
+        try FileManager.default.copyItem(
+            at: runFolder.appendingPathComponent("classification.kreport"),
+            to: batchFolder.appendingPathComponent("classification.kreport")
+        )
+        makeDatabaseStale()
+        assertStaleRefusal(closing: "Open the result in Lungfish to rebuild it from its reports, then export again.")
+    }
+
+    /// R3. The reports are gone, so nothing can tell which numbers the database holds and it cannot be rebuilt.
+    func testTheLeafRefusesAStaleDatabaseWhoseReportsAreGone() {
+        makeDatabaseStale()
+        assertStaleRefusal(closing: "Its reports are gone, so it cannot be rebuilt or exported.")
     }
 
     func testKraken2TableLeafRefusesAnOptionItDoesNotTake() {
