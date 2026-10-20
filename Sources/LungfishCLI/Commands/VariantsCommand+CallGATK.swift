@@ -51,7 +51,8 @@ extension VariantsCommand.CallSubcommand {
     /// Runs GATK HaplotypeCaller on the bundle's alignment track with `GATKPipelineExecutor`, then attaches
     /// the VCF as a variant track with `GATKBundleVariantAttachmentService`, as the Inspector's GATK row does.
     /// The VCF, its index, the track's database and the records stay in `variants/gatk/`, where older bundles
-    /// hold theirs. The execution record names `recordedArguments` as the run's command and keeps the GATK
+    /// hold theirs. The execution record is the track's own `<track>.gatk-run.lungfish-provenance.json` (2.13
+    /// lane 13.16), so a later call never replaces it. It names `recordedArguments` as the run's command and keeps the GATK
     /// command of every step. `outputExtension` is `vcf.gz` as the dialog writes it, and a test with a
     /// stand-in runner passes `vcf`.
     func executeGATK<Runner: GATKCommandRunning>(
@@ -123,7 +124,9 @@ extension VariantsCommand.CallSubcommand {
             configuration: configuration,
             toolVersion: toolVersion,
             runtimeIdentity: runtimeIdentity
-        ).recording(cliCommandLine: recordedArguments)
+        )
+        .recording(cliCommandLine: recordedArguments)
+        .recording(recordAt: GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: outputTrackID, inBundle: bundleURL))
 
         func event(
             _ name: String, _ progress: Double?, _ message: String,

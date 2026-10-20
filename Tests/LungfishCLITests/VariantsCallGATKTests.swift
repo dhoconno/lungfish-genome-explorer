@@ -109,7 +109,7 @@ final class VariantsCallGATKTests: XCTestCase {
         XCTAssertEqual(ran.attachment.trackInfo.databasePath?.hasPrefix("variants/gatk/vc-"), true)
 
         // The execution record names the lungfish-cli command and the GATK command of its step.
-        let executionURL = bundle.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")
+        let executionURL = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: ran.attachment.trackInfo.id, inBundle: bundle)
         let envelope = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: executionURL))
         XCTAssertEqual(envelope.argv, ran.argv)
         let execution = try envelope.legacyWorkflowRun()
@@ -140,7 +140,7 @@ final class VariantsCallGATKTests: XCTestCase {
         XCTAssertEqual(value(after: "--native-pair-hmm-threads"), "2")
         XCTAssertEqual(Array(arguments.suffix(2)), ["--min-base-quality-score", "20"], "the free text is the only thing after the options")
 
-        let executionURL = bundle.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")
+        let executionURL = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: ran.attachment.trackInfo.id, inBundle: bundle)
         let execution = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: executionURL)).legacyWorkflowRun()
         XCTAssertEqual(execution.parameters["option.extraArguments"]?.stringValue, #"["--min-base-quality-score","20"]"#)
         XCTAssertEqual(execution.parameters["option.ploidy"]?.stringValue, "1")

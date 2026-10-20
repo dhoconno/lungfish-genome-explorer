@@ -162,7 +162,7 @@ public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
             envelope.argv = cliCommandLine
             envelope.reproducibleCommand = cliCommandLine.map(shellEscape).joined(separator: " ")
         }
-        let provenanceURL = request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceURL = request.recordURL ?? request.outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
         return provenanceURL
     }

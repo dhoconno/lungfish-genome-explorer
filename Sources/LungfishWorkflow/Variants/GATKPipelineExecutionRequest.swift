@@ -22,6 +22,10 @@ public struct GATKPipelineExecutionRequest: Sendable, Equatable {
     /// step keeps the GATK command it ran. A command line names only the files the user chose, so
     /// the record needs no replay argv beside it.
     public private(set) var cliCommandLine: [String]?
+    /// Where the executor writes the run's record, or nil for `outputDirectory/.lungfish-provenance.json`, which a run
+    /// outside a bundle keeps. A call into a bundle names the track's own `bundleRunRecordURL(forTrackID:inBundle:)`,
+    /// so a later run never replaces the record an earlier track's attach record cites by digest (2.13 lane 13.16).
+    public private(set) var recordURL: URL?
 
     public init(
         workflowName: String,
@@ -91,6 +95,21 @@ public struct GATKPipelineExecutionRequest: Sendable, Equatable {
         var request = self
         request.cliCommandLine = cliCommandLine
         return request
+    }
+
+    /// This request, with its record, completed or failed, written to `url`.
+    public func recording(recordAt url: URL) -> GATKPipelineExecutionRequest {
+        var request = self
+        request.recordURL = url
+        return request
+    }
+
+    /// `variants/gatk/<track>.gatk-run.lungfish-provenance.json` in `bundleURL`, the record of a GATK call into the
+    /// bundle, beside the track's attach record `<track>.lungfish-provenance.json`. `<track>` is the sanitized track
+    /// ID that `GATKBundleVariantAttachmentService` names the track's files with.
+    public static func bundleRunRecordURL(forTrackID trackID: String, inBundle bundleURL: URL) -> URL {
+        let basename = VariantAttachmentPathComponent.sanitizedTrackBasename(trackID)
+        return bundleURL.appendingPathComponent("variants/gatk/\(basename).gatk-run\(ProvenanceRecorder.provenanceFilename)")
     }
 }
 
