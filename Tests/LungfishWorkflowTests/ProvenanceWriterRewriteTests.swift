@@ -52,6 +52,65 @@ final class ProvenanceWriterRewriteTests: XCTestCase {
         try Fixtures.assertBytes(published, equalFixture: "viewer.import.lungfish-provenance.json")
     }
 
+    /// No route signs an import record (`BAMImportService+Provenance.swift` writes it with no key), so the published
+    /// record is pinned unsigned with no pair beside it. A signed record handed to `rewrite` loses its pair, which
+    /// cannot verify the new bytes, and names it in `priorSignatures` only when it verified (F6, BIO 4).
+    func testRewriteOfASignedImportRecordLeavesNoPairThatFails() throws {
+        let source = tempDirectory.appendingPathComponent("candidate/viewer.import.lungfish-provenance.json")
+        let destination = tempDirectory.appendingPathComponent("final/viewer.import.lungfish-provenance.json")
+        let bam = tempDirectory.appendingPathComponent("candidate/viewer.bam")
+        try FileManager.default.createDirectory(at: bam.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("viewer-bam".utf8).write(to: bam)
+        let envelope = try Self.importEnvelope(bam: bam, bundle: bam.deletingLastPathComponent())
+        let remap: (ProvenanceEnvelope) throws -> ProvenanceEnvelope = { record in
+            try record.with { $0.argv = record.argv.map { $0.replacingOccurrences(of: "/candidate/", with: "/final/") } }
+        }
+        let pair = [
+            ProvenanceSigningConfiguration.signatureURL(for: source),
+            ProvenanceSigningConfiguration.publicKeyURL(for: source),
+        ]
+        func remainingPair() -> [String] {
+            pair.filter { FileManager.default.fileExists(atPath: $0.path) }.map(\.lastPathComponent)
+        }
+
+        // The route as it is, unsigned.
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: source)
+        let unsigned = try ProvenanceEnvelopeReader.decodeCanonical(
+            ProvenanceWriter.rewrite(Data(contentsOf: source), at: source, for: destination, remap: remap)
+        )
+        XCTAssertEqual(remainingPair(), [])
+        XCTAssertTrue(unsigned.signatures.isEmpty)
+        XCTAssertTrue(unsigned.priorSignatures.isEmpty)
+        XCTAssertTrue(unsigned.argv.contains { $0.contains("/final/") })
+
+        // A pair that verifies is named and removed.
+        try FileManager.default.removeItem(at: source)
+        let signer = LocalProvenanceSigningProvider(privateKey: "rewrite-test-key")
+        try ProvenanceWriter(signingProvider: signer).write(envelope, toSidecar: source)
+        XCTAssertNoThrow(try ProvenanceSignatureVerifier.verify(provenanceURL: source))
+        XCTAssertFalse(remainingPair().isEmpty)
+        let verified = try ProvenanceEnvelopeReader.decodeCanonical(
+            ProvenanceWriter.rewrite(Data(contentsOf: source), at: source, for: destination, remap: remap)
+        )
+        XCTAssertEqual(remainingPair(), [])
+        XCTAssertTrue(verified.signatures.isEmpty)
+        XCTAssertEqual(verified.priorSignatures.count, 1)
+
+        // A pair that fails is removed and not named.
+        try FileManager.default.removeItem(at: source)
+        try ProvenanceWriter(signingProvider: signer).write(envelope, toSidecar: source)
+        let edited = String(decoding: try Data(contentsOf: source), as: UTF8.self)
+            .replacingOccurrences(of: "\"BAM import\"", with: "\"BAM import, edited\"")
+        try Data(edited.utf8).write(to: source)
+        XCTAssertThrowsError(try ProvenanceSignatureVerifier.verify(provenanceURL: source))
+        let failed = try ProvenanceEnvelopeReader.decodeCanonical(
+            ProvenanceWriter.rewrite(Data(contentsOf: source), at: source, for: destination, remap: remap)
+        )
+        XCTAssertEqual(remainingPair(), [])
+        XCTAssertTrue(failed.signatures.isEmpty)
+        XCTAssertTrue(failed.priorSignatures.isEmpty)
+    }
+
     /// The import record a staged BAM import writes (`BAMImportService+Provenance.swift`), from fixed ids and dates.
     static func importEnvelope(bam: URL, bundle: URL) throws -> ProvenanceEnvelope {
         let descriptor = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .output)
