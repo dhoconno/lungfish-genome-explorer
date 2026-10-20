@@ -161,7 +161,7 @@ public struct ReadMismatchCache: Sendable {
 /// Rows preserve `packReads` emission order, which is ascending `position`
 /// within a row (rows are filled left to right), so the binary search in
 /// `ReadTrackCulling.visibleReadRange` is exact.
-public struct PackedReadLayout {
+public struct PackedReadLayout: Sendable {
 
     /// Row index -> reads in that row, ascending by position.
     public private(set) var rows: [[AlignedRead]]

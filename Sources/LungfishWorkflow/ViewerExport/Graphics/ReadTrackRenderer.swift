@@ -81,7 +81,7 @@ public enum ReadTrackRenderer {
     }
 
     /// Zoom tier for read rendering.
-    public enum ZoomTier {
+    public enum ZoomTier: Sendable {
         case coverage
         case packed
         case base
@@ -561,7 +561,7 @@ public enum ReadTrackRenderer {
     // MARK: - Display Settings
 
     /// Rendering options controllable from the Inspector panel.
-    public struct DisplaySettings {
+    public struct DisplaySettings: Sendable {
         /// When true (default), matches are shown as dots and mismatches as colored letters.
         /// When false, all bases are shown as letters (matches in neutral gray, mismatches colored).
         /// Mismatches are ALWAYS visible regardless of this setting.
