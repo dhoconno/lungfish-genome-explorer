@@ -117,7 +117,7 @@ final class TaxonomyReopenBrackenTests: XCTestCase {
         sqlite3_close(handle)
 
         let legacy = try Kraken2Database(at: dbURL)
-        XCTAssertTrue(MainSplitViewController.kraken2DatabaseSourcesAvailable(in: resultDir))
+        XCTAssertTrue(Kraken2TaxonomyTableExport.reportsAvailable(in: resultDir))
         XCTAssertTrue(MainSplitViewController.shouldRebuildStaleKraken2Database(legacy, resultURL: resultDir))
 
         Kraken2StaleDatabaseRebuilds.markAttempted(resultDir)
@@ -128,7 +128,7 @@ final class TaxonomyReopenBrackenTests: XCTestCase {
 
         let noReports = tempRoot.appendingPathComponent("kraken2-no-reports")
         try FileManager.default.createDirectory(at: noReports, withIntermediateDirectories: true)
-        XCTAssertFalse(MainSplitViewController.kraken2DatabaseSourcesAvailable(in: noReports))
+        XCTAssertFalse(Kraken2TaxonomyTableExport.reportsAvailable(in: noReports))
     }
 
     func testInspectorDetailsForReopenedSingleResultNameTheDatabase() throws {

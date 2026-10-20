@@ -828,21 +828,7 @@ extension MainSplitViewController {
     /// per session so a failing rebuild cannot loop.
     static func shouldRebuildStaleKraken2Database(_ db: Kraken2Database, resultURL: URL) -> Bool {
         guard db.needsRebuild, !Kraken2StaleDatabaseRebuilds.wasAttempted(resultURL) else { return false }
-        return kraken2DatabaseSourcesAvailable(in: resultURL)
-    }
-
-    /// Whether `resultURL` still holds the Kraken 2 reports `build-db` needs.
-    nonisolated static func kraken2DatabaseSourcesAvailable(in resultURL: URL) -> Bool {
-        let fm = FileManager.default
-        if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL) {
-            return manifest.samples.contains { record in
-                let kreport = resultURL
-                    .appendingPathComponent(record.resultDirectory, isDirectory: true)
-                    .appendingPathComponent("classification.kreport")
-                return fm.fileExists(atPath: kreport.path)
-            }
-        }
-        return fm.fileExists(atPath: resultURL.appendingPathComponent("classification.kreport").path)
+        return Kraken2TaxonomyTableExport.reportsAvailable(in: resultURL)
     }
 
     nonisolated static func classifierDatabaseBuildSampleDirectories(tool: String, resultURL: URL) throws -> [URL] {
