@@ -15,14 +15,18 @@ enum MSADiscriminatingSitesExclusionAligner {
 
     /// Accepts a FASTA file or a `.lungfishref` bundle, whose primary FASTA is
     /// resolved the same way the primer-design inputs resolve it.
-    static func align(targetAlignmentURL: URL, exclusionsURL: URL) throws -> Aligned {
+    ///
+    /// `executableOverride` stands in for the managed MAFFT so a test can drive the spawn with a script.
+    static func align(
+        targetAlignmentURL: URL, exclusionsURL: URL, executableOverride: URL? = nil
+    ) throws -> Aligned {
         let fastaURL = try resolvedFASTA(for: exclusionsURL)
         let targets = try DiscriminatingSitesFASTA.read(at: targetAlignmentURL)
         guard let expectedWidth = targets.first?.sequence.count else {
             throw DiscriminatingSitesExclusionAligner.Failure.noExclusionSequences(targetAlignmentURL.path)
         }
 
-        let executable = CoreToolLocator.managedExecutableURL(
+        let executable = executableOverride ?? CoreToolLocator.managedExecutableURL(
             environment: "mafft",
             executableName: "mafft",
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
