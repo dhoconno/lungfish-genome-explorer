@@ -9,6 +9,7 @@ import Compression
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 import XCTest
 
@@ -16,13 +17,11 @@ final class ViewerGraphicBundleSourceTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ViewerGraphicBundleSource-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folder = try TestTempDirectory.make(prefix: "ViewerGraphicBundleSource")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        TestTempDirectory.cleanup(folder)
     }
 
     /// A bundle with `chr1` (alias `1`) of 3,000 bases and the annotation track `genes`, whose one gene at 1101 to

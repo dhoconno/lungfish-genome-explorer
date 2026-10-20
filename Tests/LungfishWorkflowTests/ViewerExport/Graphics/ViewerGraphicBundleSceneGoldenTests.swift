@@ -10,6 +10,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 import XCTest
 
@@ -22,13 +23,11 @@ final class ViewerGraphicBundleSceneGoldenTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ViewerGraphicBundleScene-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folder = try TestTempDirectory.make(prefix: "ViewerGraphicBundleScene")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        TestTempDirectory.cleanup(folder)
     }
 
     /// `chr1` of 3,000 bases, the annotation track `genes` with one gene at 1101 to 1400, and the variant track

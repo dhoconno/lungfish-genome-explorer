@@ -11,6 +11,7 @@
 // pane state their display call sets, with the line that sets it.
 
 import AppKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -30,13 +31,11 @@ final class ViewerGraphicsExportRowTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ViewerGraphicsExportRow-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folder = try TestTempDirectory.make(prefix: "ViewerGraphicsExportRow")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        TestTempDirectory.cleanup(folder)
     }
 
     private func trueRunner() -> CLIViewerExportRunner {

@@ -8,23 +8,26 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 @testable import LungfishCLI
 
 final class BundleExportGraphicCommandTests: XCTestCase {
+    private var scratch: URL!
     private var folder: URL!
     private var bundle: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("BundleExportGraphic-\(UUID().uuidString)", isDirectory: true)
+        scratch = try TestTempDirectory.make(prefix: "BundleExportGraphic")
+        // Four levels below the scratch folder, so the provenance lookup never lists the user temp folder (QA review Fix 3).
+        folder = scratch.appendingPathComponent("levels/deep/run/case", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         bundle = try Self.makeBundle(in: folder)
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        TestTempDirectory.cleanup(scratch)
     }
 
     /// A bundle with `chr1` (alias `1`) of 3,000 bases in a plain FASTA, annotation tracks `genes` and `repeats`, a

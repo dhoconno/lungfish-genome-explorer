@@ -7,20 +7,23 @@
 
 import Foundation
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishWorkflow
 import XCTest
 
 final class ScientificFileExportFolderTests: XCTestCase {
+    private var scratch: URL!
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ExportFolder-\(UUID().uuidString)", isDirectory: true)
+        scratch = try TestTempDirectory.make(prefix: "ExportFolder")
+        // Four levels below the scratch folder, so the provenance lookup never lists the user temp folder (QA review Fix 3).
+        root = scratch.appendingPathComponent("levels/deep/run/case", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(scratch)
     }
 
     private func request(sources: [URL], folder: URL) -> ScientificFileExportProvenance.Request {
