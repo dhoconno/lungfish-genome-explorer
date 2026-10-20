@@ -17,6 +17,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class PerfBenchSequenceViewerTests: XCTestCase {

@@ -15,6 +15,7 @@
 import XCTest
 import AppKit
 @testable import LungfishApp
+@testable import LungfishWorkflow
 import LungfishCore
 
 final class ReadSortAndColorModeSettingsTests: XCTestCase {

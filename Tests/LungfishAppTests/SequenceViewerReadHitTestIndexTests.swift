@@ -5,6 +5,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 @testable import LungfishCore
 
 /// Parity coverage for the F1 fix: row-bucketed read hit-testing must return exactly the

@@ -7,7 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 // MARK: - VariantTrackRendererTests
 

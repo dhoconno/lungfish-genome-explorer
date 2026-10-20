@@ -7,7 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 /// Pins what each public draw function of `ReadTrackRenderer` and `VariantTrackRenderer` puts
 /// outside its text, under the light and the dark appearance, and the rows `packReads` gives a

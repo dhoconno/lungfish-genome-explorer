@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 @testable import LungfishCore
 
 /// The heap/segment-tree packer must place every read in exactly the row the
