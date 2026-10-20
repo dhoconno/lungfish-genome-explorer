@@ -26,6 +26,10 @@
 // `lungfish project copy-item` with `caller` `cli`. C against C' declares nothing. The class also checks that
 // the stage under T's `.tmp` is gone.
 //
+// The third case, a reference bundle that has its own `.lungfish-provenance.json` (review N3 of lane 12.18), is
+// the common real case of the native path. The service rehydrates that record and appends one step, so the
+// found differences all sit in `steps[1]` and the envelope's own identity is the source's on both sides.
+//
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the integration tier.
 
 import Foundation
@@ -44,12 +48,16 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
     enum Case: String, Sendable {
         case readBundle
         case referenceBundle
+        /// A native-path item that has its own `.lungfish-provenance.json`, which the native copy rehydrates
+        /// with one appended step (review N3 of lane 12.18).
+        case recordedReferenceBundle
 
         /// The item's path inside S.lungfish, which the copy keeps inside T.lungfish.
         var relativePath: String {
             switch self {
             case .readBundle: return "Imports/R.lungfishfastq"
             case .referenceBundle: return "Reference Sequences/NC_045512.lungfishref"
+            case .recordedReferenceBundle: return "Reference Sequences/NC_045513.lungfishref"
             }
         }
     }
@@ -109,9 +117,22 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
             ("steps[<ANY>].resolvedOptions.project.<ANY>", 6, referenceOptions),
             ("reproducibleCommand", 3, command), ("steps[<ANY>].reproducibleCommand", 3, command),
         ]
+        let recordedFiles = "differs: T.lungfish/Reference Sequences/NC_045513.lungfishref/<ANY>provenance.json at "
+        let recordedStep = "Side A appends the step of `Lungfish.app import-native`, side C the step of `lungfish project copy-item` (BIO T5)"
+        let recorded: [(String, Int, String)] = [
+            ("steps[<ANY>].argv[<ANY>]", 24, recordedStep), ("steps[<ANY>].durableReplayArgv[<ANY>]", 24, recordedStep),
+            ("steps[<ANY>].toolName", 3, recordedStep), ("steps[<ANY>].reproducibleCommand", 3, recordedStep),
+            ("steps[<ANY>].resolvedOptions.caller.<ANY>", 6, "Side A writes no `caller`, side C `cli` (F4 section 2, BIO T5)"),
+            ("steps[<ANY>].resolvedOptions.source.<ANY>", 6, referenceOptions),
+            ("steps[<ANY>].resolvedOptions.item.<ANY>", 6, referenceOptions),
+            ("steps[<ANY>].resolvedOptions.project.<ANY>", 6, referenceOptions),
+        ]
         return read.map { RouteParityDeclaredDifference([.readBundle: $0.1], readFiles + $0.0, reason: $0.2, closedBy: closedBy) }
             + reference.map {
                 RouteParityDeclaredDifference([.referenceBundle: $0.1], referenceFiles + $0.0, reason: $0.2, closedBy: closedBy)
+            }
+            + recorded.map {
+                RouteParityDeclaredDifference([.recordedReferenceBundle: $0.1], recordedFiles + $0.0, reason: $0.2, closedBy: closedBy)
             }
     }()
 
@@ -145,6 +166,10 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
 
     func testTheCopyRowCopiesAReferenceBundleAsTheInAppCopyDid() async throws {
         try await assertCase(.referenceBundle)
+    }
+
+    func testTheCopyRowCopiesARecordedReferenceBundleAsTheInAppCopyDid() async throws {
+        try await assertCase(.recordedReferenceBundle)
     }
 
     private func assertCase(_ parityCase: Case, file: StaticString = #filePath, line: UInt = #line) async throws {
@@ -239,17 +264,33 @@ final class CrossProjectCopyParityReplayTests: XCTestCase {
     /// through `FASTQBundleCopyImportWorkflow`, and a reference bundle, which the native copy takes.
     private static func writeSource(_ source: URL) throws {
         let reads = try writeBundle(source, Case.readBundle.relativePath, name: "reads.fastq", contents: "@r1\nACGT\n+\nIIII\n")
-        let output = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output)
-        let argv = ["source-fastq-tool", "reads.fastq"]
+        try writeEnvelope(
+            of: ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output),
+            tool: "source-fastq-tool", workflow: "source FASTQ bundle", into: reads.deletingLastPathComponent()
+        )
+        _ = try writeBundle(source, Case.referenceBundle.relativePath, name: "sequence.fasta", contents: ">NC_045512\nACGTACGT\n")
+        let recorded = try writeBundle(
+            source, Case.recordedReferenceBundle.relativePath, name: "sequence.fasta", contents: ">NC_045513\nACGTACGT\n"
+        )
+        try writeEnvelope(
+            of: ProvenanceFileDescriptor.file(url: recorded, role: .output),
+            tool: "source-reference-tool", workflow: "source reference bundle", into: recorded.deletingLastPathComponent()
+        )
+    }
+
+    /// Writes the envelope of the run that made `output` into `bundle`, as a project item holds its own record.
+    private static func writeEnvelope(
+        of output: ProvenanceFileDescriptor, tool: String, workflow: String, into bundle: URL
+    ) throws {
+        let argv = [tool, (output.path as NSString).lastPathComponent]
         let step = ProvenanceStep(
-            toolName: "source-fastq-tool", toolVersion: "1.0", argv: argv, outputs: [output], exitStatus: 0, wallTimeSeconds: 0.1
+            toolName: tool, toolVersion: "1.0", argv: argv, outputs: [output], exitStatus: 0, wallTimeSeconds: 0.1
         )
         let envelope = ProvenanceEnvelope(
-            workflowName: "source FASTQ bundle", workflowVersion: "1.0", toolName: "source-fastq-tool", toolVersion: "1.0",
+            workflowName: workflow, workflowVersion: "1.0", toolName: tool, toolVersion: "1.0",
             argv: argv, files: [output], output: output, outputs: [output], steps: [step], wallTimeSeconds: 0.1, exitStatus: 0
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: reads.deletingLastPathComponent())
-        _ = try writeBundle(source, Case.referenceBundle.relativePath, name: "sequence.fasta", contents: ">NC_045512\nACGTACGT\n")
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundle)
     }
 
     /// Writes `name` into a new bundle at `relative` inside `project` and returns the file.
