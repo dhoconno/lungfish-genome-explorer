@@ -349,62 +349,39 @@ public extension ReconcilerServices {
 
     /// `micromamba --version`, or nil when the binary is missing, unrunnable, or too slow.
     ///
-    /// The launch, read, and wait all run on a background queue rather than inline in the
-    /// continuation: `readDataToEndOfFile` and `waitUntilExit` both block, and blocking a
-    /// cooperative-pool thread starves every other task sharing it. stderr goes to the null
-    /// device instead of a `Pipe`, because nothing drains a stderr pipe here and a child that
-    /// fills the 64KB buffer would block forever writing to it.
+    /// The run goes through ``ToolProcess``, which suspends the caller instead of parking a thread in
+    /// a blocking read, stops the whole process tree at the limit, and reads stdout while the process
+    /// runs. stderr goes to the null device, because nothing needs it here and a child that fills the
+    /// 64KB buffer of a pipe nobody drains would block forever writing to it.
     static func readMicromambaVersion(at path: URL) async -> String? {
         guard FileManager.default.isExecutableFile(atPath: path.path) else { return nil }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runMicromambaVersionProbe(at: path))
-            }
-        }
-    }
-
-    /// Blocking body of the version probe. Must be called off the cooperative pool.
-    private static func runMicromambaVersionProbe(at path: URL) -> String? {
-        let process = Process()
-        process.executableURL = path
-        process.arguments = ["--version"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        let spec = ToolProcessSpec(
+            executableURL: path,
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: .discard,
+            timeout: .seconds(micromambaVersionTimeout),
+            label: "micromamba"
+        )
+        let run: Result<ToolProcessResult, ToolProcessError>
+        do { run = .success(try await ToolProcess.run(spec)) } catch { run = .failure(error) }
+        let result: ToolProcessResult
+        switch run {
+        case .success(let finished):
+            result = finished
+        case .failure(.timedOut):
+            logger.warning(
+                "micromamba --version timed out after \(Int(micromambaVersionTimeout), privacy: .public)s"
+            )
+            return nil
+        case .failure(let error):
             logger.warning(
                 "Could not run micromamba --version: \(error.localizedDescription, privacy: .public)"
             )
             return nil
         }
-
-        // Arm the timeout before reading: the read itself is what would otherwise hang, so
-        // terminating the child is what unblocks it.
-        let timedOut = OSAllocatedUnfairLock(initialState: false)
-        let deadline = DispatchWorkItem {
-            timedOut.withLock { $0 = true }
-            process.terminate()
-        }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(
-            deadline: .now() + micromambaVersionTimeout,
-            execute: deadline
-        )
-        defer { deadline.cancel() }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        if timedOut.withLock({ $0 }) {
-            logger.warning(
-                "micromamba --version timed out after \(Int(micromambaVersionTimeout), privacy: .public)s"
-            )
-            return nil
-        }
-        guard process.terminationStatus == 0,
-              let output = String(data: data, encoding: .utf8)?
+        guard result.isSuccess,
+              let output = String(data: result.stdout, encoding: .utf8)?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
               !output.isEmpty
         else {
