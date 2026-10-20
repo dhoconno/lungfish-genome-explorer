@@ -58,6 +58,16 @@ final class TrackLabelTextPixelTests: XCTestCase {
                       place: .leftCentred(x: 4, rect: CGRect(x: 0, y: 2, width: 240, height: 20))),
             LabelCase(name: "sample-name", text: "Sample-with-a-long-name-0001", appKitFont: .systemFont(ofSize: 10),
                       face: .system, appKitColor: .labelColor, role: .label, place: .truncated(CGRect(x: 4, y: 3, width: 60, height: 10))),
+            // Names that fit. Their rectangles are wide enough that nothing is cut, so the live `draw(in:)` path is
+            // compared with the CoreText line, at the three sizes the gutter uses (lane 13.29 UX review). Row heights
+            // 12, 14 and 8 give 10, 12 and 7 pt, and 8 is the smallest row that shows labels, where the line box is
+            // taller than the rectangle. They take the same checks as the cut name below.
+            LabelCase(name: "sample-name-fits-10", text: "Sample-01", appKitFont: .systemFont(ofSize: 10),
+                      face: .system, appKitColor: .labelColor, role: .label, place: .truncated(CGRect(x: 4, y: 3, width: 80, height: 10))),
+            LabelCase(name: "sample-name-fits-12", text: "NA12878-0001", appKitFont: .systemFont(ofSize: 12),
+                      face: .system, appKitColor: .labelColor, role: .label, place: .truncated(CGRect(x: 4, y: 3, width: 120, height: 14))),
+            LabelCase(name: "sample-name-fits-7", text: "Sample-01", appKitFont: .systemFont(ofSize: 7),
+                      face: .system, appKitColor: .labelColor, role: .label, place: .truncated(CGRect(x: 4, y: 3, width: 40, height: 6))),
         ]
     }
 
@@ -169,9 +179,9 @@ final class TrackLabelTextPixelTests: XCTestCase {
                     XCTAssertTrue(shift.allSatisfy { abs($0) <= Int(Self.scale) }, "\(key) ink box moved \(shift) pixels at 2x")
                     continue
                 }
-                // CoreText cuts a long name at a different glyph than AppKit's truncating tail, so
-                // only the left, top and bottom of the ink keep their place. The right edge is a
-                // measured difference (lane 13.29 c3 report) and stays inside the label's rectangle.
+                // The cut falls at the same glyph in both images. CoreText lays a name out slightly wider, up to
+                // 1.5 pt further right at the ellipsis, growing from the third glyph (lane 13.29 UX review). The
+                // left, top and bottom of the ink keep their place and the right edge stays inside the rectangle.
                 XCTAssertTrue([shift[0], shift[1], shift[3]].allSatisfy { abs($0) <= Int(Self.scale) }, "\(key) ink box moved \(shift)")
                 XCTAssertLessThanOrEqual(CGFloat(newBox[2]), rect.maxX * Self.scale, "\(key) ink leaves its rectangle")
             }
