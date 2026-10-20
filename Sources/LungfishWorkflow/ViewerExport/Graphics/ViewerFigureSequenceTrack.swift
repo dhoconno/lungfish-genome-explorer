@@ -75,6 +75,9 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
         let startBase = max(0, Int(frame.start))
         let endBase = min(entry.length, Int(frame.end) + 1)
         guard startBase < endBase else { return }
+        // The live view reads one base past a whole-number end. That base is outside the window and is
+        // never drawn, so the omissions count the window's own bases (BIO 4).
+        let windowEnd = min(endBase, max(startBase, Int(frame.end.rounded(.up))))
         let layout = Layout(
             left: area.x + Double(frame.leadingInset), right: area.x + area.width - Double(frame.trailingInset),
             top: area.y, height: area.height,
@@ -86,7 +89,7 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
             canvas.omit(ViewerFigureOmission(
                 trackID: Self.trackID, kind: .scaleMode,
                 reason: "bases drawn as a bar at \(Self.number(scale)) bases per point, \(Self.number(Self.lineThreshold)) or more",
-                count: endBase - startBase
+                count: windowEnd - startBase
             ))
             return
         }
@@ -100,7 +103,7 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
                 trackID: Self.trackID, kind: .scaleMode,
                 reason: "bases drawn as blocks of their most common base at \(Self.number(scale)) bases per point, "
                     + "\(Self.number(lettersThreshold)) or more",
-                count: bases.count
+                count: windowEnd - startBase
             ))
         }
     }

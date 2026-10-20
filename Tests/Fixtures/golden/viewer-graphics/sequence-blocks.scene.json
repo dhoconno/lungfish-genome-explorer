@@ -1321,7 +1321,7 @@
   ],
   "omissions" : [
     {
-      "count" : 2001,
+      "count" : 2000,
       "kind" : "scaleMode",
       "reason" : "bases drawn as blocks of their most common base at 20 bases per point, 10 or more",
       "trackID" : "sequence"

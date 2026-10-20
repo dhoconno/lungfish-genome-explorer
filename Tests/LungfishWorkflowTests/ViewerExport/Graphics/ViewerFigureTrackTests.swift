@@ -165,6 +165,22 @@ final class ViewerFigureSequenceTrackTests: XCTestCase {
         }
     }
 
+    func testTheOmissionCountsTheWindowsOwnBases() async throws {
+        let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
+        defer { TestTempDirectory.cleanup(root) }
+        // The live view reads one base past a whole-number end, and that base lies outside the
+        // window and is never drawn. A fractional end shows part of the base at the end.
+        let cases: [(start: Double, end: Double, width: Int, count: Int)] = [
+            (100, 2100, 100, 2000), (100, 2100.5, 100, 2001), (0, 29000, 80, 29000),
+        ]
+        for window in cases {
+            let frame = ViewerFigureTrackFixture.frame(start: window.start, end: window.end, width: window.width)
+            let scene = try await buildScene(frame, in: root)
+            XCTAssertEqual(scene.omissions.map(\.kind), [.scaleMode], "\(window.start) to \(window.end)")
+            XCTAssertEqual(scene.omissions.first?.count, window.count, "\(window.start) to \(window.end)")
+        }
+    }
+
     func testInputFilesNameTheFASTAAndItsIndex() {
         let fasta = URL(fileURLWithPath: "/tmp/figure.fa")
         XCTAssertEqual(
@@ -252,8 +268,8 @@ final class ViewerFigureTrackGoldenTests: XCTestCase {
         XCTAssertEqual(scene.items.count, 100, "one block for each 20 bases")
         XCTAssertEqual(scene.omissions, [ViewerFigureOmission(
             trackID: "sequence", kind: .scaleMode,
-            reason: "bases drawn as blocks of their most common base at 20 bases per point, 10 or more", count: 2001
-        )])
+            reason: "bases drawn as blocks of their most common base at 20 bases per point, 10 or more", count: 2000
+        )], "base 2000 is outside the window from 0 to 2,000")
         try assertGolden(scene, "sequence-blocks")
     }
 
