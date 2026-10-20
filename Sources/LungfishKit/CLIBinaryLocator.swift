@@ -138,29 +138,45 @@ public enum CLIBinaryLocator {
         return roots
     }
 
-    private static func swiftPMDevelopmentBinPath(packageRoot: URL) -> URL? {
-        let swiftProcess = Process()
-        swiftProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        swiftProcess.arguments = [
-            "swift",
-            "build",
-            "--package-path", packageRoot.path,
-            "--show-bin-path",
-        ]
+    /// The longest the SwiftPM bin path probe may run. `swift build --show-bin-path` waits on the build
+    /// lock another `swift build` or `swift test` holds, and the 2.12 verify run waited 884 s on it
+    /// (R6 of M879). A probe that outlasts this returns nil, so the search goes on to the next step.
+    static let swiftPMProbeTimeout: Duration = .seconds(120)
 
-        let pipe = Pipe()
-        swiftProcess.standardOutput = pipe
-        swiftProcess.standardError = FileHandle.nullDevice
+    private static func swiftPMDevelopmentBinPath(packageRoot: URL) -> URL? {
+        swiftPMDevelopmentBinPath(
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [
+                "swift",
+                "build",
+                "--package-path", packageRoot.path,
+                "--show-bin-path",
+            ],
+            timeout: swiftPMProbeTimeout
+        )
+    }
+
+    /// The probe behind ``swiftPMDevelopmentBinPath(packageRoot:)``, with the program, its arguments and
+    /// the bound as parameters so a test can run a stand-in. It returns the last line of the program's
+    /// standard output as a directory, and nil when the program fails, cannot start or outlasts `timeout`.
+    static func swiftPMDevelopmentBinPath(executable: URL, arguments: [String], timeout: Duration) -> URL? {
+        let spec = ToolProcessSpec(
+            executableURL: executable,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .capture(),
+            stderr: .discard,
+            timeout: timeout,
+            label: "swift build --show-bin-path"
+        )
 
         do {
-            try swiftProcess.run()
-            swiftProcess.waitUntilExit()
-            guard swiftProcess.terminationStatus == 0 else {
+            let result = try ToolProcess.runBlocking(spec)
+            guard result.isSuccess else {
                 return nil
             }
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let path = String(data: data, encoding: .utf8)?
+            guard let path = result.stdoutText
                 .split(whereSeparator: \.isNewline)
                 .map(String.init)
                 .last?
