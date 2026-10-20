@@ -340,9 +340,9 @@ public enum NaoMgsBamMaterializer {
         }
 
         // 4. Stream: write header, then iterate rows and write each SAM line into the pipeline's stdin.
-        //    Each write waits on this writer queue until the pipe took it, so samtools holds the rows back and
-        //    the SAM text never sits in memory. A stage that stops reading ends the write with readerGone,
-        //    never SIGPIPE, and the writer stops.
+        //    The lines gather into 64 KiB batches. Each batch waits on this writer queue until the pipe took it, so
+        //    samtools holds the rows back and the SAM text never exceeds a batch in memory. A stage that stops
+        //    reading ends the write with readerGone, never SIGPIPE, and the writer stops.
         let stdin = run.stdin
         final class ErrorBox: Sendable {
             private let state = Mutex<(any Error)?>(nil)
@@ -368,19 +368,22 @@ public enum NaoMgsBamMaterializer {
             // Closing the writer when the stream is done, however it ends, gives samtools end of file.
             defer { stdin.close() }
             do {
-                /// Writes all bytes, waiting while the pipe is full.
-                /// Returns false when a stage stopped reading or the write failed, so the caller can stop.
+                var pending = Data()
+                pending.reserveCapacity(80_000)
+                /// Hands the batch to samtools and waits until the pipe took it. False when a stage stopped reading.
+                func flush() -> Bool {
+                    guard !pending.isEmpty else { return true }
+                    defer { pending.removeAll(keepingCapacity: true) }
+                    return (try? stdin.writeBlocking(pending)) != nil
+                }
+                /// Adds `data` to the batch and sends the batch once it holds 64 KiB. False only when a send failed.
                 func writeAll(_ data: Data) -> Bool {
-                    do {
-                        try stdin.writeBlocking(data)
-                        return true
-                    } catch {
-                        return false
-                    }
+                    pending.append(data)
+                    return pending.count < 65_536 || flush()
                 }
 
                 if let headerData = headerText.data(using: .utf8) {
-                    guard writeAll(headerData) else {
+                    guard writeAll(headerData), flush() else {
                         writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                    userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM header"])
                         return
@@ -531,6 +534,11 @@ public enum NaoMgsBamMaterializer {
                             return
                         }
                     }
+                }
+                guard flush() else {
+                    writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
+                                               userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM records for sample \(sample)"])
+                    return
                 }
             }
         }
