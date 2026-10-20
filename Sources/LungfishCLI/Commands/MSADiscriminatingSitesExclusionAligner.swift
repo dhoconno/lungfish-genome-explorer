@@ -45,29 +45,30 @@ enum MSADiscriminatingSitesExclusionAligner {
         let arguments = DiscriminatingSitesExclusionAligner.arguments(
             exclusionsPath: stagedExclusions.path,
             targetAlignmentPath: targetAlignmentURL.path)
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.currentDirectoryURL = scratch
-        var environment = ProcessInfo.processInfo.environment
-        environment["MAFFT_BINARIES"] = executable
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("libexec/mafft").path
-        process.environment = environment
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw DiscriminatingSitesExclusionAligner.Failure.failed(
-                process.terminationStatus,
-                String(data: errorData, encoding: .utf8) ?? "")
+        // `align` is synchronous, like the command that calls it, and `runBlocking` needs no Swift task. The
+        // command runs from the CLI's async main on a cooperative-pool thread, never the main actor, and that
+        // thread blocked in the pipe reads before.
+        let spec = ToolProcessSpec(
+            executableURL: executable,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(overriding: [
+                "MAFFT_BINARIES": executable
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("libexec/mafft").path,
+            ]),
+            workingDirectory: scratch
+        )
+        let run = try ToolProcess.runBlocking(spec)
+        guard run.isSuccess else {
+            var detail = String(data: run.stderr, encoding: .utf8) ?? ""
+            if let incomplete = run.incompleteOutputReason {
+                // MAFFT exited cleanly but a child kept its output open, so the alignment may be cut short.
+                detail += detail.isEmpty || detail.hasSuffix("\n") ? incomplete : "\n" + incomplete
+            }
+            throw DiscriminatingSitesExclusionAligner.Failure.failed(run.status, detail)
         }
+        let outputData = run.stdout
 
         let combinedURL = scratch.appendingPathComponent("combined.aligned.fasta")
         try outputData.write(to: combinedURL, options: .atomic)
