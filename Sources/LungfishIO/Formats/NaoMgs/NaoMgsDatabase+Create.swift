@@ -208,27 +208,10 @@ extension NaoMgsDatabase {
                 // Set up synchronous line reader from gzip or plain text
                 let isGzip = tsvURL.pathExtension.lowercased() == "gz"
 
-                let readHandle: FileHandle
-                var gzipProcess: Process?
-
-                if isGzip {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-                    process.arguments = ["-dc", tsvURL.path]
-                    let pipe = Pipe()
-                    process.standardOutput = pipe
-                    process.standardError = FileHandle.nullDevice
-                    try process.run()
-                    readHandle = pipe.fileHandleForReading
-                    gzipProcess = process
-                } else {
-                    readHandle = try FileHandle(forReadingFrom: tsvURL)
-                }
-                defer {
-                    if isGzip {
-                        gzipProcess?.waitUntilExit()
-                    }
-                }
+                let gzipChild: GzipChildStream? = try isGzip ? GzipChildStream(decompressing: tsvURL) : nil
+                let plainHandle: FileHandle? = try isGzip ? nil : FileHandle(forReadingFrom: tsvURL)
+                // Leaving the file for any reason, a thrown row included, stops gzip and reaps it.
+                defer { gzipChild?.close() }
 
                 // Read in chunks and parse lines synchronously — O(chunk) memory
                 let chunkSize = 4_194_304  // 4 MB — larger chunks reduce read syscalls
@@ -493,7 +476,7 @@ extension NaoMgsDatabase {
 
                 // Synchronous chunk-based line reader — no async buffer accumulation
                 while true {
-                    let chunk = readHandle.readData(ofLength: chunkSize)
+                    let chunk = gzipChild?.readChunk(upTo: chunkSize) ?? plainHandle?.readData(ofLength: chunkSize) ?? Data()
                     if chunk.isEmpty { break }
 
                     partial.append(chunk)
