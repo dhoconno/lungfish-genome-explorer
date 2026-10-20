@@ -379,7 +379,54 @@ final class ONTDirectoryImporterTests: XCTestCase {
         try payload.write(to: file)
 
         let falseURL = URL(fileURLWithPath: "/usr/bin/false")
-        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: falseURL))
+        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: falseURL)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Counting the reads in \(file.lastPathComponent) failed because the line counter exited with code 1."
+            )
+        }
+    }
+
+    /// Phase 2.13 lane 13.06, glance Fix 1 (BIO 4). A counter that a signal killed did not exit with a code, so the
+    /// sentence names the signal and never says the counter exited with a code. A shell script that kills itself
+    /// with `kill -9` stands for the killed counter, and it never reads its input.
+    func testACountWhoseCounterIsKilledNamesTheSignalNotAnExitCode() throws {
+        let directory = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("reads.fastq")
+        try Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: file)
+        let counter = directory.appendingPathComponent("counter.sh")
+        try Data("#!/bin/sh\nkill -9 $$\n".utf8).write(to: counter)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: counter.path)
+
+        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: counter)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Counting the reads in reads.fastq failed because the line counter was stopped by signal 9."
+            )
+        }
+    }
+
+    /// Phase 2.13 lane 13.06, glance Fix 1 part b (BIO 4, UX 1). The barcode error words its cause by interpolating
+    /// the error, which prints the case dump of an error that does not describe itself. The user must read the
+    /// count sentence, and so the wrapped error shows it.
+    func testABarcodeErrorShowsTheCountSentenceNotTheCaseDump() throws {
+        let directory = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("reads.fastq")
+        try Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: file)
+
+        var thrown: Error?
+        do {
+            _ = try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: URL(fileURLWithPath: "/usr/bin/false"))
+        } catch {
+            thrown = error
+        }
+        let underlying = try XCTUnwrap(thrown, "a counter that exits 1 throws")
+        XCTAssertEqual(
+            ONTImportError.concatenationFailed(barcode: "barcode01", underlying: underlying).errorDescription,
+            "Failed to concatenate barcode01: Counting the reads in reads.fastq failed because the line counter exited with code 1."
+        )
     }
 
     /// The fix leaves a reader that reads the whole file alone, and `wc` still counts the reads.

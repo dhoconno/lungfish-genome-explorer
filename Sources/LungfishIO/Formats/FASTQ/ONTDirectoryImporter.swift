@@ -655,7 +655,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             // A counter that failed on a file it could not read printed no number or a short one. The feed this
             // replaced threw such a read error, so a failed counter throws and never counts a short file as complete.
             guard counted.isSuccess else {
-                throw ONTLineCountError.counterFailed(file: url.lastPathComponent, status: Int(counted.status))
+                throw ONTLineCountError.counterFailed(
+                    file: url.lastPathComponent,
+                    termination: counted.termination,
+                    incompleteOutputReason: counted.incompleteOutputReason
+                )
             }
         }
 
@@ -667,13 +671,26 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     }
 }
 
-/// The line counter exited with a failure while counting the reads of a plain FASTQ file.
-enum ONTLineCountError: Error, LocalizedError {
-    case counterFailed(file: String, status: Int)
+/// The line counter did not finish cleanly while counting the reads of a plain FASTQ file.
+enum ONTLineCountError: Error, LocalizedError, CustomStringConvertible {
+    case counterFailed(file: String, termination: ToolProcessTermination, incompleteOutputReason: String?)
+
     var errorDescription: String? {
         switch self {
-        case .counterFailed(let file, let status):
-            return "Counting the reads in \(file) failed because the line counter exited with code \(status)."
+        case .counterFailed(let file, let termination, let incompleteOutputReason):
+            switch termination {
+            case .exited(let code) where code != 0:
+                return "Counting the reads in \(file) failed because the line counter exited with code \(code)."
+            case .signaled(let signal):
+                return "Counting the reads in \(file) failed because the line counter was stopped by signal \(signal)."
+            case .exited:
+                let reason = incompleteOutputReason ?? "The output of the line counter is incomplete."
+                return "Counting the reads in \(file) failed. \(reason)"
+            }
         }
     }
+
+    /// The barcode error words its cause by interpolating the error, which prints the case dump unless the error
+    /// describes itself, so this is the sentence above and the user reads that.
+    var description: String { errorDescription ?? "Counting the reads failed." }
 }
