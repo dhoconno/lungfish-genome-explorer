@@ -1645,7 +1645,6 @@ features:
       - Sources/LungfishApp/Services/CLIBlastSubmitRunner.swift
       - Sources/LungfishCLI/Commands/BlastSubmitCommand.swift
       - Sources/LungfishCLI/Commands/BlastSubmitCommand+Record.swift
-      - Sources/LungfishApp/Services/ClassifierBlastRoute.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+Kraken2BlastSubmit.swift
       - Sources/LungfishCLI/Commands/BlastCommand+ExportTable.swift
       - Sources/LungfishKit/BlastResultsDrawerTab+ExportOperationBegin.swift
@@ -1682,9 +1681,7 @@ features:
       and Kraken2 results run lungfish-cli blast submit too, their record
       names the SHA-256 of the query, and a failed search leaves a failed
       record beside the query copy. A BLAST action with no project open
-      shows the No Project Open alert and starts nothing. The hidden key
-      ClassifierBlastRoute set to legacy keeps the in-process search of
-      those five actions for one release, and 2.13 deletes it. The
+      shows the No Project Open alert and starts nothing. The
       drawer's Export as CSV and Export as TSV run lungfish-cli blast
       export table behind an Operations row, Copy CLI Command replays it,
       and a failed export now ends its row failed and shows an alert.
