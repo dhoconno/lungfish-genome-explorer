@@ -345,13 +345,13 @@ final class ONTDirectoryImporterTests: XCTestCase {
 
     // MARK: - A reader that goes away (Phase 2.10 lane A53, manager grant on ruling FXT2 item 3)
 
-    /// The count pipes a plain FASTQ into `wc` through a Foundation pipe. A reader that exits before it
-    /// has read the file leaves the writer with a broken pipe. That must reach the caller as a thrown
-    /// error. Before `F_SETNOSIGPIPE` the write raised SIGPIPE, which ended the whole process, the app
-    /// or `lungfish-cli`. `true` stands for the reader and exits without reading its input. The file
-    /// holds more than the pipe (64 KiB) and one 4 MiB read, so the writer is still writing when the
-    /// reader is gone.
-    func testACountWhoseReaderExitsEarlyThrowsInsteadOfRaisingSIGPIPE() throws {
+    /// The count once piped a plain FASTQ into `wc` through a Foundation pipe. A reader that exited before it
+    /// had read the file left the writer with a broken pipe, which raised SIGPIPE and ended the whole process,
+    /// the app or `lungfish-cli`, until `F_SETNOSIGPIPE` turned it into a thrown EPIPE. Since Phase 2.13 lane
+    /// 13.06 the file is the counter's own stdin, so this process writes no pipe and none can break. `true`
+    /// stands for the reader and exits without reading its input. The call ends with 0, the count of a counter
+    /// that printed no number, where the base threw NSPOSIXErrorDomain EPIPE (the lane report, deviations).
+    func testACountWhoseReaderExitsEarlyCountsZeroAndRaisesNoSIGPIPE() throws {
         let directory = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: directory) }
         let record = Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8)
@@ -360,13 +360,10 @@ final class ONTDirectoryImporterTests: XCTestCase {
         let file = directory.appendingPathComponent("chunk_0.fastq")
         try payload.write(to: file)
 
-        XCTAssertThrowsError(
-            try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: URL(fileURLWithPath: "/usr/bin/true"))
-        ) { error in
-            let failure = error as NSError
-            XCTAssertEqual(failure.domain, NSPOSIXErrorDomain, "\(error)")
-            XCTAssertEqual(failure.code, Int(EPIPE), "\(error)")
-        }
+        XCTAssertEqual(
+            try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: URL(fileURLWithPath: "/usr/bin/true")),
+            0
+        )
     }
 
     /// The fix leaves a reader that reads the whole file alone, and `wc` still counts the reads.

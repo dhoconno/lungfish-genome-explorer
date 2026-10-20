@@ -621,78 +621,40 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     func countReadsInFASTQ(url: URL, lineCounter: URL = URL(fileURLWithPath: "/usr/bin/wc")) throws -> Int {
         let isGzipped = url.pathExtension.lowercased() == "gz"
 
-        let wcProcess = Process()
-        wcProcess.executableURL = lineCounter
-        wcProcess.arguments = ["-l"]
+        // A plain file is the counter's own stdin, so this process writes no pipe that a reader could break.
+        let counter = ToolProcessSpec(
+            executableURL: lineCounter,
+            arguments: ["-l"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdin: isGzipped ? .null : .file(url),
+            stderr: .discard,
+            label: "wc"
+        )
 
-        let outputPipe = Pipe()
-        wcProcess.standardOutput = outputPipe
-        wcProcess.standardError = FileHandle.nullDevice
-
-        var decompressProcess: Process?
-        // The first error the feed of a plain file met, such as the broken pipe of a reader that exited early.
-        let feedFailure = OSAllocatedUnfairLock<(any Error)?>(initialState: nil)
-
+        let counted: ToolProcessResult
         if isGzipped {
-            let gzcat = Process()
-            gzcat.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
-            gzcat.arguments = [url.path]
-            gzcat.standardError = FileHandle.nullDevice
-
-            let interPipe = Pipe()
-            gzcat.standardOutput = interPipe
-            wcProcess.standardInput = interPipe
-
-            try gzcat.run()
-            decompressProcess = gzcat
+            let gzcat = ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/usr/bin/gzcat"),
+                arguments: [url.path],
+                environment: ToolProcessSpec.inheritedEnvironment(),
+                stderr: .discard,
+                label: "gzcat"
+            )
+            // Each stage runs to its own end and reports its own status, as the two Processes did.
+            let pipeline = try ToolProcess.startPipeline([gzcat, counter], failurePolicy: .runToCompletion).waitBlocking()
+            if let decompress = pipeline.stages.first, decompress.status != 0 {
+                logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(decompress.status)")
+                return 0
+            }
+            guard let last = pipeline.stages.last else { return 0 }
+            counted = last
         } else {
-            let inputPipe = Pipe()
-            wcProcess.standardInput = inputPipe
-            // A reader that has gone fails the write with EPIPE, which the feed below stops on and this call
-            // throws. Without this the write raises SIGPIPE and ends the whole process, the app or the CLI.
-            // Setting it on the write end alone leaves the signal disposition of the rest of the process alone.
-            guard fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-            // Feed file content to wc via pipe
-            let inputHandle = try FileHandle(forReadingFrom: url)
-            inputPipe.fileHandleForWriting.writeabilityHandler = { handle in
-                do {
-                    let data = try inputHandle.read(upToCount: 4 * 1024 * 1024) ?? Data()
-                    if data.isEmpty {
-                        handle.writeabilityHandler = nil
-                        try? handle.close()
-                        try? inputHandle.close()
-                    } else {
-                        try handle.write(contentsOf: data)
-                    }
-                } catch {
-                    feedFailure.withLock { $0 = $0 ?? error }
-                    handle.writeabilityHandler = nil
-                    try? handle.close()
-                    try? inputHandle.close()
-                }
-            }
+            // A file that is not there fails here, with the error `FileHandle` always gave.
+            try FileHandle(forReadingFrom: url).close()
+            counted = try ToolProcess.runBlocking(counter)
         }
 
-        try wcProcess.run()
-
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        decompressProcess?.waitUntilExit()
-        wcProcess.waitUntilExit()
-
-        if let failure = feedFailure.withLock({ $0 }) {
-            // A failed write reports the POSIX error, here the broken pipe, under a generic "couldn't be saved".
-            throw (failure as NSError).userInfo[NSUnderlyingErrorKey] as? NSError ?? failure
-        }
-
-        if let dp = decompressProcess, dp.terminationStatus != 0 {
-            logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(dp.terminationStatus)")
-            return 0
-        }
-
-        if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           let lineCount = Int(str) {
+        if let lineCount = Int(counted.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return lineCount / 4  // 4 lines per FASTQ record
         }
 
