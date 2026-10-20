@@ -1910,7 +1910,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
             format: "execution-summary-%08d.json",
             sequence
         )
-        let summaryData = try ProvenanceJSON.encoder.encode(summary)
+        let summaryData = try ProjectStorageRecordJSON.encode(summary)
         let summaryURL = try publish(
             summaryData,
             named: summaryName,
@@ -2025,7 +2025,7 @@ public struct ProjectStorageCleanupExecutor: Sendable {
             exitStatus: exitStatus,
             stderr: stderr
         )
-        let provenanceData = try ProvenanceJSON.encoder.encode(provenance)
+        let provenanceData = try ProvenanceWriter.package(provenance)
         let provenanceURL = try publish(
             provenanceData,
             named: String(
