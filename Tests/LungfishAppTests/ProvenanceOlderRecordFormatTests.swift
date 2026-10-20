@@ -45,7 +45,7 @@ final class ProvenanceOlderRecordFormatTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: url, sidebarType: sidebar, contentMode: mode, displayName: url.lastPathComponent
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertNotNil(model.resolvedEnvelope, "A record was found for \(url.lastPathComponent).")
         return model

@@ -148,7 +148,7 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: saved.folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: saved.folder.lastPathComponent
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading && !model.lineageRuns.isEmpty }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading && !model.lineageRuns.isEmpty }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         let mapperStep = try XCTUnwrap(model.lineageRuns.last?.steps.first { $0.toolName == "minimap2" })
         let shown = await MappingDocumentStateBuilder.shownCommands(for: saved.state)

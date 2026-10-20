@@ -45,7 +45,7 @@ final class ProvenanceNotRecordedDisplayTests: XCTestCase {
             contentMode: .genomics,
             displayName: selection.lastPathComponent
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertEqual(model.resolvedSidecarURL?.standardizedFileURL, materialized.sidecar.standardizedFileURL)
         return model

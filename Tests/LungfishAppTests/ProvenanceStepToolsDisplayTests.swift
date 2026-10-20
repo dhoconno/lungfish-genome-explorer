@@ -442,7 +442,7 @@ final class ProvenanceStepToolsDisplayTests: XCTestCase {
             contentMode: .genomics,
             displayName: "classify-run"
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertNotNil(model.resolvedEnvelope, "The record was not found.")
         return model

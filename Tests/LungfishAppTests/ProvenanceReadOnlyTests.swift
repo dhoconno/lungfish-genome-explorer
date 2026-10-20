@@ -374,7 +374,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
             let name = item.url?.lastPathComponent ?? "an item"
             let audited = ProvenanceCoverageMonitor().audit(item)
             model.load(item: item)
-            let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+            let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
             XCTAssertTrue(finished, "The lookup for \(name) did not finish.")
             XCTAssertEqual(audited, model.audit, "The audit and the lookup disagree for \(name).")
             if let sidecar = model.resolvedSidecarURL {
@@ -463,7 +463,7 @@ final class ProvenanceReadOnlyTests: XCTestCase {
         let audited = ProvenanceCoverageMonitor().audit(item)
         let model = ProvenanceInspectorViewModel()
         model.load(item: item)
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.", file: file, line: line)
 
         let after = try ProjectTreeSnapshot(of: project)

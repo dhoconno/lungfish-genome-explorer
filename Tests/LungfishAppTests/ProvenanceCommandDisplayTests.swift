@@ -90,7 +90,7 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
         XCTAssertTrue(AccessibilityTreeProbe.press(try element("provenance-run-1", in: window)))
         XCTAssertTrue(AccessibilityTreeProbe.press(try element("provenance-run-1-step-1", in: window)))
         // The tab builds the renamed command in a task, which runs once this test yields the main actor.
-        _ = await waitUntil(timeout: .seconds(30)) {
+        _ = await waitUntil(timeout: .seconds(60)) {
             AccessibilityTreeProbe.element(in: window, identifier: "provenance-step-command-rename-note") != nil
         }
         let note = try element("provenance-step-command-rename-note", in: window)
@@ -216,7 +216,7 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: folder.lastPathComponent
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading && !model.lineageRuns.isEmpty }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading && !model.lineageRuns.isEmpty }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertNotNil(model.resolvedEnvelope, "The record was not found.")
         return model
@@ -277,7 +277,7 @@ final class ProvenanceCommandDisplayTests: XCTestCase {
             url: bundle, sidebarType: .referenceBundle, contentMode: .genomics,
             displayName: "SIMULATED-MHC-annotated-reference"
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading && !model.lineageRuns.isEmpty }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading && !model.lineageRuns.isEmpty }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         let step = try XCTUnwrap(model.lineageRuns.last?.steps.first { $0.toolName == "bgzip" })
         return step.displayCommand

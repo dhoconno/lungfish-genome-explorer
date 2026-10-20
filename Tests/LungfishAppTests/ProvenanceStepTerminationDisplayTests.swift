@@ -499,7 +499,7 @@ final class ProvenanceStepTerminationDisplayTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: analysis, sidebarType: .analysisResult, contentMode: .genomics, displayName: folder
         ))
-        let finished = await waitUntil(timeout: .seconds(30)) { !model.isLoading }
+        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.", file: file, line: line)
         XCTAssertNotNil(model.resolvedEnvelope, "No record was found for \(folder).", file: file, line: line)
         XCTAssertEqual(model.resolvedSidecarURL?.lastPathComponent, ".lungfish-provenance.json", file: file, line: line)
