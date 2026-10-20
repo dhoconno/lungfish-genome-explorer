@@ -93,7 +93,7 @@ struct BAMConsensusSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
     func validate() throws {
-        guard Self.parseRegion(region) != nil else {
+        guard GenomicRegionArgument.parseRegion(region) != nil else {
             throw ValidationError("--region must be contig:start-end, 1-based and inclusive, such as chr1:101-200.")
         }
         guard AlignmentConsensusScope(rawValue: scope) != nil else {
@@ -167,7 +167,7 @@ struct BAMConsensusSubcommand: AsyncParsableCommand {
     /// The run's inputs, with its paths resolved from the folder it runs in.
     private func makePlan() throws -> Plan {
         // validate() has checked each of these.
-        let parsed = Self.parseRegion(region)!
+        let parsed = GenomicRegionArgument.parseRegion(region)!
         let alignmentURL = URL(fileURLWithPath: alignmentPath).standardizedFileURL
         let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
         let destination: AlignmentConsensusPublicationDestination = outputURL.pathExtension.lowercased() == "lungfishref"
