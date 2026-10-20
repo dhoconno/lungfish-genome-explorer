@@ -251,7 +251,7 @@ struct SRADownloadBundleRun: Sendable {
         ) {
             envelope.steps.append(step)
         }
-        try ProvenanceWriter(signingProvider: nil).write(
+        try ProvenanceWriter().write(
             envelope, toSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
 }

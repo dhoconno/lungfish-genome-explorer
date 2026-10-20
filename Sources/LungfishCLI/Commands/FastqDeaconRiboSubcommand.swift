@@ -454,7 +454,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         await ProvenanceRecorder.shared.completeRun(runID, status: status)
         try await ProvenanceRecorder.shared.save(runID: runID, to: outputDirectoryURL)
         guard let envelope = ProvenanceRecorder.loadEnvelope(from: outputDirectoryURL) else { return }
-        let writer = ProvenanceWriter(signingProvider: nil)
+        let writer = ProvenanceWriter()
         for outputURL in invocations.flatMap(\.outputs) where FileManager.default.fileExists(atPath: outputURL.path) {
             let output = ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat, role: .output))
             try writer.write(envelope.focusedOnOutput(output), toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))

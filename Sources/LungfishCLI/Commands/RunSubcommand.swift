@@ -569,7 +569,7 @@ struct RunSubcommand: AsyncParsableCommand {
         resolvedDefaults: [String: ParameterValue] = [:]
     ) throws {
         guard !outputURLs.isEmpty else { return }
-        let writer = ProvenanceWriter(signingProvider: nil)
+        let writer = ProvenanceWriter()
         let envelope = run.canonicalEnvelope(resolvedDefaults: resolvedDefaults)
         for outputURL in outputURLs {
             guard FileManager.default.fileExists(atPath: outputURL.path) else {

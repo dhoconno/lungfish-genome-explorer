@@ -227,7 +227,7 @@ extension BlastCommand.SubmitSubcommand {
                 startedAt: startedAt, endedAt: Date()
             )
             let url = CancelledAlignmentWorkflowRecord.newURL(in: output, workflow: Self.workflowName)
-            try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: url)
+            try ProvenanceWriter().write(envelope, toSidecar: url)
         } catch {
             FileHandle.standardError.write(Data("Warning: could not write the failed record: \(error.localizedDescription)\n".utf8))
         }

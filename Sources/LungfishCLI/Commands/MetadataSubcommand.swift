@@ -188,7 +188,7 @@ import LungfishWorkflow
             builder = try builder.output(metadataURL, format: .text, role: .output)
 
             let envelope = try builder.complete(exitStatus: 0, startedAt: runClock.startedAt, endedAt: runClock.now)
-            _ = try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+            _ = try ProvenanceWriter().write(envelope, to: bundleURL)
         }
 
         private func format(for url: URL) -> FileFormat {

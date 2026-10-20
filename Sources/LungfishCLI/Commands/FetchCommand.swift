@@ -341,7 +341,7 @@ struct NCBISubcommand: AsyncParsableCommand {
             fetchedRecords: nil,
             retryEvents: retryEvents
         )
-        try ProvenanceWriter(signingProvider: nil).write(
+        try ProvenanceWriter().write(
             provenanceEnvelope,
             toSidecar: Self.provenanceSidecarURL(for: outputURL)
         )

@@ -568,8 +568,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         if fastaInput {
             // Focused output sidecars omit prerequisites with different outputs.
             // Normalization needs the full bridge/materialization dependency chain.
+            let sidecarWriter = ProvenanceWriter()
             for payload in outputPayloads {
-                try ProvenanceWriter(signingProvider: nil).write(
+                try sidecarWriter.write(
                     demultiplexEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: payload)
                 )
             }

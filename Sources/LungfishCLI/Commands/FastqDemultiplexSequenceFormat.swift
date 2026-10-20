@@ -70,7 +70,7 @@ enum FastqDemultiplexSequenceFormat {
             url: FASTQBundle.derivedManifestURL(in: bundleURL), format: .json, role: .output
         )
         let published = merge(base: normalized, additions: [], extraFiles: [manifestDescriptor])
-        try ProvenanceWriter(signingProvider: nil).write(published, to: bundleURL)
+        try ProvenanceWriter().write(published, to: bundleURL)
         return published
     }
 
@@ -79,7 +79,7 @@ enum FastqDemultiplexSequenceFormat {
             throw SequenceProcessingOutputNormalizerError.missingSourceProvenance(directory)
         }
         let merged = merge(base: original, additions: bundles, extraFiles: [])
-        try ProvenanceWriter(signingProvider: nil).write(merged, to: directory)
+        try ProvenanceWriter().write(merged, to: directory)
     }
 
     private static func merge(
