@@ -544,6 +544,98 @@ def test_a_writer_function_counts_only_when_its_definition_bypasses_the_writer(t
     assert baseline_of(tmp_path, WRITERS)["write_provenance_functions"] == counted
 
 
+# Lines of one Swift file and the count of envelope_encodes_outside_writer they give. A plain .encode(<name>) counts when
+# the same file binds <name> as an envelope, on a line that holds let or var, the name, = and an expression reaching
+# .complete(, canonicalEnvelope( or ProvenanceEnvelope(, or on a line that holds <name>: ProvenanceEnvelope.
+PLAIN_ENCODER_CASES = [
+    (
+        (
+            'let envelope = try builder.complete(exitStatus: 0, stderr: "", startedAt: s, endedAt: e)',
+            "try encoder.encode(envelope).write(to: url)",
+        ),
+        1,
+    ),
+    (
+        (
+            "let envelope = try builder.complete(",
+            '    exitStatus: 0, stderr: "", startedAt: s, endedAt: e)',
+            "try provenanceEncoder.encode(envelope)",
+        ),
+        1,
+    ),
+    (("let e = run.canonicalEnvelope()", "let d = try JSONEncoder().encode(e)"), 1),
+    (('let e = ProvenanceEnvelope(workflowName: "x")', "let d = try encoder.encode(e)"), 1),
+    (("func save(_ envelope: ProvenanceEnvelope?) throws {", "let d = try encoder.encode(envelope)"), 1),
+    (
+        (
+            "let envelope = try builder.complete(exitStatus: 0)",
+            "let d = try ProvenanceJSON.encoder.encode(envelope)",
+        ),
+        1,
+    ),
+    (
+        (
+            "let envelope = CLIEventLine(event: event, artifacts: artifacts)",
+            "let d = try? encoder.encode(envelope)",
+        ),
+        0,
+    ),
+    (
+        (
+            "let envelope = ProvenanceSignatureEnvelope(schemaVersion: 1)",
+            "let d = try encoder.encode(envelope)",
+        ),
+        0,
+    ),
+    (
+        (
+            "func save(_ envelope: ProjectWindowStateEnvelope) throws {",
+            "let d = try encoder.encode(envelope)",
+        ),
+        0,
+    ),
+    (("let reader: ProvenanceEnvelopeReader = r", "let d = try encoder.encode(reader)"), 0),
+    (("let envelope = try builder.complete(exitStatus: 0)", "// try encoder.encode(envelope)"), 0),
+    (("let d = try encoder.encode(envelope)",), 0),
+]
+
+
+@pytest.mark.parametrize(
+    ("lines", "counted"),
+    PLAIN_ENCODER_CASES,
+    ids=[f"case{index + 1}-counts-{counted}" for index, (_, counted) in enumerate(PLAIN_ENCODER_CASES)],
+)
+def test_a_plain_encoder_counts_an_envelope_by_a_bound_name(tmp_path, lines, counted):
+    script = make_repo(tmp_path, WRITERS_SCRIPT, {"Sources/A/A.swift": swift(*lines)})
+    assert run(script, "--update").returncode == 0
+    assert baseline_of(tmp_path, WRITERS)["envelope_encodes_outside_writer"] == counted
+
+
+def test_a_name_bound_in_one_file_is_not_bound_in_another(tmp_path):
+    binding, encode = PLAIN_ENCODER_CASES[0][0]
+    script = make_repo(
+        tmp_path,
+        WRITERS_SCRIPT,
+        {"Sources/A/A.swift": swift(binding), "Sources/B/B.swift": swift(encode)},
+    )
+    assert run(script, "--update").returncode == 0
+    assert baseline_of(tmp_path, WRITERS)["envelope_encodes_outside_writer"] == 0
+
+
+@pytest.mark.parametrize(
+    "exempt",
+    [
+        PROVENANCE + "ProvenanceWriter.swift",
+        PROVENANCE + "ProvenanceEnvelopeReader.swift",
+        INSPECTOR_VIEW_MODEL,
+    ],
+)
+def test_a_plain_envelope_encode_in_an_exempt_file_is_ignored(tmp_path, exempt):
+    script = make_repo(tmp_path, WRITERS_SCRIPT, {exempt: swift(*PLAIN_ENCODER_CASES[0][0])})
+    assert run(script, "--update").returncode == 0
+    assert baseline_of(tmp_path, WRITERS)["envelope_encodes_outside_writer"] == 0
+
+
 # A line of Swift and the one count it adds to, or None when it adds to none. The None rows are
 # neighbors of a counted spelling, such as a call where the count wants a definition.
 NEIGHBOR_CASES = [

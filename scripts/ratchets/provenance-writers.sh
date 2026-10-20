@@ -13,7 +13,8 @@ Counts, over Sources/**/*.swift, outside each count's exempt files:
     bare_workflow_run_writes         .writeSidecar(, which writes a bare WorkflowRun and not an envelope
     legacy_run_embeds                legacyWorkflowRun: followed by anything but nil, which nests a
                                      WorkflowRun in an envelope
-    envelope_encodes_outside_writer  ProvenanceJSON.encoder, an envelope encoded away from the writer
+    envelope_encodes_outside_writer  an envelope encoded away from the writer, by ProvenanceJSON.encoder or
+                                     by a plain encoder of a name the file binds as an envelope
     provenance_filename_literals     a string literal that names a provenance .json file
 Each count may only fall, and each counts occurrences, not files. Text after // on a line is
 ignored (comment lines and trailing comments).
@@ -31,14 +32,15 @@ The other three counts have no exempt file. The names file that a later sub-phas
 provenance file names becomes the exemption of provenance_filename_literals when it exists.
 
 Blind spots. The scan reads one line at a time, except that write_provenance_functions reads a definition
-from its func to the brace that closes its body. It does not parse Swift, so review catches the rest.
+from its func to the brace that closes its body and envelope_encodes_outside_writer reads the names a file
+binds as an envelope. It does not parse Swift, so review catches the rest.
     - A renamed writer function escapes write_provenance_functions. A definition that reaches the writer only
       through another function it calls counts 1, so it holds the writer it writes with and passes it down. A
       definition that names the writer counts 0 even when it also writes another file itself. A brace inside a
       raw or multi-line string literal can move the end of a body.
-    - An envelope encoded with a plain JSONEncoder escapes envelope_encodes_outside_writer. The known
-      cases are PrimerAnalysisNativeInspectionService.swift:219, PrimalScheme3DesignPipeline.swift:618
-      and :651 and PrimalScheme3AlleleLabelMap.swift:170.
+    - An envelope reached through a name the file never binds or types that way escapes
+      envelope_encodes_outside_writer. That covers a generic value, a closure argument and a binding
+      whose = sits on a later line than its name.
 The other counts are sinks, so they still carry the invariant when a writer escapes by name.
 
 Baseline file: one "<name> <count>" line per count. Lower it with --update after a count falls.
@@ -118,8 +120,8 @@ COUNTS = (
             "Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift",
         ),
         "ProvenanceWriter is the one encoder for a ProvenanceEnvelope. Encoding one with "
-        "ProvenanceJSON.encoder elsewhere skips the writer's portable-path rewrite, signing and "
-        "atomic publish. Pass the envelope to ProvenanceWriter instead. " + SEE,
+        "ProvenanceJSON.encoder or a plain JSONEncoder elsewhere skips the writer's portable-path rewrite, "
+        "signing and atomic publish. Pass the envelope to ProvenanceWriter instead. " + SEE,
     ),
     Count(
         "provenance_filename_literals",
@@ -222,6 +224,28 @@ def writer_copy_lines(codes, count):
     return lines
 
 
+ENVELOPE_COUNT = "envelope_encodes_outside_writer"
+
+# A name the file binds as a ProvenanceEnvelope. Either a let or var assigned, on one line, from an expression that
+# reaches .complete(, canonicalEnvelope( or ProvenanceEnvelope( (after an optional try and await), or any name typed
+# ProvenanceEnvelope with a word boundary after the type (a parameter, a property or a typed binding, optional or not).
+ENVELOPE_BINDING = re.compile(
+    r"\b(?:let|var)\s+(?P<name>[A-Za-z_]\w*)\s*(?::[^=\n]*)?=\s*(?:try[?!]?\s+)?(?:await\s+)?"
+    r"[^=\n]*?(?:\.complete\(|\bcanonicalEnvelope\(|\bProvenanceEnvelope\()"
+)
+ENVELOPE_TYPED = re.compile(r"\b(?P<name>[A-Za-z_]\w*)\s*:\s*ProvenanceEnvelope\b")
+PLAIN_ENCODE = re.compile(r"\.encode\(\s*(?P<name>[A-Za-z_]\w*)\s*\)")
+
+
+def envelope_names(codes):
+    """The names one file binds as an envelope, read from its comment-stripped lines."""
+    names = set()
+    for code in codes:
+        for rx in (ENVELOPE_BINDING, ENVELOPE_TYPED):
+            names.update(match.group("name") for match in rx.finditer(code))
+    return names
+
+
 def scan():
     counts = {count.name: 0 for count in COUNTS}
     sites = []
@@ -234,6 +258,7 @@ def scan():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         codes = [strip_line_comment(line) for line in text.splitlines()]
+        bound = envelope_names(codes) if any(count.name == ENVELOPE_COUNT for count in active) else set()
         found = []  # (line, position of the count in COUNTS, name), listed by line and then by count
         for order, count in enumerate(COUNTS):
             if count not in active:
@@ -242,7 +267,10 @@ def scan():
                 found += [(lineno, order, count.name) for lineno in writer_copy_lines(codes, count)]
                 continue
             for lineno, code in enumerate(codes, 1):
-                found += [(lineno, order, count.name) for _ in count.pattern.finditer(code)]
+                hits = len(count.pattern.findall(code))
+                if count.name == ENVELOPE_COUNT and bound and not hits:
+                    hits = sum(1 for match in PLAIN_ENCODE.finditer(code) if match.group("name") in bound)
+                found += [(lineno, order, count.name)] * hits
         for lineno, _, name in sorted(found):
             counts[name] += 1
             sites.append(f"{rel}:{lineno}: {name}")
