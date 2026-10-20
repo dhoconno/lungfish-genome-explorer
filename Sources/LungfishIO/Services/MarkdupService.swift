@@ -200,49 +200,48 @@ public enum MarkdupService {
 
     // MARK: - Private Helpers
 
-    /// Runs the 4-stage pipeline via /bin/sh -c to use native shell piping.
+    /// Runs the four stages as one `ToolProcess` pipeline, each a samtools process of its own with the argv the
+    /// shell script gave it. Paths are argv entries, so a `$`, a backtick or a `"` in one cannot be read as
+    /// anything else.
     ///
-    /// Two robustness fixes over the original implementation.
-    /// - `set -o pipefail` so a failure in `sort`/`fixmate` (not just the
-    ///   final `markdup` stage) fails the whole pipeline instead of being
-    ///   masked by a successful exit from the last stage.
-    /// - Paths are passed as positional shell parameters (`$1`..`$4`)
-    ///   rather than interpolated inside double quotes, so a path containing
-    ///   `$`, a backtick or a `"` cannot break the command or be interpreted
-    ///   as shell syntax.
+    /// The pipeline keeps what `set -o pipefail` gave the script. A failing stage fails the whole run instead of
+    /// being masked by a successful exit from the last stage. Every stage runs to its end, as the stages of the
+    /// shell pipe did, so the failure carries each stage's own stderr in stage order. Nothing feeds the first
+    /// stage's stdin, and the last stage's stdout is discarded, since `markdup` writes its BAM to `outputPath`.
     private static func runPipeline(
         inputPath: String,
         outputPath: String,
         samtoolsPath: String,
         threads: Int
     ) throws {
-        let cmd = """
-        set -o pipefail
-        "$1" sort -n -@ "$2" "$3" | \
-        "$1" fixmate -m - - | \
-        "$1" sort -@ "$2" - | \
-        "$1" markdup - "$4"
-        """
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", cmd, "markdup-pipeline", samtoolsPath, String(threads), inputPath, outputPath]
-        let errPipe = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errPipe
-
+        let samtools = URL(fileURLWithPath: samtoolsPath)
+        let threadCount = String(threads)
+        func stage(_ arguments: [String], stdout: ToolProcessOutput = .capture()) -> ToolProcessSpec {
+            ToolProcessSpec(
+                executableURL: samtools,
+                arguments: arguments,
+                environment: ToolProcessSpec.inheritedEnvironment(),
+                stdout: stdout,
+                label: "samtools \(arguments[0])"
+            )
+        }
+        let stages = [
+            stage(["sort", "-n", "-@", threadCount, inputPath]),
+            stage(["fixmate", "-m", "-", "-"]),
+            stage(["sort", "-@", threadCount, "-"]),
+            stage(["markdup", "-", outputPath], stdout: .discard),
+        ]
+        let result: ToolPipelineResult
         do {
-            try process.run()
+            result = try ToolProcess.startPipeline(stages, failurePolicy: .runToCompletion).waitBlocking()
         } catch {
             throw MarkdupError.pipelineFailed(stage: "launch", stderr: error.localizedDescription)
         }
-
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
-            throw MarkdupError.pipelineFailed(stage: "markdup-pipeline", stderr: stderr)
+        guard result.isSuccess else {
+            throw MarkdupError.pipelineFailed(
+                stage: "markdup-pipeline",
+                stderr: result.stages.map { failureWords($0) }.joined()
+            )
         }
     }
 

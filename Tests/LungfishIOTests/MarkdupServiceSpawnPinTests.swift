@@ -33,7 +33,7 @@ final class MarkdupServiceSpawnPinTests: XCTestCase {
         let samtools = bin.appendingPathComponent("samtools")
         try """
         #!/bin/sh
-        { printf '%s\\037' "$0" "$@"; printf '\\n'; } >> "\(log.path)"
+        line=$(printf '%s\\037' "$0" "$@"); printf '%s\\n' "$line" >> "\(log.path)"
         \(body)
         exit 99
         """.write(to: samtools, atomically: true, encoding: .utf8)

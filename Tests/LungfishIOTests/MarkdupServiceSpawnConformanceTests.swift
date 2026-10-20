@@ -115,7 +115,7 @@ final class MarkdupServiceSpawnConformanceTests: XCTestCase {
         let wrapper = bin.appendingPathComponent("samtools")
         try """
         #!/bin/sh
-        { printf '%s\\037' "$0" "$@"; printf '\\n'; } >> "\(log.path)"
+        line=$(printf '%s\\037' "$0" "$@"); printf '%s\\n' "$line" >> "\(log.path)"
         exec "\(samtools)" "$@"
         """.write(to: wrapper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
