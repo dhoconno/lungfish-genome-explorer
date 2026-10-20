@@ -2067,7 +2067,7 @@ public actor MetagenomicsDatabaseRegistry {
 
     /// Extracts a .tar.gz file to a destination directory on ``ToolProcess``, which drains
     /// tar's output while it runs and stops the tar tree when the calling task is cancelled.
-    private func extractTarball(_ tarball: URL, to destination: URL) async throws {
+    func extractTarball(_ tarball: URL, to destination: URL) async throws {
         // Kraken2 databases from genome-idx.s3.amazonaws.com have files at the
         // top level (hash.k2d, opts.k2d, taxo.k2d), NOT inside a subdirectory.
         // Do NOT use --strip-components=1 as it would strip the filenames.
@@ -2088,6 +2088,16 @@ public actor MetagenomicsDatabaseRegistry {
             throw MetagenomicsDatabaseRegistryError.downloadFailed(
                 name: tarball.lastPathComponent,
                 reason: "tar extraction failed: \(result.stderrText.isEmpty ? "Unknown error" : result.stderrText)"
+            )
+        }
+        // tar refuses `..` and absolute names and a write through a link, but it extracts
+        // a symbolic link that leaves the folder, as SafeZipExtractor refuses.
+        do {
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+        } catch DemoProjectError.unsafeArchive(let reason) {
+            throw MetagenomicsDatabaseRegistryError.downloadFailed(
+                name: tarball.lastPathComponent,
+                reason: "the archive was refused because it is unsafe: \(reason)"
             )
         }
     }
