@@ -235,6 +235,82 @@ def test_registry_rows_point_at_the_locked_folder_and_keep_other_rows(tmp_path):
     assert environment.registry_problems(lock, storage) == []
 
 
+def lge_installed(tmp_path: Path) -> tuple[dict, Path, Path]:
+    """A provisioned storage whose Viral row and receipt look as LGE's update flow leaves them."""
+    lock, lock_dir = small_lock(tmp_path, [])
+    storage = provisioned(tmp_path, lock, [])
+    folder = storage / "databases" / "kraken2" / "viral"
+    digest = environment.payload_aggregate(folder)
+    lock["databases"][0]["payloadDigest"] = digest
+    receipt = folder / environment.RECEIPT_NAME
+    receipt.write_text(json.dumps({"workflowName": "metagenomics.database.install", "options": {"resolvedDefaults": {
+        "payloadAggregateSHA256": {"type": "string", "value": digest},
+        "intendedFinalPath": {"type": "string", "value": str(folder)}}}}))
+    registry = storage / "databases" / environment.REGISTRY_NAME
+    data = json.loads(registry.read_text())
+    data["databases"][0].update({"payloadDigest": digest, "canonicalReceiptSHA256": environment.sha256_file(receipt),
+                                 "installedAt": "2026-10-20T14:22:05Z"})
+    registry.write_text(json.dumps(data))
+    return lock, storage, folder
+
+
+def test_the_payload_aggregate_is_lges_line_digest_without_the_receipt(tmp_path):
+    folder = tmp_path / "db"
+    (folder / "sub").mkdir(parents=True)
+    (folder / "b.k2d").write_bytes(b"bb")
+    (folder / "sub" / "a.txt").write_bytes(b"a")
+    (folder / environment.RECEIPT_NAME).write_text("{}")
+    (folder / ".install-1").mkdir()
+    (folder / ".install-1" / "c").write_bytes(b"c")
+    lines = (f"b.k2d\t{hashlib.sha256(b'bb').hexdigest()}\t2\n"
+             f"sub/a.txt\t{hashlib.sha256(b'a').hexdigest()}\t1\n")
+    assert environment.payload_aggregate(folder) == hashlib.sha256(lines.encode()).hexdigest()
+
+
+def test_a_database_lge_installed_verifies_with_its_receipt_as_an_extra_file(tmp_path):
+    lock, storage, _ = lge_installed(tmp_path)
+    assert environment.database_file_problems(storage, lock["databases"][0]) == []
+    assert environment.registry_problems(lock, storage) == []
+
+
+def test_a_database_lge_installed_names_each_drift(tmp_path):
+    lock, storage, folder = lge_installed(tmp_path)
+    (folder / "inspect.txt").write_text("edited\n")
+    assert environment.registry_problems(lock, storage) == [
+        "database Viral: the files do not add up to the payloadDigest in lock.json"]
+    (folder / environment.RECEIPT_NAME).write_text("{}")
+    assert environment.registry_problems(lock, storage) == [
+        "registry row Viral: canonicalReceiptSHA256 is not the sha256 of .lungfish-provenance.json",
+        "database Viral: the install receipt names another payload or folder",
+        "database Viral: the files do not add up to the payloadDigest in lock.json"]
+    (folder / environment.RECEIPT_NAME).unlink()
+    assert environment.registry_problems(lock, storage)[0].startswith(
+        "database Viral lacks the install receipt .lungfish-provenance.json (install it with "
+        "lungfish-cli conda db update kraken2-viral --yes")
+
+
+def test_provision_keeps_the_row_lge_wrote_and_never_writes_a_digest(tmp_path):
+    lock, storage, _ = lge_installed(tmp_path)
+    environment.write_registry(lock, storage)
+    registry = storage / "databases" / environment.REGISTRY_NAME
+    row = json.loads(registry.read_text())["databases"][0]
+    assert row["installedAt"] == "2026-10-20T14:22:05Z"
+    assert environment.registry_problems(lock, storage) == []
+    lock["databases"][0]["payloadDigest"] = "0" * 64
+    environment.write_registry(lock, storage)
+    row = json.loads(registry.read_text())["databases"][0]
+    assert "payloadDigest" not in row and "installedAt" not in row
+    assert environment.registry_problems(lock, storage)[0].startswith(
+        f"registry row Viral: payloadDigest is None, expected {'0' * 64!r} from LGE's installer")
+
+
+def test_committed_lock_gives_the_kraken2_viral_database_the_digest_lge_recorded():
+    by_name = {entry["name"]: entry for entry in environment.load_lock()["databases"]}
+    assert by_name[captures.KRAKEN2_DATABASE]["payloadDigest"] == (
+        "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01")
+    assert "payloadDigest" not in by_name[captures.ESVIRITU_DATABASE]
+
+
 # The committed lock --------------------------------------------------------------
 
 

@@ -60,6 +60,8 @@ PLATFORM = "osx-arm64"
 CHANNELS = ("conda-forge", "bioconda")
 BARE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 REGISTRY_NAME = "metagenomics-db-registry.json"
+# The install receipt LGE's installer writes into a database folder (ProvenanceWriter.provenanceFilename).
+RECEIPT_NAME = ".lungfish-provenance.json"
 EXPLICIT_HEADER = (
     "# This file may be used to create an environment using:\n"
     "# $ conda create --name <env> --file <this file>\n"
@@ -413,6 +415,56 @@ def registry_problems(lock: dict, storage: Path) -> list[str]:
             if row.get(key) != expected[key]:
                 problems.append(f"registry row {entry['name']}: {key} is {row.get(key)!r}, "
                                 f"expected {expected[key]!r}")
+        problems += install_receipt_problems(storage, entry, row)
+    return problems
+
+
+def payload_aggregate(location: Path) -> str:
+    """The payload digest LGE's installer records (MetagenomicsDatabasePayloadDigester).
+
+    One "path TAB sha256 TAB bytes" line per file, sorted by path, hashed with
+    SHA-256. The install receipt and any .install- entry are left out.
+    """
+    lines = []
+    for path in location.rglob("*"):
+        relative = path.relative_to(location)
+        if any(part == RECEIPT_NAME or part.startswith(".install-") for part in relative.parts):
+            continue
+        if path.is_file():
+            lines.append((relative.as_posix(), sha256_file(path), path.stat().st_size))
+    text = "".join(f"{name}\t{digest}\t{size}\n" for name, digest, size in sorted(lines))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def install_receipt_problems(storage: Path, entry: dict, row: dict) -> list[str]:
+    """A database the lock gives a payloadDigest was installed by LGE's own installer.
+
+    Its row holds the digest and the receipt's sha256 that LGE wrote, the receipt
+    names the digest and the folder, and the folder's files add up to the digest.
+    Nothing here writes a digest, so a row without one stays a problem.
+    """
+    digest = entry.get("payloadDigest")
+    if digest is None:
+        return []
+    name = entry["name"]
+    location = database_path(storage, entry)
+    receipt = location / RECEIPT_NAME
+    hint = (f"install it with lungfish-cli conda db update {entry['registry']['catalogID']} --yes "
+            f"and LUNGFISH_STORAGE_ROOT={storage}")
+    if row.get("payloadDigest") != digest:
+        return [f"registry row {name}: payloadDigest is {row.get('payloadDigest')!r}, expected {digest!r} "
+                f"from LGE's installer ({hint})"]
+    if not receipt.is_file():
+        return [f"database {name} lacks the install receipt {RECEIPT_NAME} ({hint})"]
+    problems = []
+    if row.get("canonicalReceiptSHA256") != sha256_file(receipt):
+        problems.append(f"registry row {name}: canonicalReceiptSHA256 is not the sha256 of {RECEIPT_NAME}")
+    options = json.loads(receipt.read_text()).get("options", {}).get("resolvedDefaults", {})
+    recorded = {key: (options.get(key) or {}).get("value") for key in ("payloadAggregateSHA256", "intendedFinalPath")}
+    if recorded != {"payloadAggregateSHA256": digest, "intendedFinalPath": str(location)}:
+        problems.append(f"database {name}: the install receipt names another payload or folder")
+    if payload_aggregate(location) != digest:
+        problems.append(f"database {name}: the files do not add up to the payloadDigest in lock.json")
     return problems
 
 
@@ -523,6 +575,11 @@ def write_registry(lock: dict, storage: Path) -> None:
     registry = json.loads(path.read_text()) if path.exists() else {"version": 1, "databases": []}
     rows = {row["name"]: row for row in registry.get("databases", [])}
     for entry in lock["databases"]:
+        # A row LGE's installer wrote keeps its digest and receipt digest. No row
+        # is given a digest here, since only an install by LGE makes one true.
+        current = rows.get(entry["name"])
+        if entry.get("payloadDigest") and current and current.get("payloadDigest") == entry["payloadDigest"]:
+            continue
         rows[entry["name"]] = registry_row(storage, entry)
     registry["databases"] = [rows[name] for name in sorted(rows)]
     path.parent.mkdir(parents=True, exist_ok=True)

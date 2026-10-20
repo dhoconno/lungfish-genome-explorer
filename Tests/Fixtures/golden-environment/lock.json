@@ -18,6 +18,7 @@
       },
       "name": "Viral",
       "path": "kraken2/viral",
+      "payloadDigest": "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
       "registry": {
         "catalogID": "kraken2-viral",
         "collection": "viral",
