@@ -260,16 +260,25 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
                 "\(track.name): Attaching derived alignment..."
             )
 
-            let attachment = try await attachmentService.attach(
-                request: PreparedAlignmentAttachmentRequest(
-                    bundleURL: bundleURL,
-                    stagedBAMURL: pipelineResult.outputURL,
-                    stagedIndexURL: pipelineResult.indexURL,
-                    outputTrackID: trackIDProvider(),
-                    outputTrackName: "\(track.name) \(outputTrackNameSuffix)",
-                    relativeDirectory: relativeDirectory
+            let attachment: PreparedAlignmentAttachmentResult
+            do {
+                attachment = try await attachmentService.attach(
+                    request: PreparedAlignmentAttachmentRequest(
+                        bundleURL: bundleURL,
+                        stagedBAMURL: pipelineResult.outputURL,
+                        stagedIndexURL: pipelineResult.indexURL,
+                        outputTrackID: trackIDProvider(),
+                        outputTrackName: "\(track.name) \(outputTrackNameSuffix)",
+                        relativeDirectory: relativeDirectory
+                    )
                 )
-            )
+            } catch {
+                // A failed attach gives the staged pair back to its staged path, which this run made inside the
+                // bundle, so the run removes that pair and nothing else (Phase 2.13 lane 13.16, MD39, ARCH 3).
+                try? FileManager.default.removeItem(at: pipelineResult.outputURL)
+                try? FileManager.default.removeItem(at: pipelineResult.indexURL)
+                throw error
+            }
             do {
                 try metadataAppender(
                     attachment.metadataDBURL,

@@ -301,6 +301,48 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.sourceBAMURL.path))
     }
 
+    /// A failed attach gives the staged `.marked.bam` and its index back to their staged paths
+    /// inside the bundle, and the in-bundle route removes that pair, so the bundle holds the
+    /// files it held before the run (Phase 2.13 lane 13.16, MD39, ARCH 3).
+    func testAFailedAttachLeavesTheBundleFilesAsBeforeTheRun() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let filesBefore = try bundleFiles(fixture.bundleURL)
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector(),
+            manifestSaver: { _, _ in throw DuplicateMetadataAppendFailure.injected }
+        )
+
+        do {
+            _ = try await AlignmentDuplicateService.markDuplicatesInBundle(
+                bundleURL: fixture.bundleURL,
+                markdupPipeline: RecordingDuplicateMarkdupPipeline(),
+                attachmentService: attachmentService,
+                trackIDProvider: { "marked-track" }
+            )
+            XCTFail("the manifest save throws, so the attach throws")
+        } catch {
+            XCTAssertEqual(error as? DuplicateMetadataAppendFailure, .injected)
+        }
+
+        XCTAssertEqual(try bundleFiles(fixture.bundleURL), filesBefore)
+    }
+
+    /// Every regular file under `bundleURL` by its relative path, with its bytes.
+    private func bundleFiles(_ bundleURL: URL) throws -> [String: Data] {
+        let root = bundleURL.standardizedFileURL.path + "/"
+        var files: [String: Data] = [:]
+        let enumerator = FileManager.default.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        )
+        while let url = enumerator?.nextObject() as? URL {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            let path = url.standardizedFileURL.path
+            files[path.hasPrefix(root) ? String(path.dropFirst(root.count)) : path] = try Data(contentsOf: url)
+        }
+        return files
+    }
+
     func testMarkDuplicatesKeepsBookmarkedSourceScopeActiveDuringPipeline() async throws {
         let sourceBookmark = Data("source-bookmark".utf8)
         let fixture = try DuplicateWorkflowFixture.makeBookmarkedExternal(
