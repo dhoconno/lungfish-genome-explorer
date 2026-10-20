@@ -297,9 +297,6 @@ public final class MiniBAMViewController: NSViewController {
         }
     }
 
-    /// Emits `(totalReads, uniqueReads)` whenever read stats change.
-    public var onReadStatsUpdated: ((Int, Int) -> Void)?
-
     /// Current zoom level (1.0 = fit entire contig in viewport width).
     private var zoomLevel: Double = 1.0
 
@@ -501,7 +498,6 @@ public final class MiniBAMViewController: NSViewController {
         }
 
         statusLabel.stringValue = "\(miniBAMFormatCount(total)) reads · \(zoomText) · ⌘+/⌘- to zoom"
-        onReadStatsUpdated?(total, uniqueReadCount)
     }
 
     private nonisolated static func displayReadsAndUniqueCount(
@@ -953,7 +949,6 @@ public final class MiniBAMViewController: NSViewController {
         referenceSequence = nil
         pileupView.clear()
         statusLabel.stringValue = emptyStatusText
-        onReadStatsUpdated?(0, 0)
         lastKnownViewportSize = CGSize(width: currentViewportWidth, height: currentViewportHeight)
     }
 
