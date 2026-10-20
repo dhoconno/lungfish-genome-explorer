@@ -331,6 +331,13 @@ public enum NaoMgsBamMaterializer {
         } catch {
             throw pipelineFailure(error.localizedDescription)
         }
+        // A stage that could not launch ends the run before this returns, and nothing would read the writer's bytes.
+        // waitBlocking gives the launch reason at once, so the sample fails with it in place of a broken pipe.
+        if run.pids.contains(where: { $0 == nil }) {
+            run.cancel()
+            do { _ = try run.waitBlocking() } catch { throw pipelineFailure(error.localizedDescription) }
+            throw pipelineFailure("a samtools stage did not start")
+        }
 
         // 4. Stream: write header, then iterate rows and write each SAM line into the pipeline's stdin.
         //    Each write waits on this writer queue until the pipe took it, so samtools holds the rows back and

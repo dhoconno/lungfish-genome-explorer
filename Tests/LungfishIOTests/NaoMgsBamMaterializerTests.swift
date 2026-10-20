@@ -655,6 +655,26 @@ extension NaoMgsBamMaterializerTests {
         ) == true, "\(warnings)")
     }
 
+    /// A samtools that cannot start ends the run before it reads a byte. The sample fails with the pipeline words
+    /// and ToolProcess's launch reason, not with the writer's broken pipe (lane 13.09 SWIFT fix 3).
+    func testAnUnlaunchableSamtoolsGivesThePipelineFailureWords() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "PinLaunch", duplicateCount: 3)
+        let missing = tmp.appendingPathComponent("no-such-samtools").path
+        let start = Date()
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: missing, markDuplicates: false)
+        XCTAssertEqual(result.bamURLs, [])
+        XCTAssertTrue(result.steps.isEmpty)
+        let warnings = try materializerWarnings(forSample: "PinLaunch", since: start)
+        XCTAssertEqual(warnings.count, 1, "\(warnings)")
+        XCTAssertTrue(warnings.first?.hasPrefix(
+            "Failed to materialize BAM for sample PinLaunch: samtools pipeline failed:"
+        ) == true, "\(warnings)")
+        XCTAssertFalse(warnings.first?.contains("Broken pipe") ?? true, "\(warnings)")
+    }
+
     // MARK: Pin helpers
 
     private func pinSamtools() throws -> String {
