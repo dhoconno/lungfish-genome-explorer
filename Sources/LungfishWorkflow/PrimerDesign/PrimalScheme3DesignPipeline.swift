@@ -614,8 +614,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
             let envelope = try builder.complete(exitStatus: 0, stderr: executed.stderr,
                                                 startedAt: executed.startedAt, endedAt: executed.endedAt)
             let provenance = logs.appendingPathComponent("execution.json")
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(envelope).write(to: provenance, options: .withoutOverwriting)
+            try ProvenanceWriter.package(envelope).write(to: provenance, options: .withoutOverwriting)
             let provenancePath = Self.relative(provenance, to: scratch)
             artifacts.append(.init(sourceURL: provenance, relativePath: provenancePath, role: "toolProvenance", format: "json"))
             resultPaths.append(provenancePath)
@@ -648,7 +647,7 @@ public struct PrimalScheme3DesignPipeline: Sendable {
                 path: destination.appendingPathComponent(orderPath).path, role: .output, origin: orderURL.path))
             let orderEnvelope = try orderBuilder.complete(exitStatus: 0, stderr: "", startedAt: orderClock.startedAt, endedAt: orderClock.now)
             let orderProvenanceURL = logs.appendingPathComponent("order-sheet.json")
-            try encoder.encode(orderEnvelope).write(to: orderProvenanceURL, options: .withoutOverwriting)
+            try ProvenanceWriter.package(orderEnvelope).write(to: orderProvenanceURL, options: .withoutOverwriting)
             let orderProvenancePath = Self.relative(orderProvenanceURL, to: scratch)
             artifacts.append(.init(sourceURL: orderProvenanceURL, relativePath: orderProvenancePath, role: "derivedProvenance", format: "json"))
             resultPaths.append(orderProvenancePath)
