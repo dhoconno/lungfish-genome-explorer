@@ -5,14 +5,13 @@
 import Foundation
 
 extension ProvenanceWriter {
-    /// The bytes of the record an export writes as `provenance.json`.
-    ///
-    /// They are the writer's encode of `envelope` with no portable-path rewrite, the bytes `package` returns, except
-    /// that an envelope which names signatures is encoded as it stands. The export of one signed record keeps the
-    /// references its source holds (`ProvenanceExporter.mergeProvenanceChain` returns that record unchanged), and the
-    /// export copies the signature pair of each source sidecar into its provenance folder, so those references name
-    /// signatures that were written. A caller that publishes a record it built itself calls `package` instead, which
-    /// refuses an envelope that names a signature.
+    /// The bytes of the record an export writes as `provenance.json`, the writer's encode of `envelope` with no
+    /// portable-path rewrite. For an envelope that names no signature they are the bytes `package` returns. The export
+    /// of one record writes it as its source holds it (`ProvenanceExporter.mergeProvenanceChain`), so its `signatures`
+    /// describe the source sidecar, whose pair the export copies into its `provenance` folder. They do not sign
+    /// `provenance.json`, which the exporter signs on its own when a key is set, and the verifier never matches them to
+    /// that pair. A caller that publishes a record it built itself calls `package`, which refuses an envelope that
+    /// names a signature.
     static func exportedRecordBytes(_ envelope: ProvenanceEnvelope) throws -> Data {
         try recordBytes(envelope, sanitizedFor: nil)
     }

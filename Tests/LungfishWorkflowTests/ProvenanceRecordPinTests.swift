@@ -82,6 +82,35 @@ final class ProvenanceRecordPinTests: XCTestCase {
         XCTAssertThrowsError(try ProvenanceWriter.package(signed))
     }
 
+    /// Row 10 with a key set (B-F6 of the ARCH ruling on M3). The export of one signed record keeps the references its
+    /// source holds, and the exporter's own signature of `provenance.json` still verifies, since the verifier matches an
+    /// embedded reference only when its `signaturePath` names the pair in hand, and the kept one names the source's.
+    func testASignedSingleRecordExportVerifiesWithItsOwnPair() throws {
+        var envelope = ProvenanceRecordFreezeFixtures.preparationEnvelope()
+        envelope.signatures = [
+            ProvenanceSignatureReference(
+                provider: ProvenanceSigningConfiguration.localProviderID,
+                provenanceSHA256: ProvenanceRecordFreezeFixtures.digest,
+                signaturePath: ".lungfish-provenance.json.signature.json",
+                publicKeyPath: nil
+            ),
+        ]
+        let bundle = try ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "lane-13-13-pin-key")
+        ).exportBundle(
+            envelope,
+            format: .json,
+            to: root.appendingPathComponent("export-signed-json", isDirectory: true),
+            sourceSidecarURL: nil,
+            allowUnpinned: true
+        )
+        XCTAssertEqual(bundle.primaryArtifactURL.lastPathComponent, "provenance.json")
+        let verification = try ProvenanceSignatureVerifier.verify(provenanceURL: bundle.primaryArtifactURL)
+        XCTAssertTrue(verification.isValid)
+        let exported = try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: bundle.primaryArtifactURL))
+        XCTAssertEqual(exported.signatures, envelope.signatures)
+    }
+
     /// Row 11, `ProvenanceExporter.swift:643`. The Nextflow export writes the container manifest of the plan's steps.
     func testContainerManifestKeepsItsBytes() throws {
         let identity = ProvenanceRuntimeIdentity(
