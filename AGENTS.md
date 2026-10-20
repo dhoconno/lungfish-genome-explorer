@@ -54,19 +54,8 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 
 | Looking for | Start at |
 |---|---|
-| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`), its adapters `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Conda/CondaManager.swift` and `Sources/LungfishWorkflow/ProcessManager.swift`, and `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. An analysis kind is a different id from a managed tool, and both are added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
-| UI-free App services (FASTQ derivatives, annotation search, bundle browsing, variant mutations, project search) | `Sources/LungfishOperations`, with the module guide `Sources/LungfishOperations/AGENTS.md` |
-| Operations panel and bundle locks | `Sources/LungfishKit/OperationCenter.swift` |
-| Running `lungfish-cli` from the app | `Sources/LungfishKit/CLIProcessLauncher.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishKit/OperationCenterCLIBridge.swift` |
-| FASTQ operations dialog execution | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift`, with `FASTQOperationPlanner`, `FASTQOperationCLIInvocationBuilder` and `FASTQOperationOutputImporter` beside it |
-| CLI commands | `Sources/LungfishCLI/Commands`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
-| CLI progress events | `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift` |
-| Provenance | `Sources/LungfishWorkflow/Provenance/ProvenanceEnvelope.swift` |
-| File formats | `Sources/LungfishIO/Formats` and `Sources/LungfishIO/Registry/FormatRegistry.swift` |
-| Sidebar routing | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` and `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift` |
-| Viewer slots | `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` and its `ViewerViewController+<Feature>.swift` extensions |
+| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`). An analysis kind is a different id from a managed tool, and both are added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
 | Menus | `Sources/LungfishApp/App/MainMenu.swift` and its `MainMenu+<Menu>.swift` extensions. The Tools menu is generated from `FASTQOperationToolID`, so a new read tool is never a menu item and is added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
-| Test helpers | `Tests/Support/LungfishTestSupport` |
 
 ## Binding rules
 
