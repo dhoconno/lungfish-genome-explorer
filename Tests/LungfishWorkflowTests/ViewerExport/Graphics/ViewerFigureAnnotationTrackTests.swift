@@ -66,9 +66,13 @@ final class ViewerFigureAnnotationTrackTests: XCTestCase {
         XCTAssertEqual(texts(capped).last?.string, "+2 more features")
         let short = try draw(genes, height: 20)
         XCTAssertEqual(short.omissions.first, ViewerFigureOmission(
-            trackID: "annotations", kind: .annotationLimit, reason: "rows past the track height of 20 points", count: 2
-        ))
-        XCTAssertEqual(texts(short).last?.string, "+2 more features")
+            trackID: "annotations", kind: .annotationLimit, reason: "rows past the track height of 20 points", count: 5
+        ), "the +N line needs 11 of the 20 points, so no row fits and all five features are counted")
+        let line = try XCTUnwrap(texts(short).last)
+        XCTAssertEqual(line.string, "+5 more features")
+        // The capped case puts its line at the top of row 1 (y 28), so its baseline less 28 is the face's ascent.
+        let ascent = try XCTUnwrap(texts(capped).last).point.y - 28
+        XCTAssertLessThanOrEqual(line.point.y - ascent + 11, 10 + 20, "the line's top plus 11 is inside the area, which ends at 30")
     }
 
     func testSpanningRegionFeatureIsCountedWhenOthersDraw() throws {

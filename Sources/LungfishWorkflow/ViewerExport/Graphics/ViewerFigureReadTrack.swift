@@ -141,7 +141,7 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
         var drawn = 0
         for (row, read) in packed {
             let y = area.y + Double(row) * pitch
-            guard y + drawer.readHeight <= area.y + area.height else {
+            guard y + drawer.readHeight <= area.y + area.height - (overflow > 0 ? Self.overflowBarHeight : 0) else {
                 pastHeight += 1
                 continue
             }

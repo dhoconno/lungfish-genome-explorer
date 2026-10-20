@@ -249,8 +249,10 @@ private struct AnnotationDrawer {
         let pitch = squished ? 7 : options.featureHeight + options.rowSpacing
         var (rows, overflow) = Packing.packLayered(annotations, frame: frame, maxRows: options.maxRows)
         omit(.annotationLimit, "max \(options.maxRows) rows", overflow, into: &canvas)
-        // The figure's track has a fixed height, so rows past it are cut and counted.
-        let fit = max(0, Int((area.height + pitch - featureHeight) / pitch))
+        // The figure's track has a fixed height, so rows past it are cut and counted. A "+N more
+        // features" line follows whenever features are left out, and 11 points hold one size 9 line.
+        var fit = max(0, Int((area.height + pitch - featureHeight) / pitch))
+        if overflow > 0 || rows.count > fit { fit = max(0, Int((area.height - 11) / pitch)) }
         if rows.count > fit {
             let cut = rows[fit...].reduce(0) { $0 + $1.count }
             omit(.annotationLimit, "rows past the track height of \(Int(area.height)) points", cut, into: &canvas)

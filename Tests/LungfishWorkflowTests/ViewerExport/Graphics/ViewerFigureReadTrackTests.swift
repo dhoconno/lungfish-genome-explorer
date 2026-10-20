@@ -107,6 +107,16 @@ final class ViewerFigureReadTrackTests: XCTestCase {
         )])
     }
 
+    func testOverflowBarNeverCoversDrawnReads() throws {
+        var options = ViewerFigureReadTrack.Options()
+        options.maxRows = 75
+        let canvas = try draw((0..<80).map { Fixture.read("r\($0)", 100) }, height: 100, options: options)
+        let bodies = fills(canvas, .forwardRead)
+        XCTAssertFalse(bodies.isEmpty)
+        XCTAssertTrue(bodies.allSatisfy { $0.y + $0.height <= 84 }, "the overflow bar fills the last 16 of the 100 points")
+        XCTAssertEqual(fills(canvas, .quaternarySystemFill), [ViewerFigureRect(x: 0, y: 84, width: 1_000, height: 16)])
+    }
+
     func testSourceMapsTheReferenceNameToTheAlignmentContig() {
         let plain = ViewerFigureReadTrack.Source(alignmentPath: "a.bam", indexPath: "a.bam.bai")
         XCTAssertEqual(plain.alignmentChromosome(for: "chr1"), "chr1", "with no map the name is handed over unchanged")
