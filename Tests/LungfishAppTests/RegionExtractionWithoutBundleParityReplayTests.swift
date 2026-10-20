@@ -1,24 +1,22 @@
-// RegionExtractionWithoutBundleParityReplayTests.swift - A viewer with no reference bundle, in process against extract sequence
+// RegionExtractionWithoutBundleParityReplayTests.swift - A viewer with no reference bundle, extract sequence against its replay
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.12 M2 (A48-GAP), plan R-A1 and R-A3, C4 and C5 of 2.10, on lane Q30's harness. A viewer
-// whose document has no reference bundle builds a region bundle from the sequence the document shows. Each
-// case runs on three sides that start as copies of one project holding the document.
+// Phase 2.12 lane 12.12 M2 (A48-GAP), plan R-A1 and R-A3, C4 and C5 of 2.10, on lane Q30's harness, reduced by
+// Phase 2.13 lane 13.03 (DEL-REST) to C against C'. A viewer whose document has no reference bundle builds a
+// region bundle from the sequence the document shows. Each case runs on two sides that start as copies of one
+// project holding the document.
 //
-// - Side A is the in-process route, `SequenceExtractionPipeline().buildBundle(from:outputDirectory:
-//   desiredBundleName:isConcatenated:)`, the call `createExtractionBundleInProcess` makes, which the hidden
-//   key's `legacy` value keeps until lane 13.03.
 // - Side C is the CLI route. `StagedSequenceInput` writes the sequence under the project's `.tmp/`, then the
 //   begin helper the site calls and `CLIBundleBuildRunner` launch the built `lungfish-cli extract sequence`
 //   on `SequenceExtractionPipeline.cliFASTAArguments`. Its row records the command. The staged folder is then
 //   copied to root C', where the replay reads it, as the BLAST classes copy their query.
 // - Side C' is the harness's replay of that command.
 //
-// The bundle's payload, manifest and genome match. A against C declares each difference with `<ANY>`, the
-// staged folder only side C keeps and the record lines of the command each route states, and C against C'
-// declares nothing. It runs the managed bgzip and samtools faidx and launches the built lungfish-cli, so its
-// name ends in ReplayTests and it skips without the tools unless `LUNGFISH_REQUIRE_TOOLS=1`.
+// C against C' declares nothing. The in-process route that was side A, with its hidden key
+// `RegionExtractionWithoutBundleRoute` and the entries that declared its differences, is gone. The class runs
+// the managed bgzip and samtools faidx and launches the built lungfish-cli, so its name ends in ReplayTests and
+// it skips without the tools unless `LUNGFISH_REQUIRE_TOOLS=1`.
 
 import Foundation
 import XCTest
@@ -64,54 +62,36 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    func testARegionOfAFASTADocumentBuildsWhatTheInProcessRouteBuilt() async throws {
+    func testARegionOfAFASTADocumentRepeatsThroughItsRecordedCommand() async throws {
         try await requireTools()
         try await assertCase(.fastaRegion)
     }
 
-    func testAFeatureOfAGenBankDocumentBuildsWhatTheInProcessRouteBuilt() async throws {
+    func testAFeatureOfAGenBankDocumentRepeatsThroughItsRecordedCommand() async throws {
         try await requireTools()
         try await assertCase(.genBankFeature)
     }
 
-    func testAReverseFlankedRegionBuildsWhatTheInProcessRouteBuilt() async throws {
+    func testAReverseFlankedRegionRepeatsThroughItsRecordedCommand() async throws {
         try await requireTools()
         try await assertCase(.reverseFlankedRegion)
     }
 
+    /// Runs sides C and C' (`ReadsRouteParity.runCAndCPrime`, since no side A is left) and fails on each
+    /// difference between them.
     private func assertCase(_ parityCase: Case) async throws {
-        let result = try await harness.assertParity(
-            parityCase,
-            declared: Self.declared,
-            in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness, in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
             fixture: { root in try Self.writeFixture(root) },
-            sideA: { root in await self.sideA(root, parityCase) },
             sideC: { root in await self.sideC(root, parityCase) }
         )
-        for run in [result.runs.a, result.runs.c, result.runs.cPrime] {
+        let result = try harness.evaluate(parityCase, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase), C against C'")
+        for run in [runs.c, runs.cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)")
         }
-        XCTAssertEqual(result.runs.c.outcome.detail, "Bundle ready", "the row's complete words")
+        XCTAssertEqual(runs.c.outcome.detail, "Bundle ready", "the row's complete words")
     }
-
-    /// What A against C differs in, each with `<ANY>` and an exact count for each case.
-    static let declared: [RouteParityDeclaredDifference<Case>] = [
-        RouteParityDeclaredDifference(
-            [.fastaRegion: 2, .genBankFeature: 2, .reverseFlankedRegion: 2], "only in C: Project.lungfish/.tmp/extract-sequence-input-<ANY>",
-            reason: "The CLI route stages the viewer's sequence as a FASTA and keeps it with its folder marker, so the "
-                + "record names an input that exists (ARCH 5, BIO 6). The in-process route read it from memory.",
-            closedBy: "13.03 (DEL-REST), which deletes the in-process route with its hidden key RegionExtractionWithoutBundleRoute"
-        ),
-        RouteParityDeclaredDifference(
-            [.fastaRegion: 405, .genBankFeature: 513, .reverseFlankedRegion: 465],
-            "differs: Project.lungfish/Extractions/<ANY>.lungfish-provenance.json at <ANY>",
-            reason: "Each record states the command its route ran, the in-process lungfish-gui argv against the leaf's, "
-                + "and the leaf's names the staged FASTA and the document as inputs with digests, adds input and "
-                + "source_document, and for a GenBank document source_annotations (R-B3). The bundle's payload, "
-                + "manifest and genome match.",
-            closedBy: "13.03 (DEL-REST), which deletes the in-process route with its hidden key RegionExtractionWithoutBundleRoute"
-        ),
-    ]
 
     // MARK: - The sides
 
@@ -164,20 +144,6 @@ final class RegionExtractionWithoutBundleParityReplayTests: XCTestCase {
             project: root.appendingPathComponent(Self.projectPath, isDirectory: true),
             extractions: root.appendingPathComponent(Self.extractionsPath, isDirectory: true)
         )
-    }
-
-    /// Side A. The call `createExtractionBundleInProcess` makes.
-    private func sideA(_ root: URL, _ parityCase: Case) async -> RouteParitySideOutcome {
-        do {
-            let run = try await extraction(root, parityCase)
-            _ = try await SequenceExtractionPipeline().buildBundle(
-                from: run.result, outputDirectory: run.extractions, desiredBundleName: run.bundleName,
-                isConcatenated: run.request.concatenateExons
-            )
-            return RouteParitySideOutcome(end: .completed, detail: "Bundle ready")
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
-        }
     }
 
     /// Side C. The staged FASTA, the begin helper the site calls and the runner on the argv the site

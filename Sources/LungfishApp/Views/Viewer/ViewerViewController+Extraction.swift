@@ -13,13 +13,6 @@ import LungfishKit
 
 private let extractionLogger = Logger(subsystem: LogSubsystem.app, category: "Extraction")
 
-private func scheduleExtractionOnMainRunLoop(_ block: @escaping @Sendable () -> Void) {
-    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-        block()
-    }
-    CFRunLoopWakeUp(CFRunLoopGetMain())
-}
-
 // MARK: - SequenceViewerView Extraction Actions
 
 extension SequenceViewerView {
@@ -407,21 +400,10 @@ extension SequenceViewerView {
         ) else { return }
         let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
         guard let bundle = currentReferenceBundle else {
-            switch RegionExtractionWithoutBundleRouteSettings.currentRoute {
-            case .cli:
-                createExtractionBundleFromDocument(
-                    from: result, request: request, bundleName: bundleName, outputDir: outputDir,
-                    projectURL: projectURL, routeContext: routeContext
-                )
-            case .legacy:
-                createExtractionBundleInProcess(
-                    from: result,
-                    bundleName: bundleName,
-                    concatenateExons: request.concatenateExons,
-                    outputDir: outputDir,
-                    routeContext: routeContext
-                )
-            }
+            createExtractionBundleFromDocument(
+                from: result, request: request, bundleName: bundleName, outputDir: outputDir,
+                projectURL: projectURL, routeContext: routeContext
+            )
             return
         }
 
@@ -540,56 +522,6 @@ extension SequenceViewerView {
         }
     }
 
-    /// Builds the bundle in process for a viewer with no reference bundle, the `legacy` value of the
-    /// hidden key `RegionExtractionWithoutBundleRoute`, which lane 13.03 deletes with this function.
-    /// Its row records no command.
-    private func createExtractionBundleInProcess(
-        from result: LungfishCore.ExtractionResult,
-        bundleName: String,
-        concatenateExons: Bool,
-        outputDir: URL,
-        routeContext: OperationRouteContext
-    ) {
-        Self.beginExtractionBundleOperation(
-            sourceName: result.sourceName,
-            arguments: nil,
-            routeContext: routeContext
-        ) { itemId in
-            Task.detached(priority: .userInitiated) {
-                do {
-                    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-                    let bundleURL = try await SequenceExtractionPipeline().buildBundle(
-                        from: result,
-                        outputDirectory: outputDir,
-                        desiredBundleName: bundleName,
-                        isConcatenated: concatenateExons,
-                        progressHandler: { progress, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    _ = DownloadCenter.shared.update(id: itemId, progress: progress, detail: message)
-                                }
-                            }
-                        }
-                    )
-                    scheduleExtractionOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            extractionLogger.info("createExtractionBundle: SUCCESS -> \(bundleURL.path)")
-                            _ = DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [bundleURL])
-                        }
-                    }
-                } catch {
-                    let description = error.localizedDescription
-                    let detail = "\(error)"
-                    scheduleExtractionOnMainRunLoop {
-                        MainActor.assumeIsolated {
-                            Self.failExtractionBundle(itemId: itemId, description: description, detail: detail)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// Fails the row, when one began, with the error's words and shows them in an alert over the key window.
     private static func failExtractionBundle(itemId: UUID?, description: String, detail: String) {
         extractionLogger.error("Bundle creation failed: \(detail)")
@@ -608,15 +540,14 @@ extension SequenceViewerView {
 
     /// Registers the row for building a bundle from an extracted sequence and,
     /// only when it starts, calls `launch` with the operation ID. The row locks
-    /// no bundle. With `arguments`, the `lungfish-cli` argv the route runs,
+    /// no bundle. `arguments` is the `lungfish-cli` argv the route runs,
     /// `extract sequence --bundle` with a reference bundle (2.11 A48 M2) or
-    /// `extract sequence <staged FASTA>` without one (2.12 lane 12.12), the
-    /// row records that command. Only the `legacy` value of the hidden key
-    /// `RegionExtractionWithoutBundleRoute` passes none, until lane 13.03.
+    /// `extract sequence <staged FASTA>` without one (2.12 lane 12.12), and the
+    /// row records that command.
     @discardableResult
     static func beginExtractionBundleOperation(
         sourceName: String,
-        arguments: [String]?,
+        arguments: [String],
         routeContext: OperationRouteContext?,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
@@ -625,9 +556,7 @@ extension SequenceViewerView {
             title: "Extracting \(sourceName)",
             detail: "Preparing...",
             operationType: .bundleBuild,
-            cliCommand: arguments.map {
-                OperationCenter.buildCLICommand(subcommand: "extract sequence", args: Array($0.dropFirst(2)))
-            },
+            cliCommand: OperationCenter.buildCLICommand(subcommand: "extract sequence", args: Array(arguments.dropFirst(2))),
             routeContext: routeContext
         )
         switch result {

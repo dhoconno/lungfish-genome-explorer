@@ -164,23 +164,6 @@ final class ViewerExtractionOperationTests: XCTestCase {
         XCTAssertEqual(emptyCommand.region, "NC_TEST:10-40")
     }
 
-    /// The hidden key `RegionExtractionWithoutBundleRoute` is `cli` unless it says `legacy` (U-R1).
-    func testTheRouteWithoutABundleIsTheCLIUnlessTheHiddenKeySaysLegacy() {
-        let suite = makeTestDefaultsSuite(prefix: "region-extraction-route")
-        let key = RegionExtractionWithoutBundleRouteSettings.defaultsKey
-        let settings = RegionExtractionWithoutBundleRouteSettings(defaults: suite.defaults)
-        XCTAssertEqual(key, "RegionExtractionWithoutBundleRoute")
-        XCTAssertEqual(settings.route, .cli)
-        suite.defaults.set("LEGACY", forKey: key)
-        XCTAssertEqual(settings.route, .legacy)
-        suite.defaults.set("other", forKey: key)
-        XCTAssertEqual(settings.route, .cli)
-        suite.defaults.set(false, forKey: key)
-        XCTAssertEqual(settings.route, .legacy)
-        suite.defaults.set(true, forKey: key)
-        XCTAssertEqual(settings.route, .cli)
-    }
-
     /// The staged FASTA holds the viewer's sequence under its name, 70 bases a line, in a folder of its
     /// own under the project's `.tmp/` that stays, and nothing else.
     func testTheStagedInputIsAFASTAUnderTheProjectTmpThatStays() async throws {

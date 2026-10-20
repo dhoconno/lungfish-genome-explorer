@@ -94,7 +94,7 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
         try await assertCancelsWithEveryCoreBusy(.bundle)
     }
 
-    /// Phase 2.12 lane 12.12 (A48-GAP), the route `RegionExtractionWithoutBundleRoute` defaults to.
+    /// Phase 2.12 lane 12.12 (A48-GAP), the route of a viewer with no reference bundle.
     func testRegionExtractionWithoutABundleCancelsThroughTheTransportWithEveryCoreBusy() async throws {
         try await assertCancelsWithEveryCoreBusy(.document)
     }

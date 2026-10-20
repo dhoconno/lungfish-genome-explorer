@@ -11,17 +11,15 @@ import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 
-/// Phase 2.12 lane 12.12 M1 (A48-GAP, QA 1). A viewer whose document has no reference bundle builds
-/// its region bundle in the app, `createExtractionBundleInProcess` in
-/// `ViewerViewController+Extraction.swift`, which hands the extraction to
-/// `SequenceExtractionPipeline().buildBundle(from:outputDirectory:desiredBundleName:isConcatenated:)`.
-/// The class pins, at the base, what that call builds from a FASTA document and from a GenBank document
-/// (files, manifest, name and record, and no annotation track, R-B3), the folder and names an empty and
-/// a blank name give, and the bundle `extract sequence <fasta> <region> -o <name>.lungfishref` builds from
-/// the same FASTA, so the route's A against C is known before it moves. Each case extracts the way the
-/// viewer does, with `SequenceExtractor` over the document's sequence, clamped to its length. Each runs
-/// the managed bgzip and samtools faidx, so the class sits in the conformance tier and skips without them
-/// unless `LUNGFISH_REQUIRE_TOOLS=1`.
+/// Phase 2.12 lane 12.12 M1 (A48-GAP, QA 1), reduced by Phase 2.13 lane 13.03 (DEL-REST). A viewer whose
+/// document has no reference bundle builds its region bundle with
+/// `lungfish-cli extract sequence <staged FASTA> <region> -o <name>.lungfishref`. The in-process route that
+/// built it before 2.12, `createExtractionBundleInProcess`, left with its hidden key, and so did the
+/// snapshots that pinned what it built. The class pins the bundle the leaf builds from a FASTA document (files,
+/// manifest, name and record) and the record of a GenBank document's region, which says that its annotations
+/// were not carried (R-B3). Each case extracts the way the viewer does, with `SequenceExtractor` over the
+/// document's sequence, clamped to its length. Each runs the managed bgzip and samtools faidx, so the class
+/// sits in the conformance tier and skips without them unless `LUNGFISH_REQUIRE_TOOLS=1`.
 final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
     static let bases = "ACGTTGCAACGGATCCATGCAAGCTTGACCTAGGTACCGAATTCGGCCATGGCATGCAAT"
 
@@ -33,56 +31,6 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
 
     override func tearDownWithError() throws {
         TestTempDirectory.cleanup(root)
-    }
-
-    /// A region of a FASTA document, as the viewer's in-process route builds it.
-    func testTheInProcessRouteBuildsARegionOfAFASTADocument() async throws {
-        try await requireTools()
-        let sequence = try await Self.readFASTADocument(try writeFASTADocument())
-        let result = try Self.extract(.region(chromosome: sequence.name, start: 10, end: 40), from: sequence)
-
-        let bundleURL = try await inProcessBundle(result, bundleName: "Region 1", concatenateExons: false)
-
-        try assertSnapshot(await bundleSnapshot(bundleURL), Self.fastaBundle, "fasta bundle")
-        try assertSnapshot(recordSnapshot(bundleURL), Self.fastaRecord, "fasta record")
-    }
-
-    /// A reverse feature of two parts of a GenBank document, joined, with a 5' flank. The bundle keeps
-    /// no annotation of the document (R-B3).
-    func testTheInProcessRouteBuildsAFeatureOfAGenBankDocumentWithNoAnnotations() async throws {
-        try await requireTools()
-        let records = try await GenBankReader(url: try writeGenBankDocument()).readAll()
-        let record = try XCTUnwrap(records.first)
-        let cds = try XCTUnwrap(record.annotations.first { $0.type == .cds }, "\(record.annotations)")
-        let request = ExtractionRequest(source: .annotation(cds), flank5Prime: 2, concatenateExons: true)
-        let result = try SequenceExtractor.extract(
-            request: request, sequenceProvider: Self.viewerProvider(record.sequence), chromosomeLength: record.sequence.length
-        )
-
-        let bundleURL = try await inProcessBundle(result, bundleName: "cdsA", concatenateExons: true)
-
-        let document = "document \(record.sequence.name) annotations="
-            + record.annotations.map { "\($0.type.rawValue):\($0.name)@\($0.chromosome ?? "nil")" }.joined(separator: ",")
-        try assertSnapshot(
-            document + "\n" + (await bundleSnapshot(bundleURL)), Self.genBankBundle, "genbank bundle"
-        )
-        try assertSnapshot(recordSnapshot(bundleURL), Self.genBankRecord, "genbank record")
-    }
-
-    /// The folder, manifest name, identifier and recorded name an empty and a blank name give.
-    func testAnEmptyAndABlankNameNameTheBundle() async throws {
-        try await requireTools()
-        let sequence = try await Self.readFASTADocument(try writeFASTADocument())
-        let result = try Self.extract(.region(chromosome: sequence.name, start: 10, end: 40), from: sequence)
-        var lines: [String] = []
-        for name in ["", "  "] {
-            let bundleURL = try await inProcessBundle(result, bundleName: name, concatenateExons: false)
-            let manifest = try BundleManifest.load(from: bundleURL)
-            let recorded = try record(of: bundleURL).options.explicit["bundle_name"].map { "\($0)" } ?? "nil"
-            lines.append("\(name.debugDescription) -> \(bundleURL.lastPathComponent) name=\(manifest.name.debugDescription) "
-                + "id=\(manifest.identifier) bundle_name=\(recorded)")
-        }
-        try assertSnapshot(lines.joined(separator: "\n"), Self.emptyNames, "empty names")
     }
 
     /// The bundle `extract sequence <fasta> <region> -o <name>.lungfishref` builds from the FASTA document
@@ -102,8 +50,7 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
     /// R-B3's record line (2.12 review of lane 12.12, Fix 1). A region bundle of a GenBank file keeps none of
     /// the file's annotations, and the leaf's record says so in the resolved option `source_annotations`.
     /// The words are a literal here, so a rewording is a deliberate change of this pin. A FASTA file and no
-    /// file give a record without the line. The feature case also shows that every option the in-process
-    /// record held is in the leaf's record with an equal value, except the output bundle (BIO 4).
+    /// file give a record without the line.
     func testTheRecordOfAGenBankDocumentsRegionSaysItsAnnotationsWereNotCarried() async throws {
         try await requireTools()
         let genBank = try writeGenBankDocument()
@@ -143,24 +90,6 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
         for name in ["a.fasta", "a.fa.gz"] {
             XCTAssertFalse(ExtractSequenceSubcommand.isGenBank(URL(fileURLWithPath: "/tmp/\(name)")), name)
         }
-
-        let cds = try XCTUnwrap(genBankRecord.annotations.first { $0.type == .cds }, "\(genBankRecord.annotations)")
-        let result = try SequenceExtractor.extract(
-            request: ExtractionRequest(source: .annotation(cds), flank5Prime: 2, concatenateExons: true),
-            sequenceProvider: Self.viewerProvider(genBankRecord.sequence), chromosomeLength: genBankRecord.sequence.length
-        )
-        let inProcessBundleURL = try await inProcessBundle(result, bundleName: "cdsA", concatenateExons: true)
-        let inProcess = try record(of: inProcessBundleURL).options
-        let tables = [
-            ("explicit", inProcess.explicit, genBankOptions.explicit),
-            ("defaults", inProcess.defaults, genBankOptions.defaults),
-            ("resolvedDefaults", inProcess.resolvedDefaults, genBankOptions.resolvedDefaults),
-        ]
-        for (table, inProcessValues, leafValues) in tables {
-            for (key, value) in inProcessValues where key != "output_bundle" {
-                XCTAssertEqual(leafValues[key], value, "\(table) \(key) of the in-process record is in the leaf's record")
-            }
-        }
     }
 
     /// The bundle `extract sequence` builds of the GenBank fixture's CDS from the staged FASTA, in a
@@ -185,16 +114,7 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
         return url.standardizedFileURL.path
     }
 
-    // MARK: - The route at the base
-
-    /// The call `createExtractionBundleInProcess` makes, into the project's `Extractions` folder.
-    private func inProcessBundle(
-        _ result: LungfishCore.ExtractionResult, bundleName: String, concatenateExons: Bool
-    ) async throws -> URL {
-        try await SequenceExtractionPipeline().buildBundle(
-            from: result, outputDirectory: try extractions(), desiredBundleName: bundleName, isConcatenated: concatenateExons
-        )
-    }
+    // MARK: - The viewer's extraction
 
     /// The viewer's provider over the sequence its document shows (`makeRegionSequenceProvider`).
     static func viewerProvider(_ sequence: LungfishCore.Sequence) -> SequenceExtractor.SequenceProvider {
@@ -362,148 +282,6 @@ final class RegionExtractionWithoutBundlePinConformanceTests: XCTestCase {
     }
 
     // MARK: - Snapshots at the base
-
-    static let fastaBundle = """
-    folder Region_1.lungfishref
-    file .lungfish-provenance.json
-    file genome/sequence.fa.gz
-    file genome/sequence.fa.gz.fai
-    file genome/sequence.fa.gz.gzi
-    file manifest.json
-    file provenance/bundle.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.lungfish-provenance.json
-    file provenance/manifest.json.lungfish-provenance.json
-    name Region_1
-    identifier org.lungfish.extracted.region_1
-    description nil
-    source Unknown Extracted nil Optional("Extracted sequence at NC_TEST.1:11-40 (1-based)")
-    genome genome/sequence.fa.gz genome/sequence.fa.gz.fai Optional("genome/sequence.fa.gz.gzi") 30 md5=nil
-    chromosome NC_TEST.1:11-40 30 aliases=[] description=Optional("[NC_TEST.1:11-40, 1-based] [30 bp]")
-    bases GGATCCATGCAAGCTTGACCTAGGTACCGA
-    annotations 0 variants 0
-    """
-
-    static let fastaRecord = """
-    workflow lungfish gui sequence extraction
-    tool lungfish gui sequence extraction
-    argv lungfish-gui | sequence | extract-bundle | --chromosome | NC_TEST.1 | --start | 10 | --end | 40 | --name | Region 1 | --output | @/Extractions/Region_1.lungfishref
-    steps lungfish gui sequence extraction, bgzip, samtools faidx
-    explicit bundle_name=string("Region 1")
-    explicit concatenate_exons=boolean(false)
-    explicit operation=string("sequence-extraction")
-    explicit reverse_complement=boolean(false)
-    explicit sample_filter=array([])
-    explicit source_bundle=null
-    explicit source_bundle_name=null
-    explicit source_name=string("NC_TEST.1:11-40")
-    default concatenate_exons=boolean(false)
-    default reverse_complement=boolean(false)
-    default sample_filter=array([])
-    resolved bundle_name=string("Region 1")
-    resolved chromosome=string("NC_TEST.1")
-    resolved concatenate_exons=boolean(false)
-    resolved coordinate_system=string("0-based half-open")
-    resolved end=integer(40)
-    resolved operation=string("sequence-extraction")
-    resolved output_bundle=file(file:@/Extractions/Region_1.lungfishref)
-    resolved reverse_complement=boolean(false)
-    resolved sample_filter=array([])
-    resolved source_bundle=null
-    resolved source_bundle_name=null
-    resolved source_name=string("NC_TEST.1:11-40")
-    resolved start=integer(10)
-    step lungfish gui sequence extraction | lungfish-gui | sequence | extract-bundle | --chromosome | NC_TEST.1 | --start | 10 | --end | 40 | --name | Region 1 | --output | @/Extractions/Region_1.lungfishref
-      output output @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz digest=true
-      output index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.fai digest=true
-      output index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.gzi digest=true
-      output output @/Extractions/Region_1.lungfishref/manifest.json digest=true
-    step bgzip | bgzip | -f | -@ | <threads> | sequence.fa
-      output output @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz digest=true
-    step samtools faidx | samtools | faidx | sequence.fa.gz
-      input output @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz digest=true
-      output index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.fai digest=true
-      output index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.gzi digest=true
-    file output @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz digest=true
-    file index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.fai digest=true
-    file index @/Extractions/Region_1.lungfishref/genome/sequence.fa.gz.gzi digest=true
-    file output @/Extractions/Region_1.lungfishref/manifest.json digest=true
-    """
-
-    static let genBankBundle = """
-    document NC_TEST annotations=source:source@NC_TEST,gene:geneA@NC_TEST,CDS:geneA@NC_TEST
-    folder cdsA.lungfishref
-    file .lungfish-provenance.json
-    file genome/sequence.fa.gz
-    file genome/sequence.fa.gz.fai
-    file genome/sequence.fa.gz.gzi
-    file manifest.json
-    file provenance/bundle.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.fai.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.gzi.lungfish-provenance.json
-    file provenance/genome/sequence.fa.gz.lungfish-provenance.json
-    file provenance/manifest.json.lungfish-provenance.json
-    name cdsA
-    identifier org.lungfish.extracted.cdsa
-    description Optional("Extracted sequence at NC_TEST:2-16")
-    source Unknown Extracted nil Optional("Extracted sequence at NC_TEST:2-16")
-    genome genome/sequence.fa.gz genome/sequence.fa.gz.fai Optional("genome/sequence.fa.gz.gzi") 10 md5=nil
-    chromosome geneA 10 aliases=[] description=nil
-    bases GGATGTTGCC
-    annotations 0 variants 0
-    """
-
-    static let genBankRecord = """
-    workflow lungfish gui sequence extraction
-    tool lungfish gui sequence extraction
-    argv lungfish-gui | sequence | extract-bundle | --chromosome | NC_TEST | --start | 2 | --end | 16 | --concatenate-exons | --name | cdsA | --output | @/Extractions/cdsA.lungfishref
-    steps lungfish gui sequence extraction, bgzip, samtools faidx
-    explicit bundle_name=string("cdsA")
-    explicit concatenate_exons=boolean(true)
-    explicit operation=string("sequence-extraction")
-    explicit reverse_complement=boolean(false)
-    explicit sample_filter=array([])
-    explicit source_bundle=null
-    explicit source_bundle_name=null
-    explicit source_name=string("geneA")
-    default concatenate_exons=boolean(false)
-    default reverse_complement=boolean(false)
-    default sample_filter=array([])
-    resolved bundle_name=string("cdsA")
-    resolved chromosome=string("NC_TEST")
-    resolved concatenate_exons=boolean(true)
-    resolved coordinate_system=string("0-based half-open")
-    resolved end=integer(16)
-    resolved operation=string("sequence-extraction")
-    resolved output_bundle=file(file:@/Extractions/cdsA.lungfishref)
-    resolved reverse_complement=boolean(false)
-    resolved sample_filter=array([])
-    resolved source_bundle=null
-    resolved source_bundle_name=null
-    resolved source_name=string("geneA")
-    resolved start=integer(2)
-    step lungfish gui sequence extraction | lungfish-gui | sequence | extract-bundle | --chromosome | NC_TEST | --start | 2 | --end | 16 | --concatenate-exons | --name | cdsA | --output | @/Extractions/cdsA.lungfishref
-      output output @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz digest=true
-      output index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.fai digest=true
-      output index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.gzi digest=true
-      output output @/Extractions/cdsA.lungfishref/manifest.json digest=true
-    step bgzip | bgzip | -f | -@ | <threads> | sequence.fa
-      output output @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz digest=true
-    step samtools faidx | samtools | faidx | sequence.fa.gz
-      input output @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz digest=true
-      output index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.fai digest=true
-      output index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.gzi digest=true
-    file output @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz digest=true
-    file index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.fai digest=true
-    file index @/Extractions/cdsA.lungfishref/genome/sequence.fa.gz.gzi digest=true
-    file output @/Extractions/cdsA.lungfishref/manifest.json digest=true
-    """
-
-    static let emptyNames = """
-    "" -> NC_TEST.1-11-40.lungfishref name="NC_TEST.1-11-40" id=org.lungfish.extracted.nc_test.1-11-40 bundle_name=string("")
-    "  " -> extracted_sequence.lungfishref name="extracted_sequence" id=org.lungfish.extracted.extracted_sequence bundle_name=string("  ")
-    """
 
     static let cliBundle = """
     folder Region 1.lungfishref
