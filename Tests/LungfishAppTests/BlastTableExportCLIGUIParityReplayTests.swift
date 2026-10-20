@@ -2,23 +2,21 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.33, ARCH ruling T5 condition 5 and ruling 1.7, BIO rulings 4, 6 and 7, on lane Q30's harness.
-// Each case runs on three sides that start as copies of one result folder that holds the file the drawer's result
-// was read from, a `blast submit` record (`blast-result.json`) or a BLAST verification archive file. Both hold one
+// Phase 2.12 lane 12.33, ARCH ruling T5 condition 5 and ruling 1.7, BIO rulings 4, 6 and 7, on lane Q30's harness,
+// reduced to C against C' in Phase 2.13 when the drawer's own writer and the in-process routes that needed it went.
+// Each case runs on two sides that start as copies of one result folder that holds the file the drawer's result was
+// read from, a `blast submit` record (`blast-result.json`) or a BLAST verification archive file. Both hold one
 // result with a hit, a read with no hit and a quoted field.
 //
-// - Side A is the drawer's writer for a result the view holds, `writeExportFile` as 69b881488 held it, frozen in
-//   this file (T5 condition 5) because 13.03 deletes the writer with the in-process routes that need it. It runs on
-//   the result in memory, the way the drawer ran it before the leaf.
 // - Side C is the drawer's begin helper, `beginBlastTableExportOperation`, with the invocation the drawer builds for
 //   the file. It begins the row and runs the built `lungfish-cli blast export table` on `CLIViewerExportRunner`.
 // - Side C' is the harness's replay of the command side C's row recorded.
 //
-// A against C compares what 1.7 names, which is the payload byte for byte, the output's digest and size, and every
-// `resolved` key both sides write, with no file but the record differing. The record's identity fields, the file
-// the leaf names as its input (side A named none, BIO 6) and the keys the leaf resolves are prediction rows of the
-// lane report (BIO 7), pinned on each side by `assertPredictedRecordChanges`. C against C' compares everything under
-// the contract's masks. Nothing is declared, so the lane needs no key (R-A1, C4).
+// C against C' compares everything under the contract's masks, and nothing is declared (R-A1, C4). Side C's table
+// and record are pinned directly, since no writer is left to compare them with. The payload is the table builder's
+// bytes with the shape the fixture predicts, the output's digest and size are the payload's, and the record names
+// the leaf, the one file it read with its digest and the keys it resolves (BIO 4, 6 and 7), which
+// `assertTheLeafRecord` checks.
 //
 // The cancel runs through the real transport. The leaf holds inside its transaction on
 // `LUNGFISH_VIEWER_EXPORT_HOLD_FILE`, the row's Cancel stops it, and neither the output nor its record is left
@@ -57,9 +55,7 @@ final class BlastTableExportCLIGUIParityReplayTests: XCTestCase {
         var inputKind: String { isArchive ? "blast-verification-archive" : "blast-submit-record" }
     }
 
-    /// The `resolved` keys both sides write, compared value for value.
-    static let sharedResolvedKeys: Set<String> = ["outputByteCount", "totalReads"]
-    /// The `resolved` keys the leaf writes, which side A did not (BIO 6 and 7).
+    /// The `resolved` keys the leaf writes (BIO 6 and 7).
     static let leafResolvedKeys: Set<String> = [
         "database", "inputKind", "outputByteCount", "program", "rid", "taxId", "taxonName", "totalReads",
     ]
@@ -84,7 +80,7 @@ final class BlastTableExportCLIGUIParityReplayTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    /// A `blast submit` record, the file every route of the `cli` key shows, exported as TSV.
+    /// A `blast submit` record, the file the drawer's result is read from after a search, exported as TSV.
     func testASubmitRecordInTSVMatches() async throws {
         try await assertParity(.submitRecordTSV)
     }
@@ -106,7 +102,7 @@ final class BlastTableExportCLIGUIParityReplayTests: XCTestCase {
 
     /// ARCH ruling T5 condition 3 and UX 4. When the file the drawer's result came from has gone, the leaf fails the
     /// row because its input is missing and names the path, the failure reaches the alert handler once, and the
-    /// drawer never falls back to the old writer, whose record would name no input. Nothing is written.
+    /// drawer holds no other writer. Nothing is written.
     func testAMissingFileFailsTheRowAndWritesNothing() async throws {
         let root = scratch.appendingPathComponent("missing/case/run/root", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -292,49 +288,6 @@ extension BlastTableExportCLIGUIParityReplayTests {
         return true
     }
 
-    /// Side A. The drawer's writer for a result the view holds, frozen below, on the result in memory.
-    private func sideA(_ parityCase: Case, root: URL) throws -> RouteParitySideOutcome {
-        let output = Self.outputURL(parityCase, in: root)
-        do {
-            try Self.frozenWriteExportFile(result: Self.verification, to: output, separator: parityCase.format.separator)
-            return RouteParitySideOutcome(end: .completed, detail: "Exported \(output.lastPathComponent)")
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
-        }
-    }
-
-    /// `BlastResultsDrawerTab.writeExportFile` as 69b881488 held it (ARCH ruling T5 condition 5), with its two log
-    /// lines gone and the failure thrown, so a case sees a write that failed where the drawer only logged it.
-    private static func frozenWriteExportFile(result: BlastVerificationResult, to url: URL, separator: String) throws {
-        let content = BlastVerificationTableExport.tableContent(result: result, separator: separator)
-        let separatorName = separator == "\t" ? "tsv" : "csv"
-        try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app blast verification table export",
-            sourceURLs: [],
-            outputURL: url,
-            outputFormat: .text,
-            argv: [
-                CLICommandIdentity.executableName,
-                "export", "blast-verification-table",
-                "--separator", separatorName,
-                "--output", url.path,
-            ],
-            explicitOptions: [
-                "outputPath": .file(url),
-                "separator": .string(separatorName),
-                "taxonName": .string(result.taxonName),
-                "taxId": .integer(result.taxId),
-            ],
-            resolved: [
-                "totalReads": .integer(result.totalReads),
-                "outputByteCount": .integer(content.utf8.count),
-            ],
-            runClock: ProvenanceRunClock()
-        )) { staged in
-            try content.write(to: staged, atomically: true, encoding: .utf8)
-        }
-    }
-
     /// Side C. The drawer's invocation and begin helper, which run the built CLI behind the row on the shared runner.
     private func sideC(_ parityCase: Case, root: URL) async throws -> RouteParitySideOutcome {
         let invocation = BlastVerificationTableExport.invocation(
@@ -365,66 +318,29 @@ extension BlastTableExportCLIGUIParityReplayTests {
         }
     }
 
-    /// Runs the case on its three sides and checks it as 1.7 reads it. Each side completes with no side naming
-    /// another's root, every root lies below the provenance walk, C against C' differs in nothing, A against C is
-    /// equal on the compared facts, and the predicted record changes hold.
+    /// Runs the case on its two sides and checks it. Each side completes, every root lies below the provenance walk,
+    /// C against C' differs in nothing, and side C's table and record are what the leaf is predicted to write.
     @discardableResult
     private func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
-        let runs = try await harness.run(
+        let runs = try await ReadsRouteParity.runCAndCPrime(
+            harness,
             in: scratch.appendingPathComponent("cases/\(parityCase.rawValue)/run", isDirectory: true),
             fixture: { root in try Self.makeFixture(parityCase, in: root) },
-            sideA: { root in try self.sideA(parityCase, root: root) },
             sideC: { root in try await self.sideC(parityCase, root: root) }
         )
-        if let dump = RouteParityHarness.dumpFolder {
-            _ = try harness.evaluate(parityCase, declared: [], runs: runs, dumpingTo: dump)
-        }
-        for run in runs.all {
+        for run in [runs.c, runs.cPrime] {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
             XCTAssertGreaterThanOrEqual(Self.levels(of: run.root), Self.minimumDepth, "side \(run.side) lies below the walk")
         }
         let input = try Self.inputURL(parityCase, in: runs.c.root)
         XCTAssertGreaterThanOrEqual(Self.levels(of: input.deletingLastPathComponent()), Self.minimumDepth, "the input's walk")
-        let found = try harness.differences(of: runs)
-        for side in RouteParitySide.allCases {
-            XCTAssertEqual(found[.side(side)]?.map(\.description) ?? [], [], "side \(side) names no other side's root")
-        }
-        XCTAssertEqual(found[.cAgainstCPrime]?.map(\.description) ?? [], [], "C against C' declares nothing")
-        try assertAEqualsC(parityCase, runs)
-        try assertPredictedRecordChanges(parityCase, runs)
+        let result = try harness.evaluate(parityCase, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: "\(parityCase), C against C'")
+        try assertTheLeafRecord(parityCase, runs)
         return runs
     }
 
-    /// A against C on the facts of 1.7, with each record path read relative to its side root. No file but the
-    /// record differs, and the record's compared facts are equal.
-    private func assertAEqualsC(_ parityCase: Case, _ runs: RouteParityRuns) throws {
-        let sidecarName = ProvenanceRecorder.fileSidecarURL(for: Self.outputURL(parityCase, in: runs.a.root)).lastPathComponent
-        let others = try harness.differences(runs.a, runs.c).filter { !$0.id.contains(sidecarName) }
-        XCTAssertEqual(others.map(\.description), [], "only the record may differ between A and C")
-
-        let payloadA = try Data(contentsOf: Self.outputURL(parityCase, in: runs.a.root))
-        XCTAssertEqual(payloadA, try Data(contentsOf: Self.outputURL(parityCase, in: runs.c.root)), "the payload byte for byte")
-        Self.assertTableShape(parityCase, payload: payloadA)
-        let a = try Self.envelope(parityCase, in: runs.a.root)
-        let c = try Self.envelope(parityCase, in: runs.c.root)
-        let outputA = try XCTUnwrap(a.output)
-        let outputC = try XCTUnwrap(c.output)
-        XCTAssertNotNil(outputA.checksumSHA256)
-        XCTAssertEqual(outputA.checksumSHA256, outputC.checksumSHA256, "the output digest")
-        XCTAssertEqual(outputA.fileSize, UInt64(payloadA.count))
-        XCTAssertEqual(outputA.fileSize, outputC.fileSize, "the output size")
-        let resolvedA = a.options.resolvedDefaults
-        let resolvedC = c.options.resolvedDefaults
-        XCTAssertEqual(Set(resolvedA.keys).intersection(resolvedC.keys), Self.sharedResolvedKeys)
-        for key in Self.sharedResolvedKeys.sorted() {
-            XCTAssertEqual(resolvedA[key], resolvedC[key], "resolved \(key)")
-        }
-        XCTAssertEqual(resolvedC["outputByteCount"]?.integerValue, payloadA.count)
-        XCTAssertEqual(a.options.explicit["taxId"], resolvedC["taxId"], "the taxon moved from an option to a resolved fact")
-        XCTAssertEqual(a.options.explicit["taxonName"], resolvedC["taxonName"])
-    }
-
-    /// The table holds the hits of the result in the fixture, whichever side wrote it.
+    /// The table holds the hits of the result in the fixture.
     private static func assertTableShape(_ parityCase: Case, payload: Data) {
         let separator = parityCase.format.separator
         let lines = String(decoding: payload, as: UTF8.self).split(separator: "\n").map(String.init)
@@ -443,27 +359,26 @@ extension BlastTableExportCLIGUIParityReplayTests {
         XCTAssertTrue(lines[4].hasPrefix(["read_3", BlastVerdict.ambiguous.rawValue].joined(separator: separator)), lines[4])
     }
 
-    /// The prediction rows of the lane report (BIO 4, 6 and 7). The identity fields move from the app's writer to
-    /// the leaf, the options of the taxon become resolved facts, the empty input list becomes the one file the
-    /// leaf read with its digest, and the record's argv is the row's command (ARCH 2).
-    private func assertPredictedRecordChanges(_ parityCase: Case, _ runs: RouteParityRuns) throws {
-        let a = try Self.envelope(parityCase, in: runs.a.root)
+    /// Side C's table and record as the leaf writes them (BIO 4, 6 and 7). The payload is the table builder's bytes,
+    /// the record's output digest and size are the payload's, the identity fields are the leaf's, the options hold
+    /// the output format, the one file the leaf read comes with its digest, and the record's argv is the row's
+    /// command (ARCH 2).
+    private func assertTheLeafRecord(_ parityCase: Case, _ runs: RouteParityRuns) throws {
         let c = try Self.envelope(parityCase, in: runs.c.root)
-        let outputA = Self.outputURL(parityCase, in: runs.a.root)
-        let argvA = [
-            CLICommandIdentity.executableName, "export", "blast-verification-table",
-            "--separator", parityCase.fileExtension, "--output", outputA.path,
-        ]
-        XCTAssertEqual(a.toolName, "Lungfish.app")
-        XCTAssertEqual(a.tool.kind, "gui")
-        XCTAssertEqual(a.argv, argvA)
-        XCTAssertEqual(a.durableReplayArgv ?? a.argv, argvA)
-        XCTAssertEqual(a.workflowName, "lungfish app blast verification table export")
-        XCTAssertEqual(Self.inputs(of: a, under: runs.a.root), [:], "side A named no input, a BIO 6 prediction row")
-        XCTAssertEqual(Set(a.options.resolvedDefaults.keys), Self.sharedResolvedKeys)
-        XCTAssertEqual(a.options.explicit.keys.sorted(), ["outputPath", "separator", "taxId", "taxonName"])
-        XCTAssertEqual(a.options.explicit["separator"]?.stringValue, parityCase.fileExtension)
-        XCTAssertTrue(a.options.defaults.isEmpty)
+        let payload = try Data(contentsOf: Self.outputURL(parityCase, in: runs.c.root))
+        let builderBytes = BlastVerificationTableExport.tableContent(
+            result: Self.verification, separator: parityCase.format.separator
+        )
+        XCTAssertEqual(payload, Data(builderBytes.utf8), "the payload is the table builder's bytes")
+        Self.assertTableShape(parityCase, payload: payload)
+        let output = try XCTUnwrap(c.output)
+        XCTAssertEqual(
+            output.checksumSHA256,
+            SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined(),
+            "the output digest"
+        )
+        XCTAssertEqual(output.fileSize, UInt64(payload.count), "the output size")
+        XCTAssertEqual(c.options.resolvedDefaults["outputByteCount"]?.integerValue, payload.count)
 
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
         XCTAssertEqual(c.toolName, CLICommandIdentity.executableName)

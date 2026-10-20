@@ -1,4 +1,4 @@
-// KrakenBlastTableExportPinTests.swift - The Kraken2 taxonomy table and BLAST drawer table exports at their base
+// KrakenBlastTableExportPinTests.swift - The Kraken2 taxonomy table and BLAST results table bytes
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -8,25 +8,15 @@ import LungfishCore
 @testable import LungfishIO
 @testable import LungfishKit
 import LungfishTestSupport
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
-/// Phase 2.12 lane 12.33, M1 (QA 1). Pins the bytes and the record of the taxonomy view's CSV and TSV and of the
-/// BLAST drawer's CSV and TSV as the in-app writers leave them at the lane's base, for a quoted field, a read with
-/// no hits and a read with hits. The lane converts both exports to `kraken2 export table` and `blast export table`.
-/// The bytes stay equal. The record moves to `lungfish-cli` and names what the leaf reads, which the prediction
-/// rows of the lane report list (BIO 4, 6 and 7).
+/// Phase 2.12 lane 12.33, M1 (QA 1), reduced by Phase 2.13. Pins the bytes of the taxonomy view's CSV and TSV and of
+/// the BLAST results table, for a quoted field, a read with no hits and a read with hits. Both exports run as leaves
+/// (`kraken2 export table` and `blast export table`), so the in-app writers that these pins first held are gone,
+/// and so are the records they pinned. Each leaf's record is pinned by its own replay class
+/// (Kraken2TableExportCLIGUIParityReplayTests and BlastTableExportCLIGUIParityReplayTests), and the bytes stay here.
 @MainActor
 final class KrakenBlastTableExportPinTests: XCTestCase {
-    private var scratch: URL!
-
-    override func setUpWithError() throws {
-        scratch = try TestTempDirectory.make(prefix: "kraken-blast-table-pin")
-    }
-
-    override func tearDownWithError() throws {
-        TestTempDirectory.cleanup(scratch)
-    }
-
     // MARK: - The taxonomy table (census A7)
 
     /// The taxonomy builder's bytes for a quoted field and an unclassified row, in both separators. The record these
@@ -42,58 +32,19 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         }
     }
 
-    // MARK: - The BLAST drawer table (census A9)
+    // MARK: - The BLAST results table (census A9)
 
-    func testTheBlastTableBytesAndRecordAtTheBase() throws {
+    /// The BLAST table builder's bytes for a quoted read id and organism, a read with no hits and a read with hits,
+    /// in both separators. The leaf `blast export table` writes these bytes, and BlastTableExportCLIGUIParityReplayTests
+    /// pins its record.
+    func testTheBlastTableBytes() {
         for (separator, format) in [(",", "csv"), ("\t", "tsv")] {
-            let export = try writeBlastTable(separator: separator, fileName: "blast.\(format)")
-            let content = try String(contentsOf: export.outputURL, encoding: .utf8)
-            XCTAssertEqual(content, expectedBlastTable(separator: separator), format)
-
-            let envelope = export.envelope
-            XCTAssertEqual(envelope.toolName, "Lungfish.app", format)
-            XCTAssertEqual(envelope.tool.kind, "gui", format)
-            XCTAssertEqual(envelope.workflowName, "lungfish app blast verification table export", format)
             XCTAssertEqual(
-                envelope.argv,
-                [
-                    CLICommandIdentity.executableName, "export", "blast-verification-table",
-                    "--separator", format, "--output", export.outputURL.path,
-                ],
+                BlastVerificationTableExport.tableContent(result: blastResult(), separator: separator),
+                expectedBlastTable(separator: separator),
                 format
             )
-            XCTAssertEqual(envelope.durableReplayArgv ?? envelope.argv, envelope.argv, format)
-            XCTAssertTrue(
-                envelope.files.filter { $0.role == .input }.isEmpty,
-                "\(format): the record names no input at the base (sourceURLs is empty), a BIO 6 prediction row"
-            )
-            XCTAssertEqual(Set(envelope.options.explicit.keys), ["outputPath", "separator", "taxId", "taxonName"], format)
-            XCTAssertEqual(envelope.options.explicit["separator"]?.stringValue, format)
-            XCTAssertEqual(envelope.options.explicit["taxonName"]?.stringValue, "Escherichia coli", format)
-            XCTAssertEqual(envelope.options.explicit["taxId"]?.integerValue, 562, format)
-            XCTAssertTrue(envelope.options.defaults.isEmpty, format)
-            XCTAssertEqual(Set(envelope.options.resolvedDefaults.keys), ["outputByteCount", "totalReads"], format)
-            XCTAssertEqual(envelope.options.resolvedDefaults["totalReads"]?.integerValue, 3, format)
-            XCTAssertEqual(envelope.options.resolvedDefaults["outputByteCount"]?.integerValue, content.utf8.count, format)
         }
-    }
-
-    // MARK: - The recorded commands parse (QA 1)
-
-    /// A recorded command must parse through the real CLI parser (`CLI-EQUIVALENCE.md`, rule 5).
-    /// `export blast-verification-table` has no leaf at the base, so the parse fails there. The expectation keeps this
-    /// pin green at its base and goes in the commit that adds the leaf. The taxonomy table's recorded command is
-    /// parsed by TaxonomyTableExportRowTests and the parity class since `kraken2 export table` exists.
-    func testTheBlastTableRecordsACommandThatParses() throws {
-        let argv = try writeBlastTable(separator: ",", fileName: "blast.csv").envelope.argv
-        try XCTExpectFailure("export blast-verification-table has no leaf at the base. The blast export table commit removes this") {
-            XCTAssertNoThrow(try RecordedCLICommand.parse(Self.command(of: argv)), "recorded: \(argv.joined(separator: " "))")
-        }
-    }
-
-    /// The command the Operations row would hold for a recorded argv.
-    private static func command(of argv: [String]) -> String {
-        OperationCenter.buildCLICommand(subcommand: argv[1], args: Array(argv.dropFirst(2)))
     }
 
     // MARK: - Taxonomy fixture
@@ -143,11 +94,6 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
 
     // MARK: - BLAST fixture
 
-    private struct BlastExport {
-        let outputURL: URL
-        let envelope: ProvenanceEnvelope
-    }
-
     /// A read with two hits whose id and organism hold a comma and quotes, a read with no hits and no top-level
     /// fields, and a read with no hits and top-level fields.
     private func blastResult() -> BlastVerificationResult {
@@ -184,13 +130,6 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         )
     }
 
-    private func writeBlastTable(separator: String, fileName: String) throws -> BlastExport {
-        let tab = BlastResultsDrawerTab(frame: .zero)
-        let outputURL = scratch.appendingPathComponent(fileName)
-        tab.writeExportFile(result: blastResult(), to: outputURL, separator: separator)
-        return BlastExport(outputURL: outputURL, envelope: try envelope(of: outputURL))
-    }
-
     private func expectedBlastTable(separator: String) -> String {
         func field(_ value: String) -> String {
             guard value.contains(separator) || value.contains("\"") || value.contains("\n") else { return value }
@@ -213,11 +152,5 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             ["read_3", ambiguous, "false", "1", "NC_000003.1", "Shigella", "", "88.13", "70.50", "0.002", "55.5", "99"],
         ]
         return rows.map { $0.joined(separator: separator) }.joined(separator: "\n") + "\n"
-    }
-
-    // MARK: - Shared
-
-    private func envelope(of outputURL: URL) throws -> ProvenanceEnvelope {
-        try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)))
     }
 }

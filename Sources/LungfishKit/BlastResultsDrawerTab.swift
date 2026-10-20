@@ -283,7 +283,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     public enum DisplayState {
         case empty
         case loading(phase: BlastJobPhase, requestId: String?)
-        /// The result and the file it was read from, which is nil when no file holds it (ARCH ruling T5 of lane 12.33).
+        /// The result and the file it was read from, which the table export reads (ARCH ruling T5 of lane 12.33).
+        /// Every route a user can run gives a file. Nil only when the FASTA search seam of a test gives none.
         case results(BlastVerificationResult, recordURL: URL?)
     }
 
@@ -540,7 +541,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         return nil
     }
 
-    /// The file the shown result was read from, which the table export reads, or nil when no file holds it.
+    /// The file the shown result was read from, which the table export reads, or nil when the tab shows no result
+    /// or its result came with no file.
     public var currentRecordURL: URL? {
         if case .results(_, let recordURL) = displayState { return recordURL }
         return nil
@@ -1543,13 +1545,17 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     /// Exports results to a delimited file using NSSavePanel.
     ///
-    /// A result read from a file runs `lungfish-cli blast export table` on that file behind an Operations row, and a
-    /// leaf that fails ends the row failed and shows the failure alert (UX 4). If the file has gone, the leaf fails
-    /// the row, and the drawer never falls back to the old writer, which would record no input for a result that
-    /// had a file. A result no file holds, which only the in-process routes under `ClassifierBlastRoute` show,
-    /// keeps `writeExportFile` until 13.03 deletes those routes (ARCH ruling T5 of lane 12.33).
+    /// Every result a user can run was read from a file, so the export runs `lungfish-cli blast export table` on
+    /// that file behind an Operations row. A leaf that fails ends the row failed and shows the failure alert (UX 4).
+    /// If the file has gone, the leaf fails the row, since the drawer holds no other writer (ARCH ruling T5 of lane
+    /// 12.33). A result that came with no file, which only a test's FASTA search gives, has nothing to export, so
+    /// the drawer logs that and shows no save panel.
     private func exportResults(separator: String, fileExtension: String) {
-        guard case .results(let result, let recordURL) = displayState else { return }
+        guard case .results(_, let recordURL) = displayState else { return }
+        guard let recordURL else {
+            blastLogger.warning("BLAST export requested for a result that came with no file to read")
+            return
+        }
 
         let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension)
 
@@ -1558,13 +1564,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             return
         }
 
-        panel.beginSheetModal(for: parentWindow) { [weak self] response in
+        panel.beginSheetModal(for: parentWindow) { response in
             guard response == .OK, let url = panel.url else { return }
-            guard let recordURL else {
-                // 13.03 deletes this branch with the in-process routes that show a result no file holds.
-                self?.writeExportFile(result: result, to: url, separator: separator)
-                return
-            }
             let invocation = BlastVerificationTableExport.invocation(
                 recordURL: recordURL,
                 format: separator == "\t" ? .tsv : .csv,
@@ -1580,60 +1581,6 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
                     presenter: DefaultExportFailurePresenter()
                 )
             }
-        }
-    }
-
-    /// Writes the export file to disk. Only a result no file holds reaches this writer (ARCH ruling T5 of lane
-    /// 12.33), and 13.03 deletes it with the in-process routes that show such a result.
-    ///
-    /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
-    /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
-    ///
-    /// One row per hit (a read with 5 hits produces 5 output rows).
-    ///
-    /// `internal` (not `private`) so the write-and-sidecar behaviour is
-    /// directly testable, matching the seam `TaxonomyViewController.writeDelimitedExport`
-    /// uses for the same purpose.
-    func writeExportFile(
-        result: BlastVerificationResult,
-        to url: URL,
-        separator: String
-    ) {
-        let content = BlastVerificationTableExport.tableContent(result: result, separator: separator)
-        // This export previously wrote only the CSV/TSV payload, with
-        // no provenance sidecar recording which BLAST verification produced
-        // it. Writes atomically through `ScientificFileExportProvenance`, the
-        // same helper used by sequence and taxonomy table exports.
-        let separatorName = separator == "\t" ? "tsv" : "csv"
-        do {
-            try ScientificFileExportProvenance.writeAtomically(.init(
-                workflowName: "lungfish app blast verification table export",
-                sourceURLs: [],
-                outputURL: url,
-                outputFormat: .text,
-                argv: [
-                    CLICommandIdentity.executableName,
-                    "export", "blast-verification-table",
-                    "--separator", separatorName,
-                    "--output", url.path,
-                ],
-                explicitOptions: [
-                    "outputPath": .file(url),
-                    "separator": .string(separatorName),
-                    "taxonName": .string(result.taxonName),
-                    "taxId": .integer(result.taxId),
-                ],
-                resolved: [
-                    "totalReads": .integer(result.totalReads),
-                    "outputByteCount": .integer(content.utf8.count),
-                ],
-                runClock: ProvenanceRunClock()
-            )) { staged in
-                try content.write(to: staged, atomically: true, encoding: .utf8)
-            }
-            blastLogger.info("Exported BLAST results to \(url.path, privacy: .public)")
-        } catch {
-            blastLogger.error("Failed to export BLAST results: \(error.localizedDescription, privacy: .public)")
         }
     }
 
