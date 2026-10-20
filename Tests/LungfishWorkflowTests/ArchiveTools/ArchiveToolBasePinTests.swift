@@ -101,7 +101,6 @@ final class ArchiveToolBasePinTests: XCTestCase {
     }
 
     func testGeneiousArchiveToolSymlinkThatLeavesTheRootIsRefused() throws {
-        XCTExpectFailure("Base 916a79b07 extracts the link. Lane 13.08 fixes it in its GeneiousArchiveTool commit.")
         let zip = tempDir.appendingPathComponent("link.zip")
         try TestZipWriter.write([.file("ok.txt", "ok"), .symlink("link", to: "../outside")], to: zip)
         XCTAssertThrowsError(

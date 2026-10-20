@@ -3,12 +3,15 @@ import LungfishCore
 
 public enum GeneiousArchiveToolError: LocalizedError, Sendable, Equatable {
     case unsafeMemberPath(String)
+    case unsafeArchive(String)
     case unzipFailed(arguments: [String], status: Int32, stderr: String)
 
     public var errorDescription: String? {
         switch self {
         case .unsafeMemberPath(let path):
             return "Unsafe Geneious archive member path: \(path)"
+        case .unsafeArchive(let reason):
+            return "Unsafe Geneious archive: \(reason)"
         case .unzipFailed(let arguments, let status, let stderr):
             let command = (["/usr/bin/unzip"] + arguments).joined(separator: " ")
             return "\(command) failed with exit code \(status): \(stderr)"
@@ -62,6 +65,13 @@ public struct GeneiousArchiveTool: Sendable {
         _ = try listMembers(archiveURL: archiveURL)
         try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
         _ = try runUnzip(arguments: ["-qq", archiveURL.path, "-d", destinationURL.path])
+        // unzip refuses `..` and absolute names and a write through a link, but it
+        // extracts a symbolic link that leaves the folder, as SafeZipExtractor refuses.
+        do {
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destinationURL)
+        } catch DemoProjectError.unsafeArchive(let reason) {
+            throw GeneiousArchiveToolError.unsafeArchive(reason)
+        }
     }
 
     private func runUnzip(arguments: [String], capturesStdout: Bool = false) throws -> (stdout: String, stderr: String) {
