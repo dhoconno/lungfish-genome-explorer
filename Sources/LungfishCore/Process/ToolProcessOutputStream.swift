@@ -87,19 +87,33 @@ public final class ToolProcessOutputStream: Sendable {
         channel.close()
     }
 
-    /// `error` with this reader's failures folded into the results it
+    /// `error` with this reader's failures folded into the last result it
     /// carries. Call it after ``close()``, which settles the flags.
     func folded(into error: ToolProcessError) -> ToolProcessError {
         switch error {
         case .invalidSpec:
             return error
         case .launchFailed(let label, let reason, let results):
-            return .launchFailed(label: label, reason: reason, results: results.map(folded(into:)))
+            return .launchFailed(label: label, reason: reason, results: foldedIntoLast(results))
         case .timedOut(let timeout, let results):
-            return .timedOut(timeout, results: results.map(folded(into:)))
+            return .timedOut(timeout, results: foldedIntoLast(results))
         case .cancelled(let results):
-            return .cancelled(results: results.map(folded(into:)))
+            return .cancelled(results: foldedIntoLast(results))
         }
+    }
+
+    /// `result` with this reader's failures folded into its last stage.
+    /// Call it after ``close()``, which settles the flags.
+    func folded(into result: ToolPipelineResult) -> ToolPipelineResult {
+        ToolPipelineResult(stages: foldedIntoLast(result.stages), wallTime: result.wallTime)
+    }
+
+    /// The stream is the last stage's stdout. A flag is set only once that
+    /// stage launched, and results come in stage order, so it is then the
+    /// last result.
+    private func foldedIntoLast(_ results: [ToolProcessResult]) -> [ToolProcessResult] {
+        guard let last = results.last else { return results }
+        return Array(results.dropLast()) + [folded(into: last)]
     }
 
     /// `result` with this reader's failures folded in, so a caller checks

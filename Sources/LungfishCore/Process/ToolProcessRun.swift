@@ -92,39 +92,30 @@ public final class ToolProcessRun: Sendable {
     /// closed from the start otherwise.
     public let stdin: ToolProcessInputStream
 
-    private let execution: ToolProcessExecution
-    private let done = DispatchGroup()
-    private let outcome = Mutex<Result<ToolProcessResult, ToolProcessError>?>(nil)
+    private let waiter: ToolProcessRunWaiter
 
     init(_ execution: ToolProcessExecution) {
-        self.execution = execution
+        self.waiter = ToolProcessRunWaiter(execution)
         self.stdout = ToolProcessOutputStream(execution.stdoutChannel)
         self.stdin = ToolProcessInputStream(execution.stdinChannel)
-        done.enter()
     }
 
     /// The process ID, set before ``ToolProcess/start(_:onEvent:onLaunch:)``
     /// returns, or nil when the launch failed or a cancellation came first.
     public var pid: Int32? {
-        execution.state.withLock { $0.stages[0].launched ? $0.stages[0].pid : nil }
+        waiter.pids[0]
     }
 
     func begin() {
-        // The closure holds the engine, not this handle, until the engine
-        // calls it at the end, so the run is reaped and unregistered even
-        // when the caller drops the handle and with it the stream's read end.
-        execution.start { [execution, done] in
-            withExtendedLifetime(execution) {
-                done.leave()
-            }
-        }
+        waiter.begin()
     }
 
     /// Stops the run. ToolProcess terminates the process group and tree, a
-    /// blocked reader of ``stdout`` reaches end of file, and the result is
+    /// blocked reader of ``stdout`` reaches end of file, a write to
+    /// ``stdin`` still waiting returns, and the result is
     /// ``ToolProcessError/cancelled(results:)``. Does nothing once the run is over.
     public func cancel() {
-        execution.requestStop(.cancelled)
+        waiter.cancel()
     }
 
     /// Waits on the calling thread until the run is over, closes ``stdout``
@@ -134,8 +125,7 @@ public final class ToolProcessRun: Sendable {
     ///
     /// - Throws: ``ToolProcessError``.
     public func waitBlocking() throws(ToolProcessError) -> ToolProcessResult {
-        done.wait()
-        return try finish().get()
+        try waiter.waitBlocking(closing: stdout).get().stages[0]
     }
 
     /// Suspends until the run is over, closes ``stdout`` and returns the
@@ -146,6 +136,50 @@ public final class ToolProcessRun: Sendable {
     ///
     /// - Throws: ``ToolProcessError``.
     public func result() async throws(ToolProcessError) -> ToolProcessResult {
+        try await waiter.result(closing: stdout).get().stages[0]
+    }
+}
+
+/// The start, cancel and wait behind ``ToolProcessRun`` and
+/// ``ToolPipelineRun``. The outcome is kept with the stdout reader's
+/// failures folded in, so every later wait returns the same answer.
+final class ToolProcessRunWaiter: Sendable {
+    private let execution: ToolProcessExecution
+    private let done = DispatchGroup()
+    private let outcome = Mutex<Result<ToolPipelineResult, ToolProcessError>?>(nil)
+
+    init(_ execution: ToolProcessExecution) {
+        self.execution = execution
+        done.enter()
+    }
+
+    /// Each stage's pid in stage order, nil for a stage not launched.
+    var pids: [Int32?] {
+        execution.state.withLock { run in run.stages.map { $0.launched ? $0.pid : nil } }
+    }
+
+    func begin() {
+        // The closure holds the engine, not the handle, until the engine
+        // calls it at the end, so the run is reaped and unregistered even
+        // when the caller drops the handle and with it the streams.
+        execution.start { [execution, done] in
+            withExtendedLifetime(execution) {
+                done.leave()
+            }
+        }
+    }
+
+    func cancel() {
+        execution.requestStop(.cancelled)
+    }
+
+    func waitBlocking(closing stdout: ToolProcessOutputStream) -> Result<ToolPipelineResult, ToolProcessError> {
+        done.wait()
+        return finish(closing: stdout)
+    }
+
+    /// Cancelling the waiting task cancels the run.
+    func result(closing stdout: ToolProcessOutputStream) async -> Result<ToolPipelineResult, ToolProcessError> {
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 done.notify(queue: execution.queue) {
@@ -155,19 +189,18 @@ public final class ToolProcessRun: Sendable {
         } onCancel: {
             self.cancel()
         }
-        return try finish().get()
+        return finish(closing: stdout)
     }
 
-    private func finish() -> Result<ToolProcessResult, ToolProcessError> {
+    private func finish(closing stdout: ToolProcessOutputStream) -> Result<ToolPipelineResult, ToolProcessError> {
         outcome.withLock { cached in
             if let cached { return cached }
             // Closing first settles the stream's flags, so a reader still
             // short of end of file shows in the result.
             stdout.close()
-            let value: Result<ToolProcessResult, ToolProcessError>
+            let value: Result<ToolPipelineResult, ToolProcessError>
             do throws(ToolProcessError) {
-                let result = try execution.outcome().stages[0]
-                value = .success(stdout.folded(into: result))
+                value = .success(stdout.folded(into: try execution.outcome()))
             } catch {
                 value = .failure(stdout.folded(into: error))
             }

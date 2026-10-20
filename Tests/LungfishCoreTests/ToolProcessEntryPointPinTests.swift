@@ -13,7 +13,9 @@ import LungfishTestSupport
 /// the cases they leave out, a pipeline cancelled before launch, pipelines
 /// whose first or middle stage cannot launch, a pipeline's idle limit, the
 /// signal, launch failure and limits of `runBlocking`, and a dropped handle
-/// whose output is captured.
+/// whose output is captured. Phase 2.13 lane 13.05 added `startPipeline`,
+/// pinned here for a first stage that cannot launch and for a pipeline with
+/// no streamed end.
 final class ToolProcessEntryPointPinTests: XCTestCase {
     private typealias Fixtures = ToolProcessFixtures
 
@@ -176,6 +178,46 @@ final class ToolProcessEntryPointPinTests: XCTestCase {
             !NativeProcessRegistry.shared.isRegistered(processGroupLeader: pid)
         }
         XCTAssertTrue(unregistered, "a finished run leaves the registry")
+    }
+
+    // MARK: - startPipeline (Phase 2.13 lane 13.05, a new entry point)
+
+    /// A first stage that cannot launch is the error of the wait, not of the
+    /// start. No stage launches, the reader is at end of file and the writer
+    /// finds nothing to read it.
+    func testStartPipelineWhoseFirstStageCannotLaunchHandsOutEndedStreams() async throws {
+        var ghost = Self.missingTool(label: "ghost")
+        ghost.stdin = .stream
+        var last = Self.tool("/bin/cat", label: "last")
+        last.stdout = .stream
+        let run = try ToolProcess.startPipeline([ghost, last], timeout: .seconds(30))
+        XCTAssertEqual(run.pids, [nil, nil])
+        XCTAssertTrue(run.stdout.read(upTo: 16).isEmpty)
+        do {
+            try await run.stdin.write(Data("x".utf8))
+            XCTFail("nothing launched, so nothing reads")
+        } catch {
+            XCTAssertEqual(error, .readerGone)
+        }
+        do {
+            _ = try await run.result()
+            XCTFail("Expected launchFailed")
+        } catch .launchFailed(let label, _, let results) {
+            XCTAssertEqual(label, "ghost")
+            XCTAssertTrue(results.isEmpty)
+        }
+    }
+
+    /// With no streamed end, a started pipeline gives what runPipeline
+    /// gives, and keeps it for later waits.
+    func testStartPipelineWithoutStreamsMatchesRunPipeline() async throws {
+        let run = try ToolProcess.startPipeline([Fixtures.shell("echo payload", label: "first"), Self.tool("/bin/cat", label: "last")])
+        let result = try await run.result()
+        XCTAssertEqual(result.stages.map(\.label), ["first", "last"])
+        XCTAssertEqual(result.stages[1].stdoutText, "payload\n")
+        XCTAssertTrue(result.isSuccess)
+        let again = try await run.result()
+        XCTAssertEqual(again.stages.map(\.pid), result.stages.map(\.pid))
     }
 
     // MARK: - Helpers

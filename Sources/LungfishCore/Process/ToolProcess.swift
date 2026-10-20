@@ -14,7 +14,9 @@ import Foundation
 /// - Both output pipes are read from launch until end of file, so a process
 ///   that writes more than the 64 KB pipe buffer never blocks on a full pipe.
 ///   The one exception is a ``ToolProcessOutput/stream`` stdout, which the
-///   caller reads at its own pace through ``start(_:onEvent:onLaunch:)``.
+///   caller reads at its own pace through ``start(_:onEvent:onLaunch:)`` or,
+///   for the last stage of a pipeline,
+///   ``startPipeline(_:timeout:idleTimeout:failurePolicy:onEvent:onLaunch:)``.
 /// - The engine runs on posix_spawn and GCD alone. ``start(_:onEvent:onLaunch:)``
 ///   and ``runBlocking(_:cancellation:onEvent:onLaunch:)`` start and finish a
 ///   run without a Swift task, so they complete even when every thread of the
@@ -140,6 +142,9 @@ public enum ToolProcess {
     /// ``ToolPipelineFailurePolicy/stopAllOnFailure`` a failing stage stops
     /// the others and the result is not a success. A stage that cannot launch
     /// stops the stages already running, and the error carries their results.
+    /// No stage can stream here.
+    /// ``startPipeline(_:timeout:idleTimeout:failurePolicy:onEvent:onLaunch:)``
+    /// runs the same stages with a streamed first stdin or last stdout.
     ///
     /// - Parameters:
     ///   - stages: The stages in order. At least one.
@@ -161,12 +166,35 @@ public enum ToolProcess {
         onEvent: (@Sendable (_ stage: Int, _ event: ToolProcessEvent) -> Void)? = nil,
         onLaunch: (@Sendable (_ stage: Int, _ pid: Int32) -> Void)? = nil
     ) async throws(ToolProcessError) -> ToolPipelineResult {
+        let execution = try pipelineExecution(
+            stages,
+            limits: (timeout, idleTimeout),
+            observers: .init(failurePolicy: failurePolicy, onLaunch: onLaunch, onEvent: onEvent),
+            refusingStreamsIn: "runPipeline"
+        )
+        return try await execution.run()
+    }
+
+    /// Validates a pipeline and builds the engine that runs it. A method
+    /// named in `refusingStreamsIn` has no reader or writer to hand out, so
+    /// it refuses a streamed stage. Without one, as for ``startPipeline(_:timeout:idleTimeout:failurePolicy:onEvent:onLaunch:)``,
+    /// only the first stage's stdin and the last stage's stdout can stream,
+    /// because the stage rules keep every other end on its pipe.
+    static func pipelineExecution(
+        _ stages: [ToolProcessSpec],
+        limits: (timeout: Duration?, idleTimeout: Duration?),
+        observers: ToolProcessExecution.Observers,
+        refusingStreamsIn method: String?
+    ) throws(ToolProcessError) -> ToolProcessExecution {
+        let (timeout, idleTimeout) = limits
         guard !stages.isEmpty else {
             throw .invalidSpec("A pipeline needs at least one stage.")
         }
         for (index, stage) in stages.enumerated() {
             try validate(stage)
-            try refuseStream(stage, in: "runPipeline")
+            if let method {
+                try refuseStream(stage, in: method)
+            }
             if stage.timeout != nil || stage.idleTimeout != nil {
                 throw .invalidSpec("Stage \(index) (\(stage.label)) sets its own timeout. Pass the pipeline's limits to runPipeline instead.")
             }
@@ -180,21 +208,21 @@ public enum ToolProcess {
         try validate(limit: timeout, name: "pipeline timeout")
         try validate(limit: idleTimeout, name: "pipeline idle timeout")
         if let idleTimeout {
-            let observed = stages.contains { $0.stderr.isCaptured } || stages[stages.count - 1].stdout.isCaptured
+            let last = stages[stages.count - 1].stdout
+            let observed = stages.contains { $0.stderr.isCaptured } || last.isCaptured || last == .stream
             if !observed {
                 throw .invalidSpec("An idle timeout of \(idleTimeout) needs a captured stream, because no other output is observed.")
             }
         }
-        let execution = ToolProcessExecution(
+        return ToolProcessExecution(
             specs: stages,
             limits: .init(
                 wallClock: timeout,
                 idle: idleTimeout,
                 drainGrace: stages.map(\.drainGracePeriod).max() ?? ToolProcessSpec.defaultDrainGracePeriod
             ),
-            observers: .init(failurePolicy: failurePolicy, onLaunch: onLaunch, onEvent: onEvent)
+            observers: observers
         )
-        return try await execution.run()
     }
 
     private static func validate(_ spec: ToolProcessSpec) throws(ToolProcessError) {
