@@ -152,21 +152,15 @@ public enum MarkdupService {
 
     /// Checks whether a BAM has already been processed by samtools markdup.
     public static func isAlreadyMarkduped(bamURL: URL, samtoolsPath: String) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = ["view", "-H", bamURL.path]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return false
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0,
-              let header = String(data: data, encoding: .utf8) else {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: ["view", "-H", bamURL.path],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: .discard,
+            label: "samtools view -H"
+        )
+        guard let result = try? ToolProcess.runBlocking(spec), result.isSuccess,
+              let header = String(data: result.stdout, encoding: .utf8) else {
             return false
         }
         // samtools 1.23 writes @PG lines with CL: fields; the markdup stage uses
@@ -181,30 +175,26 @@ public enum MarkdupService {
         flagFilter: Int,
         samtoolsPath: String
     ) throws -> Int {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
         var args = ["view", "-c", "-F", String(flagFilter), bamURL.path]
         if let accession, !accession.isEmpty {
             args.append(accession)
         }
-        process.arguments = args
-        let pipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = errPipe
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: args,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            label: "samtools view -c"
+        )
+        let result: ToolProcessResult
         do {
-            try process.run()
+            result = try ToolProcess.runBlocking(spec)
         } catch {
             throw MarkdupError.pipelineFailed(stage: "count", stderr: error.localizedDescription)
         }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
-            throw MarkdupError.pipelineFailed(stage: "count", stderr: stderr)
+        guard result.isSuccess else {
+            throw MarkdupError.pipelineFailed(stage: "count", stderr: failureWords(result))
         }
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
+        let output = String(data: result.stdout, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
         return Int(output) ?? 0
     }
 
@@ -293,24 +283,28 @@ public enum MarkdupService {
 
     /// Runs `samtools index` on a BAM file.
     private static func runIndex(bamPath: String, samtoolsPath: String) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = ["index", bamPath]
-        let errPipe = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errPipe
-
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: ["index", bamPath],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            label: "samtools index"
+        )
+        let result: ToolProcessResult
         do {
-            try process.run()
+            result = try ToolProcess.runBlocking(spec)
         } catch {
             throw MarkdupError.indexFailed(stderr: error.localizedDescription)
         }
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
-            throw MarkdupError.indexFailed(stderr: stderr)
+        guard result.isSuccess else {
+            throw MarkdupError.indexFailed(stderr: failureWords(result))
         }
+    }
+
+    /// The words of a run that did not succeed. They are its stderr, or the reason its output is incomplete
+    /// when it exited 0.
+    private static func failureWords(_ result: ToolProcessResult) -> String {
+        if result.status == 0, let reason = result.incompleteOutputReason { return reason }
+        return String(data: result.stderr, encoding: .utf8) ?? ""
     }
 }
