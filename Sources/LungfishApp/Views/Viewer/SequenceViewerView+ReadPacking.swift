@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishWorkflow
 
 extension SequenceViewerView {
 

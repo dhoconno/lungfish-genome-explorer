@@ -8,7 +8,7 @@ import LungfishCore
 import LungfishIO
 import UniformTypeIdentifiers
 import Quartz
-import PDFKit
+import LungfishWorkflow
 import os.log
 
 extension SequenceViewerView {

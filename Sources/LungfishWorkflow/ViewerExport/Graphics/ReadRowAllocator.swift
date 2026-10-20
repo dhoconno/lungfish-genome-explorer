@@ -4,7 +4,6 @@
 
 import CoreGraphics
 import Foundation
-import LungfishWorkflow
 
 /// Immutable snapshot of a `ReferenceFrame`'s genomic-to-pixel mapping.
 ///

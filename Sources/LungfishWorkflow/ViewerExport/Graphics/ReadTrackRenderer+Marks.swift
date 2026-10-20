@@ -5,7 +5,6 @@
 import CoreGraphics
 import Foundation
 import LungfishCore
-import LungfishWorkflow
 
 extension ReadTrackRenderer {
 

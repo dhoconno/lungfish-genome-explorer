@@ -1,4 +1,5 @@
 import Foundation
+import LungfishWorkflow
 
 enum ReadViewportPolicy {
     static let coverageThresholdBpPerPx: Double = ReadTrackRenderer.coverageThresholdBpPerPx

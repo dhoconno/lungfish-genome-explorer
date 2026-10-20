@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import CoreText
-import LungfishWorkflow
 
 extension ReadTrackRenderer {
     /// Base-mode insertion labels, one per insertion, in SF Mono semibold at 7 points, the face
