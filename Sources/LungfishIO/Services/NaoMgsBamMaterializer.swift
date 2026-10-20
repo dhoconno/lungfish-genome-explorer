@@ -598,20 +598,20 @@ public enum NaoMgsBamMaterializer {
         let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
         if FileManager.default.fileExists(atPath: baiURL.path) { return nil }
 
-        let indexProc = Process()
-        indexProc.executableURL = URL(fileURLWithPath: samtoolsPath)
-        indexProc.arguments = ["index", bamURL.path]
-        indexProc.standardOutput = FileHandle.nullDevice
-        let errPipe = Pipe()
-        indexProc.standardError = errPipe
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: ["index", bamURL.path],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            label: "samtools index"
+        )
         let indexClock = ProvenanceRunClock()
         let startedAt = indexClock.startedAt
         do {
-            try indexProc.run()
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            indexProc.waitUntilExit()
+            // The caller reads no output and checks the index on disk, so the exit status decides (RUNNING-A-TOOL).
+            let result = try ToolProcess.runBlocking(spec)
             let completedAt = indexClock.now
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
+            let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
             let step = NaoMgsBamMaterializationStep(
                 sample: sample,
                 toolName: "samtools",
@@ -619,13 +619,13 @@ public enum NaoMgsBamMaterializer {
                 argv: [samtoolsPath, "index", bamURL.path],
                 inputURLs: [bamURL],
                 outputURLs: FileManager.default.fileExists(atPath: baiURL.path) ? [baiURL] : [],
-                exitStatus: Int(indexProc.terminationStatus),
+                exitStatus: Int(result.status),
                 wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
                 stderr: stderr.isEmpty ? nil : stderr,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
-            if indexProc.terminationStatus != 0 {
+            if result.status != 0 {
                 logger.warning("samtools index failed for \(bamURL.lastPathComponent, privacy: .public)")
             }
             return step
