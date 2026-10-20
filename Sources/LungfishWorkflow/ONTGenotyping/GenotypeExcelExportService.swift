@@ -211,7 +211,7 @@ public struct GenotypeExcelExportService: Sendable {
         let stderrFile = try writeArtifact(Data(), to: stderrURL)
         let runClock = ProvenanceRunClock()
         let executedArgv = [pythonExecutableURL.path, scriptURL.path, snapshotURL.path, stagedOutput.path]
-        let execution = try runPython(argv: Array(executedArgv.dropFirst()), stdoutFile: stdoutFile, stderrFile: stderrFile, directory: directory)
+        let execution = try await runPython(argv: Array(executedArgv.dropFirst()), stdoutFile: stdoutFile, stderrFile: stderrFile, directory: directory)
         artifactIdentities[stderrURL.lastPathComponent] = execution.stderrIdentity
         guard execution.status == 0 else { throw ExportError.rendererFailed(execution.status, execution.stderr) }
         try Task.checkCancellation()
@@ -293,25 +293,33 @@ public struct GenotypeExcelExportService: Sendable {
     private func runPython(
         argv: [String], stdoutFile: DurableAtomicFileStore.OpenPublishedFile,
         stderrFile: DurableAtomicFileStore.OpenPublishedFile, directory: Int32
-    ) throws -> (status: Int32, stderr: String, stderrIdentity: FileSystemObjectIdentity) {
-        // Keep the writer-created handles through Process; reopening by path
-        // would adopt a replacement even before the caller receives ownership.
-        let stdout = FileHandle(fileDescriptor: stdoutFile.fileDescriptor, closeOnDealloc: false)
-        let stderr = FileHandle(fileDescriptor: stderrFile.fileDescriptor, closeOnDealloc: false)
-        let process = Process(); process.executableURL = pythonExecutableURL; process.arguments = argv
-        process.standardOutput = stdout; process.standardError = stderr
-        try process.run()
-        while process.isRunning {
-            if Task.isCancelled { process.terminate(); process.waitUntilExit(); throw CancellationError() }
-            Thread.sleep(forTimeInterval: 0.02)
+    ) async throws -> (status: Int32, stderr: String, stderrIdentity: FileSystemObjectIdentity) {
+        // The child writes straight into the writer-created descriptors, which ToolProcess duplicates and never
+        // reopens by path, since reopening would adopt a replacement even before the caller receives ownership
+        // (Phase 2.13 lane 13.10, MD28). A task cancel stops the renderer and every process it started.
+        let spec = ToolProcessSpec(
+            executableURL: pythonExecutableURL, arguments: argv,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .descriptor(stdoutFile.fileDescriptor), stderr: .descriptor(stderrFile.fileDescriptor)
+        )
+        let run: Result<ToolProcessResult, ToolProcessError>
+        do { run = .success(try await ToolProcess.run(spec)) } catch { run = .failure(error) }
+        let result: ToolProcessResult
+        switch run {
+        case .success(let value): result = value
+        case .failure(.cancelled): throw CancellationError()
+        case .failure(let failure): throw failure
         }
-        process.waitUntilExit()
         guard Darwin.fsync(stdoutFile.fileDescriptor) == 0, Darwin.fsync(stderrFile.fileDescriptor) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         let stderrOutput = try readCreatedFile(stderrFile, directory: directory)
         let message = String(data: stderrOutput.data, encoding: .utf8) ?? ""
-        return (process.terminationStatus, message, stderrOutput.identity)
+        if let incomplete = result.incompleteOutputReason {
+            // A process the renderer started still held the files after it exited, so they may be cut short.
+            throw ExportError.rendererFailed(result.status, message.isEmpty ? incomplete : message + "\n" + incomplete)
+        }
+        return (result.status, message, stderrOutput.identity)
     }
 
     /// The initial identity can change when ExFAT allocates the first cluster
