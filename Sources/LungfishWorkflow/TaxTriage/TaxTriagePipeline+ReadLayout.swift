@@ -80,7 +80,7 @@ extension TaxTriagePipeline {
         for (index, sample) in config.samples.enumerated() where shouldSplitInterleaved(sample) {
             try Task.checkCancellation()
             progress?(0.05, "Splitting interleaved pairs of \(sample.sampleId) into R1/R2 for TaxTriage...")
-            let directoryName = TaxTriageSerialBatchRunner.uniqueDirectoryName(
+            let directoryName = SampleFolderNaming.uniqueDirectoryName(
                 for: sample.sampleId,
                 usedNames: &usedNames
             )

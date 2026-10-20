@@ -179,7 +179,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
     }
 
     private func uniqueDirectoryName(for sampleID: String, usedNames: inout Set<String>) -> String {
-        Self.uniqueDirectoryName(for: sampleID, usedNames: &usedNames)
+        SampleFolderNaming.uniqueDirectoryName(for: sampleID, usedNames: &usedNames)
     }
 
     /// Ends a cancelled batch with its record saved as cancelled (T9). The status comes from the

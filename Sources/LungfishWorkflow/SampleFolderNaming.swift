@@ -4,7 +4,11 @@
 
 import Foundation
 
-extension TaxTriageSerialBatchRunner {
+/// The folder name of each sample of a batch whose folders a reader finds by the sample's name, as the TaxTriage read
+/// layout and the Viral Recon result ingest find them. The pair moved here from the serial batch runner in 2.13 K1b
+/// (ARCH 4), so the two features share one sanitizer, with every name it gives unchanged. The analysis run executor
+/// names its unit folders with `AnalysesFolder.batchSampleDirectory(named:in:)`, which gives other names.
+public enum SampleFolderNaming {
     public static func sanitizedDirectoryName(for sampleID: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
         let scalars = sampleID.unicodeScalars.map { scalar -> UnicodeScalar in

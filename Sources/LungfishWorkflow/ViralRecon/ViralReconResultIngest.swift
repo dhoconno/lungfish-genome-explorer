@@ -305,7 +305,7 @@ public enum ViralReconResultIngest {
         let ingested: [Ingested]
         do {
             ingested = try sampleNames.map { sampleName in
-                let directoryName = TaxTriageSerialBatchRunner.uniqueDirectoryName(
+                let directoryName = SampleFolderNaming.uniqueDirectoryName(
                     for: sampleName,
                     usedNames: &usedNames
                 )
