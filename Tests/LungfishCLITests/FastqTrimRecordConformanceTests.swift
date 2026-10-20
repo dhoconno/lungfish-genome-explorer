@@ -19,13 +19,9 @@ final class FastqTrimRecordConformanceTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fastq-trim-record-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        let folder = try TestTempDirectory.make(prefix: "fastq-trim-record")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        root = folder
     }
 
     func testTrimRecordKeepsItsFacts() async throws {

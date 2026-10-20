@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -12,13 +13,9 @@ final class ProvenanceRecordPinTests: XCTestCase {
     private var root: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("provenance-record-pin-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        let folder = try TestTempDirectory.make(prefix: "provenance-record-pin")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        root = folder
     }
 
     private func export(_ envelope: ProvenanceEnvelope, format: ProvenanceExportFormat) throws -> ProvenanceExportBundle {
