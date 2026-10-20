@@ -4,6 +4,7 @@
 
 import LungfishIO
 import LungfishKit
+import LungfishWorkflow
 import AppKit
 import XCTest
 @testable import LungfishApp
@@ -18,6 +19,34 @@ final class LGEZipImportResolverTests: XCTestCase {
         }
         tempRoots.removeAll()
         try super.tearDownWithError()
+    }
+
+    /// The two import entry points call this instead of `resolve`, so a large ZIP does not stop the main run loop.
+    @MainActor
+    func testResolveOffMainActorKeepsTheMainActorFree() async throws {
+        let root = try makeTempDirectory()
+        // An unzip that takes a second and fails. A resolve on the main actor would stop the ticker below for that second.
+        let slowUnzip = root.appendingPathComponent("slow-unzip")
+        try Data("#!/bin/sh\nsleep 1\nexit 1\n".utf8).write(to: slowUnzip)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slowUnzip.path)
+        let archive = root.appendingPathComponent("Object.zip")
+        try Data("not a zip".utf8).write(to: archive)
+        let resolver = LGEZipImportResolver(archiveTool: GeneiousArchiveTool(unzipURL: slowUnzip))
+
+        var ticks = 0
+        let ticker = Task { @MainActor in
+            while !Task.isCancelled {
+                ticks += 1
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        let batch = try await resolver.resolveOffMainActor(urls: [archive], projectURL: nil)
+        ticker.cancel()
+        defer { batch.cleanup() }
+
+        let kinds: [LGEZipImportFailure.Kind] = batch.failures.map { $0.kind }
+        XCTAssertEqual(kinds, [.extractionFailed], "the fake unzip fails and the batch records it")
+        XCTAssertGreaterThan(ticks, 20, "the main actor ran \(ticks) times during a one second extract")
     }
 
     func testAllNativeFamiliesRemainOneObjectInsideZIP() throws {

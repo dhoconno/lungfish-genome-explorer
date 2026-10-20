@@ -194,107 +194,103 @@ extension AppDelegate {
                 ?? splitViewController.sidebarController.currentProjectURL
                 ?? self.workingDirectoryURL
 
-            let zipImportBatch: LGEZipImportBatch
-            do {
-                zipImportBatch = try LGEZipImportResolver().resolve(urls: selectedURLs, projectURL: projectURL)
-            } catch {
-                activityIndicator?.hide()
-                let alert = NSAlert()
-                alert.messageText = "Import Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.applyLungfishBranding()
-                if let window = controller?.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window)
+            // The ZIP resolution unzips on ToolProcess and blocks until the tool ends,
+            // so it runs off the main actor and the rest of the import follows it.
+            Task { @MainActor in
+                let zipImportBatch: LGEZipImportBatch
+                do {
+                    zipImportBatch = try await LGEZipImportResolver().resolveOffMainActor(urls: selectedURLs, projectURL: projectURL)
+                } catch {
+                    activityIndicator?.hide()
+                    LGEZipImportResolver.presentFailure(error, on: controller?.window ?? NSApp.keyWindow)
+                    return
                 }
-                return
-            }
 
-            let importPlan = splitViewController.makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
-            let trackedURLs = importPlan.sourceURLs + zipImportBatch.failures.map(\.sourceURL)
+                let importPlan = splitViewController.makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
+                let trackedURLs = importPlan.sourceURLs + zipImportBatch.failures.map(\.sourceURL)
 
-            guard !trackedURLs.isEmpty else {
-                debugLog("importProjectFilesFromURLs: No importable sources found after expansion")
-                zipImportBatch.cleanup()
-                return
-            }
+                guard !trackedURLs.isEmpty else {
+                    debugLog("importProjectFilesFromURLs: No importable sources found after expansion")
+                    zipImportBatch.cleanup()
+                    return
+                }
 
-            let fileCount = trackedURLs.count
-            let requestID = UUID().uuidString
-            let tracker = SidebarImportRequestTracker(requestID: requestID, trackedURLs: trackedURLs)
-            let cancelTally = ImportFilesCancelTally()
-            activityIndicator?.show(
-                message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
-                style: .indeterminate
-            )
+                let fileCount = trackedURLs.count
+                let requestID = UUID().uuidString
+                let tracker = SidebarImportRequestTracker(requestID: requestID, trackedURLs: trackedURLs)
+                let cancelTally = ImportFilesCancelTally()
+                activityIndicator?.show(
+                    message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
+                    style: .indeterminate
+                )
 
-            tracker.observerToken = NotificationCenter.default.addObserver(
-                forName: .sidebarFileDropCompleted,
-                object: nil,
-                queue: .main
-            ) { completion in
-                let completionRequestID = completion.userInfo?["requestID"] as? String
-                let completedURL = completion.userInfo?["url"] as? URL
-                let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
-                let wasCancelled = (completion.userInfo?["cancelled"] as? Bool) == true
+                tracker.observerToken = NotificationCenter.default.addObserver(
+                    forName: .sidebarFileDropCompleted,
+                    object: nil,
+                    queue: .main
+                ) { completion in
+                    let completionRequestID = completion.userInfo?["requestID"] as? String
+                    let completedURL = completion.userInfo?["url"] as? URL
+                    let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
+                    let wasCancelled = (completion.userInfo?["cancelled"] as? Bool) == true
 
-                scheduleOnMainRunLoop {
-                    guard let update = tracker.registerCompletion(
-                        requestID: completionRequestID,
-                        completedURL: completedURL,
-                        wasSuccessful: wasSuccessful
-                    ) else {
-                        return
-                    }
-                    cancelTally.add(wasCancelled)
-
-                    if update.isFinished {
-                        if let observerToken = tracker.observerToken {
-                            NotificationCenter.default.removeObserver(observerToken)
-                            tracker.observerToken = nil
+                    scheduleOnMainRunLoop {
+                        guard let update = tracker.registerCompletion(
+                            requestID: completionRequestID,
+                            completedURL: completedURL,
+                            wasSuccessful: wasSuccessful
+                        ) else {
+                            return
                         }
-                        zipImportBatch.cleanup()
-                        activityIndicator?.hide()
-                        debugLog(
-                            "importProjectFilesFromURLs: Completed request \(requestID). success=\(update.succeeded), failed=\(update.failed)"
-                        )
+                        cancelTally.add(wasCancelled)
 
-                        outcomePresenter.present(
-                            ImportFilesOutcome(update: update, cancelled: cancelTally.count),
-                            on: controller?.window ?? NSApp.keyWindow
-                        )
+                        if update.isFinished {
+                            if let observerToken = tracker.observerToken {
+                                NotificationCenter.default.removeObserver(observerToken)
+                                tracker.observerToken = nil
+                            }
+                            zipImportBatch.cleanup()
+                            activityIndicator?.hide()
+                            debugLog(
+                                "importProjectFilesFromURLs: Completed request \(requestID). success=\(update.succeeded), failed=\(update.failed)"
+                            )
+
+                            outcomePresenter.present(
+                                ImportFilesOutcome(update: update, cancelled: cancelTally.count),
+                                on: controller?.window ?? NSApp.keyWindow
+                            )
+                        }
                     }
                 }
-            }
 
-            if let firstURL = trackedURLs.first {
-                activityIndicator?.updateMessage("Importing \(firstURL.lastPathComponent) (1/\(fileCount))...")
-            }
+                if let firstURL = trackedURLs.first {
+                    activityIndicator?.updateMessage("Importing \(firstURL.lastPathComponent) (1/\(fileCount))...")
+                }
 
-            for failure in zipImportBatch.failures {
-                splitViewController.postSidebarFileDropCompleted(
-                    requestID: requestID,
-                    sourceURL: failure.sourceURL,
-                    success: false,
-                    error: failure.message
-                )
-            }
+                for failure in zipImportBatch.failures {
+                    splitViewController.postSidebarFileDropCompleted(
+                        requestID: requestID,
+                        sourceURL: failure.sourceURL,
+                        success: false,
+                        error: failure.message
+                    )
+                }
 
-            if !importPlan.sourceURLs.isEmpty {
-                NotificationCenter.default.post(
-                    name: .sidebarFileDropped,
-                    object: splitViewController.sidebarController,
-                    userInfo: [
-                        "urls": importPlan.sourceURLs,
-                        "destination": NSNull(),
-                        "requestID": requestID,
-                        NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
-                    ]
-                )
-            }
+                if !importPlan.sourceURLs.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .sidebarFileDropped,
+                        object: splitViewController.sidebarController,
+                        userInfo: [
+                            "urls": importPlan.sourceURLs,
+                            "destination": NSNull(),
+                            "requestID": requestID,
+                            NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+                        ]
+                    )
+                }
 
-            debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
+                debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
+            }
         }
     }
 

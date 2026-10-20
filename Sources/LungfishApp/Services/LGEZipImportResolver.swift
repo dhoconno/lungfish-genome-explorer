@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import Foundation
 import LungfishIO
 import LungfishWorkflow
@@ -118,6 +119,31 @@ struct LGEZipImportResolver {
             cleanupURLs: cleanupURLs,
             fileManager: fileManager
         )
+    }
+
+    /// Resolves on a background thread. `resolve` unzips every selected ZIP through
+    /// ``GeneiousArchiveTool``, which waits in `ToolProcess.runBlocking`, and that call must not
+    /// run on the main thread, since the run loop would stop for the whole extraction.
+    func resolveOffMainActor(urls: [URL], projectURL: URL?) async throws -> LGEZipImportBatch {
+        // The detached task receives the archive tool (Sendable) and builds its own resolver.
+        let archiveTool = self.archiveTool
+        return try await Task.detached(priority: .userInitiated) {
+            try LGEZipImportResolver(archiveTool: archiveTool).resolve(urls: urls, projectURL: projectURL)
+        }.value
+    }
+
+    /// The "Import Failed" sheet the menu import shows when the ZIP resolution throws.
+    @MainActor
+    static func presentFailure(_ error: Error, on window: NSWindow?) {
+        let alert = NSAlert()
+        alert.messageText = "Import Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.applyLungfishBranding()
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        }
     }
 
     private func recognizedLGEObjects(in rootURL: URL) throws -> [URL] {

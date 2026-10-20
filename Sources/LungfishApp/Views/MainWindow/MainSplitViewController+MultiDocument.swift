@@ -650,22 +650,38 @@ extension MainSplitViewController {
             return
         }
 
-        let zipImportBatch: LGEZipImportBatch
-        do {
-            zipImportBatch = try LGEZipImportResolver().resolve(urls: allURLs, projectURL: projectURL)
-        } catch {
-            let errorMessage = error.localizedDescription
-            for url in allURLs {
-                postSidebarFileDropCompleted(
+        // The ZIP resolution unzips on ToolProcess and blocks until the tool ends,
+        // so it runs off the main actor and the rest of the drop follows it.
+        Task { @MainActor [weak self] in
+            do {
+                let zipImportBatch = try await LGEZipImportResolver().resolveOffMainActor(urls: allURLs, projectURL: projectURL)
+                self?.continueSidebarFileDrop(
+                    notification: notification,
+                    projectURL: projectURL,
                     requestID: requestID,
-                    sourceURL: url,
-                    success: false,
-                    error: errorMessage
+                    zipImportBatch: zipImportBatch
                 )
+            } catch {
+                let errorMessage = error.localizedDescription
+                for url in allURLs {
+                    self?.postSidebarFileDropCompleted(
+                        requestID: requestID,
+                        sourceURL: url,
+                        success: false,
+                        error: errorMessage
+                    )
+                }
             }
-            return
         }
+    }
 
+    /// The part of ``handleSidebarFileDropped(_:)`` that follows the ZIP resolution, on the main actor.
+    private func continueSidebarFileDrop(
+        notification: Notification,
+        projectURL: URL,
+        requestID: String?,
+        zipImportBatch: LGEZipImportBatch
+    ) {
         for failure in zipImportBatch.failures {
             postSidebarFileDropCompleted(
                 requestID: requestID,
