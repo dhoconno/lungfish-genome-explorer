@@ -199,10 +199,12 @@ public actor ClassificationPipeline {
 
     /// Core pipeline implementation shared by `classify` and `profile`.
     private func runPipeline(
-        config: ClassificationConfig,
+        config requested: ClassificationConfig,
         profileRequest: BrackenProfileRequest?,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ClassificationResult {
+        let recordedDatabase = Kraken2RecordedDatabase(config: requested)
+        let config = recordedDatabase.recording(requested)
         let runClock = ProvenanceRunClock()
         let fm = FileManager.default
         let provenanceRecorder = ProvenanceRecorder.shared
@@ -288,9 +290,9 @@ public actor ClassificationPipeline {
                 toolName: "Lungfish Classification Validation",
                 toolVersion: WorkflowRun.currentAppVersion,
                 command: classificationValidationCommand(config: config),
-                resolvedOptions: kraken2ResolvedOptions(config: config),
+                resolvedOptions: kraken2ResolvedOptions(config: config, database: recordedDatabase),
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
-                inputs: existingClassificationInputRecords(config: config),
+                inputs: existingClassificationInputRecords(config: config, database: recordedDatabase),
                 outputs: [],
                 exitCode: 2,
                 wallTime: runClock.elapsed,
@@ -328,7 +330,7 @@ public actor ClassificationPipeline {
                 toolName: "Lungfish Classification Output Preparation",
                 toolVersion: WorkflowRun.currentAppVersion,
                 command: classificationOutputPreparationCommand(config: effectiveConfig),
-                resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig),
+                resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig, database: recordedDatabase),
                 runtimeIdentity: ProvenanceRuntimeIdentity(),
                 inputs: [],
                 outputs: [],
@@ -537,7 +539,7 @@ public actor ClassificationPipeline {
             sequenceInputRecords
                 + replayInputs.lineageRecords
                 + replayInputs.replayRecords
-                + [databaseInputRecord(config: effectiveConfig)]
+                + [databaseInputRecord(config: effectiveConfig, database: recordedDatabase)]
         )
         let kraken2RuntimeIdentity = managedRuntimeIdentity(
             toolName: "kraken2",
@@ -582,7 +584,7 @@ public actor ClassificationPipeline {
             await recordKraken2Failure(
                 provenanceRecorder: provenanceRecorder,
                 runID: runID,
-                requestedConfig: config,
+                database: recordedDatabase,
                 effectiveConfig: effectiveConfig,
                 toolVersion: toolVersion,
                 command: kraken2Command,
@@ -615,7 +617,7 @@ public actor ClassificationPipeline {
             await recordKraken2Failure(
                 provenanceRecorder: provenanceRecorder,
                 runID: runID,
-                requestedConfig: config,
+                database: recordedDatabase,
                 effectiveConfig: effectiveConfig,
                 toolVersion: toolVersion,
                 command: kraken2Command,
@@ -643,7 +645,7 @@ public actor ClassificationPipeline {
             await recordKraken2Failure(
                 provenanceRecorder: provenanceRecorder,
                 runID: runID,
-                requestedConfig: config,
+                database: recordedDatabase,
                 effectiveConfig: effectiveConfig,
                 toolVersion: toolVersion,
                 command: kraken2Command,
@@ -679,7 +681,7 @@ public actor ClassificationPipeline {
             githubReleaseVersion: kraken2GithubReleaseVersion(for: toolVersion),
             command: kraken2Command,
             durableReplayArgv: durableKraken2Command,
-            resolvedOptions: kraken2ResolvedOptions(config: kraken2Config),
+            resolvedOptions: kraken2ResolvedOptions(config: kraken2Config, database: recordedDatabase),
             runtimeIdentity: kraken2RuntimeIdentity,
             inputs: inputRecords,
             outputs: kraken2Outputs,
@@ -1017,7 +1019,7 @@ public actor ClassificationPipeline {
     }
 
     private func existingClassificationInputRecords(
-        config: ClassificationConfig
+        config: ClassificationConfig, database: Kraken2RecordedDatabase
     ) -> [FileRecord] {
         let fm = FileManager.default
         let sequenceInputs = config.inputFiles.compactMap { url -> FileRecord? in
@@ -1034,7 +1036,7 @@ public actor ClassificationPipeline {
         }
         let databaseInputs: [FileRecord]
         if fm.fileExists(atPath: config.databasePath.path) {
-            databaseInputs = [databaseInputRecord(config: config)]
+            databaseInputs = [databaseInputRecord(config: config, database: database)]
         } else {
             databaseInputs = []
         }
@@ -1306,14 +1308,13 @@ public actor ClassificationPipeline {
         }
     }
 
-    private func databaseInputRecord(config: ClassificationConfig) -> FileRecord {
-        let normalizedDigest = config.databaseDigest.map {
-            $0.hasPrefix("sha256:") ? String($0.dropFirst("sha256:".count)) : $0
-        }
-        return FileRecord(
+    /// The database as a reference input. Its size covers the bytes its digest covers, the receipt's total when the
+    /// receipt backs the digest, else the three core files beside no digest (2.13 V2-1, lane 13.15 DB-REF-SIZE).
+    private func databaseInputRecord(config: ClassificationConfig, database: Kraken2RecordedDatabase) -> FileRecord {
+        FileRecord(
             path: config.databasePath.standardizedFileURL.path,
-            sha256: normalizedDigest,
-            sizeBytes: estimateDatabaseSize(at: config.databasePath),
+            sha256: database.checkedDatabaseReference?.checksumSHA256,
+            sizeBytes: database.checkedDatabaseReference?.fileSize ?? estimateDatabaseSize(at: config.databasePath),
             format: .unknown,
             role: .reference
         )
@@ -1322,7 +1323,7 @@ public actor ClassificationPipeline {
     private func recordKraken2Failure(
         provenanceRecorder: ProvenanceRecorder,
         runID: UUID,
-        requestedConfig _: ClassificationConfig,
+        database: Kraken2RecordedDatabase,
         effectiveConfig: ClassificationConfig,
         toolVersion: String,
         command: [String],
@@ -1350,7 +1351,7 @@ public actor ClassificationPipeline {
             githubReleaseVersion: kraken2GithubReleaseVersion(for: toolVersion),
             command: command,
             durableReplayArgv: durableReplayCommand,
-            resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig),
+            resolvedOptions: kraken2ResolvedOptions(config: effectiveConfig, database: database),
             runtimeIdentity: managedRuntimeIdentity(
                 toolName: "kraken2",
                 environment: Self.kraken2Environment
@@ -2242,11 +2243,11 @@ public actor ClassificationPipeline {
     }
 
     private func kraken2ResolvedOptions(
-        config: ClassificationConfig
+        config: ClassificationConfig, database: Kraken2RecordedDatabase
     ) -> [String: ParameterValue] {
         [
             "databasePath": .string(config.databasePath.path),
-            "databaseDigest": config.databaseDigest.map(ParameterValue.string) ?? .null,
+            "databaseDigest": database.recordedDigest.map(ParameterValue.string) ?? .null,
             "databaseIdentityStatus": .string(databaseIdentityStatus(config: config)),
             "databaseCoreFileSizes": databaseCoreFileSizesOption(at: config.databasePath),
             "confidence": .number(config.confidence),
@@ -2259,13 +2260,11 @@ public actor ClassificationPipeline {
             "inputFormat": .string(config.inputFormat.rawValue),
             "reportMinimizerData": .boolean(true),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
-        ]
+        ].merging(database.identityNote) { current, _ in current }
     }
 
     private func databaseIdentityStatus(config: ClassificationConfig) -> String {
-        config.databaseDigest == nil
-            ? "unresolved-bounded-metadata"
-            : "provided-aggregate-digest"
+        config.databaseDigest == nil ? "unresolved-bounded-metadata" : "provided-aggregate-digest"
     }
 
     private func databaseCoreFileSizesOption(at databasePath: URL) -> ParameterValue {

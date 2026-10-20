@@ -105,18 +105,20 @@ final class DatabaseIdentityStatusReaderTests: XCTestCase {
         XCTAssertTrue(try kraken2WriterWords().contains("unresolved-bounded-metadata"), "Kraken 2 keeps its word")
     }
 
-    /// `provided-aggregate-digest`, Kraken 2's word when the run was given the digest of the whole database. Released
-    /// since 2026-08-15, it is in the three writer parity facts that record a Kraken 2 run with a digest and, since
-    /// lane 13.31, in the Kraken 2 golden, and a digest names the database, so it reads as `pinned`.
+    /// `provided-aggregate-digest`, Kraken 2's word when the run was given the digest of the whole database and the
+    /// folder's install receipt backs it. Released since 2026-08-15, it is in the Kraken 2 golden since lane 13.31, and a
+    /// digest names the database, so it reads as `pinned`. The three writer parity facts give the fixture's digest
+    /// with no receipt, so since 2.13 V2-1 (lane 13.15) they record `unresolved-bounded-metadata`.
     func testProvidedAggregateDigestReadsAsPinned() throws {
         let facts = [
             "kraken2-batch", "kraken2-pipeline-profile", "conda-classify-wrapper",
         ].map { "Tests/Fixtures/provenance-writer-parity/classifiers/\($0).facts.json" }
-            + ["Tests/Fixtures/golden/classifiers/kraken2/lungfish-provenance.json"]
 
         for path in facts {
-            XCTAssertEqual(try recordedStatusWords(inFile: path), ["provided-aggregate-digest"], path)
+            XCTAssertEqual(try recordedStatusWords(inFile: path), ["unresolved-bounded-metadata"], path)
         }
+        let golden = "Tests/Fixtures/golden/classifiers/kraken2/lungfish-provenance.json"
+        XCTAssertEqual(try recordedStatusWords(inFile: golden), ["provided-aggregate-digest"], golden)
         XCTAssertEqual(DatabaseIdentityStatus(recordedWord: "provided-aggregate-digest"), .pinned)
         XCTAssertTrue(try kraken2WriterWords().contains("provided-aggregate-digest"), "Kraken 2 keeps its word")
     }

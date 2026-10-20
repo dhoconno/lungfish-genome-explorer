@@ -434,13 +434,14 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         indexing: (any AnalysisResultIndexing)? = nil,
         runPipeline: PipelineRun? = nil,
         presentation: Kraken2RunPresentation = .none,
+        payloadDigest: String? = nil,
         cancelRequested: (@Sendable () -> Bool)? = nil
     ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
         await Self.run(
             request, destination, batch: batch, argv: argv,
             databaseURL: kraken2.databaseURL, condaManager: kraken2.condaManager,
             materializer: materializer, indexing: indexing, runPipeline: runPipeline,
-            presentation: presentation, cancelRequested: cancelRequested
+            presentation: presentation, payloadDigest: payloadDigest, cancelRequested: cancelRequested
         )
     }
 
@@ -457,14 +458,17 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         indexing: (any AnalysisResultIndexing)? = nil,
         runPipeline: PipelineRun? = nil,
         presentation: Kraken2RunPresentation = .none,
+        payloadDigest: String? = nil,
         cancelRequested: (@Sendable () -> Bool)? = nil
     ) async -> (report: AnalysisRunReport, events: [CLIEventLine]) {
         let cancelRequested = cancelRequested ?? { false }
-        let database = MetagenomicsDatabaseInfo(
+        var row = MetagenomicsDatabaseInfo(
             name: "Viral", tool: "kraken2", version: "2026.1", sizeBytes: 1, sizeOnDisk: 1, downloadURL: nil,
             description: "stand-in", collection: nil, path: databaseURL, isExternal: false, bookmarkData: nil,
             lastUpdated: Date(), status: .ready, recommendedRAM: 1
         )
+        row.payloadDigest = payloadDigest
+        let database = row
         let pipeline = ClassificationPipeline(condaManager: condaManager)
         let services = Kraken2RunServices(
             database: { $0 == "Viral" ? database : nil },

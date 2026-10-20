@@ -42,6 +42,31 @@ extension Kraken2AnalysisRunToolTests {
         XCTAssertFalse(FileManager.default.fileExists(atPath: refusedOutput.path))
     }
 
+    /// 2.13 lane 13.15, DB-REF-SIZE with V2-1. The root record's reference and the kraken2 step's reference name the
+    /// same digest and the same size, the size of every file the receipt lists, not of the three core files alone.
+    func testADbDigestRunGivesTheRootAndTheKraken2StepOneDatabaseReference() async throws {
+        try "1\t10239\n".write(to: kraken2.databaseURL.appendingPathComponent("seqid2taxid.map"), atomically: true, encoding: .utf8)
+        let receipt = try Kraken2DatabaseReceiptTests.writeReceipt(in: kraken2.databaseURL)
+        XCTAssertGreaterThan(receipt.size, 24, "the receipt lists more than the three core files")
+        let output = root.appendingPathComponent("digest-size-out", isDirectory: true)
+        var given = request([fixtures.singleRoot.path])
+        given.databaseDigest = receipt.digest
+        let argv = command([fixtures.singleRoot.path, "--db-digest", receipt.digest, "--output-dir", output.path])
+
+        let run = await execute(given, .directory(output), argv: argv, payloadDigest: receipt.digest)
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
+        let database = kraken2.databaseURL.standardizedFileURL.path
+        let rootReference = try XCTUnwrap(record.files.first { $0.role == .reference && $0.path == database })
+        let kraken2 = try XCTUnwrap(record.steps.first { $0.toolName == "kraken2" })
+        let stepReference = try XCTUnwrap(kraken2.inputs.first { $0.role == .reference && $0.path == database })
+        XCTAssertEqual(rootReference.checksumSHA256, receipt.digest)
+        XCTAssertEqual(stepReference.checksumSHA256, rootReference.checksumSHA256)
+        XCTAssertEqual(rootReference.fileSize, receipt.size)
+        XCTAssertEqual(stepReference.fileSize, rootReference.fileSize)
+    }
+
     // MARK: - Failures (E5)
 
     func testAPipelineThatFailsEndsFailedWithItsStepsAndKeepsTheFolder() async throws {

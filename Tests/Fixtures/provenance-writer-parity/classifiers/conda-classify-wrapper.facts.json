@@ -333,7 +333,6 @@
       "format" : "unknown",
       "path" : "<project>/kraken-db",
       "role" : "reference",
-      "sha256" : "fixture-db",
       "size" : 24
     },
     {
@@ -651,8 +650,7 @@
       "type" : "null"
     },
     "databaseDigest" : {
-      "type" : "string",
-      "value" : "sha256:fixture-db"
+      "type" : "null"
     },
     "databaseInstallationRecipe" : {
       "type" : "null"
@@ -801,7 +799,6 @@
           "format" : "unknown",
           "path" : "<project>/kraken-db",
           "role" : "reference",
-          "sha256" : "fixture-db",
           "size" : 24
         }
       ],
@@ -876,12 +873,15 @@
           }
         },
         "databaseDigest" : {
+          "type" : "null"
+        },
+        "databaseIdentityNote" : {
           "type" : "string",
-          "value" : "sha256:fixture-db"
+          "value" : "The install receipt in <project>/kraken-db does not back the registry's digest sha256:fixture-db, so this run records no digest."
         },
         "databaseIdentityStatus" : {
           "type" : "string",
-          "value" : "provided-aggregate-digest"
+          "value" : "unresolved-bounded-metadata"
         },
         "databasePath" : {
           "type" : "string",
