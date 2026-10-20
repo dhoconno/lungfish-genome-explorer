@@ -19,11 +19,27 @@ public struct ViewerFigureAnnotationTrack: ViewerFigureTrackBuilding {
         public let id: String
         public let name: String
         public let databaseURL: URL
+        /// The other names the database may hold the frame's contig under, which 13.30 fills from
+        /// the bundle manifest (the chromosome's name, its aliases and the database's mapped names).
+        /// The live bundle query tries the requested name and these.
+        public let chromosomeNames: [String]
 
-        public init(id: String, name: String, databaseURL: URL) {
+        public init(id: String, name: String, databaseURL: URL, chromosomeNames: [String] = []) {
             self.id = id
             self.name = name
             self.databaseURL = databaseURL
+            self.chromosomeNames = chromosomeNames
+        }
+
+        /// The names to query, as `ReferenceBundle.annotationQueryChromosomes` picks them. They are
+        /// the requested name and `chromosomeNames` without repeats, those the database holds, or
+        /// all of them when it holds none.
+        func queryChromosomes(for requested: String, available: [String]) -> [String] {
+            var seen = Set<String>()
+            let candidates = ([requested] + chromosomeNames).filter { seen.insert($0).inserted }
+            let held = Set(available)
+            let present = candidates.filter { held.contains($0) }
+            return present.isEmpty ? candidates : present
         }
     }
 
@@ -66,15 +82,25 @@ public struct ViewerFigureAnnotationTrack: ViewerFigureTrackBuilding {
         try draw(annotations, displayNames: names, into: &canvas, frame: frame, area: area)
     }
 
-    /// Reads each database once, off the main actor, and tags each feature with its source.
+    /// Reads each database once, off the main actor, and tags each feature with its source. A
+    /// database is queried under each contig name the live bundle query tries, up to the query
+    /// limit in all, and a feature found under two names is kept once.
     nonisolated func load(frame: ViewerFigureFrame, canvas: inout ViewerFigureCanvas) async throws -> [SequenceAnnotation] {
         var annotations: [SequenceAnnotation] = []
         for source in sources {
             try Task.checkCancellation()
-            let records = try AnnotationDatabase(url: source.databaseURL).queryByRegion(
-                chromosome: frame.chromosome, start: Int(frame.start), end: Int(frame.end.rounded(.up)),
-                limit: options.queryLimit
-            )
+            let database = try AnnotationDatabase(url: source.databaseURL)
+            var records: [AnnotationDatabaseRecord] = []
+            var seenRowIDs = Set<Int64>()
+            for name in source.queryChromosomes(for: frame.chromosome, available: database.allChromosomes()) {
+                let remaining = options.queryLimit - records.count
+                guard remaining > 0 else { break }
+                for record in database.queryByRegion(
+                    chromosome: name, start: Int(frame.start), end: Int(frame.end.rounded(.up)), limit: remaining
+                ) where record.rowID.map({ seenRowIDs.insert($0).inserted }) ?? true {
+                    records.append(record)
+                }
+            }
             if records.count >= options.queryLimit {
                 canvas.omit(ViewerFigureOmission(
                     trackID: trackID, kind: .annotationLimit, reason: "\(source.id) query limit \(options.queryLimit) records",

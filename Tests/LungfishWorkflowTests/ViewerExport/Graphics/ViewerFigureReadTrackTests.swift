@@ -107,6 +107,14 @@ final class ViewerFigureReadTrackTests: XCTestCase {
         )])
     }
 
+    func testSourceMapsTheReferenceNameToTheAlignmentContig() {
+        let plain = ViewerFigureReadTrack.Source(alignmentPath: "a.bam", indexPath: "a.bam.bai")
+        XCTAssertEqual(plain.alignmentChromosome(for: "chr1"), "chr1", "with no map the name is handed over unchanged")
+        let mapped = ViewerFigureReadTrack.Source(alignmentPath: "a.bam", indexPath: "a.bam.bai", chromosomeAliases: ["chr1": "1"])
+        XCTAssertEqual(mapped.alignmentChromosome(for: "chr1"), "1", "the live view's reference to alignment contig map")
+        XCTAssertEqual(mapped.alignmentChromosome(for: "chr2"), "chr2", "a name outside the map stays")
+    }
+
     func testFigureReadSampleIsTheSameInTwoRenders() throws {
         let reads = (0..<6_000).map { Fixture.read("r\($0)", ($0 * 7) % 900, length: 50, reverse: $0 % 3 == 0) }
         let first = ViewerFigureReadSample.sample(reads, maxReads: 5_000)

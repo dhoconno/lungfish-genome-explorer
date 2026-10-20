@@ -20,12 +20,25 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
         public let indexPath: String
         public let format: AlignmentFormat
         public let referenceFastaPath: String?
+        /// The live view's alignment contig names, a reference chromosome name to the name the file
+        /// uses (`SequenceViewerView.alignmentChromosomeName(for:)`), for a file that names its
+        /// contigs differently from the reference. A name outside the map is used as it is.
+        public let chromosomeAliases: [String: String]
 
-        public init(alignmentPath: String, indexPath: String, format: AlignmentFormat = .bam, referenceFastaPath: String? = nil) {
+        public init(
+            alignmentPath: String, indexPath: String, format: AlignmentFormat = .bam, referenceFastaPath: String? = nil,
+            chromosomeAliases: [String: String] = [:]
+        ) {
             self.alignmentPath = alignmentPath
             self.indexPath = indexPath
             self.format = format
             self.referenceFastaPath = referenceFastaPath
+            self.chromosomeAliases = chromosomeAliases
+        }
+
+        /// The name the alignment file holds `reference` under.
+        public func alignmentChromosome(for reference: String) -> String {
+            chromosomeAliases[reference] ?? reference
         }
     }
 
@@ -80,7 +93,8 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
             referenceFastaPath: source.referenceFastaPath
         )
         let reads = try await provider.fetchReads(
-            chromosome: frame.chromosome, start: max(0, Int(frame.start)), end: Int(frame.end.rounded(.up)),
+            chromosome: source.alignmentChromosome(for: frame.chromosome), start: max(0, Int(frame.start)),
+            end: Int(frame.end.rounded(.up)),
             excludeFlags: options.excludeFlags, minMapQ: options.minMapQ, maxReads: options.fetchLimit
         )
         if reads.count >= options.fetchLimit {

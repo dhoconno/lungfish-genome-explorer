@@ -132,6 +132,21 @@ final class ViewerFigureAnnotationTrackTests: XCTestCase {
             trackID: "annotations", kind: .annotationLimit, reason: "genes query limit 2 records", count: nil
         )))
     }
+
+    func testAContigNamedByAnAliasDrawsOnlyWhenTheSourceListsTheAlias() async throws {
+        func geneFill(_ scene: ViewerFigureScene) -> Bool {
+            scene.items.contains { if case .fill(_, let paint) = $0 { paint.role == .annotationGene } else { false } }
+        }
+        func strings(_ scene: ViewerFigureScene) -> [String] {
+            scene.items.compactMap { if case .text(let text) = $0 { text.string } else { nil } }
+        }
+        let listed = try await ViewerFigureAnnotationFixture.databaseScene(bedContig: "1", chromosomeNames: ["1"])
+        XCTAssertEqual(strings(listed), ["geneA", "tx1", "geneB"], "the database holds contig 1 and the source lists it for chr1")
+        XCTAssertTrue(geneFill(listed))
+        let unlisted = try await ViewerFigureAnnotationFixture.databaseScene(bedContig: "1")
+        XCTAssertEqual(strings(unlisted), [], "without the alias the query finds nothing, as the bare name did before")
+        XCTAssertFalse(geneFill(unlisted))
+    }
 }
 
 /// An annotation database built from a BED file, for the database and golden cases.
@@ -144,19 +159,22 @@ enum ViewerFigureAnnotationFixture {
         "chr1\t400\t600\ttx1\t0\t+\t400\t600\t0\t1\t200\t0\tmRNA",
     ].joined(separator: "\n") + "\n"
 
-    /// The scene of a 1,000-point annotation track over the database, read off the main actor.
+    /// The scene of a 1,000-point annotation track over the database, read off the main actor. The
+    /// frame names chr1, and `bedContig` is the name the database holds the rows under.
     static func databaseScene(
-        appearance: ViewerFigureAppearance = .light, options: ViewerFigureAnnotationTrack.Options = .init()
+        appearance: ViewerFigureAppearance = .light, options: ViewerFigureAnnotationTrack.Options = .init(),
+        bedContig: String = "chr1", chromosomeNames: [String] = []
     ) async throws -> ViewerFigureScene {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("figure-annotations-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let bedURL = folder.appendingPathComponent("genes.bed")
         let databaseURL = folder.appendingPathComponent("genes.db")
-        try Data(bed.utf8).write(to: bedURL)
+        try Data(bed.replacingOccurrences(of: "chr1\t", with: "\(bedContig)\t").utf8).write(to: bedURL)
         XCTAssertEqual(try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: databaseURL), 4)
         let track = ViewerFigureAnnotationTrack(
-            sources: [.init(id: "genes", name: "Genes", databaseURL: databaseURL)], height: 200, options: options
+            sources: [.init(id: "genes", name: "Genes", databaseURL: databaseURL, chromosomeNames: chromosomeNames)],
+            height: 200, options: options
         )
         return try await ViewerFigureSceneBuilder.build(
             frame: ViewerFigureFrame(chromosome: "chr1", start: 0, end: 1_000, pixelWidth: 1_000),

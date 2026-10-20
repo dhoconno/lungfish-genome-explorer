@@ -47,6 +47,18 @@ final class ViewerFigureReadTrackReplayTests: XCTestCase {
         print("ViewerFigureReadTrackReplayTests reads drawn \(bodies.count) omissions \(scene.omissions)")
     }
 
+    func testReadTrackFetchesTheContigNamedByTheSourceAliases() async throws {
+        let (plain, chromosome) = try await source()
+        let aliased = ViewerFigureReadTrack.Source(
+            alignmentPath: plain.alignmentPath, indexPath: plain.indexPath, chromosomeAliases: ["reference-name": chromosome]
+        )
+        let scene = try await scene(aliased, chromosome: "reference-name", options: .init())
+        let bodies = scene.items.filter {
+            if case .fill(_, let paint) = $0 { [.forwardRead, .reverseRead].contains(paint.role) } else { false }
+        }
+        XCTAssertFalse(bodies.isEmpty, "the frame names the reference contig and the source maps it to the BAM's")
+    }
+
     func testFigureReadSampleOfTheBAMIsTheSameInTwoRenders() async throws {
         let (source, chromosome) = try await source()
         var options = ViewerFigureReadTrack.Options()
