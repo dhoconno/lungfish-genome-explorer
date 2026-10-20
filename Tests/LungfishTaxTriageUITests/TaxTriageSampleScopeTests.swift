@@ -13,9 +13,9 @@
 // as stated: `configureFromDatabase` — the sole production entry point
 // (`ViewerViewController+TaxTriage.swift`) — always sets `isBatchGroupMode`,
 // whose "Show flat table, hide single-result UI" branch force-hides
-// `sampleFilterControl` unconditionally. The segmented control's only would-be
-// caller, `enableMultiSampleFlatTableMode()`, is never invoked from anywhere
-// in the app. So today the real (and already-scalable) sample-scope surface
+// `sampleFilterControl` unconditionally. A multi-sample mode that also hid the
+// control was never entered by the app and is deleted (Phase 2.13 lane 13.53).
+// So today the real (and already-scalable) sample-scope surface
 // for every reachable TaxTriage result is the Inspector's shared
 // `ClassifierSamplePickerState`/`ClassifierSamplePickerView` multi-select
 // checklist (`applyBatchGroupFilter`), the same component Kraken2/EsViritu/12S
