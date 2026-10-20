@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "CLIBinaryLoc
 
 /// Locates the `lungfish-cli` binary across the supported launch layouts.
 ///
-/// This is a dependency-free utility (Bundle/FileManager/ProcessInfo/Process/URL only)
+/// This is a dependency-free utility (Bundle/FileManager/ProcessInfo/ToolProcess/URL only)
 /// so it can live in the shared ``LungfishKit`` kernel and be reused by both
 /// app-internal runners and leaf modules without dragging in OperationCenter or
 /// event-streaming machinery.
@@ -20,8 +20,11 @@ public enum CLIBinaryLocator {
     ///
     /// Search order:
     /// 1. `<AppBundle>/Contents/MacOS/lungfish-cli` (release)
-    /// 2. SwiftPM's active package binary directory (development)
-    /// 3. PATH lookup via `/usr/bin/which`
+    /// 2. SwiftPM's active package binary directory (development), asked with a probe that
+    ///    gives up after `swiftPMProbeTimeout`. The probe blocks its thread, so never call
+    ///    this on the main thread.
+    /// 3. A search of the directories in the `PATH` variable, with no process
+    ///    (``ExecutablePathSearch``)
     public static func cliBinaryPath() -> URL? {
         resolveCLIPath(
             mainExecutableURL: Bundle.main.executableURL,
@@ -193,26 +196,11 @@ public enum CLIBinaryLocator {
     }
 
     private static func pathLookupForCLI() -> URL? {
-        let whichProcess = Process()
-        whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        whichProcess.arguments = [CLICommandIdentity.executableName]
-        let pipe = Pipe()
-        whichProcess.standardOutput = pipe
-        whichProcess.standardError = FileHandle.nullDevice
-        do {
-            try whichProcess.run()
-            whichProcess.waitUntilExit()
-            if whichProcess.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !path.isEmpty {
-                    return URL(fileURLWithPath: path)
-                }
-            }
-        } catch {
-            logger.warning("PATH lookup for \(CLICommandIdentity.executableName, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-        }
+        pathLookupForCLI(path: ProcessInfo.processInfo.environment["PATH"])
+    }
 
-        return nil
+    /// Searches the directories of `path` for the CLI, with no process.
+    static func pathLookupForCLI(path: String?) -> URL? {
+        ExecutablePathSearch.find(CLICommandIdentity.executableName, inPath: path)
     }
 }

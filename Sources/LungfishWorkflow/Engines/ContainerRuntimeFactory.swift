@@ -232,21 +232,12 @@ public enum NewContainerRuntimeFactory {
     ///
     /// - Returns: `true` if Docker CLI is found in PATH
     public static func isDockerAvailable() async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["docker"]
+        isDockerCLIFound(inPath: ProcessInfo.processInfo.environment["PATH"])
+    }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
-        }
+    /// Whether `docker` is an executable file in a directory of `path`, found with no process.
+    static func isDockerCLIFound(inPath path: String?) -> Bool {
+        ExecutablePathSearch.find("docker", inPath: path) != nil
     }
 
     /// Returns all available container runtimes on this system.

@@ -196,53 +196,43 @@ struct EnvSubcommand: AsyncParsableCommand {
         }
     }
 
+    /// How long `<tool> --version` may run before the report gives up on a version.
+    static let versionProbeTimeout: Duration = .seconds(10)
+
     private func checkToolAvailability(_ tool: String) -> (available: Bool, version: String?, path: String?) {
-        // Check if tool is in PATH
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [tool]
+        Self.toolAvailability(tool, searchPath: ProcessInfo.processInfo.environment["PATH"])
+    }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                // Try to get version
-                let versionProcess = Process()
-                versionProcess.executableURL = URL(fileURLWithPath: path ?? tool)
-                versionProcess.arguments = ["--version"]
-
-                let versionPipe = Pipe()
-                versionProcess.standardOutput = versionPipe
-                versionProcess.standardError = versionPipe
-
-                do {
-                    try versionProcess.run()
-                    versionProcess.waitUntilExit()
-                    let versionData = versionPipe.fileHandleForReading.readDataToEndOfFile()
-                    let versionOutput = String(data: versionData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .split(separator: "\n")
-                        .first
-                        .map(String.init)
-
-                    return (true, versionOutput, path)
-                } catch {
-                    return (true, nil, path)
-                }
-            }
-        } catch {
-            // Tool not found
+    /// Looks `tool` up in the directories of `searchPath` with no process, then asks it for its version
+    /// on ``ToolProcess`` within `versionTimeout`, so a tool that never answers cannot hold the report.
+    /// The version is the first line of the tool's standard output, or of its standard error when it
+    /// prints nothing on standard output. A tool that cannot start, fails to answer in time or prints
+    /// nothing is reported as available with no version.
+    static func toolAvailability(
+        _ tool: String,
+        searchPath: String?,
+        versionTimeout: Duration = EnvSubcommand.versionProbeTimeout
+    ) -> (available: Bool, version: String?, path: String?) {
+        guard let toolURL = ExecutablePathSearch.find(tool, inPath: searchPath) else {
+            return (false, nil, nil)
         }
 
-        return (false, nil, nil)
+        let spec = ToolProcessSpec(
+            executableURL: toolURL,
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            timeout: versionTimeout,
+            label: "\(tool) --version"
+        )
+        guard let result = try? ToolProcess.runBlocking(spec) else {
+            return (true, nil, toolURL.path)
+        }
+        let versionOutput = (result.stdoutText + result.stderrText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n")
+            .first
+            .map(String.init)
+        return (true, versionOutput, toolURL.path)
     }
 }
 

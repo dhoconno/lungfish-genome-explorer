@@ -139,3 +139,48 @@ final class CLIBinaryLocatorProbeTests: XCTestCase {
         XCTAssertGreaterThan(CLIBinaryLocator.swiftPMProbeTimeout, .seconds(0))
     }
 }
+
+/// The PATH step of the locator finds the CLI without starting `which` (Phase 2.13 lane 13.11).
+final class CLIBinaryLocatorPathLookupTests: XCTestCase {
+    private var scratch: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-locator-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: scratch)
+        try super.tearDownWithError()
+    }
+
+    private func writeCLI(executable: Bool) throws {
+        let url = scratch.appendingPathComponent(CLICommandIdentity.executableName)
+        try "#!/bin/sh\nexit 0\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: executable ? 0o755 : 0o644],
+            ofItemAtPath: url.path
+        )
+    }
+
+    func testTheCLIInADirectoryOfThePathIsFound() throws {
+        try writeCLI(executable: true)
+
+        let found = CLIBinaryLocator.pathLookupForCLI(path: "/nonexistent:\(scratch.path)")
+
+        XCTAssertEqual(found?.lastPathComponent, CLICommandIdentity.executableName)
+        XCTAssertEqual(found?.deletingLastPathComponent().path, scratch.path)
+    }
+
+    func testNoCLIOnThePathIsNotFound() {
+        XCTAssertNil(CLIBinaryLocator.pathLookupForCLI(path: scratch.path))
+    }
+
+    func testACLIFileWithoutAnExecutePermissionIsNotFound() throws {
+        try writeCLI(executable: false)
+
+        XCTAssertNil(CLIBinaryLocator.pathLookupForCLI(path: scratch.path))
+    }
+}
