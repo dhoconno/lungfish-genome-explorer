@@ -149,7 +149,9 @@ extension ViewerGraphicExport {
     /// The reads a command line leaves out by default, unmapped (0x4), secondary (0x100) and supplementary (0x800). The live
     /// view's own default is 0xD04, which also leaves out duplicates (0x400), and the app passes the view's value.
     public static let defaultExcludeFlags: UInt16 = 0x904
-    /// The live view's default read row cap.
+    /// The read row cap a figure draws with unless a view-state names one. The live view caps rows only when its cap
+    /// setting is on and the app does not pass it yet, so an image can show fewer rows than the viewer, and its record
+    /// names the rows left out.
     public static let defaultReadRowCap = 75
     /// The reason of a `trackNotDrawn` entry for a kind the renderer cannot draw yet (BIO ruling Q-G3, item 7).
     public static let noBuilderReason = "no figure builder"

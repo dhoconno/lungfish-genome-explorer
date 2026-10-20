@@ -30,7 +30,7 @@ public struct ViewerGraphicViewState: Codable, Sendable, Equatable {
 
     public var schemaVersion: Int
     public var tracks: [Track]
-    /// The read row cap the view drew with, or nil for the default of 75 rows.
+    /// The read row cap to draw with, or nil for the figure's own default of 75 rows. A figure has no uncapped mode yet.
     public var readRowCap: Int?
     /// The sample order, filters, row heights and colour theme the variant track drew with, or nil for the defaults.
     public var sampleDisplay: SampleDisplayState?
