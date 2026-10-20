@@ -122,6 +122,16 @@ final class ViewerFigureAnnotationTrackTests: XCTestCase {
         ])
         XCTAssertEqual(scene.fonts.map(\.resolved), ["HelveticaNeue"])
     }
+
+    func testQueryLimitOmissionNamesTheSourceAndTheLimit() async throws {
+        XCTAssertEqual(ViewerFigureAnnotationTrack.Options().queryLimit, 50_000, "the live bundle query stops at 50,000 records")
+        var options = ViewerFigureAnnotationTrack.Options()
+        options.queryLimit = 2
+        let scene = try await ViewerFigureAnnotationFixture.databaseScene(options: options)
+        XCTAssertTrue(scene.omissions.contains(ViewerFigureOmission(
+            trackID: "annotations", kind: .annotationLimit, reason: "genes query limit 2 records", count: nil
+        )))
+    }
 }
 
 /// An annotation database built from a BED file, for the database and golden cases.
@@ -135,7 +145,9 @@ enum ViewerFigureAnnotationFixture {
     ].joined(separator: "\n") + "\n"
 
     /// The scene of a 1,000-point annotation track over the database, read off the main actor.
-    static func databaseScene(appearance: ViewerFigureAppearance = .light) async throws -> ViewerFigureScene {
+    static func databaseScene(
+        appearance: ViewerFigureAppearance = .light, options: ViewerFigureAnnotationTrack.Options = .init()
+    ) async throws -> ViewerFigureScene {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("figure-annotations-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -144,7 +156,7 @@ enum ViewerFigureAnnotationFixture {
         try Data(bed.utf8).write(to: bedURL)
         XCTAssertEqual(try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: databaseURL), 4)
         let track = ViewerFigureAnnotationTrack(
-            sources: [.init(id: "genes", name: "Genes", databaseURL: databaseURL)], height: 200
+            sources: [.init(id: "genes", name: "Genes", databaseURL: databaseURL)], height: 200, options: options
         )
         return try await ViewerFigureSceneBuilder.build(
             frame: ViewerFigureFrame(chromosome: "chr1", start: 0, end: 1_000, pixelWidth: 1_000),

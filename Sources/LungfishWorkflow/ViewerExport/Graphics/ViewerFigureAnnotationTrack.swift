@@ -35,7 +35,7 @@ public struct ViewerFigureAnnotationTrack: ViewerFigureTrackBuilding {
         public var densityThreshold = 50_000.0
         public var squishedThreshold = 500.0
         public var showLettersThreshold = 10.0
-        public var queryLimit = 10_000
+        public var queryLimit = 50_000
         public var visibleTypes: Set<AnnotationType>?
         public var filterText = ""
 
