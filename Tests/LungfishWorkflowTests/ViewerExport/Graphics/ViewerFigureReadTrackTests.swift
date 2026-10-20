@@ -133,6 +133,11 @@ final class ViewerFigureReadTrackTests: XCTestCase {
         XCTAssertEqual(first.totalCount, 6_000)
         XCTAssertEqual(first.reads.filter(\.isReverse).count, 1_667, "the reverse strand's share, 5000 less 3333")
         XCTAssertNotEqual(first.reads.map(\.name), Array(reads.prefix(5_000)).sorted { $0.position < $1.position }.map(\.name))
+        // The pin reads ids, so it does not depend on the order of ties in the final sort by position.
+        let ids = first.reads.compactMap { Int($0.name.dropFirst()) }
+        XCTAssertEqual(ids.count, 5_000)
+        XCTAssertEqual(ids.reduce(0, +), 14_922_406, "the sum of the sampled read ids, taken from a run kept in build/lane/")
+        XCTAssertEqual(Array(ids.sorted().prefix(8)), [0, 1, 2, 3, 4, 5, 8, 14], "the eight smallest sampled read ids")
         let canvasA = try draw(reads, height: 600)
         let canvasB = try draw(reads, height: 600)
         XCTAssertEqual(canvasA.items, canvasB.items)

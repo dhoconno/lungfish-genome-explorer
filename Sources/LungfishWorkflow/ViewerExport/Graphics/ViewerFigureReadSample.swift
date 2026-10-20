@@ -16,7 +16,7 @@ public enum ViewerFigureReadSample {
 
     /// The rule a `readSample` omission names.
     public static func rule(maxReads: Int) -> String {
-        "max \(maxReads) reads, a SplitMix64 reservoir sample within each strand, seed 0x5EED1329"
+        "max \(maxReads) reads, a SplitMix64 reservoir sample within each strand, seed 0x\(String(seed, radix: 16, uppercase: true))"
     }
 
     /// At most `maxReads` of `reads`, sorted by position, and the count before sampling.
