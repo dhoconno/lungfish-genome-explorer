@@ -182,26 +182,4 @@ final class Kraken2BlastRestoreTests: XCTestCase {
             database: "core_nt"
         )
     }
-
-    private static func classResult(in directory: URL) throws -> ClassificationResult {
-        let report = directory.appendingPathComponent("classification.kreport")
-        try Data("100.00\t10\t10\tS\t562\tEscherichia coli\n".utf8).write(to: report)
-        let root = TaxonNode(
-            taxId: 1, name: "root", rank: .root, depth: 0,
-            readsDirect: 0, readsClade: 10, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: nil
-        )
-        return ClassificationResult(
-            config: ClassificationConfig(
-                inputFiles: [directory.appendingPathComponent("reads.fastq")], isPairedEnd: false,
-                databaseName: "test-db", databasePath: directory.appendingPathComponent("db"), outputDirectory: directory
-            ),
-            tree: TaxonTree(root: root, unclassifiedNode: nil, totalReads: 10),
-            reportURL: report,
-            outputURL: directory.appendingPathComponent("classification.kraken"),
-            brackenURL: nil,
-            runtime: 1,
-            toolVersion: "2.1.3",
-            provenanceId: nil
-        )
-    }
 }
