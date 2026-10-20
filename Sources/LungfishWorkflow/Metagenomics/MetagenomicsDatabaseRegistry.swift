@@ -2065,64 +2065,30 @@ public actor MetagenomicsDatabaseRegistry {
         }
     }
 
-    /// Extracts a .tar.gz file to a destination directory.
-    ///
-    /// Uses `CheckedContinuation` with `terminationHandler` and background
-    /// pipe draining to avoid blocking the actor thread and to prevent pipe
-    /// deadlocks when tar produces large output.
+    /// Extracts a .tar.gz file to a destination directory on ``ToolProcess``, which drains
+    /// tar's output while it runs and stops the tar tree when the calling task is cancelled.
     private func extractTarball(_ tarball: URL, to destination: URL) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-            // Kraken2 databases from genome-idx.s3.amazonaws.com have files at the
-            // top level (hash.k2d, opts.k2d, taxo.k2d), NOT inside a subdirectory.
-            // Do NOT use --strip-components=1 as it would strip the filenames.
-            process.arguments = ["xzf", tarball.path, "-C", destination.path]
-
-            let stderrPipe = Pipe()
-            let stdoutPipe = Pipe()
-            process.standardError = stderrPipe
-            process.standardOutput = stdoutPipe
-
-            let processState = MetagenomicsProcessCompletionState()
-            let drainGroup = DispatchGroup()
-            drainGroup.enter()
-            drainGroup.enter()
-
-            process.terminationHandler = { terminatedProcess in
-                drainGroup.notify(queue: .global(qos: .utility)) {
-                    guard processState.markCompleted() else { return }
-
-                    if terminatedProcess.terminationStatus != 0 {
-                        continuation.resume(
-                            throwing: MetagenomicsDatabaseRegistryError.downloadFailed(
-                                name: tarball.lastPathComponent,
-                                reason: "tar extraction failed: \(processState.stderrText)"
-                            )
-                        )
-                    } else {
-                        continuation.resume()
-                    }
-                }
-            }
-
-            do {
-                try process.run()
-                DispatchQueue.global(qos: .utility).async {
-                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    processState.appendStderr(data)
-                    drainGroup.leave()
-                }
-                DispatchQueue.global(qos: .utility).async {
-                    _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    drainGroup.leave()
-                }
-            } catch {
-                drainGroup.leave()
-                drainGroup.leave()
-                guard processState.markCompleted() else { return }
-                continuation.resume(throwing: error)
-            }
+        // Kraken2 databases from genome-idx.s3.amazonaws.com have files at the
+        // top level (hash.k2d, opts.k2d, taxo.k2d), NOT inside a subdirectory.
+        // Do NOT use --strip-components=1 as it would strip the filenames.
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: ["xzf", tarball.path, "-C", destination.path],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            label: "tar"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        guard result.isSuccess else {
+            throw MetagenomicsDatabaseRegistryError.downloadFailed(
+                name: tarball.lastPathComponent,
+                reason: "tar extraction failed: \(result.stderrText.isEmpty ? "Unknown error" : result.stderrText)"
+            )
         }
     }
 }
