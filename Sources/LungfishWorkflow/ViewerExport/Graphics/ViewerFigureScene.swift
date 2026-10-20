@@ -105,6 +105,49 @@ public struct ViewerFigureSegment: Sendable, Hashable, Codable {
     }
 }
 
+/// The kind of limit that hid data from a figure (BIO ruling Q-G3, item 7).
+public enum ViewerFigureOmissionKind: String, Sendable, Hashable, Codable, CaseIterable {
+    /// Reads not drawn past the read row cap.
+    case readRowCap
+    /// Reads drawn as a fixed sample of the reads fetched.
+    case readSample
+    /// The annotation query stopped at its record limit.
+    case annotationLimit
+    /// Reads drawn as coverage only, or bases as blocks, because the scale passed a threshold.
+    case scaleMode
+    /// Labels left out for lack of room.
+    case labelsOmitted
+    /// A font that fell back to another face.
+    case fontFallback
+    /// A track the figure has no builder for.
+    case trackNotDrawn
+}
+
+/// One limit that hid data from a figure, with the track it hit, its reason and the count left
+/// out, so the figure says what it does not show (BIO 4).
+public struct ViewerFigureOmission: Sendable, Hashable, Codable, Comparable {
+    /// The id of the track the limit hit.
+    public let trackID: String
+    public let kind: ViewerFigureOmissionKind
+    /// The limit in words, with its numbers, such as `max 75 rows`.
+    public let reason: String
+    /// The count left out, or nil when the limit cannot know it, as for `annotationLimit`.
+    public let count: Int?
+
+    public init(trackID: String, kind: ViewerFigureOmissionKind, reason: String, count: Int?) {
+        self.trackID = trackID
+        self.kind = kind
+        self.reason = reason
+        self.count = count
+    }
+
+    /// Sorted by track, then kind, then reason and count, so a scene lists them in one order.
+    public static func < (lhs: ViewerFigureOmission, rhs: ViewerFigureOmission) -> Bool {
+        (lhs.trackID, lhs.kind.rawValue, lhs.reason, lhs.count ?? -1)
+            < (rhs.trackID, rhs.kind.rawValue, rhs.reason, rhs.count ?? -1)
+    }
+}
+
 /// The drawing of one viewer figure, built from a bundle's files and drawn by
 /// `ViewerFigureRasterizer`. It names colours by role and fonts by their resolved PostScript
 /// names, so one scene encodes the same in any appearance, and its JSON with sorted keys is
@@ -126,6 +169,9 @@ public struct ViewerFigureScene: Sendable, Hashable, Codable {
     /// Every font the text asked for and what it resolved to, fallbacks included (BIO 4).
     public let fonts: [ViewerFigureFontResolution]
     public let items: [ViewerFigureItem]
+    /// Every limit that hid data from the figure, sorted by track and kind, and empty when
+    /// nothing was left out (BIO ruling Q-G3, item 10).
+    public let omissions: [ViewerFigureOmission]
 
     public init(
         width: Double,
@@ -135,6 +181,7 @@ public struct ViewerFigureScene: Sendable, Hashable, Codable {
         frame: ViewerFigureFrame?,
         fonts: [ViewerFigureFontResolution],
         items: [ViewerFigureItem],
+        omissions: [ViewerFigureOmission] = [],
         formatVersion: Int = ViewerFigureScene.currentFormatVersion
     ) {
         self.formatVersion = formatVersion
@@ -145,6 +192,7 @@ public struct ViewerFigureScene: Sendable, Hashable, Codable {
         self.frame = frame
         self.fonts = fonts
         self.items = items
+        self.omissions = omissions.sorted()
     }
 
     /// The theme the scene draws in.

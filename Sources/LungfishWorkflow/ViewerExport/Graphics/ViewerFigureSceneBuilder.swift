@@ -19,8 +19,15 @@ public protocol ViewerFigureTrackBuilding: Sendable {
 public struct ViewerFigureCanvas: Sendable {
     public private(set) var items: [ViewerFigureItem] = []
     public private(set) var fonts: [ViewerFigureFontResolution] = []
+    /// What the tracks left out, in the order they reported it. The scene sorts them.
+    public private(set) var omissions: [ViewerFigureOmission] = []
 
     public init() {}
+
+    /// Records a limit that hid data from the figure (BIO 4).
+    public mutating func omit(_ omission: ViewerFigureOmission) {
+        omissions.append(omission)
+    }
 
     public mutating func fill(_ rect: ViewerFigureRect, _ paint: ViewerFigurePaint) {
         items.append(.fill(rect: rect, paint: paint))
@@ -85,7 +92,7 @@ public enum ViewerFigureSceneBuilder {
         }
         return ViewerFigureScene(
             width: width, height: top, appearance: appearance, background: background,
-            frame: frame, fonts: canvas.fonts, items: canvas.items
+            frame: frame, fonts: canvas.fonts, items: canvas.items, omissions: canvas.omissions
         )
     }
 }

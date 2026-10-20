@@ -134,6 +134,9 @@ final class ViewerFigureSceneBuilderTests: XCTestCase {
         XCTAssertEqual(try scene.goldenJSON(), json, "encoding is stable")
         let text = String(decoding: json, as: UTF8.self)
         let topKeys = text.split(separator: "\n").filter { $0.hasPrefix("  \"") }.map { $0.split(separator: "\"")[1] }
-        XCTAssertEqual(topKeys, ["appearance", "background", "fonts", "formatVersion", "frame", "height", "items", "width"])
+        XCTAssertEqual(
+            topKeys,
+            ["appearance", "background", "fonts", "formatVersion", "frame", "height", "items", "omissions", "width"]
+        )
     }
 }
