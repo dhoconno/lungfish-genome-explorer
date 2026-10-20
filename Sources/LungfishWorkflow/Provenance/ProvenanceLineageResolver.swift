@@ -153,7 +153,12 @@ public struct ProvenanceLineageResolver: Sendable {
                     guard !stopped() else { return }
                     if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: candidate),
                        resolved.envelope.id != current.id,
-                       Self.produces(resolved.envelope, path: candidate.path, checksum: descriptor.checksumSHA256) {
+                       Self.adopts(
+                           resolved.envelope,
+                           candidate: candidate,
+                           checksum: descriptor.checksumSHA256,
+                           projectURL: projectURL
+                       ) {
                         visit(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL)
                         return
                     }
@@ -267,6 +272,28 @@ public struct ProvenanceLineageResolver: Sendable {
                 URL(fileURLWithPath: output.path).standardizedFileURL.path == path
                     || (checksum != nil && output.checksumSHA256 == checksum)
             }
+        }
+
+        /// Whether the record the sidecar lookup found for an input is the record of that input. Inside the
+        /// walk's project `produces` is enough, a path or a checksum match. Outside it files at one path get
+        /// replaced (a second download into Downloads, a rerun into the same output folder), so the record
+        /// of the old bytes would be adopted as the producer of bytes it never wrote. There the record
+        /// counts only when the input's recorded checksum is not empty and equals the checksum of one of
+        /// its outputs. The input's project is the nearest `.lungfish` folder at or above it, found by
+        /// path with no listing, and with no project in the walk every input counts as outside.
+        static func adopts(
+            _ envelope: ProvenanceEnvelope,
+            candidate: URL,
+            checksum: String?,
+            projectURL: URL?
+        ) -> Bool {
+            if let projectURL,
+               let root = ProjectTempDirectory.findProjectRoot(candidate),
+               root.resolvingSymlinksInPath().path == projectURL.resolvingSymlinksInPath().path {
+                return produces(envelope, path: candidate.path, checksum: checksum)
+            }
+            guard let checksum, !checksum.isEmpty else { return false }
+            return ProvenanceLineageResolver.allOutputs(of: envelope).contains { $0.checksumSHA256 == checksum }
         }
 
         static func producesDescendant(_ envelope: ProvenanceEnvelope, of directory: URL) -> Bool {
