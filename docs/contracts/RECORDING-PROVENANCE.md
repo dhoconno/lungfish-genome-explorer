@@ -122,6 +122,8 @@ A step's environment is the one its version text names, a `micromamba run -n` pr
 
 A record that decoded as the Older record format, a bare run or a primitive record, is never exported as a script, with or without the override (V6). Neither is a record whose chain reads one, because the script would replay its steps. The gate reads the sidecar of each record the chain merges, counts `mapping-provenance.json` and an adopted track's `<bam stem>.mapping-provenance.json` as typed, and names the file it refuses. A typed record such as `mapping-provenance.json` is not the Older record format, and the finder's `findProvenanceReading(for:)` gives each entry point the shape from the same walk that found the record. A script with an unpinned step is written only with `--allow-unpinned` in the CLI or **Export Anyway…** in the app's sheet, where **Cancel** is the default. The override names each unpinned step in the script header and comments each such step, the export record keeps `allowUnpinned` among its explicit options and the steps under `unpinnedSteps` among its resolved options, and its recorded command carries `--allow-unpinned`.
 
+A tool step that recorded no output file and holds `stdoutReadInProcess` stays in the methods text and the Provenance tab, and a script names it in a comment and does not run it. A step of an older record never holds the mark, so its script does not change.
+
 ## The frozen legacy corpus
 
 Old records are evidence and must keep reading as they do. Three sets freeze them. A writer change keeps all three green unless the change declares a difference and a reviewer accepts it.
