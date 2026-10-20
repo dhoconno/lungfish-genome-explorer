@@ -66,6 +66,25 @@ final class EsVirituDetectExecutorTests: XCTestCase {
         }
     }
 
+    /// 2.13 lane 13.15, SW26 note 4 and BIO-13.15-SW26 item 2. The read format and `--paired` the user typed are
+    /// explicit options of the root record, also of a run that fails before EsViritu starts. A bundle of single reads
+    /// fails in its unit, once the bundle gives one file where paired reads need two.
+    func testTheTypedReadFormatAndPairedAreExplicitInTheRootRecordOfAFailedRun() async throws {
+        let esviritu = try StandInEsViritu(root: root.appendingPathComponent("tool"), tables: Self.fixtureTables)
+        let shapes = try BundleShapeFixtures(in: root.appendingPathComponent("Imports", isDirectory: true))
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let code = try await detect(
+            ["--input", shapes.single.path, "--sample", "S1", "--read-format", "paired", "--paired", "--output", output.path],
+            esviritu
+        )
+
+        XCTAssertNotEqual(code, 0, "paired reads need two files")
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertEqual(record.options.explicit["readFormat"], .string("paired"))
+        XCTAssertEqual(record.options.explicit["pairedEnd"], .boolean(true))
+    }
+
     /// E1, R4 and BIO O5. A `--project` run of one sample makes the app's batch root, names the
     /// sample folder through the one sanitizer and gives EsViritu that name, so `build-db` keeps
     /// every detection of a dotted sample id. The root gets the summary, the manifest and the index,

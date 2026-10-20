@@ -311,13 +311,23 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
             resolved["databaseSourceURL"] = catalog.url.map(ParameterValue.string) ?? .null
             resolved["databaseSourcePolicy"] = .string(catalog.effectiveSourcePolicy.rawValue)
         }
+        var explicit: [String: ParameterValue] = [
+            "batch": .boolean(groupsSamples),
+            "qualityFilter": .boolean(settings.qualityFilter),
+            "threads": .integer(settings.threads),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(settings.extraArguments)),
+        ]
+        // The read format and `--paired` the user typed are explicit, recorded whether or not a sample runs. The
+        // pipeline records the format a run used as a resolved default, since its configuration cannot tell the two
+        // apart (E12, SW26 note 4).
+        if options.readFormat != .auto {
+            explicit["readFormat"] = .string(options.readFormat.rawValue)
+        }
+        if options.pairedEnd {
+            explicit["pairedEnd"] = .boolean(true)
+        }
         return AnalysisRootRecordOptions(
-            explicit: [
-                "batch": .boolean(groupsSamples),
-                "qualityFilter": .boolean(settings.qualityFilter),
-                "threads": .integer(settings.threads),
-                "extraArgs": .string(AdvancedCommandLineOptions.join(settings.extraArguments)),
-            ],
+            explicit: explicit,
             defaults: [
                 "readFormat": .string(EsVirituAnalysisRunOptions.ReadFormatChoice.auto.rawValue),
                 "qualityFilter": .boolean(true),

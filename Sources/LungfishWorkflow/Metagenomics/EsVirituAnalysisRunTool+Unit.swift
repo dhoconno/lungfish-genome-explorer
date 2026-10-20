@@ -67,11 +67,7 @@ extension EsVirituAnalysisRunTool {
             return .failed(reason: message)
         }
 
-        // The read format the user gave is the one explicit value of it. The pipeline records the format the
-        // run used as a resolved default, since its configuration cannot tell the two apart (E12).
-        if options.readFormat != .auto {
-            context.recordOptions(AnalysisRootRecordOptions(explicit: ["readFormat": .string(options.readFormat.rawValue)]))
-        }
+        // The read format the user gave is explicit in the root's run options (`runOptions`, SW26 note 4).
         let writesIntoRoot = unit.directory.standardizedFileURL == context.rootDirectory.standardizedFileURL
         if writesIntoRoot {
             context.recordOptions(Self.lineageOptions(of: config))
