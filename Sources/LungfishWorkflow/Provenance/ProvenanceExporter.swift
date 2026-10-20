@@ -680,7 +680,7 @@ public struct ProvenanceExporter: Sendable {
         var s = unresolvedPathNote(plan, prefix: prefix)
         s += externalInputNote(plan, prefix: prefix)
         s += collapsedStepNote(plan, prefix: prefix)
-        s += inAppStepNote(plan, prefix: prefix)
+        s += inAppStepNote(plan, prefix: prefix) + noOutputStepNote(plan, prefix: prefix)
         return s
     }
 
@@ -814,7 +814,7 @@ public struct ProvenanceExporter: Sendable {
         s += "set LUNGFISH_PROJECT to the project's location.\n"
         s += "\"\"\"\n"
         s += collapsedStepNote(plan, prefix: "# ")
-        s += inAppStepNote(plan, prefix: "# ")
+        s += inAppStepNote(plan, prefix: "# ") + noOutputStepNote(plan, prefix: "# ")
         s += "\n"
         s += "import os\n"
         s += "import shlex\n"

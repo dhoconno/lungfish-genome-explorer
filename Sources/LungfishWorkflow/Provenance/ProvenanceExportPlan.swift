@@ -373,7 +373,7 @@ struct ProvenanceExportPlan {
     }
 
     /// Every step the executable exports run, in order. A sub-step is not one, its CLI step runs it.
-    var replayableSteps: [Step] { steps.filter { $0.isReplayable && !$0.isSubStep } }
+    var replayableSteps: [Step] { steps.filter { $0.isReplayable && !$0.isSubStep && !$0.isReadInProcessWithNoOutput } }
 
     /// Every in-app step the executable exports leave out, in order.
     var inAppSteps: [Step] { steps.filter { !$0.isReplayable && !$0.isSubStep } }
