@@ -9,6 +9,7 @@ import Darwin
 import Foundation
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishKit
 
 @MainActor
@@ -120,6 +121,46 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(outcome, .cancelled)
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the leaf rolled its output back on SIGTERM")
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .cancelled)
+    }
+
+    /// Phase 2.13 lane 13.47 (M842, X14). The user's Cancel reaches the row while the leaf still runs, before its
+    /// commit. The leaf rolls back on SIGTERM and exits 125, the run returns `.cancelled`, so the view shows no alert,
+    /// and the row reads Cancelled by user with no output links. No file and no process of the leaf's tree is left.
+    func testACancelBeforeTheLeafCommitsStillReadsCancelled() async throws {
+        let output = folder.appendingPathComponent("pre-commit.tsv")
+        let pidFile = folder.appendingPathComponent("pre-commit.pid")
+        let exitFile = folder.appendingPathComponent("pre-commit.exit")
+        let cli = try standInCLI("""
+        trap 'rm -f "\(output.path)"; echo 125 > "\(exitFile.path)"; exit 125' TERM
+        printf '%s\\n' '{"event":"start","progress":0,"message":"starting"}'
+        printf 'partial\\n' > "\(output.path)"
+        echo $$ > "\(pidFile.path)"
+        while :; do /bin/sleep 0.1; done
+        """)
+        let runner = CLIViewerExportRunner(cliURLOverride: cli)
+        let id = try beginRow(onCancel: { runner.cancel() })
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let run = Task {
+            await runner.run(
+                arguments: [], outputURL: output, operationID: id, completionDetail: "Exported pre-commit.tsv"
+            )
+        }
+
+        let started = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
+        let pid = try XCTUnwrap(started, "the stand-in leaf started")
+        let tree = CLISIGTERMHarness.processTree(of: pid)
+        OperationCenter.shared.cancel(id: id)
+        let outcome = await run.value
+
+        XCTAssertEqual(outcome, .cancelled, "a cancelled run carries no failure, so the view shows no alert")
+        XCTAssertEqual(try? String(contentsOf: exitFile, encoding: .utf8), "125\n", "the leaf took its cancel exit")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the leaf rolled its output back")
+        let item = OperationCenter.shared.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .cancelled)
+        XCTAssertEqual(item?.detail, "Cancelled by user")
+        XCTAssertEqual(item?.outputURLs, [])
+        XCTAssertNil(item?.errorMessage, "a cancelled row carries no failure message")
+        await CLISIGTERMHarness.assertNoProcessLeft(tree)
     }
 
     /// Review 12.31-M3a Fix 6, ruled by the manager. A cancel that lands after the leaf committed, which traps TERM,
