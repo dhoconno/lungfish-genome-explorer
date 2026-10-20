@@ -490,20 +490,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Custom Action Bar Buttons
 
-    /// "Recompute Unique Reads" button — only shown in batch/multi-sample mode.
-    private let recomputeUniqueReadsButton: NSButton = {
-        let btn = NSButton()
-        btn.title = "Recompute Unique Reads"
-        btn.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Recompute Unique Reads")
-        btn.bezelStyle = .accessoryBarAction
-        btn.imagePosition = .imageLeading
-        btn.controlSize = .small
-        btn.font = .systemFont(ofSize: 11)
-        btn.setContentHuggingPriority(.required, for: .horizontal)
-        btn.isHidden = true  // shown only in batch/multi-sample mode
-        return btn
-    }()
-
     private let openReportButton: NSButton = {
         let btn = NSButton()
         btn.title = "Open Report"
@@ -2017,252 +2003,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return Double(intersection) / Double(denominator)
     }
 
-    private func scheduleDeduplicatedReadCountComputation(for rows: [TaxTriageTableRow]) {
-        deduplicatedReadCountTask?.cancel()
-        guard let bamURL, let bamIndexURL else { return }
-        guard !rows.isEmpty else { return }
-
-        let rowsByReadCount = rows.sorted { $0.reads > $1.reads }
-        let provider = AlignmentDataProvider(
-            alignmentPath: bamURL.path,
-            indexPath: bamIndexURL.path
-        )
-
-        deduplicatedReadCountTask = Task { [weak self] in
-            guard let self else { return }
-
-            // Resolve reference lengths off the main actor, and only once: a
-            // length missing from the header/idxstats parse will never appear
-            // by re-running samtools again for the same BAM, so the old
-            // per-accession re-parse inside the loop below only added
-            // redundant `Process` spawns on the main actor without ever
-            // finding anything new.
-            if self.accessionLengths.isEmpty {
-                await self.parseBamReferenceLengthsOffMain(bamURL: bamURL, indexURL: bamIndexURL)
-            }
-
-            for row in rowsByReadCount {
-                if Task.isCancelled { return }
-                let normalized = self.normalizedOrganismName(row.organism)
-                if self.deduplicatedReadCounts[normalized] != nil { continue }
-
-                guard let rowAccessions = self.accessions(for: row), !rowAccessions.isEmpty else {
-                    // No accession mapping — can't compute unique reads from BAM.
-                    // Leave unique reads as unknown ("—") rather than showing an incorrect
-                    // value equal to total reads. The column will remain empty for this organism.
-                    continue
-                }
-                var totalUnique = 0
-                var fetchedAny = false
-
-                for accession in rowAccessions {
-                    if Task.isCancelled { return }
-                    // Missing means skip: the length was already resolved once
-                    // above from the full BAM header/idxstats parse.
-                    guard let contigLength = self.accessionLengths[accession] else { continue }
-
-                    do {
-                        // Stream the whole contig through the
-                        // uncapped counter rather than fetchReads(maxReads:)
-                        // + deduplicatedReadCount(from:), which silently
-                        // undercounted any contig with more than 100,000
-                        // mapped reads and buffered up to 500 MB of SAM text
-                        // per contig to do it.
-                        let uniqueCount = try await provider.countUniqueReads(
-                            chromosome: accession,
-                            start: 0,
-                            end: contigLength
-                        )
-                        guard uniqueCount > 0 else { continue }
-                        fetchedAny = true
-                        totalUnique += uniqueCount
-                    } catch {
-                        logger.debug("Failed dedup count for \(row.organism, privacy: .public) (\(accession, privacy: .public)): \(error.localizedDescription, privacy: .public)")
-                    }
-                }
-
-                if fetchedAny {
-                    // Use the actual unique read count from the BAM without capping to
-                    // row.reads. The TSV read count may be a filtered/classified subset
-                    // while the BAM contains all aligned reads, so capping would produce
-                    // an artificially low (wrong) value.
-                    let trueUnique = max(1, totalUnique)
-                    self.applyUniqueReadCount(trueUnique, for: row.organism)
-
-                    // Compute per-sample estimates by distributing the dedup ratio
-                    // across each sample's per-organism read count.
-                    self.computePerSampleUniqueReads(
-                        normalized: normalized,
-                        totalReads: row.reads,
-                        uniqueReads: trueUnique
-                    )
-                } else {
-                    // No reads fetched from BAM (accession exists but mapped region is empty).
-                    // Leave unique reads as unknown ("—") rather than showing total reads.
-                    // This avoids the misleading "unique reads = total reads" display.
-                }
-            }
-
-            // Persist computed counts to the sidecar so they load instantly next time.
-            if !Task.isCancelled, !self.deduplicatedReadCounts.isEmpty {
-                self.persistDeduplicatedReadCounts()
-            }
-        }
-    }
-
-    /// Computes per-sample unique reads for each organism by reading each sample's BAM
-    /// directly in batch group mode, where every sample has its own BAM file.
-    ///
-    /// This avoids the estimation error introduced by proportional distribution.
-    /// Called from `configureFromDatabase` after `bamFilesBySample` is populated.
-    ///
-    /// - Parameters:
-    ///   - subdirs: The list of per-sample subdirectories scanned during `configureFromDatabase`.
-    private func scheduleBatchPerSampleUniqueReadComputation(subdirs: [URL]) {
-        deduplicatedReadCountTask?.cancel()
-        guard !bamFilesBySample.isEmpty else { return }
-
-        // Snapshot the per-sample BAM map so the task doesn't capture mutable state.
-        let bamsBySample = bamFilesBySample
-
-        deduplicatedReadCountTask = Task { [weak self] in
-            guard let self else { return }
-
-            // Build per-sample organism→accession mappings and accession lengths
-            // without touching the shared `accessionLengths`/`organismToAccessions` dicts.
-            // Prefer pre-built sample-scoped mappings from configureFromDatabase(),
-            // snapshotted here (Sendable) so the fallback discovery below can run
-            // entirely off the main actor.
-            let prebuiltOrgToAccessionsBySample = self.organismToAccessionsBySample
-
-            for subdir in subdirs {
-                if Task.isCancelled { return }
-                let sampleId = subdir.lastPathComponent
-                guard let bamURL = bamsBySample[sampleId] else { continue }
-                let prebuiltMapping = prebuiltOrgToAccessionsBySample[sampleId] ?? [:]
-
-                // Directory walks (BAM index resolution, GCF mapping discovery) and
-                // GCF file parsing are pure given their inputs, so they run in a
-                // detached task rather than on the main actor. Only the small,
-                // Sendable discovery result below is applied back to `self`.
-                let discovery = await Task.detached(priority: .userInitiated) { [weak self] () -> TaxTriageBatchSampleDiscovery in
-                    // `self` is only used to reach `nonisolated` helper methods
-                    // (pure functions of their arguments); nothing here reads or
-                    // writes main-actor-isolated state.
-                    guard let self else { return TaxTriageBatchSampleDiscovery(indexURL: nil, organismToAccessions: [:]) }
-                    let indexCandidates = self.collectFilesRecursively(in: subdir) { fileURL in
-                        let ext = fileURL.pathExtension.lowercased()
-                        return ext == "bai" || ext == "csi"
-                    }
-                    guard let indexURL = self.resolveBamIndex(for: bamURL, allOutputFiles: indexCandidates) else {
-                        return TaxTriageBatchSampleDiscovery(indexURL: nil, organismToAccessions: [:])
-                    }
-
-                    var localOrgToAccessions = prebuiltMapping
-                    if localOrgToAccessions.isEmpty {
-                        let gcfFiles = self.collectFilesRecursively(in: subdir) { fileURL in
-                            fileURL.lastPathComponent.contains("gcfmapping.tsv")
-                        }
-                        for gcfURL in gcfFiles {
-                            let parsed = self.parseGCFMappingData(url: gcfURL)
-                            self.mergeOrganismMappings(parsed, into: &localOrgToAccessions)
-                        }
-                    }
-                    return TaxTriageBatchSampleDiscovery(indexURL: indexURL, organismToAccessions: localOrgToAccessions)
-                }.value
-
-                guard let indexURL = discovery.indexURL else {
-                    logger.debug("Batch dedup: no BAM index for sample \(sampleId, privacy: .public)")
-                    continue
-                }
-                let localOrgToAccessions = discovery.organismToAccessions
-                guard !localOrgToAccessions.isEmpty else {
-                    logger.debug("Batch dedup: no GCF mapping for sample \(sampleId, privacy: .public)")
-                    continue
-                }
-
-                // Parse accession lengths from BAM header for this sample's references,
-                // off the main actor: the samtools spawn and pipe drains run in a
-                // detached task, draining stdout and stderr concurrently so a noisy
-                // samtools cannot deadlock the caller. This is the batch-mode twin of
-                // the single-sample `parseBamReferenceLengthsOffMain` path above.
-                var localLengths: [String: Int] = [:]
-                if let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) {
-                    let headerBamPath = bamURL.path
-                    let snapshot = await Task.detached(priority: .userInitiated) {
-                        Self.parseBamReferenceLengthsSnapshot(
-                            bamPath: headerBamPath,
-                            indexPath: nil,
-                            samtoolsPath: samtoolsPath
-                        )
-                    }.value
-                    localLengths = snapshot.accessionLengths
-                }
-
-                let provider = AlignmentDataProvider(
-                    alignmentPath: bamURL.path,
-                    indexPath: indexURL.path
-                )
-
-                // Compute per-organism unique reads for this sample.
-                for (normalizedOrganism, accessions) in localOrgToAccessions {
-                    if Task.isCancelled { return }
-                    var totalUnique = 0
-                    var fetchedAny = false
-
-                    for accession in accessions {
-                        if Task.isCancelled { return }
-                        guard let contigLength = localLengths[accession] else { continue }
-
-                        do {
-                            // Uncapped streaming count (see the
-                            // single-sample path above for the full
-                            // rationale).
-                            let uniqueCount = try await provider.countUniqueReads(
-                                chromosome: accession,
-                                start: 0,
-                                end: contigLength
-                            )
-                            guard uniqueCount > 0 else { continue }
-                            fetchedAny = true
-                            totalUnique += uniqueCount
-                        } catch {
-                            logger.debug("Batch dedup: failed for \(normalizedOrganism, privacy: .public) (\(accession, privacy: .public)) in \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                        }
-                    }
-
-                    if fetchedAny {
-                        // Use the BAM-derived unique count — no capping against TSV read count.
-                        let trueUnique = max(1, totalUnique)
-                        self.perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = trueUnique
-                        // Update only this (organism, sample) key through the cached
-                        // index, and coalesce the table reload, rather than rescanning
-                        // every computed pair (syncUniqueReadsToFlatTable) once per
-                        // organism — this was the O(organisms x samples x rows) pass
-                        // that repainted the table once per organism during a batch run.
-                        self.updateFlatTableKey(normalizedOrganism: normalizedOrganism, sampleId: sampleId, uniqueReadCount: trueUnique)
-                        self.scheduleCoalescedUniqueReadsColumnReload()
-                    }
-                }
-            }
-
-            // Persist computed per-sample counts.
-            if !Task.isCancelled, !self.perSampleDeduplicatedReadCounts.isEmpty {
-                self.persistDeduplicatedReadCounts()
-
-                // Also write the batch-level cache so the flat table loads instantly next time.
-                if let batchURL = self.batchGroupURL {
-                    let cacheURL = batchURL.appendingPathComponent(Self.batchUniqueReadsCacheFilename)
-                    self.persistBatchUniqueReadsCache(to: cacheURL)
-                }
-
-                // Update the materialized batch manifest with the new unique reads values
-                // so future opens get fully-populated rows from the manifest cache.
-                self.updateBatchManifestUniqueReads()
-            }
-        }
-    }
-
     /// Computes per-sample unique reads for an organism by applying the dedup ratio
     /// to each sample's total read count from the metrics.
     private func computePerSampleUniqueReads(normalized: String, totalReads: Int, uniqueReads: Int) {
@@ -2469,26 +2209,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             indexPath: indexURL?.path,
             samtoolsPath: samtoolsPath
         )
-        mergeBAMReferenceSnapshot(snapshot)
-    }
-
-    /// Off-main variant of `parseBamReferenceLengths`. The samtools spawns and
-    /// blocking pipe reads happen in a detached task; only the final,
-    /// `Sendable` snapshot merge touches `self` on the main actor.
-    private func parseBamReferenceLengthsOffMain(bamURL: URL, indexURL: URL? = nil) async {
-        guard let samtoolsPath = ManagedToolLocator.managedToolExecutablePath(.samtools) else {
-            logger.warning("Cannot parse BAM references: samtools not found")
-            return
-        }
-        let bamPath = bamURL.path
-        let indexPath = indexURL?.path
-        let snapshot = await Task.detached(priority: .userInitiated) {
-            Self.parseBamReferenceLengthsSnapshot(
-                bamPath: bamPath,
-                indexPath: indexPath,
-                samtoolsPath: samtoolsPath
-            )
-        }.value
         mergeBAMReferenceSnapshot(snapshot)
     }
 
@@ -3455,9 +3175,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Populate unique reads column from any already-persisted per-sample dedup counts.
         syncUniqueReadsToFlatTable()
-
-        // Show the Recompute Unique Reads button in multi-sample single-result mode.
-        recomputeUniqueReadsButton.isHidden = false
     }
 
     /// Filters `allBatchGroupRows` (sourced from `metrics`) by the samples selected
@@ -3650,11 +3367,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         openReportButton.action = #selector(openExternalTapped)
         openReportButton.toolTip = "Open the TaxTriage report (PDF, or HTML when there is no PDF) for the selected row's sample"
         actionBar.addCustomButton(openReportButton)
-
-        // Custom button: Recompute Unique Reads (hidden until batch/multi-sample mode)
-        recomputeUniqueReadsButton.target = self
-        recomputeUniqueReadsButton.action = #selector(recomputeUniqueReadsTapped)
-        actionBar.addCustomButton(recomputeUniqueReadsButton)
     }
 
     private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
@@ -3778,82 +3490,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func defaultBlastReadCount(for metric: TaxTriageMetric) -> Int {
         let sampleKey = metric.sample ?? ""
         return batchFlatTableView.totalReadsByKey["\(sampleKey)\t\(metric.organism)"] ?? metric.reads
-    }
-
-    // MARK: - Recompute Unique Reads
-
-    @objc private func recomputeUniqueReadsTapped() {
-        recomputeAllUniqueReads()
-    }
-
-    /// Clears all cached unique read data and restarts computation from BAM files for
-    /// all organisms across all samples. Works for both batch group mode and multi-sample
-    /// single-result mode.
-    func recomputeAllUniqueReads() {
-        // 1. Clear in-memory caches.
-        perSampleDeduplicatedReadCounts.removeAll()
-        deduplicatedReadCounts.removeAll()
-
-        // 2. Clear the flat table's unique reads display.
-        batchFlatTableView.uniqueReadsByKey.removeAll()
-        batchFlatTableView.tableView.reloadData()
-
-        // 3. Delete on-disk caches.
-        if let batchURL = batchGroupURL {
-            // Delete batch-level cache.
-            let cacheURL = batchURL.appendingPathComponent(Self.batchUniqueReadsCacheFilename)
-            try? FileManager.default.removeItem(at: cacheURL)
-            // Delete the materialized batch manifest so next open re-parses fresh.
-            let manifestURL = batchURL.appendingPathComponent(TaxTriageBatchManifest.filename)
-            try? FileManager.default.removeItem(at: manifestURL)
-        }
-        // Also clear from the per-result sidecar for single-result multi-sample mode.
-        // Database mode loads the sidecar read-only (with relocated paths) and
-        // must never rewrite it.
-        if !isBatchGroupMode, var result = taxTriageResult {
-            result.perSampleDeduplicatedReadCounts = nil
-            result.deduplicatedReadCounts = nil
-            try? result.save()
-        }
-
-        // 4. Cancel any existing computation.
-        deduplicatedReadCountTask?.cancel()
-
-        // 5. Restart computation for all organisms.
-        if isBatchGroupMode, let batchURL = batchGroupURL {
-            // Re-enumerate sample subdirectories (same logic as configureFromDatabase).
-            let contents = (try? FileManager.default.contentsOfDirectory(atPath: batchURL.path)) ?? []
-            let subdirs = contents
-                .sorted()
-                .map { batchURL.appendingPathComponent($0) }
-                .filter { url in
-                    var isDir: ObjCBool = false
-                    return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-                }
-            if !subdirs.isEmpty {
-                scheduleBatchPerSampleUniqueReadComputation(subdirs: subdirs)
-            }
-        } else if isMultiSampleSingleResultMode {
-            // Multi-sample single-result: use allBatchGroupRows as the row source.
-            // Convert allBatchGroupRows to TaxTriageTableRow for the scheduler.
-            let rows = allBatchGroupRows.map { metric in
-                TaxTriageTableRow(
-                    organism: metric.organism,
-                    tassScore: metric.tassScore,
-                    reads: metric.reads,
-                    uniqueReads: nil,
-                    coverage: metric.coverageBreadth,
-                    confidence: metric.confidence,
-                    taxId: metric.taxId,
-                    rank: metric.rank,
-                    abundance: metric.abundance
-                )
-            }
-            scheduleDeduplicatedReadCountComputation(for: rows)
-        }
-
-        // 6. Update info text to indicate recompute is in progress.
-        actionBar.updateInfoText("Recomputing unique reads for all organisms\u{2026}")
     }
 
     // MARK: - Classifier extraction wiring
