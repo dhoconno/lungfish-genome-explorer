@@ -46,7 +46,7 @@ Five other record writers publish through `DurableReplace` too. Each file goes o
 - `BundleManifest.save(to:)` in `Sources/LungfishCore/Bundles/BundleManifest.swift` publishes `manifest.json`.
 - `AnalysesFolder.writeAnalysisMetadata(_:to:)` in `Sources/LungfishIO/Bundles/AnalysesFolder.swift` publishes `analysis-metadata.json`.
 - `DependencyReceiptStore.save(_:)` in `Sources/LungfishWorkflow/Dependencies/DependencyReceiptStore.swift` publishes `dependency-receipt.json`.
-- `MappingProvenance.save(to:)` in `Sources/LungfishWorkflow/Mapping/MappingProvenance.swift` publishes `mapping-provenance.json`.
+- `MappingProvenance.save(toFile:)` in `Sources/LungfishWorkflow/Mapping/MappingProvenance+TrackRecord.swift` publishes a mapping record, `MappingProvenance.save(to:)` in `Sources/LungfishWorkflow/Mapping/MappingProvenance.swift` publishes `mapping-provenance.json` through it, and `bam adopt-mapping` publishes an adopted track's `<bam stem>.mapping-provenance.json` the same way.
 - `GenotypeAnnotationPublicationCoordinator` in `Sources/LungfishIO/Bundles/GenotypeAnnotationPublicationCoordinator.swift` publishes `annotations.json` and its provenance record inside one transaction and rolls both back when either fails.
 
 The genotype coordinator also restores a name that an interrupted ExFAT swap emptied before it reads its snapshot, so an edit is never built from nothing. `DurableReplace` never replaces a link, so the coordinator first turns a link that the earlier generation-based annotation store left under either name into a file that holds the same bytes.
