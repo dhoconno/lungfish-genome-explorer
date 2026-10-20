@@ -3343,7 +3343,7 @@ operations:
     gating: []
     sources:
       - Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift
-      - Sources/LungfishKit/CoverageScaleMode.swift
+      - Sources/LungfishWorkflow/ViewerExport/Graphics/CoverageScaleMode.swift
       - Sources/LungfishApp/Views/Viewer/ReadViewportPolicy.swift
       - Sources/LungfishApp/Views/Viewer/ReadBudgetState.swift
     settings:
