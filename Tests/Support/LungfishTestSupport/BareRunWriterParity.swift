@@ -199,7 +199,7 @@ public enum BareRunWriterParity {
         public static let bamAdoptMapping = Scenario(
             id: "bam-adopt-mapping",
             timing: .clockedRunAndSteps,
-            volatileFileSuffixes: [".bam", ".bai", ".stats.db", "/alignments/mapped/mapping-provenance.json"]
+            volatileFileSuffixes: [".bam", ".bai", ".stats.db", ".mapping-provenance.json"]
         )
 
         public static let all: [Scenario] = [

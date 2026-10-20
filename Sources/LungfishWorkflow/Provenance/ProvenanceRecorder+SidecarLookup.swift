@@ -111,10 +111,8 @@ extension ProvenanceRecorder {
             if let mappingProvenance = mappingProvenanceCandidate(for: standardizedURL) {
                 return mappingProvenance
             }
-        } else if standardizedURL.lastPathComponent == MappingProvenance.filename,
-                  let mappingProvenance = mappingProvenanceCandidate(
-                    for: standardizedURL.deletingLastPathComponent()
-                  ) {
+        } else if MappingProvenance.isRecordFilename(standardizedURL.lastPathComponent),
+                  let mappingProvenance = mappingProvenanceCandidate(atFile: standardizedURL) {
             return mappingProvenance
         } else {
             for candidate in fileSidecarCandidates(for: standardizedURL) {
@@ -218,14 +216,22 @@ extension ProvenanceRecorder {
         return candidates.count == 1 ? candidates[0] : nil
     }
 
-    /// A saved `mapping-provenance.json` keeps its own schema and reads as a typed record, never
-    /// as the Older record format. Its status is derived from its exit status.
+    /// A folder's `mapping-provenance.json`, read as `mappingProvenanceCandidate(atFile:)` reads it.
     private static func mappingProvenanceCandidate(
         for directory: URL
     ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
-        let sidecarURL = directory.appendingPathComponent(MappingProvenance.filename)
+        mappingProvenanceCandidate(atFile: directory.appendingPathComponent(MappingProvenance.filename))
+    }
+
+    /// A saved mapping record, a folder's `mapping-provenance.json` or a track's `<bam stem>.mapping-provenance.json`,
+    /// keeps its own schema and reads as a typed record, never as the Older record format. Its status is derived
+    /// from its exit status.
+    static func mappingProvenanceCandidate(
+        atFile sidecarURL: URL
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
+        let directory = sidecarURL.deletingLastPathComponent()
         guard FileManager.default.fileExists(atPath: sidecarURL.path),
-              let provenance = MappingProvenance.load(from: directory) else {
+              let provenance = MappingProvenance.load(fromFile: sidecarURL) else {
             return nil
         }
         let reading = ProvenanceEnvelopeReader.Reading(

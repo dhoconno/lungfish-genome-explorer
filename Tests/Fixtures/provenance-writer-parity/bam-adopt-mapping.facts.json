@@ -85,7 +85,7 @@
     },
     "sourceMappingProvenancePath" : {
       "type" : "string",
-      "value" : "alignments/mapped/mapping-provenance.json"
+      "value" : "alignments/mapped/adopted-mapping.mapping-provenance.json"
     },
     "trackID" : {
       "type" : "string",
@@ -136,7 +136,7 @@
     },
     {
       "format" : "json",
-      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.mapping-provenance.json",
       "role" : "output"
     }
   ],
@@ -179,7 +179,7 @@
     },
     "sourceMappingProvenancePath" : {
       "type" : "string",
-      "value" : "alignments/mapped/mapping-provenance.json"
+      "value" : "alignments/mapped/adopted-mapping.mapping-provenance.json"
     },
     "trackID" : {
       "type" : "string",
@@ -248,7 +248,7 @@
     },
     {
       "format" : "json",
-      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+      "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.mapping-provenance.json",
       "role" : "output"
     }
   ],
@@ -320,7 +320,7 @@
         },
         {
           "format" : "json",
-          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/mapping-provenance.json",
+          "path" : "<project>/BundleAlignmentFixture-<UUID>.lungfishref/alignments/mapped/adopted-mapping.mapping-provenance.json",
           "role" : "output"
         }
       ],

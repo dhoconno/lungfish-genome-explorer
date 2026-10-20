@@ -149,10 +149,9 @@ extension BAMCommand {
             startedAt: Date,
             completedAt: Date
         ) throws {
-            let finalDirectoryURL = attachment.bamURL.deletingLastPathComponent()
             let preservedMappingProvenanceURL = try preserveMappingProvenance(
                 sourceProvenance,
-                to: finalDirectoryURL,
+                forAlignmentAt: attachment.bamURL,
                 bundleURL: bundleURL
             )
             let provenanceURL = attachment.bamURL
@@ -251,18 +250,21 @@ extension BAMCommand {
             return provenance
         }
 
-        /// Saves the mapping folder's typed record again with the bundle as its viewer root, the one copy of the
-        /// run's record the bundle keeps.
+        /// Saves the mapping folder's typed record again with the bundle as its viewer root, as
+        /// `<bam stem>.mapping-provenance.json` beside the track's BAM, the one copy of the run's record the bundle
+        /// keeps for this track. Every adopted track shares `alignments/mapped/`, so no adopt writes the shared
+        /// `mapping-provenance.json` there, which bundles written before 2.13 may hold (2.13 lane 13.16).
         private func preserveMappingProvenance(
             _ provenance: MappingProvenance?,
-            to finalDirectoryURL: URL,
+            forAlignmentAt alignmentURL: URL,
             bundleURL: URL
         ) throws -> URL? {
             guard let provenance else {
                 return nil
             }
-            try provenance.withViewerBundleURL(bundleURL).save(to: finalDirectoryURL)
-            return finalDirectoryURL.appendingPathComponent(MappingProvenance.filename)
+            let recordURL = MappingProvenance.trackRecordURL(forAlignmentAt: alignmentURL)
+            try provenance.withViewerBundleURL(bundleURL).save(toFile: recordURL)
+            return recordURL
         }
 
         private func rollbackAdoptedMappingArtifacts(
@@ -273,9 +275,7 @@ extension BAMCommand {
             let provenanceURL = attachment.bamURL
                 .deletingPathExtension()
                 .appendingPathExtension("adopt-mapping-provenance.json")
-            let rehydratedMappingProvenanceURL = attachment.bamURL
-                .deletingLastPathComponent()
-                .appendingPathComponent(MappingProvenance.filename)
+            let rehydratedMappingProvenanceURL = MappingProvenance.trackRecordURL(forAlignmentAt: attachment.bamURL)
             for url in [
                 provenanceURL,
                 rehydratedMappingProvenanceURL,

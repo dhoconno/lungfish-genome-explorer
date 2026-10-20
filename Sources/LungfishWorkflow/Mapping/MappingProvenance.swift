@@ -267,13 +267,11 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         )
     }
 
-    public func save(to directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    public func save(to directory: URL) throws { try save(toFile: directory.appendingPathComponent(Self.filename)) }
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        let data = try encoder.encode(
+    /// The record's bytes for a file in `directory`, its paths stored from that folder (`save(toFile:)`).
+    func persistedData(relativeTo directory: URL, encoder: JSONEncoder) throws -> Data {
+        try encoder.encode(
             PersistedMappingProvenance(
                 schemaVersion: schemaVersion,
                 workflowName: workflowName,
@@ -317,9 +315,6 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 readSetPlan: readSetPlan
             )
         )
-
-        let url = directory.appendingPathComponent(Self.filename)
-        try DurableReplace.replace(PortablePath.sanitizeJSON(data, forFileAt: url, encoder: encoder), named: Self.filename, in: directory)
     }
 
     @discardableResult
@@ -327,8 +322,11 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         try writer.write(canonicalEnvelope(sourceDirectory: directory, runCommand: runCommand), to: directory)
     }
 
-    public static func load(from directory: URL) -> MappingProvenance? {
-        let url = directory.appendingPathComponent(Self.filename)
+    public static func load(from directory: URL) -> MappingProvenance? { load(fromFile: directory.appendingPathComponent(Self.filename)) }
+
+    /// The record the file `url` holds, its stored paths resolved from the file's folder (`load(fromFile:)`).
+    static func decoded(fromFile url: URL) -> MappingProvenance? {
+        let directory = url.deletingLastPathComponent()
         guard let stored = try? Data(contentsOf: url) else { return nil }
         let data = PortablePath.resolveJSON(stored, forFileAt: url)
 

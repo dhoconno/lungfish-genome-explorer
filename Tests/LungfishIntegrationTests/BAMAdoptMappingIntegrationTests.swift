@@ -65,8 +65,8 @@ struct BAMAdoptMappingIntegrationTests {
             .deletingPathExtension()
             .appendingPathExtension("adopt-mapping-provenance.json")
         let rehydratedMappingProvenanceURL = adoptedBAMURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("mapping-provenance.json")
+            .deletingPathExtension()
+            .appendingPathExtension("mapping-provenance.json")
         #expect(FileManager.default.fileExists(atPath: adoptProvenanceURL.path))
         #expect(FileManager.default.fileExists(atPath: rehydratedMappingProvenanceURL.path))
 
@@ -224,7 +224,7 @@ struct BAMAdoptMappingIntegrationTests {
                 "alignments/mapped/real-record.bam.bai",
                 "alignments/mapped/real-record.stats.db",
                 "alignments/mapped/real-record.adopt-mapping-provenance.json",
-                "alignments/mapped/mapping-provenance.json",
+                "alignments/mapped/real-record.mapping-provenance.json",
             ],
             "the bundle gained the track, the adopt record and one typed record"
         )
@@ -232,7 +232,7 @@ struct BAMAdoptMappingIntegrationTests {
             !filesAfter.contains { ($0 as NSString).lastPathComponent == canonicalURL.lastPathComponent },
             "the mapping folder's canonical record \(canonicalURL.lastPathComponent) is not carried into the bundle"
         )
-        let kept = try #require(MappingProvenance.load(from: scene.keptRecordFolder), "the kept record decodes")
+        let kept = try #require(MappingProvenance.load(fromFile: scene.keptRecordFolder.appendingPathComponent("real-record.mapping-provenance.json")), "the kept record decodes")
         #expect(
             kept.viewerBundlePath.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
                 == scene.bundleURL.standardizedFileURL.path,
@@ -317,7 +317,7 @@ struct BAMAdoptMappingIntegrationTests {
         let first = try scene.stageMappingFolder(named: "first")
         try AdoptableMappingRecord.write(into: first)
         try await scene.adopt(first, name: "first", trackID: "first")
-        let keptURL = scene.keptRecordFolder.appendingPathComponent(MappingProvenance.filename)
+        let keptURL = scene.keptRecordFolder.appendingPathComponent("first.mapping-provenance.json")
         let keptBefore = try Data(contentsOf: keptURL)
         let manifestBefore = try Data(contentsOf: scene.manifestURL)
         let filesBefore = Self.files(under: scene.bundleURL)
@@ -363,7 +363,7 @@ struct BAMAdoptMappingIntegrationTests {
 
         try await scene.adopt(mappingDir, name: trackID, trackID: trackID)
 
-        let keptURL = scene.keptRecordFolder.appendingPathComponent(MappingProvenance.filename)
+        let keptURL = scene.keptRecordFolder.appendingPathComponent("\(trackID).mapping-provenance.json")
         let after = try #require(Self.recordedPlan(in: keptURL), "the reader finds the plan in the bundle")
         return (before, after)
     }
