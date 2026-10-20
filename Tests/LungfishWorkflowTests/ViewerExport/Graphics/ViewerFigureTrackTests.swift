@@ -181,6 +181,29 @@ final class ViewerFigureSequenceTrackTests: XCTestCase {
         }
     }
 
+    func testACompressedFASTAIsRefusedWithAPlainError() async throws {
+        let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
+        defer { TestTempDirectory.cleanup(root) }
+        // A bgzip FASTA holds gzip bytes where the bases start, which the reader cannot decode as text.
+        // The track refuses the file by its name until a later lane reads bgzip.
+        let fasta = try ViewerFigureTrackFixture.write(in: root)
+        let compressed = root.appendingPathComponent("figure.fa.gz")
+        try Data([0x1F, 0x8B, 0x08, 0x00]).write(to: compressed)
+        try FileManager.default.copyItem(at: fasta.appendingPathExtension("fai"), to: compressed.appendingPathExtension("fai"))
+        let frame = ViewerFigureTrackFixture.frame(start: 100, end: 140, width: 400)
+        do {
+            _ = try await ViewerFigureSceneBuilder.build(
+                frame: frame, appearance: .light, tracks: [ViewerFigureSequenceTrack(fastaURL: compressed)]
+            )
+            XCTFail("a compressed FASTA built a scene")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The sequence file figure.fa.gz is compressed, and figures cannot read compressed sequence files yet."
+            )
+        }
+    }
+
     func testInputFilesNameTheFASTAAndItsIndex() {
         let fasta = URL(fileURLWithPath: "/tmp/figure.fa")
         XCTAssertEqual(

@@ -7,14 +7,19 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// A contig the FASTA index does not name.
+/// A contig the FASTA index does not name, or a compressed FASTA the track cannot read yet.
 public enum ViewerFigureSequenceTrackError: Error, Hashable, LocalizedError {
     case contigNotFound(contig: String, fasta: String)
+    /// A `.gz` FASTA. The indexed reader has no gzip check and fails on bytes that are not text, so the
+    /// track refuses the file until a later lane reads it through `BgzipIndexedFASTAReader`.
+    case compressedFASTA(fasta: String)
 
     public var errorDescription: String? {
         switch self {
         case .contigNotFound(let contig, let fasta):
             "The sequence \(contig) is not in the index of \(fasta), so its track cannot be drawn."
+        case .compressedFASTA(let fasta):
+            "The sequence file \(fasta) is compressed, and figures cannot read compressed sequence files yet."
         }
     }
 }
@@ -75,6 +80,9 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
     }
 
     public func build(into canvas: inout ViewerFigureCanvas, frame: ViewerFigureFrame, area: ViewerFigureRect) async throws {
+        if fastaURL.pathExtension.lowercased() == "gz" {
+            throw ViewerFigureSequenceTrackError.compressedFASTA(fasta: fastaURL.lastPathComponent)
+        }
         let reader = try IndexedFASTAReader(url: fastaURL, indexURL: indexURL)
         guard let entry = reader.index.entry(for: frame.chromosome) else {
             throw ViewerFigureSequenceTrackError.contigNotFound(contig: frame.chromosome, fasta: fastaURL.lastPathComponent)
