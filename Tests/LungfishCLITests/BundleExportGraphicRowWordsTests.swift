@@ -179,4 +179,50 @@ final class BundleExportGraphicRowWordsTests: XCTestCase {
             "In first.png, the figure used another font (Menlo fell back to Courier at 9 points)."
         )
     }
+
+    /// UX review Fix 1 (ruling 5). A BAM of 4 GiB or more takes about three seconds to hash, so the row names the
+    /// stage. A 2 GiB one hashes in under two seconds and the row keeps the leaf's start message.
+    func testTheRowNamesAChecksumStageOnlyForAnInputOfFourGiB() {
+        XCTAssertEqual(
+            BundleExportGraphicRecord.checksumStage(inputs: [("manifest.json", 400), ("reads.bam", 5 << 30), ("reads.bam.bai", 90_000)]),
+            "Computing the checksum of reads.bam"
+        )
+        XCTAssertNil(BundleExportGraphicRecord.checksumStage(inputs: [("reads.bam", (4 << 30) - 1)]), "one byte under 4 GiB")
+        XCTAssertNil(BundleExportGraphicRecord.checksumStage(inputs: [("reads.bam", 2 << 30)]), "2 GiB shows no stage")
+        XCTAssertNil(BundleExportGraphicRecord.checksumStage(inputs: []))
+        XCTAssertEqual(
+            BundleExportGraphicRecord.checksumStage(inputs: [("a.bam", 6 << 30), ("b.bam", 9 << 30), ("c.bam", 5 << 30)]),
+            "Computing the checksum of b.bam", "the larger of the inputs over the threshold is named"
+        )
+        XCTAssertEqual(BundleExportGraphicRecord.checksumStage(inputs: [("x", 10)], threshold: 10), "Computing the checksum of x")
+    }
+
+    /// The stage reaches the event stream as a progress event, and a small export emits none. The 4 GiB input is a
+    /// sparse file, which takes no disk space and is never read, since only its size is looked at.
+    func testAProgressEventNamesTheLargestInputAndASmallExportEmitsNone() async throws {
+        let output = folder.appendingPathComponent("small.png")
+        let small = try await Self.said(
+            [bundle.path, "--region", "chr1:1101-1300", "--width", "2000", "--track", "genes", "--output-format", "png",
+             "-o", output.path],
+            in: folder
+        )
+        XCTAssertEqual(small.progress, [], "a few kilobytes hash in a blink")
+
+        let big = folder.appendingPathComponent("big.bam")
+        XCTAssertTrue(FileManager.default.createFile(atPath: big.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: 4 << 30)
+        try handle.close()
+        let manifest = bundle.appendingPathComponent("manifest.json")
+        let lines = Lines()
+        BundleExportGraphicRecord.announceChecksum(of: [manifest, big], events: CLIEventEmitter(enabled: true) { lines.add($0) })
+        XCTAssertEqual(lines.all.count, 1, "\(lines.all)")
+        XCTAssertTrue(lines.all.first?.contains("\"event\":\"progress\"") ?? false, "\(lines.all)")
+        XCTAssertTrue(lines.all.first?.contains("Computing the checksum of big.bam") ?? false, "\(lines.all)")
+
+        let sizes = BundleExportGraphicRecord.sizes(of: [manifest, folder.appendingPathComponent("nothing")])
+        XCTAssertEqual(sizes.map(\.name), ["manifest.json", "nothing"])
+        XCTAssertGreaterThan(sizes[0].size, 0)
+        XCTAssertEqual(sizes[1].size, 0, "a file that cannot be read counts as 0 bytes")
+    }
 }

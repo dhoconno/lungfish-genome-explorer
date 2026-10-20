@@ -110,6 +110,7 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
             rendering: rendering, pixelScale: pixelScale, outputURL: outputURL, force: invocation.force
         )
         try Task.checkCancellation()
+        BundleExportGraphicRecord.announceChecksum(of: figure.inputURLs, events: events)
         try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
             workflowName: ViewerGraphicExport.workflowName,
             sourceURLs: figure.inputURLs,

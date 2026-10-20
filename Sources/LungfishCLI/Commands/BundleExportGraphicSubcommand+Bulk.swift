@@ -94,6 +94,7 @@ extension BundleExportGraphicSubcommand {
             settings: settings, trackIDs: trackIDs, figures: figures, pixelScale: pixelScale, folderURL: folderURL
         )
         try Task.checkCancellation()
+        BundleExportGraphicRecord.announceChecksum(of: inputURLs, events: events)
         try ScientificFileExportProvenance.writeFolderAtomically(.cliLeaf(
             workflowName: ViewerGraphicExport.workflowName,
             sourceURLs: inputURLs,

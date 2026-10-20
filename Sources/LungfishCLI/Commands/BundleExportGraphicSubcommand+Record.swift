@@ -169,6 +169,30 @@ struct BundleExportGraphicRecord {
         }
     }
 
+    /// The row's detail while the writer hashes the inputs (the V2-2 rider, UX review of 13.30, Fix 1 and ruling 5). An
+    /// input of 4 GiB or more takes about three seconds to hash, so the stage names the largest one. A smaller input
+    /// hashes in under two seconds and the row keeps the leaf's start message.
+    static func checksumStage(inputs: [(name: String, size: Int64)], threshold: Int64 = 4 << 30) -> String? {
+        guard let largest = inputs.filter({ $0.size >= threshold }).max(by: { $0.size < $1.size }) else { return nil }
+        return "Computing the checksum of \(largest.name)"
+    }
+
+    /// The names and sizes of `urls`, a file that cannot be read counting as 0 bytes.
+    static func sizes(of urls: [URL]) -> [(name: String, size: Int64)] {
+        urls.map { url in
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+            return (url.lastPathComponent, size?.int64Value ?? 0)
+        }
+    }
+
+    /// Emits the checksum stage as a progress event, which the Operations row shows as its detail, when an input of
+    /// `urls` is large enough to name. The writer hashes every input right after.
+    static func announceChecksum(of urls: [URL], events: CLIEventEmitter) {
+        if let stage = checksumStage(inputs: sizes(of: urls)) {
+            events.emitProgress(0, message: stage)
+        }
+    }
+
     /// The degraded fact of a PDF the normalizer could not read (R-QM1, UX words).
     static func pdfKeptAsWrittenFact(_ reason: String) -> String {
         "This PDF keeps the creation date, modification date and file ID that macOS wrote, so running its command "
