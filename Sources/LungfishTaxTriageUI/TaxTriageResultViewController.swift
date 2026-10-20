@@ -2796,6 +2796,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         openReportButton.action = #selector(openExternalTapped)
         openReportButton.toolTip = "Open the TaxTriage report (PDF, or HTML when there is no PDF) for the selected row's sample"
         actionBar.addCustomButton(openReportButton)
+        reserveTheSpaceOfTheDeletedRecomputeButton()
+    }
+
+    /// The hidden "Recompute Unique Reads" button this bar held (170 pt plus a 6 pt gap, after Open Report) set
+    /// where the info text starts and how narrow this view can get. Deleting it (13.53) moved both, so this
+    /// keeps the 176 pt. The bar chains the info text to its last button with one leading constraint, found
+    /// here by its two items. If the bar stops using one, nothing moves.
+    private func reserveTheSpaceOfTheDeletedRecomputeButton() {
+        let infoTextLeading = actionBar.constraints.first {
+            $0.firstItem === actionBar.infoLabel && $0.firstAttribute == .leading
+                && $0.secondItem === openReportButton && $0.secondAttribute == .trailing
+        }
+        infoTextLeading?.constant += 176
     }
 
     private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {

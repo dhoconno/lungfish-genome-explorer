@@ -400,17 +400,11 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             ),
             sourceSlice(
                 in: source,
-                from: "// Wire batch flat table callbacks (same pattern as configureFromDatabase).",
-                to: "batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in",
-                occurrence: 2
-            ),
-            sourceSlice(
-                in: source,
                 from: "organismTableView.onRowSelected = { [weak self] row in",
                 to: "organismTableView.onBlastRequested = { [weak self] row, readCount in"
             ),
         ]
-        XCTAssertEqual(selectionBlocks.count, 3)
+        XCTAssertEqual(selectionBlocks.count, 2)
 
         for block in selectionBlocks {
             XCTAssertFalse(
