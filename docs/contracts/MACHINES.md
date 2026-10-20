@@ -93,7 +93,7 @@ To run a command as `lge-runner` from another account, use `sudo -H -u lge-runne
 
 ### Environment and first run
 
-1. The golden folder is shared, so a folder another account already provisioned on the same Mac needs nothing more. Otherwise, as `lge-runner`, clone the repository and run `python3 scripts/golden/environment.py provision` once, so the first workflow run does not wait for downloads.
+1. The golden folder is shared, so a folder another account already provisioned on the same Mac needs nothing more. Otherwise, as `lge-runner`, clone the repository and run `python3 scripts/golden/environment.py provision` once, so the first workflow run does not wait for downloads. On a fresh folder it ends with a problem that names the Kraken2 Viral install, so run that install of rule 5 and then run `provision` again.
 2. Run the workflow by hand with `gh workflow run golden.yml --ref main` and check that it passes.
 
 Every golden run and every provision leaves what it wrote group writable (`share_tree` in `scripts/golden/environment.py`), because the next run may belong to the other account and empties `run/` first.

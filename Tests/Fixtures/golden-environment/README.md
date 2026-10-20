@@ -20,6 +20,7 @@ These files pin the managed tools and databases the golden captures in `Tests/Fi
 | `databases[].path` | The folder under `storage/databases`, as the goldens record it |
 | `databases[].source.url` | The archive `provision` downloads. An optional `source.sha256` also pins the archive. |
 | `databases[].files` | Size and SHA-256 of the files the goldens fingerprint. With `exactFiles` the folder may hold no other file. |
+| `databases[].payloadDigest` | Optional, and only the Kraken2 Viral database has one. The payload digest that LGE's installer recorded when it installed the database. `verify` then checks that the registry row holds it, that the row's `canonicalReceiptSHA256` is the SHA-256 of the install receipt `.lungfish-provenance.json`, that the receipt names the digest and the folder, and that the folder's files, without the receipt, add up to it. `provision` never writes it, and rule 5 of `docs/contracts/MACHINES.md` says how LGE installs the database. |
 | `databases[].registry` | The rest of the row `provision` writes into `metagenomics-db-registry.json`, which the CLI reads to find the database |
 
 ## How the first lock was made
