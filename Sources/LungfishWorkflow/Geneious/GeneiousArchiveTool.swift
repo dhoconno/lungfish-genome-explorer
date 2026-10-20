@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public enum GeneiousArchiveToolError: LocalizedError, Sendable, Equatable {
     case unsafeMemberPath(String)
@@ -47,7 +48,7 @@ public struct GeneiousArchiveTool: Sendable {
     }
 
     public func listMembers(archiveURL: URL) throws -> [String] {
-        let result = try runUnzip(arguments: ["-Z1", archiveURL.path])
+        let result = try runUnzip(arguments: ["-Z1", archiveURL.path], capturesStdout: true)
         let members = result.stdout
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
@@ -63,28 +64,23 @@ public struct GeneiousArchiveTool: Sendable {
         _ = try runUnzip(arguments: ["-qq", archiveURL.path, "-d", destinationURL.path])
     }
 
-    private func runUnzip(arguments: [String]) throws -> (stdout: String, stderr: String) {
-        let process = Process()
-        process.executableURL = unzipURL
-        process.arguments = arguments
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
+    private func runUnzip(arguments: [String], capturesStdout: Bool = false) throws -> (stdout: String, stderr: String) {
+        let spec = ToolProcessSpec(
+            executableURL: unzipURL,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: capturesStdout ? .capture() : .discard,
+            stderr: .capture(limit: 64 * 1024),
+            label: "unzip"
+        )
+        let result = try ToolProcess.runBlocking(spec)
+        guard result.isSuccess else {
             throw GeneiousArchiveToolError.unzipFailed(
                 arguments: arguments,
-                status: process.terminationStatus,
-                stderr: stderrText
+                status: result.status,
+                stderr: result.status == 0 ? (result.incompleteOutputReason ?? "") : result.stderrText
             )
         }
-        return (stdoutText, stderrText)
+        return (result.stdoutText, result.stderrText)
     }
 }
