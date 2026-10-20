@@ -118,10 +118,12 @@ enum ReadWriterFixtures {
                 members: [fastq("a1"), fastq("b1"), fastq("c1")],
                 expected: plainThree
             ),
+            // 2.13 lane 13.15, SW5. A member without its final line break gets one before the next member's record,
+            // where the base gave `IIII@b1`. The last member keeps its bytes.
             JoinCase(
                 name: "two plain members, the first lacks its final line break",
                 members: [fastq("a1", finalLineBreak: false), fastq("b1")],
-                expected: Data("@a1\nACGT\n+\nIIII@b1\nACGT\n+\nIIII\n".utf8)
+                expected: Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n".utf8)
             ),
             JoinCase(
                 name: "three plain members, the last lacks its final line break",
@@ -131,7 +133,7 @@ enum ReadWriterFixtures {
             JoinCase(
                 name: "three plain members, the middle one lacks its final line break",
                 members: [fastq("a1"), fastq("b1", finalLineBreak: false), fastq("c1")],
-                expected: Data("@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII@c1\nACGT\n+\nIIII\n".utf8)
+                expected: plainThree
             ),
             JoinCase(
                 name: "an empty member adds nothing",

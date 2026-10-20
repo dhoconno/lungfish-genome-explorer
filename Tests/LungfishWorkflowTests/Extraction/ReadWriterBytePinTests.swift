@@ -12,9 +12,10 @@ import LungfishTestSupport
 /// before the writers move onto `DurableReplace` so the move cannot change a
 /// read or a digest. These pass at the base and pass again after every step.
 ///
-/// A member that lacks a final line break runs into the next member's first
-/// line in the resolver's and the materializer's joins, since both copy
-/// bytes. The pins record that as it is today, and the report names it.
+/// Since 2.13 lane 13.15 (SW5) a member that lacks a final line break gets
+/// one before the next member's record in every join, where the base let it
+/// run into the next member's first line. Those two pins moved by prediction,
+/// and every other pinned byte stayed.
 final class ReadWriterBytePinTests: XCTestCase {
     private typealias Fixtures = ReadWriterFixtures
     private var root: URL!
@@ -84,6 +85,29 @@ final class ReadWriterBytePinTests: XCTestCase {
         XCTAssertThrowsError(
             try FASTQCLIMaterializer(runner: .shared).concatenateFiles([present, missing], to: folder.appendingPathComponent("m.fastq"))
         )
+    }
+
+    /// 2.13 lane 13.15, SW5 under BIO's ruling. A plain member without a final line break gets one before the next
+    /// member's first record, so each of the three joins gives a FASTQ whose read count is the sum of its members'.
+    func testEveryJoinOfAMemberWithoutAFinalLineBreakHoldsEveryRead() async throws {
+        let folder = root.appendingPathComponent("sum", isDirectory: true)
+        let members = [
+            Fixtures.fastq("a1", finalLineBreak: false), Fixtures.fastq("b1", finalLineBreak: false), Fixtures.fastq("c1"),
+        ]
+        let sources = try members.enumerated().map { index, data in
+            try Fixtures.write(data, named: "m\(index).fastq", in: folder)
+        }
+        let joined = ["resolver", "materializer", "importer"].map { folder.appendingPathComponent("\($0).fastq") }
+
+        try await ClassifierReadResolver().concatenateFiles(sources, into: joined[0])
+        try FASTQCLIMaterializer(runner: .shared).concatenateFiles(sources, to: joined[1])
+        try FASTQBatchImporter.concatenateFiles(sources, to: joined[2])
+
+        for url in joined {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertEqual(text, "@a1\nACGT\n+\nIIII\n@b1\nACGT\n+\nIIII\n@c1\nACGT\n+\nIIII\n", url.lastPathComponent)
+            XCTAssertEqual(text.split(separator: "\n").count, 12, "three reads of four lines")
+        }
     }
 
     // MARK: - FASTQ to FASTA

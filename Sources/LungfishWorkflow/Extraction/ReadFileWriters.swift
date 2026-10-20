@@ -35,14 +35,26 @@ enum ReadFileWriters {
     /// The most bytes of a source held in memory at once while joining.
     static let chunkSize = 4 * 1024 * 1024
 
-    /// Streams `sources` in order into `destination`, byte for byte.
+    /// Streams `sources` in order into `destination`, byte for byte but for one
+    /// rule. A member whose bytes do not end in a line break gets one before
+    /// the next member that starts a record (`@` or `>`), so no record runs
+    /// into the next member's header and the joined file holds the sum of the
+    /// members' reads. That is S12's rule for a plain member
+    /// (`ResolvedSequenceInputs`, Phase 2.9), held to the place where it
+    /// changes a read (Phase 2.13 lane 13.15, SW5 under BIO's ruling). Members
+    /// that end in line breaks, gzip members, which start with no record, and
+    /// the last member keep their bytes.
     static func join(_ sources: [URL], into destination: URL) throws {
         try publish(destination) { stage in
+            var lastByte: UInt8?
             for source in sources {
-                try append(source, to: stage)
+                lastByte = try append(source, to: stage, after: lastByte) ?? lastByte
             }
         }
     }
+
+    /// The first bytes of a FASTQ and of a FASTA record.
+    private static let recordStarts: Set<UInt8> = [UInt8(ascii: "@"), UInt8(ascii: ">")]
 
     /// Publishes the bytes that `body` streams as `destination`, swapping out
     /// any regular file the name holds, and returns what `body` returns. When
@@ -68,13 +80,23 @@ enum ReadFileWriters {
         return result
     }
 
-    /// Streams `source` into `stage` in chunks.
-    static func append(_ source: URL, to stage: DurableReplace.StageWriter) throws {
+    /// Streams `source` into `stage` in chunks and returns its last byte, nil
+    /// for an empty source. When `previous`, the last byte written before it,
+    /// is no line break and `source` starts a record, a line break goes first.
+    @discardableResult
+    static func append(_ source: URL, to stage: DurableReplace.StageWriter, after previous: UInt8? = nil) throws -> UInt8? {
         let input = try openForReading(source)
         defer { try? input.close() }
+        let lineBreak = UInt8(ascii: "\n")
+        var last: UInt8?
         while let chunk = try readChunk(of: input, from: source), !chunk.isEmpty {
+            if last == nil, let previous, previous != lineBreak, let first = chunk.first, recordStarts.contains(first) {
+                try stage.write(Data([lineBreak]))
+            }
             try stage.write(chunk)
+            last = chunk.last
         }
+        return last
     }
 
     /// Opens `source`, or throws ``ReadFileWriterError/unreadableSource(path:reason:)``.
