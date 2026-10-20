@@ -280,34 +280,7 @@ public final class GzipInputStream: Sendable {
     /// Used by `readAll()` where the full content is needed in memory.
     private func decompressWithSystemGzip() throws -> Data {
         try Self.validateGzipHeader(at: url)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw GzipError.decompressionFailed("Failed to launch gzip: \(error.localizedDescription)")
-        }
-
-        let output = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let stderrText = String(data: stderrData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GzipError.decompressionFailed(
-                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
-            )
-        }
-        return output
+        return try GzipTool.decompressedData(of: url)
     }
 }
 
