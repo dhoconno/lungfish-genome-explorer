@@ -2211,17 +2211,16 @@ private func nvdCountReadsWithTelemetry(
     databaseURL: URL
 ) -> (count: Int?, step: NvdAuxiliaryStep) {
     let samtoolsClock = ProvenanceRunClock()
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: samtoolsPath)
     let argv = [samtoolsPath, "view", "-c", "-F", String(flagFilter), bamURL.path, accession]
-    process.arguments = Array(argv.dropFirst())
-    let stdout = Pipe()
-    let stderr = Pipe()
-    process.standardOutput = stdout
-    process.standardError = stderr
-
+    let spec = ToolProcessSpec(
+        executableURL: URL(fileURLWithPath: samtoolsPath),
+        arguments: Array(argv.dropFirst()),
+        environment: ToolProcessSpec.inheritedEnvironment(),
+        label: "samtools view -c"
+    )
+    let result: ToolProcessResult
     do {
-        try process.run()
+        result = try ToolProcess.runBlocking(spec)
     } catch {
         let completedAt = samtoolsClock.now
         return (
@@ -2242,15 +2241,15 @@ private func nvdCountReadsWithTelemetry(
         )
     }
 
-    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
     let completedAt = samtoolsClock.now
-    let stderrText = String(data: stderrData, encoding: .utf8)?
+    var stderrText = String(data: result.stderr, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let output = String(data: outputData, encoding: .utf8)?
+    if let reason = result.incompleteOutputReason {
+        stderrText = [stderrText, reason].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+    let output = String(data: result.stdout, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
-    let count = process.terminationStatus == 0 ? Int(output) : nil
+    let count = result.isSuccess ? Int(output) : nil
     return (
         count,
         NvdAuxiliaryStep(
@@ -2260,7 +2259,7 @@ private func nvdCountReadsWithTelemetry(
             reproducibleCommand: argv.map(metagenomicsShellEscape).joined(separator: " "),
             inputURLs: [bamURL],
             outputURLs: count == nil ? [] : [databaseURL],
-            exitStatus: Int(process.terminationStatus),
+            exitStatus: Int(result.status),
             wallTimeSeconds: completedAt.timeIntervalSince(samtoolsClock.startedAt),
             stderr: stderrText.isEmpty ? nil : stderrText,
             startedAt: samtoolsClock.startedAt,
@@ -2388,17 +2387,16 @@ private func nvdPathCandidates(for url: URL) -> Set<String> {
 }
 
 private func metagenomicsExternalToolVersion(executablePath: String) -> String {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: executablePath)
-    process.arguments = ["--version"]
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
+    let spec = ToolProcessSpec(
+        executableURL: URL(fileURLWithPath: executablePath),
+        arguments: ["--version"],
+        environment: ToolProcessSpec.inheritedEnvironment(),
+        label: "\(URL(fileURLWithPath: executablePath).lastPathComponent) --version"
+    )
     do {
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(data: data, encoding: .utf8) ?? ""
+        // One pipe held both streams before, so the version may print on either one.
+        let result = try ToolProcess.runBlocking(spec)
+        let output = String(data: result.stdout + result.stderr, encoding: .utf8) ?? ""
         if let firstLine = output.split(separator: "\n").first {
             return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
         }
