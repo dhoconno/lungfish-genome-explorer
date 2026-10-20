@@ -204,35 +204,28 @@ public final class NaoMgsResultParser: @unchecked Sendable {
     private func readFirstLineGzip(at url: URL) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-                process.arguments = ["-dc", url.path]
-
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = FileHandle.nullDevice
-
+                let child: GzipChildStream
                 do {
-                    try process.run()
+                    child = try GzipChildStream(decompressing: url)
                 } catch {
                     continuation.resume(throwing: error)
                     return
                 }
 
-                let handle = pipe.fileHandleForReading
                 var buffer = Data()
                 let chunkSize = 8192
 
                 // Read until we find a newline
                 while true {
-                    let chunk = handle.readData(ofLength: chunkSize)
+                    let chunk = child.readChunk(upTo: chunkSize)
                     if chunk.isEmpty { break }
                     buffer.append(chunk)
                     if buffer.contains(UInt8(ascii: "\n")) { break }
                 }
 
-                process.terminate()
-                try? handle.close()
+                // The first line is in hand. Closing cancels the run, which stops a gzip that still runs, and the
+                // child is reaped before the line is returned.
+                child.close()
 
                 guard let raw = String(data: buffer, encoding: .utf8) else {
                     continuation.resume(
