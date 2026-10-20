@@ -11,6 +11,7 @@ import AppKit
 import LungfishCore
 import LungfishKit
 import LungfishTestSupport
+import LungfishWorkflow
 import SwiftUI
 import XCTest
 @testable import LungfishApp
@@ -93,6 +94,20 @@ final class ProvenanceAppStepRowTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(pasteboard.string(forType: .string)).contains(Self.note))
     }
 
+    /// V1-7 with the name 13.27 writes. A record keeps an argv[0] with spaces as one single-quoted word, so the
+    /// Command row holds `'Lungfish Genome Explorer' fastq merge ...` and the tab must still mark it.
+    func testAStepWhoseRecordedToolNameHasSpacesIsAnAppStep() async throws {
+        let model = try await loadedModel(appName: "Lungfish Genome Explorer")
+        let run = try XCTUnwrap(model.lineageRuns.last)
+        let app = run.steps[0]
+        XCTAssertTrue(app.command.contains("Lungfish Genome Explorer"), app.command)
+        XCTAssertEqual(run.steps.map(\.ranInsideTheApp), [true, false])
+        XCTAssertEqual(app.appStepNote, Self.note)
+        let actions = model.stepCopyActions(app, in: run)
+        XCTAssertFalse(try isEnabled("Copy Command", in: actions))
+        XCTAssertTrue(try isEnabled("Copy Step", in: actions))
+    }
+
     private func copyActions(of element: NSObject) -> [String] {
         AccessibilityTreeProbe.customActionNames(element).filter { $0.hasPrefix("Copy") }
     }
@@ -113,18 +128,18 @@ final class ProvenanceAppStepRowTests: XCTestCase {
 
     /// A record of two steps, the first one that ran inside the app and the second one that names `lungfish-cli`,
     /// placed in a project and loaded the way the Inspector loads it.
-    private func loadedModel() async throws -> ProvenanceInspectorViewModel {
+    private func loadedModel(appName: String = "lungfish-app") async throws -> ProvenanceInspectorViewModel {
         let template = try Data(contentsOf: ProvenanceDisplayFixtures.directory
             .appendingPathComponent("Analyses/fastq-trim-cancelled/.lungfish-provenance.json"))
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: template) as? [String: Any])
         let templateStep = try XCTUnwrap((object["steps"] as? [[String: Any]])?.first)
-        object["steps"] = [("lungfish-app", Self.appArgv), ("lungfish-cli", Self.cliArgv)]
+        object["steps"] = [(appName, [appName] + Array(Self.appArgv.dropFirst())), ("lungfish-cli", Self.cliArgv)]
             .map { toolName, argv -> [String: Any] in
                 var step = templateStep
                 step["id"] = UUID().uuidString
                 step["toolName"] = toolName
                 step["argv"] = argv
-                step["reproducibleCommand"] = argv.joined(separator: " ")
+                step["reproducibleCommand"] = AdvancedCommandLineOptions.join(argv)
                 return step
             }
         let bytes = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
