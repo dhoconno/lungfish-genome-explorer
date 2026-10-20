@@ -367,7 +367,8 @@ struct MetagenomicsImportServiceTests {
             })
             let samtoolsSteps = provenance.steps.filter { $0.toolName == "samtools" }
             #expect(!samtoolsSteps.isEmpty)
-            #expect(samtoolsSteps.contains { step in
+            // The markdup call, not a samtools stage, names where the BAM ends (lane 13.09 prediction (a)).
+            #expect(provenance.steps.filter { $0.toolName == "lungfish nao-mgs markdup" }.contains { step in
                 step.outputs.contains { descriptor in
                     descriptor.path.hasSuffix(".bam") && descriptor.originPath != nil
                 }
