@@ -49,6 +49,43 @@ struct BAMAdoptMappingTrackRecordTests {
         let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: scene.mappedFolder.appendingPathComponent("first.stats.db"))
         #expect(metadataDB.getFileInfo("source_mapping_provenance_path") == "alignments/mapped/first.mapping-provenance.json")
     }
+
+    /// Item 4. The rollback removes the files the run made, from a list it fills as it makes each one, moves the
+    /// BAM and index back to the mapping folder they came from, and puts back the manifest's bytes.
+    @Test("a failed adopt leaves the earlier track and returns the BAM")
+    func testAFailedAdoptLeavesTheEarlierTrackAndReturnsTheBAM() async throws {
+        let scene = try AdoptScene.make("adopt-failed")
+        defer { scene.cleanup() }
+        let first = try scene.stageMappingFolder(named: "first")
+        try AdoptableMappingRecord.write(into: first)
+        try await scene.adopt(first, trackID: "first")
+        let filesBefore = scene.bundleFiles()
+        let manifestBefore = try Data(contentsOf: scene.manifestURL)
+
+        let second = try scene.stageMappingFolder(named: "second")
+        try AdoptableMappingRecord.write(into: second, planHome: .recordLevel(AdoptableMappingRecord.mixedSamplePlan))
+        // A folder where the second adopt record goes fails its write, after the attach moved the BAM and the
+        // adopt saved the track's mapping record.
+        let blocker = scene.mappedFolder.appendingPathComponent("second.adopt-mapping-provenance.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: blocker, withIntermediateDirectories: true)
+        await #expect(throws: (any Error).self) {
+            try await scene.adopt(second, trackID: "second")
+        }
+
+        #expect(scene.bundleFiles() == filesBefore, "the earlier track's files are byte-identical and the run left none of its own")
+        #expect(try Data(contentsOf: scene.manifestURL) == manifestBefore, "manifest.json holds its original bytes")
+        for name in ["sorted.bam", "sorted.bam.bai"] {
+            #expect(
+                FileManager.default.fileExists(atPath: second.appendingPathComponent(name).path),
+                "the mapping folder holds its \(name) again"
+            )
+        }
+        var isDirectory: ObjCBool = false
+        #expect(
+            FileManager.default.fileExists(atPath: blocker.path, isDirectory: &isDirectory) && isDirectory.boolValue,
+            "the rollback leaves what the run did not make"
+        )
+    }
 }
 
 /// A bundle with one alignment track, and mapping folders to adopt into it.

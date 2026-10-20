@@ -63,6 +63,9 @@ extension BAMCommand {
                 manifestSaver: { _, _ in }
             )
             let attachment = try await service.attach(request: request)
+            // The files this run made, listed as each is made, which a failure removes. The attach made the stats
+            // database. It moved the BAM and index out of the mapping folder, and a failure moves them back.
+            var createdURLs = [attachment.metadataDBURL]
             do {
                 try writeAdoptMappingProvenance(
                     bundleURL: bundleURL,
@@ -72,14 +75,20 @@ extension BAMCommand {
                     commandArgv: commandArgv,
                     inputRecords: inputRecords,
                     startedAt: runClock.startedAt,
-                    completedAt: runClock.now
+                    completedAt: runClock.now,
+                    createdURLs: &createdURLs
                 )
                 try PreparedAlignmentAttachmentService.atomicManifestSave(
                     manifest: manifest.addingAlignmentTrack(attachment.trackInfo),
                     bundleURL: bundleURL
                 )
             } catch {
-                rollbackAdoptedMappingArtifacts(attachment: attachment, originalManifestData: originalManifestData, manifestURL: manifestURL)
+                rollbackAdoptedMappingArtifacts(
+                    createdURLs: createdURLs,
+                    movedArtifacts: [(attachment.bamURL, bamURL), (attachment.indexURL, baiURL)],
+                    originalManifestData: originalManifestData,
+                    manifestURL: manifestURL
+                )
                 throw error
             }
             if !globalOptions.quiet {
@@ -147,16 +156,20 @@ extension BAMCommand {
             commandArgv: [String],
             inputRecords: [FileRecord],
             startedAt: Date,
-            completedAt: Date
+            completedAt: Date,
+            createdURLs: inout [URL]
         ) throws {
             let preservedMappingProvenanceURL = try preserveMappingProvenance(
                 sourceProvenance,
                 forAlignmentAt: attachment.bamURL,
                 bundleURL: bundleURL
             )
+            if let preservedMappingProvenanceURL {
+                createdURLs.append(preservedMappingProvenanceURL)
+            }
             let provenanceURL = attachment.bamURL
                 .deletingPathExtension()
-                .appendingPathExtension("adopt-mapping-provenance.json")
+                .appendingPathExtension(ProvenanceRecorder.adoptRecordExtension)
             let wallTime = completedAt.timeIntervalSince(startedAt)
             var outputRecords = [
                 ProvenanceRecorder.fileRecord(url: attachment.bamURL, format: .bam, role: .output),
@@ -209,6 +222,7 @@ extension BAMCommand {
             )
 
             try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
+            createdURLs.append(provenanceURL)
 
             let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: attachment.metadataDBURL)
             metadataDB.setFileInfo(
@@ -235,10 +249,8 @@ extension BAMCommand {
         }
 
         /// The typed record the mapping folder holds, or nil when it holds none. A record that is there and does
-        /// not decode is refused here, before anything is attached. The attach moves the BAM out of the mapping
-        /// folder and the rollback deletes it, and the folder of the adopted tracks holds one record that a
-        /// rollback would take from an earlier track, so a refusal has to come first. The bundle keeps the
-        /// typed record and nothing it cannot read (2.8 P5).
+        /// not decode is refused here, before the attach moves the BAM out of the mapping folder, so a refusal
+        /// changes nothing. The bundle keeps the typed record and nothing it cannot read (2.8 P5).
         private func loadSourceMappingProvenance(from mappingURL: URL) throws -> MappingProvenance? {
             let sourceURL = mappingURL.appendingPathComponent(MappingProvenance.filename)
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -267,23 +279,21 @@ extension BAMCommand {
             return recordURL
         }
 
+        /// Takes back a failed adopt and only what it did (2.13 lane 13.16). It removes the files the run made, from
+        /// the list it filled as it made each one, and never from a folder listing, so an earlier track's files in
+        /// `alignments/mapped/` stay. It moves the BAM and index back to the mapping folder paths the attach took
+        /// them from, unless a file is there now, and puts back the manifest's bytes.
         private func rollbackAdoptedMappingArtifacts(
-            attachment: PreparedAlignmentAttachmentResult,
+            createdURLs: [URL],
+            movedArtifacts: [(bundleURL: URL, sourceURL: URL)],
             originalManifestData: Data,
             manifestURL: URL
         ) {
-            let provenanceURL = attachment.bamURL
-                .deletingPathExtension()
-                .appendingPathExtension("adopt-mapping-provenance.json")
-            let rehydratedMappingProvenanceURL = MappingProvenance.trackRecordURL(forAlignmentAt: attachment.bamURL)
-            for url in [
-                provenanceURL,
-                rehydratedMappingProvenanceURL,
-                attachment.metadataDBURL,
-                attachment.indexURL,
-                attachment.bamURL,
-            ] {
+            for url in createdURLs.reversed() {
                 try? FileManager.default.removeItem(at: url)
+            }
+            for artifact in movedArtifacts where !FileManager.default.fileExists(atPath: artifact.sourceURL.path) {
+                try? FileManager.default.moveItem(at: artifact.bundleURL, to: artifact.sourceURL)
             }
             try? originalManifestData.write(to: manifestURL, options: .atomic)
         }
