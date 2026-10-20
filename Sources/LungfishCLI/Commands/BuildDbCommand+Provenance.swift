@@ -544,18 +544,17 @@ extension BuildDbCommand {
     }
 
     static func detectSamtoolsVersion(at path: String) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["--version"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: path),
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            label: "\(URL(fileURLWithPath: path).lastPathComponent) --version"
+        )
 
         do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let output = String(data: data, encoding: .utf8) ?? ""
+            // One pipe held both streams before, so the version may print on either one.
+            let result = try ToolProcess.runBlocking(spec)
+            let output = String(data: result.stdout + result.stderr, encoding: .utf8) ?? ""
             if let firstLine = output.split(separator: "\n").first {
                 let normalized = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !normalized.isEmpty {
