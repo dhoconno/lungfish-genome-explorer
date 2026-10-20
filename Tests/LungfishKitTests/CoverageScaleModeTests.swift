@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
-@testable import LungfishKit
+import LungfishKit
 
 final class CoverageScaleModeTests: XCTestCase {
     func testDefaultIsLinear() {
