@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Lane 13.28 (GFX-0, ruling sections 2.2, 2.5 and 6 of ARCH-B10-graphics). C against C' is
-// byte for byte on one host and build. PNG, JPEG and TIFF are compared whole. A PDF is
-// compared with its /CreationDate, /ModDate and trailer /ID masked, the three values the PDF
-// context writes from the clock and a random source (lane 13.28 measure). QA owns the
-// contract mask for them. These tests only show that nothing else moves.
+// byte for byte on one host and build, and every format is compared whole. The PDF context
+// writes /CreationDate, /ModDate and a trailer /ID from the clock and a random source (lane
+// 13.28 measure), and the rasterizer blanks the dates and derives the /ID from the content, so
+// no mask is needed (QA ruling QA-GFX-mask). A pin shows that the context still writes them.
 
 import CoreGraphics
 import XCTest
@@ -120,15 +120,7 @@ final class ViewerFigureRasterizerDeterminismTests: XCTestCase {
     ) throws {
         for format in ViewerFigureFormat.allCases {
             let one = try XCTUnwrap(first[format]), two = try XCTUnwrap(second[format])
-            if format == .pdf {
-                XCTAssertEqual(one.count, two.count, "\(what) pdf length")
-                XCTAssertEqual(Support.maskingPDFVolatileValues(one), Support.maskingPDFVolatileValues(two), "\(what) pdf")
-                let volatile = Support.pdfVolatileRanges(one).joined().flatMap { Array($0) }
-                let stray = Set(Support.differingOffsets(one, two)).subtracting(volatile)
-                XCTAssertTrue(stray.isEmpty, "\(what) pdf differs outside the three values at \(stray.sorted().prefix(8))")
-            } else {
-                XCTAssertEqual(one, two, "\(what) \(format.rawValue)")
-            }
+            XCTAssertEqual(one, two, "\(what) \(format.rawValue)")
         }
     }
 
@@ -136,8 +128,20 @@ final class ViewerFigureRasterizerDeterminismTests: XCTestCase {
         let first = try Self.renderAll()
         let second = try Self.renderAll()
         try assertSameBytes(first, second, "one process")
-        // The negative control: the trailer /ID is new on every render, so the PDF bytes differ.
-        XCTAssertNotEqual(first[.pdf], second[.pdf])
+    }
+
+    /// The pin of the measured fact (QA 1). If a macOS update stops writing the three values,
+    /// this fails and the normalizer can go.
+    func testThePDFContextStillWritesTheThreeValues() throws {
+        let one = try ViewerFigureRasterizer.pdfAsWritten(Support.sampleScene())
+        let two = try ViewerFigureRasterizer.pdfAsWritten(Support.sampleScene())
+        XCTAssertNotEqual(one, two, "the context writes a new /ID on every render")
+        XCTAssertEqual(one.count, two.count)
+        let ranges = ViewerFigurePDFNormalizer.volatileRanges(one)
+        XCTAssertEqual(ranges.map(\.count), [1, 1, 1], "each value is written once")
+        let volatile = Set(ranges.joined().flatMap { Array($0) })
+        let stray = Set(Support.differingOffsets(one, two)).subtracting(volatile)
+        XCTAssertTrue(stray.isEmpty, "the PDFs differ outside the three values at \(stray.sorted().prefix(8))")
     }
 
     /// Runs only as the child of the two-process test, which names an output folder.
@@ -180,8 +184,8 @@ final class ViewerFigureRasterizerDeterminismTests: XCTestCase {
         }
         try assertSameBytes(children[0], children[1], "two processes")
         try assertSameBytes(children[0], try Self.renderAll(), "child against this process")
-        let firstDates = Support.pdfVolatileRanges(try XCTUnwrap(children[0][.pdf]))
-        XCTAssertEqual(firstDates.map(\.count), [1, 1, 1], "each volatile PDF value is written once")
+        let firstPDF = try XCTUnwrap(children[0][.pdf])
+        XCTAssertEqual(ViewerFigurePDFNormalizer.volatileRanges(firstPDF).map(\.count), [0, 0, 1], "no date, one derived /ID")
     }
 }
 
@@ -217,10 +221,17 @@ final class ViewerFigureMetadataTests: XCTestCase {
         // testBitmapsCarryNoTimeSoftwareOrHost checks that it holds no time.
     }
 
-    func testPDFWritesExactlyTheThreeMeasuredVolatileValues() throws {
-        let pdf = try ViewerFigureRasterizer.render(scene, format: .pdf)
-        XCTAssertEqual(Support.pdfVolatileRanges(pdf).map(\.count), [1, 1, 1])
+    func testAFigurePDFHoldsNoDateAndADerivedID() throws {
+        let rendering = try ViewerFigureRasterizer.renderReporting(scene, format: .pdf)
+        XCTAssertNil(rendering.pdfKeptAsWritten)
+        let pdf = rendering.data
+        XCTAssertEqual(ViewerFigurePDFNormalizer.volatileRanges(pdf).map(\.count), [0, 0, 1])
         let text = try XCTUnwrap(String(data: pdf, encoding: .isoLatin1))
+        XCTAssertNil(text.range(of: "/CreationDate"))
+        XCTAssertNil(text.range(of: "/ModDate"))
+        let derived = Support.derivedPDFID(pdf)
+        XCTAssertEqual(derived.count, 32)
+        XCTAssertEqual(Support.pdfIDStrings(pdf), [derived, derived], "both /ID strings come from the content")
         XCTAssertNotNil(text.range(of: "/Creator (\(ViewerFigureRasterizer.pdfCreator))"))
         XCTAssertNotNil(text.range(of: "/Producer ("), "the Producer names the macOS build, constant on one host")
     }

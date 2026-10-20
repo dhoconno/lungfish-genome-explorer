@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ImageIO
 import XCTest
@@ -40,34 +41,33 @@ enum ViewerFigureTestSupport {
         )
     }
 
-    /// The three PDF values the PDF context writes from the clock and a random source, as
-    /// measured in lane 13.28. Ruling section 6 leaves the contract mask for them to QA.
-    static let pdfVolatilePatterns = [
-        #"/CreationDate \(D:[0-9]{14}[^)]*\)"#,
-        #"/ModDate \(D:[0-9]{14}[^)]*\)"#,
-        #"/ID \[ <[0-9a-f]{32}>\s*<[0-9a-f]{32}> \]"#,
-    ]
-
-    /// Byte ranges of each volatile PDF value, one list per pattern.
-    static func pdfVolatileRanges(_ data: Data) -> [[Range<Int>]] {
+    /// The byte ranges of the two hex strings of every trailer /ID, in file order.
+    static func pdfIDDigitRanges(_ data: Data) -> [Range<Int>] {
         // Latin-1 maps each byte to one UTF-16 unit, so string offsets are byte offsets.
         let text = (String(data: data, encoding: .isoLatin1) ?? "") as NSString
-        return pdfVolatilePatterns.map { pattern in
-            let expression = try! NSRegularExpression(pattern: pattern)
-            return expression.matches(in: text as String, range: NSRange(location: 0, length: text.length))
-                .map { $0.range.location ..< $0.range.location + $0.range.length }
+        let expression = try! NSRegularExpression(pattern: ViewerFigurePDFNormalizer.idPattern)
+        return expression.matches(in: text as String, range: NSRange(location: 0, length: text.length)).flatMap { match in
+            [match.range(at: 1), match.range(at: 2)].map { $0.location ..< $0.location + $0.length }
         }
     }
 
-    /// The PDF with each volatile value overwritten by `#`, length kept.
-    static func maskingPDFVolatileValues(_ data: Data) -> Data {
+    /// The hex strings of every trailer /ID, in file order.
+    static func pdfIDStrings(_ data: Data) -> [String] {
+        let bytes = [UInt8](data)
+        return pdfIDDigitRanges(data).map { String(decoding: bytes[$0], as: UTF8.self) }
+    }
+
+    /// The /ID the rasterizer should write, the first 32 hex digits of the SHA-256 of the bytes
+    /// with every /ID digit set to 0 (QA ruling QA-GFX-mask, QM-2 item d), worked out here with
+    /// CryptoKit and not with the normalizer's own code.
+    static func derivedPDFID(_ data: Data) -> String {
         var bytes = [UInt8](data)
-        for range in pdfVolatileRanges(data).joined() {
+        for range in pdfIDDigitRanges(data) {
             for index in range {
-                bytes[index] = UInt8(ascii: "#")
+                bytes[index] = UInt8(ascii: "0")
             }
         }
-        return Data(bytes)
+        return String(SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined().prefix(32))
     }
 
     /// The offsets at which two equal-length byte strings differ.

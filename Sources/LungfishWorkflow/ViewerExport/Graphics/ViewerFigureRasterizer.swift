@@ -54,15 +54,32 @@ public enum ViewerFigureRasterizerError: Error, Hashable, LocalizedError {
     }
 }
 
+/// The bytes of one rendered figure, and why a PDF kept the dates and file ID its writer set.
+public struct ViewerFigureRendering: Sendable, Hashable {
+    public let data: Data
+    /// Why the PDF keeps the dates and random file ID its writer set, or nil when the figure holds
+    /// none, as every bitmap and every normalized PDF holds none (QA ruling QA-GFX-mask, QM-3).
+    public let pdfKeptAsWritten: String?
+
+    public init(data: Data, pdfKeptAsWritten: String? = nil) {
+        self.data = data
+        self.pdfKeptAsWritten = pdfKeptAsWritten
+    }
+}
+
 /// Draws a `ViewerFigureScene` with CoreGraphics, CoreText and ImageIO, which need no window
 /// server, so the CLI can draw over ssh or from launchd.
 ///
 /// Rendering is a synchronous function of its `Sendable` arguments with no shared state. It
 /// draws in the sRGB space with anti-aliasing on and font smoothing off, set on the context,
 /// and passes ImageIO a property dictionary that holds no time. PNG, JPEG and TIFF bytes are
-/// therefore the same for the same scene on one host and build. A PDF context writes its own
-/// `/CreationDate`, `/ModDate` and trailer `/ID`, which no API sets (measured in lane 13.28).
+/// therefore the same for the same scene on one host and build. A PDF context writes a creation
+/// date, a modification date and a random file ID. The rasterizer blanks both dates and writes a
+/// file ID taken from the content, so a PDF's bytes are also the same on one host and build.
 public enum ViewerFigureRasterizer {
+    /// The renderer version a figure's record names. Any commit that changes a rendered byte
+    /// raises it (BIO 7).
+    public static let version = 1
     /// The `/Creator` of a figure PDF.
     public static let pdfCreator = "Lungfish Genome Explorer"
     /// The JPEG quality, from 0 to 1.
@@ -72,12 +89,20 @@ public enum ViewerFigureRasterizer {
     public static func render(
         _ scene: ViewerFigureScene, format: ViewerFigureFormat, pixelScale: Double = 2
     ) throws(ViewerFigureRasterizerError) -> Data {
+        try renderReporting(scene, format: format, pixelScale: pixelScale).data
+    }
+
+    /// The figure in `format`, with the reason a PDF kept its writer's dates and file ID when the
+    /// normalizer could not read its layout.
+    public static func renderReporting(
+        _ scene: ViewerFigureScene, format: ViewerFigureFormat, pixelScale: Double = 2
+    ) throws(ViewerFigureRasterizerError) -> ViewerFigureRendering {
         guard scene.width.isFinite, scene.height.isFinite, pixelScale.isFinite, scene.width > 0,
               scene.height > 0, pixelScale > 0 else {
             throw .invalidSize(width: scene.width, height: scene.height, pixelScale: pixelScale)
         }
         if let type = format.imageTypeIdentifier {
-            return try renderBitmap(scene, format: format, type: type, pixelScale: pixelScale)
+            return ViewerFigureRendering(data: try renderBitmap(scene, format: format, type: type, pixelScale: pixelScale))
         }
         return try renderPDF(scene)
     }
@@ -145,7 +170,20 @@ public enum ViewerFigureRasterizer {
         return data as Data
     }
 
-    private static func renderPDF(_ scene: ViewerFigureScene) throws(ViewerFigureRasterizerError) -> Data {
+    /// The PDF with its dates blanked and a file ID taken from its content (QA ruling
+    /// QA-GFX-mask, QM-2), or as written with the reason when its layout is not the expected one.
+    private static func renderPDF(_ scene: ViewerFigureScene) throws(ViewerFigureRasterizerError) -> ViewerFigureRendering {
+        switch ViewerFigurePDFNormalizer.normalize(try pdfAsWritten(scene)) {
+        case .normalized(let data):
+            ViewerFigureRendering(data: data)
+        case .keptAsWritten(let data, let reason):
+            ViewerFigureRendering(data: data, pdfKeptAsWritten: reason)
+        }
+    }
+
+    /// The PDF as the context writes it, its dates and random file ID included. Tests reach it to
+    /// pin that the context still writes them.
+    static func pdfAsWritten(_ scene: ViewerFigureScene) throws(ViewerFigureRasterizerError) -> Data {
         let data = NSMutableData()
         var mediaBox = CGRect(x: 0, y: 0, width: scene.width, height: scene.height)
         let info = [kCGPDFContextCreator: pdfCreator] as CFDictionary
