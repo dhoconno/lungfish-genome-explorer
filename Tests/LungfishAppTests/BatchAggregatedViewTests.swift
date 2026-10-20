@@ -687,39 +687,6 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
         XCTAssertEqual(table.uniqueReadCountsBySampleContig["sample-A\tNC_A"], 37)
     }
 
-    func testTaxTriageBatchMiniBAMStatsDoNotOverwriteStaticUniqueReadCounts() {
-        let viewController = TaxTriageResultViewController()
-        viewController.loadViewIfNeeded()
-
-        let table = viewController.testBatchFlatTableView
-        table.resultIdentity = "/project/Analyses/taxtriage-minibam-stats"
-        let row = TaxTriageMetric(
-            sample: "sample-A",
-            taxId: 562,
-            organism: "Escherichia coli",
-            rank: "S",
-            reads: 40,
-            abundance: nil,
-            coverageBreadth: nil,
-            coverageDepth: nil,
-            tassScore: 0.9,
-            confidence: "high"
-        )
-        table.configure(rows: [row])
-        table.totalReadsByKey["sample-A\tEscherichia coli"] = 40
-        table.uniqueReadsByKey["sample-A\tEscherichia coli"] = 37
-
-        viewController.testApplyBatchFlatTableReadStats(
-            sampleId: "sample-A",
-            organism: "Escherichia coli",
-            totalReads: 40,
-            uniqueReads: 3
-        )
-
-        XCTAssertEqual(table.totalReadsByKey["sample-A\tEscherichia coli"], 40)
-        XCTAssertEqual(table.uniqueReadsByKey["sample-A\tEscherichia coli"], 37)
-    }
-
     func testTaxTriageTableRowNormalizesZeroUniqueReadsForReportedOrganism() {
         let row = TaxTriageTableRow(
             organism: "Escherichia coli",

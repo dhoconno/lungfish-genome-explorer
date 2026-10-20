@@ -2393,47 +2393,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         applyReadStats(uniqueReads: uniqueReads, for: organismName)
     }
 
-    private func applyBatchFlatTableReadStats(
-        sampleId: String,
-        organism: String,
-        totalReads: Int,
-        uniqueReads: Int
-    ) {
-        let key = "\(sampleId)\t\(organism)"
-        let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
-            stored: uniqueReads,
-            readCount: totalReads
-        )
-        // Only apply BAM-computed values for rows that don't already have
-        // DB-cached counts. The SQLite database is the source of truth for
-        // read counts — the miniBAM viewer should not overwrite them.
-        let hadTotal = batchFlatTableView.totalReadsByKey[key] != nil
-        let hadUnique = batchFlatTableView.uniqueReadsByKey[key] != nil
-        if !hadTotal {
-            batchFlatTableView.totalReadsByKey[key] = totalReads
-        }
-        if !hadUnique {
-            batchFlatTableView.uniqueReadsByKey[key] = safeUnique
-        }
-        if !hadTotal || !hadUnique {
-            batchFlatTableView.reloadReadStatsColumns()
-        }
-
-        let normalized = normalizedOrganismName(organism)
-        if !hadUnique {
-            perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = safeUnique
-        }
-
-        if selectedBatchSampleId == sampleId, selectedBatchOrganismName == organism {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.groupingSeparator = ","
-            let totalReadsText = formatter.string(from: NSNumber(value: totalReads)) ?? "\(totalReads)"
-            let uniqueReadsText = formatter.string(from: NSNumber(value: safeUnique)) ?? "\(safeUnique)"
-            actionBar.updateInfoText("\(organism) — \(totalReadsText) reads (\(uniqueReadsText) unique)")
-        }
-    }
-
     /// Merges `perSampleDeduplicatedReadCounts` into `batchFlatTableView.uniqueReadsByKey`
     /// and reloads the table so the Unique Reads column reflects the latest computed values.
     ///
@@ -4545,16 +4504,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Returns parsed BAM accession lengths for testing.
     public var testAccessionLengths: [String: Int] { accessionLengths }
-
-    /// Test hook for applying flat-table read stats updates.
-    public func testApplyBatchFlatTableReadStats(sampleId: String, organism: String, totalReads: Int, uniqueReads: Int) {
-        applyBatchFlatTableReadStats(
-            sampleId: sampleId,
-            organism: organism,
-            totalReads: totalReads,
-            uniqueReads: uniqueReads
-        )
-    }
 
     /// Test hook for parsing BAM reference lengths with optional external index.
     public func testParseBamReferenceLengths(bamURL: URL, indexURL: URL?) {
