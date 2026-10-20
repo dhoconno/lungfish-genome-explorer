@@ -383,36 +383,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
     public private(set) var didLoadFromManifestCache: Bool = false
 
-    /// True when this VC is displaying a single multi-sample TaxTriage result
-    /// using the flat table + Inspector sample picker pattern.
-    /// Set automatically by `configure(result:config:)` when `sampleIds.count > 1`.
-    private(set) var isMultiSampleSingleResultMode: Bool = false
-
     /// All flat metrics loaded for the batch group, before sample filtering.
-    private(set) var allBatchGroupRows: [TaxTriageMetric] = [] {
-        didSet { normalizedOrganismSampleRowIndex = nil }
-    }
-
-    /// Keyed lookup from `"\(normalizedOrganism)\t\(sampleId)"` to the matching
-    /// `allBatchGroupRows` entry, built lazily and invalidated whenever
-    /// `allBatchGroupRows` changes. Avoids the O(rows) linear scan that
-    /// `syncUniqueReadsToFlatTable`/`applySingleUniqueReadCount` previously
-    /// repeated per (organism, sample) pair during batch dedup computation.
-    private var normalizedOrganismSampleRowIndex: [String: TaxTriageMetric]?
-
-    private func organismSampleRowIndex() -> [String: TaxTriageMetric] {
-        if let cached = normalizedOrganismSampleRowIndex { return cached }
-        var index: [String: TaxTriageMetric] = [:]
-        index.reserveCapacity(allBatchGroupRows.count)
-        for row in allBatchGroupRows {
-            guard let sample = row.sample else { continue }
-            let key = "\(normalizedOrganismName(row.organism))\t\(sample)"
-            // Keep the first match, mirroring the previous `first(where:)` semantics.
-            if index[key] == nil { index[key] = row }
-        }
-        normalizedOrganismSampleRowIndex = index
-        return index
-    }
+    private(set) var allBatchGroupRows: [TaxTriageMetric] = []
 
     /// The batch group root directory (parent of sample subdirectories).
     var batchGroupURL: URL?
@@ -1400,8 +1372,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 self.organismSearchText = query
                 if self.isBatchGroupMode {
                     self.applyBatchGroupFilter()
-                } else if self.isMultiSampleSingleResultMode {
-                    self.applyMultiSampleFilter()
                 } else {
                     self.applyCurrentSampleFilter()
                 }
@@ -1416,8 +1386,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard samplePickerState != nil else { return }
         if isBatchGroupMode {
             databaseSampleSelectionDidChange()
-        } else if isMultiSampleSingleResultMode {
-            applyMultiSampleFilter()
         } else {
             applyCurrentSampleFilter()
         }
@@ -1677,7 +1645,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
 
     typealias OrganismAccessionMap = [String: [String]]
-    typealias TaxIDAccessionMap = [Int: [String]]
 
     /// Sets the active accession lookup dictionaries for the currently selected sample.
     ///
@@ -1689,150 +1656,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         } else {
             organismToAccessions = mergedOrganismToAccessions
             taxIDToAccessions = mergedTaxIDToAccessions
-        }
-    }
-
-    /// Rebuilds merged + sample-scoped accession lookup maps from TaxTriage output files.
-    private func rebuildAccessionLookups(from allOutputFiles: [URL], sampleIds: [String]) {
-        let filtered = TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(
-            allOutputFiles,
-            outputDirectory: taxTriageConfig?.outputDirectory
-        )
-        let gcfFiles = filtered.filter { $0.lastPathComponent.contains("gcfmapping.tsv") }
-        let taxIDFiles = filtered.filter { $0.lastPathComponent.contains("merged.taxid.tsv") }
-        rebuildAccessionLookups(gcfFiles: gcfFiles, taxIDFiles: taxIDFiles, sampleIds: sampleIds)
-    }
-
-    /// Rebuilds merged + sample-scoped accession lookup maps from explicit mapping file sets.
-    private func rebuildAccessionLookups(gcfFiles: [URL], taxIDFiles: [URL], sampleIds: [String]) {
-        mergedOrganismToAccessions = [:]
-        mergedTaxIDToAccessions = [:]
-        organismToAccessionsBySample = [:]
-        taxIDToAccessionsBySample = [:]
-
-        for gcfFile in gcfFiles {
-            let parsed = parseGCFMappingData(url: gcfFile)
-            guard !parsed.isEmpty else { continue }
-            mergeOrganismMappings(parsed, into: &mergedOrganismToAccessions)
-            if let sampleId = sampleIdForMappingFile(gcfFile, sampleIds: sampleIds) {
-                var perSample = organismToAccessionsBySample[sampleId] ?? [:]
-                mergeOrganismMappings(parsed, into: &perSample)
-                organismToAccessionsBySample[sampleId] = perSample
-            }
-        }
-
-        for taxIDFile in taxIDFiles {
-            let (taxMap, organismMap) = parseTaxIDMappingData(url: taxIDFile)
-            if !taxMap.isEmpty {
-                mergeTaxIDMappings(taxMap, into: &mergedTaxIDToAccessions)
-            }
-            if !organismMap.isEmpty {
-                mergeOrganismMappings(organismMap, into: &mergedOrganismToAccessions)
-            }
-
-            if let sampleId = sampleIdForMappingFile(taxIDFile, sampleIds: sampleIds) {
-                if !taxMap.isEmpty {
-                    var perSampleTax = taxIDToAccessionsBySample[sampleId] ?? [:]
-                    mergeTaxIDMappings(taxMap, into: &perSampleTax)
-                    taxIDToAccessionsBySample[sampleId] = perSampleTax
-                }
-                if !organismMap.isEmpty {
-                    var perSampleOrg = organismToAccessionsBySample[sampleId] ?? [:]
-                    mergeOrganismMappings(organismMap, into: &perSampleOrg)
-                    organismToAccessionsBySample[sampleId] = perSampleOrg
-                }
-            }
-        }
-
-        organismToAccessions = mergedOrganismToAccessions
-        taxIDToAccessions = mergedTaxIDToAccessions
-        logger.info("Built TaxTriage accession lookups: merged organisms=\(self.mergedOrganismToAccessions.count), merged taxids=\(self.mergedTaxIDToAccessions.count), per-sample organism maps=\(self.organismToAccessionsBySample.count), per-sample taxid maps=\(self.taxIDToAccessionsBySample.count)")
-    }
-
-    /// Attempts to infer the sample ID encoded in a mapping filename.
-    private func sampleIdForMappingFile(_ fileURL: URL, sampleIds: [String]) -> String? {
-        let name = fileURL.lastPathComponent.lowercased()
-        if let containsMatch = sampleIds.first(where: { name.contains($0.lowercased()) }) {
-            return containsMatch
-        }
-
-        let pathComponents = Set(fileURL.pathComponents.map { $0.lowercased() })
-        if let componentMatch = sampleIds.first(where: { pathComponents.contains($0.lowercased()) }) {
-            return componentMatch
-        }
-
-        let stem = fileURL.deletingPathExtension().lastPathComponent
-        let candidatePrefix = stem.components(separatedBy: ".").first ?? stem
-        return sampleIds.first(where: { $0.caseInsensitiveCompare(candidatePrefix) == .orderedSame })
-    }
-
-    /// Parses a gcfmapping file into a normalized organism→accessions map.
-    ///
-    /// Format: accession\tGCF_ID\torganism_name\tdescription
-    private nonisolated func parseGCFMappingData(url: URL) -> OrganismAccessionMap {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
-        var mapping: OrganismAccessionMap = [:]
-        for line in content.components(separatedBy: .newlines) {
-            let cols = line.components(separatedBy: "\t")
-            guard cols.count >= 3 else { continue }
-            let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let organismName = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !accession.isEmpty else { continue }
-            let key = normalizedOrganismName(organismName)
-            guard !key.isEmpty else { continue }
-            mapping[key, default: []].append(accession)
-        }
-        return mapping.mapValues(uniqueAccessionsPreservingOrder)
-    }
-
-    /// Parses merged taxid mapping rows into taxID and organism lookup maps.
-    ///
-    /// Expected columns:
-    /// `Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value`
-    private func parseTaxIDMappingData(url: URL) -> (taxID: TaxIDAccessionMap, organism: OrganismAccessionMap) {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return ([:], [:]) }
-
-        var byTaxID: TaxIDAccessionMap = [:]
-        var byOrganism: OrganismAccessionMap = [:]
-
-        for line in content.components(separatedBy: .newlines) {
-            let cols = line.components(separatedBy: "\t")
-            guard cols.count >= 5 else { continue }
-
-            let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let organismName = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            let taxIDRaw = cols[4].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !accession.isEmpty, accession.lowercased() != "acc" else { continue }
-
-            if let taxID = Int(taxIDRaw), taxID > 0 {
-                byTaxID[taxID, default: []].append(accession)
-            }
-
-            let key = normalizedOrganismName(organismName)
-            if !key.isEmpty {
-                byOrganism[key, default: []].append(accession)
-            }
-        }
-
-        return (
-            byTaxID.mapValues(uniqueAccessionsPreservingOrder),
-            byOrganism.mapValues(uniqueAccessionsPreservingOrder)
-        )
-    }
-
-    /// Merges a parsed organism→accessions mapping into an existing destination map.
-    private nonisolated func mergeOrganismMappings(_ incoming: OrganismAccessionMap, into destination: inout OrganismAccessionMap) {
-        for (organism, accessions) in incoming {
-            destination[organism, default: []].append(contentsOf: accessions)
-            destination[organism] = uniqueAccessionsPreservingOrder(destination[organism] ?? [])
-        }
-    }
-
-    /// Merges a parsed taxID→accessions mapping into an existing destination map.
-    private func mergeTaxIDMappings(_ incoming: TaxIDAccessionMap, into destination: inout TaxIDAccessionMap) {
-        for (taxID, accessions) in incoming {
-            destination[taxID, default: []].append(contentsOf: accessions)
-            destination[taxID] = uniqueAccessionsPreservingOrder(destination[taxID] ?? [])
         }
     }
 
@@ -1936,49 +1759,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let denominator = max(lhsTokens.count, rhsTokens.count)
         guard denominator > 0 else { return 0 }
         return Double(intersection) / Double(denominator)
-    }
-
-    /// Merges `perSampleDeduplicatedReadCounts` into `batchFlatTableView.uniqueReadsByKey`
-    /// and reloads the table so the Unique Reads column reflects the latest computed values.
-    ///
-    /// Called after a full recompute (e.g. loading a persisted cache) so the batch
-    /// flat table stays current. Uses merge semantics so that DB-cached values are
-    /// preserved for rows not yet recomputed from BAM.
-    ///
-    /// The per-(organism, sample) incremental path during batch dedup computation
-    /// uses `applyOneUniqueReadCountToFlatTable` instead, which updates a single
-    /// key through the cached index rather than rescanning every computed pair
-    /// and re-linear-scanning `allBatchGroupRows` for each one (previously
-    /// O(organisms x samples x rows) over the course of a batch computation).
-    private func syncUniqueReadsToFlatTable() {
-        guard isBatchGroupMode || isMultiSampleSingleResultMode else { return }
-        for (normalizedOrganism, perSample) in perSampleDeduplicatedReadCounts {
-            for (sampleId, count) in perSample {
-                updateFlatTableKey(normalizedOrganism: normalizedOrganism, sampleId: sampleId, uniqueReadCount: count)
-            }
-        }
-        // Reload visible rows without resetting scroll position.
-        batchFlatTableView.reloadUniqueReadsColumn()
-    }
-
-    /// Updates a single (organism, sample) entry in `batchFlatTableView.uniqueReadsByKey`
-    /// using the cached row index, without touching any other key or reloading the table.
-    /// Callers that update many keys in a loop (batch dedup computation) should call this
-    /// per key and reload the table once at the end, rather than calling
-    /// `syncUniqueReadsToFlatTable()` per key.
-    private func updateFlatTableKey(normalizedOrganism: String, sampleId: String, uniqueReadCount: Int) {
-        // Find the display organism name by matching normalisation.
-        // Prefer the raw organism name from allBatchGroupRows for accurate key construction.
-        let rowIndex = organismSampleRowIndex()
-        let indexKey = "\(normalizedOrganism)\t\(sampleId)"
-        let matchedRow = rowIndex[indexKey]
-        let displayOrganism = matchedRow?.organism ?? normalizedOrganism
-        let key = "\(sampleId)\t\(displayOrganism)"
-        let readCount = batchFlatTableView.totalReadsByKey[key] ?? matchedRow?.reads ?? 0
-        batchFlatTableView.uniqueReadsByKey[key] = ClassifierUniqueReads.normalizedOrFloor(
-            stored: uniqueReadCount,
-            readCount: readCount
-        )
     }
 
     private nonisolated func resolveBamIndex(for bamURL: URL, allOutputFiles: [URL]) -> URL? {
@@ -2852,120 +2632,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         )
     }
 
-    // MARK: - Multi-Sample Single Result Mode
-
-    /// Switches a single multi-sample TaxTriage result to the flat-table + Inspector
-    /// sample picker pattern used by batch group mode.
-    ///
-    /// Called automatically from `configure(result:config:)` when `sampleIds.count > 1`.
-    /// Reuses the existing `batchFlatTableView` and `bamFilesBySample` data already
-    /// populated by `configure`. Does NOT affect `isBatchGroupMode`.
-    private func enableMultiSampleFlatTableMode() {
-        isMultiSampleSingleResultMode = true
-
-        // Hide the segmented control — it doesn't scale to large sample counts.
-        // Keep the filter row height so the organism search field remains visible.
-        sampleFilterControl.isHidden = true
-
-        // Hide the batch overview (pivot table feature, designed separately).
-        batchOverviewView.isHidden = true
-
-        // Show organism search field in the filter row.
-        // rebuildSampleFilterSegments already set height to 24/4/4 above; keep that.
-        organismSearchField.isHidden = false
-        updateFilterRowHeightForContentTypography()
-        sampleFilterTopSpacingConstraint?.constant = 4
-        sampleFilterBottomSpacingConstraint?.constant = 4
-
-        // Switch right pane: hide organism table, show flat table.
-        organismTableView.isHidden = true
-        batchFlatTableView.isHidden = false
-        collapseMiniBAMDetailPane()
-        batchFlatTableView.metadataColumns.isMultiSampleMode = true
-        batchFlatTableView.resultIdentity = taxTriageConfig?.outputDirectory.standardizedFileURL.path
-
-        // Use the already-populated `metrics` array as the flat table rows.
-        allBatchGroupRows = metrics
-
-        // Wire batch flat table callbacks (same pattern as configureFromDatabase).
-        batchFlatTableView.onRowSelected = { [weak self] row in
-            guard let self else { return }
-            self.actionBar.updateInfoText("1 row selected")
-            self.actionBar.setBlastEnabled(true)
-            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
-            self.hideMultiSelectionPlaceholder()
-            self.selectedBatchSampleId = row.sample
-
-            // Reveal the miniBAM detail pane ONLY when the selected organism has
-            // BAM alignment data. Showing it for organisms without alignments
-            // left a large empty pane that read as a blank viewport.
-            let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
-            let accessions = self.accessions(for: row) ?? []
-            if let bamURL, !accessions.isEmpty {
-                self.revealMiniBAMDetailPaneIfNeeded()
-                self.displayTaxTriageMiniBAM(
-                    bamURL: bamURL,
-                    indexURL: resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? []),
-                    accessions: accessions
-                )
-            } else {
-                self.alignmentEvidenceViewer?.clear()
-                self.collapseMiniBAMDetailPane()
-            }
-        }
-        batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
-            guard let self else { return }
-            self.actionBar.updateInfoText("\(rows.count) rows selected")
-            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
-            self.showMultiSelectionPlaceholder(count: rows.count)
-            // Hide the left pane when multiple rows are selected.
-            self.collapseMiniBAMDetailPane()
-        }
-        batchFlatTableView.onSelectionCleared = { [weak self] in
-            guard let self else { return }
-            self.actionBar.updateInfoText("Select an organism to view details")
-            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-            self.hideMultiSelectionPlaceholder()
-            self.selectedBatchSampleId = nil
-            self.alignmentEvidenceViewer?.clear()
-            // Nothing selected -> collapse the empty detail pane.
-            self.collapseMiniBAMDetailPane()
-        }
-
-        summaryBar.updateBatch(sampleCount: sampleIds.count, totalOrganisms: metrics.count)
-
-        applyMultiSampleFilter()
-
-        // Populate unique reads column from any already-persisted per-sample dedup counts.
-        syncUniqueReadsToFlatTable()
-    }
-
-    /// Filters `allBatchGroupRows` (sourced from `metrics`) by the samples selected
-    /// in `samplePickerState` and by the organism search text, then reloads `batchFlatTableView`.
-    ///
-    /// Called from `handleInspectorSampleSelectionChanged` and `organismSearchAction`
-    /// when `isMultiSampleSingleResultMode` is true.
-    public func applyMultiSampleFilter() {
-        guard isMultiSampleSingleResultMode, let state = samplePickerState else { return }
-        let selected = state.selectedSamples
-        var filtered: [TaxTriageMetric]
-        if selected.isEmpty {
-            filtered = []
-        } else {
-            filtered = allBatchGroupRows.filter { m in
-                guard let s = m.sample else { return false }
-                return selected.contains(s)
-            }
-        }
-        if !organismSearchText.isEmpty {
-            filtered = filtered.filter {
-                $0.organism.localizedCaseInsensitiveContains(organismSearchText)
-            }
-        }
-        batchFlatTableView.configure(rows: filtered)
-    }
-
     // MARK: - Setup: Action Bar
 
     private func setupActionBar() {
@@ -3695,7 +3361,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func exportSelectedSampleIds() -> [String] {
-        if (isBatchGroupMode || isMultiSampleSingleResultMode), let samplePickerState {
+        if isBatchGroupMode, let samplePickerState {
             return sampleIds.filter { samplePickerState.selectedSamples.contains($0) }
         }
         if let selected = exportSelectedSampleId() {
@@ -4140,10 +3806,6 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
     var exportRows: [TaxTriageTableRow] {
         sortedRows
-    }
-
-    var exportSortDescriptors: [NSSortDescriptor] {
-        tableView.sortDescriptors
     }
 
     /// Shared formatter for integer read counts.
