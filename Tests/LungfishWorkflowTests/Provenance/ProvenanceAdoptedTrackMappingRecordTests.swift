@@ -59,6 +59,23 @@ final class ProvenanceAdoptedTrackMappingRecordTests: XCTestCase {
         XCTAssertEqual(found.reading.shape, .typedRecord)
     }
 
+    /// Review Optional item 2 (SWIFT 6). An adopt record may name a path that leaves the bundle, through `..` or as an
+    /// absolute path. The reader loads a named record only when its path stays inside the bundle.
+    func testAMappingRecordNamedOutsideTheBundleIsNeverRead() throws {
+        let outside = temporaryRoot.appendingPathComponent("outside.mapping-provenance.json")
+        try TrackRecordFixtures.mappingRecord(sample: "outside-sample", in: temporaryRoot, bundle: bundle).save(toFile: outside)
+        let output = ProvenanceRecorder.fileRecord(url: outside, format: .json, role: .output)
+        for (trackID, path) in [("dotted", "../../../outside.mapping-provenance.json"), ("absolute", outside.path)] {
+            let bam = mapped.appendingPathComponent("\(trackID).bam")
+            try Data("bam".utf8).write(to: bam)
+            try writeAdoptRecord(trackID: trackID, naming: path, output: output)
+            XCTAssertNil(
+                ProvenanceRecorder.adoptedTrackMappingRecord(forAlignmentAt: bam),
+                "\(trackID): a record named outside the bundle is never read as the track's"
+            )
+        }
+    }
+
     // MARK: Helpers
 
     /// Adopts a track as builds before 2.13 did: the BAM, the shared mapping record rewritten with this track's

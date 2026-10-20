@@ -59,6 +59,10 @@ extension ProvenanceRecorder {
         }
         let url = (named.hasPrefix("/") ? URL(fileURLWithPath: named) : bundleURL.appendingPathComponent(named))
             .standardizedFileURL
+        // A named path that leaves the bundle, through `..` or as an absolute path, is never read (SWIFT 6).
+        guard url.path.hasPrefix(bundleURL.standardizedFileURL.path + "/") else {
+            return nil
+        }
         let output = run.allOutputFiles.first { record in
             URL(fileURLWithPath: record.path).standardizedFileURL.path == url.path || record.path.hasSuffix("/\(named)")
         }
