@@ -565,12 +565,12 @@ public enum IlluminaAmpliconPairMerger {
 
     /// Runs `executableURL` to completion with stderr captured to a file.
     ///
-    /// The exit is observed through `terminationHandler`, installed before
-    /// `run()`, which Foundation guarantees to invoke exactly once. An earlier
-    /// version parked a global-queue thread in `waitUntilExit()` instead; on a
-    /// 30-sample MiSeq cohort that wait intermittently never returned for a
-    /// bbmerge that had already exited in under a second, leaving the CLI
-    /// asleep with no child process for the rest of the session.
+    /// The run goes through ``ToolProcess``, which reaps the child itself and stops its whole process tree when
+    /// the task is cancelled, where a cancel used to leave bbmerge running. Reported 2026-09-03: a 30-sample
+    /// MiSeq cohort stalled on its fifth sample because a global-queue thread parked in `waitUntilExit()` never
+    /// woke for a bbmerge that had already exited, which `IlluminaAmpliconPairMergerProcessWaitTests` still
+    /// drives. The log is created here and its descriptor handed to the child, so the file keeps the mode and
+    /// identity it has always had.
     ///
     /// Internal so the wait can be exercised directly against fast-exiting
     /// children without a bbmerge install.
@@ -580,61 +580,27 @@ public enum IlluminaAmpliconPairMerger {
         stderrURL: URL,
         environment: [String: String]? = nil
     ) async throws -> (status: Int32, stderr: String) {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        if let environment {
-            process.environment = environment
-        }
-        process.standardOutput = FileHandle.nullDevice
         FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
         let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        process.standardError = stderrHandle
         defer { try? stderrHandle.close() }
 
-        let exit = ProcessExitWaiter()
-        process.terminationHandler = { terminated in
-            exit.finish(terminated.terminationStatus)
-        }
-        try process.run()
-        let status = await exit.wait()
-        let stderrText = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        return (status, stderrText)
-    }
-
-    /// Bridges a `Process.terminationHandler` to one awaiting caller.
-    ///
-    /// Either side may arrive first: a child that exits before the caller
-    /// awaits is handed its stored status immediately, and a caller that
-    /// awaits first is resumed by the handler.
-    private final class ProcessExitWaiter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var status: Int32?
-        private var continuation: CheckedContinuation<Int32, Never>?
-
-        func finish(_ code: Int32) {
-            let pending: CheckedContinuation<Int32, Never>?
-            lock.lock()
-            status = code
-            pending = continuation
-            continuation = nil
-            lock.unlock()
-            pending?.resume(returning: code)
-        }
-
-        func wait() async -> Int32 {
-            await withCheckedContinuation { continuation in
-                let stored: Int32?
-                lock.lock()
-                stored = status
-                if stored == nil {
-                    self.continuation = continuation
-                }
-                lock.unlock()
-                if let stored {
-                    continuation.resume(returning: stored)
-                }
-            }
+        let spec = ToolProcessSpec(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment ?? ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            stderr: .descriptor(stderrHandle.fileDescriptor)
+        )
+        let run: Result<ToolProcessResult, ToolProcessError>
+        do { run = .success(try await ToolProcess.run(spec)) } catch { run = .failure(error) }
+        switch run {
+        case .success(let result):
+            let stderrText = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+            return (result.status, stderrText)
+        case .failure(.cancelled):
+            throw CancellationError()
+        case .failure(let error):
+            throw error
         }
     }
 
