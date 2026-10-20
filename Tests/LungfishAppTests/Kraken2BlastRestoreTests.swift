@@ -26,14 +26,11 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
-    /// The pin, green at the lane's base. A verification the in-process row saved restores.
+    /// The pin of older saved archives. A verification the in-process row saved, which the app no longer writes,
+    /// restores.
     func testAVerificationTheInProcessRowSavedRestores() throws {
         let result = try resultFolder()
-        saveBlastVerification(
-            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: Self.request(taxId: 562),
-            resultDirectory: result, classResult: try Self.classResult(in: result), sourceInputs: [], readCount: 1,
-            runClock: ProvenanceRunClock()
-        )
+        try BlastVerificationArchive.save(Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result)
         let (restored, controller) = restore(taxId: 562, from: result)
         XCTAssertEqual(restored?.rid, "RID-ARCHIVE")
         XCTAssertEqual(controller.lastBlastResult?.rid, "RID-ARCHIVE")

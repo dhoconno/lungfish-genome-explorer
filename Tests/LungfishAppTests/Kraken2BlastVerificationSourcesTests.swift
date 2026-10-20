@@ -6,9 +6,11 @@
 // keeps its reads in an R1 file, an R2 file and a file of merged reads. The
 // viewer's BLAST rows read one of them, so a fragment whose evidence sits on
 // mate 2 was sent as mate 1, and a merged fragment could not be sent at all.
-// The rows now read every file of the inputs the classification recorded,
-// and record one --source per input, from which lungfish-cli blast verify
-// builds the same request. No test here touches the network.
+// The rows read every file of the inputs the classification recorded, and
+// lungfish-cli blast verify, given one --source per input, builds the same
+// request. The in-process row that recorded that command left in Phase 2.13
+// (lane 13.02), so the test builds the command itself. No test here touches
+// the network.
 
 import XCTest
 @testable import LungfishApp
@@ -51,10 +53,10 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         }
     }
 
-    /// The row records one --source per input the classification recorded,
-    /// and `lungfish-cli blast verify` parsed from that command builds the
-    /// request the app builds. The app reads the result's read index, and
-    /// the CLI scans the per-read output.
+    /// `lungfish-cli blast verify` with one --source per input the
+    /// classification recorded builds the request the app builds for its
+    /// `blast submit` row. The app reads the result's read index, and the
+    /// CLI scans the per-read output.
     func testTheRowRecordsEachInputAndTheCLIBuildsTheAppsRequest() async throws {
         for shape in try Kraken2BlastShapes(in: root).all {
             let result = shape.result
@@ -62,9 +64,9 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
             let inputs = try KrakenResultReadSources.recordedInputs(of: result)
             XCTAssertEqual(inputs, shape.inputs, "\(shape.name): the inputs the user named, never a split copy")
 
-            let recorded = await Self.recordedCommand(result, inputs: inputs)
+            let recorded = await Self.verifyCommand(result, inputs: inputs)
             let command = try RecordedCLICommand.parse(recorded, as: BlastCommand.VerifySubcommand.self)
-            XCTAssertEqual(command.sourcePaths, inputs.map(\.path), "\(shape.name): one --source per recorded input")
+            XCTAssertEqual(command.sourcePaths, inputs.map(\.path), "\(shape.name): the CLI reads one --source per recorded input")
             XCTAssertEqual(command.krakenOutput, result.outputURL.path)
 
             let app = try await appRequest(result)
@@ -98,20 +100,18 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         )
     }
 
-    /// The command the viewer's in-process BLAST row records for taxon 100 of `result`. That route, and with it
-    /// the `blast verify` record, stays behind `ClassifierBlastRoute` until Phase 2.13 (lane 12.10).
+    /// The `blast verify` command for taxon 100 of `result`, one `--source` for each of `inputs` and the
+    /// `--result-dir` the in-process row saved into. The app no longer records this command, since Phase 2.13
+    /// (lane 13.02) deleted that row, so the test builds it as a user would type it.
     @MainActor
-    private static func recordedCommand(_ result: ClassificationResult, inputs: [URL]) -> String? {
-        let reporter = RecordingOperationReporter()
-        ViewerViewController.beginKraken2BlastVerificationOperation(
-            taxonName: "Target virus",
-            cliCommand: kraken2BlastVerifyCLICommand(
-                classResult: result, sourceInputs: inputs, taxId: Kraken2BlastShapes.target, readCount: 20,
-                resultDirectory: result.config.outputDirectory
-            ),
-            reporter: reporter
-        ) { _ in }
-        return reporter.items.first?.cliCommand
+    private static func verifyCommand(_ result: ClassificationResult, inputs: [URL]) -> String {
+        var args = ["--kreport", result.reportURL.path, "--kraken-output", result.outputURL.path]
+        for input in inputs {
+            args += ["--source", input.path]
+        }
+        args += ["--taxid", "\(Kraken2BlastShapes.target)", "--include-children", "--reads", "20"]
+        args += ["--result-dir", result.config.outputDirectory.path]
+        return OperationCenter.buildCLICommand(subcommand: "blast verify", args: args)
     }
 
     static func sequence(of id: String, in request: BlastVerificationRequest) -> String? {

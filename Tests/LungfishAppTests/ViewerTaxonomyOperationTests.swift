@@ -109,40 +109,6 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         )
     }
 
-    /// The in-process route that `ClassifierBlastRoute` keeps for one release still records `blast verify` for the
-    /// same inputs, with the `--result-dir` it saves into. Phase 2.13 deletes this test with the route.
-    func testTheInProcessKraken2RowStillRecordsARunnableBlastVerify() throws {
-        let reporter = RecordingOperationReporter()
-        let result = makeClassificationResult()
-        let source = URL(fileURLWithPath: "/tmp/lane 1a1/Imports/Sample 1.lungfishfastq/reads.fastq")
-        // A batch sample saves into its own folder, not the configured output folder.
-        let sampleDirectory = URL(fileURLWithPath: "/tmp/lane 1a1/Analyses/kraken2 batch/Sample 1", isDirectory: true)
-        var launchedID: UUID?
-
-        ViewerViewController.beginKraken2BlastVerificationOperation(
-            taxonName: "Influenza A virus",
-            cliCommand: kraken2BlastVerifyCLICommand(
-                classResult: result, sourceInputs: [source], taxId: 11320, readCount: 20, resultDirectory: sampleDirectory
-            ),
-            reporter: reporter
-        ) { launchedID = $0 }
-
-        let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
-        XCTAssertEqual(item.title, "BLAST Influenza A virus")
-        XCTAssertEqual(item.operationType, .blastVerification)
-        XCTAssertNil(item.targetBundleURL)
-        XCTAssertEqual(item.additionalLockedBundleURLs, [])
-        let command = try RecordedCLICommand.parse(item.cliCommand, as: BlastCommand.VerifySubcommand.self)
-        XCTAssertEqual(command.kreportFile, result.reportURL.path)
-        XCTAssertEqual(command.krakenOutput, result.outputURL.path)
-        XCTAssertEqual(command.sourcePaths, [source.path])
-        XCTAssertEqual(command.taxId, 11320)
-        XCTAssertEqual(command.readCount, 20)
-        XCTAssertTrue(command.includeChildren, "the app always includes descendant taxa")
-        XCTAssertEqual(command.resultDirectory, sampleDirectory.path, "the app saves the verification under --result-dir")
-    }
-
     // MARK: - Taxa collection batch extraction
 
     func testTaxaCollectionExtractionRecordsTheCommandThatReplaysIt() throws {

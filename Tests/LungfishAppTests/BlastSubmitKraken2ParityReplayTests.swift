@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.10 (A65-P50), the sides of BlastSubmitParity.swift. The Kraken2 row looks up the taxon's reads
-// in every source file of the result (`kraken2BlastVerificationRequest`, review ruling 6) and judges hits on the clade
-// and its genus relatives. The lookup runs once, on a copy of the fixture outside the side roots, and both sides
-// search its request. Side A is the in-process route `ClassifierBlastRoute` keeps for one release, the search in this
-// process saved as an archive file in the result's `blast-verifications/`. Side C is the site's plan. A against C
-// declares the archive files, the query stage and the search's folder. The class launches the built lungfish-cli
-// against a loopback stand-in, so its name ends in ReplayTests, which sends it to the integration tier.
+// Phase 2.12 lane 12.10 (A65-P50) and 2.13 lane 13.02, the sides of BlastSubmitParity.swift. The Kraken2 row looks up
+// the taxon's reads in every source file of the result (`kraken2BlastVerificationRequest`, review ruling 6) and judges
+// hits on the clade and its genus relatives. The lookup runs once, on a copy of the fixture outside the side roots, and
+// the oracle and both sides search its request. The oracle is that request searched in this process, as the row
+// searched it before the route moved (the hidden key that kept that route left in 2.13). Side C is the site's plan, and
+// C against C' declares nothing. The class launches the built lungfish-cli against a loopback stand-in, so its name
+// ends in ReplayTests, which sends it to the integration tier.
 
 import Foundation
 import XCTest
@@ -44,11 +44,11 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
     func testTheTaxonSearchSendsWhatTheInProcessSearchSentAndKeepsItsResult() async throws {
         let request = try await lookedUpRequest()
         try await BlastSubmitParity.assertParity(
-            harness: harness, server: server, declared: Self.declared,
+            harness: harness, server: server,
             in: scratch.appendingPathComponent("parity", isDirectory: true),
             resultsParent: { $0.appendingPathComponent(Self.resultPath, isDirectory: true) },
             fixture: Self.makeProject,
-            sideA: { root in await Self.inProcessRoute(root, request: request, server: self.server) },
+            oracle: { await BlastSubmitParity.inProcessSearch(request, server: self.server) },
             sideC: { root in
                 let outcome = await BlastSubmitParity.sideC(
                     root, cli: self.harness.cliBinary, plan: { try Self.plan(request, $0) }, begin: Self.begin
@@ -65,7 +65,6 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
             harness: harness, in: scratch.appendingPathComponent("signed", isDirectory: true),
             resultsParent: { $0.appendingPathComponent(Self.resultPath, isDirectory: true) },
             fixture: Self.makeProject,
-            sideA: { root in await Self.inProcessRoute(root, request: request, server: self.server) },
             sideC: { root in
                 await BlastSubmitParity.sideC(root, cli: self.harness.cliBinary, plan: { try Self.plan(request, $0) }, begin: Self.begin)
             }
@@ -78,32 +77,6 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
         try Self.makeProject(root)
         try await BlastSubmitParity.assertSIGTERMCancels(try Self.plan(request, root), server: server, testClass: Self.self)
     }
-
-    // MARK: - The declared differences, which 2.13 deletes with the key
-
-    private static let closedBy = "2.13, which deletes the in-process route with the ClassifierBlastRoute key (C4, R-A1, U-R1)"
-
-    private static let declared: [RouteParityDeclaredDifference<BlastSubmitParity.Case>] = [
-        RouteParityDeclaredDifference(
-            [.oneSelection: 2], "only in A: \(resultPath)/blast-verifications/<ANY>",
-            reason: "The in-process route saved the verdicts as an archive file with its provenance in the result's "
-                + "blast-verifications/, which a reopened result still restores (ARCH 4). The CLI route keeps the "
-                + "search's folder there instead.",
-            closedBy: closedBy
-        ),
-        RouteParityDeclaredDifference(
-            [.oneSelection: 2], "only in C: Project.lungfish/.tmp/blast-submit-<ANY>",
-            reason: "The CLI route writes the query to the project's .tmp, where the leaf reads it and the sweep "
-                + "removes it (C1). The in-process route sent it from memory.",
-            closedBy: closedBy
-        ),
-        RouteParityDeclaredDifference(
-            [.oneSelection: 3], "only in C: \(resultPath)/blast-verifications/<ANY>",
-            reason: "The CLI route keeps the search, a copy of its query and the record that names the query's digest "
-                + "and lineage (C1, BIO 3, 4 and 6), where the in-process route kept its archive file.",
-            closedBy: closedBy
-        ),
-    ]
 
     // MARK: - The site
 
@@ -145,40 +118,6 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
         XCTAssertEqual(request.sequences.map(\.id).sorted(), ["read_1", "read_2"])
         XCTAssertTrue(request.acceptedTaxIds.contains(562))
         return request
-    }
-
-    /// Side A, the in-process route. The search in this process, then the archive file the row saved.
-    private static func inProcessRoute(
-        _ root: URL, request: BlastVerificationRequest, server: LoopbackHTTPStandIn
-    ) async -> RouteParitySideOutcome {
-        do {
-            let service = BlastService(environment: [BlastSubmitParity.standInVariable: server.baseURL.absoluteString])
-            let verdicts = try await service.verify(request: request)
-            let result = root.appendingPathComponent(resultPath, isDirectory: true)
-            saveBlastVerification(
-                verdicts, request: request, resultDirectory: result, classResult: try classResult(in: result),
-                sourceInputs: [root.appendingPathComponent(readsPath)], readCount: 2, runClock: ProvenanceRunClock()
-            )
-            return RouteParitySideOutcome(end: .completed, detail: BlastSubmitParity.summary(verdicts))
-        } catch {
-            return RouteParitySideOutcome(end: .failed, detail: "\(error)")
-        }
-    }
-
-    private static func classResult(in result: URL) throws -> ClassificationResult {
-        ClassificationResult(
-            config: ClassificationConfig(
-                inputFiles: [], isPairedEnd: false, databaseName: "test-db",
-                databasePath: result.appendingPathComponent("db"), outputDirectory: result
-            ),
-            tree: try KreportParser.parse(url: result.appendingPathComponent("classification.kreport")),
-            reportURL: result.appendingPathComponent("classification.kreport"),
-            outputURL: result.appendingPathComponent("classification.kraken"),
-            brackenURL: nil,
-            runtime: 1,
-            toolVersion: "2.1.3",
-            provenanceId: nil
-        )
     }
 
     private static func plan(_ request: BlastVerificationRequest, _ root: URL) throws -> BlastSubmitPlan {

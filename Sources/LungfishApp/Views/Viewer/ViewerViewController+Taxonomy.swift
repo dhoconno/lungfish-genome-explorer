@@ -128,11 +128,9 @@ extension ViewerViewController {
 
         // Wire BLAST verification callback.
         // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
-        // The inputs the classification recorded. The row's command names
-        // each with one --source, and the run reads their files (D8).
+        // The inputs the classification recorded. The search reads their
+        // files (D8).
         let capturedInputs = (try? KrakenResultReadSources.recordedInputs(of: result)) ?? []
-        let capturedOutputURL = result.outputURL
-        let capturedTree = result.tree
         let capturedResultDirectory = result.config.outputDirectory
 
         // Saved verifications live in the result folder and come back when
@@ -140,123 +138,10 @@ extension ViewerViewController {
         controller.blastVerificationDirectoryResolver = { _ in capturedResultDirectory }
 
         controller.onBlastVerification = { [weak self, weak controller] node, readCount in
-            if ClassifierBlastRouteSettings.currentRoute == .cli {
-                self?.beginKraken2BlastSubmit(
-                    controller: controller, node: node, readCount: readCount, classResult: result,
-                    sourceInputs: capturedInputs, resultDirectory: capturedResultDirectory
-                )
-                return
-            }
-
-            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
-            // release (C4, U-R1). Its row records `blast verify`. Phase 2.13 deletes it with the key.
-            ViewerViewController.beginKraken2BlastVerificationOperation(
-                taxonName: node.name,
-                cliCommand: kraken2BlastVerifyCLICommand(
-                    classResult: result, sourceInputs: capturedInputs, taxId: node.taxId,
-                    readCount: readCount, resultDirectory: capturedResultDirectory
-                )
-            ) { opID in
-                let blastRunID = controller?.beginBlastVerification(for: node)
-                let weakController = controller
-                // The drawer's own Cancel button reads this to actually
-                // cancel the run, rather than only logging.
-                controller?.currentBlastOperationID = opID
-
-                let taxId = node.taxId
-                let taxonName = node.name
-                let sourceInputs = capturedInputs
-                let classificationOutput = capturedOutputURL
-                let tree = capturedTree
-                let resultDirectory = capturedResultDirectory
-                let runClock = ProvenanceRunClock()
-
-
-                let task = Task.detached {
-                    do {
-                        let blastService = BlastService.shared
-                        let request = try await kraken2BlastVerificationRequest(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            tree: tree,
-                            classificationOutput: classificationOutput,
-                            sourceInputs: sourceInputs,
-                            readCount: readCount,
-                            service: blastService
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: 0.1,
-                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                                ) else { return }
-                                weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
-                            }
-                        }
-
-                        // Submit and wait for results
-                        let blastResult = try await blastService.verify(
-                            request: request,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.updateWithLog(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        ) else { return }
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            weakController?.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
-                                        } else if lower.contains("parsing") {
-                                            weakController?.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
-                                        } else {
-                                            weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        let blastArchiveURL = saveBlastVerification(
-                            blastResult,
-                            request: request,
-                            resultDirectory: resultDirectory,
-                            classResult: result,
-                            sourceInputs: sourceInputs,
-                            readCount: readCount,
-                            runClock: runClock
-                        )
-
-                        let capturedResult = blastResult
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: blastVerificationCompletionDetail(capturedResult)
-                                ) else { return }
-                                weakController?.showBlastResults(capturedResult, recordURL: blastArchiveURL, runID: blastRunID)
-                            }
-                        }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(
-                                    id: opID,
-                                    detail: errorDesc
-                                ) else { return }
-                                weakController?.showBlastFailure(message: errorDesc, runID: blastRunID)
-                                showBlastVerificationErrorAlert(errorDesc)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-            }
+            self?.beginKraken2BlastSubmit(
+                controller: controller, node: node, readCount: readCount, classResult: result,
+                sourceInputs: capturedInputs, resultDirectory: capturedResultDirectory
+            )
         }
 
         taxonomyViewController = controller
@@ -335,115 +220,11 @@ extension ViewerViewController {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
-            let runClock = ProvenanceRunClock()
             let sourceInputs = (try? KrakenResultReadSources.recordedInputs(of: sampleResult)) ?? []
-            if ClassifierBlastRouteSettings.currentRoute == .cli {
-                self?.beginKraken2BlastSubmit(
-                    controller: controller, node: node, readCount: readCount, classResult: sampleResult,
-                    sourceInputs: sourceInputs, resultDirectory: sampleDirectory, sample: controller.owningSampleId(for: node)
-                )
-                return
-            }
-
-            // The in-process search, kept behind `ClassifierBlastRoute` for one release. Phase 2.13 deletes it.
-            ViewerViewController.beginKraken2BlastVerificationOperation(
-                taxonName: node.name,
-                cliCommand: kraken2BlastVerifyCLICommand(
-                    classResult: sampleResult, sourceInputs: sourceInputs, taxId: node.taxId,
-                    readCount: readCount, resultDirectory: sampleDirectory
-                )
-            ) { opID in
-                let blastRunID = controller.beginBlastVerification(for: node)
-                let weakController = controller
-                // The drawer's own Cancel button reads this to actually
-                // cancel the run, rather than only logging.
-                controller.currentBlastOperationID = opID
-
-                let taxId = node.taxId
-                let taxonName = node.name
-                let classificationOutput = sampleResult.outputURL
-                let tree = sampleResult.tree
-
-                let task = Task.detached {
-                    do {
-                        let blastService = BlastService.shared
-                        let request = try await kraken2BlastVerificationRequest(
-                            taxonName: taxonName,
-                            taxId: taxId,
-                            tree: tree,
-                            classificationOutput: classificationOutput,
-                            sourceInputs: sourceInputs,
-                            readCount: readCount,
-                            service: blastService
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.updateWithLog(
-                                    id: opID,
-                                    progress: 0.1,
-                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
-                                ) else { return }
-                                weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
-                            }
-                        }
-
-                        let blastResult = try await blastService.verify(
-                            request: request,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.updateWithLog(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        ) else { return }
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            weakController.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
-                                        } else if lower.contains("parsing") {
-                                            weakController.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
-                                        } else {
-                                            weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        let blastArchiveURL = saveBlastVerification(
-                            blastResult,
-                            request: request,
-                            resultDirectory: sampleDirectory,
-                            classResult: sampleResult,
-                            sourceInputs: sourceInputs,
-                            readCount: readCount,
-                            runClock: runClock
-                        )
-
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: blastVerificationCompletionDetail(blastResult)
-                                ) else { return }
-                                weakController.showBlastResults(blastResult, recordURL: blastArchiveURL, runID: blastRunID)
-                            }
-                        }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        scheduleTaxonomyOnMainRunLoop {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                                weakController.showBlastFailure(message: errorDesc, runID: blastRunID)
-                                showBlastVerificationErrorAlert(errorDesc)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-            }
+            self?.beginKraken2BlastSubmit(
+                controller: controller, node: node, readCount: readCount, classResult: sampleResult,
+                sourceInputs: sourceInputs, resultDirectory: sampleDirectory, sample: controller.owningSampleId(for: node)
+            )
         }
 
         taxonomyViewController = controller
@@ -495,8 +276,6 @@ extension ViewerViewController {
     /// bundle. `cliCommand` is what the row records when it begins. The row
     /// on `blast submit` begins with none and takes `plan.cliCommand` once
     /// the read lookup has planned the search (`launchKraken2BlastSubmit`).
-    /// The in-process route that ``ClassifierBlastRouteSettings`` keeps for
-    /// one release records ``kraken2BlastVerifyCLICommand(classResult:sourceInputs:taxId:readCount:resultDirectory:)``.
     @discardableResult
     static func beginKraken2BlastVerificationOperation(
         taxonName: String,
@@ -556,50 +335,6 @@ private func showTaxonomyExtractionErrorAlert(_ errorDescription: String) {
             alert.beginSheetModal(for: window)
         }
     }
-}
-
-/// Arguments for the `lungfish-cli blast verify` command that reproduces an
-/// in-app BLAST verification. The app always includes descendant taxa, and
-/// it saves the verification under `<resultDirectory>/blast-verifications/`,
-/// which `--result-dir` reproduces. Each input the classification recorded
-/// is one `--source`, which the CLI resolves to the read files the app reads
-/// (D8).
-func blastVerifyCLIArguments(
-    classResult: ClassificationResult,
-    sourceInputs: [URL],
-    taxId: Int,
-    readCount: Int,
-    resultDirectory: URL
-) -> [String] {
-    var args = [
-        "--kreport", classResult.reportURL.path,
-        "--kraken-output", classResult.outputURL.path,
-    ]
-    for input in sourceInputs {
-        args += ["--source", input.path]
-    }
-    args += ["--taxid", "\(taxId)", "--include-children", "--reads", "\(readCount)"]
-    args += ["--result-dir", resultDirectory.path]
-    return args
-}
-
-/// The `lungfish-cli blast verify` command for the same inputs, one `--source`
-/// for each of `sourceInputs` and the `--result-dir` the app saves into, which
-/// the in-process Kraken2 row records. It goes with that route in Phase 2.13.
-func kraken2BlastVerifyCLICommand(
-    classResult: ClassificationResult,
-    sourceInputs: [URL],
-    taxId: Int,
-    readCount: Int,
-    resultDirectory: URL
-) -> String {
-    OperationCenter.buildCLICommand(
-        subcommand: "blast verify",
-        args: blastVerifyCLIArguments(
-            classResult: classResult, sourceInputs: sourceInputs, taxId: taxId,
-            readCount: readCount, resultDirectory: resultDirectory
-        )
-    )
 }
 
 /// The BLAST verification request for a Kraken2 taxon, which both BLAST
@@ -712,42 +447,6 @@ func kraken2SampleResultDirectory(
         if hasSidecar(directory) { return directory }
     }
     return hasSidecar(resultURL) ? resultURL : nil
-}
-
-/// Saves a finished verification into `<resultDirectory>/blast-verifications/`
-/// with a provenance sidecar. A failure is logged and never fails the run. The file it wrote comes back, since the
-/// BLAST drawer keeps it for its table export (ARCH ruling T5 of lane 12.33), and nil comes back when the save failed.
-@discardableResult
-func saveBlastVerification(
-    _ result: BlastVerificationResult,
-    request: BlastVerificationRequest,
-    resultDirectory: URL,
-    classResult: ClassificationResult,
-    sourceInputs: [URL],
-    readCount: Int,
-    runClock: ProvenanceRunClock
-) -> URL? {
-    let argv = [CLICommandIdentity.executableName, "blast", "verify"]
-        + blastVerifyCLIArguments(
-            classResult: classResult,
-            sourceInputs: sourceInputs,
-            taxId: result.taxId,
-            readCount: readCount,
-            resultDirectory: resultDirectory
-        )
-    do {
-        return try BlastVerificationArchive.save(
-            result,
-            request: request,
-            in: resultDirectory,
-            sourceURLs: [classResult.reportURL],
-            argv: argv,
-            runClock: runClock
-        )
-    } catch {
-        taxonomyLogger.warning("BLAST: could not save the verification to \(resultDirectory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        return nil
-    }
 }
 
 /// Presents an error alert for a failed BLAST verification request.
