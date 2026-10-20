@@ -13,6 +13,15 @@ public enum ToolProcessInput: Sendable, Equatable {
     /// These bytes, written through a pipe that is closed after the last byte.
     /// A process that exits without reading them all is not an error.
     case data(Data)
+    /// Written by the caller through ``ToolProcessRun/stdin`` while the
+    /// process runs, through the same nonblocking writer as `data`, so a
+    /// process that stops reading ends the writes and never kills the app
+    /// with SIGPIPE. Each write returns once the pipe took its last byte, so
+    /// the process holds the caller back when it reads slower than the caller
+    /// writes. Closing the writer gives the process end of file. Only a run
+    /// started with ``ToolProcess/start(_:onEvent:onLaunch:)`` can stream
+    /// stdin.
+    case stream
 }
 
 /// Where a process writes one of its output streams.

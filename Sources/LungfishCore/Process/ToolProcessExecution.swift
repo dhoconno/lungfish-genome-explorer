@@ -98,6 +98,10 @@ final class ToolProcessExecution: Sendable {
     /// stdout. It stays at end of file when the last stage does not stream.
     /// The run only attaches and wakes it. The caller's reader owns it.
     let stdoutChannel = ToolProcessStreamChannel()
+    /// The writer side behind the caller's writer of a
+    /// ``ToolProcessInput/stream`` stdin of the first stage. It is closed from
+    /// the start when that stage does not stream. The run attaches its feeder.
+    let stdinChannel: ToolProcessInputChannel
     /// The provenance observer bound where the run was built. It is read
     /// once, in `init`, because the run's queue threads carry no task-local
     /// values (`docs/contracts/RECORDING-PROVENANCE.md`).
@@ -109,6 +113,7 @@ final class ToolProcessExecution: Sendable {
         self.specs = specs
         self.limits = limits
         self.observers = observers
+        self.stdinChannel = ToolProcessInputChannel(streams: specs.first?.stdin == .stream)
         // The task context is read here and nowhere else, its priority for
         // the queue and its provenance observer.
         self.queue = DispatchQueue(label: "org.lungfish.tool-process", qos: Self.qualityOfService(Task.currentPriority))
@@ -211,7 +216,8 @@ final class ToolProcessExecution: Sendable {
         var childFDs: [Int32] = []
         var parentFDs: [Int32] = []
         var captures: [(stream: ToolProcessStream, fd: Int32, limit: Int?)] = []
-        var feed: (fd: Int32, data: Data)?
+        // The bytes to feed, or nil for the caller's writer of a streamed stdin.
+        var feed: (fd: Int32, data: Data?)?
         var downstreamRead: Int32?
         var streamRead: Int32?
 
@@ -254,6 +260,11 @@ final class ToolProcessExecution: Sendable {
                     let pipe = try ToolProcessDescriptors.makePipe()
                     parentFDs.append(pipe.write)
                     feed = (pipe.write, data)
+                    stdinFD = pipe.read
+                case .stream:
+                    let pipe = try ToolProcessDescriptors.makePipe()
+                    parentFDs.append(pipe.write)
+                    feed = (pipe.write, nil)
                     stdinFD = pipe.read
                 }
             }
@@ -347,6 +358,10 @@ final class ToolProcessExecution: Sendable {
         }
         drains.forEach { $0.start() }
         feeder?.start()
+        if let feeder, feed?.data == nil {
+            // The caller's writer of a streamed stdin writes through it.
+            stdinChannel.attach(feeder)
+        }
         watchExit(index, pid: pid)
         if stop != nil {
             terminateStage(index)

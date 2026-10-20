@@ -116,10 +116,14 @@ public enum ToolProcess {
         )
     }
 
-    /// A streamed stdout needs a reader, which only ``start(_:onEvent:onLaunch:)`` hands out.
+    /// A streamed stdout needs a reader and a streamed stdin a writer, which
+    /// only ``start(_:onEvent:onLaunch:)`` hands out.
     static func refuseStream(_ spec: ToolProcessSpec, in method: String) throws(ToolProcessError) {
         if spec.stdout == .stream {
             throw .invalidSpec("\(spec.label) streams stdout, which needs ToolProcess.start and a reader. \(method) has none.")
+        }
+        if spec.stdin == .stream {
+            throw .invalidSpec("\(spec.label) streams stdin, which needs ToolProcess.start and a writer. \(method) has none.")
         }
     }
 

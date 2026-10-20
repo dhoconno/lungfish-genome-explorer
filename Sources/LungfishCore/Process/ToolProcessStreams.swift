@@ -294,24 +294,58 @@ final class ToolProcessStreamDrain: Sendable {
     }
 }
 
-/// Writes ``ToolProcessInput/data(_:)`` bytes into the child's stdin pipe.
+/// Writes a child's stdin pipe, the bytes of ``ToolProcessInput/data(_:)``
+/// and each write of the ``ToolProcessInputStream`` of a
+/// ``ToolProcessInput/stream`` stdin.
 ///
 /// Writes are nonblocking and the pipe ignores SIGPIPE, so a child that exits
 /// without reading everything ends the feed instead of killing the app or
-/// blocking a thread. The source's cancel handler closes the write end, which
-/// is what gives the child end of file, and then reports the feed closed.
+/// blocking a thread. Bytes wait here only while the pipe is full, and the
+/// write source is suspended while none wait. Each chunk's completion runs
+/// once, with nil when the pipe took its last byte and with the reason
+/// otherwise. The source's cancel handler closes the write end, which is what
+/// gives the child end of file, and then reports the feed closed.
 final class ToolProcessInputFeeder: Sendable {
+    typealias Completion = @Sendable (ToolProcessInputStream.WriteError?) -> Void
+
+    private struct Chunk {
+        var data: Data
+        var offset = 0
+        var completion: Completion?
+    }
+
+    private struct FeedState {
+        var chunks: [Chunk] = []
+        /// The write end closes once every chunk is written.
+        var finishRequested: Bool
+        /// Why the feed ended, once it has. Nothing is written after.
+        var ended: ToolProcessInputStream.WriteError?
+        var suspended = false
+    }
+
+    private enum WriteStep {
+        case written
+        case pipeFull(offset: Int)
+        case failed(ToolProcessInputStream.WriteError)
+    }
+
     private let fd: Int32
-    private let data: Data
     private let source: DispatchSourceWrite
-    private let offset = Mutex(0)
+    private let state: Mutex<FeedState>
     private let onClosed: @Sendable () -> Void
 
-    init(fd: Int32, data: Data, queue: DispatchQueue, onClosed: @escaping @Sendable () -> Void) {
+    /// Feeds `data` and then closes the write end, or, when `data` is nil,
+    /// feeds each chunk ``enqueue(_:completion:)`` hands it until
+    /// ``finishInput()``.
+    init(fd: Int32, data: Data?, queue: DispatchQueue, onClosed: @escaping @Sendable () -> Void) {
         ToolProcessDescriptors.setNonBlocking(fd)
         _ = fcntl(fd, F_SETNOSIGPIPE, 1)
         self.fd = fd
-        self.data = data
+        var initial = FeedState(finishRequested: data != nil)
+        if let data {
+            initial.chunks = [Chunk(data: data)]
+        }
+        self.state = Mutex(initial)
         self.source = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
         self.onClosed = onClosed
     }
@@ -330,38 +364,125 @@ final class ToolProcessInputFeeder: Sendable {
         source.activate()
     }
 
-    /// Stops feeding and closes the write end. Safe to call more than once.
+    /// Queues `data` behind the chunks already waiting. `completion` runs
+    /// once, with nil when the pipe took the last byte, or with why not.
+    func enqueue(_ data: Data, completion: @escaping Completion) {
+        let refusal = state.withLock { feed -> ToolProcessInputStream.WriteError? in
+            if let ended = feed.ended { return ended }
+            if feed.finishRequested { return .closed }
+            feed.chunks.append(Chunk(data: data, completion: completion))
+            resumeIfSuspended(&feed)
+            return nil
+        }
+        if let refusal {
+            completion(refusal)
+        }
+    }
+
+    /// Closes the write end once every queued chunk is written, which gives
+    /// the child end of file. Safe to call more than once.
+    func finishInput() {
+        let cancelNow = state.withLock { feed -> Bool in
+            guard feed.ended == nil, !feed.finishRequested else { return false }
+            feed.finishRequested = true
+            // The source writes the chunks still waiting and then cancels.
+            guard feed.chunks.isEmpty else { return false }
+            feed.ended = .closed
+            resumeIfSuspended(&feed)
+            return true
+        }
+        if cancelNow {
+            source.cancel()
+        }
+    }
+
+    /// Stops feeding and closes the write end, because nothing reads it any
+    /// more. A chunk still waiting completes with
+    /// ``ToolProcessInputStream/WriteError/readerGone``. Safe to call more
+    /// than once.
     func stop() {
+        let dropped = state.withLock { feed -> [Completion] in
+            // A suspended source never runs its cancel handler.
+            resumeIfSuspended(&feed)
+            guard feed.ended == nil else { return [] }
+            feed.ended = .readerGone
+            return Self.takeCompletions(&feed)
+        }
+        dropped.forEach { $0(.readerGone) }
         source.cancel()
     }
 
+    private func resumeIfSuspended(_ feed: inout FeedState) {
+        guard feed.suspended else { return }
+        feed.suspended = false
+        source.resume()
+    }
+
+    private static func takeCompletions(_ feed: inout FeedState) -> [Completion] {
+        defer { feed.chunks = [] }
+        return feed.chunks.compactMap(\.completion)
+    }
+
+    /// Writes what the pipe takes now. Runs on the run's queue.
     private func writeAvailable() {
-        var position = offset.withLock { $0 }
-        let total = data.count
-        data.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else {
-                position = total
-                return
+        typealias Step = (cancel: Bool, written: [Completion], dropped: [Completion], reason: ToolProcessInputStream.WriteError?)
+        let step = state.withLock { feed -> Step in
+            guard feed.ended == nil else { return (false, [], [], nil) }
+            var written: [Completion] = []
+            while let chunk = feed.chunks.first {
+                switch Self.writeChunk(fd, chunk.data, from: chunk.offset) {
+                case .written:
+                    feed.chunks.removeFirst()
+                    if let completion = chunk.completion {
+                        written.append(completion)
+                    }
+                case .pipeFull(let offset):
+                    feed.chunks[0].offset = offset
+                    return (false, written, [], nil)
+                case .failed(let reason):
+                    feed.ended = reason
+                    return (true, written, Self.takeCompletions(&feed), reason)
+                }
             }
-            while position < total {
-                let count = write(fd, base + position, min(total - position, 64 * 1024))
+            if feed.finishRequested {
+                feed.ended = .closed
+                return (true, written, [], nil)
+            }
+            // Nothing waits, so the source rests until the next chunk.
+            feed.suspended = true
+            source.suspend()
+            return (false, written, [], nil)
+        }
+        step.written.forEach { $0(nil) }
+        if let reason = step.reason {
+            step.dropped.forEach { $0(reason) }
+        }
+        if step.cancel {
+            source.cancel()
+        }
+    }
+
+    private static func writeChunk(_ fd: Int32, _ data: Data, from start: Int) -> WriteStep {
+        data.withUnsafeBytes { raw -> WriteStep in
+            guard let base = raw.baseAddress else { return .written }
+            var position = start
+            while position < raw.count {
+                let count = Darwin.write(fd, base + position, min(raw.count - position, 64 * 1024))
+                let code = errno
                 if count > 0 {
                     position += count
                     continue
                 }
-                if count < 0 && errno == EINTR {
+                if count < 0 && code == EINTR {
                     continue
                 }
-                if count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    return
+                if count < 0 && (code == EAGAIN || code == EWOULDBLOCK) {
+                    return .pipeFull(offset: position)
                 }
                 // EPIPE means the reader is gone. Any other error ends the feed too.
-                position = total
+                return .failed(count < 0 && code != EPIPE ? .writeFailed(errno: code) : .readerGone)
             }
-        }
-        offset.withLock { $0 = position }
-        if position >= total {
-            source.cancel()
+            return .written
         }
     }
 }

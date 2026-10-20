@@ -13,8 +13,9 @@ extension ToolProcess {
     /// The spawn happens before this returns, so ``ToolProcessRun/pid`` is
     /// already set, and everything after it runs on GCD, so the run needs no
     /// Swift task to start, progress or finish. A spec whose stdout is
-    /// ``ToolProcessOutput/stream`` is read through ``ToolProcessRun/stdout``.
-    /// Every other disposition behaves as in `run`. A launch failure is not
+    /// ``ToolProcessOutput/stream`` is read through ``ToolProcessRun/stdout``,
+    /// and one whose stdin is ``ToolProcessInput/stream`` is written through
+    /// ``ToolProcessRun/stdin``. Every other disposition behaves as in `run`. A launch failure is not
     /// thrown here. The pid is then nil, and the failure is the error of
     /// ``ToolProcessRun/waitBlocking()`` and ``ToolProcessRun/result()``.
     ///
@@ -46,7 +47,8 @@ extension ToolProcess {
     /// holds, with `cancellation` in place of task cancellation.
     ///
     /// - Parameters:
-    ///   - spec: What to run and how. Its stdout cannot be ``ToolProcessOutput/stream``.
+    ///   - spec: What to run and how. Its stdout cannot be ``ToolProcessOutput/stream``
+    ///     and its stdin cannot be ``ToolProcessInput/stream``.
     ///   - cancellation: Stops the run, as cancelling the task stops `run`.
     ///     When it is already cancelled, nothing launches.
     ///   - onEvent: As in ``run(_:onEvent:onLaunch:)``.
@@ -80,11 +82,15 @@ extension ToolProcess {
 /// process whose output is captured or written to a file. A streamed stdout
 /// is closed once the handle and every reference to ``stdout`` are gone, so
 /// its writer gets SIGPIPE at its next write, the run ends, and its output
-/// counts as incomplete.
+/// counts as incomplete. A streamed stdin is closed the same way, so a
+/// process reading it to end of file gets end of file.
 public final class ToolProcessRun: Sendable {
     /// Standard output when the spec sets ``ToolProcessOutput/stream``, and
     /// at end of file at once otherwise.
     public let stdout: ToolProcessOutputStream
+    /// Standard input when the spec sets ``ToolProcessInput/stream``, and
+    /// closed from the start otherwise.
+    public let stdin: ToolProcessInputStream
 
     private let execution: ToolProcessExecution
     private let done = DispatchGroup()
@@ -93,6 +99,7 @@ public final class ToolProcessRun: Sendable {
     init(_ execution: ToolProcessExecution) {
         self.execution = execution
         self.stdout = ToolProcessOutputStream(execution.stdoutChannel)
+        self.stdin = ToolProcessInputStream(execution.stdinChannel)
         done.enter()
     }
 
@@ -122,8 +129,8 @@ public final class ToolProcessRun: Sendable {
 
     /// Waits on the calling thread until the run is over, closes ``stdout``
     /// and returns the result. Never call it on the main thread, and read
-    /// ``stdout`` to end of file or cancel the run first. Safe to call more
-    /// than once.
+    /// ``stdout`` to end of file and close ``stdin``, or cancel the run,
+    /// first. Safe to call more than once.
     ///
     /// - Throws: ``ToolProcessError``.
     public func waitBlocking() throws(ToolProcessError) -> ToolProcessResult {
@@ -134,7 +141,8 @@ public final class ToolProcessRun: Sendable {
     /// Suspends until the run is over, closes ``stdout`` and returns the
     /// result. Cancelling the waiting task cancels the run, as it does for
     /// ``ToolProcess/run(_:onEvent:onLaunch:)``. Read ``stdout`` to end of
-    /// file or cancel the run first. Safe to call more than once.
+    /// file and close ``stdin``, or cancel the run, first. Safe to call more
+    /// than once.
     ///
     /// - Throws: ``ToolProcessError``.
     public func result() async throws(ToolProcessError) -> ToolProcessResult {
