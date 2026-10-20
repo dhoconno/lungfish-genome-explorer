@@ -417,27 +417,27 @@ public func gzipCompressFASTQ(
     if FileManager.default.fileExists(atPath: outputURL.path) {
         try FileManager.default.removeItem(at: outputURL)
     }
-    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-    let outputHandle = try FileHandle(forWritingTo: outputURL)
-    defer { try? outputHandle.close() }
-
-    let process = Process()
     let command = ["/usr/bin/gzip", "-c", sourceURL.path]
-    let stderrPipe = Pipe()
     let gzipClock = ProvenanceRunClock()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-    process.arguments = Array(command.dropFirst())
-    process.standardOutput = outputHandle
-    process.standardError = stderrPipe
-    try process.run()
-    process.waitUntilExit()
-    let stderr = String(
-        decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-        as: UTF8.self
-    )
+    let result: ToolProcessResult
+    do {
+        result = try ToolProcess.runBlocking(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+            arguments: Array(command.dropFirst()),
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .file(outputURL),
+            label: "gzip -c"
+        ))
+    } catch {
+        throw FastpPairedRunError(
+            "gzip failed while compressing \(failureDescription) \(outputURL.path): \(error.localizedDescription)"
+        )
+    }
+    let stderr = result.stderrText
     let wallTime = gzipClock.elapsed
-    guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-        let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard result.isSuccess else {
+        var detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if detail.isEmpty, let reason = result.incompleteOutputReason { detail = reason }
         let suffix = detail.isEmpty ? "" : ": \(detail)"
         throw FastpPairedRunError("gzip failed while compressing \(failureDescription) \(outputURL.path)\(suffix)")
     }
@@ -445,7 +445,7 @@ public func gzipCompressFASTQ(
         command: command,
         inputURL: sourceURL,
         outputURL: outputURL,
-        exitCode: process.terminationStatus,
+        exitCode: result.status,
         wallTime: wallTime,
         stderr: stderr
     )
