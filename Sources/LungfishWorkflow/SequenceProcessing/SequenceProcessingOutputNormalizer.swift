@@ -68,7 +68,7 @@ public enum SequenceProcessingOutputNormalizer {
                 defaults: defaults, resolvedDefaults: options), runtimeIdentity: runtime,
             files: [inputFile, outputFile], output: outputFile, outputs: [outputFile], steps: [step],
             wallTimeSeconds: ended.timeIntervalSince(started), exitStatus: 0)
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecar)
+        try ProvenanceWriter().write(envelope, toSidecar: sidecar)
         published = true
     }
 
@@ -145,7 +145,7 @@ public enum SequenceProcessingOutputNormalizer {
             exitStatus: original.exitStatus, stderr: original.stderr,
             signatures: [], status: original.status, legacyWorkflowRun: original.legacyRun
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: output))
+        try ProvenanceWriter().write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: output))
         published = true
         return output
     }

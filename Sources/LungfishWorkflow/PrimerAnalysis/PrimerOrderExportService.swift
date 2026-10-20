@@ -453,7 +453,7 @@ public struct PrimerOrderExportService: Sendable {
       argv: argv, resolvedOptions: options, runtimeIdentity: runtime, inputs: inputs, outputs: outputs,
       exitStatus: 0, wallTimeSeconds: completed.timeIntervalSince(started), startedAt: started, completedAt: completed))
     let envelope = try builder.complete(exitStatus: 0, startedAt: started, endedAt: completed)
-    try ProvenanceWriter(signingProvider: nil).write(envelope, to: staged, bundleLayoutRoot: destination)
+    try ProvenanceWriter().write(envelope, to: staged, bundleLayoutRoot: destination)
     progress?(0.95, "Saving the order in this project…")
     try Task.checkCancellation()
     if let publish { try await publish(staged, destination) }

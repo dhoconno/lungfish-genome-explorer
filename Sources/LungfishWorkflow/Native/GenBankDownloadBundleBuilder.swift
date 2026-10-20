@@ -452,7 +452,7 @@ public final class GenBankDownloadBundleBuilder: Sendable {
         }
         let envelope = try builder.complete(exitStatus: 0, stderr: stderr,
             startedAt: runClock.startedAt, endedAt: runClock.now)
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func shellEscape(_ value: String) -> String {

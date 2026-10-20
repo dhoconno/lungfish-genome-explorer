@@ -1381,7 +1381,7 @@ private func writeMetagenomicsImportProvenance(
         exitStatus: 0
     )
 
-    try ProvenanceWriter(signingProvider: nil).write(envelope, to: resultDirectory)
+    try ProvenanceWriter().write(envelope, to: resultDirectory)
 }
 
 func naoMgsMaterializationProvenanceSteps(

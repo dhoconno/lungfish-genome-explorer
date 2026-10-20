@@ -305,7 +305,7 @@ public struct PBAAClusteringPipeline: Sendable {
             endedAt: completedAt
         )
 
-        let writer = ProvenanceWriter(signingProvider: nil)
+        let writer = ProvenanceWriter()
         try writer.write(envelope, to: runResult.rawOutputDirectory)
         if let referenceBundleURL {
             try writer.write(envelope, to: referenceBundleURL)

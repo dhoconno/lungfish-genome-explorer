@@ -217,7 +217,7 @@ public enum ScientificFileExportProvenance {
         let envelope = try envelope(for: request.completedNow(), outputDescriptor: outputDescriptor)
 
         do {
-            return try ProvenanceWriter(signingProvider: nil).write(
+            return try ProvenanceWriter().write(
                 envelope,
                 toSidecar: ProvenanceRecorder.fileSidecarURL(for: request.outputURL)
             )
@@ -265,7 +265,7 @@ public enum ScientificFileExportProvenance {
             let completedRequest = request.completedNow()
             let envelope = envelope(for: completedRequest, inputDescriptors: inputDescriptors, outputDescriptor: outputDescriptor)
             try publication.publish(stagedURL: tempOutputURL, to: outputURL)
-            try ProvenanceWriter(publicationMutationDidOccur: { try publication.observe($0) }, signingProvider: nil)
+            try ProvenanceWriter(publicationMutationDidOccur: { try publication.observe($0) })
                 .write(envelope, toSidecar: finalSidecarURL)
             publication.commit()
             return finalSidecarURL

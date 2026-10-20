@@ -426,7 +426,7 @@ package final class SequenceExtractionBundleBuilder: Sendable {
         let envelope = try toolSteps.reduce(runBuilder) { $0.step($1) }
             .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private func inputDescriptors(

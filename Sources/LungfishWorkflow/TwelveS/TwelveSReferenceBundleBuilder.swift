@@ -311,7 +311,7 @@ public struct TwelveSReferenceBundleBuilder: Sendable {
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0
         )
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        return try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     /// The bundle and each file in it that the build produced. A provenance record

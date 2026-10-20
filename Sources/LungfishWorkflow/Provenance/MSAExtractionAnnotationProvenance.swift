@@ -183,7 +183,7 @@ package enum MSAExtractionAnnotationProvenance {
             .step(step)
             .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
 
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+        return try ProvenanceWriter().write(envelope, toSidecar: sidecarURL)
     }
 
     private static func inputDescriptors(

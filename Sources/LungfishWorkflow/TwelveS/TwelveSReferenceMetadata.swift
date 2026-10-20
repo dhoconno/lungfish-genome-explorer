@@ -330,7 +330,7 @@ public struct TwelveSReferenceMetadataBuilder: Sendable {
         .runtime(ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser))
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
         let sidecarURL = config.outputURL.appendingPathExtension("lungfish-provenance.json")
-        return try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+        return try ProvenanceWriter().write(envelope, toSidecar: sidecarURL)
     }
 
     private static func alternateLabels(from reference: TwelveSReferenceRecord) -> [String] {

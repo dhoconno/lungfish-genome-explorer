@@ -511,7 +511,7 @@ private func writeExportProvenance(
         .runtime(ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser))
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
     let sidecarURL = config.outputURL.appendingPathExtension("lungfish-provenance.json")
-    return try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+    return try ProvenanceWriter().write(envelope, toSidecar: sidecarURL)
 }
 
 private func writeUnresolvedProvenance(
@@ -565,7 +565,7 @@ private func writeUnresolvedProvenance(
         .runtime(ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser))
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
     let sidecarURL = config.outputURL.appendingPathExtension("lungfish-provenance.json")
-    return try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+    return try ProvenanceWriter().write(envelope, toSidecar: sidecarURL)
 }
 
 private struct TwelveSExportSourceInput {

@@ -419,7 +419,7 @@ public struct PrimerAnalysisSelectionExportService: Sendable {
       }
     }
     let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
-    try ProvenanceWriter(signingProvider: nil).write(envelope, to: built, bundleLayoutRoot: final)
+    try ProvenanceWriter().write(envelope, to: built, bundleLayoutRoot: final)
   }
 
   /// A native builder step moved into the published bundle, naming the replay command and the files it

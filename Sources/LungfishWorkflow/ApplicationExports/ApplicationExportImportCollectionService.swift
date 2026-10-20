@@ -599,7 +599,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
     }
 
     private func writeProvenance(_ provenance: WorkflowRun, to url: URL) throws {
-        try ProvenanceWriter(signingProvider: nil).write(provenance.canonicalEnvelope(), toSidecar: url)
+        try ProvenanceWriter().write(provenance.canonicalEnvelope(), toSidecar: url)
     }
 
     private func appendUnique(_ value: String, to values: inout [String]) {

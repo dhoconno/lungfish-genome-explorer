@@ -101,7 +101,7 @@ public struct BundleContainerExportService {
         )
         let provenanceURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
         do {
-            try ProvenanceWriter(signingProvider: nil).write(
+            try ProvenanceWriter().write(
                 sidecarRun.canonicalEnvelope(),
                 toSidecar: provenanceURL
             )

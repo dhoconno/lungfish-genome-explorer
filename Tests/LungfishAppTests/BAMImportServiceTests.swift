@@ -495,7 +495,7 @@ final class BAMImportServiceTests: XCTestCase {
             contentsOf: packageRoot().appendingPathComponent("Sources/LungfishWorkflow/Mapping/BAMImportService+Provenance.swift"),
             encoding: .utf8
         )
-        XCTAssertTrue(recordSource.contains("ProvenanceWriter(signingProvider: nil).write("))
+        XCTAssertTrue(recordSource.contains("ProvenanceWriter().write("))
 
         let provenanceRange = try XCTUnwrap(source.range(of: "try writeImportProvenance("))
         let manifestRange = try XCTUnwrap(source.range(of: "try updatedManifest.save(to: bundleURL)"))

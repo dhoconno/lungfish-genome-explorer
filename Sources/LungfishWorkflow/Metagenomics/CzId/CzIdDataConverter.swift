@@ -342,7 +342,7 @@ public enum CzIdDataConverter {
             endedAt: endedAt,
             legacyWorkflowRun: legacyRun
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputDirectory)
+        try ProvenanceWriter().write(envelope, to: outputDirectory)
     }
 
     private static func appendInputRecord(

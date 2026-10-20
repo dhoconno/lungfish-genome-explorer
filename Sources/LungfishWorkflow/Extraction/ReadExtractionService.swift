@@ -1008,7 +1008,7 @@ public actor ReadExtractionService {
             wallTimeSeconds: wallTime,
             exitStatus: 0
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private func extractionFormat(for url: URL) -> FileFormat {

@@ -163,7 +163,7 @@ extension BAMImportService {
                     .joined(separator: "\n")
             )
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: provenanceURL)
+        try ProvenanceWriter().write(envelope, toSidecar: provenanceURL)
     }
 
     /// The command a record names when the caller passes none, the `import bam` leaf that attaches the same file to

@@ -480,7 +480,7 @@ public enum PrimerSchemeImportService {
             endedAt: now,
             legacyWorkflowRun: legacyRun
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private static func provenanceFormat(for url: URL) -> FileFormat {

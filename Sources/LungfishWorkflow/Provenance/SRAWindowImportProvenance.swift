@@ -173,7 +173,7 @@ package func writeGUISRAFASTQImportProvenance(
     )
 
     let envelope = run.canonicalEnvelope()
-    try ProvenanceWriter(signingProvider: nil).write(
+    try ProvenanceWriter().write(
         runTool.map { envelope.naming(tool: $0.name, version: $0.version) } ?? envelope,
         toSidecar: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
     )
