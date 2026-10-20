@@ -140,15 +140,20 @@ public final class GzipInputStream: Sendable {
         let chunkSize = 1_048_576 // 1 MB
         var partial = Data() // Leftover bytes from previous chunk (incomplete line)
 
-        while true {
+        // Without a pool per chunk, a loop that never leaves its thread keeps
+        // every autoreleased object a chunk and its lines create until the loop
+        // ends (61 GiB on a 30 GB `.gz` on 2026-10-20, when the read was
+        // `readData(ofLength:)`).
+        while try autoreleasepool(invoking: {
             try Task.checkCancellation()
 
             let chunk = child.readChunk(upTo: chunkSize)
-            if chunk.isEmpty { break }
+            guard !chunk.isEmpty else { return false }
 
             partial.append(chunk)
             try Self.emitCompleteLines(from: &partial, body)
-        }
+            return true
+        }) {}
 
         try Task.checkCancellation()
         try Self.emitFinalLine(from: partial, body)
@@ -174,13 +179,15 @@ public final class GzipInputStream: Sendable {
         let child = try GzipChildStream(decompressing: url)
         defer { child.close() }
 
-        while true {
+        // One pool per chunk frees each autoreleased object as the chunk is consumed.
+        while try autoreleasepool(invoking: {
             try Task.checkCancellation()
 
             let chunk = child.readChunk(upTo: chunkSize)
-            if chunk.isEmpty { break }
+            guard !chunk.isEmpty else { return false }
             try body(chunk)
-        }
+            return true
+        }) {}
 
         try Task.checkCancellation()
         try child.finish()
@@ -298,14 +305,16 @@ public extension FileHandle {
         let chunkSize = 1_048_576 // 1 MB
         var partial = Data()
 
-        while true {
+        // One pool per chunk frees each autoreleased buffer as it is consumed.
+        while try autoreleasepool(invoking: {
             try Task.checkCancellation()
 
-            guard let chunk = try read(upToCount: chunkSize), !chunk.isEmpty else { break }
+            guard let chunk = try read(upToCount: chunkSize), !chunk.isEmpty else { return false }
 
             partial.append(chunk)
             try GzipInputStream.emitCompleteLines(from: &partial, body)
-        }
+            return true
+        }) {}
 
         try Task.checkCancellation()
         try GzipInputStream.emitFinalLine(from: partial, body)
@@ -339,13 +348,15 @@ private struct PlainTextInputStream {
             try? handle.close()
         }
 
-        while true {
+        // One pool per chunk frees each autoreleased buffer as it is consumed.
+        while try autoreleasepool(invoking: {
             try Task.checkCancellation()
 
             let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
+            guard !chunk.isEmpty else { return false }
             try body(chunk)
-        }
+            return true
+        }) {}
     }
 }
 
@@ -387,7 +398,10 @@ final class GzipLineSource {
 
         while true {
             try Task.checkCancellation()
-            let chunk = child.readChunk(upTo: chunkSize)
+            // Anything the read autoreleases must not outlive this pass: the
+            // consumer pulls every line from one async job that never suspends,
+            // so the thread's own pool would only drain when the whole file is read.
+            let chunk = autoreleasepool { child.readChunk(upTo: chunkSize) }
             if chunk.isEmpty {
                 reachedEnd = true
                 try GzipInputStream.emitFinalLine(from: partial) { pending.append($0) }
