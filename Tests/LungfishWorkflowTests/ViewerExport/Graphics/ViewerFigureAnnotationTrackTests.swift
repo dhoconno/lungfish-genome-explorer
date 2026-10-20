@@ -71,6 +71,19 @@ final class ViewerFigureAnnotationTrackTests: XCTestCase {
         XCTAssertEqual(texts(short).last?.string, "+2 more features")
     }
 
+    func testSpanningRegionFeatureIsCountedWhenOthersDraw() throws {
+        let frame = ViewerFigureFrame(chromosome: "chr1", start: 0, end: 1_000, pixelWidth: 1_000, sequenceLength: 1_000)
+        var canvas = ViewerFigureCanvas()
+        try ViewerFigureAnnotationTrack(sources: [], height: 200).draw(
+            genes + [feature("whole", .region, 0, 1_000)], into: &canvas, frame: frame,
+            area: ViewerFigureRect(x: 0, y: 10, width: 1_000, height: 200)
+        )
+        XCTAssertEqual(texts(canvas).map(\.string), ["geneA", "tx1", "geneB"], "the region feature is not drawn, the others are")
+        XCTAssertEqual(canvas.omissions.first, ViewerFigureOmission(
+            trackID: "annotations", kind: .scaleMode, reason: "region features span the view", count: 1
+        ))
+    }
+
     func testSquishedRowsLeaveEveryLabelOutAndSaySo() throws {
         let canvas = try draw(genes.map { feature($0.name, $0.type, $0.start * 1_000, $0.end * 1_000) }, end: 1_000_000)
         XCTAssertTrue(texts(canvas).isEmpty)

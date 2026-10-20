@@ -128,9 +128,9 @@ private struct AnnotationDrawer {
         guard !shown.isEmpty else { return }
         let regionSpan = max(max(1, visibleEnd - visibleStart), frame.sequenceLength)
         let display = shown.filter { $0.type != .region || ($0.end - $0.start) < Int(Double(regionSpan) * 0.98) }
+        omit(.scaleMode, "region features span the view", shown.count - display.count, into: &canvas)
         guard !display.isEmpty else {
             try label("\(shown.count) features (zoom in to see details)", x: 4, top: area.y + 2, size: 10, into: &canvas)
-            omit(.scaleMode, "region features span the view", shown.count, into: &canvas)
             return
         }
         let scale = frame.scale
