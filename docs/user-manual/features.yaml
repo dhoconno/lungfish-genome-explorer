@@ -57,11 +57,11 @@ features:
     viewport_class: variant
     sources:
       - Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift
-      - Sources/LungfishApp/Views/Viewer/VariantTrackRenderer.swift
+      - Sources/LungfishWorkflow/ViewerExport/Graphics/VariantTrackRenderer.swift
       - Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift
       - Sources/LungfishCore/Models/VariantTrack.swift
       - Sources/LungfishIO/Bundles/VariantDatabase.swift
-    module: [LungfishApp, LungfishCore, LungfishIO]
+    module: [LungfishApp, LungfishCore, LungfishIO, LungfishWorkflow]
     notes: >-
       Presents variants as a sortable table with CHROM, POS, ID, REF, ALT,
       QUAL, FILTER, GT, and AF columns. Selecting a row centers the genome
