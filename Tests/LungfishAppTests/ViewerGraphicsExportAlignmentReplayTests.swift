@@ -96,6 +96,44 @@ final class ViewerGraphicsExportAlignmentReplayTests: XCTestCase {
         try Parity.assertNothingLeft(in: root, output: output)
     }
 
+    /// BIO review Fix 2. A view-state read row cap of 2 on the 60-read BAM, whose reads start every 10 bases and so stack
+    /// five deep, leaves reads out, and the record names the `readRowCap` fact with the count of reads left out. `readSample`
+    /// stays in 13.29's two-render test.
+    func testExportGraphicRecordsTheReadRowCapAsADegradedFact() async throws {
+        try await requireSamtools()
+        let root = scratch.appendingPathComponent("cap/case/run/root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Parity.makeBundle(.alignment, in: root)
+        let viewState = root.appendingPathComponent("view-state.json")
+        try ViewerGraphicViewState(readRowCap: 2).encoded().write(to: viewState)
+        let output = root.appendingPathComponent("figure.png")
+        let run = await RouteParityHarness.runCLI(
+            harness.cliBinary,
+            arguments: [
+                "bundle", "export-graphic", Parity.bundleURL(in: root).path, "--region", "chr1:1101-1300",
+                "--view-state", viewState.path, "--output-format", "png", "-o", output.path,
+            ],
+            timeout: .seconds(120)
+        )
+        XCTAssertEqual(run.end, .completed, run.detail)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
+        guard case .array(let facts)? = record.options.resolvedDefaults["degraded"] else {
+            return XCTFail("the record holds no degraded list")
+        }
+        let caps = facts.compactMap { fact -> [String: ParameterValue]? in
+            if case .dictionary(let entry) = fact, entry["kind"] == .string("readRowCap") { return entry }
+            return nil
+        }
+        XCTAssertEqual(caps.count, 1, "\(facts)")
+        XCTAssertEqual(caps.first?["trackID"], .string("reads"))
+        XCTAssertFalse(caps.first?["reason"]?.stringValue?.isEmpty ?? true, "\(facts)")
+        guard case .integer(let left)? = caps.first?["count"] else {
+            return XCTFail("the readRowCap fact has no count: \(facts)")
+        }
+        XCTAssertGreaterThan(left, 0)
+        XCTAssertEqual(record.options.resolvedDefaults["readRowCap"], .integer(2))
+    }
+
     // MARK: - Helpers
 
     /// Moves the 28-byte end-of-file block of `bam` `size` bytes further on, leaving a hole that reads as zeros and
