@@ -511,6 +511,7 @@ public final class ReferenceBundleAnnotationImportService {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(log)
         try data.write(to: provenanceURL, options: .atomic)
+        let writer = ProvenanceWriter()
         try writeCanonicalProvenance(
             command: command,
             sourceURL: sourceURL,
@@ -524,7 +525,8 @@ public final class ReferenceBundleAnnotationImportService {
             importerName: importerName,
             inputManifestSnapshot: inputManifestSnapshot,
             startedAt: runClock.startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            writer: writer
         )
     }
 
@@ -556,7 +558,8 @@ public final class ReferenceBundleAnnotationImportService {
         importerName: String,
         inputManifestSnapshot: AnnotationImportFileSnapshot?,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        writer: ProvenanceWriter
     ) throws {
         let appVersion = appVersionString()
         let sourceDescriptor = try ProvenanceFileDescriptor.file(
@@ -640,7 +643,7 @@ public final class ReferenceBundleAnnotationImportService {
         } catch ProvenanceRehydrationError.missingSourceProvenance {
             mergedEnvelope = wrappingEnvelope
         }
-        try ProvenanceWriter().write(mergedEnvelope, to: bundleURL)
+        try writer.write(mergedEnvelope, to: bundleURL)
     }
 
     private static func mergedProvenanceFiles(
