@@ -22,7 +22,6 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             "Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift",
             "Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift",
             "Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionPipeline.swift",
-            "Sources/LungfishWorkflow/TaxTriage/TaxTriageSerialBatchRunner.swift",
             "Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift",
             // The save of a TaxTriage run's own record moved here from TaxTriagePipeline.swift (2.8 B2 M1).
             "Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline+Provenance.swift",

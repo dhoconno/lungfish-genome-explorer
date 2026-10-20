@@ -76,19 +76,6 @@ public struct TaxTriageStandInEngine: Sendable {
         )
     }
 
-    /// The pipeline run of `TaxTriageSerialBatchRunner(runPipeline:)` that launches this engine.
-    public var pipelineRun: TaxTriageSerialBatchRunner.PipelineRun {
-        let engine = self
-        return { config, progress in
-            try await engine.makePipeline().run(config: config, progress: progress)
-        }
-    }
-
-    /// A serial batch runner on this engine, as the GUI's runner factory needs.
-    public func makeRunner() -> TaxTriageSerialBatchRunner {
-        TaxTriageSerialBatchRunner(runPipeline: pipelineRun)
-    }
-
     /// The services of a `TaxTriageAnalysisRunTool` whose launches run this engine, with `presentation`.
     package func makeRunServices(presentation: TaxTriageRunPresentation = .none) -> TaxTriageRunServices {
         let engine = self
