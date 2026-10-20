@@ -56,7 +56,7 @@ When a session adds only one small fix, the integration, review and final-candid
 | A red unit tier is diagnosed, not retried | Read the failure in the evidence folder, rerun only the failing class to tell a product fault from a test fault, fix the cause in a new commit, and run the unit tier once on that commit. `package` refuses a commit whose newest unit-tier result failed. |
 | The notes file is the version | `scripts/release/release_version.py` reads the newest `docs/release-notes/<YYYY.M.PATCH>.md`, and packaging stamps it into the app after compiling. A release never edits a version in Swift, the Xcode project, the help book or the managed-tools lock. |
 | Package compiles while the gates run | `package` starts the Release build at once and writes the candidate receipt only after every gate has passed. A failed gate stops the build and leaves no receipt. |
-| Stable keeps the full tier | A Stable release still runs `bash scripts/full-suite-gate.sh --tier full` before packaging, as AGENTS.md requires. Evidence reuse shortens Preview work only. |
+| Stable keeps the full tier | A Stable release still runs `bash scripts/full-suite-gate.sh --tier full` before packaging. Evidence reuse shortens Preview work only. |
 
 ## What each step costs
 
