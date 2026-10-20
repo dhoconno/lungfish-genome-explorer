@@ -168,7 +168,7 @@ final class CLIViewerExportRunnerTests: XCTestCase {
     /// payload and record in one transaction. The five runners of FiveRunnersCancelReadingTests keep the other
     /// reading. The file's path reaches the leaf through `environmentAdditions` (Fix 5). The cancel goes to the
     /// runner alone, so the row is never cancelling.
-    /// testARowCancelAfterTheLeafCommittedReturnsTheFileAndTheRowReadsCancelled covers the Cancel button.
+    /// testALateCancelAfterTheLeafCommittedSettlesCompletedWithItsOutputs covers the Cancel button.
     func testACancelAfterTheLeafCommittedCompletesTheRowWithTheFile() async throws {
         let result = folder.appendingPathComponent("committed.tsv")
         let ready = folder.appendingPathComponent("leaf.ready")
@@ -206,9 +206,10 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .completed)
     }
 
-    /// Review 12.31-c5 Fix 1. The user's Cancel reaches the row first, so the row is cancelling when the commit
-    /// arrives. The run returns the file, the row reads Cancelled by user with no output links, and the file stays.
-    func testARowCancelAfterTheLeafCommittedReturnsTheFileAndTheRowReadsCancelled() async throws {
+    /// Phase 2.13 lane 13.47 (M842, UX W5), after review 12.31-c5 Fix 1. The user's Cancel reaches the row first, so
+    /// the row is cancelling when the commit arrives. The leaf wrote its file and record, so the run returns the file
+    /// and the row settles Completed with its output link and the detail `Finished before Cancel took effect`.
+    func testALateCancelAfterTheLeafCommittedSettlesCompletedWithItsOutputs() async throws {
         let result = folder.appendingPathComponent("row-cancel.tsv")
         let ready = folder.appendingPathComponent("row-cancel.ready")
         let cli = try standInCLI("""
@@ -243,8 +244,10 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(outcome, .completed(result))
         XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "finished\n")
         let item = OperationCenter.shared.items.first { $0.id == id }
-        XCTAssertEqual(item?.state, .cancelled)
-        XCTAssertEqual(item?.outputURLs, [])
+        XCTAssertEqual(item?.state, .completed)
+        XCTAssertEqual(item?.outputURLs, [result])
+        XCTAssertEqual(item?.detail, "Finished before Cancel took effect")
+        XCTAssertNil(item?.errorMessage)
     }
 
     // MARK: - Helpers

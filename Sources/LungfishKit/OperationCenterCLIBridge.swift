@@ -101,10 +101,13 @@ public enum OperationCenterCLIBridge {
         _ = OperationCenter.shared.complete(id: id, detail: detail, bundleURLs: bundleURLs)
     }
 
-    /// Marks an operation complete with loose (non-bundle) output files.
+    /// Marks an operation complete with loose (non-bundle) output files. Only ``CLIViewerExportRunner`` passes
+    /// `committed`, once its leaf exited 0 with file and record written, so a Cancel that reached the row after that
+    /// commit settles it Completed with its links and the detail `Finished before Cancel took effect` (Phase 2.13
+    /// M842). Every other caller keeps the rule that a cancelling row settles Cancelled by user.
     @MainActor
-    public static func completeOperation(_ id: UUID, detail: String, outputURLs: [URL]) {
-        _ = OperationCenter.shared.complete(id: id, detail: detail, outputURLs: outputURLs)
+    public static func completeOperation(_ id: UUID, detail: String, outputURLs: [URL], committed: Bool = false) {
+        _ = OperationCenter.shared.complete(id: id, detail: detail, outputURLs: outputURLs, committed: committed)
     }
 }
 

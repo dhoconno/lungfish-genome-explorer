@@ -20,8 +20,8 @@ import LungfishWorkflow
 public actor CLIViewerExportRunner {
     /// How a run ended. The row is already settled when the caller reads it.
     public enum Outcome: Sendable, Equatable {
-        /// The leaf wrote this file and its record. The row reads Completed, except that a user's cancel from the row
-        /// after the commit settles it Cancelled by user (see `run`).
+        /// The leaf wrote this file and its record. The row reads Completed with the file's link, and a user's cancel
+        /// from the row that came after the commit gives it the detail `Finished before Cancel took effect` (see `run`).
         case completed(URL)
         /// The run was cancelled. The row reads Cancelled.
         case cancelled
@@ -71,9 +71,10 @@ public actor CLIViewerExportRunner {
     ///     production caller passes any. A test passes the leaf's hold variable.
     ///
     /// A cancel that lands after the leaf committed, so that it exits 0 with a `complete` line naming its file,
-    /// returns `.completed(file)` (review 12.31-M3a Fix 6, ruled by the manager). The file and its record are on disk.
-    /// The row reads Completed when the cancel did not come through the row. When the user cancels from the row,
-    /// `OperationCenter` has already set it to cancelling and settles it as Cancelled by user with no output links.
+    /// returns `.completed(file)` (review 12.31-M3a Fix 6, ruled by the manager). The file and its record are on disk,
+    /// so the row reads Completed with the file's link (Phase 2.13 M842). When the user cancelled from the row, which
+    /// `OperationCenter` had set to cancelling, its detail reads `Finished before Cancel took effect`. A cancel that
+    /// lands before the commit reads Cancelled by user with no link, and every other route keeps that rule.
     public func run(
         arguments: [String],
         outputURL: URL,
@@ -106,7 +107,10 @@ public actor CLIViewerExportRunner {
             )
             return .failed(failure)
         }
-        await OperationCenterCLIBridge.completeOperation(operationID, detail: completionDetail, outputURLs: [written])
+        // The leaf exited 0 with its file and record written, which a Cancel that reached the row since cannot undo.
+        await OperationCenterCLIBridge.completeOperation(
+            operationID, detail: completionDetail, outputURLs: [written], committed: true
+        )
         return .completed(written)
     }
 

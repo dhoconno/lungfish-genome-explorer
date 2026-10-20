@@ -862,8 +862,8 @@ public final class OperationCenter: ObservableObject {
         changes.send(.updated(id: id, index: index))
     }
 
-    /// The worker calls a terminal method only after process exit, stream drain
-    /// and owned output cleanup. Accepted cancellation always wins over its result.
+    /// The worker calls a terminal method only after process exit, stream drain and owned output cleanup. Accepted
+    /// cancellation wins over its result, except over a CLI leaf that committed first (`committed`, Phase 2.13 M842).
     @discardableResult
     public func complete(id: UUID, detail: String, finishedAt: Date = Date()) -> Bool {
         finishWorker(id: id, state: .completed, detail: detail, finishedAt: finishedAt)
@@ -877,6 +877,12 @@ public final class OperationCenter: ObservableObject {
     @discardableResult
     public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) -> Bool {
         finishWorker(id: id, state: .completed, detail: detail, outputURLs: outputURLs, finishedAt: finishedAt)
+    }
+
+    /// Only the CLI viewer export runner passes `committed`, through the bridge, once its leaf exited 0 with file and
+    /// record written, so a late Cancel settles Completed with the links and `Finished before Cancel took effect`.
+    func complete(id: UUID, detail: String, outputURLs: [URL], committed: Bool) -> Bool {
+        finishWorker(id: id, state: .completed, detail: detail, outputURLs: outputURLs, committed: committed)
     }
 
     @discardableResult
@@ -923,6 +929,7 @@ public final class OperationCenter: ObservableObject {
         errorMessage: String? = nil,
         errorDetail: String? = nil,
         finishedAt: Date = Date(),
+        committed: Bool = false,
         retainBundleLock: Bool = false
     ) -> Bool {
         if abandonedWorkers.removeValue(forKey: id) != nil {
@@ -933,12 +940,14 @@ public final class OperationCenter: ObservableObject {
         }
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state.isActive else { return false }
-        let cancellationWon = items[index].state == .cancelling
+        let cancelling = items[index].state == .cancelling
+        let cancellationWon = cancelling && !committed
         let state: Item.State = cancellationWon ? .cancelled : requestedState
         let previousOrder = items.map(\.id)
         let routeContext = items[index].routeContext
         items[index].state = state
-        items[index].detail = cancellationWon ? "Cancelled by user" : detail
+        items[index].detail = cancelling
+            ? (committed ? "Finished before Cancel took effect" : "Cancelled by user") : detail
         items[index].onCancel = nil
         items[index].bundleURLs = state == .completed ? bundleURLs : []
         items[index].outputURLs = state == .completed ? outputURLs : []
@@ -957,11 +966,9 @@ public final class OperationCenter: ObservableObject {
         if state == .failed {
             items[index].failureReportURL = failureReportStore.writeReport(for: items[index])
         }
-        // A producer that completes with a detail only (Kraken2, EsViritu,
-        // TaxTriage, ...) still made a result: the analysis directory it
-        // tracked. Record it so the Operations Panel's Results button and
-        // Reveal Output Files work. It is not passed to `onBundleReady`,
-        // which imports downloaded bundles.
+        // A producer that completes with a detail only (Kraken2, EsViritu, TaxTriage, ...) still made a result: the
+        // analysis directory it tracked. Record it so the Operations Panel's Results button and Reveal Output Files
+        // work. It is not passed to `onBundleReady`, which imports downloaded bundles.
         if state == .completed, bundleURLs.isEmpty {
             let tracked = trackedAnalysisDirectories(for: id)
             if !tracked.isEmpty { items[index].bundleURLs = tracked }
@@ -992,31 +999,24 @@ public final class OperationCenter: ObservableObject {
         return state == requestedState
     }
 
-    /// Requests cancellation. Callback return never releases the worker's bundle lock.
-    /// Running operations without a cancel callback are left unchanged because the
-    /// center has no mechanism to stop their underlying work.
+    /// Requests cancellation. Callback return never releases the worker's bundle lock. Running operations without a
+    /// cancel callback are left unchanged because the center has no mechanism to stop their underlying work.
     ///
-    /// `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a
-    /// subprocess tree); it does not, by itself, guarantee the worker's `Task` ever
-    /// returns to call a terminal method (`complete`/`fail`/`acknowledgeCancellation`).
-    /// A worker blocked in an uninterruptible pre-tool stage -- a synchronous
-    /// filesystem call stuck waiting on something outside the process, for
-    /// example -- never observes `Task.isCancelled` and never returns, so without a
-    /// fallback the operation stays `.cancelling` (shown as active, bundle still
-    /// locked) forever, exactly as it was found live: tool processes gone, but
-    /// the row never left the active list. After ``cancelGracePeriod``, if the
-    /// operation is still `.cancelling`, this forces it to a terminal `.cancelled`
-    /// state and releases its bundle lock itself. `finishWorker`'s own guard
-    /// (`state.isActive`) then makes a late-returning worker's own terminal call a
-    /// safe no-op -- it cannot resurrect or double-complete an operation this
-    /// already closed out.
+    /// `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a subprocess tree); it does not, by itself,
+    /// guarantee the worker's `Task` ever returns to call a terminal
+    /// method (`complete`/`fail`/`acknowledgeCancellation`). A worker blocked in an uninterruptible pre-tool stage --
+    /// a synchronous filesystem call stuck waiting on something outside the process, for example -- never observes
+    /// `Task.isCancelled` and never returns, so without a fallback the operation stays `.cancelling` (shown as active,
+    /// bundle still locked) forever, exactly as it was found live: tool processes gone, but the row never left the
+    /// active list. After ``cancelGracePeriod``, if the operation is still `.cancelling`, this forces it to a terminal
+    /// `.cancelled` state and releases its bundle lock itself. `finishWorker`'s own guard (`state.isActive`) then
+    /// makes a late-returning worker's own terminal call a safe no-op -- it cannot resurrect or double-complete an
+    /// operation this already closed out.
     ///
-    /// The forced path does NOT release the bundle lock: the worker may still be
-    /// running (a tool ignoring SIGTERM, a large copy finishing) and could write
-    /// into a bundle another operation has just locked. The lock stays held,
-    /// through ``abandonedWorkers``, until the worker itself calls a terminal
-    /// method. The operation leaves the active list, so Cancel All, the quit
-    /// warning and the Operations menu no longer wait on it.
+    /// The forced path does NOT release the bundle lock: the worker may still be running (a tool ignoring SIGTERM, a
+    /// large copy finishing) and could write into a bundle another operation has just locked. The lock stays held,
+    /// through ``abandonedWorkers``, until the worker itself calls a terminal method. The operation leaves the active
+    /// list, so Cancel All, the quit warning and the Operations menu no longer wait on it.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running,
