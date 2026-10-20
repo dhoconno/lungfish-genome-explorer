@@ -105,7 +105,12 @@ final class ArchiveToolBasePinTests: XCTestCase {
         try TestZipWriter.write([.file("ok.txt", "ok"), .symlink("link", to: "../outside")], to: zip)
         XCTAssertThrowsError(
             try GeneiousArchiveTool().extract(archiveURL: zip, to: tempDir.appendingPathComponent("out", isDirectory: true))
-        )
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Unsafe Geneious archive: the symbolic link “link” points outside the project (../outside)"
+            )
+        }
     }
 
     // MARK: - CzIdImportPreview (ditto, CzIdImportPreview.swift:130)
@@ -146,8 +151,10 @@ final class ArchiveToolBasePinTests: XCTestCase {
         do {
             _ = try await CzIdImportPreview.scan(zip)
             XCTFail("the archive was accepted")
-        } catch {
-            // Refused.
+        } catch CzIdImportPreviewError.archiveExtractionFailed(let url, let detail) {
+            XCTAssertEqual(url.standardizedFileURL, zip.standardizedFileURL)
+            XCTAssertTrue(detail.contains("refused because it is unsafe"), detail)
+            XCTAssertTrue(detail.contains("points outside"), detail)
         }
     }
 
@@ -175,12 +182,10 @@ final class ArchiveToolBasePinTests: XCTestCase {
         try TestTarWriter.write([.file("ok.txt", "ok"), .symlink("link", to: "../outside")], to: archive)
         let destination = tempDir.appendingPathComponent("dest", isDirectory: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        do {
-            let result = try await URLSessionTarDatabaseArchiveTransfer().extract(archive: archive, destination: destination)
-            XCTAssertNotEqual(result.exitStatus, 0, "the archive was accepted")
-        } catch {
-            // Refused.
-        }
+        let result = try await URLSessionTarDatabaseArchiveTransfer().extract(archive: archive, destination: destination)
+        XCTAssertEqual(result.exitStatus, 1, "the archive was accepted")
+        XCTAssertTrue(result.stderr.contains("The archive was refused because it is unsafe"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("points outside"), result.stderr)
     }
 
     // MARK: - CondaOfflinePackService (tar, CondaOfflinePackService.swift:1083)
