@@ -1,0 +1,171 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "createdAt" : "2026-10-19T08:54:02Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "abababababababababababababababababababababababababababababababab",
+      "fileSize" : 1048576,
+      "originPath" : ".lungfish-work/map-01/reads/sample.fastq.gz",
+      "path" : "/Volumes/Frozen/Study.lungfish/.lungfish-work/map-01/reads/sample.fastq.gz",
+      "role" : "input"
+    }
+  ],
+  "id" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "items" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : ".lungfish-work/map-01"
+          }
+        ]
+      },
+      "project" : {
+        "type" : "string",
+        "value" : "/Volumes/Frozen/Study.lungfish"
+      }
+    },
+    "resolvedDefaults" : {
+      "action" : {
+        "type" : "string",
+        "value" : "move-to-trash"
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "fileSize" : 2048,
+    "format" : "json",
+    "path" : "/Volumes/Frozen/Study.lungfish/.lungfish/operations/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01/journal.json",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "fileSize" : 2048,
+      "format" : "json",
+      "path" : "/Volumes/Frozen/Study.lungfish/.lungfish/operations/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01/journal.json",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli project storage clean /Volumes/Frozen/Study.lungfish --item .lungfish-work/map-01",
+  "runtimeIdentity" : {
+    "appVersion" : "2026.10.21",
+    "architecture" : "arm64",
+    "dependencySet" : "lungfish-tools-2026.10",
+    "executablePath" : "<external>/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.0"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "stderr" : "",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "project",
+        "storage",
+        "clean",
+        "/Volumes/Frozen/Study.lungfish",
+        "--item",
+        ".lungfish-work/map-01"
+      ],
+      "completedAt" : "2026-10-19T08:54:02Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "project",
+        "storage",
+        "clean",
+        "/Volumes/Frozen/Study.lungfish",
+        "--item",
+        ".lungfish-work/map-01"
+      ],
+      "exitStatus" : 0,
+      "id" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A04",
+      "inputs" : [
+        {
+          "checksumSHA256" : "abababababababababababababababababababababababababababababababab",
+          "fileSize" : 1048576,
+          "originPath" : ".lungfish-work/map-01/reads/sample.fastq.gz",
+          "path" : "/Volumes/Frozen/Study.lungfish/.lungfish-work/map-01/reads/sample.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "fileSize" : 2048,
+          "format" : "json",
+          "path" : "/Volumes/Frozen/Study.lungfish/.lungfish/operations/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01/journal.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli project storage clean /Volumes/Frozen/Study.lungfish --item .lungfish-work/map-01",
+      "resolvedOptions" : {
+        "items" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : ".lungfish-work/map-01"
+            }
+          ]
+        },
+        "project" : {
+          "type" : "string",
+          "value" : "/Volumes/Frozen/Study.lungfish"
+        }
+      },
+      "runtimeIdentity" : {
+        "appVersion" : "2026.10.21",
+        "architecture" : "arm64",
+        "dependencySet" : "lungfish-tools-2026.10",
+        "executablePath" : "<external>/lungfish-cli",
+        "operatingSystemVersion" : "macOS 26.0"
+      },
+      "startedAt" : "2026-10-19T08:53:20Z",
+      "stderr" : "",
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "2026.10.21",
+      "wallTimeSeconds" : 42
+    }
+  ],
+  "tool" : {
+    "name" : "lungfish-cli",
+    "version" : "2026.10.21"
+  },
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "2026.10.21",
+  "wallTimeSeconds" : 42,
+  "workflowName" : "Project Storage Cleanup Preparation",
+  "workflowVersion" : "2026.10.21"
+}

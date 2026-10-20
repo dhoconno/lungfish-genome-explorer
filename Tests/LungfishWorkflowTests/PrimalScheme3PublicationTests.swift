@@ -40,6 +40,11 @@ final class PrimalScheme3PublicationTests: XCTestCase {
     let provenance = try ProvenanceEnvelopeReader.decodeCanonical(
       Data(contentsOf: bundle.artifactURL(forRelativePath: provenanceArtifact.relativePath)))
     XCTAssertEqual(provenance.exitStatus, 0)
+    try ProvenanceRecordPin.assertPlainEncoderBytes(
+      Data(contentsOf: bundle.artifactURL(forRelativePath: provenanceArtifact.relativePath)))
+    let orderRecord = try XCTUnwrap(bundle.manifest.artifacts.first { $0.role == "derivedProvenance" })
+    try ProvenanceRecordPin.assertPlainEncoderBytes(
+      Data(contentsOf: bundle.artifactURL(forRelativePath: orderRecord.relativePath)))
     XCTAssertNotNil(provenance.wallTimeSeconds)
     XCTAssertTrue(provenance.argv.contains("--msa"))
     let inputFiles = provenance.files.filter { $0.role == .input }
