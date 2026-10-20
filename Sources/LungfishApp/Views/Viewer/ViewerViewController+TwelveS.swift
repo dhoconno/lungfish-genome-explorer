@@ -43,110 +43,9 @@ extension ViewerViewController {
                 exportURL: exportURL,
                 sequenceIDs: request.sequences.map(\.sequenceID)
             )
-            if ClassifierBlastRouteSettings.currentRoute == .cli {
-                self?.launchTwelveSUnresolvedBlastSubmit(
-                    bundleURL: request.bundleURL, exportURL: exportURL, arguments: arguments, controller: controller
-                )
-                return
-            }
-
-            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
-            // release (C4, U-R1). Its row records no command. Phase 2.13 deletes it with the key.
-            Self.beginTwelveSUnresolvedBlastOperation(cliArguments: arguments) { operationID in
-                controller.showBlastLoading(phase: .submitting, requestId: nil)
-                controller.onUnresolvedBlastCancelRequested = {
-                    OperationCenter.shared.cancel(id: operationID)
-                }
-
-                let cliCancellation = LungfishCLIRunner.CancellationHandle()
-                let task = Task.detached {
-                    defer {
-                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                    }
-                    do {
-                        try FileManager.default.createDirectory(
-                            at: exportURL.deletingLastPathComponent(),
-                            withIntermediateDirectories: true
-                        )
-                        _ = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)
-                        try Self.verifyTwelveSBlastPreparationProvenance(
-                            sidecarURL: exportURL.appendingPathExtension("lungfish-provenance.json"),
-                            outputURL: exportURL
-                        )
-                        let sequences = try Self.twelveSBlastSequences(fromFasta: exportURL)
-                        guard !sequences.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-                        let blastRequest = BlastVerificationRequest(
-                            taxonName: "12S unresolved sequences",
-                            taxId: 0,
-                            sequences: sequences,
-                            database: BlastDatabaseID.coreNT.rawValue,
-                            entrezQuery: nil
-                        )
-                        let result = try await BlastService.shared.verify(
-                            request: blastRequest,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.update(id: operationID, progress: fraction, detail: message) else {
-                                            return
-                                        }
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            controller.showBlastLoading(phase: .waiting, requestId: nil)
-                                        } else if lower.contains("parsing") {
-                                            controller.showBlastLoading(phase: .parsing, requestId: nil)
-                                        } else {
-                                            controller.showBlastLoading(phase: .submitting, requestId: nil)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-                        try Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                let accepted = OperationCenter.shared.complete(
-                                    id: operationID,
-                                    detail: "BLAST results ready for \(sequences.count) unresolved sequence\(sequences.count == 1 ? "" : "s")"
-                                )
-                                controller.onUnresolvedBlastCancelRequested = nil
-                                guard accepted else { return }
-                                controller.showBlastResults(result, recordURL: nil) // The in-process route saves no file (ARCH T5), and 13.03 deletes it.
-                            }
-                        }
-                    } catch LungfishCLIRunner.RunError.cancelled {
-                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                OperationCenter.shared.acknowledgeCancellation(id: operationID)
-                                OperationCenter.shared.log(id: operationID, level: .info, message: "12S BLAST preparation cancelled")
-                                controller.onUnresolvedBlastCancelRequested = nil
-                            }
-                        }
-                    } catch {
-                        try? Self.removeTwelveSBlastPreparationArtifacts(for: exportURL)
-                        let message = error.localizedDescription
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                let accepted = OperationCenter.shared.fail(
-                                    id: operationID,
-                                    detail: message,
-                                    errorMessage: message
-                                )
-                                controller.onUnresolvedBlastCancelRequested = nil
-                                guard accepted else { return }
-                                controller.showBlastFailure(message)
-                            }
-                        }
-                    }
-                }
-                OperationCenter.shared.setCancelCallback(for: operationID) {
-                    task.cancel()
-                    cliCancellation.cancel()
-                }
-            }
+            self?.launchTwelveSUnresolvedBlastSubmit(
+                bundleURL: request.bundleURL, exportURL: exportURL, arguments: arguments, controller: controller
+            )
         }
 
         annotationDrawerView?.isHidden = true
@@ -369,9 +268,8 @@ extension ViewerViewController {
     /// builds. The row's log records it as the
     /// `lungfish-cli fastq 12s-export-unresolved` command it is, the step that
     /// makes the query. `cliCommand` is the `lungfish-cli blast submit` command
-    /// that runs the search (``BlastSubmitPlan/cliCommand``), nil on the
-    /// in-process route that ``ClassifierBlastRouteSettings`` keeps for one
-    /// release and on the row ``launchTwelveSUnresolvedBlastSubmit(bundleURL:exportURL:arguments:controller:drawer:runner:prepare:)``
+    /// that runs the search (``BlastSubmitPlan/cliCommand``), nil on the row
+    /// ``launchTwelveSUnresolvedBlastSubmit(bundleURL:exportURL:arguments:controller:drawer:runner:prepare:)``
     /// begins before the query exists.
     @discardableResult
     static func beginTwelveSUnresolvedBlastOperation(
