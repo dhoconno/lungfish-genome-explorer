@@ -708,7 +708,7 @@ extension AppDelegate {
         updatedManifest: BundleManifest,
         filePublication: ScientificFilePublicationTransaction? = nil,
         shouldCancel: () -> Bool = { false },
-        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter(),
         writeProvenance: (ProvenanceWriter) throws -> Void
     ) throws {
         try VCFBundleVariantImport.publish(

@@ -44,7 +44,7 @@ package enum FASTQAutoBundleWorkflow {
         bundleURL rawBundleURL: URL,
         runtimeIdentity: ProvenanceRuntimeIdentity = ProvenanceRuntimeIdentity(),
         fileManager: FileManager = .default,
-        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter()
     ) throws -> FASTQAutoBundleResult {
         let sourceURL = rawSourceURL.standardizedFileURL
         let bundleURL = rawBundleURL.standardizedFileURL

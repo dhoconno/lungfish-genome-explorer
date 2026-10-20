@@ -89,7 +89,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
 
     public init(
         fileManager: FileManager = .default,
-        provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil)
+        provenanceWriter: ProvenanceWriter = ProvenanceWriter()
     ) {
         self.fileManager = fileManager
         self.provenanceWriter = provenanceWriter

@@ -4,7 +4,7 @@ package struct BundleMergeProvenanceSidecarWriter: Sendable {
     let write: @Sendable (ProvenanceEnvelope, URL) throws -> Void
 
     package static let live = BundleMergeProvenanceSidecarWriter { envelope, bundleURL in
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 }
 
