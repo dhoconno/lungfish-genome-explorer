@@ -262,7 +262,10 @@ package enum CrossProjectItemCopier {
         let stage = try ProjectTempDirectory.create(prefix: "project-copy-", in: targetProjectURL)
         defer { try? fileManager.removeItem(at: stage) }
         let staged = stage.appendingPathComponent(destination.lastPathComponent, isDirectory: true)
-        try copyBytes(kind: kind, from: source, to: staged, recordedAs: destination, identity: identity)
+        try copyBytes(
+            kind: kind, from: source, to: staged, recordedAs: destination, identity: identity,
+            checkCancellation: checkCancellation
+        )
         try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
@@ -316,10 +319,11 @@ package enum CrossProjectItemCopier {
     ///
     /// The bytes land at `staged`, and the read bundle's command names the
     /// final place, `destination`, which the stage rewrite gives every path.
-    /// Both branches name the command of `identity`.
+    /// Both branches name the command of `identity`, and both take `checkCancellation` while they hash and before
+    /// they copy (2.13 row COPY-CANCEL-CHECKS).
     private static func copyBytes(
         kind: ItemKind, from source: URL, to staged: URL, recordedAs destination: URL,
-        identity: ProjectCopyRecordIdentity
+        identity: ProjectCopyRecordIdentity, checkCancellation: () throws -> Void
     ) throws {
         let command: ProjectCopyCommandIdentity
         switch identity {
@@ -329,14 +333,17 @@ package enum CrossProjectItemCopier {
         if kind == .fastqBundle {
             do {
                 _ = try FASTQBundleCopyImportWorkflow().importBundle(
-                    sourceBundleURL: source, outputURL: staged, context: command.fastqContext(destination: destination)
+                    sourceBundleURL: source, outputURL: staged, context: command.fastqContext(destination: destination),
+                    checkCancellation: checkCancellation
                 )
                 return
             } catch FASTQBundleCopyImportError.sourceProvenanceMissing {
                 copierLogger.info("Read bundle \(source.lastPathComponent, privacy: .public) has no provenance; using native copy")
             }
         }
-        _ = try NativeProjectCopyImportService.copy(from: source, to: staged, receipt: command.nativeReceipt)
+        _ = try NativeProjectCopyImportService.copy(
+            from: source, to: staged, receipt: command.nativeReceipt, checkCancellation: checkCancellation
+        )
     }
 
     /// When the reads a result came from are present in the target project,

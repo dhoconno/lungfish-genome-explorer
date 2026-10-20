@@ -99,7 +99,8 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         sourceBundleURL: URL,
         outputURL: URL,
         context: CommandContext,
-        replaceExisting: Bool = false
+        replaceExisting: Bool = false,
+        checkCancellation: () throws -> Void = {}
     ) throws -> FASTQBundleCopyImportResult {
         let sourceBundleURL = sourceBundleURL.standardizedFileURL
         guard FASTQBundle.isBundleURL(sourceBundleURL) else {
@@ -133,6 +134,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         let publication = try ScientificFilePublicationTransaction(protectedURLs: [destinationBundleURL], fileDestinations: [])
         do {
             let sourceProvenanceURL = try requiredSourceProvenanceURL(in: sourceBundleURL)
+            try checkCancellation()
             try fileManager.copyItem(at: sourceBundleURL, to: stagingBundleURL)
             try removeProvenanceArtifacts(in: stagingBundleURL)
             try materializeSymlinkFiles(in: stagingBundleURL)
@@ -178,7 +180,8 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                 copiedFiles: copiedFiles,
                 sourceProvenancePath: sourceProvenanceURL.path,
                 startedAt: runClock.startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                checkCancellation: checkCancellation
             )
             let envelope = mergedCopyImportEnvelope(
                 sourceEnvelope: rehydratedSourceEnvelope,
@@ -222,11 +225,14 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         copiedFiles: [URL],
         sourceProvenancePath: String?,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        checkCancellation: () throws -> Void
     ) throws -> ProvenanceEnvelope {
         let inputDescriptors = try sourceFiles.map {
-            try ProvenanceFileDescriptor.file(
-                url: $0,
+            ProvenanceFileDescriptor(
+                path: $0.path,
+                checksumSHA256: try ProvenanceFileHasher.sha256(of: $0, cancellationCheck: checkCancellation),
+                fileSize: try ProvenanceFileHasher.fileSize(of: $0),
                 format: provenanceFormat(for: $0),
                 role: .input,
                 sourceProvenancePath: sourceProvenancePath
@@ -245,7 +251,7 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
             let finalCopiedURL = destinationBundleURL.appendingPathComponent(relativePath)
             return ProvenanceFileDescriptor(
                 path: finalCopiedURL.path,
-                checksumSHA256: try ProvenanceFileHasher.sha256(of: copiedURL),
+                checksumSHA256: try ProvenanceFileHasher.sha256(of: copiedURL, cancellationCheck: checkCancellation),
                 fileSize: try ProvenanceFileHasher.fileSize(of: copiedURL),
                 format: provenanceFormat(for: finalCopiedURL),
                 role: .output,
