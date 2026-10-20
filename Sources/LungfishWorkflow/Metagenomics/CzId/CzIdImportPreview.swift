@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public struct CzIdImportPreview: Sendable, Equatable {
     public enum SourceKind: String, Sendable, Equatable {
@@ -42,12 +43,12 @@ public struct CzIdImportPreview: Sendable, Equatable {
         from url: URL,
         _ body: (CzIdResolvedImportSource) throws -> T
     ) async throws -> T {
-        let resolved = try resolve(url)
+        let resolved = try await resolve(url)
         defer { resolved.cleanup() }
         return try body(resolved)
     }
 
-    private static func resolve(_ url: URL) throws -> CzIdResolvedImportSource {
+    private static func resolve(_ url: URL) async throws -> CzIdResolvedImportSource {
         var isDirectory = ObjCBool(false)
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         guard exists else {
@@ -70,7 +71,7 @@ public struct CzIdImportPreview: Sendable, Equatable {
                 .appendingPathComponent("czid-preview-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             do {
-                try unzipArchive(url, to: tempDir)
+                try await unzipArchive(url, to: tempDir)
                 let reportURL = try findTaxonReport(in: tempDir)
                 return CzIdResolvedImportSource(
                     selectedSourceURL: url,
@@ -126,20 +127,27 @@ public struct CzIdImportPreview: Sendable, Equatable {
         )
     }
 
-    private static func unzipArchive(_ archiveURL: URL, to destinationURL: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", archiveURL.path, destinationURL.path]
+    private static func unzipArchive(_ archiveURL: URL, to destinationURL: URL) async throws {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ditto"),
+            arguments: ["-x", "-k", archiveURL.path, destinationURL.path],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            stderr: .capture(limit: 64 * 1024),
+            label: "ditto"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        } catch ToolProcessError.launchFailed(_, let reason, _) {
+            throw CzIdImportPreviewError.archiveExtractionFailed(archiveURL, reason)
+        }
 
-        let pipe = Pipe()
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: data, encoding: .utf8) ?? ""
-            throw CzIdImportPreviewError.archiveExtractionFailed(archiveURL, stderr)
+        guard result.isSuccess else {
+            let detail = (result.status == 0 ? result.incompleteOutputReason : nil) ?? result.stderrText
+            throw CzIdImportPreviewError.archiveExtractionFailed(archiveURL, detail)
         }
     }
 
