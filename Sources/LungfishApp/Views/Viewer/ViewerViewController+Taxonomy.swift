@@ -15,17 +15,6 @@ import LungfishKit
 /// Logger for taxonomy display operations.
 private let taxonomyLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerTaxonomy")
 
-/// Schedules a block on the main run loop using `CFRunLoopPerformBlock`.
-///
-/// This avoids cooperative executor scheduling stalls while preserving the
-/// run-loop handoff pattern used by `ViewerViewController+Extraction.swift`.
-private func scheduleTaxonomyOnMainRunLoop(_ block: @escaping @Sendable () -> Void) {
-    CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
-        block()
-    }
-    CFRunLoopWakeUp(CFRunLoopGetMain())
-}
-
 // MARK: - ViewerViewController Taxonomy Display Extension
 
 extension ViewerViewController {
