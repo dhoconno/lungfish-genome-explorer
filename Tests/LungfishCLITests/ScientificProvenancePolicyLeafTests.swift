@@ -261,6 +261,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "bundle export": "cli.bundle",
         "bundle export-gff3": "cli.bundle",
         "bundle export-annotation-table": "cli.bundle",
+        "bundle export-graphic": "cli.bundle",
         "bundle extract-annotations": "cli.bundle",
         "bundle info": "cli.bundle",
         "bundle list": "cli.bundle",

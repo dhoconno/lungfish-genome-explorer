@@ -96,6 +96,7 @@ package enum CLIEventContractTable {
         "project copy-item": .events(flag: formatJSON, channel: .standardOutput),
         "bundle export-gff3": .events(flag: formatJSON, channel: .standardOutput),
         "bundle export-annotation-table": .events(flag: formatJSON, channel: .standardOutput),
+        "bundle export-graphic": .events(flag: formatJSON, channel: .standardOutput),
         "conda classify": .events(flag: formatJSON, channel: .standardOutput),
         "conda db update": .events(flag: formatJSON, channel: .standardOutput),
         "conda install": .events(flag: formatJSON, channel: .standardOutput),

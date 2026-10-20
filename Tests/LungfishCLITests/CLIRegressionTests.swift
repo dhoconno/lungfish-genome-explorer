@@ -1708,11 +1708,11 @@ final class BundleCommandRegressionTests: XCTestCase {
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
         let names = subs.map { $0.configuration.commandName }
-        // 2.12 added `export-gff3` (14a6ebeca) and `export-annotation-table` (061e2dccd) beside `export`.
-        XCTAssertEqual(subs.count, 11)
+        // 2.12 added `export-gff3` (14a6ebeca) and `export-annotation-table` (061e2dccd) beside `export`, and 2.13 lane 13.30 `export-graphic`.
+        XCTAssertEqual(subs.count, 12)
         XCTAssertEqual(
             names.compactMap { $0 }.filter { $0.hasPrefix("export") }.sorted(),
-            ["export", "export-annotation-table", "export-gff3"]
+            ["export", "export-annotation-table", "export-gff3", "export-graphic"]
         )
         XCTAssertTrue(names.contains("mark-duplicates"))
         XCTAssertTrue(names.contains("deduplicate-alignments"))

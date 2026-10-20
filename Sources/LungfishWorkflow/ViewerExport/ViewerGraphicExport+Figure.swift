@@ -1,0 +1,217 @@
+// ViewerGraphicExport+Figure.swift - A viewer figure built from a bundle's files
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishCore
+
+/// A figure the export refuses to draw, before it writes anything. Its message names the fix.
+public struct ViewerGraphicRefusal: Error, LocalizedError, Equatable {
+    public let message: String
+
+    public init(_ message: String) {
+        self.message = message
+    }
+
+    public var errorDescription: String? { message }
+}
+
+/// A region of one contig as the manifest names it, 0-based and half-open, checked against the contig's length.
+public struct ViewerGraphicRegion: Sendable, Equatable {
+    public let contig: String
+    public let start: Int
+    public let end: Int
+    public let contigLength: Int
+
+    /// `<contig>:<start>-<end>` in the record's convention, 1-based and closed, with no commas.
+    public var display: String { "\(contig):\(start + 1)-\(end)" }
+    /// The bases drawn, `end - start + 1` in the 1-based closed convention.
+    public var length: Int { end - start }
+}
+
+/// One drawn track as the record states it.
+public struct ViewerGraphicTrackFact: Sendable, Equatable {
+    public let id: String
+    public let kind: String
+    public let displayMode: String
+    public let height: Double
+}
+
+/// A figure built from a bundle, with the files it read and what it left out.
+public struct ViewerGraphicFigure: Sendable {
+    public let scene: ViewerFigureScene
+    /// The manifest first, then each file a drawn track opened in drawn order, then the view-state file, no repeats.
+    public let inputURLs: [URL]
+    public let tracks: [ViewerGraphicTrackFact]
+    /// The read row cap when an alignment track was drawn.
+    public let readRowCap: Int?
+    public var drawsAlignment: Bool { readRowCap != nil }
+}
+
+/// An opened bundle, its manifest read once for every figure the command draws.
+public struct ViewerGraphicBundle: Sendable {
+    public let url: URL
+    public let manifestURL: URL
+    public let manifest: BundleManifest
+
+    /// Reads the manifest, or refuses a folder that holds none.
+    public init(url: URL) throws {
+        self.url = url.standardizedFileURL
+        self.manifestURL = self.url.appendingPathComponent(BundleManifest.filename)
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw ViewerGraphicRefusal("No bundle manifest at \(manifestURL.path). Pass a reference bundle folder.")
+        }
+        do {
+            manifest = try BundleManifest.load(from: self.url)
+        } catch {
+            throw ViewerGraphicRefusal("The bundle manifest at \(manifestURL.path) cannot be read. \(error.localizedDescription)")
+        }
+    }
+
+    /// The track ids a figure draws when the command names none, in the viewer's stack order.
+    public var defaultTrackIDs: [String] {
+        (manifest.genome == nil ? [] : [ViewerFigureSequenceTrack.trackID])
+            + manifest.annotations.map(\.id) + manifest.variants.map(\.id)
+            + manifest.alignments.map(\.id) + manifest.tracks.map(\.id)
+    }
+
+    /// The region `start..<end` of `contig`, the manifest's name or an alias it lists for exactly one contig.
+    /// Refuses an unknown contig and an end past the contig's length, and never clamps.
+    public func region(contig: String, start: Int, end: Int) throws -> ViewerGraphicRegion {
+        let chromosomes = manifest.genome?.chromosomes ?? []
+        let named = chromosomes.first { $0.name == contig }
+        let aliased = chromosomes.filter { $0.aliases.contains(contig) }
+        guard let chromosome = named ?? (aliased.count == 1 ? aliased[0] : nil) else {
+            throw ViewerGraphicRefusal("The bundle has no contig named \(contig). Name a contig its manifest lists.")
+        }
+        let length = Int(chromosome.length)
+        guard end <= length else {
+            throw ViewerGraphicRefusal(
+                "The region ends at \(end), past the end of \(chromosome.name) at \(length). Choose a region inside the contig."
+            )
+        }
+        return ViewerGraphicRegion(contig: chromosome.name, start: start, end: end, contigLength: length)
+    }
+
+    func resolved(_ path: String) -> URL {
+        path.hasPrefix("/") ? URL(fileURLWithPath: path) : url.appendingPathComponent(path)
+    }
+}
+
+extension ViewerGraphicExport {
+    /// The heights a command line draws a track at when no view-state names one.
+    public static let defaultAnnotationHeight = 60.0
+    public static let defaultReadHeight = 200.0
+    /// The live view's default reads to leave out.
+    public static let defaultExcludeFlags: UInt16 = 0x904
+    /// The live view's default read row cap.
+    public static let defaultReadRowCap = 75
+    /// The reason of a `trackNotDrawn` entry for a kind the renderer cannot draw yet (BIO ruling Q-G3, item 7).
+    public static let noBuilderReason = "no figure builder"
+
+    /// Refuses a `--track` id the bundle does not hold.
+    public static func trackIDs(_ requested: [String], in bundle: ViewerGraphicBundle) throws -> [String] {
+        guard !requested.isEmpty else { return bundle.defaultTrackIDs }
+        let known = Set(bundle.defaultTrackIDs)
+        if let unknown = requested.first(where: { !known.contains($0) }) {
+            throw ViewerGraphicRefusal(
+                "The bundle has no track \(unknown). Name one of \(bundle.defaultTrackIDs.joined(separator: ", "))."
+            )
+        }
+        return requested
+    }
+
+    /// Builds the figure of `region` off the main actor. A track kind with no builder is left out and recorded as
+    /// `trackNotDrawn`, and the rest is drawn.
+    nonisolated public static func figure(
+        bundle: ViewerGraphicBundle, region: ViewerGraphicRegion, trackIDs: [String], settings: Settings,
+        viewState: ViewerGraphicViewState?, viewStateURL: URL?
+    ) async throws -> ViewerGraphicFigure {
+        let manifest = bundle.manifest
+        var builders: [any ViewerFigureTrackBuilding] = []
+        var facts: [ViewerGraphicTrackFact] = []
+        var inputs = [bundle.manifestURL]
+        var notDrawn: [ViewerFigureOmission] = []
+        var readRowCap: Int?
+        if settings.includeRuler {
+            builders.append(ViewerFigureRulerTrack())
+        }
+        for id in trackIDs {
+            let height = viewState?.height(for: id)
+            if id == ViewerFigureSequenceTrack.trackID, let genome = manifest.genome {
+                let track = ViewerFigureSequenceTrack(
+                    fastaURL: bundle.resolved(genome.path), indexURL: bundle.resolved(genome.indexPath),
+                    height: height ?? ViewerFigureSequenceTrack.defaultHeight
+                )
+                builders.append(track)
+                inputs += track.inputFiles
+                facts.append(ViewerGraphicTrackFact(id: id, kind: "sequence", displayMode: "automatic", height: track.height))
+            } else if let info = manifest.annotations.first(where: { $0.id == id }) {
+                guard let databasePath = info.databasePath else {
+                    notDrawn.append(ViewerFigureOmission(trackID: id, kind: .trackNotDrawn, reason: "no annotation database", count: nil))
+                    continue
+                }
+                let databaseURL = bundle.resolved(databasePath)
+                let track = ViewerFigureAnnotationTrack(
+                    trackID: id, sources: [.init(id: id, name: info.name, databaseURL: databaseURL)],
+                    height: height ?? defaultAnnotationHeight
+                )
+                builders.append(track)
+                inputs.append(databaseURL)
+                facts.append(ViewerGraphicTrackFact(id: id, kind: "annotation", displayMode: "automatic", height: track.height))
+            } else if let info = manifest.alignments.first(where: { $0.id == id }) {
+                var options = ViewerFigureReadTrack.Options()
+                options.excludeFlags = settings.excludeFlags ?? defaultExcludeFlags
+                options.maxRows = viewState?.readRowCap ?? defaultReadRowCap
+                readRowCap = options.maxRows
+                let alignmentURL = bundle.resolved(info.sourcePath)
+                let indexURL = bundle.resolved(info.indexPath)
+                let referenceURL = info.format == .cram ? manifest.genome.map { bundle.resolved($0.path) } : nil
+                let track = ViewerFigureReadTrack(
+                    trackID: id,
+                    source: .init(
+                        alignmentPath: alignmentURL.path, indexPath: indexURL.path, format: info.format,
+                        referenceFastaPath: referenceURL?.path
+                    ),
+                    height: height ?? defaultReadHeight, options: options
+                )
+                builders.append(track)
+                inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? [])
+                facts.append(ViewerGraphicTrackFact(id: id, kind: "alignment", displayMode: "packed", height: track.height))
+            } else {
+                notDrawn.append(ViewerFigureOmission(trackID: id, kind: .trackNotDrawn, reason: noBuilderReason, count: nil))
+            }
+        }
+        if let viewStateURL {
+            inputs.append(viewStateURL)
+        }
+        let frame = ViewerFigureFrame(
+            chromosome: region.contig, start: Double(region.start), end: Double(region.end),
+            pixelWidth: Int((settings.width ?? defaultWidth).rounded()), sequenceLength: region.contigLength,
+            trailingInset: ViewerFigureFrame.defaultTrailingInset
+        )
+        let built = try await ViewerFigureSceneBuilder.build(
+            frame: frame, appearance: (settings.theme ?? .light).appearance, tracks: builders
+        )
+        let scene = ViewerFigureScene(
+            width: built.width, height: built.height, appearance: built.appearance, background: built.background,
+            frame: built.frame, fonts: built.fonts, items: built.items, omissions: built.omissions + notDrawn
+        )
+        var seen = Set<String>()
+        let unique = inputs.map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
+        return ViewerGraphicFigure(scene: scene, inputURLs: unique, tracks: facts, readRowCap: readRowCap)
+    }
+
+    /// Every fact the record's `resolved.degraded` lists, the scene's omissions and one `fontFallback` entry for
+    /// each font that fell back, once each (BIO ruling Q-G3, item 7).
+    public static func degradedFacts(of scene: ViewerFigureScene) -> [ViewerFigureOmission] {
+        var facts = scene.omissions
+        for font in scene.fonts where font.fallback {
+            let reason = "\(font.requested) fell back to \(font.resolved) at \(number(font.size)) points"
+            if !facts.contains(where: { $0.kind == .fontFallback && $0.reason == reason }) {
+                facts.append(ViewerFigureOmission(trackID: "figure", kind: .fontFallback, reason: reason, count: nil))
+            }
+        }
+        return facts.sorted()
+    }
+}

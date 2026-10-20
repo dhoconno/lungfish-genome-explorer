@@ -1,0 +1,50 @@
+OVERVIEW: Draw one region of a bundle as an image with provenance
+
+USAGE: lungfish-cli bundle export-graphic [<options>] <bundle-path> --region <region> --output-format <output-format> --output <output>
+
+ARGUMENTS:
+  <bundle-path>           The reference bundle to draw
+
+OPTIONS:
+  --region <region>       The region to draw, as contig:start-end, 1-based and
+                          inclusive, as samtools takes it, such as chr1:101-200.
+  --width <width>         The figure width in points. The default is 800. The
+                          app passes the width of its view.
+  --include-ruler         Draw the coordinate ruler above the tracks.
+  --track <track>         A track to draw, by the id the bundle's manifest
+                          records. Repeat for more, in drawn order. Absent
+                          means the bundle's tracks.
+  --output-format <output-format>
+                          The image format, png, jpeg, tiff or pdf. (values:
+                          png, jpeg, tiff, pdf)
+  --scale <scale>         Pixels per point of a bitmap, 1, 2 or 4. The default
+                          is 2. A PDF takes no scale.
+  --theme <theme>         The theme to draw with, light or dark. The default is
+                          light. The app passes the appearance of its viewer.
+                          (values: light, dark)
+  --exclude-flags <exclude-flags>
+                          The SAM flags of reads to leave out, as a number. The
+                          default is 2308, as in the viewer.
+  --coverage-scale <coverage-scale>
+                          The coverage scale of an alignment track, linear,
+                          log10 or squareRoot. (values: linear, log10,
+                          squareRoot)
+  --view-state <view-state>
+                          The view-state file the app wrote for track settings
+                          it holds only in memory.
+  -o, --output <output>   The file to write. An existing file is refused
+                          without --force
+  --force                 Overwrite an existing output file
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

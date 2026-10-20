@@ -99,6 +99,7 @@ lungfish-cli bundle merge	shown	0	lungfish-cli.bundle.merge.txt
 lungfish-cli bundle export	shown	0	lungfish-cli.bundle.export.txt
 lungfish-cli bundle export-gff3	shown	0	lungfish-cli.bundle.export-gff3.txt
 lungfish-cli bundle export-annotation-table	shown	0	lungfish-cli.bundle.export-annotation-table.txt
+lungfish-cli bundle export-graphic	shown	0	lungfish-cli.bundle.export-graphic.txt
 lungfish-cli bundle validate	shown	0	lungfish-cli.bundle.validate.txt
 lungfish-cli bundle list	shown	0	lungfish-cli.bundle.list.txt
 lungfish-cli project	shown	0	lungfish-cli.project.txt

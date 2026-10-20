@@ -29,6 +29,8 @@ SUBCOMMANDS:
   export                  Export a bundle to a portable artifact
   export-gff3             Write one source's annotations as GFF3 with provenance
   export-annotation-table Write one annotation table tab's rows with provenance
+  export-graphic          Draw one region of a bundle as an image with
+                          provenance
   validate                Validate a reference bundle
   list                    List bundle contents
 

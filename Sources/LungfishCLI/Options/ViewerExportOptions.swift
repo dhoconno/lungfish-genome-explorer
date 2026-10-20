@@ -161,7 +161,95 @@ enum ViewerExportOptions {
         @Flag(name: .customLong(ViewerExportOption.force.rawValue), help: "Overwrite an existing output file")
         var force = false
     }
+
+    /// What one viewer figure draws (Phase 2.13 lane 13.30, ARCH ruling B10 3.1). Each name comes from
+    /// ``ViewerGraphicExport/Option``, the spelling the app's invocation writes.
+    struct Graphic: ParsableArguments {
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.region.rawValue),
+            help: "The region to draw, as contig:start-end, 1-based and inclusive, as samtools takes it, such as chr1:101-200."
+        )
+        var region: String
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.width.rawValue),
+            help: "The figure width in points. The default is 800. The app passes the width of its view."
+        )
+        var width: Double?
+
+        @Flag(
+            name: .customLong(ViewerGraphicExport.Option.includeRuler.rawValue),
+            help: "Draw the coordinate ruler above the tracks."
+        )
+        var includeRuler = false
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.track.rawValue),
+            parsing: .singleValue,
+            help: "A track to draw, by the id the bundle's manifest records. Repeat for more, in drawn order. Absent means the bundle's tracks."
+        )
+        var tracks: [String] = []
+
+        @Option(
+            name: .customLong(ViewerExportOption.outputFormat.rawValue),
+            help: "The image format, png, jpeg, tiff or pdf."
+        )
+        var format: ViewerFigureFormat
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.scale.rawValue),
+            help: "Pixels per point of a bitmap, 1, 2 or 4. The default is 2. A PDF takes no scale."
+        )
+        var scale: Int?
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.theme.rawValue),
+            help: "The theme to draw with, light or dark. The default is light. The app passes the appearance of its viewer."
+        )
+        var theme: ViewerGraphicExport.Theme?
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.excludeFlags.rawValue),
+            help: "The SAM flags of reads to leave out, as a number. The default is 2308, as in the viewer."
+        )
+        var excludeFlags: UInt16?
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.coverageScale.rawValue),
+            help: "The coverage scale of an alignment track, linear, log10 or squareRoot."
+        )
+        var coverageScale: CoverageScaleMode?
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.viewState.rawValue),
+            help: "The view-state file the app wrote for track settings it holds only in memory."
+        )
+        var viewState: String?
+
+        func validate() throws {
+            if let scale, !ViewerGraphicExport.scales.contains(scale) {
+                throw ValidationError("Pass --scale 1, 2 or 4.")
+            }
+            if scale != nil, format == .pdf {
+                throw ValidationError("A PDF takes no --scale. Pass --scale only with png, jpeg or tiff.")
+            }
+            if let width, !(width.isFinite && width >= 1) {
+                throw ValidationError("Pass a --width of at least 1 point.")
+            }
+        }
+
+        var settings: ViewerGraphicExport.Settings {
+            ViewerGraphicExport.Settings(
+                region: region, width: width, includeRuler: includeRuler, tracks: tracks, format: format, scale: scale,
+                theme: theme, excludeFlags: excludeFlags, coverageScale: coverageScale, viewState: viewState
+            )
+        }
+    }
 }
+
+extension ViewerFigureFormat: ViewerExportChoice {}
+extension ViewerGraphicExport.Theme: ExpressibleByArgument {}
+extension CoverageScaleMode: ExpressibleByArgument {}
 
 extension ViewerExportSortKey: ExpressibleByArgument {}
 extension ColumnFilterComposition: ExpressibleByArgument {}
