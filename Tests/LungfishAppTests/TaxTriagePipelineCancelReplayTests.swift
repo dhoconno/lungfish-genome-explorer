@@ -144,6 +144,8 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertEqual(report.exitCode, 125, "a cancel ends the run with exit 125")
         XCTAssertEqual(try engine.launches().count, 1, "the batch stops before its next sample")
         XCTAssertFalse(Self.isRunning(engineID), "no process of the engine outlives the run")
+        let launchedIDs = try engine.launches().flatMap { [$0.processIdentifier, $0.childProcessIdentifier].compactMap { $0 } }
+        XCTAssertEqual(launchedIDs.filter { Self.isRunning($0) }, [], "no process of the engine outlives the run")
         // T9, where the batch run was begun and never completed or saved.
         XCTAssertEqual(record?.status, .cancelled, "the batch records the cancel")
         XCTAssertEqual(record?.exitStatus, 125)
@@ -164,6 +166,8 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         let run = Task { try await engine.runBatch(config, presentation: presentation) }
         handle.set(run)
         let report = try await run.value
+        let launchedIDs = try engine.launches().flatMap { [$0.processIdentifier, $0.childProcessIdentifier].compactMap { $0 } }
+        XCTAssertEqual(launchedIDs.filter { Self.isRunning($0) }, [], "no process of the engine outlives the run")
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
         let steps = try Self.sampleSteps(["P1", "P2"], in: config.outputDirectory)
         let batchResult = config.outputDirectory.appendingPathComponent("taxtriage-result.json")
