@@ -59,6 +59,16 @@ final class ViewerFigureReadTrackReplayTests: XCTestCase {
         XCTAssertFalse(bodies.isEmpty, "the frame names the reference contig and the source maps it to the BAM's")
     }
 
+    func testFetchLimitIsRecordedAsAReadSampleOmission() async throws {
+        let (source, chromosome) = try await source()
+        var options = ViewerFigureReadTrack.Options()
+        options.fetchLimit = 3
+        let scene = try await scene(source, chromosome: chromosome, options: options)
+        XCTAssertTrue(scene.omissions.contains(ViewerFigureOmission(
+            trackID: "reads", kind: .readSample, reason: "fetch limit 3 reads", count: nil
+        )), "the window holds 7 reads, so a limit of 3 stops the fetch")
+    }
+
     func testFigureReadSampleOfTheBAMIsTheSameInTwoRenders() async throws {
         let (source, chromosome) = try await source()
         var options = ViewerFigureReadTrack.Options()
