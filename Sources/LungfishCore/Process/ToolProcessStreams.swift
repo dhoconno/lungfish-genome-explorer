@@ -46,6 +46,17 @@ enum ToolProcessDescriptors {
         return aboveStandardStreams(fd)
     }
 
+    /// A close-on-exec copy of a descriptor the caller owns, above 2, for the
+    /// child to write. The caller's descriptor stays open and unchanged, and
+    /// the copy shares its open file, so nothing is reopened by path.
+    static func duplicate(_ fd: Int32) throws(OpenError) -> Int32 {
+        let copy = fcntl(fd, F_DUPFD_CLOEXEC, 3)
+        guard copy >= 0 else {
+            throw OpenError(reason: "Could not duplicate descriptor \(fd) for the child. \(lastErrorText())")
+        }
+        return copy
+    }
+
     /// Marks `fd` close-on-exec and moves it above 2, so the spawn's dup2
     /// onto 0, 1 and 2 can never overwrite another of the child's descriptors
     /// in an app whose own standard streams are closed.

@@ -234,6 +234,8 @@ final class ToolProcessExecution: Sendable {
                 return pipe.write
             case .file(let url):
                 return try ToolProcessDescriptors.openForWriting(url.path)
+            case .descriptor(let descriptor):
+                return try ToolProcessDescriptors.duplicate(descriptor)
             case .discard:
                 return try ToolProcessDescriptors.openForWriting("/dev/null")
             case .stream:
@@ -369,8 +371,12 @@ final class ToolProcessExecution: Sendable {
         return downstreamRead
     }
 
+    /// Whether the child writes the stream into a file, by path or by an open
+    /// descriptor, so the stage's group emptying settles it.
     private static func isFile(_ output: ToolProcessOutput) -> Bool {
-        if case .file = output { return true }
-        return false
+        switch output {
+        case .file, .descriptor: return true
+        case .capture, .discard, .stream: return false
+        }
     }
 }

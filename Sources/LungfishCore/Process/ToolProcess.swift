@@ -236,6 +236,9 @@ public enum ToolProcess {
             if case .capture(let limit?) = output, limit < 0 {
                 throw .invalidSpec("\(spec.label) has a negative capture limit.")
             }
+            if case .descriptor(let descriptor) = output, descriptor < 0 {
+                throw .invalidSpec("\(spec.label) writes to a descriptor that is negative.")
+            }
         }
         if case .file(let stdoutURL) = spec.stdout, case .file(let stderrURL) = spec.stderr,
            stdoutURL.standardizedFileURL.path == stderrURL.standardizedFileURL.path {

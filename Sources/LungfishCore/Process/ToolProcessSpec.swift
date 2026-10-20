@@ -38,6 +38,15 @@ public enum ToolProcessOutput: Sendable, Equatable {
     /// writing the file holds it. A descendant that left the group with
     /// setsid or setpgid is not seen and can write after the run returns.
     case file(URL)
+    /// Written by the process straight into this open descriptor, which the
+    /// caller owns. The run duplicates it for the child and never closes,
+    /// reopens, truncates or seeks the caller's, so the child writes the exact
+    /// file the descriptor names even when its path now names a symlink or a
+    /// replacement. Keep the descriptor open until the run returns. The file
+    /// offset is shared with the child's. No line events are delivered for the
+    /// stream, and the run waits for the stage's process group to empty, as for
+    /// ``file(_:)``.
+    case descriptor(Int32)
     /// Sent to `/dev/null`. No line events are delivered for the stream.
     case discard
     /// Read raw by the caller through ``ToolProcessRun/stdout`` while the
