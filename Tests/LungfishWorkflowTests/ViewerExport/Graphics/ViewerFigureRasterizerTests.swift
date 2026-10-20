@@ -11,6 +11,7 @@
 import CoreGraphics
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 private typealias Support = ViewerFigureTestSupport
@@ -21,6 +22,21 @@ final class ViewerFigureRasterizerTests: XCTestCase {
             let image = try Support.image(try ViewerFigureRasterizer.render(Support.sampleScene(), format: .png, pixelScale: scale))
             XCTAssertEqual(image.width, Int((120 * scale).rounded(.up)))
             XCTAssertEqual(image.height, Int((40 * scale).rounded(.up)))
+        }
+    }
+
+    func testFractionalSizeLeavesNoTransparentEdge() throws {
+        // The pixel grid rounds 10.5 points up to 11 pixels, so the last column and row lie
+        // half outside the scene. The background must still cover them whole.
+        let scene = ViewerFigureScene(
+            width: 10.5, height: 10.5, appearance: .light, background: ViewerFigurePaint(.windowBackground),
+            frame: nil, fonts: [], items: []
+        )
+        let image = try Support.image(try ViewerFigureRasterizer.render(scene, format: .png, pixelScale: 1))
+        XCTAssertEqual(image.width, 11)
+        XCTAssertEqual(image.height, 11)
+        for (x, y) in [(10, 5), (5, 10), (10, 10)] {
+            XCTAssertEqual(try Support.pixel(image, x: x, y: y)[3], 255, "alpha at \(x), \(y)")
         }
     }
 
@@ -69,6 +85,22 @@ final class ViewerFigureRasterizerTests: XCTestCase {
             frame: nil, fonts: [], items: []
         )
         XCTAssertThrowsError(try ViewerFigureRasterizer.render(scene, format: .png))
+    }
+
+    func testRefusesAFigureTooLargeToCount() {
+        // A finite size whose pixel count does not fit an Int must throw and never trap.
+        let scene = ViewerFigureScene(
+            width: 1e300, height: 10, appearance: .light, background: ViewerFigurePaint(.windowBackground),
+            frame: nil, fonts: [], items: []
+        )
+        for format in [ViewerFigureFormat.png, .jpeg, .tiff] {
+            XCTAssertThrowsError(try ViewerFigureRasterizer.render(scene, format: format)) { error in
+                XCTAssertEqual(
+                    error as? ViewerFigureRasterizerError, .invalidSize(width: 1e300, height: 10, pixelScale: 2),
+                    format.rawValue
+                )
+            }
+        }
     }
 }
 
@@ -121,9 +153,8 @@ final class ViewerFigureRasterizerDeterminismTests: XCTestCase {
     func testSameSceneGivesSameBytesInTwoProcesses() async throws {
         let xctest = try XCTUnwrap(Bundle.main.executableURL)
         let bundle = Bundle(for: Self.self).bundleURL
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("viewer-figure-two-process-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "viewer-figure-two-process")
+        defer { TestTempDirectory.cleanup(root) }
         var children: [[ViewerFigureFormat: Data]] = []
         for name in ["first", "second"] {
             if !children.isEmpty {
@@ -133,6 +164,7 @@ final class ViewerFigureRasterizerDeterminismTests: XCTestCase {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             var environment = ProcessInfo.processInfo.environment
             environment[Self.childOutputKey] = folder.path
+            // 120 s and not 30 s, since each child loads the whole test bundle. The wait ends when the child exits.
             let spec = ToolProcessSpec(
                 executableURL: xctest,
                 arguments: ["-XCTest", "LungfishWorkflowTests.ViewerFigureRasterizerDeterminismTests/testChildRenderWritesFigures", bundle.path],

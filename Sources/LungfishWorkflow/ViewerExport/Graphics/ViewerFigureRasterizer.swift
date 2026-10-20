@@ -110,8 +110,14 @@ public enum ViewerFigureRasterizer {
     private static func renderBitmap(
         _ scene: ViewerFigureScene, format: ViewerFigureFormat, type: CFString, pixelScale: Double
     ) throws(ViewerFigureRasterizerError) -> Data {
-        let pixelWidth = Int((scene.width * pixelScale).rounded(.up))
-        let pixelHeight = Int((scene.height * pixelScale).rounded(.up))
+        let widthInPixels = (scene.width * pixelScale).rounded(.up)
+        let heightInPixels = (scene.height * pixelScale).rounded(.up)
+        // A finite size can still overflow the pixel count, and an infinite product fails too.
+        guard widthInPixels <= Double(Int32.max), heightInPixels <= Double(Int32.max) else {
+            throw .invalidSize(width: scene.width, height: scene.height, pixelScale: pixelScale)
+        }
+        let pixelWidth = Int(widthInPixels)
+        let pixelHeight = Int(heightInPixels)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil, width: pixelWidth, height: pixelHeight, bitsPerComponent: 8, bytesPerRow: 0,
@@ -120,9 +126,13 @@ public enum ViewerFigureRasterizer {
             throw .contextUnavailable(format)
         }
         configure(context)
+        // The pixel grid is up to one pixel larger than the scene when size times scale is not a whole
+        // number, so paint the whole grid and not only the scene's rectangle.
+        context.setFillColor(scene.background.color(in: scene.theme).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
         context.translateBy(x: 0, y: CGFloat(pixelHeight))
         context.scaleBy(x: CGFloat(pixelScale), y: CGFloat(-pixelScale))
-        try draw(scene, in: context)
+        try draw(scene, in: context, paintsBackground: false)
         let data = NSMutableData()
         guard let image = context.makeImage(),
               let destination = CGImageDestinationCreateWithData(data as CFMutableData, type, 1, nil) else {
@@ -148,7 +158,7 @@ public enum ViewerFigureRasterizer {
         context.translateBy(x: 0, y: CGFloat(scene.height))
         context.scaleBy(x: 1, y: -1)
         do {
-            try draw(scene, in: context)
+            try draw(scene, in: context, paintsBackground: true)
         } catch {
             context.endPDFPage()
             context.closePDF()
@@ -174,11 +184,17 @@ public enum ViewerFigureRasterizer {
         context.setLineJoin(.miter)
     }
 
-    /// Draws the background and every item in a context whose origin is the top left, in points.
-    private static func draw(_ scene: ViewerFigureScene, in context: CGContext) throws(ViewerFigureRasterizerError) {
+    /// Draws every item, and the background when `paintsBackground` is set, in a context whose
+    /// origin is the top left, in points. A bitmap paints its whole pixel grid first instead, so a
+    /// translucent background is never painted twice.
+    private static func draw(
+        _ scene: ViewerFigureScene, in context: CGContext, paintsBackground: Bool
+    ) throws(ViewerFigureRasterizerError) {
         let theme = scene.theme
-        context.setFillColor(scene.background.color(in: theme).cgColor)
-        context.fill(CGRect(x: 0, y: 0, width: scene.width, height: scene.height))
+        if paintsBackground {
+            context.setFillColor(scene.background.color(in: theme).cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: scene.width, height: scene.height))
+        }
         for item in scene.items {
             switch item {
             case .fill(let rect, let paint):
