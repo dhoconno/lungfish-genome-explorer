@@ -172,6 +172,45 @@ final class GATKBundleVariantAttachmentServiceTests: XCTestCase {
         XCTAssertFalse(manifest.variants.contains(where: { $0.id == "gatk-rollback" }))
     }
 
+    /// 2.13 lane 13.16, item 6. A failed attach removes the run record with the VCF only when the request names
+    /// this track's own `<track>.gatk-run.lungfish-provenance.json`. An older bundle's shared record stays.
+    func testGATKAttachRollbackRemovesOnlyTheTracksOwnRunRecord() async throws {
+        for owned in [true, false] {
+            let bundleURL = tempDir.appendingPathComponent("sample-run-record-\(owned).lungfishref", isDirectory: true)
+            let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-run")
+            let runRecordURL = owned
+                ? GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: "gatk-run", inBundle: bundleURL)
+                : bundleURL.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")
+            XCTAssertEqual(
+                GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: "gatk-run", inBundle: bundleURL).lastPathComponent,
+                "gatk-run.gatk-run.lungfish-provenance.json"
+            )
+            try Data("{}".utf8).write(to: runRecordURL)
+            let blockedAttachRecord = bundleURL.appendingPathComponent("variants/gatk/gatk-run.lungfish-provenance.json", isDirectory: true)
+            try FileManager.default.createDirectory(at: blockedAttachRecord, withIntermediateDirectories: true)
+
+            await XCTAssertThrowsErrorAsync(
+                try await GATKBundleVariantAttachmentService().attach(
+                    request: GATKBundleVariantAttachmentRequest(
+                        bundleURL: bundleURL,
+                        alignmentTrackID: "aln-1",
+                        outputTrackID: "gatk-run",
+                        outputTrackName: "Sample GATK Run Record",
+                        outputVCFURL: vcfURL,
+                        executionProvenanceURL: runRecordURL,
+                        executionRequest: makeExecutionRequest(bundleURL: bundleURL, outputVCFURL: vcfURL)
+                    )
+                )
+            )
+
+            XCTAssertFalse(FileManager.default.fileExists(atPath: vcfURL.path), "the track's own VCF is removed")
+            XCTAssertEqual(
+                FileManager.default.fileExists(atPath: runRecordURL.path), !owned,
+                owned ? "the track's own run record goes with its VCF" : "the shared record of an older bundle stays"
+            )
+        }
+    }
+
     func testGATKAttachmentSanitizesTrackIDForGeneratedSidecars() async throws {
         let bundleURL = tempDir.appendingPathComponent("sample-sanitized.lungfishref", isDirectory: true)
         let vcfURL = try makeBundleWithGATKOutput(at: bundleURL, trackID: "gatk-output")

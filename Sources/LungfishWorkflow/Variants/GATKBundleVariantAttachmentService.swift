@@ -276,7 +276,17 @@ public actor GATKBundleVariantAttachmentService {
               (try? bundleRelativePath(for: indexURL, in: request.bundleURL)) != nil else {
             return []
         }
-        return [request.outputVCFURL, indexURL]
+        // The run record names the VCF this list removes, so it goes too, but only when it is this track's own
+        // `<track>.gatk-run.lungfish-provenance.json`. An older bundle's shared record stays (2.13 lane 13.16).
+        let ownRunRecordURL = GATKPipelineExecutionRequest.bundleRunRecordURL(
+            forTrackID: request.outputTrackID,
+            inBundle: request.bundleURL
+        )
+        guard let executionProvenanceURL = request.executionProvenanceURL,
+              executionProvenanceURL.standardizedFileURL.path == ownRunRecordURL.standardizedFileURL.path else {
+            return [request.outputVCFURL, indexURL]
+        }
+        return [request.outputVCFURL, indexURL, executionProvenanceURL]
     }
 
     private func metadata(
