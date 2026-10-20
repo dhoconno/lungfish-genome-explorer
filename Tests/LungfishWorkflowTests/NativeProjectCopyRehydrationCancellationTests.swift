@@ -1,13 +1,13 @@
-// NativeProjectCopyRehydrationCancellationTests.swift - The native copy takes a cancel while a file item's own record is rehydrated
+// NativeProjectCopyRehydrationCancellationTests.swift - The native copy takes a cancel while an item's own record is rehydrated
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.36 (row COPY-CANCEL-CHECKS), fix round after the SWIFT review. A file item that carries its own
-// provenance record gets more passes over its file once the copy is published. The rehydrator checks the source file
-// against the record and hashes the copy again for the rewritten record, so the copy's check must run in those passes
-// too, or a cancel waits for them. The test throws at the first check that runs once the file is published, so a
-// rehydrator that takes no check lets the copy finish and the test fails. A sparse file of eight hash chunks stands
-// for the large file, so the test writes almost nothing to disk.
+// Phase 2.13 lane 13.36 (row COPY-CANCEL-CHECKS), fix round after the SWIFT review. An item that carries its own
+// provenance record gets more passes over its files once the copy is published. The rehydrator checks each recorded
+// output against the record and hashes it again for the rewritten record, so the copy's check must run in those
+// passes too, or a cancel waits for them. Each test throws at the first check that runs once the item is published,
+// so a rehydrator that takes no check lets the copy finish and the test fails. A sparse file of eight hash chunks
+// stands for the large file, so the tests write almost nothing to disk.
 
 import Foundation
 import XCTest
@@ -26,6 +26,43 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
 
     override func tearDownWithError() throws {
         if let root { TestTempDirectory.cleanup(root) }
+    }
+
+    func testACopyThatIsNotCancelledRehydratesTheRecordOfABundle() throws {
+        // The control. The rehydrator maps the record's output onto the copy, which it can do only after it has read
+        // the copy, and it keeps the source run in the history.
+        let bundle = try makeBundle()
+        let destination = bundleDestination()
+
+        let published = try NativeProjectCopyImportService.copy(from: bundle, to: destination)
+
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: published.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
+        XCTAssertEqual(record.output?.path, published.appendingPathComponent("padding.bin").path, "the record names the copy")
+        XCTAssertEqual(record.argv.first, "source-tool", "the copy keeps the command of the source run. \(record.argv)")
+        XCTAssertTrue(record.steps.contains { $0.toolName == "lungfish-app" }, "the rehydrator added the import step")
+    }
+
+    func testACheckThatThrowsOnceTheBundleIsPublishedStopsTheRehydrationAndRollsTheCopyBack() throws {
+        let bundle = try makeBundle()
+        let destination = bundleDestination()
+        var existedAtTheFirstCheck: Bool?
+        var callsOnceCopied = 0
+
+        XCTAssertThrowsError(try NativeProjectCopyImportService.copy(from: bundle, to: destination, checkCancellation: {
+            if existedAtTheFirstCheck == nil { existedAtTheFirstCheck = FileManager.default.fileExists(atPath: destination.path) }
+            guard FileManager.default.fileExists(atPath: destination.appendingPathComponent("padding.bin").path) else { return }
+            callsOnceCopied += 1
+            throw CancellationError()
+        })) { error in
+            XCTAssertTrue(error is CancellationError, "the cancel comes back as itself, not \(error)")
+        }
+
+        XCTAssertEqual(existedAtTheFirstCheck, false, "nothing sits at the destination before the copy is published")
+        XCTAssertEqual(callsOnceCopied, 1, "the rehydration checks the cancel between the chunks of its first hash")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "the published copy is rolled back")
+        XCTAssertEqual(residue(beside: destination), [], "no .native-copy- folder is left")
     }
 
     func testACheckThatThrowsOnceTheFileIsPublishedStopsTheRehydrationAndRollsTheCopyBack() throws {
@@ -55,19 +92,35 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
 
     // MARK: - Fixture
 
-    /// A file item of `chunks` hash chunks whose record sits beside it as a sidecar.
+    /// A reference bundle whose record names one sparse file of `chunks` hash chunks. The bundle sits outside a
+    /// project, so its record keeps absolute paths. Inside a project the writer makes them project-relative, the
+    /// project of the copy resolves them onto itself, and the rehydrator then finds no output under the source.
+    private func makeBundle() throws -> URL {
+        let bundle = root.appendingPathComponent("Source/Big.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let sparse = bundle.appendingPathComponent("padding.bin")
+        try makeSparseFile(at: sparse)
+        try ProvenanceWriter(signingProvider: nil).write(try record(naming: sparse), to: bundle)
+        return bundle
+    }
+
+    /// A file item whose record sits beside it as a sidecar.
     private func makeFile() throws -> URL {
         let folder = root.appendingPathComponent("Source.lungfish/Documents", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let sparse = folder.appendingPathComponent("Big.bin")
-        XCTAssertTrue(FileManager.default.createFile(atPath: sparse.path, contents: nil))
-        let handle = try FileHandle(forWritingTo: sparse)
-        try handle.truncate(atOffset: UInt64(Self.chunks * FileDigest.defaultChunkSize))
-        try handle.close()
+        try makeSparseFile(at: sparse)
         try ProvenanceWriter(signingProvider: nil).write(
             try record(naming: sparse), toSidecar: ProvenanceRecorder.fileSidecarURL(for: sparse)
         )
         return sparse
+    }
+
+    private func makeSparseFile(at url: URL) throws {
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(Self.chunks * FileDigest.defaultChunkSize))
+        try handle.close()
     }
 
     /// The record of a source run that made `output`, built as the CLI builds one.
@@ -79,6 +132,10 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
         .output(output, format: .unknown, role: .output)
         .runtime(ProvenanceRuntimeIdentity.fixture())
         .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+    }
+
+    private func bundleDestination() -> URL {
+        root.appendingPathComponent("Target/Big.lungfishref", isDirectory: true)
     }
 
     /// The `.native-copy-` folders beside `destination`.

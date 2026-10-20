@@ -55,7 +55,9 @@ final class ProjectCopyItemFourGiBSIGTERMReplayTests: XCTestCase {
         )
         defer { run.stop() }
         let temp = target.appendingPathComponent(".tmp", isDirectory: true)
-        let staged = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(10)) {
+        // The copier hashes the 4 GiB file once before it makes the stage. That took about 22 s of the base run with every
+        // core busy (build/lane/m0-4gib-base.log), so this wait is not the 30 s of a process start. The grace is timed from SIGTERM.
+        let staged = await waitUntil(timeout: .seconds(90), pollInterval: .milliseconds(10)) {
             !Self.stages(in: temp).isEmpty
         }
         XCTAssertTrue(staged, "the leaf never made its stage")
