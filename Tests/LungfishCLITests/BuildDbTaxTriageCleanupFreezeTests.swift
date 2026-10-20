@@ -218,39 +218,42 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
 
     // MARK: - A batch root
 
-    /// BIO T11 and T12. The app's several-sample layout, a root with one folder per sample. The root record that the
-    /// batch runner writes names every file of every sample folder except `work`, `download` and `workflow-source`,
-    /// `build-db taxtriage` leaves that record alone, deletes the cleanup list inside each sample folder, and the record
-    /// then names those files and no longer finds them. A provenance check of such a result finds them missing. The
-    /// command runs with the argv the app passes. The record beside the database is then the only `build-db` record in
-    /// that root, and it names the top report that the cleanup of the same command deleted.
-    func testTheRootRecordOfABatchNamesFilesThatTheCleanupThenRemoves() async throws {
+    /// BIO T11 and T12. The several-sample layout, a root with one folder per sample. A record of such a batch names
+    /// every file of every sample folder except `work`, `download` and `workflow-source` (`TaxTriageOutputArtifactPolicy`,
+    /// the rule a sample's own record and the batch result keep). `build-db taxtriage` leaves the root record alone,
+    /// deletes the cleanup list inside each sample folder, and those names then no longer find their files. A provenance
+    /// check of such a result finds them missing. The command runs with the argv the app passes. The record beside the
+    /// database is then the only `build-db` record in that root, and it names the top report that the cleanup of the
+    /// same command deleted. Since 2.13 K1b the case lays the folders out itself and saves the root record a legacy
+    /// batch holds, an empty run of the workflow `TaxTriage Serial Batch`, where the serial runner wrote both. No route
+    /// wrote that record after 2.12 K1, but the batches of older projects keep it. A root record of `taxtriage run`
+    /// takes the command's 2.10 X7 path instead, which keeps `top/` and that record's lineage (parity case X7).
+    func testTheFilesABatchNamesAreThoseTheCleanupThenRemoves() async throws {
         let batch = root.appendingPathComponent("taxtriage-batch", isDirectory: true)
         let mini = fixture("taxtriage-mini")
         let odr = fixture("taxtriage-odr-3.3.8").appendingPathComponent("SRR12486983", isDirectory: true)
-        let runner = TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
-            let folder = sampleConfig.outputDirectory
-            let isMini = sampleConfig.samples[0].sampleId == "A"
-            try FileManager.default.copyItem(at: isMini ? mini : odr, to: folder)
-            if isMini { try FileManager.default.removeItem(at: folder.appendingPathComponent("minimap2", isDirectory: true)) }
-            try BuildDbTaxTriageCleanupFreezeTests.writeSeed(in: folder)
+        try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
+        var named = Set<String>()
+        for id in ["A", "B"] {
+            let folder = batch.appendingPathComponent(id, isDirectory: true)
+            try FileManager.default.copyItem(at: id == "A" ? mini : odr, to: folder)
+            if id == "A" { try FileManager.default.removeItem(at: folder.appendingPathComponent("minimap2", isDirectory: true)) }
+            try Self.writeSeed(in: folder)
             let files = (FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])?.allObjects as? [URL] ?? [])
                 .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-            return TaxTriageResult(config: sampleConfig, runtime: 1, exitCode: 0, outputDirectory: folder, allOutputFiles: files)
-        })
-        let samples = ["A", "B"].map { TaxTriageSample(sampleId: $0, fastq1: URL(fileURLWithPath: "/data/\($0).fastq.gz")) }
-        _ = try await runner.run(config: TaxTriageConfig(samples: samples, outputDirectory: batch, maxCpus: 4))
+            named.formUnion(TaxTriageOutputArtifactPolicy.filterRetainedOutputFiles(files, outputDirectory: folder).map { relative($0.path, to: batch) })
+        }
+        let runID = await ProvenanceRecorder.shared.beginRun(name: "TaxTriage Serial Batch")
+        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+        try await ProvenanceRecorder.shared.save(runID: runID, to: batch)
         let recordURL = batch.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let recordBefore = try Data(contentsOf: recordURL)
-        let rootRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch))
-        let named = Set(rootRecord.steps.flatMap(\.outputs).map { relative($0.path, to: batch) })
         XCTAssertTrue(named.isSuperset(of: ["A/count/SRR35517702.fastq.gz", "A/top/SRR35517702.top_report.tsv", "B/mergedkrakenreport/SRR35517702.merged.report.txt"]))
         XCTAssertTrue(named.allSatisfy { exists($0, in: batch) }, "every name exists before build-db runs")
 
         try await buildDb(batch, ["--force"])
 
         XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore, "build-db leaves a record of another workflow alone")
-        XCTAssertEqual(try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch)).workflowName, "TaxTriage Serial Batch")
         let dangling = Set(named.filter { !exists($0, in: batch) })
         let expected = Set(["A", "B"].flatMap { id in Self.removedSeed.map { "\(id)/\($0)" } } + ["A/top/SRR35517702.top_report.tsv"])
         XCTAssertEqual(dangling, expected, "the record names these and they are gone")
