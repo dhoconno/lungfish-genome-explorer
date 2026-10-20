@@ -247,7 +247,7 @@ extension BlastTableExportCLIGUIParityReplayTests {
         let resultFolder = root.appendingPathComponent(resultFolderName, isDirectory: true)
         try FileManager.default.createDirectory(at: resultFolder, withIntermediateDirectories: true)
         if parityCase.isArchive {
-            _ = try BlastVerificationArchive.save(verification, request: nil, in: resultFolder)
+            _ = try BlastVerificationArchive.save(verification, request: nil, in: resultFolder, toolName: "lungfish-cli", toolKind: "cli")
             return
         }
         let folder = BlastVerificationArchive.directoryURL(for: resultFolder)

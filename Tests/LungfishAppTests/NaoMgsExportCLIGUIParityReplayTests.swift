@@ -310,6 +310,8 @@ extension NaoMgsExportCLIGUIParityReplayTests {
         } ?? []
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app naomgs summary export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view, filters: state.filters, databaseURL: state.databaseURL),
             outputURL: url,
             outputFormat: .text,

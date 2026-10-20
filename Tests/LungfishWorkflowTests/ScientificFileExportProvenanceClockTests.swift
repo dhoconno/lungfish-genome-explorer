@@ -22,6 +22,8 @@ final class ScientificFileExportProvenanceClockTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app text export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [source],
             outputURL: output,
             outputFormat: .text,

@@ -215,6 +215,8 @@ extension TreeSubtreeExportCLIGUIParityReplayTests {
         argv.append(contentsOf: ["--node", export.selectedNodeID, "--output", outputURL.path])
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app phylogenetic subtree export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: sourceBundleURL.map(TreeSubtreeExport.inputURLs(bundleURL:)) ?? [],
             outputURL: outputURL,
             outputFormat: .text,

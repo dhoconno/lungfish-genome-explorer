@@ -23,7 +23,7 @@ final class BlastExportTableCommandTests: XCTestCase {
             .appendingPathComponent("BlastExportTable-\(UUID().uuidString)", isDirectory: true)
         let resultFolder = folder.appendingPathComponent("kraken2-run", isDirectory: true)
         try FileManager.default.createDirectory(at: resultFolder, withIntermediateDirectories: true)
-        archiveFile = try BlastVerificationArchive.save(Self.verification, request: nil, in: resultFolder)
+        archiveFile = try BlastVerificationArchive.save(Self.verification, request: nil, in: resultFolder, toolName: "lungfish-cli", toolKind: "cli")
         let submitFolder = BlastVerificationArchive.directoryURL(for: resultFolder)
             .appendingPathComponent("Escherichia-coli-a", isDirectory: true)
         try FileManager.default.createDirectory(at: submitFolder, withIntermediateDirectories: true)

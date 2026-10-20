@@ -279,6 +279,8 @@ extension SequenceFASTAExportCLIGUIParityReplayTests {
         argv.append(contentsOf: ["--sequence", sequence.name, "--output", outputURL.path])
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app sequence fasta export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: sourceURLs,
             outputURL: outputURL,
             outputFormat: .fasta,

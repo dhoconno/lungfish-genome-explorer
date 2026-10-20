@@ -456,6 +456,8 @@ extension Kraken2TableExportCLIGUIParityReplayTests {
         let separatorName = separator == "\t" ? "tsv" : "csv"
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxonomy table export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: sourceURLs,
             outputURL: url,
             outputFormat: .text,

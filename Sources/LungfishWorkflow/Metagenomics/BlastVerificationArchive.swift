@@ -138,10 +138,14 @@ public enum BlastVerificationArchive {
     ///   - result: The verification to save.
     ///   - request: The request that produced it.
     ///   - resultDirectory: The classifier result folder.
+    ///   - toolName: The tool that writes the record. The default `argv` starts with it.
+    ///   - toolKind: `cli` when a `lungfish-cli` process writes the record and `gui` when the app writes it in
+    ///     its own process.
     ///   - sourceURLs: Small inputs to fingerprint in the provenance sidecar,
     ///     such as the classification report. Pass large read files through
     ///     `argv` only, because every source is hashed.
-    ///   - argv: The equivalent `lungfish blast verify` command line.
+    ///   - argv: The equivalent `lungfish blast verify` command line. Without one the record names
+    ///     `<toolName> blast verify --taxid <taxId>`.
     ///   - runClock: Started when the verification started. Without one the
     ///     sidecar records the BLAST result's own submission and completion times.
     @discardableResult
@@ -149,6 +153,8 @@ public enum BlastVerificationArchive {
         _ result: BlastVerificationResult,
         request: BlastVerificationRequest?,
         in resultDirectory: URL,
+        toolName: String,
+        toolKind: String,
         sourceURLs: [URL] = [],
         argv: [String] = [],
         runClock: ProvenanceRunClock? = nil
@@ -193,7 +199,7 @@ public enum BlastVerificationArchive {
         }
 
         let recordedArgv = argv.isEmpty
-            ? [CLICommandIdentity.executableName, "blast", "verify", "--taxid", "\(result.taxId)"]
+            ? [toolName, "blast", "verify", "--taxid", "\(result.taxId)"]
             : argv
         let resolved: [String: ParameterValue] = [
             "supportingCount": .integer(result.supportingCount),
@@ -204,6 +210,8 @@ public enum BlastVerificationArchive {
         let provenance: ScientificFileExportProvenance.Request = if let runClock {
             .init(
                 workflowName: "lungfish blast verify",
+                toolName: toolName,
+                toolKind: toolKind,
                 sourceURLs: existingSources,
                 outputURL: outputURL,
                 outputFormat: .json,
@@ -215,6 +223,8 @@ public enum BlastVerificationArchive {
         } else {
             .init(
                 workflowName: "lungfish blast verify",
+                toolName: toolName,
+                toolKind: toolKind,
                 sourceURLs: existingSources,
                 outputURL: outputURL,
                 outputFormat: .json,

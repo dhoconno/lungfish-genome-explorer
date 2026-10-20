@@ -73,7 +73,7 @@ enum ViewerExportStreamCapture {
                     blastProgram: "megablast",
                     database: "core_nt"
                 )
-                let archive = try BlastVerificationArchive.save(result, request: nil, in: scratch.root)
+                let archive = try BlastVerificationArchive.save(result, request: nil, in: scratch.root, toolName: "lungfish-cli", toolKind: "cli")
                 let command = try BlastCommand.ExportTableSubcommand.parse([
                     archive.path, "--output-format", "tsv",
                     "--output", scratch.root.appendingPathComponent("blast.tsv").path,

@@ -311,6 +311,8 @@ extension BlastCommand {
                         result,
                         request: request,
                         in: resultURL,
+                        toolName: CLICommandIdentity.executableName,
+                        toolKind: "cli",
                         sourceURLs: [kreportURL],
                         argv: CommandLine.arguments,
                         runClock: runClock

@@ -200,7 +200,7 @@ extension VariantExportCLIGUIParityReplayTests {
         for sourceURL in sourceURLs { argv += ["--variant-database", sourceURL.path] }
         argv += ["--output", url.path]
         try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "lungfish app bookmarked variant export", sourceURLs: sourceURLs,
+            workflowName: "lungfish app bookmarked variant export", toolName: "Lungfish.app", toolKind: "gui", sourceURLs: sourceURLs,
             outputURL: url, outputFormat: .text, argv: argv,
             explicitOptions: ["sourceVariantDatabasePaths": .array(sourceURLs.map { .file($0) }),
                 "outputPath": .file(url)],

@@ -30,7 +30,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
     /// restores.
     func testAVerificationTheInProcessRowSavedRestores() throws {
         let result = try resultFolder()
-        try BlastVerificationArchive.save(Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result)
+        try BlastVerificationArchive.save(Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli")
         let (restored, controller) = restore(taxId: 562, from: result)
         XCTAssertEqual(restored?.rid, "RID-ARCHIVE")
         XCTAssertEqual(controller.lastBlastResult?.rid, "RID-ARCHIVE")
@@ -41,13 +41,13 @@ final class Kraken2BlastRestoreTests: XCTestCase {
     /// searches of the taxon the newer shows, whichever form it has.
     func testABlastSubmitSearchRestoresAndTheNewerSearchShows() throws {
         let result = try resultFolder()
-        try BlastVerificationArchive.save(Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result)
+        try BlastVerificationArchive.save(Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli")
         try writeSubmitRecord(rid: "RID-SUBMIT", taxId: 562, savedAt: Self.later, in: result, folder: "Escherichia-coli-a")
         try writeSubmitRecord(rid: "RID-OTHER", taxId: 570, savedAt: Self.latest, in: result, folder: "Klebsiella-b")
         XCTAssertEqual(restore(taxId: 562, from: result).result?.rid, "RID-SUBMIT", "the newer search is the blast submit one")
         XCTAssertEqual(restore(taxId: 570, from: result).result?.rid, "RID-OTHER")
 
-        try BlastVerificationArchive.save(Self.verification(rid: "RID-NEWER-ARCHIVE", taxId: 562, at: Self.latest), request: nil, in: result)
+        try BlastVerificationArchive.save(Self.verification(rid: "RID-NEWER-ARCHIVE", taxId: 562, at: Self.latest), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli")
         XCTAssertEqual(restore(taxId: 562, from: result).result?.rid, "RID-NEWER-ARCHIVE", "an older blast submit search gives way")
     }
 
@@ -57,7 +57,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
     func testARestoredVerificationKeepsTheURLOfTheFileItCameFrom() throws {
         let result = try resultFolder()
         let archiveURL = try BlastVerificationArchive.save(
-            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result
+            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli"
         )
         let archived = restoreIntoDrawer(taxId: 562, from: result)
         XCTAssertEqual(archived.tab.currentResult?.rid, "RID-ARCHIVE")
@@ -81,7 +81,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
     func testARestoredVerificationWaitingForAMissingDrawerReplaysItsFileURL() throws {
         let result = try resultFolder()
         let archiveURL = try BlastVerificationArchive.save(
-            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result
+            Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli"
         )
         let controller = TaxonomyViewController()
         controller.blastVerificationDirectoryResolver = { _ in result }

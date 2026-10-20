@@ -268,7 +268,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
             var seen = Set<String>()
             let sourceURLs = (readURLs + [payloadURL, selectionURL]).filter { seen.insert($0.standardizedFileURL.path).inserted }
             try ScientificFileExportProvenance.writeAtomically(.init(
-                workflowName: "lungfish app annotation export", sourceURLs: sourceURLs,
+                workflowName: "lungfish app annotation export", toolName: "Lungfish.app", toolKind: "gui", sourceURLs: sourceURLs,
                 outputURL: outputURL, outputFormat: .gff3, argv: argv,
                 durableReplayArgv: ["/bin/cp", payloadURL.path, outputURL.path],
                 explicitOptions: ["sourceKind": .string(source.kind.rawValue),

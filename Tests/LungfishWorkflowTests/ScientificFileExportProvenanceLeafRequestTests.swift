@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.12 lane 12.31 M2 (ARCH ruling X-3 and 1.4). A leaf's request names the tool `lungfish-cli` with kind `cli`
-// and replays its own canonical argv. The two existing inits keep the kind `gui` until 13.03 (ruling 4.1).
+// and replays its own canonical argv. The two existing inits take the tool and the kind from their caller (ruling 4.1).
 
 import Foundation
 import XCTest
@@ -56,14 +56,21 @@ final class ScientificFileExportProvenanceLeafRequestTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "a\tb\n")
     }
 
-    func testTheExistingInitsKeepTheGUIKindAndTheReplacedRequestKeepsItsKind() {
+    func testTheExistingInitsRecordTheToolAndKindTheirCallerNamesAndTheReplacedRequestKeepsItsKind() {
         let output = folder.appendingPathComponent("table.tsv")
         let gui = ScientificFileExportProvenance.Request(
-            workflowName: "w", sourceURLs: [], outputURL: output, outputFormat: .text, argv: ["Lungfish.app"],
-            runClock: ProvenanceRunClock()
+            workflowName: "w", toolName: "Lungfish.app", toolKind: "gui", sourceURLs: [], outputURL: output,
+            outputFormat: .text, argv: ["Lungfish.app"], runClock: ProvenanceRunClock()
         )
         XCTAssertEqual(gui.toolName, "Lungfish.app")
         XCTAssertEqual(gui.toolKind, "gui")
+        let cli = ScientificFileExportProvenance.Request(
+            workflowName: "w", toolName: "lungfish-cli", toolKind: "cli", sourceURLs: [], outputURL: output,
+            outputFormat: .text, argv: ["lungfish-cli"], startedAt: Date(timeIntervalSince1970: 0),
+            completedAt: Date(timeIntervalSince1970: 1)
+        )
+        XCTAssertEqual(cli.toolName, "lungfish-cli")
+        XCTAssertEqual(cli.toolKind, "cli")
         let leaf = ScientificFileExportProvenance.Request.cliLeaf(
             workflowName: "w", sourceURLs: [], outputURL: output, outputFormat: .text,
             argv: ["lungfish-cli"], runClock: ProvenanceRunClock()

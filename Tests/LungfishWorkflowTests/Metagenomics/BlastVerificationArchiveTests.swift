@@ -52,6 +52,8 @@ final class BlastVerificationArchiveTests: XCTestCase {
             result(taxId: 3050292, rid: "RID-A", completedAt: completed),
             request: request,
             in: resultDir,
+            toolName: "lungfish-cli",
+            toolKind: "cli",
             sourceURLs: [report],
             argv: ["lungfish-cli", "blast", "verify", "--taxid", "3050292"]
         )
@@ -71,9 +73,9 @@ final class BlastVerificationArchiveTests: XCTestCase {
 
     func testLatestPicksTheNewestVerificationOfATaxon() throws {
         let base = Date(timeIntervalSince1970: 1_790_000_000)
-        try BlastVerificationArchive.save(result(taxId: 3050292, rid: "OLD", completedAt: base), request: nil, in: resultDir)
-        try BlastVerificationArchive.save(result(taxId: 3050292, rid: "NEW", completedAt: base.addingTimeInterval(3600)), request: nil, in: resultDir)
-        try BlastVerificationArchive.save(result(taxId: 10376, rid: "EBV", completedAt: base.addingTimeInterval(7200)), request: nil, in: resultDir)
+        try BlastVerificationArchive.save(result(taxId: 3050292, rid: "OLD", completedAt: base), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
+        try BlastVerificationArchive.save(result(taxId: 3050292, rid: "NEW", completedAt: base.addingTimeInterval(3600)), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
+        try BlastVerificationArchive.save(result(taxId: 10376, rid: "EBV", completedAt: base.addingTimeInterval(7200)), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
 
         XCTAssertEqual(BlastVerificationArchive.latest(forTaxId: 3050292, in: resultDir)?.result.rid, "NEW")
         XCTAssertEqual(BlastVerificationArchive.latest(forTaxId: 10376, in: resultDir)?.result.rid, "EBV")
@@ -86,15 +88,15 @@ final class BlastVerificationArchiveTests: XCTestCase {
 
     func testSameMillisecondSavesDoNotOverwrite() throws {
         let when = Date(timeIntervalSince1970: 1_790_000_000)
-        let first = try BlastVerificationArchive.save(result(taxId: 1, rid: "A", completedAt: when), request: nil, in: resultDir)
-        let second = try BlastVerificationArchive.save(result(taxId: 1, rid: "B", completedAt: when), request: nil, in: resultDir)
+        let first = try BlastVerificationArchive.save(result(taxId: 1, rid: "A", completedAt: when), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
+        let second = try BlastVerificationArchive.save(result(taxId: 1, rid: "B", completedAt: when), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
         XCTAssertNotEqual(first, second)
         XCTAssertEqual(BlastVerificationArchive.latest(forTaxId: 1, in: resultDir)?.result.rid, "B")
     }
 
     func testUnreadableRecordIsSkipped() throws {
         let base = Date(timeIntervalSince1970: 1_790_000_000)
-        try BlastVerificationArchive.save(result(taxId: 7, rid: "GOOD", completedAt: base), request: nil, in: resultDir)
+        try BlastVerificationArchive.save(result(taxId: 7, rid: "GOOD", completedAt: base), request: nil, in: resultDir, toolName: "lungfish-cli", toolKind: "cli")
         let corrupt = BlastVerificationArchive.directoryURL(for: resultDir)
             .appendingPathComponent(BlastVerificationArchive.fileName(taxId: 7, date: base.addingTimeInterval(60)))
         try Data("{".utf8).write(to: corrupt)
@@ -111,7 +113,9 @@ final class BlastVerificationArchiveTests: XCTestCase {
         let url = try BlastVerificationArchive.save(
             result(taxId: 9, rid: "REL", completedAt: Date(timeIntervalSince1970: 1_790_000_000)),
             request: nil,
-            in: relative
+            in: relative,
+            toolName: "lungfish-cli",
+            toolKind: "cli"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path + ".lungfish-provenance.json"))
         XCTAssertEqual(BlastVerificationArchive.latest(forTaxId: 9, in: resultDir)?.result.rid, "REL")
@@ -119,5 +123,38 @@ final class BlastVerificationArchiveTests: XCTestCase {
 
     func testNoFolderMeansNoEntries() {
         XCTAssertTrue(BlastVerificationArchive.entries(in: resultDir).isEmpty)
+    }
+
+    /// R7 of the BIO-Q-A2 ruling (A18). The record names the tool and the kind its caller passes. A
+    /// `lungfish-cli blast verify` process passes the CLI's name with kind `cli`. A caller in the app passes the
+    /// app's name with kind `gui`, and the default argv then starts with the app's name and not the CLI's.
+    func testTheRecordNamesTheToolAndKindTheCallerPasses() throws {
+        let when = Date(timeIntervalSince1970: 1_790_000_000)
+        let cli = try BlastVerificationArchive.save(
+            result(taxId: 11, rid: "CLI", completedAt: when),
+            request: nil,
+            in: resultDir,
+            toolName: CLICommandIdentity.executableName,
+            toolKind: "cli"
+        )
+        let app = try BlastVerificationArchive.save(
+            result(taxId: 12, rid: "APP", completedAt: when),
+            request: nil,
+            in: resultDir,
+            toolName: "Lungfish.app",
+            toolKind: "gui"
+        )
+        let cliEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: URL(fileURLWithPath: cli.path + ".lungfish-provenance.json"))
+        )
+        XCTAssertEqual(cliEnvelope.tool.name, "lungfish-cli")
+        XCTAssertEqual(cliEnvelope.tool.kind, "cli")
+        XCTAssertEqual(cliEnvelope.argv, ["lungfish-cli", "blast", "verify", "--taxid", "11"])
+        let appEnvelope = try XCTUnwrap(
+            ProvenanceEnvelopeReader.load(fromSidecar: URL(fileURLWithPath: app.path + ".lungfish-provenance.json"))
+        )
+        XCTAssertEqual(appEnvelope.tool.name, "Lungfish.app")
+        XCTAssertEqual(appEnvelope.tool.kind, "gui")
+        XCTAssertEqual(appEnvelope.argv, ["Lungfish.app", "blast", "verify", "--taxid", "12"])
     }
 }

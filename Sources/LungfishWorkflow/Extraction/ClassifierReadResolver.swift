@@ -764,6 +764,7 @@ public actor ClassifierReadResolver {
         let request = ScientificFileExportProvenance.Request(
             workflowName: provenance.workflowName,
             toolName: provenance.toolName,
+            toolKind: "gui",
             sourceURLs: sourceURLs,
             outputURL: outputURL,
             outputFormat: outputFormat,

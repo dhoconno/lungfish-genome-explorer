@@ -295,6 +295,8 @@ extension NvdExportCLIGUIParityReplayTests {
         }
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app nvd contigs export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view, databaseURL: state.databaseURL),
             outputURL: url,
             outputFormat: .text,

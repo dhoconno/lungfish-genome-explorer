@@ -244,6 +244,8 @@ extension EsVirituExportCLIGUIParityReplayTests {
         )
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app esviritu detections export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view),
             outputURL: url,
             outputFormat: .text,

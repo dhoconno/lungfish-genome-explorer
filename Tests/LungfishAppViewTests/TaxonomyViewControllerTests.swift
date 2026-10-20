@@ -705,7 +705,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         try BlastVerificationArchive.save(
             makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
             request: nil,
-            in: resultDir
+            in: resultDir,
+            toolName: "lungfish-cli",
+            toolKind: "cli"
         )
 
         // A reopened result: a fresh controller with no BLAST state.
@@ -740,7 +742,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         try BlastVerificationArchive.save(
             makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
             request: nil,
-            in: resultDir
+            in: resultDir,
+            toolName: "lungfish-cli",
+            toolKind: "cli"
         )
 
         let vc = TaxonomyViewController()
@@ -773,7 +777,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         try BlastVerificationArchive.save(
             makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
             request: nil,
-            in: resultDir
+            in: resultDir,
+            toolName: "lungfish-cli",
+            toolKind: "cli"
         )
 
         let vc = TaxonomyViewController()
@@ -799,7 +805,9 @@ final class TaxonomyViewControllerTests: XCTestCase {
         try BlastVerificationArchive.save(
             makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
             request: nil,
-            in: resultDir
+            in: resultDir,
+            toolName: "lungfish-cli",
+            toolKind: "cli"
         )
 
         let vc = TaxonomyViewController()

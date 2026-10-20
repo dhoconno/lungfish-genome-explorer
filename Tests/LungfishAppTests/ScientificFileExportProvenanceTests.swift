@@ -31,7 +31,7 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         let marker = sidecar.appendingPathComponent("keep")
         try Data("old artifact".utf8).write(to: marker)
         XCTAssertThrowsError(try ScientificFileExportProvenance.writeAtomically(.init(
-            workflowName: "fixture", sourceURLs: [], outputURL: output, outputFormat: .text,
+            workflowName: "fixture", toolName: "Lungfish.app", toolKind: "gui", sourceURLs: [], outputURL: output, outputFormat: .text,
             argv: ["fixture"], runClock: ProvenanceRunClock()
         )) { staged in try Data("replacement".utf8).write(to: staged) })
         XCTAssertEqual(try Data(contentsOf: output), original)
@@ -66,6 +66,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.write(.init(
             workflowName: "lungfish app fasta export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceURL],
             outputURL: outputURL,
             outputFormat: .fasta,
@@ -105,6 +107,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.write(.init(
             workflowName: "lungfish app directory export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceDirectory],
             outputURL: outputURL,
             outputFormat: .text,
@@ -132,6 +136,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app atomic export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceURL],
             outputURL: outputURL,
             outputFormat: .text,
@@ -161,6 +167,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app atomic directory export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceDirectory],
             outputURL: outputURL,
             outputFormat: .text,
@@ -190,6 +198,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let writtenSidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app atomic directory export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceDirectory],
             outputURL: outputURL,
             outputFormat: .text,
@@ -214,6 +224,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
 
         let sidecarURL = try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app atomic export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [sourceURL],
             outputURL: outputURL,
             outputFormat: .text,
@@ -240,6 +252,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertThrowsError(
             try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app atomic export",
+                toolName: "Lungfish.app",
+                toolKind: "gui",
                 sourceURLs: [sourceURL],
                 outputURL: outputURL,
                 outputFormat: .text,
@@ -269,6 +283,8 @@ final class ScientificFileExportProvenanceTests: XCTestCase {
         XCTAssertThrowsError(
             try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app atomic export",
+                toolName: "Lungfish.app",
+                toolKind: "gui",
                 sourceURLs: [sourceURL],
                 outputURL: outputURL,
                 outputFormat: .text,

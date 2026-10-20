@@ -7,8 +7,9 @@ import LungfishKit
 import LungfishWorkflow
 
 /// The Import Center's Kraken2, EsViritu, TaxTriage, NAO-MGS and NVD result imports run `lungfish-cli import <kind>` on
-/// `CLIBundleBuildRunner` (Phase 2.12 lanes 12.04 and 12.05, A63-M2), which replaced the app's
-/// `--metagenomics-import-helper` mode for every kind.
+/// `CLIBundleBuildRunner` (Phase 2.12 lanes 12.04 and 12.05, A63-M2), which replaced the app's in-process import
+/// helper for every kind. The helper no longer exists. `ProvenanceExportPlan.retiredHelperFlags` is the one place
+/// that still names its flag, so that old records stay readable.
 ///
 /// The command writes the result folder and its record, and the app writes nothing after it exits.
 /// `OperationCenterCLIBridge` shows the command's progress on the row, and the row completes with the

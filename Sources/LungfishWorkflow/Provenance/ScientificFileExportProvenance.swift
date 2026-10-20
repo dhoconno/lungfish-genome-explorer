@@ -27,10 +27,12 @@ public enum ScientificFileExportProvenance {
         /// the clock when it is written. `nil` for times recorded elsewhere.
         let runClock: ProvenanceRunClock?
 
-        /// An export this process runs, timed by `runClock`.
+        /// An export this process runs, timed by `runClock`. The caller names the tool and its kind, `gui` when
+        /// the app writes the record in its own process and `cli` when a `lungfish-cli` process writes it.
         public init(
             workflowName: String,
-            toolName: String = "Lungfish.app",
+            toolName: String,
+            toolKind: String,
             sourceURLs: [URL],
             outputURL: URL,
             outputFormat: FileFormat,
@@ -44,7 +46,7 @@ public enum ScientificFileExportProvenance {
             self.init(
                 workflowName: workflowName,
                 toolName: toolName,
-                toolKind: "gui",
+                toolKind: toolKind,
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,
@@ -59,10 +61,11 @@ public enum ScientificFileExportProvenance {
             )
         }
 
-        /// An export whose start and end were recorded elsewhere.
+        /// An export whose start and end were recorded elsewhere. The caller names the tool and its kind, as above.
         public init(
             workflowName: String,
-            toolName: String = "Lungfish.app",
+            toolName: String,
+            toolKind: String,
             sourceURLs: [URL],
             outputURL: URL,
             outputFormat: FileFormat,
@@ -77,7 +80,7 @@ public enum ScientificFileExportProvenance {
             self.init(
                 workflowName: workflowName,
                 toolName: toolName,
-                toolKind: "gui",
+                toolKind: toolKind,
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: outputFormat,

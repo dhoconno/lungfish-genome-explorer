@@ -264,6 +264,8 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let exportedOrganismCount = frozenCrossSampleOrganismCount(in: matrixMetrics)
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage organism matrix export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view),
             outputURL: url,
             outputFormat: .text,
@@ -307,6 +309,8 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage batch report export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view),
             outputURL: url,
             outputFormat: .text,
@@ -368,6 +372,8 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         }
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app taxtriage results export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: frozenSourceURLs(view: view, writesMetadata: !metadataColumns.exportHeaders.isEmpty),
             outputURL: url,
             outputFormat: .text,

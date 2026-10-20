@@ -230,6 +230,7 @@ extension GenotypeManualDefinitionsExportCLIGUIParityReplayTests {
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app manual haplotype definition export",
             toolName: "Lungfish Genome Explorer",
+            toolKind: "gui",
             sourceURLs: annotationExists ? [annotationURL] : [],
             outputURL: url,
             outputFormat: .json,

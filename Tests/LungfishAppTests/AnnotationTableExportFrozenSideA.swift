@@ -66,6 +66,8 @@ enum AnnotationTableExportFrozenSideA {
             }
             try ScientificFileExportProvenance.writeAtomically(.init(
                 workflowName: "lungfish app annotation table export",
+                toolName: "Lungfish.app",
+                toolKind: "gui",
                 sourceURLs: sourceURLs,
                 outputURL: outputURL,
                 outputFormat: AnnotationTableExportSnapshot.provenanceFormat(format),

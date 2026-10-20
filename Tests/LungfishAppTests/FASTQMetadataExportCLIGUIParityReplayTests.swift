@@ -284,6 +284,8 @@ extension FASTQMetadataExportCLIGUIParityReplayTests {
         }
         try ScientificFileExportProvenance.writeAtomically(.init(
             workflowName: "lungfish app fastq metadata export",
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: sourceURLs,
             outputURL: outputURL,
             outputFormat: .text,

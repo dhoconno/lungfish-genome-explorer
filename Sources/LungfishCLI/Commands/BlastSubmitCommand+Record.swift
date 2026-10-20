@@ -150,6 +150,8 @@ extension BlastCommand.SubmitSubcommand {
         explicit["outputPath"] = .file(recordURL)
         let provenance = ScientificFileExportProvenance.Request(
             workflowName: Self.workflowName,
+            toolName: "Lungfish.app",
+            toolKind: "gui",
             sourceURLs: [query.url],
             outputURL: recordURL,
             outputFormat: .json,
