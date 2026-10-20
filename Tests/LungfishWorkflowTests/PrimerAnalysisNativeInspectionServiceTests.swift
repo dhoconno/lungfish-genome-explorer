@@ -17,7 +17,7 @@ final class PrimerAnalysisNativeInspectionServiceTests: XCTestCase {
 
         let envelope = try loadEnvelope(fixture.output)
         XCTAssertEqual(envelope.argv, argv)
-        try ProvenanceRecordPin.assertPlainEncoderBytes(
+        try ProvenanceRecordPin.assertWriterBytes(
             Data(contentsOf: fixture.output.appendingPathComponent("lungfish-provenance.json")))
         XCTAssertEqual(envelope.exitStatus, 1)
         XCTAssertEqual(envelope.options.resolvedDefaults["status"], .string("failed"))

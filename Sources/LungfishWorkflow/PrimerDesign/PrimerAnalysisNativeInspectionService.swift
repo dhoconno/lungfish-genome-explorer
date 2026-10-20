@@ -218,9 +218,7 @@ public struct PrimerAnalysisNativeInspectionService: Sendable {
         }
         let envelope = try builder.complete(exitStatus: exitStatus, stderr: stderr,
                                             startedAt: runClock.startedAt, endedAt: runClock.now)
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(envelope).write(to: provenanceURL, options: .withoutOverwriting)
+        try ProvenanceWriter.package(envelope).write(to: provenanceURL, options: .withoutOverwriting)
     }
 
     private static func parameterValue(_ value: Any) -> ParameterValue {

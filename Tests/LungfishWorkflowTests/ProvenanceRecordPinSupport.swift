@@ -51,9 +51,10 @@ enum ProvenanceRecordPin {
         return try encoder.encode(envelope)
     }
 
-    /// Pins a record of the four plain-encoder sites to the bytes of the plain encoder, with its slashes escaped.
-    /// Item 4 of the ARCH ruling moves each site to the writer's bytes, and the pin of that site moves with it by the
-    /// prediction in `SCR/lanes/13.13/predictions.md`.
+    /// Pins a record to the bytes of the plain encoder, with its slashes escaped, which the four plain-encoder sites
+    /// wrote before lane 13.13 moved them onto the writer (item 4 of the ARCH ruling). Each site's test now asserts
+    /// `assertWriterBytes`, and `testThePlainEncoderAndTheWriterDifferOnlyInSlashes` keeps this form as the proof of
+    /// the prediction in `SCR/lanes/13.13/predictions.md`.
     static func assertPlainEncoderBytes(
         _ data: Data,
         file: StaticString = #filePath,
@@ -68,11 +69,27 @@ enum ProvenanceRecordPin {
             line: line
         )
         XCTAssertTrue(
-            String(decoding: data, as: UTF8.self).contains("\\/"),
+            hasEscapedSlash(String(decoding: data, as: UTF8.self)),
             "The record holds no escaped slash.",
             file: file,
             line: line
         )
+    }
+
+    /// Whether `json` holds a `\/` escape. A backslash starts an escape, so the second backslash of `\\` ends it. A
+    /// string value that holds a backslash before a slash is not one, and the capabilities text that the primer
+    /// inspection record embeds is such a value, since `JSONSerialization` escapes the slashes of its own text.
+    static func hasEscapedSlash(_ json: String) -> Bool {
+        var escaping = false
+        for character in json {
+            if escaping {
+                if character == "/" { return true }
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            }
+        }
+        return false
     }
 
     /// Pins a record of the four sites to the writer's bytes, with its slashes as typed.
@@ -90,7 +107,7 @@ enum ProvenanceRecordPin {
             line: line
         )
         XCTAssertFalse(
-            String(decoding: data, as: UTF8.self).contains("\\/"),
+            hasEscapedSlash(String(decoding: data, as: UTF8.self)),
             "The record holds an escaped slash.",
             file: file,
             line: line
