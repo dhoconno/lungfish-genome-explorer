@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishWorkflow
 
 /// Pins what each public draw function of `ReadTrackRenderer` and `VariantTrackRenderer` puts
 /// outside its text, under the light and the dark appearance, and the rows `packReads` gives a
@@ -25,7 +26,7 @@ final class TrackRendererPixelPinTests: XCTestCase {
         let width: Int
         let height: Int
         let textRects: [CGRect]
-        let draw: @MainActor (CGContext) -> Void
+        let draw: @MainActor (CGContext, ViewerFigureTheme) -> Void
     }
 
     private static let tolerance = 2
@@ -97,41 +98,41 @@ final class TrackRendererPixelPinTests: XCTestCase {
         let genotypeState = state
 
         return [
-            PinCase(name: "coverage-reads", width: 200, height: 60, textRects: [CGRect(x: 120, y: 0, width: 80, height: 16)]) { context in
+            PinCase(name: "coverage-reads", width: 200, height: 60, textRects: [CGRect(x: 120, y: 0, width: 80, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawCoverage(
                     reads: coverageReads, frame: Self.frame(end: 200, width: 200), context: context,
                     rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
-            PinCase(name: "coverage-depth", width: 200, height: 60, textRects: [CGRect(x: 16, y: 0, width: 184, height: 16)]) { context in
+            PinCase(name: "coverage-depth", width: 200, height: 60, textRects: [CGRect(x: 16, y: 0, width: 184, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawCoverage(
                     depthPoints: depth, regionStart: 0, regionEnd: 200, frame: Self.frame(end: 200, width: 200),
                     context: context, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
-            PinCase(name: "packed-reads", width: 200, height: 60, textRects: [CGRect(x: 30, y: 44, width: 140, height: 16)]) { context in
+            PinCase(name: "packed-reads", width: 200, height: 60, textRects: [CGRect(x: 30, y: 44, width: 140, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawPackedReads(
                     packedReads: packed, overflow: 5, frame: Self.frame(end: 400, width: 200),
                     referenceSequence: String(repeating: "A", count: 400), referenceStart: 0, maxRowsLimit: 75,
                     maskedPositions: [300, 301], context: context, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
-            PinCase(name: "base-reads", width: 200, height: 50, textRects: [CGRect(x: 20, y: 34, width: 160, height: 16)]) { context in
+            PinCase(name: "base-reads", width: 200, height: 50, textRects: [CGRect(x: 20, y: 34, width: 160, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawBaseReads(
                     packedReads: bases, overflow: 2, frame: Self.frame(end: 20, width: 200),
                     referenceSequence: reference, referenceStart: 0, maxRowsLimit: 75, context: context,
                     rect: CGRect(x: 0, y: 0, width: 200, height: 50)
                 )
             },
-            PinCase(name: "variant-summary", width: 200, height: 24, textRects: [CGRect(x: 0, y: 0, width: 60, height: 20)]) { context in
+            PinCase(name: "variant-summary", width: 200, height: 24, textRects: [CGRect(x: 0, y: 0, width: 60, height: 20)]) { context, figureTheme in
                 VariantTrackRenderer.drawSummaryBar(
-                    variants: variants, frame: Self.frame(end: 200, width: 200), context: context, yOffset: 0
+                    variants: variants, frame: Self.frame(end: 200, width: 200).figureFrame, context: context, figureTheme: figureTheme, yOffset: 0
                 )
             },
-            PinCase(name: "variant-genotypes", width: 260, height: 40, textRects: [CGRect(x: 1, y: 0, width: 58, height: 40)]) { context in
+            PinCase(name: "variant-genotypes", width: 260, height: 40, textRects: [CGRect(x: 1, y: 0, width: 58, height: 40)]) { context, figureTheme in
                 VariantTrackRenderer.drawGenotypeRows(
-                    genotypeData: genotypes, frame: Self.frame(end: 200, width: 260, leadingInset: 72),
-                    context: context, yOffset: 0, state: genotypeState, availableHeight: 36
+                    genotypeData: genotypes, frame: Self.frame(end: 200, width: 260, leadingInset: 72).figureFrame,
+                    context: context, figureTheme: figureTheme, yOffset: 0, state: genotypeState, availableHeight: 36
                 )
             },
         ]
@@ -154,7 +155,7 @@ final class TrackRendererPixelPinTests: XCTestCase {
             context.scaleBy(x: 1, y: -1)
             let previous = NSGraphicsContext.current
             NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-            NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance { pin.draw(context) }
+            NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance { pin.draw(context, .resolved(for: NSAppearance(named: appearance)!)) }
             NSGraphicsContext.current = previous
         }
         var hex = ""

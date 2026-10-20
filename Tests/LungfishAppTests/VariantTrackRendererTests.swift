@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishWorkflow
 
 // MARK: - VariantTrackRendererTests
 
@@ -21,8 +22,8 @@ final class VariantTrackRendererTests: XCTestCase {
         start: Double = 0,
         end: Double = 1000,
         pixelWidth: Int = 800
-    ) -> ReferenceFrame {
-        ReferenceFrame(chromosome: chromosome, start: start, end: end, pixelWidth: pixelWidth)
+    ) -> ViewerFigureFrame {
+        ReferenceFrame(chromosome: chromosome, start: start, end: end, pixelWidth: pixelWidth).figureFrame
     }
 
     /// Creates a test SequenceAnnotation representing a variant.
@@ -152,7 +153,7 @@ final class VariantTrackRendererTests: XCTestCase {
     func testDrawSummaryBarWithEmptyVariants() {
         let frame = makeFrame()
         let ctx = makeBitmapContext()
-        VariantTrackRenderer.drawSummaryBar(variants: [], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
 
         // Empty variants should draw nothing — center pixel should be black/transparent
         let (r, g, b, _) = pixelColor(at: 400, y: 10, in: ctx)
@@ -165,7 +166,7 @@ final class VariantTrackRendererTests: XCTestCase {
         let frame = makeFrame()
         let ctx = makeBitmapContext()
         let variant = makeVariantAnnotation(start: 500, end: 501, variantType: "SNP")
-        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
 
         // SNP at position 500 in range 0-1000 with 800px width → pixel ~400
         let snpPx = Int(frame.screenPosition(for: 500))
@@ -186,7 +187,7 @@ final class VariantTrackRendererTests: XCTestCase {
             makeVariantAnnotation(name: "rs4", start: 400, end: 402, variantType: "MNP"),
             makeVariantAnnotation(name: "rs5", start: 500, end: 503, variantType: "COMPLEX"),
         ]
-        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, yOffset: 10)
+        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, figureTheme: .light, yOffset: 10)
 
         // Each variant type should render a colored bar at its pixel position
         let snpPx = Int(frame.screenPosition(for: 100))
@@ -205,21 +206,21 @@ final class VariantTrackRendererTests: XCTestCase {
         let variants = (0..<20).map { i in
             makeVariantAnnotation(name: "rs\(i)", start: 500, end: 501, variantType: "SNP")
         }
-        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 
     func testDrawSummaryBarWithZeroPixelWidth() {
         let frame = makeFrame(pixelWidth: 0)
         let ctx = makeBitmapContext()
         let variant = makeVariantAnnotation()
-        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 
     func testDrawSummaryBarWithCustomHeight() {
         let frame = makeFrame()
         let ctx = makeBitmapContext(height: 200)
         let variant = makeVariantAnnotation(start: 500, end: 501, variantType: "SNP")
-        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, yOffset: 0, barHeight: 40)
+        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, figureTheme: .light, yOffset: 0, barHeight: 40)
 
         // Should render at custom height — check pixel at y=20 (within 40px bar)
         let snpPx = Int(frame.screenPosition(for: 500))
@@ -238,7 +239,7 @@ final class VariantTrackRendererTests: XCTestCase {
             region: GenomicRegion(chromosome: "chr1", start: 0, end: 1000)
         )
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
     }
 
@@ -258,7 +259,7 @@ final class VariantTrackRendererTests: XCTestCase {
             region: GenomicRegion(chromosome: "chr1", start: 0, end: 1000)
         )
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
 
         // Row height is 10px. yOffset=30.
@@ -373,7 +374,7 @@ final class VariantTrackRendererTests: XCTestCase {
             region: GenomicRegion(chromosome: "chr1", start: 0, end: 50_000_000)
         )
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
     }
 
@@ -501,7 +502,7 @@ final class VariantTrackRendererTests: XCTestCase {
         let variants = (0..<500).map { i -> SequenceAnnotation in
             makeVariantAnnotation(name: "rs\(i)", start: i * 20, end: i * 20 + 1, variantType: types[i % types.count])
         }
-        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: variants, frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 
     func testDrawGenotypeRowsWithManySamples() {
@@ -524,7 +525,7 @@ final class VariantTrackRendererTests: XCTestCase {
             region: GenomicRegion(chromosome: "chr1", start: 0, end: 1000)
         )
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
     }
 
@@ -619,8 +620,8 @@ final class VariantTrackRendererTests: XCTestCase {
 @MainActor
 final class VariantTrackRendererEdgeCaseTests: XCTestCase {
 
-    private func makeFrame(start: Double = 0, end: Double = 1000, pixelWidth: Int = 800) -> ReferenceFrame {
-        ReferenceFrame(chromosome: "chr1", start: start, end: end, pixelWidth: pixelWidth)
+    private func makeFrame(start: Double = 0, end: Double = 1000, pixelWidth: Int = 800) -> ViewerFigureFrame {
+        ReferenceFrame(chromosome: "chr1", start: start, end: end, pixelWidth: pixelWidth).figureFrame
     }
 
     private func makeBitmapContext(width: Int = 800, height: Int = 100) -> CGContext {
@@ -647,7 +648,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
             strand: .unknown,
             qualifiers: ["variant_type": AnnotationQualifier("SNP")]
         )
-        VariantTrackRenderer.drawSummaryBar(variants: [ann], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [ann], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 
     func testSummaryBarWithDeletionSpanningEntireView() {
@@ -662,7 +663,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
             strand: .unknown,
             qualifiers: ["variant_type": AnnotationQualifier("DEL")]
         )
-        VariantTrackRenderer.drawSummaryBar(variants: [ann], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [ann], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 
     func testGenotypeRowsWithMissingSampleInGenotypes() {
@@ -679,7 +680,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
             region: GenomicRegion(chromosome: "chr1", start: 0, end: 1000)
         )
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
     }
 
@@ -700,7 +701,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
         VariantTrackRenderer.drawGenotypeRows(
             genotypeData: data,
             frame: frame,
-            context: ctx,
+            context: ctx, figureTheme: .light,
             yOffset: 30,
             state: state,
             scrollOffset: .infinity,
@@ -744,7 +745,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
             qualifiers: ["variant_type": AnnotationQualifier("SNP")]
         )
         // Negative offset should not crash
-        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, yOffset: -10)
+        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, figureTheme: .light, yOffset: -10)
     }
 
     func testDrawGenotypeRowsNoSitesButHasSamples() {
@@ -758,7 +759,7 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
         )
         // Should return early without crash (sites is empty)
         VariantTrackRenderer.drawGenotypeRows(
-            genotypeData: data, frame: frame, context: ctx, yOffset: 30, state: state
+            genotypeData: data, frame: frame, context: ctx, figureTheme: .light, yOffset: 30, state: state
         )
     }
 
@@ -770,6 +771,6 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
             start: 500, end: 501, strand: .unknown,
             qualifiers: ["variant_type": AnnotationQualifier("SNP")]
         )
-        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, yOffset: 0)
+        VariantTrackRenderer.drawSummaryBar(variants: [variant], frame: frame, context: ctx, figureTheme: .light, yOffset: 0)
     }
 }

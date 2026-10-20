@@ -59,6 +59,13 @@ public enum ViewerFigureTrackText {
         Double(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font))
     }
 
+    /// The height `NSString.size(withAttributes:)` gave a one-line label, ascent and descent each
+    /// rounded up, plus the leading. The renderers centre a label in its row with this height, so
+    /// the label keeps the top AppKit gave it.
+    public static func boxHeight(_ font: CTFont) -> Double {
+        Double(CTFontGetAscent(font).rounded(.up) + CTFontGetDescent(font).rounded(.up) + CTFontGetLeading(font))
+    }
+
     /// Draws one line with the top of its line box at `topLeft`, in `color`.
     public static func draw(_ string: String, font: CTFont, color: CGColor, topLeft: CGPoint, in context: CGContext) {
         draw(ViewerFigureFonts.line(string, font: font), font: font, color: color, topLeft: topLeft, in: context)

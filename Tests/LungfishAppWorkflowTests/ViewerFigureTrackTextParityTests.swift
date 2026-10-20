@@ -28,11 +28,14 @@ final class ViewerFigureTrackTextParityTests: XCTestCase {
         for string in strings {
             let appKit = (string as NSString).size(withAttributes: [.font: nsFont])
             XCTAssertEqual(ViewerFigureTrackText.width(string, font: font), Double(appKit.width), accuracy: 0.01, "\(face) \(string)")
+            XCTAssertEqual(ViewerFigureTrackText.boxHeight(font), Double(appKit.height), accuracy: 0.01, "\(face) \(size) box")
         }
     }
 
     func testTheSystemFacesMatchTheAppKitFontsTheRenderersUsed() {
+        assertSameFace(.system, as: NSFont.systemFont(ofSize: 7), size: 7)
         assertSameFace(.system, as: NSFont.systemFont(ofSize: 9), size: 9)
+        assertSameFace(.system, as: NSFont.systemFont(ofSize: 12), size: 12)
         assertSameFace(.system, as: NSFont.systemFont(ofSize: 11), size: 11)
         assertSameFace(.systemMedium, as: NSFont.systemFont(ofSize: 8, weight: .medium), size: 8)
         assertSameFace(.monospacedDigitSystem, as: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular), size: 9)

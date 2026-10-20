@@ -289,8 +289,8 @@ extension SequenceViewerView {
             if sampleDisplayState.showSummaryBar {
                 VariantTrackRenderer.drawSummaryBar(
                     variants: filteredVariants,
-                    frame: frame,
-                    context: context,
+                    frame: frame.figureFrame,
+                    context: context, figureTheme: figureTheme,
                     yOffset: vY,
                     barHeight: sampleDisplayState.summaryBarHeight,
                     theme: activeTheme
@@ -319,15 +319,15 @@ extension SequenceViewerView {
                     let availableHeight = max(0, bounds.height - genotypeY)
                     VariantTrackRenderer.drawGenotypeRows(
                         genotypeData: genotypeData,
-                        frame: frame,
-                        context: context,
+                        frame: frame.figureFrame,
+                        context: context, figureTheme: figureTheme,
                         yOffset: genotypeY,
                         state: sampleDisplayState,
                         useHaploidAFShading: sampleDisplayState.useHaploidAFShading,
                         sampleDisplayNames: cachedGenotypeSampleDisplayNames,
                         scrollOffset: genotypeScrollOffset,
                         availableHeight: availableHeight,
-                        theme: activeTheme
+                        theme: activeTheme, gutterCache: variantSampleGutter
                     )
                 }
 
@@ -686,10 +686,10 @@ extension SequenceViewerView {
 
         if gutterInset > 0 && contentHeight > 0 {
             // Left gutter background
-            context.setFillColor(VariantTrackRenderer.gutterBackgroundColor)
+            context.setFillColor(figureTheme.color(.variantGutterBackground).cgColor)
             context.fill(CGRect(x: 0, y: contentTop, width: gutterInset, height: contentHeight))
             // Left vertical separator
-            context.setStrokeColor(VariantTrackRenderer.gutterSeparatorColor)
+            context.setStrokeColor(figureTheme.color(.variantGutterSeparator).cgColor)
             context.setLineWidth(0.5)
             let sepX = gutterInset - VariantTrackRenderer.sampleLabelToDataMargin / 2
             context.move(to: CGPoint(x: sepX, y: contentTop))
@@ -705,7 +705,7 @@ extension SequenceViewerView {
             context.setFillColor(NSColor.windowBackgroundColor.cgColor)
             context.fill(CGRect(x: rightX, y: 0, width: trailingInset, height: bounds.height))
             // Right vertical separator
-            context.setStrokeColor(VariantTrackRenderer.gutterSeparatorColor)
+            context.setStrokeColor(figureTheme.color(.variantGutterSeparator).cgColor)
             context.setLineWidth(0.5)
             context.move(to: CGPoint(x: rightX + 0.5, y: 0))
             context.addLine(to: CGPoint(x: rightX + 0.5, y: bounds.height))

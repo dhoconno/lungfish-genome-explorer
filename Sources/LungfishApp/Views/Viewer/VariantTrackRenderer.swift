@@ -2,14 +2,11 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
-import LungfishKit
+import CoreGraphics
+import Foundation
 import LungfishCore
 import LungfishIO
-import os.log
-
-/// Logger for variant rendering operations
-private let variantRendererLogger = Logger(subsystem: LogSubsystem.app, category: "VariantRenderer")
+import LungfishWorkflow
 
 // MARK: - VariantTrackRenderer
 
@@ -22,8 +19,8 @@ private let variantRendererLogger = Logger(subsystem: LogSubsystem.app, category
 /// Genotype rows support vertical scrolling for large sample counts (e.g. 451 samples).
 /// Only visible rows within the clip region are rendered for performance.
 ///
-/// Rendering is split into static methods for testability and reuse.
-@MainActor
+/// Rendering is split into static methods for testability and reuse. They draw a
+/// `ViewerFigureFrame` with the colours of a `ViewerFigureTheme` and keep no state.
 public enum VariantTrackRenderer {
 
     // MARK: - Layout Constants
@@ -32,7 +29,7 @@ public enum VariantTrackRenderer {
     static let defaultSummaryBarHeight: CGFloat = 20
 
     /// Spacing between the summary bar and the first sample row.
-    static let summaryToRowGap: CGFloat = 2
+    public static let summaryToRowGap: CGFloat = 2
 
     /// Minimum pixels per variant to draw individual markers (otherwise use density).
     static let minPixelsPerVariant: CGFloat = 1
@@ -42,36 +39,11 @@ public enum VariantTrackRenderer {
     /// Fallback area reserved for sample labels when no sample strings are available yet.
     private static let sampleLabelFallbackWidth: CGFloat = 150
     /// Visual spacing between sample label area and genotype data area.
-    static let sampleLabelToDataMargin: CGFloat = 12
+    public static let sampleLabelToDataMargin: CGFloat = 12
 
-    /// Background color for the sample name gutter area.
-    static let gutterBackgroundColor = CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0)
-
-    /// Separator line color at the gutter edge.
-    static let gutterSeparatorColor = CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0)
-
-    /// Summary bar data area background.
-    private static let dataAreaBackgroundColor = CGColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-
-    /// Summary bar bottom border color.
-    private static let summaryBorderColor = CGColor(red: 0.8, green: 0.8, blue: 0.8, alpha: 1.0)
-
-    /// Row separator color between samples.
-    private static let rowSeparatorColor = CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
-
-    /// White background for label-to-data margin.
-    private static let labelMarginColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1.0)
-
-    /// Scroll indicator track background.
-    private static let scrollTrackColor = CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.05)
-
-    /// Scroll indicator thumb color.
-    private static let scrollThumbColor = CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.25)
-
-    /// Cached gutter width state to avoid per-frame text measurement.
-    private static var _cachedGutterSamples: [String]?
-    private static var _cachedGutterRowHeight: CGFloat = 0
-    private static var _cachedGutterWidth: CGFloat = 0
+    // The gutter, data area, border, separator, margin and scroll colours are the theme roles
+    // `variantGutterBackground` to `variantScrollThumb`, and the gutter width cache is a
+    // `VariantSampleGutterCache` the caller owns.
 
     // MARK: - Color Palette
 
@@ -126,40 +98,33 @@ public enum VariantTrackRenderer {
     }
 
     /// Computes the width of the sample label gutter.
-    /// If an override is set, returns it directly (clamped to valid range).
-    static func sampleLabelGutterWidth(
+    /// If an override is set, returns it directly (clamped to valid range). A `cache` measured
+    /// for the same samples and row height gives its width without measuring the labels again.
+    public static func sampleLabelGutterWidth(
         samples: [String],
         sampleDisplayNames: [String: String],
         rowHeight: CGFloat,
-        override: CGFloat? = nil
+        override: CGFloat? = nil,
+        cache: VariantSampleGutterCache? = nil
     ) -> CGFloat {
         if let override {
             return max(40, min(400, override))
         }
         guard !samples.isEmpty else { return sampleLabelFallbackWidth }
 
-        // Return cached value when samples and row height haven't changed
-        if samples == _cachedGutterSamples && rowHeight == _cachedGutterRowHeight {
-            return _cachedGutterWidth
+        // Return the cached value when samples and row height haven't changed
+        if let cached = cache?.width(samples: samples, rowHeight: rowHeight) {
+            return cached
         }
 
-        let fontSize = max(7, min(rowHeight - 2, 12))
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: DrawingFont.system(ofSize: fontSize, weight: .regular),
-        ]
+        let font = ViewerFigureTrackText.font(.system, size: Double(max(7, min(rowHeight - 2, 12))))
         var maxWidth: CGFloat = 0
         for sample in samples {
             let label = sampleDisplayNames[sample] ?? sample
-            let width = (label as NSString).size(withAttributes: attrs).width
+            let width = CGFloat(ViewerFigureTrackText.width(label, font: font))
             if width > maxWidth { maxWidth = width }
         }
-        let result = max(24, ceil(maxWidth) + 8)
-
-        _cachedGutterSamples = samples
-        _cachedGutterRowHeight = rowHeight
-        _cachedGutterWidth = result
-
-        return result
+        return max(24, ceil(maxWidth) + 8)
     }
 
     // MARK: - Summary Bar Rendering
@@ -176,8 +141,9 @@ public enum VariantTrackRenderer {
     ///   - yOffset: Y position for the top of the summary bar
     public static func drawSummaryBar(
         variants: [SequenceAnnotation],
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         yOffset: CGFloat,
         barHeight: CGFloat = 20,
         theme: VariantColorTheme = .modern
@@ -200,12 +166,12 @@ public enum VariantTrackRenderer {
 
         // Gutter background (opaque, matches genotype row gutter)
         if inset > 0 {
-            context.setFillColor(VariantTrackRenderer.gutterBackgroundColor)
+            context.setFillColor(figureTheme.color(.variantGutterBackground).cgColor)
             context.fill(CGRect(x: 0, y: yOffset, width: inset, height: barHeight))
         }
 
         // Data area background
-        context.setFillColor(dataAreaBackgroundColor)
+        context.setFillColor(figureTheme.color(.variantDataBackground).cgColor)
         context.fill(CGRect(x: inset, y: yOffset, width: frame.dataPixelWidth, height: barHeight))
 
         // Bin variants into per-pixel buckets in the data area
@@ -269,23 +235,21 @@ public enum VariantTrackRenderer {
         }
 
         // Bottom border line
-        context.setStrokeColor(summaryBorderColor)
+        context.setStrokeColor(figureTheme.color(.variantSummaryBorder).cgColor)
         context.setLineWidth(0.5)
         context.move(to: CGPoint(x: 0, y: barBottom))
         context.addLine(to: CGPoint(x: CGFloat(pixelWidth), y: barBottom))
         context.strokePath()
 
         // Label — draw in gutter area if available, otherwise at left edge of data
-        let label = "\(variants.count) variants" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ]
-        let labelSize = label.size(withAttributes: attrs)
-        let labelX: CGFloat = inset > labelSize.width + 8 ? 4 : inset + 4
-        label.draw(
-            at: CGPoint(x: labelX, y: yOffset + (barHeight - labelSize.height) / 2),
-            withAttributes: attrs
+        let label = "\(variants.count) variants"
+        let font = ViewerFigureTrackText.font(.systemMedium, size: 8)
+        let labelWidth = CGFloat(ViewerFigureTrackText.width(label, font: font))
+        let labelHeight = CGFloat(ViewerFigureTrackText.boxHeight(font))
+        let labelX: CGFloat = inset > labelWidth + 8 ? 4 : inset + 4
+        ViewerFigureTrackText.draw(
+            label, font: font, color: figureTheme.color(.secondaryLabel).cgColor,
+            topLeft: CGPoint(x: labelX, y: yOffset + (barHeight - labelHeight) / 2), in: context
         )
     }
 
@@ -305,17 +269,20 @@ public enum VariantTrackRenderer {
     ///   - sampleDisplayNames: Optional per-sample display labels
     ///   - scrollOffset: Vertical scroll offset in pixels (0 = top)
     ///   - availableHeight: Maximum height available for rendering genotype rows
+    ///   - gutterCache: The caller's measured gutter width, used when it holds these samples
     public static func drawGenotypeRows(
         genotypeData: GenotypeDisplayData,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         yOffset: CGFloat,
         state: SampleDisplayState,
         useHaploidAFShading: Bool = false,
         sampleDisplayNames: [String: String] = [:],
         scrollOffset: CGFloat = 0,
         availableHeight: CGFloat = .greatestFiniteMagnitude,
-        theme: VariantColorTheme = .modern
+        theme: VariantColorTheme = .modern,
+        gutterCache: VariantSampleGutterCache? = nil
     ) {
         let samples = genotypeData.sampleNames
         guard !samples.isEmpty, !genotypeData.sites.isEmpty else { return }
@@ -348,7 +315,10 @@ public enum VariantTrackRenderer {
 
         let inset = frame.leadingInset
         let labelGutterWidth = showLabels
-            ? sampleLabelGutterWidth(samples: samples, sampleDisplayNames: sampleDisplayNames, rowHeight: rowH, override: state.sampleGutterWidthOverride)
+            ? sampleLabelGutterWidth(
+                samples: samples, sampleDisplayNames: sampleDisplayNames, rowHeight: rowH,
+                override: state.sampleGutterWidthOverride, cache: gutterCache
+            )
             : 0
 
         // Compute visible row range from scroll offset
@@ -365,19 +335,14 @@ public enum VariantTrackRenderer {
 
         guard firstVisibleRow <= lastVisibleRow else { return }
 
-        // Paragraph style and font attrs hoisted outside the per-row loop to avoid
-        // allocating NSFont + NSDictionary for each of the 451+ sample rows.
-        let truncationStyle: NSParagraphStyle = {
-            let style = NSMutableParagraphStyle()
-            style.lineBreakMode = .byTruncatingTail
-            return style
-        }()
-        let fontSize = max(7, min(rowH - 2, 12))
-        let labelAttrs: [NSAttributedString.Key: Any] = showLabels ? [
-            .font: DrawingFont.system(ofSize: fontSize, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: truncationStyle,
-        ] : [:]
+        // Font and colours hoisted outside the per-row loop to avoid allocating them for each
+        // of the 451+ sample rows.
+        let labelFont = ViewerFigureTrackText.font(.system, size: Double(max(7, min(rowH - 2, 12))))
+        let labelColor = figureTheme.color(.label).cgColor
+        let gutterBackground = figureTheme.color(.variantGutterBackground).cgColor
+        let labelMargin = figureTheme.color(.variantLabelMargin).cgColor
+        let gutterSeparator = figureTheme.color(.variantGutterSeparator).cgColor
+        let rowSeparator = figureTheme.color(.variantRowSeparator).cgColor
 
         // Draw genotype cells for each visible sample
         for sampleIdx in firstVisibleRow...lastVisibleRow {
@@ -414,15 +379,15 @@ public enum VariantTrackRenderer {
 
             // Sample name label drawn ON TOP of genotype cells (when rows are tall enough)
             if showLabels {
-                let label = (sampleDisplayNames[sampleName] ?? sampleName) as NSString
+                let label = sampleDisplayNames[sampleName] ?? sampleName
                 // Fully opaque gutter background to cover any variant cells beneath
-                context.setFillColor(VariantTrackRenderer.gutterBackgroundColor)
+                context.setFillColor(gutterBackground)
                 context.fill(CGRect(x: 0, y: rowY, width: labelGutterWidth, height: rowH))
                 // Opaque margin between labels and data
-                context.setFillColor(labelMarginColor)
+                context.setFillColor(labelMargin)
                 context.fill(CGRect(x: labelGutterWidth, y: rowY, width: sampleLabelToDataMargin, height: rowH))
                 // Vertical separator
-                context.setStrokeColor(VariantTrackRenderer.gutterSeparatorColor)
+                context.setStrokeColor(gutterSeparator)
                 context.setLineWidth(0.5)
                 let sepX = labelGutterWidth + sampleLabelToDataMargin / 2
                 context.move(to: CGPoint(x: sepX, y: rowY))
@@ -430,12 +395,12 @@ public enum VariantTrackRenderer {
                 context.strokePath()
                 // Draw label truncated to gutter width
                 let labelRect = CGRect(x: 2, y: rowY + 1, width: labelGutterWidth - 4, height: rowH - 2)
-                label.draw(in: labelRect, withAttributes: labelAttrs)
+                ViewerFigureTrackText.drawTruncatingTail(label, font: labelFont, color: labelColor, in: labelRect, context: context)
             }
 
             // Row separator when rows are tall enough
             if rowH >= 4 && sampleIdx < totalRows - 1 {
-                context.setStrokeColor(rowSeparatorColor)
+                context.setStrokeColor(rowSeparator)
                 context.setLineWidth(0.5)
                 let sepY = rowY + rowH
                 context.move(to: CGPoint(x: 0, y: sepY))
@@ -448,6 +413,7 @@ public enum VariantTrackRenderer {
         if totalContentHeight > effectiveAvailableHeight {
             drawScrollIndicator(
                 context: context,
+                figureTheme: figureTheme,
                 x: CGFloat(frame.pixelWidth) - scrollIndicatorWidth - 2,
                 yOffset: yOffset,
                 availableHeight: effectiveAvailableHeight,
@@ -462,6 +428,7 @@ public enum VariantTrackRenderer {
     /// Draws a subtle scrollbar indicator showing position within the full sample list.
     private static func drawScrollIndicator(
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         x: CGFloat,
         yOffset: CGFloat,
         availableHeight: CGFloat,
@@ -470,7 +437,7 @@ public enum VariantTrackRenderer {
     ) {
         // Track background
         let trackRect = CGRect(x: x, y: yOffset, width: scrollIndicatorWidth, height: availableHeight)
-        context.setFillColor(scrollTrackColor)
+        context.setFillColor(figureTheme.color(.variantScrollTrack).cgColor)
         context.fill(trackRect)
 
         // Thumb
@@ -487,7 +454,7 @@ public enum VariantTrackRenderer {
             width: scrollIndicatorWidth - 2,
             height: thumbHeight
         )
-        context.setFillColor(scrollThumbColor)
+        context.setFillColor(figureTheme.color(.variantScrollThumb).cgColor)
         context.fill(thumbRect)
     }
 

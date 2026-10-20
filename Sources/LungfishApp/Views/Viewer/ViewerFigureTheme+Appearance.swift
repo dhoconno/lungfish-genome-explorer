@@ -14,6 +14,21 @@ extension ViewerFigureTheme {
     }
 }
 
+extension SequenceViewerView {
+    /// The theme of this view's appearance, resolved again on each draw.
+    var figureTheme: ViewerFigureTheme { .resolved(for: effectiveAppearance) }
+
+    /// The genotype rows' gutter width as `variantDataStartX` keeps it, the view's existing cache,
+    /// which the view clears when the samples, their names, the row height or the override change.
+    var variantSampleGutter: VariantSampleGutterCache? {
+        guard let samples = cachedGenotypeData?.sampleNames, variantDataStartX > 0 else { return nil }
+        return VariantSampleGutterCache(
+            samples: samples, rowHeight: sampleDisplayState.rowHeight,
+            width: variantDataStartX - VariantTrackRenderer.sampleLabelToDataMargin
+        )
+    }
+}
+
 extension ReferenceFrame {
     /// The live frame as the `Sendable` value the figure renderers take.
     public var figureFrame: ViewerFigureFrame {
