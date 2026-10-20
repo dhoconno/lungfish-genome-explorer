@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+@testable import LungfishCLI
 import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
@@ -403,5 +404,38 @@ final class ImportFastqE2ETests: XCTestCase {
             "the second import holds the same reads"
         )
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outputs.path), [], "\(calls)")
+    }
+}
+
+extension ImportFastqE2ETests {
+    /// The options of the 2026-10-20 import: VSP2 with Trim Galore as the
+    /// storage tool. Trim Galore cannot keep the recipe's merged reads beside
+    /// its pairs, which the import found out only after the recipe had run.
+    /// The command now refuses the pair as an input error before importing.
+    func testVSP2WithTrimGaloreIsRefusedBeforeTheImportStarts() throws {
+        guard let fixtures = fixturesDir else { throw XCTSkip("Fixtures not found") }
+        let tmpInput = try stageFixturePair(fixtures)
+        defer { try? FileManager.default.removeItem(at: tmpInput) }
+        let tmpProject = try makeProject()
+        defer { try? FileManager.default.removeItem(at: tmpProject) }
+
+        let (exitCode, stdout, stderr) = try runCLI([
+            "import", "fastq",
+            tmpInput.appendingPathComponent("test_1.fastq.gz").path,
+            tmpInput.appendingPathComponent("test_2.fastq.gz").path,
+            "--project", tmpProject.path,
+            "--platform", "illumina",
+            "--recipe", "vsp2-target-enrichment",
+            "--clumping-tool", "trim-galore",
+            "--format", "json",
+        ])
+
+        let output = stdout + stderr
+        XCTAssertEqual(exitCode, CLIExitCode.inputError.rawValue, output)
+        XCTAssertTrue(output.contains("Trim Galore cannot store"), output)
+        XCTAssertTrue(output.contains("--clumping-tool bbtools"), output)
+        XCTAssertTrue(output.contains("--no-optimize-storage"), output)
+        XCTAssertFalse(output.contains("Starting import"), "refused before the import starts: \(output)")
+        XCTAssertEqual(try bundles(in: tmpProject), [])
     }
 }

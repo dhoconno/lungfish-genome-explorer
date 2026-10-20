@@ -51,6 +51,7 @@ public enum BatchImportError: Error, LocalizedError {
     case outputBundleAlreadyExists(URL)
     case statisticsUnavailable(String)
     case recipeArtifactMissing(URL)
+    case storageToolCannotStoreRecipeOutput(String)
 
     public var errorDescription: String? {
         switch self {
@@ -72,6 +73,8 @@ public enum BatchImportError: Error, LocalizedError {
             return "FASTQ statistics could not be computed: \(reason)"
         case .recipeArtifactMissing(let url):
             return "Recipe step artifact is missing and cannot be retained: \(url.path)"
+        case .storageToolCannotStoreRecipeOutput(let reason):
+            return reason
         }
     }
 }
@@ -991,6 +994,27 @@ public enum FASTQBatchImporter {
         if let recipe = config.recipe {
             try validateLegacyRecipeInputRequirement(recipe, pair: pair)
         }
+
+        if let refusal = storageToolRefusal(config: config) {
+            throw BatchImportError.storageToolCannotStoreRecipeOutput(refusal)
+        }
+    }
+
+    /// Why the chosen storage tool cannot store the recipe's output, found
+    /// before the first step instead of after the whole recipe has run.
+    public static func storageToolRefusal(config: ImportConfig) -> String? {
+        guard config.optimizeStorage else { return nil }
+        if let recipe = config.newRecipe {
+            return config.clumpingTool.refusalToStore(
+                recipeNamed: recipe.name, outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs
+            )
+        }
+        if let recipe = config.recipe {
+            return config.clumpingTool.refusalToStore(
+                recipeNamed: recipe.name, outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs
+            )
+        }
+        return nil
     }
 
     private static func validateNewRecipeInputRequirement(_ recipe: Recipe, pair: SamplePair) throws {

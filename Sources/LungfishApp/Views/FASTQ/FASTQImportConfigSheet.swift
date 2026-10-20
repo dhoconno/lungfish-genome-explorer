@@ -22,19 +22,24 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
     public let presentationText: String
     public let requiresBarcodeDefinition: Bool
     public let usesDemultiplexOutputFolder: Bool
+    /// Whether the recipe writes merged reads beside read pairs in one file,
+    /// which Trim Galore cannot store.
+    public let outputMixesMergedReadsAndPairs: Bool
 
     public init(
         id: String,
         name: String,
         presentationText: String,
         requiresBarcodeDefinition: Bool = false,
-        usesDemultiplexOutputFolder: Bool = false
+        usesDemultiplexOutputFolder: Bool = false,
+        outputMixesMergedReadsAndPairs: Bool = false
     ) {
         self.id = id
         self.name = name
         self.presentationText = presentationText
         self.requiresBarcodeDefinition = requiresBarcodeDefinition
         self.usesDemultiplexOutputFolder = usesDemultiplexOutputFolder
+        self.outputMixesMergedReadsAndPairs = outputMixesMergedReadsAndPairs
     }
 
     public init(recipe: Recipe) {
@@ -58,7 +63,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         self.init(
             id: recipe.id,
             name: recipe.name,
-            presentationText: lines.joined(separator: "\n")
+            presentationText: lines.joined(separator: "\n"),
+            outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs
         )
     }
 
@@ -657,6 +663,25 @@ public final class FASTQImportConfigSheet: NSViewController {
         }
     }
 
+    /// Why the chosen storage tool cannot store the chosen recipe's output,
+    /// shown beside the Compression Tool popup while Import stays disabled.
+    nonisolated static func storageToolRefusal(
+        recipe: FASTQImportSheetRecipeOption?, optimizeStorage: Bool, tool: ClumpingTool
+    ) -> String? {
+        guard optimizeStorage, let recipe else { return nil }
+        return tool.refusalToStore(
+            recipeNamed: recipe.name, outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs
+        )
+    }
+
+    private var currentStorageToolRefusal: String? {
+        Self.storageToolRefusal(
+            recipe: recipeCheckbox.state == .on ? selectedRecipeOption : nil,
+            optimizeStorage: clumpifyCheckbox.state == .on,
+            tool: selectedClumpingTool()
+        )
+    }
+
     private var clumpingToolChoices: [ClumpingTool] {
         [.bbtools, .trimGalore]
     }
@@ -738,6 +763,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func clumpingToolChanged(_ sender: NSPopUpButton) {
         updateClumpingToolDisclosure()
+        updateImportButton()
     }
 
     private func updateClumpingToolControls() {
@@ -745,11 +771,19 @@ public final class FASTQImportConfigSheet: NSViewController {
         clumpingToolLabel.isEnabled = optimizeStorage
         clumpingToolPopup.isEnabled = optimizeStorage
         updateClumpingToolDisclosure()
+        updateImportButton()
     }
 
     private func updateClumpingToolDisclosure() {
+        if let refusal = currentStorageToolRefusal {
+            clumpingToolDisclosureLabel.stringValue = refusal
+            clumpingToolDisclosureLabel.textColor = .systemRed
+            clumpingToolDisclosureLabel.isHidden = false
+            return
+        }
         let selectedTool = selectedClumpingTool()
         clumpingToolDisclosureLabel.stringValue = selectedTool.importSheetDisclosure ?? ""
+        clumpingToolDisclosureLabel.textColor = .secondaryLabelColor
         clumpingToolDisclosureLabel.isHidden = clumpifyCheckbox.state != .on || selectedTool.importSheetDisclosure == nil
     }
 
@@ -894,10 +928,18 @@ public final class FASTQImportConfigSheet: NSViewController {
             } else {
                 barcodeDefinitionStatusLabel.stringValue = "Choose a barcode sheet before importing."
             }
-            importButton.isEnabled = selectedBarcodeDefinitionURL != nil
-        } else {
-            importButton.isEnabled = true
         }
+        updateClumpingToolDisclosure()
+        updateImportButton()
+    }
+
+    /// Import waits for a barcode sheet the recipe needs and for a storage
+    /// tool that can store the recipe's output.
+    private func updateImportButton() {
+        let needsBarcodeSheet = recipeCheckbox.state == .on && !recipeOptions.isEmpty
+            && selectedRecipeOption?.requiresBarcodeDefinition == true
+        importButton.isEnabled = (!needsBarcodeSheet || selectedBarcodeDefinitionURL != nil)
+            && currentStorageToolRefusal == nil
     }
 
     private func updateRecipeDescription() {
@@ -958,6 +1000,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     @objc private func importClicked(_ sender: Any) {
+        guard currentStorageToolRefusal == nil else { return }
         let platform = selectedPlatform()
         let pairingMode = platform == .oxfordNanopore ? .singleEnd : selectedPairingMode()
         let binning = selectedBinning()
