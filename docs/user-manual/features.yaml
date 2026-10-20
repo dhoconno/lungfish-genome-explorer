@@ -399,7 +399,6 @@ features:
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplayOperationBegin.swift
       - Sources/LungfishApp/Services/CLIBundleBuildRunner.swift
-      - Sources/LungfishApp/Services/RegionExtractionWithoutBundleRoute.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli extract sequence
@@ -418,11 +417,8 @@ features:
       Each such extraction that finishes or is cancelled keeps its staged
       FASTA under the project's .tmp folder, or under the system temporary
       folder when no project is in reach, so that its record stays true. A
-      failed extraction removes it. The hidden key
-      RegionExtractionWithoutBundleRoute set to legacy keeps the in-app
-      route for one release, and 2.13 deletes it. A region extracted with
-      only spaces typed as its bundle name is saved as
-      extracted_sequence. Two extractions given the same bundle name at the
+      failed extraction removes it. A region extracted with only spaces
+      typed as its bundle name is saved as extracted_sequence. Two extractions given the same bundle name at the
       same time keep both bundles, and with --next-free-name the one that
       finishes second is saved under the next free name, such as Name_1.
       extract sequence --bundle never writes over its input. An -o that is the
@@ -2630,10 +2626,8 @@ features:
     notes: >-
       A project item dropped from another project runs lungfish-cli project
       copy-item, so the Operations row shows the command to copy, and Cancel
-      stops the copy and leaves no partial item. The hidden key
-      CrossProjectCopyRoute set to legacy keeps the in-app copy for one
-      release, and 2.13 deletes it. A record replay of a cross-project copy
-      needs the source project on this Mac.
+      stops the copy and leaves no partial item. A record replay of a
+      cross-project copy needs the source project on this Mac.
   project.demo-projects:
     title: Download ready-made demo projects for the manual
     entry_points:
