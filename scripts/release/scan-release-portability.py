@@ -312,7 +312,113 @@ def scan(app: Path, scratch_path: Path) -> tuple[int, list[tuple[str, int, str]]
     return findings, evidence
 
 
+BINARY_FLAG = "--binary"
+# A SwiftPM product carries the folder of the machine that built it in its debug map, thousands of times.
+# The one-file mode prints these two counts and never fails on them. The Xcode archive of the app has no
+# such map, and the app-folder mode, which the package runs, still fails on every label.
+ONE_FILE_ADVISORY_LABELS = frozenset({"user-home", "repository-root"})
+
+
+def _binary_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Count the forbidden strings in one built product, such as a Release Mach-O. It prints one "
+            "'label count' line per pattern in table order, then PASS or FAIL. user-home and "
+            "repository-root are counted but never fail this mode."
+        )
+    )
+    parser.add_argument(BINARY_FLAG, required=True, type=Path, metavar="FILE")
+    return parser
+
+
+def count_patterns(path: Path) -> list[tuple[str, int]]:
+    """Count every occurrence of every forbidden pattern in one regular file, in table order.
+
+    Overlapping occurrences count, as they do in the app-folder mode.
+    """
+    patterns = FORBIDDEN_PATTERNS
+    counts = [0] * len(patterns)
+    keep = max(len(pattern) for pattern, _ in patterns) - 1
+    try:
+        before = path.lstat()
+    except OSError as error:
+        raise ScanError("binary must be a regular file") from error
+    if stat.S_ISLNK(before.st_mode):
+        raise ScanError("binary must not be a symlink")
+    if not stat.S_ISREG(before.st_mode):
+        raise ScanError("binary must be a regular file")
+
+    try:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb", buffering=0) as handle:
+            opened = os.fstat(handle.fileno())
+            if (before.st_dev, before.st_ino, before.st_mode) != (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_mode,
+            ):
+                raise ScanError("binary changed while it was scanned")
+            carry = b""
+            while True:
+                chunk = handle.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                data = carry + chunk
+                for position, (pattern, _label) in enumerate(patterns):
+                    # An occurrence wholly inside the carried bytes was counted with the previous chunk.
+                    search_at = max(0, len(carry) - len(pattern) + 1)
+                    while True:
+                        index = data.find(pattern, search_at)
+                        if index < 0:
+                            break
+                        counts[position] += 1
+                        search_at = index + 1
+                carry = data[max(0, len(data) - keep) :] if keep > 0 else b""
+            after = os.fstat(handle.fileno())
+    except OSError as error:
+        raise ScanError("binary changed or became unreadable") from error
+    if (before.st_dev, before.st_ino, before.st_mode, before.st_size, before.st_mtime_ns) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_mode,
+        after.st_size,
+        after.st_mtime_ns,
+    ):
+        raise ScanError("binary changed while it was scanned")
+    return [(label, count) for (_, label), count in zip(patterns, counts)]
+
+
+def main_binary(arguments: list[str]) -> int:
+    args = _binary_parser().parse_args(arguments)
+    try:
+        counts = count_patterns(args.binary)
+    except ScanError as error:
+        print(f"portability scan error: {error}", file=sys.stderr)
+        return 2
+
+    findings = 0
+    for label, count in counts:
+        print(f"{label} {count}")
+        if label not in ONE_FILE_ADVISORY_LABELS:
+            findings += count
+    if findings:
+        print(f"FAIL portability binary findings={findings}")
+        return 1
+    print("PASS portability binary")
+    return 0
+
+
 def main() -> int:
+    if any(
+        argument == BINARY_FLAG or argument.startswith(BINARY_FLAG + "=")
+        for argument in sys.argv[1:]
+    ):
+        return main_binary(sys.argv[1:])
     args = _parser().parse_args()
     try:
         findings, evidence = scan(args.app, args.allowed_swiftpm_fallback)
