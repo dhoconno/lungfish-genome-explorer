@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 /// Phase 2.13 lane 13.06 (M1, BIO 1). `ONTDirectoryImporter.countReadsInFASTQ` counts newlines with `wc -l` and
 /// divides by 4, through `gzcat` for a gzip file. These tests record what it gives for each file shape at the base,
@@ -13,13 +14,9 @@ final class ONTReadCountPinTests: XCTestCase {
     private let importer = ONTDirectoryImporter()
 
     override func setUpWithError() throws {
-        tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ont-count-pin-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: tempDir)
+        let folder = try TestTempDirectory.make(prefix: "ont-count-pin")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        tempDir = folder
     }
 
     private func fastq(reads: Int, newline: String = "\n", finalNewline: Bool = true) -> String {

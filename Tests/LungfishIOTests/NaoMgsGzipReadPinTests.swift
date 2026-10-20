@@ -19,13 +19,9 @@ final class NaoMgsGzipReadPinTests: XCTestCase {
     ].joined(separator: "\t")
 
     override func setUpWithError() throws {
-        tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("naomgs-gzip-pin-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: tempDir)
+        let folder = try TestTempDirectory.make(prefix: "naomgs-gzip-pin")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        tempDir = folder
     }
 
     private func row(_ index: Int, padding: Int) -> String {

@@ -13,13 +13,9 @@ final class GzipReaderPinTests: XCTestCase {
     private var tempDir: URL!
 
     override func setUpWithError() throws {
-        tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gzip-reader-pin-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    }
-
-    override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: tempDir)
+        let folder = try TestTempDirectory.make(prefix: "gzip-reader-pin")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        tempDir = folder
     }
 
     // MARK: Helpers
