@@ -8,6 +8,7 @@
 
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ContainerRuntimeDockerPathTests: XCTestCase {
@@ -15,13 +16,11 @@ final class ContainerRuntimeDockerPathTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("docker-path-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "docker-path")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 

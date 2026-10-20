@@ -12,6 +12,7 @@ import Foundation
 import Synchronization
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishKit
 
 /// Holds what a probe returned on another thread.
@@ -32,13 +33,11 @@ final class CLIBinaryLocatorProbeTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cli-locator-probe-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "cli-locator-probe")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 
@@ -146,13 +145,11 @@ final class CLIBinaryLocatorPathLookupTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cli-locator-path-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "cli-locator-path")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 

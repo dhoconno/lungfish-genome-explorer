@@ -9,6 +9,7 @@
 
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class DebugEnvToolAvailabilityTests: XCTestCase {
@@ -16,13 +17,11 @@ final class DebugEnvToolAvailabilityTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("debug-env-tool-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "debug-env-tool")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 

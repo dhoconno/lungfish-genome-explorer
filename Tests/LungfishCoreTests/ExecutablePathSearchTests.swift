@@ -8,6 +8,7 @@
 
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCore
 
 final class ExecutablePathSearchTests: XCTestCase {
@@ -15,13 +16,11 @@ final class ExecutablePathSearchTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("path-search-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "path-search")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 

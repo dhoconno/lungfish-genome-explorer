@@ -9,6 +9,7 @@
 
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCore
 
 final class SRAServiceCommandTests: XCTestCase {
@@ -16,13 +17,11 @@ final class SRAServiceCommandTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sra-command-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "sra-command")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
         try super.tearDownWithError()
     }
 
