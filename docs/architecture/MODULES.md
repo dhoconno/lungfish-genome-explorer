@@ -11,11 +11,11 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 |---|---|---|---|---|---|---|
 | Lungfish | executable | Sources/Lungfish | 1 | 87 | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 634 | 214957 | 175 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 634 | 214995 | 175 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 312 | 76967 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 179 | 46138 | 333 | none |
+| LungfishCore | library | Sources/LungfishCore | 180 | 46199 | 333 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 7 | 5473 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 142 | 52208 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 405 | 104163 | 656 | LungfishCore |
@@ -26,7 +26,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 8 | 7991 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 901 | 256491 | 1472 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 903 | 256510 | 1473 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1902 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 68 | 14815 | 69 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -35,12 +35,12 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | Test target | Path | Swift files | Lines | Internal dependencies |
 |---|---|---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | 9 | 1543 | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | 1039 | 260273 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | 1039 | 260302 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 40 | 19646 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 8 | 6176 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1390 | LungfishAssemblyUI, LungfishKit, LungfishTestSupport |
 | LungfishCLITests | Tests/LungfishCLITests | 373 | 91064 | LungfishCLI, LungfishIO, LungfishTestSupport |
-| LungfishCoreTests | Tests/LungfishCoreTests | 142 | 40474 | LungfishCore, LungfishTestSupport |
+| LungfishCoreTests | Tests/LungfishCoreTests | 143 | 40586 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 5 | 1837 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 90 | 59196 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 207 | 73166 | LungfishIO, LungfishTestSupport |
@@ -52,7 +52,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1037 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 14 | 3743 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 11 | 2401 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 608 | 211938 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 618 | 213131 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -109,7 +109,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Swift files. 634, lines 214957
+- Swift files. 634, lines 214995
 - Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
@@ -119,13 +119,13 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| App | 83 | 19136 |
-| Services | 87 | 19217 |
+| App | 83 | 19132 |
+| Services | 87 | 19243 |
 | StateManagement | 7 | 608 |
 | Support | 2 | 94 |
 | UITestSupport | 4 | 487 |
 | ViewModels | 3 | 123 |
-| Views | 448 | 175292 |
+| Views | 448 | 175308 |
 | Views/AI | 1 | 1012 |
 | Views/Assembly | 5 | 1902 |
 | Views/BAM | 12 | 1580 |
@@ -139,7 +139,7 @@ None.
 | Views/ImportCenter | 6 | 1769 |
 | Views/Inspector | 71 | 25042 |
 | Views/Layout | 3 | 293 |
-| Views/MainWindow | 28 | 10492 |
+| Views/MainWindow | 28 | 10508 |
 | Views/Mapping | 4 | 2178 |
 | Views/Metagenomics | 43 | 14040 |
 | Views/Operations | 9 | 2305 |
@@ -393,7 +393,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCore
-- Swift files. 179, lines 46138
+- Swift files. 180, lines 46199
 - Depends on. none
 - External products. Algorithms (swift-algorithms), Collections (swift-collections)
 - Used by. Lungfish, LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
@@ -411,11 +411,11 @@ None.
 | Genotype | 3 | 328 |
 | Models | 44 | 8565 |
 | Process | 20 | 4823 |
-| Services | 57 | 15138 |
+| Services | 58 | 15199 |
 | Services/AI | 6 | 1919 |
 | Services/Blast | 13 | 4029 |
 | Services/ENA | 3 | 983 |
-| Services/NCBI | 17 | 4102 |
+| Services/NCBI | 18 | 4163 |
 | Services/Pathoplexus | 3 | 1028 |
 | Services/SRA | 8 | 1184 |
 | Storage | 20 | 7440 |
@@ -598,9 +598,9 @@ None.
 - `NCBIAccessionKind` enum, `Sources/LungfishCore/Services/NCBI/NCBIAccessionKind.swift:12`
 - `NCBIAPIKeyResolver` enum, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:65`
 - `NCBIAssemblySummary` struct, `Sources/LungfishCore/Services/NCBI/NCBIResponseModels.swift:158`
-- `NCBIDatabase` enum, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:1806`
+- `NCBIDatabase` enum, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:1798`
 - `NCBIDocumentSummary` struct, `Sources/LungfishCore/Services/NCBI/NCBIResponseModels.swift:90`
-- `NCBIFormat` enum, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:1860`
+- `NCBIFormat` enum, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:1852`
 - `NCBIRetryEvent` struct, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:46`
 - `NCBIRetryPolicy` struct, `Sources/LungfishCore/Services/NCBI/NCBIService.swift:13`
 - `NCBISearchType` enum, `Sources/LungfishCore/Services/NCBI/NCBISearchType.swift:10`
@@ -1837,7 +1837,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 901, lines 256491
+- Swift files. 903, lines 256510
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1850,26 +1850,26 @@ None.
 | Alignment | 25 | 8354 |
 | AnalysisRun | 15 | 2264 |
 | Annotation | 1 | 192 |
-| ApplicationExports | 3 | 1207 |
+| ApplicationExports | 3 | 1201 |
 | Assembly | 23 | 6067 |
 | Bundles | 12 | 3227 |
 | CLIEvents | 5 | 1145 |
-| Conda | 31 | 8759 |
+| Conda | 31 | 8743 |
 | Containers | 9 | 3557 |
 | Databases | 1 | 1708 |
-| DemoProjects | 5 | 1065 |
+| DemoProjects | 5 | 1053 |
 | Demultiplex | 16 | 6193 |
 | Dependencies | 17 | 2803 |
 | Engines | 7 | 3417 |
-| Exports | 1 | 505 |
+| Exports | 1 | 513 |
 | Extraction | 35 | 10660 |
 | FASTQ | 1 | 271 |
 | Geneious | 10 | 2380 |
 | Ingestion | 34 | 11015 |
 | MSA | 14 | 2641 |
-| Mapping | 29 | 9805 |
-| Metagenomics | 74 | 23615 |
-| Metagenomics/CzId | 3 | 909 |
+| Mapping | 29 | 9798 |
+| Metagenomics | 74 | 23570 |
+| Metagenomics/CzId | 3 | 927 |
 | Native | 17 | 6168 |
 | Nextflow | 15 | 2309 |
 | ONTGenotyping | 158 | 48654 |
@@ -1878,7 +1878,7 @@ None.
 | PrimerAnalysis | 10 | 3251 |
 | PrimerDesign | 39 | 10527 |
 | Primers | 8 | 1962 |
-| Provenance | 81 | 19373 |
+| Provenance | 82 | 19440 |
 | ReadPairing | 14 | 1917 |
 | ReadPairing/Capabilities | 6 | 207 |
 | Recipes | 12 | 2533 |
@@ -1887,10 +1887,10 @@ None.
 | Schema | 2 | 1129 |
 | SequenceAnnotation | 2 | 1868 |
 | SequenceProcessing | 1 | 239 |
-| Storage | 18 | 9630 |
+| Storage | 19 | 9659 |
 | TaxTriage | 14 | 4925 |
 | ToolReference | 2 | 473 |
-| TwelveS | 15 | 4993 |
+| TwelveS | 15 | 4994 |
 | Variants | 36 | 8246 |
 | ViewerExport | 41 | 5875 |
 | ViralRecon | 15 | 3150 |
@@ -2209,7 +2209,7 @@ None.
 - `CondaMetaPackage` struct, `Sources/LungfishWorkflow/Dependencies/CondaMetaReader.swift:3`
 - `CondaMetaReader` enum, `Sources/LungfishWorkflow/Dependencies/CondaMetaReader.swift:37`
 - `CondaMSAToolRunner` struct, `Sources/LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift:671`
-- `CondaOfflinePackError` enum, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:1208`
+- `CondaOfflinePackError` enum, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:1192`
 - `CondaOfflinePackExportResult` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:66`
 - `CondaOfflinePackFile` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:5`
 - `CondaOfflinePackInstallResult` struct, `Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift:73`
@@ -2250,13 +2250,13 @@ None.
 - `CzIdDataConverterError` enum, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdDataConverter.swift:519`
 - `CzIdImportManifest` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdDataConverter.swift:488`
 - `CzIdImportMetadata` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdDataConverter.swift:452`
-- `CzIdImportPreview` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:7`
-- `CzIdImportPreviewError` enum, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:231`
+- `CzIdImportPreview` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:8`
+- `CzIdImportPreviewError` enum, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:249`
 - `CzIdParsedTaxonReport` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdDataConverter.swift:425`
 - `CzIdProjectImportError` enum, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdProjectImportWorkflow.swift:100`
 - `CzIdProjectImportResult` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdProjectImportWorkflow.swift:8`
 - `CzIdProjectImportWorkflow` enum, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdProjectImportWorkflow.swift:15`
-- `CzIdResolvedImportSource` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:205`
+- `CzIdResolvedImportSource` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdImportPreview.swift:223`
 - `CzIdTaxonReportRow` struct, `Sources/LungfishWorkflow/Metagenomics/CzId/CzIdDataConverter.swift:436`
 - `DAGFormat` enum, `Sources/LungfishWorkflow/Engines/SnakemakeRunner.swift:586`
 - `DarwinAtomicAlignmentDirectoryPublisher` struct, `Sources/LungfishWorkflow/ONTGenotyping/DarwinAtomicAlignmentDirectoryPublisher.swift:6`
@@ -2492,8 +2492,8 @@ None.
 - `GATKVariantsToTableConfiguration` struct, `Sources/LungfishWorkflow/Variants/GATKCommandBuilder.swift:212`
 - `GenBankDownloadBundleBuilder` class, `Sources/LungfishWorkflow/Native/GenBankDownloadBundleBuilder.swift:18`
 - `GeneiousAnnotationImporter` typealias, `Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift:7`
-- `GeneiousArchiveTool` struct, `Sources/LungfishWorkflow/Geneious/GeneiousArchiveTool.swift:18`
-- `GeneiousArchiveToolError` enum, `Sources/LungfishWorkflow/Geneious/GeneiousArchiveTool.swift:3`
+- `GeneiousArchiveTool` struct, `Sources/LungfishWorkflow/Geneious/GeneiousArchiveTool.swift:22`
+- `GeneiousArchiveToolError` enum, `Sources/LungfishWorkflow/Geneious/GeneiousArchiveTool.swift:4`
 - `GeneiousImportCollectionService` struct, `Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift:9`
 - `GeneiousImportInventory` struct, `Sources/LungfishWorkflow/Geneious/GeneiousImportModels.swift:61`
 - `GeneiousImportItem` struct, `Sources/LungfishWorkflow/Geneious/GeneiousImportModels.swift:24`
@@ -2675,12 +2675,12 @@ None.
 - `MetagenomicsDatabaseInfo` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInfo.swift:32`
 - `MetagenomicsDatabaseInstallationRecipe` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsModels.swift:170`
 - `MetagenomicsDatabaseInstallAttempt` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:192`
-- `MetagenomicsDatabaseInstaller` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:474`
-- `MetagenomicsDatabaseInstallerError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:452`
+- `MetagenomicsDatabaseInstaller` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:422`
+- `MetagenomicsDatabaseInstallerError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:400`
 - `MetagenomicsDatabaseInstallFailure` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:226`
 - `MetagenomicsDatabaseInstallProvenanceError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:30`
 - `MetagenomicsDatabaseInstallProvenanceWriting` protocol, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:250`
-- `MetagenomicsDatabaseInstallResult` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:426`
+- `MetagenomicsDatabaseInstallResult` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:374`
 - `MetagenomicsDatabaseInstallStepEvidence` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:141`
 - `MetagenomicsDatabasePayloadDigester` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:44`
 - `MetagenomicsDatabasePayloadDigestError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift:26`
@@ -2861,7 +2861,7 @@ None.
 - `PreparedAlignmentAttachmentResult` struct, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:38`
 - `PreparedAlignmentAttachmentService` actor, `Sources/LungfishWorkflow/Alignment/PreparedAlignmentAttachmentService.swift:152`
 - `PreparedColumnFilter` struct, `Sources/LungfishWorkflow/ViewerExport/ColumnFilter.swift:157`
-- `PreparedMetagenomicsDatabaseInstallation` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:434`
+- `PreparedMetagenomicsDatabaseInstallation` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift:382`
 - `PreparedReferenceSource` struct, `Sources/LungfishWorkflow/Bundles/ReferenceSourcePreparer.swift:49`
 - `PrerequisiteStatus` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift:1562`
 - `PrimalScheme3AlleleLabelMap` struct, `Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleLabelMap.swift:4`
@@ -3058,6 +3058,7 @@ None.
 - `ProvenanceMethodsPhrasing` enum, `Sources/LungfishWorkflow/Provenance/ProvenanceMethodsPhrasing.swift:11`
 - `ProvenanceOptions` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceOptions.swift:9`
 - `ProvenanceOutputPathExpectation` enum, `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift:13`
+- `ProvenancePackageError` enum, `Sources/LungfishWorkflow/Provenance/ProvenanceWriter+Package.swift:10`
 - `ProvenancePathPresentation` struct, `Sources/LungfishWorkflow/Provenance/ProvenancePathPresentation.swift:16`
 - `ProvenancePolicyEntry` struct, `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift:19`
 - `ProvenancePriorSignature` struct, `Sources/LungfishWorkflow/Provenance/ProvenancePriorSignature.swift:15`
@@ -3152,7 +3153,7 @@ None.
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift:473`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift:9`
 - `RunStatus` enum, `Sources/LungfishWorkflow/Provenance/RunStatus.swift:12`
-- `SafeZipExtractor` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift:32`
+- `SafeZipExtractor` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift:33`
 - `SampleEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift:163`
 - `SampleFolderNaming` enum, `Sources/LungfishWorkflow/SampleFolderNaming.swift:11`
 - `SamplePair` struct, `Sources/LungfishWorkflow/Ingestion/SamplePair.swift:8`
@@ -3178,13 +3179,13 @@ None.
 - `ScientificFilePublicationTransaction` class, `Sources/LungfishWorkflow/Provenance/ScientificFilePublicationTransaction.swift:5`
 - `ScientificProvenancePolicy` enum, `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift:60`
 - `ScientificPublicationRecoveryRequired` struct, `Sources/LungfishWorkflow/Provenance/ScientificFilePublicationTransaction.swift:70`
-- `ScientificTableCell` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:3`
-- `ScientificTableColumn` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:11`
-- `ScientificTableData` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:28`
-- `ScientificTableFormat` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:21`
-- `ScientificTableWriter` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:91`
-- `ScientificTableWriteReport` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:40`
-- `ScientificTableWriterError` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:52`
+- `ScientificTableCell` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:4`
+- `ScientificTableColumn` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:12`
+- `ScientificTableData` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:29`
+- `ScientificTableFormat` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:22`
+- `ScientificTableWriter` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:92`
+- `ScientificTableWriteReport` struct, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:41`
+- `ScientificTableWriterError` enum, `Sources/LungfishWorkflow/Exports/ScientificTableWriter.swift:53`
 - `SeqkitLengthFilterStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/SeqkitLengthFilterStep.swift:21`
 - `SequenceAnnotationTrackWorkflow` enum, `Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swift:9`
 - `SequenceAnnotationWorkflowError` enum, `Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swift:1263`
@@ -3370,7 +3371,7 @@ None.
 - `WorkflowStateMachine` actor, `Sources/LungfishWorkflow/WorkflowState.swift:186`
 - `WorkflowStateSnapshot` struct, `Sources/LungfishWorkflow/WorkflowState.swift:430`
 - `WorkflowStatus` enum, `Sources/LungfishWorkflow/WorkflowState.swift:42`
-- `ZipCentralDirectoryEntry` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift:9`
+- `ZipCentralDirectoryEntry` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift:10`
 
 ## LungfishKitTestSupport
 
