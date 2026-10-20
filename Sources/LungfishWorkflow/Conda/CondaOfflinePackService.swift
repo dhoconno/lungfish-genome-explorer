@@ -947,7 +947,7 @@ public struct CondaOfflinePackService {
         try fileManager.createDirectory(at: extractionRoot, withIntermediateDirectories: true)
 
         do {
-            try extractArchive(source, to: extractionRoot)
+            try Self.extractArchive(source, to: extractionRoot)
             let packDirectory = try findPackDirectory(in: extractionRoot)
             return PreparedPackDirectory(directory: packDirectory) {
                 try? self.fileManager.removeItem(at: extractionRoot)
@@ -1046,11 +1046,22 @@ public struct CondaOfflinePackService {
         try runTar(arguments: arguments, operation: "archive")
     }
 
-    private func extractArchive(_ archiveURL: URL, to destination: URL) throws {
+    /// Extracts with tar, then refuses a symbolic link that leaves the folder. tar refuses
+    /// `..` and absolute names and a write through a link, as SafeZipExtractor does.
+    static func extractArchive(_ archiveURL: URL, to destination: URL) throws {
         try runTar(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
             arguments: ["-xf", archiveURL.path, "-C", destination.path],
             operation: "extract"
         )
+        do {
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+        } catch DemoProjectError.unsafeArchive(let reason) {
+            throw CondaOfflinePackError.archiveFailed(
+                operation: "extract",
+                stderr: "The archive was refused because it is unsafe: \(reason)"
+            )
+        }
     }
 
     private func runTar(arguments: [String], operation: String) throws {
