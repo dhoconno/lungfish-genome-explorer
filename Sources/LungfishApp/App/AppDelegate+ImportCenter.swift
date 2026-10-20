@@ -1269,7 +1269,7 @@ extension AppDelegate {
         return data
     }
 
-    private func viewerExportViewAndRect(
+    func viewerExportViewAndRect(
         viewerController: ViewerViewController,
         scope: ViewerExportScope
     ) throws -> (NSView, NSRect) {
