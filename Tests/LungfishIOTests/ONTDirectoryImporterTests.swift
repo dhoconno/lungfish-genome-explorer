@@ -366,6 +366,22 @@ final class ONTDirectoryImporterTests: XCTestCase {
         )
     }
 
+    /// Phase 2.13 lane 13.06, review Fix 2. A counter that fails on a file it could not read prints no number or a
+    /// short one. The call throws then, as the base did for a read error on the file, and never counts a short file
+    /// as complete. `false` stands for the failing counter and exits 1 without reading its input.
+    func testACountWhoseCounterFailsThrowsInsteadOfCountingZero() throws {
+        let directory = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let record = Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8)
+        var payload = Data(capacity: record.count * 300_000)
+        for _ in 0..<300_000 { payload.append(record) }
+        let file = directory.appendingPathComponent("chunk_0.fastq")
+        try payload.write(to: file)
+
+        let falseURL = URL(fileURLWithPath: "/usr/bin/false")
+        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: falseURL))
+    }
+
     /// The fix leaves a reader that reads the whole file alone, and `wc` still counts the reads.
     func testACountThroughWCStillCountsEveryRead() throws {
         let directory = try makeTempDir()

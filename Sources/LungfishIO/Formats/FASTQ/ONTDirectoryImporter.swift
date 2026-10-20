@@ -652,6 +652,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             // A file that is not there fails here, with the error `FileHandle` always gave.
             try FileHandle(forReadingFrom: url).close()
             counted = try ToolProcess.runBlocking(counter)
+            // A counter that failed on a file it could not read printed no number or a short one. The feed this
+            // replaced threw such a read error, so a failed counter throws and never counts a short file as complete.
+            guard counted.isSuccess else {
+                throw ONTLineCountError.counterFailed(file: url.lastPathComponent, status: Int(counted.status))
+            }
         }
 
         if let lineCount = Int(counted.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -659,5 +664,16 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         }
 
         return 0
+    }
+}
+
+/// The line counter exited with a failure while counting the reads of a plain FASTQ file.
+enum ONTLineCountError: Error, LocalizedError {
+    case counterFailed(file: String, status: Int)
+    var errorDescription: String? {
+        switch self {
+        case .counterFailed(let file, let status):
+            return "Counting the reads in \(file) failed because the line counter exited with code \(status)."
+        }
     }
 }
