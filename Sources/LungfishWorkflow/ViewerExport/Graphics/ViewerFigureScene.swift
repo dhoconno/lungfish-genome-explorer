@@ -111,7 +111,7 @@ public enum ViewerFigureOmissionKind: String, Sendable, Hashable, Codable, CaseI
     case readRowCap
     /// Reads drawn as a fixed sample of the reads fetched.
     case readSample
-    /// The annotation query stopped at its record limit.
+    /// The annotation query stopped at its record limit (no count), or the track's row cap or height left features out (the count left out).
     case annotationLimit
     /// Reads drawn as coverage only, or bases as blocks, because the scale passed a threshold.
     case scaleMode
