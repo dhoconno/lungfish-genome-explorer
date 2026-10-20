@@ -632,6 +632,29 @@ extension NaoMgsBamMaterializerTests {
         ])
     }
 
+    /// The real samtools rejects a row whose CIGAR and sequence lengths differ, exits 1 from `view`, and `sort` still
+    /// writes the reads before it and exits 0. `sh -c` reported that as a success with a BAM short of reads
+    /// (`build/lane/base-truncation.txt`), so this test fails at the base. Now the sample fails and keeps no BAM
+    /// (BIO-13.09-M2 question 2, item 4).
+    func testASAMRecordSamtoolsRejectsFailsTheSampleAndLeavesNoBAM() throws {
+        let samtools = try pinSamtools()
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "PinReject", duplicateCount: 3)
+        try addSingleEndRows(to: dbURL, sample: "PinReject", count: 1, sequenceLength: 50)
+        let start = Date()
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: false)
+        XCTAssertEqual(result.bamURLs, [])
+        XCTAssertTrue(result.steps.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("bams/PinReject.bam").path))
+        let warnings = try materializerWarnings(forSample: "PinReject", since: start)
+        XCTAssertEqual(warnings.count, 1, "\(warnings)")
+        XCTAssertTrue(warnings.first?.hasPrefix(
+            "Failed to materialize BAM for sample PinReject: samtools pipeline failed:"
+        ) == true, "\(warnings)")
+    }
+
     // MARK: Pin helpers
 
     private func pinSamtools() throws -> String {
@@ -698,13 +721,14 @@ extension NaoMgsBamMaterializerTests {
         return url.path
     }
 
-    /// `count` single-end rows at distinct positions, in one transaction.
-    private func addSingleEndRows(to dbURL: URL, sample: String, count: Int) throws {
+    /// `count` single-end rows at distinct positions, in one transaction. Each has CIGAR `100M`, and a
+    /// `sequenceLength` other than 100 makes a row samtools rejects.
+    private func addSingleEndRows(to dbURL: URL, sample: String, count: Int, sequenceLength: Int = 100) throws {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { throw NSError(domain: "test", code: 3) }
         defer { sqlite3_close(db) }
-        let seq = String(repeating: "A", count: 100)
-        let qual = String(repeating: "I", count: 100)
+        let seq = String(repeating: "A", count: sequenceLength)
+        let qual = String(repeating: "I", count: sequenceLength)
         var sql = "BEGIN;"
         for i in 0..<count {
             sql += """
