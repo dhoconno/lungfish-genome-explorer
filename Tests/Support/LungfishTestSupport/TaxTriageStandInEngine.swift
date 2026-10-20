@@ -89,6 +89,42 @@ public struct TaxTriageStandInEngine: Sendable {
         TaxTriageSerialBatchRunner(runPipeline: pipelineRun)
     }
 
+    /// The services of a `TaxTriageAnalysisRunTool` whose launches run this engine, with `presentation`.
+    package func makeRunServices(presentation: TaxTriageRunPresentation = .none) -> TaxTriageRunServices {
+        let engine = self
+        return TaxTriageRunServices(makePipeline: { engine.makePipeline() }, presentation: presentation)
+    }
+
+    /// Runs the samples of `config` as `lungfish-cli taxtriage run --samplesheet <sheet> --output <folder> --batch`
+    /// runs them, on the analysis run executor, one launch of this engine per sample in a folder of
+    /// `config.outputDirectory` that the one sanitizer names. Each sample keeps its name, its files and its platform
+    /// through a samplesheet written under `root`. It is the route of a TaxTriage batch since 2.12 K1, which took the
+    /// place of the serial batch runner (2.13 K1b). The executor never throws, so a cancel of the calling task is the
+    /// report's `cancelled` with exit 125.
+    package func runBatch(_ config: TaxTriageConfig, presentation: TaxTriageRunPresentation = .none) async throws -> AnalysisRunReport {
+        let sheets = root.appendingPathComponent("samplesheets", isDirectory: true)
+        try FileManager.default.createDirectory(at: sheets, withIntermediateDirectories: true)
+        let sheet = sheets.appendingPathComponent("\(UUID().uuidString).csv")
+        let rows = config.samples.map { sample in
+            [sample.sampleId, sample.fastq1.path, sample.fastq2?.path ?? "", sample.platform.rawValue].joined(separator: ",")
+        }
+        try (["sample,fastq_1,fastq_2,platform"] + rows).joined(separator: "\n").appending("\n")
+            .write(to: sheet, atomically: true, encoding: .utf8)
+        var settings = config
+        settings.samples = []
+        let tool = TaxTriageAnalysisRunTool(
+            request: TaxTriageRunRequest(samplesheet: sheet.path, settings: settings),
+            services: makeRunServices(presentation: presentation)
+        )
+        let request = AnalysisRunRequest(
+            inputs: [],
+            destination: .directory(config.outputDirectory),
+            groupsSamples: true,
+            commandLine: ["lungfish-cli", "taxtriage", "run", "--samplesheet", sheet.path, "--output", config.outputDirectory.path, "--batch"]
+        )
+        return await AnalysisRunExecutor(services: AnalysisRunServices()).execute(tool, request, events: .discarding)
+    }
+
     // MARK: - Control and records
 
     /// Lets every waiting launch, and every later one, go on as `completes` would.
