@@ -353,7 +353,7 @@ final class LocalWorkflowExecutionService {
             steps: [step],
             parameters: parameters
         )
-        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: bundleURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), to: bundleURL)
     }
 }
 

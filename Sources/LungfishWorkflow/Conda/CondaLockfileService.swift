@@ -229,7 +229,7 @@ public struct CondaLockfileService {
             steps: [step],
             parameters: parameters
         )
-        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: provenanceURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), toSidecar: provenanceURL)
         return provenanceURL
     }
 }

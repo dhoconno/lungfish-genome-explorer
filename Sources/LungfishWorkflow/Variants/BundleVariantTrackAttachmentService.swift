@@ -301,6 +301,6 @@ public actor BundleVariantTrackAttachmentService {
             steps: steps,
             parameters: parameters
         )
-        try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), toSidecar: finalProvenanceURL)
+        try ProvenanceWriter().write(run.canonicalEnvelope(), toSidecar: finalProvenanceURL)
     }
 }
