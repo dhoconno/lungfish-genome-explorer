@@ -357,9 +357,7 @@ private struct PlainTextInputStream {
 final class GzipLineSource {
     private let url: URL
     private let chunkSize: Int
-    private var process: Process?
-    private var stdoutHandle: FileHandle?
-    private var stderrHandle: FileHandle?
+    private var child: GzipChildStream?
     private var partial = Data()
     private var pending: [String] = []
     private var pendingIndex = 0
@@ -381,12 +379,11 @@ final class GzipLineSource {
     func next() throws -> String? {
         if let line = dequeue() { return line }
         if reachedEnd || closed { return nil }
-        try startIfNeeded()
-        guard let stdoutHandle else { return nil }
+        let child = try startIfNeeded()
 
         while true {
             try Task.checkCancellation()
-            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            let chunk = child.readChunk(upTo: chunkSize)
             if chunk.isEmpty {
                 reachedEnd = true
                 try GzipInputStream.emitFinalLine(from: partial) { pending.append($0) }
@@ -401,25 +398,15 @@ final class GzipLineSource {
         }
     }
 
-    /// Stops the subprocess and releases the pipes. Safe to call repeatedly.
+    /// Stops gzip and releases the pipes. Safe to call repeatedly.
     ///
-    /// Closing the read ends first makes the child take SIGPIPE on its next
-    /// write; SIGTERM covers an idle child; and the bounded wait SIGKILLs one
-    /// that ignores both, so an abandoned iterator can never hang its owner.
+    /// Cancelling the run ends the process group and tree (SIGTERM, then SIGKILL after the grace period)
+    /// and reaps it before this returns, so an abandoned iterator leaves no child and can never hang its owner.
     func close() {
         guard !closed else { return }
         closed = true
-        try? stdoutHandle?.close()
-        try? stderrHandle?.close()
-        if let process {
-            if process.isRunning {
-                process.terminate()
-            }
-            Self.waitBounded(process)
-        }
-        process = nil
-        stdoutHandle = nil
-        stderrHandle = nil
+        child?.close()
+        child = nil
         pending.removeAll()
         partial.removeAll()
     }
@@ -441,77 +428,20 @@ final class GzipLineSource {
         return line
     }
 
-    private func startIfNeeded() throws {
-        guard process == nil else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        try process.run()
-        self.process = process
-        self.stdoutHandle = stdoutPipe.fileHandleForReading
-        self.stderrHandle = stderrPipe.fileHandleForReading
+    private func startIfNeeded() throws -> GzipChildStream {
+        if let child { return child }
+        let started = try GzipChildStream(decompressing: url)
+        child = started
+        return started
     }
 
+    /// Waits for gzip once its output reached end of file. ToolProcess drains stderr while gzip runs, so a child
+    /// blocked on a full stderr pipe cannot hang this wait (the 2026-08-23 unit gate hung 54 minutes on one).
     private func finishProcess() throws {
-        guard let process else { return }
-        // Drain stderr CONCURRENTLY with the wait: a child blocked writing
-        // into a full, unread stderr pipe never exits, so an unbounded
-        // waitUntilExit never returns (this exact deadlock hung the
-        // 2026-08-23 unit gate for 54 minutes) -- but a synchronous drain
-        // would equally hang on a wedged-but-silent child. The drain runs on a
-        // background queue, the bounded wait SIGKILLs a stuck child (which
-        // EOFs the pipe), and the short join collects whatever was written.
-        final class StderrBox: @unchecked Sendable { var data = Data() }
-        let stderrBox = StderrBox()
-        let drainDone = DispatchSemaphore(value: 0)
-        if let handle = stderrHandle {
-            DispatchQueue.global(qos: .utility).async {
-                stderrBox.data = (try? handle.readToEnd()) ?? Data()
-                drainDone.signal()
-            }
-        } else {
-            drainDone.signal()
-        }
-        Self.waitBounded(process)
-        _ = drainDone.wait(timeout: .now() + 1.0)
-        let stderrData = stderrBox.data
-        defer {
-            try? stdoutHandle?.close()
-            try? stderrHandle?.close()
-            self.process = nil
-            stdoutHandle = nil
-            stderrHandle = nil
-        }
-        if process.terminationStatus != 0 {
-            let stderrText = String(data: stderrData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GzipError.decompressionFailed(
-                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
-            )
-        }
-    }
-
-    /// Waits for a child to exit, escalating to SIGKILL rather than hanging.
-    ///
-    /// `Process.waitUntilExit` blocks forever on a child that ignores SIGTERM
-    /// or is wedged writing to a pipe nobody reads. A line source must never
-    /// hang its consumer on teardown, so after `timeout` seconds the child is
-    /// SIGKILLed (unblockable) and the wait completes.
-    static func waitBounded(_ process: Process, timeout: TimeInterval = 5.0) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            usleep(20_000)
-        }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-            while process.isRunning {
-                usleep(20_000)
-            }
-        }
+        guard let child else { return }
+        self.child = nil
+        defer { child.close() }
+        try child.finish()
     }
 }
 

@@ -114,43 +114,48 @@ final class GzipLineSourceBackpressureTests: XCTestCase {
 }
 
 extension GzipLineSourceBackpressureTests {
-    func testWaitBoundedReturnsForAnAlreadyExitedChild() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
-        try? process.run()
-        while process.isRunning { usleep(1_000) }
+    /// `true` exits at once, so its stream is at its end and closing it has nothing to wait for.
+    func testCloseReturnsForAnAlreadyExitedChild() throws {
+        let child = try GzipChildStream(arguments: [], executableURL: URL(fileURLWithPath: "/usr/bin/true"))
+        let pid = try XCTUnwrap(child.pid)
+        XCTAssertTrue(child.readChunk(upTo: 4_096).isEmpty)
 
         // A wait that ran to its timeout would take the full 30 s.
         let started = Date()
-        GzipLineSource.waitBounded(process, timeout: 30)
-
+        child.close()
         XCTAssertLessThan(Date().timeIntervalSince(started), 10)
-        XCTAssertFalse(process.isRunning)
-        XCTAssertEqual(process.terminationStatus, 0)
+
+        let result = kill(pid, 0)
+        let error = errno
+        XCTAssertEqual(result, -1, "the child is reaped")
+        XCTAssertEqual(error, ESRCH)
     }
 
     /// Teardown must never hang on a child that ignores SIGTERM (regression:
-    /// the 2026-08-23 unit gate hung 54 minutes in `finishProcess`'s
-    /// unbounded `waitUntilExit`).
-    func testWaitBoundedKillsAChildThatIgnoresSIGTERM() {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    /// the 2026-08-23 unit gate hung 54 minutes in an unbounded `waitUntilExit`).
+    /// Closing cancels the run, which sends SIGKILL once the grace period is out.
+    func testCloseKillsAChildThatIgnoresSIGTERM() throws {
         // `exec` keeps the ignored SIGTERM disposition while ensuring the
-        // long-running command remains Process's direct child. Without it,
+        // long-running command remains the direct child. Without it,
         // killing the shell can orphan `sleep`, which in turn wedges SwiftPM's
         // test-process reaping on Xcode 26.6.
-        process.arguments = ["-c", "trap '' TERM; exec sleep 1000"]
-        try? process.run()
+        let child = try GzipChildStream(
+            arguments: ["-c", "trap '' TERM; exec sleep 1000"], executableURL: URL(fileURLWithPath: "/bin/sh")
+        )
+        let pid = try XCTUnwrap(child.pid)
         // Give the shell a moment to install the trap.
         usleep(300_000)
-        process.terminate()
+
         let started = Date()
-        GzipLineSource.waitBounded(process, timeout: 1.0)
-        let elapsed = Date().timeIntervalSince(started)
-        XCTAssertFalse(process.isRunning)
+        child.close()
         // Only a hang on the 1000 s sleep fails this. The bound leaves room
         // for the parallel unit tier.
-        XCTAssertLessThan(elapsed, 20, "bounded wait must escalate to SIGKILL, not hang")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 20, "close must escalate to SIGKILL, not hang")
+
+        let result = kill(pid, 0)
+        let error = errno
+        XCTAssertEqual(result, -1, "the child is gone")
+        XCTAssertEqual(error, ESRCH)
     }
 
     /// Abandoning a lines() iterator mid-file (consumer breaks early) must
