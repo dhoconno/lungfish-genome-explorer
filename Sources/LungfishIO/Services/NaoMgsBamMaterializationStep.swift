@@ -29,6 +29,11 @@ public struct NaoMgsBamMaterializationStep: Sendable {
     public let stderr: String?
     public let startedAt: Date?
     public let completedAt: Date?
+    /// The step this one ran inside, as each samtools stage of a markdup runs inside the markdup call.
+    public let parentStepID: UUID?
+    /// `pipe:stdout:<stage>` of the stage whose stdout this one reads, and of this stage's own stdout.
+    public let stdinPipe: String?
+    public let stdoutPipe: String?
 
     public init(
         sample: String,
@@ -42,7 +47,10 @@ public struct NaoMgsBamMaterializationStep: Sendable {
         wallTimeSeconds: TimeInterval? = nil,
         stderr: String? = nil,
         startedAt: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        parentStepID: UUID? = nil,
+        stdinPipe: String? = nil,
+        stdoutPipe: String? = nil
     ) {
         self.sample = sample
         self.toolName = toolName
@@ -56,5 +64,8 @@ public struct NaoMgsBamMaterializationStep: Sendable {
         self.stderr = stderr
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.parentStepID = parentStepID
+        self.stdinPipe = stdinPipe
+        self.stdoutPipe = stdoutPipe
     }
 }

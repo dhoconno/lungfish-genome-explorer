@@ -195,7 +195,7 @@ struct ProvenanceCommandPresentationTests {
     /// Every shell argv the product records, from `rg -n '"/bin/(ba|z|da)?sh"' Sources`. The product records
     /// `/bin/sh` and, at `BundleVariantTrackAttachmentService.swift:252` and `ReadExtractionService.swift:949`, a
     /// bare `sh -lc`. The `/bin/sh -c` form is the Kraken2 gzip replay, the classifier copy, the metagenomics import,
-    /// the NAO-MGS markdup replay, the ONT BAM import and the mapping member `cat`. The `/bin/sh -lc` cluster is the
+    /// the ONT BAM import and the mapping member `cat`. The `/bin/sh -lc` cluster is the
     /// assembly, mapping, fastp, grouped FASTQ and CLI provenance commands. The other rows are the shells the rule
     /// names and a cluster that is not `-lc`.
     private let shellForms: [(program: String, flag: String)] = [

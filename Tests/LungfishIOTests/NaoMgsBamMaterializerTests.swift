@@ -262,7 +262,9 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
         XCTAssertTrue(result.steps.contains { $0.toolName == "lungfish nao-mgs materialize-bam" })
         XCTAssertTrue(result.steps.contains { $0.toolName == "samtools" })
         XCTAssertTrue(result.steps.filter { $0.toolName == "samtools" }.allSatisfy { $0.toolVersion == "samtools-test" })
-        XCTAssertTrue(result.steps.contains { $0.argv.first == "/bin/sh" && $0.argv.contains("-c") })
+        XCTAssertFalse(result.steps.contains { $0.argv.first == "/bin/sh" })
+        XCTAssertEqual(result.steps.filter { $0.parentStepID != nil }.map { $0.argv[1] }, ["sort", "fixmate", "sort",
+            "markdup", "index"])
         XCTAssertTrue(result.steps.contains { $0.reproducibleCommand.contains("samtools") })
         XCTAssertTrue(result.steps.contains { step in
             step.outputURLs.contains(bamURL)
@@ -492,6 +494,17 @@ extension NaoMgsBamMaterializerTests {
         let exitStatus: Int?
         let stderr: String?
         let outputs: [String]
+        /// The parent's index in the same list.
+        var parent: Int? = nil
+        var stdinPipe: String? = nil
+        var stdoutPipe: String? = nil
+        /// Both the wall time and the start are present.
+        var timed = true
+
+        func erasingStderr() -> PinnedStep {
+            PinnedStep(tool: tool, argv: argv, exitStatus: exitStatus, stderr: nil, outputs: outputs, parent: parent,
+                       stdinPipe: stdinPipe, stdoutPipe: stdoutPipe, timed: timed)
+        }
     }
 
     func testBAMTextOfEachRowShapeIsPinned() throws {
@@ -515,9 +528,6 @@ extension NaoMgsBamMaterializerTests {
         let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
         try makeTestDatabase(at: dbURL, sample: "S1", duplicateCount: 3)
         let bam = "<TMP>/bams/S1.bam"
-        let markdupScript = "<SAMTOOLS> sort -n -@ 4 \(bam) | <SAMTOOLS> fixmate -m - - | <SAMTOOLS> sort -@ 4 - | "
-            + "<SAMTOOLS> markdup - \(bam).markdup.tmp && <SAMTOOLS> index \(bam).markdup.tmp"
-            + " && rm -f \(bam).bai \(bam).csi && mv \(bam).markdup.tmp \(bam) && mv \(bam).markdup.tmp.bai \(bam).bai"
 
         let first = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: false)
         XCTAssertEqual(pinnedSteps(first.steps, tmp: tmp, samtools: samtools), [
@@ -533,17 +543,35 @@ extension NaoMgsBamMaterializerTests {
             try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: failing, markDuplicates: true).steps,
             tmp: tmp, samtools: failing
         )
-        XCTAssertEqual(second.map { $0.stderr != nil }, [true, false], "Only the failed markdup records an error")
-        XCTAssertEqual(second.map { PinnedStep(tool: $0.tool, argv: $0.argv, exitStatus: $0.exitStatus, stderr: nil, outputs: $0.outputs) }, [
-            PinnedStep(tool: "samtools", argv: ["/bin/sh", "-c", markdupScript], exitStatus: 1, stderr: nil, outputs: []),
+        XCTAssertEqual(second.map { $0.stderr != nil }, [true, false, false, false, false, false, false],
+                       "Only the markdup call records the failure's error")
+        XCTAssertEqual(second.map { $0.erasingStderr() }, pinnedMarkdupSteps(bam: bam, exitStatus: 1, stageExit: nil, outputs: []) + [
             PinnedStep(tool: "samtools", argv: ["<SAMTOOLS>", "index", bam], exitStatus: 0, stderr: nil, outputs: ["\(bam).bai"]),
         ])
 
         let third = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: true)
-        XCTAssertEqual(pinnedSteps(third.steps, tmp: tmp, samtools: samtools), [
-            PinnedStep(tool: "samtools", argv: ["/bin/sh", "-c", markdupScript],
-                       exitStatus: 0, stderr: nil, outputs: [bam, "\(bam).bai"]),
-        ])
+        XCTAssertEqual(pinnedSteps(third.steps, tmp: tmp, samtools: samtools),
+                       pinnedMarkdupSteps(bam: bam, exitStatus: 0, stageExit: 0, outputs: [bam, "\(bam).bai"]))
+    }
+
+    /// The markdup call, then its five samtools stages under it, joined by `pipe:` paths (BIO-13.09-M2 item 7a).
+    private func pinnedMarkdupSteps(bam: String, exitStatus: Int, stageExit: Int?, outputs: [String]) -> [PinnedStep] {
+        let call = PinnedStep(
+            tool: "lungfish nao-mgs markdup",
+            argv: ["lungfish-internal", "nao-mgs-markdup", "--bam", bam, "--samtools", "<SAMTOOLS>", "--threads", "4"],
+            exitStatus: exitStatus, stderr: nil, outputs: outputs
+        )
+        let stages: [(argv: [String], stdin: String?, stdout: String?)] = [
+            (["<SAMTOOLS>", "sort", "-n", "-@", "4", bam], nil, "pipe:stdout:samtools-sort-n"),
+            (["<SAMTOOLS>", "fixmate", "-m", "-", "-"], "pipe:stdout:samtools-sort-n", "pipe:stdout:samtools-fixmate"),
+            (["<SAMTOOLS>", "sort", "-@", "4", "-"], "pipe:stdout:samtools-fixmate", "pipe:stdout:samtools-sort"),
+            (["<SAMTOOLS>", "markdup", "-", "\(bam).markdup.tmp"], "pipe:stdout:samtools-sort", nil),
+            (["<SAMTOOLS>", "index", "\(bam).markdup.tmp"], nil, nil),
+        ]
+        return [call] + stages.map {
+            PinnedStep(tool: "samtools", argv: $0.argv, exitStatus: stageExit, stderr: nil, outputs: [], parent: 0,
+                       stdinPipe: $0.stdin, stdoutPipe: $0.stdout, timed: false)
+        }
     }
 
     /// Code 5 with the failing stage's stderr. Only the last stage fails, which `sh -c` and ToolProcess both report.
@@ -637,7 +665,11 @@ extension NaoMgsBamMaterializerTests {
                 argv: step.argv.map { tokenized($0, tmp: tmp, samtools: samtools) },
                 exitStatus: step.exitStatus,
                 stderr: step.stderr.map { tokenized($0, tmp: tmp, samtools: samtools) },
-                outputs: step.outputURLs.map { tokenized($0.path, tmp: tmp, samtools: samtools) }
+                outputs: step.outputURLs.map { tokenized($0.path, tmp: tmp, samtools: samtools) },
+                parent: step.parentStepID.flatMap { parentID in steps.firstIndex { $0.id == parentID } },
+                stdinPipe: step.stdinPipe,
+                stdoutPipe: step.stdoutPipe,
+                timed: step.wallTimeSeconds != nil && step.startedAt != nil
             )
         }
     }

@@ -82,14 +82,13 @@ public enum NaoMgsBamMaterializer {
             if !force && fm.fileExists(atPath: bamURL.path) {
                 // Already generated; callers may defer markdup to a shared pipeline.
                 if markDuplicates {
-                    if let step = markdupWithTelemetry(
+                    steps.append(contentsOf: markdupWithTelemetry(
                         sample: sample,
                         bamURL: bamURL,
                         samtoolsPath: samtoolsPath,
-                        samtoolsVersion: resolvedSamtoolsVersion
-                    ) {
-                        steps.append(step)
-                    }
+                        samtoolsVersion: resolvedSamtoolsVersion,
+                        lungfishVersion: lungfishVersion
+                    ))
                     if let indexStep = ensureIndex(
                         sample: sample,
                         bamURL: bamURL,
@@ -118,14 +117,13 @@ public enum NaoMgsBamMaterializer {
                     steps.append(generateStep)
                 }
                 if markDuplicates {
-                    if let step = markdupWithTelemetry(
+                    steps.append(contentsOf: markdupWithTelemetry(
                         sample: sample,
                         bamURL: bamURL,
                         samtoolsPath: samtoolsPath,
-                        samtoolsVersion: resolvedSamtoolsVersion
-                    ) {
-                        steps.append(step)
-                    }
+                        samtoolsVersion: resolvedSamtoolsVersion,
+                        lungfishVersion: lungfishVersion
+                    ))
                 }
                 generated.append(bamURL)
                 logger.info("Materialized NAO-MGS BAM for sample \(sample, privacy: .public)")
@@ -656,12 +654,15 @@ public enum NaoMgsBamMaterializer {
         sample: String,
         bamURL: URL,
         samtoolsPath: String,
-        samtoolsVersion: String
-    ) -> NaoMgsBamMaterializationStep? {
+        samtoolsVersion: String,
+        lungfishVersion: String
+    ) -> [NaoMgsBamMaterializationStep] {
+        // One constant feeds the run and every record of it, so the two cannot drift (BIO 3).
+        let threads = 4
         let markdupClock = ProvenanceRunClock()
         let startedAt = markdupClock.startedAt
         do {
-            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath, threads: threads)
             let completedAt = markdupClock.now
             let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
             var outputURLs = [bamURL]
@@ -669,7 +670,7 @@ public enum NaoMgsBamMaterializer {
                 outputURLs.append(baiURL)
             }
             if result.wasAlreadyMarkduped {
-                return NaoMgsBamMaterializationStep(
+                return [NaoMgsBamMaterializationStep(
                     sample: sample,
                     toolName: "samtools",
                     toolVersion: samtoolsVersion,
@@ -681,55 +682,71 @@ public enum NaoMgsBamMaterializer {
                     wallTimeSeconds: result.durationSeconds,
                     startedAt: startedAt,
                     completedAt: completedAt
-                )
+                )]
             }
-            return NaoMgsBamMaterializationStep(
-                sample: sample,
-                toolName: "samtools",
-                toolVersion: samtoolsVersion,
-                argv: ["/bin/sh", "-c", markdupReplayCommand(bamURL: bamURL, samtoolsPath: samtoolsPath, threads: 4)],
-                inputURLs: [bamURL],
-                outputURLs: outputURLs,
-                exitStatus: 0,
-                wallTimeSeconds: result.durationSeconds,
-                startedAt: startedAt,
-                completedAt: completedAt
+            return markdupSteps(
+                sample: sample, bamURL: bamURL, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+                lungfishVersion: lungfishVersion, threads: threads, outputURLs: outputURLs, exitStatus: 0,
+                wallTimeSeconds: result.durationSeconds, stderr: nil, startedAt: startedAt, completedAt: completedAt
             )
         } catch {
             logger.warning("samtools markdup failed for \(bamURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             let completedAt = markdupClock.now
-            return NaoMgsBamMaterializationStep(
-                sample: sample,
-                toolName: "samtools",
-                toolVersion: samtoolsVersion,
-                argv: ["/bin/sh", "-c", markdupReplayCommand(bamURL: bamURL, samtoolsPath: samtoolsPath, threads: 4)],
-                inputURLs: [bamURL],
-                outputURLs: [],
-                exitStatus: 1,
-                wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
-                stderr: error.localizedDescription,
-                startedAt: startedAt,
-                completedAt: completedAt
+            return markdupSteps(
+                sample: sample, bamURL: bamURL, samtoolsPath: samtoolsPath, samtoolsVersion: samtoolsVersion,
+                lungfishVersion: lungfishVersion, threads: threads, outputURLs: [], exitStatus: 1,
+                wallTimeSeconds: completedAt.timeIntervalSince(startedAt), stderr: error.localizedDescription,
+                startedAt: startedAt, completedAt: completedAt
             )
         }
     }
 
-    private static func markdupReplayCommand(bamURL: URL, samtoolsPath: String, threads: Int) -> String {
+    /// The record of one markdup call (BIO-13.09-M2 item 1). The first step is the call, an in-app step holding what
+    /// the materializer saw: its time, its exit, its stderr and where the bytes end, since the call itself replaces
+    /// the BAM and its index. Then one step for each samtools stage MarkdupService runs, each argv its own with the
+    /// positional parameters filled in, joined to the call by parent and to each other by `pipe:` paths. A stage
+    /// has an exit only in a success, where `pipefail` and the guards mean none failed, and never a time, since the
+    /// materializer sees no single stage. No step stands for the replacement, which no `rm` or `mv` process does.
+    private static func markdupSteps(
+        sample: String, bamURL: URL, samtoolsPath: String, samtoolsVersion: String, lungfishVersion: String,
+        threads: Int, outputURLs: [URL], exitStatus: Int, wallTimeSeconds: TimeInterval, stderr: String?,
+        startedAt: Date, completedAt: Date
+    ) -> [NaoMgsBamMaterializationStep] {
+        let call = NaoMgsBamMaterializationStep(
+            sample: sample,
+            toolName: "lungfish nao-mgs markdup",
+            toolVersion: lungfishVersion,
+            argv: ["lungfish-internal", "nao-mgs-markdup", "--bam", bamURL.path, "--samtools", samtoolsPath,
+                   "--threads", String(threads)],
+            inputURLs: [bamURL],
+            outputURLs: outputURLs,
+            exitStatus: exitStatus,
+            wallTimeSeconds: wallTimeSeconds,
+            stderr: stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
         let tempBamPath = bamURL.path + ".markdup.tmp"
-        let tempBaiPath = tempBamPath + ".bai"
-        let baiPath = bamURL.path + ".bai"
-        let csiPath = bamURL.path + ".csi"
-        let escapedSamtoolsPath = naoMgsShellEscape(samtoolsPath)
-        return [
-            "\(escapedSamtoolsPath) sort -n -@ \(threads) \(naoMgsShellEscape(bamURL.path))",
-            "\(escapedSamtoolsPath) fixmate -m - -",
-            "\(escapedSamtoolsPath) sort -@ \(threads) -",
-            "\(escapedSamtoolsPath) markdup - \(naoMgsShellEscape(tempBamPath))",
-        ].joined(separator: " | ")
-            + " && \(escapedSamtoolsPath) index \(naoMgsShellEscape(tempBamPath))"
-            + " && rm -f \(naoMgsShellEscape(baiPath)) \(naoMgsShellEscape(csiPath))"
-            + " && mv \(naoMgsShellEscape(tempBamPath)) \(naoMgsShellEscape(bamURL.path))"
-            + " && mv \(naoMgsShellEscape(tempBaiPath)) \(naoMgsShellEscape(baiPath))"
+        let stages: [(arguments: [String], stdin: String?, stdout: String?)] = [
+            (["sort", "-n", "-@", String(threads), bamURL.path], nil, "pipe:stdout:samtools-sort-n"),
+            (["fixmate", "-m", "-", "-"], "pipe:stdout:samtools-sort-n", "pipe:stdout:samtools-fixmate"),
+            (["sort", "-@", String(threads), "-"], "pipe:stdout:samtools-fixmate", "pipe:stdout:samtools-sort"),
+            (["markdup", "-", tempBamPath], "pipe:stdout:samtools-sort", nil),
+            (["index", tempBamPath], nil, nil),
+        ]
+        return [call] + stages.enumerated().map { index, stage in
+            NaoMgsBamMaterializationStep(
+                sample: sample,
+                toolName: "samtools",
+                toolVersion: samtoolsVersion,
+                argv: [samtoolsPath] + stage.arguments,
+                inputURLs: index == 0 ? [bamURL] : [],
+                exitStatus: exitStatus == 0 ? 0 : nil,
+                parentStepID: call.id,
+                stdinPipe: stage.stdin,
+                stdoutPipe: stage.stdout
+            )
+        }
     }
 
     private static func detectSamtoolsVersion(samtoolsPath: String) -> String {

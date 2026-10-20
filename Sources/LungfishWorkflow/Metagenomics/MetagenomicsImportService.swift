@@ -1400,7 +1400,11 @@ func naoMgsMaterializationProvenanceSteps(
                 relocatedArtifacts: relocatedArtifacts
             )
         })
-        let inputDescriptors = directInputs.isEmpty ? sourceInputDescriptors : directInputs
+        // A stage inside a call reads its own inputs and pipe, never the source files (BIO-13.09-M2 item 4).
+        let pipeIn = step.stdinPipe.map { [ProvenanceFileDescriptor(path: $0, format: .text, role: .input)] } ?? []
+        let pipeOut = step.stdoutPipe.map { [ProvenanceFileDescriptor(path: $0, format: .text, role: .output)] } ?? []
+        let takesSourceInputs = directInputs.isEmpty && pipeIn.isEmpty && step.parentStepID == nil
+        let inputDescriptors = takesSourceInputs ? sourceInputDescriptors : directInputs + pipeIn
         let outputDescriptors = try uniqueProvenanceDescriptors(step.outputURLs.compactMap { outputURL in
             try naoMgsRelocatedDescriptor(
                 for: outputURL,
@@ -1417,18 +1421,12 @@ func naoMgsMaterializationProvenanceSteps(
             materializationReplayArgv: materializationReplayArgv
         )
         return ProvenanceStep(
-            id: step.id, toolName: step.toolName,
-            toolVersion: step.toolVersion,
-            argv: step.argv,
-            durableReplayArgv: durableReplayArgv,
+            id: step.id, toolName: step.toolName, toolVersion: step.toolVersion,
+            argv: step.argv, durableReplayArgv: durableReplayArgv,
             reproducibleCommand: durableReplayArgv.map(metagenomicsShellEscape).joined(separator: " "),
-            inputs: inputDescriptors,
-            outputs: outputDescriptors,
-            exitStatus: step.exitStatus,
-            wallTimeSeconds: step.wallTimeSeconds,
-            stderr: step.stderr,
-            startedAt: step.startedAt,
-            completedAt: step.completedAt
+            inputs: inputDescriptors, outputs: outputDescriptors + pipeOut,
+            exitStatus: step.exitStatus, wallTimeSeconds: step.wallTimeSeconds, stderr: step.stderr,
+            startedAt: step.startedAt, completedAt: step.completedAt, parentStepID: step.parentStepID
         )
     }
 }
