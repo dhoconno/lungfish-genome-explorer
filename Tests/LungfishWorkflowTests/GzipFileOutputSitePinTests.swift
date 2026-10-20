@@ -188,4 +188,12 @@ final class GzipFileOutputSitePinTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 30)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
+
+    /// The gzip sink still fails at `init` when gzip cannot write its destination, as `FileHandle(forWritingTo:)`
+    /// and `Process.run()` did before the move. ToolProcess reports a launch failure through `waitBlocking()`, so
+    /// without the check the first write fails later with a Broken pipe and the real reason is lost.
+    func testViralReconGzipSinkThrowsAtInitWhenTheDestinationCannotBeOpened() throws {
+        let missing = scratch.appendingPathComponent("no-such-folder/mate_3.fastq.gz")
+        XCTAssertThrowsError(try GzipFileSink(destination: missing))
+    }
 }

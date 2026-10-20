@@ -499,7 +499,7 @@ final class GzipFileSink {
         // only one, and a write after gzip ended fails with EPIPE instead of ending the app with SIGPIPE.
         let input = Pipe()
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
-        run = try ToolProcess.start(ToolProcessSpec(
+        let started = try ToolProcess.start(ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
             arguments: ["-c"],
             environment: ["PATH": "/usr/bin:/bin"],
@@ -508,6 +508,17 @@ final class GzipFileSink {
             label: "gzip -c"
         ))
         try? input.fileHandleForReading.close()
+        if started.pid == nil {
+            // start does not throw for a launch that failed. Say why here, as the base did.
+            try? input.fileHandleForWriting.close()
+            let reason: String
+            do { _ = try started.waitBlocking(); reason = "no process ran" } catch { reason = error.localizedDescription }
+            try? FileManager.default.removeItem(at: destination)
+            throw FASTQPairInterleaver.InterleaveError.unreadableInput(
+                file: destination.lastPathComponent, reason: "gzip did not start. \(reason)"
+            )
+        }
+        run = started
         writeHandle = input.fileHandleForWriting
     }
 
