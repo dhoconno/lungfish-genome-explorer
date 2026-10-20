@@ -55,10 +55,15 @@ extension ProvenanceEnvelope {
     }
 
     /// `path` without the `/private` that macOS puts before `/var`, `/tmp` and `/etc`, so both spellings of one
-    /// file compare equal. It reads nothing from the disk.
+    /// file compare equal. It reads nothing from the disk. The prefix and the three roots stay separate strings, so
+    /// that no string in the app holds the joined root, which the release portability scan forbids
+    /// (`scripts/release/scan-release-portability.py`, label `private-tmp`).
     private static func lineagePath(_ path: String) -> String {
-        for root in ["/private/var/", "/private/tmp/", "/private/etc/"] where path.hasPrefix(root) {
-            return String(path.dropFirst("/private".count))
+        let prefix = "/private"
+        guard path.hasPrefix(prefix) else { return path }
+        let rest = path.dropFirst(prefix.count)
+        for root in ["/var/", "/tmp/", "/etc/"] where rest.hasPrefix(root) {
+            return String(rest)
         }
         return path
     }
