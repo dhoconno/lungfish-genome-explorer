@@ -18,6 +18,16 @@ final class ViewerFigureThemeTests: XCTestCase {
             [
                 "textBackground", "windowBackground", "separator", "label", "secondaryLabel", "tertiaryLabel",
                 "systemGray", "textOnColor", "baseA", "baseC", "baseG", "baseT", "baseN",
+                // Appended by lane 13.29 for the read and variant track renderers.
+                "controlBackground", "quaternarySystemFill", "forwardRead", "forwardReadStroke", "reverseRead",
+                "reverseReadStroke", "forwardCoverage", "reverseCoverage", "matchDot", "insertion", "deletion",
+                "softClip", "insertNormal", "insertTooSmall", "insertTooLarge", "insertInterchromosomal",
+                "insertAbnormalOrientation", "firstInPair", "secondInPair", "splitRead", "coverageOutline",
+                "coverageLegendStroke", "baseReadForwardBackground", "baseReadReverseBackground",
+                "baseReadNeutralBackground", "baseReadNeutralStroke", "intron", "mateLink", "variantGutterBackground",
+                "variantGutterSeparator", "variantDataBackground", "variantSummaryBorder", "variantRowSeparator",
+                "variantLabelMargin", "variantScrollTrack", "variantScrollThumb", "readBaseA", "readBaseC",
+                "readBaseG", "readBaseT", "readBaseN",
             ]
         )
         XCTAssertEqual(ViewerFigureAppearance.allCases.map(\.rawValue), ["light", "dark"])
@@ -46,7 +56,10 @@ final class ViewerFigureThemeTests: XCTestCase {
         }
         XCTAssertEqual(
             differing,
-            [.textBackground, .windowBackground, .separator, .label, .secondaryLabel, .tertiaryLabel, .systemGray]
+            [
+                .textBackground, .windowBackground, .separator, .label, .secondaryLabel, .tertiaryLabel, .systemGray,
+                .controlBackground, .quaternarySystemFill,
+            ]
         )
     }
 

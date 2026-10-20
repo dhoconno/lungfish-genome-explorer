@@ -4,6 +4,7 @@
 
 import CoreGraphics
 import Foundation
+import LungfishCore
 
 /// The appearance a figure is drawn in.
 public enum ViewerFigureAppearance: String, Sendable, Hashable, Codable, CaseIterable {
@@ -27,6 +28,11 @@ public struct ViewerFigureColor: Sendable, Hashable, Codable {
 
     public init(white: Double, alpha: Double = 1) {
         self.init(red: white, green: white, blue: white, alpha: alpha)
+    }
+
+    /// An sRGB `HexColor` of LungfishCore, such as a `SemanticColors` entry.
+    public init(_ hex: HexColor) {
+        self.init(red: hex.red, green: hex.green, blue: hex.blue, alpha: hex.alpha)
     }
 
     /// The same colour with its alpha replaced, as `NSColor.withAlphaComponent(_:)` replaces it.
@@ -74,6 +80,92 @@ public enum ViewerFigureColorRole: String, Sendable, Hashable, Codable, CaseIter
     case baseT
     /// `BaseColors.N` of the live viewer, also used for any other letter.
     case baseN
+
+    // Roles of the read and variant track renderers (lane 13.29). The fixed ones carry the name
+    // of the renderer constant they replace and hold one value in both appearances.
+
+    /// `NSColor.controlBackgroundColor`, the masked-column veil of the read track.
+    case controlBackground
+    /// `NSColor.quaternarySystemFill`, the read overflow bar.
+    case quaternarySystemFill
+    /// `ReadTrackRenderer.forwardReadColor`.
+    case forwardRead
+    /// `ReadTrackRenderer.forwardReadStroke`.
+    case forwardReadStroke
+    /// `ReadTrackRenderer.reverseReadColor`.
+    case reverseRead
+    /// `ReadTrackRenderer.reverseReadStroke`.
+    case reverseReadStroke
+    /// `ReadTrackRenderer.forwardCoverageColor`, also the depth area and legend key.
+    case forwardCoverage
+    /// `ReadTrackRenderer.reverseCoverageColor`.
+    case reverseCoverage
+    /// `ReadTrackRenderer.matchDotColor`.
+    case matchDot
+    /// `ReadTrackRenderer.insertionColor`, ticks and insertion labels.
+    case insertion
+    /// `ReadTrackRenderer.deletionColor`, `NSColor.gray`.
+    case deletion
+    /// `ReadTrackRenderer.softClipColor`.
+    case softClip
+    /// `ReadTrackRenderer.insertNormalColor`.
+    case insertNormal
+    /// `ReadTrackRenderer.insertTooSmallColor`.
+    case insertTooSmall
+    /// `ReadTrackRenderer.insertTooLargeColor`.
+    case insertTooLarge
+    /// `ReadTrackRenderer.insertInterchromosomalColor`.
+    case insertInterchromosomal
+    /// `ReadTrackRenderer.insertAbnormalOrientationColor`.
+    case insertAbnormalOrientation
+    /// `ReadTrackRenderer.firstInPairColor`.
+    case firstInPair
+    /// `ReadTrackRenderer.secondInPairColor`.
+    case secondInPair
+    /// `ReadTrackRenderer.splitReadColor`.
+    case splitRead
+    /// `NSColor(white: 0.33, alpha: 1)`, the coverage outline.
+    case coverageOutline
+    /// `NSColor(white: 0.25, alpha: 1)`, the depth legend key's border.
+    case coverageLegendStroke
+    /// The forward read background of the base tier, `NSColor(red: 0.84, green: 0.89, blue: 0.95)`.
+    case baseReadForwardBackground
+    /// The reverse read background of the base tier, `NSColor(red: 0.95, green: 0.86, blue: 0.86)`.
+    case baseReadReverseBackground
+    /// The neutral read background of the base tier, `NSColor(red: 0.90, green: 0.90, blue: 0.90)`.
+    case baseReadNeutralBackground
+    /// The neutral read border of the base tier, `NSColor(red: 0.72, green: 0.72, blue: 0.72)`.
+    case baseReadNeutralStroke
+    /// `ReadTrackRenderer.intronColor`.
+    case intron
+    /// `NSColor(white: 0.6, alpha: 0.4)`, the line between mates.
+    case mateLink
+    /// `VariantTrackRenderer.gutterBackgroundColor`.
+    case variantGutterBackground
+    /// `VariantTrackRenderer.gutterSeparatorColor`.
+    case variantGutterSeparator
+    /// `VariantTrackRenderer.dataAreaBackgroundColor`.
+    case variantDataBackground
+    /// `VariantTrackRenderer.summaryBorderColor`.
+    case variantSummaryBorder
+    /// `VariantTrackRenderer.rowSeparatorColor`.
+    case variantRowSeparator
+    /// `VariantTrackRenderer.labelMarginColor`.
+    case variantLabelMargin
+    /// `VariantTrackRenderer.scrollTrackColor`.
+    case variantScrollTrack
+    /// `VariantTrackRenderer.scrollThumbColor`.
+    case variantScrollThumb
+    /// `SemanticColors.DNA.baseA`, a read mismatch, which is not `baseA` (`BaseColors.A`).
+    case readBaseA
+    /// `SemanticColors.DNA.baseC`, a read mismatch.
+    case readBaseC
+    /// `SemanticColors.DNA.baseG`, a read mismatch.
+    case readBaseG
+    /// `SemanticColors.DNA.baseT`, a read mismatch, also used for U.
+    case readBaseT
+    /// `SemanticColors.DNA.baseN`, a read mismatch at any other letter.
+    case readBaseN
 }
 
 /// The colours of a figure in one appearance, fixed sRGB values and never a dynamic colour.
@@ -116,6 +208,17 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
         case .baseG: Self.baseG
         case .baseT: Self.baseT
         case .baseN: Self.baseN
+        case .controlBackground: ViewerFigureColor(white: 1)
+        case .quaternarySystemFill: ViewerFigureColor(white: 0, alpha: 0.0275)
+        case .forwardRead, .forwardReadStroke, .reverseRead, .reverseReadStroke, .forwardCoverage, .reverseCoverage,
+             .matchDot, .insertion, .deletion, .softClip, .insertNormal, .insertTooSmall, .insertTooLarge,
+             .insertInterchromosomal, .insertAbnormalOrientation, .firstInPair, .secondInPair, .splitRead,
+             .coverageOutline, .coverageLegendStroke, .baseReadForwardBackground, .baseReadReverseBackground,
+             .baseReadNeutralBackground, .baseReadNeutralStroke, .intron, .mateLink, .variantGutterBackground,
+             .variantGutterSeparator, .variantDataBackground, .variantSummaryBorder, .variantRowSeparator,
+             .variantLabelMargin, .variantScrollTrack, .variantScrollThumb, .readBaseA, .readBaseC, .readBaseG,
+             .readBaseT, .readBaseN:
+            Self.trackColor(role)
         }
     }
 
@@ -134,8 +237,68 @@ public struct ViewerFigureTheme: Sendable, Hashable, Codable {
         case .baseG: Self.baseG
         case .baseT: Self.baseT
         case .baseN: Self.baseN
+        case .controlBackground: ViewerFigureColor(white: 0.1176)
+        case .quaternarySystemFill: ViewerFigureColor(white: 1, alpha: 0.0275)
+        case .forwardRead, .forwardReadStroke, .reverseRead, .reverseReadStroke, .forwardCoverage, .reverseCoverage,
+             .matchDot, .insertion, .deletion, .softClip, .insertNormal, .insertTooSmall, .insertTooLarge,
+             .insertInterchromosomal, .insertAbnormalOrientation, .firstInPair, .secondInPair, .splitRead,
+             .coverageOutline, .coverageLegendStroke, .baseReadForwardBackground, .baseReadReverseBackground,
+             .baseReadNeutralBackground, .baseReadNeutralStroke, .intron, .mateLink, .variantGutterBackground,
+             .variantGutterSeparator, .variantDataBackground, .variantSummaryBorder, .variantRowSeparator,
+             .variantLabelMargin, .variantScrollTrack, .variantScrollThumb, .readBaseA, .readBaseC, .readBaseG,
+             .readBaseT, .readBaseN:
+            Self.trackColor(role)
         }
     }
+
+    /// The track colours that are the same in both appearances, as the renderers fixed them.
+    private static func trackColor(_ role: ViewerFigureColorRole) -> ViewerFigureColor {
+        trackColors[role] ?? ViewerFigureColor(white: 0, alpha: 0)
+    }
+
+    private static let trackColors: [ViewerFigureColorRole: ViewerFigureColor] = [
+        .forwardRead: ViewerFigureColor(red: 0.69, green: 0.77, blue: 0.87),
+        .forwardReadStroke: ViewerFigureColor(red: 0.55, green: 0.65, blue: 0.77),
+        .reverseRead: ViewerFigureColor(red: 0.87, green: 0.69, blue: 0.69),
+        .reverseReadStroke: ViewerFigureColor(red: 0.77, green: 0.55, blue: 0.55),
+        .forwardCoverage: ViewerFigureColor(red: 0.42, green: 0.60, blue: 0.77, alpha: 0.7),
+        .reverseCoverage: ViewerFigureColor(red: 0.77, green: 0.42, blue: 0.42, alpha: 0.7),
+        .matchDot: ViewerFigureColor(white: 0.48, alpha: 0.82),
+        .insertion: ViewerFigureColor(red: 0.8, green: 0, blue: 0.8),
+        .deletion: ViewerFigureColor(white: 0.5),
+        .softClip: ViewerFigureColor(red: 0.5, green: 0.6, blue: 0.75, alpha: 0.6),
+        .insertNormal: ViewerFigureColor(white: 0.75),
+        .insertTooSmall: ViewerFigureColor(red: 0, green: 0, blue: 0.85),
+        .insertTooLarge: ViewerFigureColor(red: 0.85, green: 0, blue: 0),
+        .insertInterchromosomal: ViewerFigureColor(red: 0.6, green: 0, blue: 0.85),
+        .insertAbnormalOrientation: ViewerFigureColor(red: 0, green: 0.75, blue: 0.75),
+        .firstInPair: ViewerFigureColor(red: 0.45, green: 0.45, blue: 0.85),
+        .secondInPair: ViewerFigureColor(red: 0.85, green: 0.45, blue: 0.45),
+        .splitRead: ViewerFigureColor(red: 1, green: 0.5, blue: 0, alpha: 0.8),
+        .coverageOutline: ViewerFigureColor(white: 0.33),
+        .coverageLegendStroke: ViewerFigureColor(white: 0.25),
+        .baseReadForwardBackground: ViewerFigureColor(red: 0.84, green: 0.89, blue: 0.95),
+        .baseReadReverseBackground: ViewerFigureColor(red: 0.95, green: 0.86, blue: 0.86),
+        .baseReadNeutralBackground: ViewerFigureColor(white: 0.90),
+        .baseReadNeutralStroke: ViewerFigureColor(white: 0.72),
+        .intron: ViewerFigureColor(white: 0.5, alpha: 0.7),
+        .mateLink: ViewerFigureColor(white: 0.6, alpha: 0.4),
+        // The variant constants are `CGColor(red:green:blue:alpha:)`, generic RGB, so their sRGB
+        // values are lighter than their components (0.96 is 0.9682).
+        .variantGutterBackground: ViewerFigureColor(white: 0.9682),
+        .variantGutterSeparator: ViewerFigureColor(white: 0.8541),
+        .variantDataBackground: ViewerFigureColor(white: 0.9602),
+        .variantSummaryBorder: ViewerFigureColor(white: 0.8374),
+        .variantRowSeparator: ViewerFigureColor(white: 0.9198),
+        .variantLabelMargin: ViewerFigureColor(white: 1),
+        .variantScrollTrack: ViewerFigureColor(white: 0, alpha: 0.05),
+        .variantScrollThumb: ViewerFigureColor(white: 0, alpha: 0.25),
+        .readBaseA: ViewerFigureColor(SemanticColors.DNA.baseA),
+        .readBaseC: ViewerFigureColor(SemanticColors.DNA.baseC),
+        .readBaseG: ViewerFigureColor(SemanticColors.DNA.baseG),
+        .readBaseT: ViewerFigureColor(SemanticColors.DNA.baseT),
+        .readBaseN: ViewerFigureColor(SemanticColors.DNA.baseN),
+    ]
 
     // Colours that are the same in both appearances.
     private static let white = ViewerFigureColor(white: 1)
