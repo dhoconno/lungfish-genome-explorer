@@ -648,21 +648,15 @@ public struct ApplicationExportImportCollectionService: Sendable {
     }
 
     private static func unzipVersion() -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-v"]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let text = String(data: data, encoding: .utf8) ?? ""
-            return text.split(separator: "\n").first.map(String.init) ?? "system"
-        } catch {
-            return "system"
-        }
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/unzip"),
+            arguments: ["-v"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: .discard,
+            label: "unzip"
+        )
+        guard let result = try? ToolProcess.runBlocking(spec) else { return "system" }
+        return result.stdoutText.split(separator: "\n").first.map(String.init) ?? "system"
     }
 }
 
