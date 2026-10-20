@@ -19,11 +19,10 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Provena
 /// runners never call this actor, so a tool run through one leaves no step unless
 /// its caller records it.
 ///
-/// Seven callers record through `ProvenanceRecorder.shared` today. In
+/// Six callers record through `ProvenanceRecorder.shared` today. In
 /// LungfishWorkflow they are `ClassificationPipeline`, `EsVirituPipeline`,
-/// `TaxonomyExtractionPipeline`, `TaxTriagePipeline`,
-/// `TaxTriageSerialBatchRunner` and `NativeBundleBuilder`. In LungfishCLI it
-/// is `FastqDeaconRiboSubcommand`.
+/// `TaxonomyExtractionPipeline`, `TaxTriagePipeline` and
+/// `NativeBundleBuilder`. In LungfishCLI it is `FastqDeaconRiboSubcommand`.
 ///
 /// Since sub-phase 2.7 a run's state is the `ProvenanceRunBuilder` value of its
 /// record and the `ProvenanceStep` values recorded so far. `save` completes the

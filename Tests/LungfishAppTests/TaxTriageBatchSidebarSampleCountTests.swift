@@ -4,7 +4,7 @@
 //
 // Phase 2.11 U30 walk, finding W1. A one-sample TaxTriage run writes the nf-core process folders flat into
 // `taxtriage-batch-<ts>/`, on the CLI route (`TaxTriageAnalysisRunTool`, layout `sharedBatchRoot`) and on the
-// legacy route alike (`TaxTriageSerialBatchRunner` runs one sample straight into the batch root). The sidebar
+// legacy route alike (whose serial batch runner ran one sample straight into the batch root). The sidebar
 // counted the subfolders, so the walk's one-sample run read `12 samples`. The count now comes from the run's
 // `taxtriage-result.json` at the batch root, the record the result viewer reads its samples from.
 

@@ -205,8 +205,7 @@ extension TaxTriagePipeline {
 /// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
 ///
 /// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). With the
-///   pipeline source and the Nextflow version they are the step's ``NextflowRecordFacts`` (R1, T6), which the sample
-///   steps of a serial batch record (`TaxTriageSerialBatchRunner.recordSampleProvenance`) do not take yet.
+///   pipeline source and the Nextflow version they are the step's ``NextflowRecordFacts`` (R1, T6).
 /// - The settings the run was asked for are explicit options. `classifiers` is a resolved default, because the launch
 ///   passes no `--classifiers` and TaxTriage runs its own default, Kraken 2 (Phase 2.9 decision R5). `sample_count`
 ///   and `interleaved_samples_split_to_r1_r2` are resolved defaults too, because LGE counts the samplesheet rows it

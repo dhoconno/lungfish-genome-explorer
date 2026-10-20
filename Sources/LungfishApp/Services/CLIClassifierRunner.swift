@@ -166,7 +166,7 @@ struct CLIClassifierRunner {
             // The command's detail of a failed launch is Nextflow's standard error, kept for the row.
             return CLIClassifierFailure(message: message, errorMessage: nil, errorDetail: detail)
         case (.taxTriage, true) where events.everyUnitFailed:
-            // Today's words of a TaxTriage batch with no sample left (TaxTriageSerialBatchRunner).
+            // The words a TaxTriage batch with no sample left has always shown (TaxTriageSerialBatchError).
             let first = events.failedUnitReasons.first.map {
                 TaxTriageSampleFailure(sampleID: "", outputDirectory: events.analysisFolder ?? URL(fileURLWithPath: "/"), errorDescription: $0)
             }

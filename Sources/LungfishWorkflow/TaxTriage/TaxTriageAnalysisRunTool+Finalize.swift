@@ -176,7 +176,7 @@ extension TaxTriageAnalysisRunTool {
     }
 
     /// The aggregate result of a batch root, in the shape of the app's serial batch result
-    /// (`TaxTriageSerialBatchRunner`), which the viewer, the row and the batch overview's control column
+    /// (the legacy route, whose runner went in 2.13 K1b), which the viewer, the row and the batch overview's control column
     /// read (T4). It holds no fact the samples' results lack (T5, BIO), in request order. Its settings are
     /// the first completed sample's, which every launch shared but the platform, with the batch root as its
     /// folder. Each completed sample keeps the sample its result holds, platform and control mark included.

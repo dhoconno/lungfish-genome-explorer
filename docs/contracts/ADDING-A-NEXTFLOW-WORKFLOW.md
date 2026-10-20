@@ -162,7 +162,7 @@ Two launches still run Nextflow on their own, with the engine's 4 s grace. `lung
 
 ## 4. The record (B11)
 
-A workflow on this contract records each of its Nextflow steps in one shape, `NextflowRecordFacts` in `Sources/LungfishWorkflow/Nextflow/NextflowRecordFacts.swift` (decision R1). In Phase 2.9 only TaxTriage's pipeline writes it. The sample steps that the app's serial batch record writes by hand (`TaxTriageSerialBatchRunner`) do not take it yet, and Viral Recon and pbAA keep their own records until they move onto the contract. `Tests/LungfishCLITests/ViralReconRecordShapeGapTests.swift` states Viral Recon's gaps.
+A workflow on this contract records each of its Nextflow steps in one shape, `NextflowRecordFacts` in `Sources/LungfishWorkflow/Nextflow/NextflowRecordFacts.swift` (decision R1). In Phase 2.9 only TaxTriage's pipeline writes it. Viral Recon and pbAA keep their own records until they move onto the contract. `Tests/LungfishCLITests/ViralReconRecordShapeGapTests.swift` states Viral Recon's gaps.
 
 | Fact | Where the record holds it | Where the value comes from |
 |---|---|---|
