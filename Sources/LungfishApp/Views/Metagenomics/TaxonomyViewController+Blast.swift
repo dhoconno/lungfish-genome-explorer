@@ -112,10 +112,9 @@ extension TaxonomyViewController {
 
     /// The newest saved verification of `taxId` in `<directory>/blast-verifications/`. That is a `blast submit`
     /// record (`<folder>/blast-result.json`), which the Kraken2 row writes since Phase 2.12 lane 12.10, or a
-    /// ``BlastVerificationArchive`` file, which it wrote before and still writes on the in-process route that
-    /// ``ClassifierBlastRouteSettings`` keeps for one release (ARCH 4). The search that completed last wins, as
-    /// the archive orders its own files. The file it was read from comes with it, since the drawer's table export
-    /// reads that file (ARCH ruling T5 of lane 12.33).
+    /// ``BlastVerificationArchive`` file, which the row wrote before and which older results still hold (ARCH 4).
+    /// The search that completed last wins, as the archive orders its own files. The file it was read from comes
+    /// with it, since the drawer's table export reads that file (ARCH ruling T5 of lane 12.33).
     nonisolated static func newestSavedBlastVerification(
         forTaxId taxId: Int,
         in directory: URL
@@ -151,7 +150,7 @@ extension TaxonomyViewController {
     /// - Parameters:
     ///   - result: The BLAST verification result to display.
     ///   - recordURL: The file the result was read from, which the drawer's table export reads. Nil for a result no
-    ///     file holds, as the in-process routes under ``ClassifierBlastRouteSettings`` give.
+    ///     file holds.
     func showBlastResults(_ result: BlastVerificationResult, recordURL: URL? = nil, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID) else {
             blastVCLogger.info("Ignoring stale BLAST result from an older run")

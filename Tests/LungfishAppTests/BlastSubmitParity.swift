@@ -4,8 +4,9 @@
 //
 // Phase 2.11 lane A65 M2, plan decision C1 and decisions C4, C5 and G5 of 2.10, on lane Q30's harness. Each
 // class runs one viewer site on two sides that start as copies of one project, and one loopback stand-in of
-// NCBI's BLAST CGI answers every search (G5). The in-process route and its hidden key left in Phase 2.12 (lane
-// 12.02, K3), so the harness has no side A and the two declared `only in C` entries are gone.
+// NCBI's BLAST CGI answers every search (G5). The in-process routes and their hidden keys left in Phase 2.12 (lane
+// 12.02, K3) and Phase 2.13 (lane 13.02, the classifier sites), so the harness has no side A and no declared
+// `only in C` entry.
 //
 // - Side C is the site's plan, its begin helper with the plan's command, then `BlastSubmitPlan.run` on
 //   `CLIBlastSubmitRunner`, which launches the built `lungfish-cli blast submit`.
@@ -17,11 +18,6 @@
 //
 // C against C' declares nothing. Every search sends the stand-in the same bytes, the oracle's included. The
 // harness compares on the contract's standard masks.
-//
-// The classifier sites Phase 2.12 moves (lane 12.08 NVD and EsViritu, 12.09 TaxTriage and 12S, 12.10 Kraken2)
-// keep their in-process search behind `ClassifierBlastRoute` for one release. Their classes run
-// `inProcessSearch` as side A on the harness, with the two `only in C` entries of `declared(...)`, which 2.13
-// deletes with the key.
 
 import Foundation
 import XCTest
@@ -220,82 +216,6 @@ enum BlastSubmitParity {
     ) async throws {
         let runs = try await ReadsRouteParity.runSignedCAndCPrime(harness, in: caseRoot, fixture: fixture, sideC: sideC)
         for run in [runs.c, runs.cPrime] {
-            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
-        }
-        await harness.assertSignaturesVerify(runs, opening: { record(under: resultsParent($0)) }, file: file, line: line)
-    }
-
-    // MARK: - Side A, for the sites `ClassifierBlastRoute` keeps in process for one release (2.12 lane 12.08)
-
-    /// The files only side C writes. The query stage under `.tmp`, and the search's folder under
-    /// `blast-verifications/` of `resultsParent`, a path relative to the side root.
-    static func declared(stageFiles: Int, resultFiles: Int, resultsParent: String) -> [RouteParityDeclaredDifference<Case>] {
-        [
-            RouteParityDeclaredDifference(
-                [.oneSelection: stageFiles], "only in C: Project.lungfish/.tmp/blast-submit-<ANY>",
-                reason: "The CLI route writes the query to the project's .tmp, where the leaf reads it and the sweep "
-                    + "removes it (C1). The in-process route sent it from memory.",
-                closedBy: "2.13, which deletes the in-process route with the ClassifierBlastRoute key (C4, R-A1, U-R1)"
-            ),
-            RouteParityDeclaredDifference(
-                [.oneSelection: resultFiles], "only in C: \(resultsParent)/blast-verifications/<ANY>",
-                reason: "The CLI route keeps the search, a copy of its query and the record that names the query's "
-                    + "digest and lineage (C1, BIO 3, 4 and 6). The in-process route kept nothing.",
-                closedBy: "2.13, which deletes the in-process route with the ClassifierBlastRoute key (C4, R-A1, U-R1)"
-            ),
-        ]
-    }
-
-    /// Runs the case on sides A, C and C' and fails on each difference `declared` does not hold. Every side
-    /// must complete, A and C with the same verdicts, C and C' must keep the search under `blast-verifications/`
-    /// of `resultsParent`, and every side must send the stand-in the same bytes.
-    @MainActor
-    static func assertParity(
-        harness: RouteParityHarness,
-        server: LoopbackHTTPStandIn,
-        declared: [RouteParityDeclaredDifference<Case>],
-        in caseRoot: URL,
-        resultsParent: (URL) -> URL,
-        fixture: (URL) throws -> Void,
-        sideA: (URL) async throws -> RouteParitySideOutcome,
-        sideC: (URL) async throws -> RouteParitySideOutcome,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        let result = try await harness.assertParity(
-            Case.oneSelection, declared: declared, in: caseRoot, fixture: fixture, sideA: sideA, sideC: sideC, file: file, line: line
-        )
-        for run in result.runs.all {
-            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
-        }
-        for run in [result.runs.c, result.runs.cPrime] {
-            XCTAssertTrue(
-                FileManager.default.fileExists(atPath: record(under: resultsParent(run.root)).path),
-                "side \(run.side) keeps the search under blast-verifications/ of \(resultsParent(run.root).path)",
-                file: file, line: line
-            )
-        }
-        XCTAssertEqual(result.runs.c.outcome.detail, result.runs.a.outcome.detail, "the row's verdicts", file: file, line: line)
-        let bodies = submissions(server)
-        XCTAssertEqual(bodies.count, 3, "one submission a side", file: file, line: line)
-        XCTAssertEqual(Set(bodies).count, 1, "every side sends the same bytes: \(bodies)", file: file, line: line)
-    }
-
-    /// Runs the case on sides A, C and C' with a throwaway signing key, then checks with `provenance verify`
-    /// that the record sides C and C' write is signed and verifies, and that an edited copy does not (ARCH 3).
-    @MainActor
-    static func assertSignedRecordVerifies(
-        harness: RouteParityHarness,
-        in caseRoot: URL,
-        resultsParent: @escaping @Sendable (URL) -> URL,
-        fixture: (URL) throws -> Void,
-        sideA: (URL) async throws -> RouteParitySideOutcome,
-        sideC: (URL) async throws -> RouteParitySideOutcome,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async throws {
-        let runs = try await harness.runSigned(in: caseRoot, fixture: fixture, sideA: sideA, sideC: sideC)
-        for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)", file: file, line: line)
         }
         await harness.assertSignaturesVerify(runs, opening: { record(under: resultsParent($0)) }, file: file, line: line)
