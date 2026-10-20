@@ -686,15 +686,15 @@ final class OperationRoutingTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift")
         let source = try readRepositorySource(viewerURL)
         let body = try sourceFunctionBody(
-            named: "controller.onUnresolvedBlastRequested",
-            endingBefore: "        annotationDrawerView?.isHidden",
+            named: "func launchTwelveSUnresolvedBlastSubmit(",
+            endingBefore: "    nonisolated static func twelveSUnresolvedBlastSubmitPlan(",
             in: source
         )
 
         XCTAssertTrue(body.contains("LungfishCLIRunner.CancellationHandle()"))
-        XCTAssertTrue(body.contains("LungfishCLIRunner.run(arguments: arguments, cancellation: cliCancellation)"))
         XCTAssertTrue(body.contains("catch LungfishCLIRunner.RunError.cancelled"))
-        XCTAssertTrue(body.contains("cliCancellation.cancel()"))
+        XCTAssertTrue(body.contains("cancellation.cancel()"))
+        XCTAssertTrue(source.contains("_ = try await LungfishCLIRunner.run(arguments: arguments, cancellation: cancellation)"))
     }
 
     func testAnnotationDeletionOperationsCancelCLISubprocessTree() throws {
