@@ -141,7 +141,6 @@ final class ArchiveToolBasePinTests: XCTestCase {
     }
 
     func testCzIdZipWithASymlinkThatLeavesTheRootIsRefused() async throws {
-        XCTExpectFailure("Base 916a79b07 extracts the link. Lane 13.08 fixes it in its CzIdImportPreview commit.")
         let zip = tempDir.appendingPathComponent("czid-link.zip")
         try TestZipWriter.write([.file("taxon_report.tsv", Self.czIdReport), .symlink("link", to: "../outside")], to: zip)
         do {

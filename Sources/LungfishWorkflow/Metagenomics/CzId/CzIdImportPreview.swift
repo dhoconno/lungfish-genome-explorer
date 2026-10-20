@@ -149,6 +149,16 @@ public struct CzIdImportPreview: Sendable, Equatable {
             let detail = (result.status == 0 ? result.incompleteOutputReason : nil) ?? result.stderrText
             throw CzIdImportPreviewError.archiveExtractionFailed(archiveURL, detail)
         }
+        // ditto neutralizes `..` and absolute names but extracts a symbolic link that
+        // leaves the folder, as SafeZipExtractor refuses.
+        do {
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destinationURL)
+        } catch DemoProjectError.unsafeArchive(let reason) {
+            throw CzIdImportPreviewError.archiveExtractionFailed(
+                archiveURL,
+                "The archive was refused because it is unsafe: \(reason)"
+            )
+        }
     }
 
     private static func findTaxonReport(in directoryURL: URL) throws -> URL {
