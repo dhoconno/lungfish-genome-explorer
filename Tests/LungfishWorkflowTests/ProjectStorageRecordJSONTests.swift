@@ -15,17 +15,31 @@ final class ProjectStorageRecordJSONTests: XCTestCase {
 
     func testCleanupJournalSummaryAndFailureRecordKeepTheirBaseBytes() throws {
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Self.journal()),
+            ProjectStorageRecordJSON.encode(Self.journal()),
             equalFixture: "cleanup-journal.json"
         )
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Self.executionSummary()),
+            ProjectStorageRecordJSON.encode(Self.executionSummary()),
             equalFixture: "cleanup-execution-summary.json"
         )
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Self.failureRecord()),
+            ProjectStorageRecordJSON.encode(Self.failureRecord()),
             equalFixture: "automatic-cleanup-failure.json"
         )
+    }
+
+    /// ARCH's condition. The encoder takes only the three record types, so an envelope handed to it does not compile.
+    func testTheStorageRecordEncoderTakesNoEnvelopeType() {
+        let envelope: Any.Type = ProvenanceEnvelope.self
+        XCTAssertFalse(envelope is ProjectStorageRecordPayload.Type)
+        let records: [Any.Type] = [
+            ProjectStorageCleanupJournal.self,
+            ProjectStorageCleanupExecutionSummary.self,
+            ProjectStorageAutomaticCleanupFailureRecord.self,
+        ]
+        for record in records {
+            XCTAssertTrue(record is ProjectStorageRecordPayload.Type, "\(record)")
+        }
     }
 
     /// Row 8, the journal of `ProjectStorageCleanupReceiptWriter.swift:350-374`.
@@ -96,10 +110,10 @@ final class ProjectStorageRecordJSONTests: XCTestCase {
         )
     }
 
-    /// Row 4, the failure record of `ProjectStorageAutomaticCleanupService.swift:562-572`. The type is private at the
-    /// base, so the freeze builds a value with its fields.
-    static func failureRecord() -> FrozenFailureRecordFields {
-        FrozenFailureRecordFields(
+    /// Row 4, the failure record of `ProjectStorageAutomaticCleanupService.swift:562-572`. The freeze at the base, where
+    /// the type was private, encoded a value of the same fields.
+    static func failureRecord() -> ProjectStorageAutomaticCleanupFailureRecord {
+        ProjectStorageAutomaticCleanupFailureRecord(
             schemaVersion: 1,
             failureID: Fixtures.failureID,
             cleanupID: Fixtures.cleanupID,
@@ -110,19 +124,5 @@ final class ProjectStorageRecordJSONTests: XCTestCase {
             completedAt: Fixtures.completedAt,
             error: "The project folder could not be read."
         )
-    }
-
-    /// The fields of `ProjectStorageAutomaticCleanupFailureRecord` at the base
-    /// (`ProjectStorageAutomaticCleanupService.swift:487-500`).
-    struct FrozenFailureRecordFields: Codable {
-        let schemaVersion: Int
-        let failureID: UUID
-        let cleanupID: UUID
-        let projectPath: String
-        let trigger: String
-        let retryRecommended: Bool
-        let startedAt: Date
-        let completedAt: Date
-        let error: String
     }
 }

@@ -484,7 +484,7 @@ public struct ProjectStorageAutomaticCleanupService: Sendable {
     }
 }
 
-private struct ProjectStorageAutomaticCleanupFailureRecord:
+struct ProjectStorageAutomaticCleanupFailureRecord:
     Codable,
     Sendable
 {
@@ -570,7 +570,7 @@ private func writeAutomaticCleanupFailureReceipt(
         completedAt: invocation.completedAt,
         error: invocation.errorMessage
     )
-    let summaryData = try ProvenanceJSON.encoder.encode(record)
+    let summaryData = try ProjectStorageRecordJSON.encode(record)
     let summaryDigest = SHA256.hash(data: summaryData)
         .map { String(format: "%02x", $0) }
         .joined()
@@ -627,7 +627,7 @@ private func writeAutomaticCleanupFailureReceipt(
         exitStatus: 1,
         stderr: invocation.errorMessage
     )
-    let provenanceData = try ProvenanceJSON.encoder.encode(provenance)
+    let provenanceData = try ProvenanceWriter.package(provenance)
     _ = try writer.createOperation(
         operationID: invocation.failureID,
         payloads: [
