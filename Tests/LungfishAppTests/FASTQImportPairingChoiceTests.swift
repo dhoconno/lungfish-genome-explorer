@@ -4,8 +4,11 @@
 
 import AppKit
 import XCTest
+import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
+import os
 @testable import LungfishApp
 
 /// The Import FASTQ sheet stored its Pairing choice but nothing read it, and
@@ -108,7 +111,7 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
     }
 
     @MainActor
-    func testSheetProposesInterleavedForALoneFileWhoseRecordsAlternateMates() throws {
+    func testSheetProposesInterleavedForALoneFileWhoseRecordsAlternateMates() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("pairing-proposal-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -138,11 +141,49 @@ final class FASTQImportPairingChoiceTests: XCTestCase {
         sheet.loadViewIfNeeded()
         let pairingPopup = sheet.view.pairingTestDescendants(of: NSPopUpButton.self)
             .first { popup in (0..<popup.numberOfItems).contains { popup.item(at: $0)?.title == "Interleaved" } }
+        // The sheet reads a lone file's layout off the main actor, so the popup settles a moment after the sheet opens.
+        await waitUntil(timeoutNanoseconds: 30_000_000_000) { pairingPopup?.selectedItem?.title == "Interleaved" }
         XCTAssertEqual(pairingPopup?.selectedItem?.title, "Interleaved")
         sheet.view.pairingTestDescendants(of: NSButton.self).first { $0.title == "Import" }?.performClick(nil)
         XCTAssertEqual(captured?.pairingMode, .interleaved)
         XCTAssertEqual(captured?.pairingModeIsUserChoice, false)
         XCTAssertNil(captured?.cliPairingMode)
+    }
+
+    /// Phase 2.13 lane 13.06, review Fix 1. A lone gzip FASTQ is read to propose the Pairing popup's item, and that
+    /// read runs `gzip` through ToolProcess. The debug app traps a blocking ToolProcess call made on the main thread
+    /// (ToolProcessMainThreadGuard), so the sheet reads the file off it and the popup settles a moment later.
+    @MainActor
+    func testSheetReadsALoneGzipFastqOffTheMainThread() async throws {
+        let dir = try TestTempDirectory.make(prefix: "pairing-proposal-gzip")
+        addTeardownBlock { TestTempDirectory.cleanup(dir) }
+        let plain = dir.appendingPathComponent("MHC-pairs.fastq")
+        try "@f0/1\nACGT\n+\nIIII\n@f0/2\nACGT\n+\nIIII\n@f1/1\nACGT\n+\nIIII\n@f1/2\nACGT\n+\nIIII\n"
+            .write(to: plain, atomically: true, encoding: .utf8)
+        let gzipProcess = Process()
+        gzipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzipProcess.arguments = ["-f", plain.path]
+        try gzipProcess.run()
+        gzipProcess.waitUntilExit()
+        XCTAssertEqual(gzipProcess.terminationStatus, 0)
+        let compressed = dir.appendingPathComponent("MHC-pairs.fastq.gz")
+
+        // Nothing is recorded before this point, since the gzip above is the test's own and no ToolProcess.
+        let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
+        ToolProcessMainThreadGuard.record(into: { name in calls.withLock { $0.append(name) } })
+        defer { ToolProcessMainThreadGuard.record(into: nil) }
+
+        let sheet = FASTQImportConfigSheet(
+            pairs: [FASTQFilePair(r1: compressed, r2: nil)],
+            detectedPlatform: .illumina,
+            onImport: { _ in }
+        )
+        sheet.loadViewIfNeeded()
+        let pairingPopup = sheet.view.pairingTestDescendants(of: NSPopUpButton.self)
+            .first { popup in (0..<popup.numberOfItems).contains { popup.item(at: $0)?.title == "Interleaved" } }
+        await waitUntil(timeoutNanoseconds: 30_000_000_000) { pairingPopup?.selectedItem?.title == "Interleaved" }
+        XCTAssertEqual(pairingPopup?.selectedItem?.title, "Interleaved")
+        XCTAssertEqual(calls.withLock { $0 }, [], "no blocking ToolProcess call ran on the main thread")
     }
 
     // MARK: - Splitting detected pairs in the GUI

@@ -143,6 +143,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     /// Set once the user picks a Pairing item. Until then the popup shows the
     /// sheet's proposal and the import runs with `--pairing auto`.
     private var pairingChosenByUser = false
+    /// The read of a lone file that proposes the Pairing popup's item, cancelled when the sheet closes.
+    private var pairingProposalTask: Task<Void, Never>?
     /// Set once the user picks a Platform item. Until then the import runs with `--platform auto`.
     private var platformChosenByUser = false
 
@@ -278,7 +280,9 @@ public final class FASTQImportConfigSheet: NSViewController {
 
         // Pairing popup
         pairingPopup.addItems(withTitles: ["Single-end", "Paired-end", "Interleaved"])
-        pairingPopup.selectItem(at: Self.proposedPairingIndex(for: pairs))
+        // A lone file's layout needs a read of the file, which never runs on the main actor (ToolProcessMainThreadGuard).
+        pairingPopup.selectItem(at: pairs.contains(where: { $0.isPaired }) ? 1 : 0)
+        proposePairingOffMainActor()
         pairingPopup.target = self
         pairingPopup.action = #selector(pairingChanged(_:))
         pairingPopup.font = .systemFont(ofSize: 12)
@@ -716,6 +720,18 @@ public final class FASTQImportConfigSheet: NSViewController {
         pairingChosenByUser = true
     }
 
+    /// Settles the Pairing popup on the proposal for a lone file once the file has been read, off the main actor.
+    /// The proposal is not a choice, and the hidden popup of an ONT run is left alone.
+    private func proposePairingOffMainActor() {
+        guard !pairs.contains(where: { $0.isPaired }) else { return }
+        let lone = pairs
+        pairingProposalTask = Task { [weak self] in
+            let index = await Task.detached(priority: .userInitiated) { Self.proposedPairingIndex(for: lone) }.value
+            guard let self, !Task.isCancelled, !self.pairingChosenByUser, !self.pairingPopup.isHidden else { return }
+            self.pairingPopup.selectItem(at: index)
+        }
+    }
+
     /// Records read from each lone file when proposing its pairing.
     nonisolated static let pairingProposalRecordLimit = 2_000
     /// Lone files read when proposing a pairing for a batch.
@@ -1021,6 +1037,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     private func dismissSheet() {
+        pairingProposalTask?.cancel()
         guard let window = view.window else { return }
         if let sheetParent = window.sheetParent {
             sheetParent.endSheet(window)
