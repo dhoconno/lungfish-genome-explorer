@@ -13,16 +13,32 @@ final class ProvenanceWriterPackageTests: XCTestCase {
 
     func testPackagedCleanupRecordsKeepTheirBaseBytes() throws {
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Fixtures.preparationEnvelope()),
+            ProvenanceWriter.package(Fixtures.preparationEnvelope()),
             equalFixture: "cleanup-preparation-provenance.json"
         )
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Fixtures.executionEnvelope()),
+            ProvenanceWriter.package(Fixtures.executionEnvelope()),
             equalFixture: "cleanup-execution-provenance.json"
         )
         try Fixtures.assertBytes(
-            ProvenanceJSON.encoder.encode(Fixtures.failureEnvelope()),
+            ProvenanceWriter.package(Fixtures.failureEnvelope()),
             equalFixture: "automatic-cleanup-failure-provenance.json"
         )
+    }
+
+    /// `package` writes no signature, so an envelope that names one would describe a pair that does not exist (BIO 4).
+    func testPackageRefusesAnEnvelopeThatCarriesSignatures() throws {
+        var envelope = Fixtures.executionEnvelope()
+        envelope.signatures = [
+            ProvenanceSignatureReference(
+                provider: "local-ed25519",
+                provenanceSHA256: Fixtures.digest,
+                signaturePath: "provenance.json.signature.json"
+            ),
+        ]
+
+        XCTAssertThrowsError(try ProvenanceWriter.package(envelope)) { error in
+            XCTAssertEqual(error as? ProvenancePackageError, .envelopeCarriesSignatures(count: 1))
+        }
     }
 }

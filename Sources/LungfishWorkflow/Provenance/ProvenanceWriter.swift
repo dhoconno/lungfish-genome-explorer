@@ -572,15 +572,15 @@ public struct ProvenanceWriter: Sendable {
         )
     }
 
+    /// The writer's one envelope encode. Given `url`, a record inside a project keeps project-relative and
+    /// placeholder paths (never the home folder, tool root or scratch), which ProvenanceEnvelopeReader resolves.
+    static func recordBytes(_ envelope: ProvenanceEnvelope, sanitizedFor url: URL?) throws -> Data {
+        let data = try ProvenanceJSON.encoder.encode(envelope)
+        return url.map { PortablePath.sanitizeJSON(data, forFileAt: $0, encoder: ProvenanceJSON.encoder) } ?? data
+    }
+
     private func writeUnsigned(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
-        // A sidecar inside a project records project-relative and
-        // placeholder paths, never the account's home, the managed tool root
-        // or scratch directories; ProvenanceEnvelopeReader resolves them.
-        let data = PortablePath.sanitizeJSON(
-            try ProvenanceJSON.encoder.encode(envelope),
-            forFileAt: provenanceURL,
-            encoder: ProvenanceJSON.encoder
-        )
+        let data = try Self.recordBytes(envelope, sanitizedFor: provenanceURL)
         if signingProvider == nil,
            publicationMutationDidOccur == nil,
            !FileManager.default.fileExists(atPath: provenanceURL.path),
