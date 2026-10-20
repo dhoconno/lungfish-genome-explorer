@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import os.log
 
@@ -1663,37 +1664,25 @@ extension DemultiplexingPipeline {
             if fm.fileExists(atPath: tempGzipURL.path) {
                 try fm.removeItem(at: tempGzipURL)
             }
-            fm.createFile(atPath: tempGzipURL.path, contents: nil)
-
-            let outputHandle = try FileHandle(forWritingTo: tempGzipURL)
-            defer { try? outputHandle.close() }
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-c", fastqURL.path]
-            process.standardOutput = outputHandle
-
-            let stderrPipe = Pipe()
-            process.standardError = stderrPipe
-
+            let result: ToolProcessResult
             do {
-                try process.run()
+                result = try ToolProcess.runBlocking(ToolProcessSpec(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+                    arguments: ["-c", fastqURL.path],
+                    environment: ["PATH": "/usr/bin:/bin"],
+                    stdout: .file(tempGzipURL),
+                    label: "gzip -c"
+                ))
             } catch {
                 throw DemultiplexError.outputParsingFailed("Failed to launch gzip for \(fastqURL.lastPathComponent): \(error.localizedDescription)")
             }
-            process.waitUntilExit()
-
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            try? stderrPipe.fileHandleForReading.close()
-            guard process.terminationStatus == 0 else {
-                let stderr = String(data: stderrData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard result.isSuccess else {
+                let stderr = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
                 throw DemultiplexError.outputParsingFailed(
-                    "gzip failed for \(fastqURL.lastPathComponent): \(stderr?.isEmpty == false ? stderr! : "exit \(process.terminationStatus)")"
+                    "gzip failed for \(fastqURL.lastPathComponent): \(stderr.isEmpty ? "exit \(result.status)" : stderr)"
                 )
             }
 
-            try outputHandle.close()
             if fm.fileExists(atPath: gzipURL.path) {
                 try fm.removeItem(at: gzipURL)
             }
