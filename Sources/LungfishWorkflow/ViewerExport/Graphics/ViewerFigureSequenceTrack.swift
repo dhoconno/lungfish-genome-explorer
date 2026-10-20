@@ -7,19 +7,14 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// A contig the FASTA index does not name, or a compressed FASTA the track cannot read yet.
+/// A contig the FASTA index does not name.
 public enum ViewerFigureSequenceTrackError: Error, Hashable, LocalizedError {
     case contigNotFound(contig: String, fasta: String)
-    /// A `.gz` FASTA. The indexed reader has no gzip check and fails on bytes that are not text, so the
-    /// track refuses the file until a later lane reads it through `BgzipIndexedFASTAReader`.
-    case compressedFASTA(fasta: String)
 
     public var errorDescription: String? {
         switch self {
         case .contigNotFound(let contig, let fasta):
             "The sequence \(contig) is not in the index of \(fasta), so its track cannot be drawn."
-        case .compressedFASTA(let fasta):
-            "The sequence file \(fasta) is compressed, and figures cannot read compressed sequence files yet."
         }
     }
 }
@@ -58,33 +53,62 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
 
     public let fastaURL: URL
     public let indexURL: URL
+    /// The `.gzi` block index of a bgzipped (`.gz`) FASTA, which the track reads through
+    /// `BgzipIndexedFASTAReader`, and nil for a plain FASTA.
+    public let gzipIndexURL: URL?
     public let height: Double
     public let lettersThreshold: Double
     /// Shows T as U, as the live view's RNA mode does. Otherwise U shows as T.
     public let showsRNA: Bool
 
+    /// A FASTA whose name ends in `.gz` is read as bgzip with its `.gzi`, `gzipIndexURL` or `<fasta>.gzi`.
     public init(
-        fastaURL: URL, indexURL: URL? = nil, height: Double = ViewerFigureSequenceTrack.defaultHeight,
+        fastaURL: URL, indexURL: URL? = nil, gzipIndexURL: URL? = nil,
+        height: Double = ViewerFigureSequenceTrack.defaultHeight,
         lettersThreshold: Double = ViewerFigureSequenceTrack.defaultLettersThreshold, showsRNA: Bool = false
     ) {
         self.fastaURL = fastaURL
         self.indexURL = indexURL ?? fastaURL.appendingPathExtension("fai")
+        self.gzipIndexURL = fastaURL.pathExtension.lowercased() == "gz"
+            ? gzipIndexURL ?? fastaURL.appendingPathExtension("gzi") : nil
         self.height = height
         self.lettersThreshold = lettersThreshold
         self.showsRNA = showsRNA
     }
 
-    /// The files the track reads, for the figure's record (BIO ruling Q-G3, item 5).
+    /// The files the track reads, for the figure's record (BIO ruling Q-G3, item 5), with the `.gzi` of a
+    /// bgzipped FASTA.
     public var inputFiles: [URL] {
-        [fastaURL, indexURL]
+        [fastaURL, indexURL] + (gzipIndexURL.map { [$0] } ?? [])
+    }
+
+    /// The plain or the bgzip reader of the FASTA, each with its `.fai`.
+    private enum Reader {
+        case plain(IndexedFASTAReader)
+        case bgzip(BgzipIndexedFASTAReader)
+
+        func index() async -> FASTAIndex {
+            switch self {
+            case .plain(let reader): reader.index
+            case .bgzip(let reader): await reader.fastaIndex
+            }
+        }
+
+        func fetch(_ region: GenomicRegion) async throws -> String {
+            switch self {
+            case .plain(let reader): try await reader.fetch(region: region)
+            case .bgzip(let reader): try await reader.fetch(region: region)
+            }
+        }
     }
 
     public func build(into canvas: inout ViewerFigureCanvas, frame: ViewerFigureFrame, area: ViewerFigureRect) async throws {
-        if fastaURL.pathExtension.lowercased() == "gz" {
-            throw ViewerFigureSequenceTrackError.compressedFASTA(fasta: fastaURL.lastPathComponent)
+        let reader: Reader = if let gzipIndexURL {
+            .bgzip(try await BgzipIndexedFASTAReader(url: fastaURL, faiURL: indexURL, gziURL: gzipIndexURL))
+        } else {
+            .plain(try IndexedFASTAReader(url: fastaURL, indexURL: indexURL))
         }
-        let reader = try IndexedFASTAReader(url: fastaURL, indexURL: indexURL)
-        guard let entry = reader.index.entry(for: frame.chromosome) else {
+        guard let entry = await reader.index().entry(for: frame.chromosome) else {
             throw ViewerFigureSequenceTrackError.contigNotFound(contig: frame.chromosome, fasta: fastaURL.lastPathComponent)
         }
         let startBase = max(0, Int(frame.start))
@@ -109,7 +133,7 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
             return
         }
         let region = GenomicRegion(chromosome: frame.chromosome, start: startBase, end: endBase)
-        let bases = Array(try await reader.fetch(region: region).utf8)
+        let bases = Array(try await reader.fetch(region).utf8)
         if scale < lettersThreshold {
             try drawBases(bases, into: &canvas, layout: layout)
         } else {

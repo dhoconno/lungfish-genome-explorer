@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 
 /// A figure the export refuses to draw, before it writes anything. Its message names the fix.
 public struct ViewerGraphicRefusal: Error, LocalizedError, Equatable {
@@ -96,6 +97,49 @@ public struct ViewerGraphicBundle: Sendable {
     func resolved(_ path: String) -> URL {
         path.hasPrefix("/") ? URL(fileURLWithPath: path) : url.appendingPathComponent(path)
     }
+
+    /// The other names an annotation database may hold `contig` under, as `ReferenceBundle.annotationQueryChromosomes`
+    /// collects them. They are the contig's manifest name, its aliases, then the database's names that
+    /// `mapVCFChromosomes` maps to it, sorted, since the live query takes them in dictionary order.
+    public func annotationChromosomeNames(contig: String, databaseURL: URL) throws -> [String] {
+        let chromosomes = manifest.genome?.chromosomes ?? []
+        guard let chromosome = chromosomes.first(where: { $0.name == contig }) else { return [] }
+        let held = try AnnotationDatabase(url: databaseURL).allChromosomes()
+        let mapped = mapVCFChromosomes(held, toBundleChromosomes: chromosomes)
+            .filter { $0.value == chromosome.name }.map(\.key).sorted()
+        return [chromosome.name] + chromosome.aliases + mapped
+    }
+
+    /// The live view's map from a manifest contig name to the name the alignments hold it under, built as
+    /// `SequenceViewerView.buildAlignmentChromosomeAliasMap` builds it. Every alignment track's metadata database
+    /// gives its contig lengths, and a manifest contig no alignment names takes the first unused alignment name of
+    /// the same length, in sorted order where the live view takes set order. `opened` lists each database read,
+    /// for the record.
+    public func alignmentChromosomeAliases() -> (map: [String: String], opened: [URL]) {
+        let chromosomes = manifest.genome?.chromosomes ?? []
+        var lengths: [String: Int64] = [:]
+        var opened: [URL] = []
+        for track in manifest.alignments {
+            guard let path = track.metadataDBPath else { continue }
+            let databaseURL = resolved(path)
+            guard let database = try? AlignmentMetadataDatabase(url: databaseURL) else { continue }
+            opened.append(databaseURL)
+            for stat in database.chromosomeStats() {
+                lengths[stat.chromosome] = stat.length
+            }
+        }
+        let unmatched = Set(lengths.keys).subtracting(chromosomes.map(\.name)).sorted()
+        guard !unmatched.isEmpty else { return ([:], opened) }
+        var map: [String: String] = [:]
+        var used = Set<String>()
+        for chromosome in chromosomes where lengths[chromosome.name] == nil {
+            if let match = unmatched.first(where: { !used.contains($0) && lengths[$0] == chromosome.length }) {
+                map[chromosome.name] = match
+                used.insert(match)
+            }
+        }
+        return (map, opened)
+    }
 }
 
 extension ViewerGraphicExport {
@@ -133,6 +177,7 @@ extension ViewerGraphicExport {
         var inputs = [bundle.manifestURL]
         var notDrawn: [ViewerFigureOmission] = []
         var readRowCap: Int?
+        var alignmentAliases: (map: [String: String], opened: [URL])?
         let frame = ViewerFigureFrame(
             chromosome: region.contig, start: Double(region.start), end: Double(region.end),
             pixelWidth: Int((settings.width ?? defaultWidth).rounded()), sequenceLength: region.contigLength,
@@ -146,6 +191,7 @@ extension ViewerGraphicExport {
             if id == ViewerFigureSequenceTrack.trackID, let genome = manifest.genome {
                 let track = ViewerFigureSequenceTrack(
                     fastaURL: bundle.resolved(genome.path), indexURL: bundle.resolved(genome.indexPath),
+                    gzipIndexURL: genome.gzipIndexPath.map { bundle.resolved($0) },
                     height: height ?? ViewerFigureSequenceTrack.defaultHeight
                 )
                 builders.append(track)
@@ -157,8 +203,10 @@ extension ViewerGraphicExport {
                     continue
                 }
                 let databaseURL = bundle.resolved(databasePath)
+                let names = try bundle.annotationChromosomeNames(contig: region.contig, databaseURL: databaseURL)
                 let track = ViewerFigureAnnotationTrack(
-                    trackID: id, sources: [.init(id: id, name: info.name, databaseURL: databaseURL)],
+                    trackID: id,
+                    sources: [.init(id: id, name: info.name, databaseURL: databaseURL, chromosomeNames: names)],
                     height: height ?? defaultAnnotationHeight
                 )
                 builders.append(track)
@@ -172,16 +220,18 @@ extension ViewerGraphicExport {
                 let alignmentURL = bundle.resolved(info.sourcePath)
                 let indexURL = bundle.resolved(info.indexPath)
                 let referenceURL = info.format == .cram ? manifest.genome.map { bundle.resolved($0.path) } : nil
+                let aliases = alignmentAliases ?? bundle.alignmentChromosomeAliases()
+                alignmentAliases = aliases
                 let track = ViewerFigureReadTrack(
                     trackID: id,
                     source: .init(
                         alignmentPath: alignmentURL.path, indexPath: indexURL.path, format: info.format,
-                        referenceFastaPath: referenceURL?.path
+                        referenceFastaPath: referenceURL?.path, chromosomeAliases: aliases.map
                     ),
                     height: height ?? defaultReadHeight, options: options
                 )
                 builders.append(track)
-                inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? [])
+                inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? []) + aliases.opened
                 facts.append(ViewerGraphicTrackFact(id: id, kind: "alignment", displayMode: "packed", height: track.height))
             } else if let info = manifest.variants.first(where: { $0.id == id }) {
                 guard let databasePath = info.databasePath else {

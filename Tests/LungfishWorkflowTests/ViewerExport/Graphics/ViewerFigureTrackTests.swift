@@ -181,27 +181,24 @@ final class ViewerFigureSequenceTrackTests: XCTestCase {
         }
     }
 
-    func testACompressedFASTAIsRefusedWithAPlainError() async throws {
+    func testABgzippedFASTADrawsTheBasesOfThePlainFASTA() async throws {
         let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
         defer { TestTempDirectory.cleanup(root) }
-        // A bgzip FASTA holds gzip bytes where the bases start, which the reader cannot decode as text.
-        // The track refuses the file by its name until a later lane reads bgzip.
+        // 13.30 reads a bgzipped FASTA through `BgzipIndexedFASTAReader` with its `.gzi`, where 13.28-M3 refused it.
         let fasta = try ViewerFigureTrackFixture.write(in: root)
         let compressed = root.appendingPathComponent("figure.fa.gz")
-        try Data([0x1F, 0x8B, 0x08, 0x00]).write(to: compressed)
+        try ViewerGraphicBundleSourceTests.bgzf(try Data(contentsOf: fasta)).write(to: compressed)
         try FileManager.default.copyItem(at: fasta.appendingPathExtension("fai"), to: compressed.appendingPathExtension("fai"))
+        try Data(count: 8).write(to: compressed.appendingPathExtension("gzi"))
         let frame = ViewerFigureTrackFixture.frame(start: 100, end: 140, width: 400)
-        do {
-            _ = try await ViewerFigureSceneBuilder.build(
-                frame: frame, appearance: .light, tracks: [ViewerFigureSequenceTrack(fastaURL: compressed)]
-            )
-            XCTFail("a compressed FASTA built a scene")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "The sequence file figure.fa.gz is compressed, and figures cannot read compressed sequence files yet."
-            )
-        }
+        let plain = try await ViewerFigureSceneBuilder.build(
+            frame: frame, appearance: .light, tracks: [ViewerFigureSequenceTrack(fastaURL: fasta)]
+        )
+        let read = try await ViewerFigureSceneBuilder.build(
+            frame: frame, appearance: .light, tracks: [ViewerFigureSequenceTrack(fastaURL: compressed)]
+        )
+        XCTAssertEqual(try read.goldenJSON(), try plain.goldenJSON())
+        XCTAssertTrue(plain.items.count > 40, "each of the 40 bases is drawn")
     }
 
     func testInputFilesNameTheFASTAAndItsIndex() {
@@ -209,6 +206,11 @@ final class ViewerFigureSequenceTrackTests: XCTestCase {
         XCTAssertEqual(
             ViewerFigureSequenceTrack(fastaURL: fasta).inputFiles,
             [fasta, URL(fileURLWithPath: "/tmp/figure.fa.fai")]
+        )
+        let compressed = URL(fileURLWithPath: "/tmp/figure.fa.gz")
+        XCTAssertEqual(
+            ViewerFigureSequenceTrack(fastaURL: compressed).inputFiles,
+            [compressed, URL(fileURLWithPath: "/tmp/figure.fa.gz.fai"), URL(fileURLWithPath: "/tmp/figure.fa.gz.gzi")]
         )
     }
 
