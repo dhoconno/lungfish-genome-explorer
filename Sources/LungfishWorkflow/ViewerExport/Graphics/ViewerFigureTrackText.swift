@@ -41,21 +41,38 @@ public enum ViewerFigureTrackText {
 
     /// The system UI font in `face` at `size` points.
     public static func font(_ face: Face, size: Double) -> CTFont {
-        let base = CTFontCreateUIFontForLanguage(.system, CGFloat(size), nil)
-            ?? CTFontCreateWithName(ViewerFigureFonts.fallbackName as CFString, CGFloat(size), nil)
+        resolve(face, size: size).font
+    }
+
+    /// The face of `font(_:size:)` with the record of what was asked for and what was used, so a
+    /// figure that draws through these functions can keep a fallback in `scene.fonts` (BIO 4).
+    ///
+    /// A named face goes through `ViewerFigureFonts.resolve`, which checks the name it got back.
+    /// The system faces have only dot names, which `CTFontCreateWithName` refuses, so they come
+    /// from `CTFontCreateUIFontForLanguage`, and from `ViewerFigureFonts.fallbackName` by checked
+    /// name when it gives none.
+    public static func resolve(_ face: Face, size: Double) -> (font: CTFont, resolution: ViewerFigureFontResolution) {
+        if face == .monospacedSemibold,
+           let named = try? ViewerFigureFonts.resolve([monospacedSemiboldName, fallbackMonospacedName], size: size) {
+            return named
+        }
+        guard let system = CTFontCreateUIFontForLanguage(.system, CGFloat(size), nil) else {
+            let fallback = ViewerFigureFonts.font(named: ViewerFigureFonts.fallbackName, size: size)
+                ?? CTFontCreateWithName(ViewerFigureFonts.fallbackName as CFString, CGFloat(size), nil)
+            return (fallback, ViewerFigureFontResolution(
+                requested: ".AppleSystemUIFont", resolved: CTFontCopyPostScriptName(fallback) as String, size: size
+            ))
+        }
+        let font = systemFont(face, base: system, size: size)
+        let name = CTFontCopyPostScriptName(font) as String
+        return (font, ViewerFigureFontResolution(requested: name, resolved: name, size: size))
+    }
+
+    private static func systemFont(_ face: Face, base: CTFont, size: Double) -> CTFont {
         let attributes: [CFString: Any]
         switch face {
-        case .system:
+        case .system, .monospacedSemibold:
             return base
-        case .monospacedSemibold:
-            let named = CTFontCreateWithFontDescriptor(
-                CTFontDescriptorCreateWithAttributes([kCTFontNameAttribute: monospacedSemiboldName] as CFDictionary),
-                CGFloat(size), nil
-            )
-            guard CTFontCopyPostScriptName(named) as String == monospacedSemiboldName else {
-                return CTFontCreateWithName(fallbackMonospacedName as CFString, CGFloat(size), nil)
-            }
-            return named
         case .systemMedium:
             attributes = [kCTFontTraitsAttribute: [kCTFontWeightTrait: mediumWeight] as CFDictionary]
         case .monospacedDigitSystem:
