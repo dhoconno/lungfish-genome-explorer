@@ -20,7 +20,7 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
         BamFixtureBuilder.locateSamtools() ?? ""
     }
 
-    private func makeTempDir() throws -> URL {
+    func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("NaoMgsMaterializerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -43,7 +43,7 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
 
     /// Creates a minimal NAO-MGS SQLite database with one sample and a handful of virus_hits rows.
     /// Schema matches the real NaoMgsDatabase schema (R1 fields are nullable for R2-only rows).
-    private func makeTestDatabase(at dbURL: URL, sample: String = "S1", duplicateCount: Int = 3) throws {
+    func makeTestDatabase(at dbURL: URL, sample: String = "S1", duplicateCount: Int = 3) throws {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbURL.path, &db,
                                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else {
@@ -664,7 +664,7 @@ extension NaoMgsBamMaterializerTests {
         return path
     }
 
-    private func materializeForPin(dbURL: URL, tmp: URL, samtools: String, markDuplicates: Bool) throws -> NaoMgsBamMaterializationResult {
+    func materializeForPin(dbURL: URL, tmp: URL, samtools: String, markDuplicates: Bool) throws -> NaoMgsBamMaterializationResult {
         try NaoMgsBamMaterializer.materializeAllWithProvenance(
             dbPath: dbURL.path, resultURL: tmp, samtoolsPath: samtools,
             markDuplicates: markDuplicates, samtoolsVersion: "samtools-test", lungfishVersion: "test"
@@ -714,7 +714,7 @@ extension NaoMgsBamMaterializerTests {
         XCTAssertEqual(digest, expected, "samtools view -h text:\n\(text)", file: file, line: line)
     }
 
-    private func makeFakeSamtools(in tmp: URL, body: String) throws -> String {
+    func makeFakeSamtools(in tmp: URL, body: String) throws -> String {
         let url = tmp.appendingPathComponent("fake-samtools")
         try ("#!/bin/sh\n" + body).write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -723,7 +723,7 @@ extension NaoMgsBamMaterializerTests {
 
     /// `count` single-end rows at distinct positions, in one transaction. Each has CIGAR `100M`, and a
     /// `sequenceLength` other than 100 makes a row samtools rejects.
-    private func addSingleEndRows(to dbURL: URL, sample: String, count: Int, sequenceLength: Int = 100) throws {
+    func addSingleEndRows(to dbURL: URL, sample: String, count: Int, sequenceLength: Int = 100) throws {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { throw NSError(domain: "test", code: 3) }
         defer { sqlite3_close(db) }
@@ -742,7 +742,7 @@ extension NaoMgsBamMaterializerTests {
     }
 
     /// The warnings the materializer logged for `sample` since `start`, read back from this process's log.
-    private func materializerWarnings(forSample sample: String, since start: Date) throws -> [String] {
+    func materializerWarnings(forSample sample: String, since start: Date) throws -> [String] {
         let store = try OSLogStore(scope: .currentProcessIdentifier)
         let predicate = NSPredicate(format: "subsystem == %@ AND category == %@", "com.lungfish.io", "NaoMgsBamMaterializer")
         return try store.getEntries(at: store.position(date: start), matching: predicate)
