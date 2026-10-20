@@ -447,26 +447,27 @@ public actor EsVirituDatabaseManager {
         }
     }
 
-    /// Extracts a tar.gz archive to the specified directory.
+    /// Extracts a tar.gz archive to the specified directory on ``ToolProcess``.
     private func extractTarball(at tarball: URL, to destination: URL) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = [
-            "xzf", tarball.path,
-            "-C", destination.path,
-            "--strip-components=1",
-        ]
-
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: stderrData, encoding: .utf8) ?? "unknown error"
-            throw EsVirituDatabaseError.extractionFailed(stderr)
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: [
+                "xzf", tarball.path,
+                "-C", destination.path,
+                "--strip-components=1",
+            ],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            label: "tar"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        guard result.isSuccess else {
+            throw EsVirituDatabaseError.extractionFailed(result.stderrText)
         }
     }
 
