@@ -38,5 +38,5 @@ Target LungfishAlignmentUITests in Tests/LungfishAlignmentUITests. Run only it w
 |---|---|
 | No file in Sources/LungfishApp imports this module at a0eec8b32, so the viewport is not reachable from the app today | grep for `import LungfishAlignmentUI` finds only tests. The review plans to fold or fill it (R13) |
 | `Minimap2Pipeline` survives as this view's result type although the live mapping path is `ManagedMappingPipeline` | Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift (R15). Phase 0 keeps both untouched |
-| Splice-aware views for RNA-seq would land in the App renderer, which has no plug-in seam | Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift lines 312 to 328 handle CIGAR N and D (R13) |
+| Splice-aware views for RNA-seq would land in the read renderer of the figure folder, which has no plug-in seam | Sources/LungfishWorkflow/ViewerExport/Graphics/ReadTrackRenderer.swift lines 276 to 292 handle CIGAR N and D (R13) |
 | AppKit declares the `NSAccessibilityElement` getters outside the main actor, so overriding them to read main-actor state needs a concurrency hatch, which scripts/ratchets/concurrency-hatches.sh rejects | The distance grid uses plain elements set up through their setters, refreshed when selection, scroll or cell size change, with target and selector custom actions. See MSADistanceMatrixGridView+Accessibility.swift |

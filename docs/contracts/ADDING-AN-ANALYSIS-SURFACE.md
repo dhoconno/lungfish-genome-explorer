@@ -144,7 +144,7 @@ DE input is raw integer counts, or salmon estimated counts imported with transcr
 
 ### Stage 6. Splice-aware viewing
 
-The viewer adds a junction track built from the aligner's junction output or from CIGAR `N` operations, with counts split into uniquely and multiply mapped reads and a flag for annotated junctions. Coverage never counts CIGAR `N` skips or `D` deletions, which `Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift` already respects. Strand-specific coverage uses the recorded strandedness of each sample, so a reverse-stranded read 1 counts toward the opposite strand. Junction arcs and sashimi plots arrive as a `TrackRenderer` in the genome browser leaf from Phase 4c, not as new branches in the read renderer.
+The viewer adds a junction track built from the aligner's junction output or from CIGAR `N` operations, with counts split into uniquely and multiply mapped reads and a flag for annotated junctions. Coverage never counts CIGAR `N` skips or `D` deletions, which `Sources/LungfishWorkflow/ViewerExport/Graphics/ReadTrackRenderer.swift` already respects. Strand-specific coverage uses the recorded strandedness of each sample, so a reverse-stranded read 1 counts toward the opposite strand. Junction arcs and sashimi plots arrive as a `TrackRenderer` in the genome browser leaf from Phase 4c, not as new branches in the read renderer.
 
 ### Rules that hold across all six stages
 
