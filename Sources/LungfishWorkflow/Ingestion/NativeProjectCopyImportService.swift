@@ -58,9 +58,12 @@ package enum NativeProjectCopyImportService {
     ///   of, when known. It is recorded in the copy receipt so a copied item
     ///   remembers where it came from.
     /// - Parameter receipt: the command the receipt names. Nil names the app's `import-native`.
+    /// - Parameter checkCancellation: called between the chunks of both hashes, of each source file and of each
+    ///   copied file, and once before the copy. A throw stops the copy, removes its `.native-copy-` folder and
+    ///   publishes nothing (2.13 row COPY-CANCEL-CHECKS). The one copy call itself takes no check.
     package static func copy(
         from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil,
-        receipt: NativeCopyReceiptIdentity? = nil
+        receipt: NativeCopyReceiptIdentity? = nil, checkCancellation: () throws -> Void = {}
     ) throws -> URL {
         let fm = FileManager.default
         let source = source.standardizedFileURL
@@ -90,13 +93,14 @@ package enum NativeProjectCopyImportService {
         let startedAt = runClock.startedAt
         do {
             let sourceFiles = try payloadFiles(in: source, isDirectory: isDirectory)
-            let inputs = try sourceFiles.map { try ProvenanceFileDescriptor.file(url: $0, role: .input) }
+            let inputs = try sourceFiles.map { try descriptor(of: $0, role: .input, checkCancellation: checkCancellation) }
+            try checkCancellation()
             try fm.copyItem(at: source, to: staged)
             try materializeFileLinks(in: staged, isDirectory: isDirectory)
             let outputs = try zip(sourceFiles, inputs).map { original, input -> ProvenanceFileDescriptor in
                 let relative = try (isDirectory ? relativePath(of: original, within: source) : "")
                 let stagedFile = isDirectory ? staged.appendingPathComponent(relative) : staged
-                let copied = try ProvenanceFileDescriptor.file(url: stagedFile, role: .output)
+                let copied = try descriptor(of: stagedFile, role: .output, checkCancellation: checkCancellation)
                 guard copied.checksumSHA256 == input.checksumSHA256, copied.fileSize == input.fileSize else {
                     throw CocoaError(.fileReadCorruptFile, userInfo: [NSLocalizedDescriptionKey: "Source changed while copying \(original.path)."])
                 }
@@ -145,6 +149,16 @@ package enum NativeProjectCopyImportService {
         } catch {
             try publication.rollback(after: error)
         }
+    }
+
+    /// The descriptor `ProvenanceFileDescriptor.file(url:role:)` builds, with `checkCancellation` between the chunks
+    /// of the hash.
+    private static func descriptor(
+        of url: URL, role: FileRole, checkCancellation: () throws -> Void
+    ) throws -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(path: url.path,
+            checksumSHA256: try ProvenanceFileHasher.sha256(of: url, cancellationCheck: checkCancellation),
+            fileSize: try ProvenanceFileHasher.fileSize(of: url), role: role)
     }
 
     private static func relativePath(of file: URL, within root: URL) throws -> String {
