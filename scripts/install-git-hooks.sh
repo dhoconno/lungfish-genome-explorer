@@ -245,6 +245,12 @@ if ! python3 "$REPO_ROOT/scripts/checks/duplicate-public-types.py"; then
     exit 1
 fi
 
+echo "pre-push: checking Sources for literals the release portability scan forbids (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/source-portability.py"; then
+    echo "pre-push: source-portability check FAILED (a code line in Sources holds a string that scripts/release/scan-release-portability.py forbids in the app, so release.py package would fail 17 minutes in. The label after each path:line is the scanner's label, such as private-tmp. Split or reword the string as lineagePath does) - push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: checking that published screencasts agree with the Videos page (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/screencasts/publish.py" --check; then
     echo "pre-push: screencast publishing check FAILED (see docs/contracts/SCREENCASTS.md, Publishing) — push aborted. Use --no-verify to bypass." >&2
