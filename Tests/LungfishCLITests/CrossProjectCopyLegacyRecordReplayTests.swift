@@ -2,14 +2,19 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.18, BIO ruling on `caller` (answer 3) as the ruling on F3 (section 1) re-rules it. Side A
-// of the hidden key `CrossProjectCopyRoute`, the in-app copier, records a read bundle's copy as
+// Phase 2.12 lane 12.18, BIO ruling on `caller` (answer 3) as the ruling on F3 (section 1) re-rules it, frozen by
+// Phase 2.13 lane 13.03 (DEL-REST, review N1 item 3 of lane 12.18). A released Lungfish copied a read bundle
+// between projects in its own process and recorded the copy as
 // `lungfish fastq import-ont <source> --output <destination>` with `caller` `app-cross-project-copy`. Such a
-// record keeps replaying through the built CLI, since `fastq import-ont` still takes an existing bundle. The
-// envelope is read with the placeholder-only `PortablePath.resolveJSON`, never through
-// `ProvenanceEnvelopeReader`, whose re-root would turn the source item into the copy. The source comes from
-// `project-copy.json`'s `sourceItemPath`, the one record that keeps it in a form a replay can use. This test
-// stays after lane 13.03 deletes side A, since old records still replay.
+// record keeps replaying through the built CLI, since `fastq import-ont` still takes an existing bundle.
+//
+// The record is frozen as text in `CrossProjectCopyLegacyRecordFixture`, written once by that copier, so an edit
+// to the copier, the workflow or the hasher cannot change what this test calls old. The source of the replay is
+// built from the fixture's bytes. The envelope is read with the placeholder-only `PortablePath.resolveJSON`,
+// never through `ProvenanceEnvelopeReader`, whose re-root would turn the source item into the copy. The source
+// comes from `project-copy.json`'s `sourceItemPath`, the one record that keeps it in a form a replay can use,
+// moved from the example user's project onto the project this test builds. A released record is schema 1 and
+// has no `sourceItemFiles`, so the digests compared are the ones the copy's envelope names.
 
 import Foundation
 import XCTest
@@ -19,6 +24,8 @@ import LungfishTestSupport
 import LungfishWorkflow
 
 final class CrossProjectCopyLegacyRecordReplayTests: XCTestCase {
+    private typealias Fixture = CrossProjectCopyLegacyRecordFixture
+
     private var root: URL!
     private var sourceProject: URL!
     private var targetProject: URL!
@@ -37,9 +44,10 @@ final class CrossProjectCopyLegacyRecordReplayTests: XCTestCase {
     }
 
     func testAppCrossProjectCopyRecordReplaysThroughFastqImportONT() throws {
-        let source = try makeReadBundleWithProvenance("Imports/R.lungfishfastq")
-        let copy = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, requestedFolder: nil).destinationURL
+        let copy = try writeFrozenCopy("Imports/R.lungfishfastq")
         let record = try XCTUnwrap(ProjectItemCopyRecord.load(from: copy))
+        XCTAssertEqual(record.schemaVersion, 1, "a released record is schema 1")
+        XCTAssertNil(record.sourceItemFiles, "a released record has no sourceItemFiles")
         let sidecar = copy.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         let resolved = try PortablePath.resolveJSON(Data(contentsOf: sidecar), context: .forFile(at: sidecar))
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: resolved) as? [String: Any])
@@ -51,7 +59,7 @@ final class CrossProjectCopyLegacyRecordReplayTests: XCTestCase {
         var replay = try XCTUnwrap(json["durableReplayArgv"] as? [String])
         XCTAssertEqual(Array(replay.dropFirst().prefix(2)), ["fastq", "import-ont"], "\(replay)")
         XCTAssertGreaterThan(replay.count, 3, "\(replay)")
-        replay[3] = record.sourceItemPath
+        replay[3] = try writeReplaySource(for: record)
         let outputIndex = try XCTUnwrap(replay.firstIndex(of: "--output"), "\(replay)") + 1
         let replayFolder = root.appendingPathComponent("replay", isDirectory: true)
         try FileManager.default.createDirectory(at: replayFolder, withIntermediateDirectories: true)
@@ -67,14 +75,12 @@ final class CrossProjectCopyLegacyRecordReplayTests: XCTestCase {
             guard let checksum = output["checksumSHA256"] as? String, let path = output["path"] as? String else { continue }
             recorded[try XCTUnwrap(Self.relative(path, in: copy), path)] = checksum
         }
-        let sourceFiles = Dictionary(uniqueKeysWithValues: (record.sourceItemFiles ?? []).map { ($0.path, $0.sha256) })
         var compared = 0
         for file in Self.regularFiles(in: replayed) {
             let name = try XCTUnwrap(Self.relative(file.path, in: replayed), file.path)
             if name.hasSuffix(ProvenanceWriter.provenanceFilename) || name == ProjectItemCopyRecord.filename { continue }
             let digest = try ProvenanceFileHasher.sha256(of: file)
             XCTAssertEqual(digest, recorded[name], "\(name) regenerates the digest the old record names")
-            XCTAssertEqual(digest, sourceFiles[name], "\(name) holds the bytes the copy read")
             compared += 1
         }
         XCTAssertEqual(compared, recorded.count, "every output the old record names is compared")
@@ -83,22 +89,37 @@ final class CrossProjectCopyLegacyRecordReplayTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// A read bundle with readable provenance and no link into its project, so the copy goes through
-    /// `FASTQBundleCopyImportWorkflow`.
-    private func makeReadBundleWithProvenance(_ relative: String) throws -> URL {
-        let bundle = sourceProject.appendingPathComponent(relative, isDirectory: true)
-        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        let reads = bundle.appendingPathComponent("reads.fastq")
-        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
-        let output = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output)
-        let argv = ["source-fastq-tool", "reads.fastq"]
-        let step = ProvenanceStep(toolName: "source-fastq-tool", toolVersion: "1.0", argv: argv, outputs: [output], exitStatus: 0, wallTimeSeconds: 0.1)
-        let envelope = ProvenanceEnvelope(
-            workflowName: "source FASTQ bundle", workflowVersion: "1.0", toolName: "source-fastq-tool", toolVersion: "1.0",
-            argv: argv, files: [output], output: output, outputs: [output], steps: [step], wallTimeSeconds: 0.1, exitStatus: 0
+    /// The frozen copy at `relative` inside the target project, with its envelope and its schema 1 record.
+    private func writeFrozenCopy(_ relative: String) throws -> URL {
+        let copy = targetProject.appendingPathComponent(relative, isDirectory: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data(Fixture.copyProvenance.utf8).write(to: copy.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        try Data(Fixture.copyRecord.utf8).write(to: copy.appendingPathComponent(ProjectItemCopyRecord.filename))
+        return copy
+    }
+
+    /// The read bundle the old record names as its source, built from the fixture's bytes at the same place
+    /// inside the source project of this test. Returns its path. The bundle has readable provenance and no link
+    /// into its project, so the replay goes through `FASTQBundleCopyImportWorkflow`.
+    private func writeReplaySource(for record: ProjectItemCopyRecord) throws -> String {
+        let project = try XCTUnwrap(record.sourceProjectPath)
+        let relative = try XCTUnwrap(
+            ProjectItemLinkRewriter.relative(path: record.sourceItemPath, toAny: [project]), record.sourceItemPath
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundle)
-        return bundle
+        let bundle = sourceProject.appendingPathComponent(relative, isDirectory: true)
+        let envelope = Data(Fixture.sourceProvenance.utf8)
+        let files: [(String, Data)] = [
+            ("reads.fastq", Data(Fixture.sourceReads.utf8)),
+            (ProvenanceWriter.provenanceFilename, envelope),
+            ("provenance/bundle.lungfish-provenance.json", envelope),
+            ("provenance/reads.fastq.lungfish-provenance.json", envelope),
+        ]
+        for (name, data) in files {
+            let file = bundle.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file)
+        }
+        return bundle.path
     }
 
     /// `path` as a path inside `folder`, nil when it is outside, with symlinks such as `/var` resolved on both.
