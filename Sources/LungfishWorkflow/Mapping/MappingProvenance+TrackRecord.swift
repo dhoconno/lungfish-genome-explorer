@@ -40,4 +40,13 @@ extension MappingProvenance {
     public static func load(fromFile url: URL) -> MappingProvenance? {
         decoded(fromFile: url)
     }
+
+    /// The record a mapping folder holds as `mapping-provenance.json`, or the one a record file such as a track's
+    /// `<bam stem>.mapping-provenance.json` holds. Nil for any other file.
+    static func load(fromFolderOrRecord url: URL) -> MappingProvenance? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+        if isDirectory.boolValue { return load(from: url) }
+        return isRecordFilename(url.lastPathComponent) ? load(fromFile: url) : nil
+    }
 }

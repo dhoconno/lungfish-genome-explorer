@@ -580,7 +580,7 @@ public struct ProvenanceExporter: Sendable {
     private func isProvenanceSidecar(_ url: URL) -> Bool {
         let filename = url.lastPathComponent
         return filename == ProvenanceRecorder.provenanceFilename
-            || filename == MappingProvenance.filename
+            || MappingProvenance.isRecordFilename(filename)
             || filename == "annotation-edit-provenance.json"
             || filename == "manual-annotation-provenance.json"
             || filename == "extraction-metadata.json"

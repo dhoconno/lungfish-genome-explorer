@@ -163,9 +163,9 @@ public final class ProvenanceSidecarIndex: Sendable {
     /// The full record of a sidecar, as a walk visits it: a typed mapping record through its own
     /// type, and anything else through the tolerant reader, which re-roots its paths.
     static func readRecord(at url: URL) -> ProvenanceEnvelope? {
-        if url.lastPathComponent == MappingProvenance.filename {
+        if MappingProvenance.isRecordFilename(url.lastPathComponent) {
             let directory = url.deletingLastPathComponent()
-            return MappingProvenance.load(from: directory)?.recordedEnvelope(sourceDirectory: directory)
+            return MappingProvenance.load(fromFile: url)?.recordedEnvelope(sourceDirectory: directory)
         }
         return ProvenanceRecorder.loadEnvelope(fromSidecar: url)
     }
@@ -187,7 +187,7 @@ public final class ProvenanceSidecarIndex: Sendable {
     /// reader as before, and only the entry is kept.
     private static func indexedRecord(at url: URL) -> SidecarRead {
         guard let data = try? Data(contentsOf: url) else { return .unreadable }
-        if url.lastPathComponent != MappingProvenance.filename,
+        if !MappingProvenance.isRecordFilename(url.lastPathComponent),
            let light = try? ProvenanceJSON.decoder.decode(LightRecord.self, from: data) {
             return .record(IndexedRecord(light, context: PortablePath.Context.forFile(at: url)))
         }
@@ -237,7 +237,7 @@ public final class ProvenanceSidecarIndex: Sendable {
 
     private static func isSidecarName(_ name: String) -> Bool {
         name == ProvenanceRecorder.provenanceFilename
-            || name == MappingProvenance.filename
+            || MappingProvenance.isRecordFilename(name)
             || name.hasSuffix(".lungfish-provenance.json")
             || name.hasSuffix("-provenance.json")
     }
@@ -246,7 +246,7 @@ public final class ProvenanceSidecarIndex: Sendable {
         let name = url.lastPathComponent
         if name == ProvenanceRecorder.provenanceFilename { return 0 }
         if name.hasSuffix(".lungfish-provenance.json") { return 1 }
-        if name == MappingProvenance.filename { return 3 }
+        if MappingProvenance.isRecordFilename(name) { return 3 }
         return 2
     }
 

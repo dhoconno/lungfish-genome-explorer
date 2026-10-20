@@ -471,7 +471,7 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
     /// Whether a sidecar the chain merged reads as the Older record format. A typed mapping record
     /// counts as typed, because only the finder converts it.
     static func isOlderRecordFormat(sidecar url: URL) -> Bool {
-        guard url.lastPathComponent != MappingProvenance.filename,
+        guard !MappingProvenance.isRecordFilename(url.lastPathComponent),
               let reading = (try? ProvenanceEnvelopeReader.read(fromSidecar: url)) ?? nil else { return false }
         return isOlderRecordFormat(reading.shape)
     }

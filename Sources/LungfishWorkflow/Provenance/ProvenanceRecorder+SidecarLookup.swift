@@ -116,7 +116,11 @@ extension ProvenanceRecorder {
             return mappingProvenance
         } else {
             for candidate in fileSidecarCandidates(for: standardizedURL) {
-                if let reading = readRecord(fromSidecar: candidate) {
+                if MappingProvenance.isRecordFilename(candidate.lastPathComponent) {
+                    if let mappingProvenance = mappingProvenanceCandidate(atFile: candidate) {
+                        return mappingProvenance
+                    }
+                } else if let reading = readRecord(fromSidecar: candidate) {
                     return (candidate, reading)
                 }
             }
@@ -340,7 +344,7 @@ extension ProvenanceRecorder {
         return contents
             .filter { url in
                 let filename = url.lastPathComponent
-                guard !canonicalFilenames.contains(filename) else { return false }
+                guard !canonicalFilenames.contains(filename), !MappingProvenance.isRecordFilename(filename) else { return false }
                 guard filename.hasSuffix(".lungfish-provenance.json")
                     || filename.hasSuffix("-provenance.json") else {
                     return false
@@ -378,11 +382,14 @@ extension ProvenanceRecorder {
             + variantTrackSidecarCandidates(for: fileURL)
     }
 
+    /// The primer-trim and adopt records of an alignment, then the track's own typed mapping record, which the
+    /// finder reads as a typed record (2.13 lane 13.16).
     private static func alignmentArtifactSidecarCandidates(for fileURL: URL) -> [URL] {
         let alignmentURL = primaryAlignmentArtifactURL(for: fileURL)
         return [
             alignmentURL.deletingPathExtension().appendingPathExtension("primer-trim-provenance.json"),
             alignmentURL.deletingPathExtension().appendingPathExtension("adopt-mapping-provenance.json"),
+            MappingProvenance.trackRecordURL(forAlignmentAt: alignmentURL),
         ]
     }
 
@@ -483,8 +490,10 @@ extension ProvenanceRecorder {
             .sorted { $0.path < $1.path }
     }
 
+    /// A track's `<bam stem>.mapping-provenance.json` is a typed record, which the tolerant reader never reads.
     private static func isOperationProvenanceSidecarFilename(_ filename: String) -> Bool {
-        filename == provenanceFilename
+        guard filename == MappingProvenance.filename || !MappingProvenance.isRecordFilename(filename) else { return false }
+        return filename == provenanceFilename
             || filename == MappingProvenance.filename
             || filename == "annotation-edit-provenance.json"
             || filename == "manual-annotation-provenance.json"

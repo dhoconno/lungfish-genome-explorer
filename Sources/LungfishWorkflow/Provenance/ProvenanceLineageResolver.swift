@@ -130,8 +130,8 @@ public struct ProvenanceLineageResolver: Sendable {
                 guard !stopped() else { break }
                 visitDependency(dependency, from: current, supporting: &supporting)
             }
-            if !stopped(), let sourceRootURL, Self.isDirectory(sourceRootURL),
-               let mappingProvenance = MappingProvenance.load(from: sourceRootURL),
+            if !stopped(), let sourceRootURL,
+               let mappingProvenance = MappingProvenance.load(fromFolderOrRecord: sourceRootURL),
                let sourceReferenceBundlePath = mappingProvenance.sourceReferenceBundlePath {
                 visitReferenceBundle(URL(fileURLWithPath: sourceReferenceBundlePath), from: current, supporting: &supporting)
             }

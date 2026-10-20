@@ -35,7 +35,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: url.path)
         }
         guard isDirectory.boolValue else {
-            if url.lastPathComponent == MappingProvenance.filename,
+            if MappingProvenance.isRecordFilename(url.lastPathComponent),
                let resolved = ProvenanceRecorder.findProvenanceReading(for: url) {
                 return resolved
             }
