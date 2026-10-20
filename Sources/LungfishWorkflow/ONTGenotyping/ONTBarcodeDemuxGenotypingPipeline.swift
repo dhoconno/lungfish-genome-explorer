@@ -2789,72 +2789,53 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         arguments: [String],
         stderrURL: URL
     ) async throws -> String {
-        let process = Process()
-        process.executableURL = samtoolsURL
-        process.arguments = arguments
-        let stderrHandle = try fileHandleForWriting(to: stderrURL)
-        process.standardError = stderrHandle
-
-        let exit = ONTGenotypingProcessExitObservation()
-        process.terminationHandler = { terminatedProcess in
-            exit.record(status: terminatedProcess.terminationStatus)
-        }
-        let processes = ONTGenotypingMappingProcessGroup(processes: [process])
-        let requestTermination: @Sendable () -> Void = {
-            processes.requestTermination()
-        }
-
-        defer {
-            process.terminationHandler = nil
-            try? stderrHandle.close()
-        }
-
         try Task.checkCancellation()
-        try process.run()
-
-        let status: Int32
+        // The caller's environment, no stdout (merge and index write their files by name) and stderr to the
+        // log the caller names, as the mapping pipeline above runs samtools sort.
+        let spec = ToolProcessSpec(
+            executableURL: samtoolsURL,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            stderr: .file(stderrURL),
+            timeout: .seconds(Self.mappingProcessTimeout),
+            label: tool
+        )
+        let run: Result<ToolProcessResult, ToolProcessError>
         do {
-            status = try await ONTGenotypingProcessExitWaiter().wait(
-                tool: tool,
-                deadline: ONTGenotypingProcessDeadline(timeout: Self.mappingProcessTimeout),
-                observation: exit,
-                isRunning: { process.isRunning },
-                terminationStatus: { process.terminationStatus },
-                requestTermination: requestTermination
-            )
-        } catch let waitError as ONTGenotypingProcessWaitError {
-            requestTermination()
-            try? stderrHandle.close()
-            let seconds: TimeInterval
-            switch waitError {
-            case .timedOut(_, let timedOutSeconds):
-                seconds = timedOutSeconds
-            case .exitedNonzero(_, let status):
-                let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-                throw ONTBarcodeDemuxGenotypingError.processFailed(
-                    tool: tool,
-                    status: status,
-                    stderr: stderr
-                )
-            }
-            let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+            run = .success(try await ToolProcess.run(spec))
+        } catch {
+            run = .failure(error)
+        }
+        let result: ToolProcessResult
+        switch run {
+        case .success(let finished):
+            result = finished
+        case .failure(.cancelled):
+            throw CancellationError()
+        case .failure(.timedOut):
             throw ONTBarcodeDemuxGenotypingError.processTimedOut(
                 tool: tool,
-                seconds: seconds,
-                stderr: stderr
+                seconds: Self.mappingProcessTimeout,
+                stderr: (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
             )
-        } catch {
-            requestTermination()
+        case .failure(let error):
             throw error
         }
 
-        try? stderrHandle.close()
         let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
-        guard status == 0 else {
+        guard result.termination == .exited(code: 0) else {
             throw ONTBarcodeDemuxGenotypingError.processFailed(
                 tool: tool,
-                status: status,
+                status: result.status,
                 stderr: stderr
+            )
+        }
+        if let reason = result.incompleteOutputReason {
+            throw ONTBarcodeDemuxGenotypingError.processFailed(
+                tool: tool,
+                status: result.status,
+                stderr: [stderr, reason].filter { !$0.isEmpty }.joined(separator: "\n")
             )
         }
         return stderr
