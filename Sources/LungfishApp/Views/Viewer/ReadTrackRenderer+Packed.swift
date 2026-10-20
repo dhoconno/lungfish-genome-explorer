@@ -2,9 +2,10 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
+import CoreGraphics
+import Foundation
 import LungfishCore
-import LungfishKit
+import LungfishWorkflow
 
 extension ReadTrackRenderer {
 
@@ -21,7 +22,7 @@ extension ReadTrackRenderer {
     /// - Returns: Array of (row, read) pairs and the overflow count
     public static func packReads(
         _ reads: [AlignedRead],
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         maxRows: Int? = 75,
         sortMode: ReadSortMode = .position,
         sortPosition: Int? = nil,
@@ -208,7 +209,7 @@ extension ReadTrackRenderer {
     static func forEachVisiblePackedRead(
         packedReads: [(row: Int, read: AlignedRead)],
         layout: PackedReadLayout?,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         rect: CGRect,
         clipRect: CGRect?,
         readHeight: CGFloat,
@@ -280,7 +281,7 @@ extension ReadTrackRenderer {
     public static func drawPackedReads(
         packedReads: [(row: Int, read: AlignedRead)],
         overflow: Int,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         referenceSequence: String? = nil,
         referenceStart: Int = 0,
         settings: DisplaySettings = DisplaySettings(),
@@ -291,6 +292,7 @@ extension ReadTrackRenderer {
         clipRect: CGRect? = nil,
         mismatchCache: ReadMismatchCache? = nil,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect
     ) {
         context.saveGState()
@@ -313,8 +315,8 @@ extension ReadTrackRenderer {
         // in Dark Aqua. systemGray/tertiaryLabelColor are dynamic colors that resolve per
         // appearance. Both feed `.copy(alpha:)` below (mapqAlpha overrides alpha entirely), so
         // only hue/lightness matter here, not the alpha passed to withAlphaComponent.
-        let neutralFillPacked = NSColor.systemGray.cgColor
-        let neutralStrokePacked = NSColor.tertiaryLabelColor.cgColor
+        let neutralFillPacked = figureTheme.color(.systemGray).cgColor
+        let neutralStrokePacked = figureTheme.color(.tertiaryLabel).cgColor
         var colorCache: [UInt16: (fill: CGColor, stroke: CGColor)] = [:]
         func cachedColors(isReverse: Bool, mapq: UInt8) -> (fill: CGColor, stroke: CGColor) {
             let key = UInt16(isReverse ? 1 : 0) << 8 | UInt16(mapq)
@@ -323,8 +325,8 @@ extension ReadTrackRenderer {
             let fill: CGColor
             let stroke: CGColor
             if useStrandColors {
-                fill = (isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-                stroke = (isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+                fill = figureTheme.color(isReverse ? .reverseRead : .forwardRead).withAlpha(alpha).cgColor
+                stroke = figureTheme.color(isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(alpha).cgColor
             } else {
                 fill = neutralFillPacked.copy(alpha: alpha)!
                 stroke = neutralStrokePacked.copy(alpha: alpha)!
@@ -337,7 +339,7 @@ extension ReadTrackRenderer {
                 return cachedColors(isReverse: read.isReverse, mapq: read.mapq)
             }
             let alpha = mapqAlpha(read.mapq)
-            return readColors(for: read, colorMode: colorMode, alpha: alpha)
+            return readColors(for: read, colorMode: colorMode, alpha: alpha, figureTheme: figureTheme)
         }
 
         forEachVisiblePackedRead(
@@ -349,8 +351,8 @@ extension ReadTrackRenderer {
             readHeight: readHeight,
             rowGap: metrics.rowGap
         ) { read, y in
-            let startPx = frame.genomicToPixel(Double(read.position))
-            let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
+            let startPx = frame.screenPosition(for: Double(read.position))
+            let endPx = frame.screenPosition(for: Double(read.alignmentEnd))
             let readWidth = endPx - startPx
 
             guard readWidth >= minReadPixels else { return }
@@ -360,7 +362,7 @@ extension ReadTrackRenderer {
 
             // Draw soft-clip extensions (semi-transparent bars extending from read ends)
             if settings.showSoftClips {
-                drawSoftClipExtensions(read: read, frame: frame, context: context, y: y, readHeight: readHeight, alpha: alpha)
+                drawSoftClipExtensions(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y, readHeight: readHeight, alpha: alpha)
             }
 
             // Draw read rectangle with pointed end for strand
@@ -412,24 +414,24 @@ extension ReadTrackRenderer {
                     read: read, frame: frame, refBytes: refBytes, referenceStart: referenceStart,
                     mdMismatchPositions: mdMismatchPositions,
                     maskedPositions: maskedPositions,
-                    context: context, y: y, readHeight: readHeight
+                    context: context, figureTheme: figureTheme, y: y, readHeight: readHeight
                 )
             }
 
             // Draw deletion lines
             if settings.showIndels {
-                drawDeletions(read: read, frame: frame, context: context, y: y + readHeight / 2, readHeight: readHeight)
-                drawInsertionTicks(read: read, frame: frame, context: context, y: y, readHeight: readHeight)
+                drawDeletions(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y + readHeight / 2, readHeight: readHeight)
+                drawInsertionTicks(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y, readHeight: readHeight)
             }
         }
 
         if !maskedPositions.isEmpty {
-            drawMaskedColumns(maskedPositions, frame: frame, context: context, rect: rect)
+            drawMaskedColumns(maskedPositions, frame: frame, context: context, figureTheme: figureTheme, rect: rect)
         }
 
         // Draw overflow indicator
         if overflow > 0 {
-            drawOverflowIndicator(context: context, rect: rect, overflow: overflow, maxRowsLimit: maxRowsLimit)
+            drawOverflowIndicator(context: context, figureTheme: figureTheme, rect: rect, overflow: overflow, maxRowsLimit: maxRowsLimit)
         }
 
         context.restoreGState()

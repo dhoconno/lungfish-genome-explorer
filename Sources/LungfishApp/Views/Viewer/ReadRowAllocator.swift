@@ -4,6 +4,7 @@
 
 import CoreGraphics
 import Foundation
+import LungfishWorkflow
 
 /// Immutable snapshot of a `ReferenceFrame`'s genomic-to-pixel mapping.
 ///
@@ -34,9 +35,8 @@ public struct ReadPackFrame: Sendable, Equatable {
 }
 
 extension ReadPackFrame {
-    /// Snapshots a live viewport frame for use off the main actor.
-    @MainActor
-    public init(_ frame: ReferenceFrame) {
+    /// Snapshots a figure frame, such as a live viewport's `figureFrame`, for use off the main actor.
+    public init(_ frame: ViewerFigureFrame) {
         self.init(leadingInset: frame.leadingInset, start: frame.start, scale: frame.scale)
     }
 }

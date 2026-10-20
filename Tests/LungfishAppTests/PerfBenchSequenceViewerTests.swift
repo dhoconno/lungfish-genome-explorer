@@ -195,7 +195,7 @@ final class PerfBenchSequenceViewerTests: XCTestCase {
         }
         let (packed, overflow) = ReadTrackRenderer.packReads(
             readsForPacking,
-            frame: referenceFrame,
+            frame: referenceFrame.figureFrame,
             maxRows: key.maxRows,
             sortMode: .position,
             sortPosition: key.sortPosition,

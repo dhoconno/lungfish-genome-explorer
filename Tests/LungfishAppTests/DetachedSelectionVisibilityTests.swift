@@ -123,7 +123,7 @@ final class DetachedSelectionVisibilityTests: XCTestCase {
         let result = view.prepareDetachedReadLayout(region: region, frame: frame)
         view.testDrainPendingPack(
             reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
-            frame: ReadPackFrame(frame),
+            frame: ReadPackFrame(frame.figureFrame),
             maxRows: result.maxRows
         )
     }

@@ -280,7 +280,7 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
             prioritizedRegion: nil,
             filterWindow: nil
         )
-        let packed = ReadTrackRenderer.packReads(reads, frame: makeFrame(), maxRows: nil, sortMode: .position)
+        let packed = ReadTrackRenderer.packReads(reads, frame: makeFrame().figureFrame, maxRows: nil, sortMode: .position)
 
         XCTAssertTrue(
             view.commitPackedLayout(
@@ -310,7 +310,7 @@ final class ReadBudgetAndOffMainPackTests: XCTestCase {
             prioritizedRegion: nil,
             filterWindow: nil
         )
-        let packed = ReadTrackRenderer.packReads(reads, frame: makeFrame(), maxRows: nil, sortMode: .position)
+        let packed = ReadTrackRenderer.packReads(reads, frame: makeFrame().figureFrame, maxRows: nil, sortMode: .position)
 
         // The user zooms (or hits Escape) while the pack is in flight.
         view.cancelReadLoad()

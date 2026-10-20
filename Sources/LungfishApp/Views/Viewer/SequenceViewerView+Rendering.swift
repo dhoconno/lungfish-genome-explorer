@@ -413,8 +413,8 @@ extension SequenceViewerView {
                     depthPoints: cachedDepthPoints,
                     regionStart: visibleRegion.start,
                     regionEnd: visibleRegion.end,
-                    frame: frame,
-                    context: context,
+                    frame: frame.figureFrame,
+                    context: context, figureTheme: figureTheme,
                     rect: coverageRect,
                     scaleMode: coverageScaleModeSetting
                 )
@@ -535,7 +535,7 @@ extension SequenceViewerView {
                         requestBackgroundPack(
                             key: key,
                             reads: readsForPacking,
-                            frame: ReadPackFrame(frame),
+                            frame: ReadPackFrame(frame.figureFrame),
                             maxRows: maxRowsLimit,
                             sortMode: readSortModeSetting,
                             sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil
@@ -612,7 +612,7 @@ extension SequenceViewerView {
                     if !paintClipRect.isEmpty {
                         if tier == .packed {
                             ReadTrackRenderer.drawPackedReads(
-                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame.figureFrame,
                                 referenceSequence: cachedBundleSequence,
                                 referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
                                 settings: displaySettings,
@@ -622,11 +622,11 @@ extension SequenceViewerView {
                                 layout: cachedPackedReadLayout,
                                 clipRect: paintClipRect,
                                 mismatchCache: cachedReadMismatchCache,
-                                context: context, rect: drawRect
+                                context: context, figureTheme: figureTheme, rect: drawRect
                             )
                         } else {
                             ReadTrackRenderer.drawBaseReads(
-                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                                packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame.figureFrame,
                                 referenceSequence: cachedBundleSequence,
                                 referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
                                 settings: displaySettings,
@@ -636,7 +636,7 @@ extension SequenceViewerView {
                                 layout: cachedPackedReadLayout,
                                 clipRect: paintClipRect,
                                 mismatchCache: cachedReadMismatchCache,
-                                context: context, rect: drawRect
+                                context: context, figureTheme: figureTheme, rect: drawRect
                             )
                         }
                     }
@@ -771,8 +771,8 @@ extension SequenceViewerView {
             depthPoints: cachedDepthPoints,
             regionStart: region.start,
             regionEnd: region.end,
-            frame: frame,
-            context: context,
+            frame: frame.figureFrame,
+            context: context, figureTheme: figureTheme,
             rect: coverageRect,
             scaleMode: coverageScaleModeSetting
         )
@@ -822,9 +822,9 @@ extension SequenceViewerView {
             colorMode: readColorModeSetting
         )
         if tier == .packed {
-            ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
+            ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame.figureFrame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, figureTheme: figureTheme, rect: rect)
         } else {
-            ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, rect: rect)
+            ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame.figureFrame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, figureTheme: figureTheme, rect: rect)
             if source.referenceSequence == nil && ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: packed.contains(where: { $0.read.mdTag != nil })) {
                 drawTrackLoadingBadge(context: context, message: ReadTrackRenderer.noReferenceBadgeMessage, yOffset: rowsY + 2, tooltip: ReadTrackRenderer.noReferenceBadgeTooltip)
             }
@@ -869,7 +869,7 @@ extension SequenceViewerView {
             requestBackgroundPack(
                 key: key,
                 reads: cachedAlignedReads.filter { $0.chromosome == region.chromosome },
-                frame: ReadPackFrame(frame),
+                frame: ReadPackFrame(frame.figureFrame),
                 maxRows: maxRows,
                 sortMode: readSortModeSetting,
                 sortPosition: readSortModeSetting == .baseAtPosition ? readSortPositionSetting : nil

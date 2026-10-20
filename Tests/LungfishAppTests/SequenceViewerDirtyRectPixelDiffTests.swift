@@ -228,7 +228,7 @@ final class SequenceViewerDirtyRectPixelDiffTests: XCTestCase {
 
         let (packed, overflow) = ReadTrackRenderer.packReads(
             reads,
-            frame: referenceFrame,
+            frame: referenceFrame.figureFrame,
             maxRows: 75,
             sortMode: .position,
             sortPosition: nil,

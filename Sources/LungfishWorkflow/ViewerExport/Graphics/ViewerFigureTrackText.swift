@@ -23,7 +23,18 @@ public enum ViewerFigureTrackText {
         case systemMedium
         /// `NSFont.monospacedDigitSystemFont(ofSize:weight: .regular)`.
         case monospacedDigitSystem
+        /// SF Mono semibold, `NSFont.monospacedSystemFont(ofSize:weight: .semibold)`.
+        case monospacedSemibold
     }
+
+    /// The PostScript name of SF Mono semibold, the system's monospaced UI face. CoreText gives
+    /// it from a descriptor that names it. When the face is missing, `font(_:size:)` gives
+    /// `fallbackMonospacedName` instead, so a figure that must record a fallback compares the
+    /// font's PostScript name with this one.
+    public static let monospacedSemiboldName = ".AppleSystemUIFontMonospaced-Semibold"
+
+    /// The face that stands in for SF Mono semibold when the system lacks it.
+    public static let fallbackMonospacedName = "Menlo-Bold"
 
     /// The weight AppKit gives `.medium`, `NSFont.Weight.medium.rawValue`.
     public static let mediumWeight = 0.23
@@ -36,6 +47,15 @@ public enum ViewerFigureTrackText {
         switch face {
         case .system:
             return base
+        case .monospacedSemibold:
+            let named = CTFontCreateWithFontDescriptor(
+                CTFontDescriptorCreateWithAttributes([kCTFontNameAttribute: monospacedSemiboldName] as CFDictionary),
+                CGFloat(size), nil
+            )
+            guard CTFontCopyPostScriptName(named) as String == monospacedSemiboldName else {
+                return CTFontCreateWithName(fallbackMonospacedName as CFString, CGFloat(size), nil)
+            }
+            return named
         case .systemMedium:
             attributes = [kCTFontTraitsAttribute: [kCTFontWeightTrait: mediumWeight] as CFDictionary]
         case .monospacedDigitSystem:

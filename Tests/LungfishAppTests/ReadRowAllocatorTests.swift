@@ -136,7 +136,7 @@ final class ReadRowAllocatorTests: XCTestCase {
             let expected = oracleAssign(ordered: ordered, frame: frame, maxRows: maxRows)
             let actual = ReadTrackRenderer.packReads(
                 reads,
-                frame: frame,
+                frame: frame.figureFrame,
                 maxRows: maxRows,
                 sortMode: .position,
                 prioritizedRegion: prioritized
@@ -187,7 +187,7 @@ final class ReadRowAllocatorTests: XCTestCase {
                 )
                 let expected = oracleAssign(ordered: ordered, frame: frame, maxRows: maxRows)
                 let actual = ReadTrackRenderer.packReads(
-                    reads, frame: frame, maxRows: maxRows, sortMode: mode
+                    reads, frame: frame.figureFrame, maxRows: maxRows, sortMode: mode
                 )
                 XCTAssertEqual(actual.overflow, expected.overflow, "mode \(mode) cap \(String(describing: maxRows))")
                 XCTAssertEqual(actual.packed.map(\.row), expected.packed.map(\.row), "mode \(mode) cap \(String(describing: maxRows))")
@@ -214,7 +214,7 @@ final class ReadRowAllocatorTests: XCTestCase {
             )
             let expected = oracleAssign(ordered: ordered, frame: frame, maxRows: maxRows)
             let actual = ReadTrackRenderer.packReads(
-                reads, frame: frame, maxRows: maxRows, sortMode: .baseAtPosition, sortPosition: 1_500
+                reads, frame: frame.figureFrame, maxRows: maxRows, sortMode: .baseAtPosition, sortPosition: 1_500
             )
             XCTAssertEqual(actual.overflow, expected.overflow)
             XCTAssertEqual(actual.packed.map(\.row), expected.packed.map(\.row))
@@ -283,7 +283,7 @@ final class ReadRowAllocatorTests: XCTestCase {
         )
         let started = Date()
         let result = ReadTrackRenderer.assignRows(
-            ordered: ordered, frame: ReadPackFrame(frame), maxRows: nil
+            ordered: ordered, frame: ReadPackFrame(frame.figureFrame), maxRows: nil
         )
         let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(result.packed.isEmpty)
@@ -314,7 +314,7 @@ final class ReadRowAllocatorTests: XCTestCase {
         }
         let started = Date()
         let result = ReadTrackRenderer.packReads(
-            reads, frame: frame, maxRows: nil, sortMode: .position
+            reads, frame: frame.figureFrame, maxRows: nil, sortMode: .position
         )
         let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(result.packed.isEmpty)

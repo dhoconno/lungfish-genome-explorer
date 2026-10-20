@@ -62,7 +62,7 @@ final class ReadLayoutCacheTests: XCTestCase {
         var result = view.prepareDetachedReadLayout(region: region, frame: frame)
         view.testDrainPendingPack(
             reads: view.testCachedAlignedReads.filter { $0.chromosome == region.chromosome },
-            frame: ReadPackFrame(frame),
+            frame: ReadPackFrame(frame.figureFrame),
             maxRows: result.maxRows
         )
         if result.packed.isEmpty {
@@ -237,7 +237,7 @@ final class ReadLayoutCacheTests: XCTestCase {
 
         let positionOrder = ReadTrackRenderer.packReads(
             reads,
-            frame: frame,
+            frame: frame.figureFrame,
             maxRows: nil,
             sortMode: .position,
             prioritizedRegion: nil
@@ -261,7 +261,7 @@ final class ReadLayoutCacheTests: XCTestCase {
 
         let (fresh, freshOverflow) = ReadTrackRenderer.packReads(
             reads.filter { $0.chromosome == region.chromosome },
-            frame: frame,
+            frame: frame.figureFrame,
             maxRows: maxRows,
             sortMode: .position,
             prioritizedRegion: region.start..<region.end

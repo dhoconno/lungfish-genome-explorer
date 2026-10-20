@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
-import LungfishKit
+import CoreText
+import LungfishWorkflow
 
 extension ReadTrackRenderer {
-    /// Base-mode insertion labels, one per insertion. The renderer has no instances, so it
-    /// looks the font up once for the life of the app and reuses it on every draw, see
-    /// `DrawingFont.keptMonospaced(ofSize:weight:)`.
-    static let insertionLabelFont = DrawingFont.keptMonospaced(ofSize: 7, weight: .semibold)
+    /// Base-mode insertion labels, one per insertion, in SF Mono semibold at 7 points, the face
+    /// `DrawingFont.keptMonospaced(ofSize: 7, weight: .semibold)` gave the live view.
+    static func insertionLabelFont() -> CTFont {
+        ViewerFigureTrackText.font(.monospacedSemibold, size: 7)
+    }
 }

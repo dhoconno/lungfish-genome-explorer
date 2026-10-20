@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 import LungfishTestSupport
 @testable import LungfishApp
+@testable import LungfishWorkflow
 @testable import LungfishCore
 
 @MainActor
@@ -37,18 +38,18 @@ final class ReadTrackRendererTests: XCTestCase {
         )
     }
 
-    /// Creates a ReferenceFrame for testing.
+    /// Creates the figure frame of a ReferenceFrame for testing.
     private func makeFrame(
         start: Double = 0,
         end: Double = 10000,
         pixelWidth: Int = 1000
-    ) -> ReferenceFrame {
+    ) -> ViewerFigureFrame {
         ReferenceFrame(
             chromosome: "chr1",
             start: start,
             end: end,
             pixelWidth: pixelWidth
-        )
+        ).figureFrame
     }
 
     // MARK: - Zoom Tier Detection
@@ -352,16 +353,16 @@ final class ReadTrackRendererTests: XCTestCase {
         // scale = (2000-1000)/1000 = 1 bp/px
         // genomicToPixel(pos) = (pos - start) / scale
 
-        XCTAssertEqual(frame.genomicToPixel(1000), 0, accuracy: 0.01)
-        XCTAssertEqual(frame.genomicToPixel(1500), 500, accuracy: 0.01)
-        XCTAssertEqual(frame.genomicToPixel(2000), 1000, accuracy: 0.01)
+        XCTAssertEqual(frame.screenPosition(for: 1000), 0, accuracy: 0.01)
+        XCTAssertEqual(frame.screenPosition(for: 1500), 500, accuracy: 0.01)
+        XCTAssertEqual(frame.screenPosition(for: 2000), 1000, accuracy: 0.01)
     }
 
     func testGenomicToPixelWithDifferentScale() {
         // 10000 bp over 500 px = 20 bp/px
         let frame = makeFrame(start: 0, end: 10000, pixelWidth: 500)
         // genomicToPixel(5000) = (5000-0) / 20 = 250
-        XCTAssertEqual(frame.genomicToPixel(5000), 250, accuracy: 0.01)
+        XCTAssertEqual(frame.screenPosition(for: 5000), 250, accuracy: 0.01)
     }
 
     // MARK: - AlignedRead Properties Used by Renderer
@@ -448,7 +449,7 @@ final class ReadTrackRendererTests: XCTestCase {
             ReadTrackRenderer.drawBaseReads(
                 packedReads: packed, overflow: overflow, frame: frame,
                 referenceSequence: nil, referenceStart: 0,
-                context: graphics.cgContext, rect: CGRect(x: 0, y: 0, width: 1000, height: 60)
+                context: graphics.cgContext, figureTheme: .light, rect: CGRect(x: 0, y: 0, width: 1000, height: 60)
             )
         }
         XCTAssertEqual(lookups, [], "insertion labels looked SF Mono Semibold up while drawing")
@@ -473,7 +474,7 @@ final class ReadTrackRendererTests: XCTestCase {
         )!
 
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        ReadTrackRenderer.drawCoverage(reads: reads, frame: frame, context: context, rect: rect)
+        ReadTrackRenderer.drawCoverage(reads: reads, frame: frame, context: context, figureTheme: .light, rect: rect)
         // If we reach here, no crash occurred
     }
 
@@ -497,7 +498,7 @@ final class ReadTrackRendererTests: XCTestCase {
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow,
-            frame: frame, context: context, rect: rect
+            frame: frame, context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -525,7 +526,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawBaseReads(
             packedReads: packed, overflow: overflow,
             frame: frame, referenceSequence: nil, referenceStart: 0,
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -541,7 +542,7 @@ final class ReadTrackRendererTests: XCTestCase {
         )!
 
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        ReadTrackRenderer.drawCoverage(reads: [], frame: frame, context: context, rect: rect)
+        ReadTrackRenderer.drawCoverage(reads: [], frame: frame, context: context, figureTheme: .light, rect: rect)
         // Should not crash with empty reads
     }
 
@@ -568,7 +569,7 @@ final class ReadTrackRendererTests: XCTestCase {
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow,
-            frame: frame, context: context, rect: rect
+            frame: frame, context: context, figureTheme: .light, rect: rect
         )
         // Should draw the overflow indicator bar without crash
     }
@@ -584,7 +585,7 @@ final class ReadTrackRendererTests: XCTestCase {
 
         // Zero-width rect should return early without crash
         let rect = CGRect(x: 0, y: 0, width: 0, height: 60)
-        ReadTrackRenderer.drawCoverage(reads: [makeRead()], frame: frame, context: context, rect: rect)
+        ReadTrackRenderer.drawCoverage(reads: [makeRead()], frame: frame, context: context, figureTheme: .light, rect: rect)
     }
 
     // MARK: - Strand-Based Read Colors
@@ -592,12 +593,12 @@ final class ReadTrackRendererTests: XCTestCase {
     func testForwardAndReverseReadsDifferentColors() {
         // Just verify the color constants are distinct
         XCTAssertNotEqual(
-            ReadTrackRenderer.forwardReadColor,
-            ReadTrackRenderer.reverseReadColor
+            ViewerFigureTheme.light.color(.forwardRead).cgColor,
+            ViewerFigureTheme.light.color(.reverseRead).cgColor
         )
         XCTAssertNotEqual(
-            ReadTrackRenderer.forwardCoverageColor,
-            ReadTrackRenderer.reverseCoverageColor
+            ViewerFigureTheme.light.color(.forwardCoverage).cgColor,
+            ViewerFigureTheme.light.color(.reverseCoverage).cgColor
         )
     }
 
@@ -640,7 +641,7 @@ final class ReadTrackRendererTests: XCTestCase {
 
     func testMismatchColorConstantsExist() {
         // Verify the color constants are present
-        XCTAssertNotNil(ReadTrackRenderer.softClipColor)
+        XCTAssertNotNil(ViewerFigureTheme.light.color(.softClip).cgColor)
     }
 
     // MARK: - Packed Mode Rendering with Reference Sequence
@@ -677,7 +678,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow, frame: frame,
             referenceSequence: refSeq, referenceStart: 0, settings: settings,
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
         // No crash = success
     }
@@ -702,7 +703,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow, frame: frame,
             referenceSequence: refSeq, referenceStart: 0, settings: settings,
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -726,7 +727,7 @@ final class ReadTrackRendererTests: XCTestCase {
             packedReads: packed, overflow: overflow, frame: frame,
             referenceSequence: nil, referenceStart: 0,
             settings: ReadTrackRenderer.DisplaySettings(showMismatches: true),
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -760,7 +761,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow, frame: frame,
             settings: ReadTrackRenderer.DisplaySettings(showSoftClips: true),
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -791,7 +792,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawPackedReads(
             packedReads: packed, overflow: overflow, frame: frame,
             settings: ReadTrackRenderer.DisplaySettings(showSoftClips: false),
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -820,7 +821,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawBaseReads(
             packedReads: packed, overflow: overflow, frame: frame,
             referenceSequence: refSeq, referenceStart: 0, settings: settings,
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -858,7 +859,7 @@ final class ReadTrackRendererTests: XCTestCase {
         ReadTrackRenderer.drawBaseReads(
             packedReads: packed, overflow: overflow, frame: frame,
             referenceSequence: refSeq, referenceStart: 0, settings: settings,
-            context: context, rect: rect
+            context: context, figureTheme: .light, rect: rect
         )
     }
 
@@ -1098,8 +1099,8 @@ final class ReadTrackRendererTests: XCTestCase {
         let forward = makeRead(flag: 99) // forward
         let reverse = makeRead(flag: 147) // reverse
 
-        let (fwdFill, _) = ReadTrackRenderer.readColors(for: forward, colorMode: .strand, alpha: 1.0)
-        let (revFill, _) = ReadTrackRenderer.readColors(for: reverse, colorMode: .strand, alpha: 1.0)
+        let (fwdFill, _) = ReadTrackRenderer.readColors(for: forward, colorMode: .strand, alpha: 1.0, figureTheme: .light)
+        let (revFill, _) = ReadTrackRenderer.readColors(for: reverse, colorMode: .strand, alpha: 1.0, figureTheme: .light)
 
         // Forward and reverse should produce different colors
         XCTAssertNotEqual(fwdFill, revFill, "Forward and reverse should have different fill colors")
@@ -1114,7 +1115,7 @@ final class ReadTrackRendererTests: XCTestCase {
             qualities: Array(repeating: 30, count: 100),
             mateChromosome: "chr1", matePosition: 300, insertSize: 400
         )
-        let (normalFill, _) = ReadTrackRenderer.readColors(for: normal, colorMode: .insertSize, alpha: 1.0)
+        let (normalFill, _) = ReadTrackRenderer.readColors(for: normal, colorMode: .insertSize, alpha: 1.0, figureTheme: .light)
 
         // Too large insert size
         let tooLarge = AlignedRead(
@@ -1124,7 +1125,7 @@ final class ReadTrackRendererTests: XCTestCase {
             qualities: Array(repeating: 30, count: 100),
             mateChromosome: "chr1", matePosition: 5000, insertSize: 5000
         )
-        let (largeFill, _) = ReadTrackRenderer.readColors(for: tooLarge, colorMode: .insertSize, alpha: 1.0)
+        let (largeFill, _) = ReadTrackRenderer.readColors(for: tooLarge, colorMode: .insertSize, alpha: 1.0, figureTheme: .light)
 
         XCTAssertNotEqual(normalFill, largeFill, "Normal and too-large should have different colors")
     }
@@ -1132,8 +1133,8 @@ final class ReadTrackRendererTests: XCTestCase {
     func testReadColorsInsertSizeNotApplicable() {
         // Unpaired read in insertSize mode should fall back to strand colors
         let unpaired = makeRead(flag: 0) // not paired
-        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .insertSize, alpha: 1.0)
-        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0)
+        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .insertSize, alpha: 1.0, figureTheme: .light)
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0, figureTheme: .light)
 
         // Should match strand coloring since insertSize is notApplicable
         XCTAssertEqual(fill, strandFill, "NotApplicable insertSize should fall back to strand colors")
@@ -1144,9 +1145,9 @@ final class ReadTrackRendererTests: XCTestCase {
         let lowQ = makeRead(mapq: 5)
         let unavailable = makeRead(mapq: 255)
 
-        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .mappingQuality, alpha: 1.0)
-        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .mappingQuality, alpha: 1.0)
-        let (unavailFill, _) = ReadTrackRenderer.readColors(for: unavailable, colorMode: .mappingQuality, alpha: 1.0)
+        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .mappingQuality, alpha: 1.0, figureTheme: .light)
+        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .mappingQuality, alpha: 1.0, figureTheme: .light)
+        let (unavailFill, _) = ReadTrackRenderer.readColors(for: unavailable, colorMode: .mappingQuality, alpha: 1.0, figureTheme: .light)
 
         XCTAssertNotEqual(highFill, lowFill, "High and low MAPQ should have different colors")
         XCTAssertNotEqual(highFill, unavailFill, "MAPQ=255 should be distinct from high quality")
@@ -1163,18 +1164,18 @@ final class ReadTrackRendererTests: XCTestCase {
         )
 
         let colorMap = ["RG1": NSColor.red.cgColor, "RG2": NSColor.blue.cgColor]
-        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, readGroupColorMap: colorMap)
+        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, figureTheme: .light, readGroupColorMap: colorMap)
 
         // Should use the mapped color, not default strand colors
-        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0, figureTheme: .light)
         XCTAssertNotEqual(fill, strandFill, "Read group color should differ from strand color")
     }
 
     func testReadColorsReadGroupFallback() {
         // Read with no read group should fall back to strand colors
         let read = makeRead(flag: 99)
-        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, readGroupColorMap: [:])
-        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
+        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, figureTheme: .light, readGroupColorMap: [:])
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0, figureTheme: .light)
         XCTAssertEqual(fill, strandFill, "Missing read group should fall back to strand colors")
     }
 
@@ -1182,8 +1183,8 @@ final class ReadTrackRendererTests: XCTestCase {
         let first = makeRead(flag: 0x43) // paired + first in pair
         let second = makeRead(flag: 0x83) // paired + second in pair
 
-        let (firstFill, _) = ReadTrackRenderer.readColors(for: first, colorMode: .firstOfPair, alpha: 1.0)
-        let (secondFill, _) = ReadTrackRenderer.readColors(for: second, colorMode: .firstOfPair, alpha: 1.0)
+        let (firstFill, _) = ReadTrackRenderer.readColors(for: first, colorMode: .firstOfPair, alpha: 1.0, figureTheme: .light)
+        let (secondFill, _) = ReadTrackRenderer.readColors(for: second, colorMode: .firstOfPair, alpha: 1.0, figureTheme: .light)
 
         XCTAssertNotEqual(firstFill, secondFill, "First and second in pair should have different colors")
     }
@@ -1191,8 +1192,8 @@ final class ReadTrackRendererTests: XCTestCase {
     func testReadColorsFirstOfPairUnpaired() {
         // Unpaired read in firstOfPair mode should fall back to strand colors
         let unpaired = makeRead(flag: 0)
-        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .firstOfPair, alpha: 1.0)
-        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0)
+        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .firstOfPair, alpha: 1.0, figureTheme: .light)
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0, figureTheme: .light)
         XCTAssertEqual(fill, strandFill, "Unpaired read should fall back to strand colors")
     }
 
@@ -1210,8 +1211,8 @@ final class ReadTrackRendererTests: XCTestCase {
             qualities: Array(repeating: UInt8(5), count: 10)
         )
 
-        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .baseQuality, alpha: 1.0)
-        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .baseQuality, alpha: 1.0)
+        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .baseQuality, alpha: 1.0, figureTheme: .light)
+        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .baseQuality, alpha: 1.0, figureTheme: .light)
 
         XCTAssertNotEqual(highFill, lowFill, "High and low base quality should have different colors")
     }
@@ -1225,15 +1226,15 @@ final class ReadTrackRendererTests: XCTestCase {
         )
 
         // Should not crash with empty qualities
-        let (fill, stroke) = ReadTrackRenderer.readColors(for: noQ, colorMode: .baseQuality, alpha: 1.0)
+        let (fill, stroke) = ReadTrackRenderer.readColors(for: noQ, colorMode: .baseQuality, alpha: 1.0, figureTheme: .light)
         XCTAssertNotNil(fill)
         XCTAssertNotNil(stroke)
     }
 
     func testReadColorsAlphaApplied() {
         let read = makeRead(flag: 99)
-        let (fill1, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
-        let (fill05, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 0.5)
+        let (fill1, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0, figureTheme: .light)
+        let (fill05, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 0.5, figureTheme: .light)
 
         // Alpha=0.5 fill should differ from alpha=1.0 fill
         XCTAssertNotEqual(fill1, fill05, "Different alpha values should produce different colors")
@@ -1447,7 +1448,7 @@ final class ReadTrackRendererTests: XCTestCase {
         )!
 
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        ReadTrackRenderer.drawCoverage(reads: reads, frame: frame, context: context, rect: rect)
+        ReadTrackRenderer.drawCoverage(reads: reads, frame: frame, context: context, figureTheme: .light, rect: rect)
         // The intron region should not contribute to coverage (N operations are skipped)
     }
 
@@ -1472,7 +1473,7 @@ final class ReadTrackRendererTests: XCTestCase {
         )!
 
         ReadTrackRenderer.drawSplitReadIndicators(
-            read: read, frame: frame, context: context,
+            read: read, frame: frame, context: context, figureTheme: .light,
             y: 10, readHeight: 14, currentChromosome: "chr1"
         )
     }
@@ -1497,7 +1498,7 @@ final class ReadTrackRendererTests: XCTestCase {
 
         // Should not crash; supplementary on chr2 should be skipped for chr1 view
         ReadTrackRenderer.drawSplitReadIndicators(
-            read: read, frame: frame, context: context,
+            read: read, frame: frame, context: context, figureTheme: .light,
             y: 10, readHeight: 14, currentChromosome: "chr1"
         )
     }
@@ -1532,7 +1533,7 @@ final class ReadTrackRendererTests: XCTestCase {
 
         let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         ReadTrackRenderer.drawMatePairLinks(
-            packedReads: packed, frame: frame, context: context,
+            packedReads: packed, frame: frame, context: context, figureTheme: .light,
             rect: rect, readHeight: 6
         )
     }
@@ -1634,8 +1635,8 @@ final class ReadTrackRendererTests: XCTestCase {
 
         // Verify visible reads have valid pixel positions
         for (_, read) in filteredPacked {
-            let startPx = frame.genomicToPixel(Double(read.position))
-            let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
+            let startPx = frame.screenPosition(for: Double(read.position))
+            let endPx = frame.screenPosition(for: Double(read.alignmentEnd))
             // Reads near viewport should have reasonable pixel positions
             XCTAssertGreaterThan(endPx, -1000, "Read should be near visible area")
             XCTAssertLessThan(startPx, 2000, "Read should be near visible area")

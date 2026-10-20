@@ -2,9 +2,9 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
+import CoreGraphics
+import Foundation
 import LungfishCore
-import LungfishKit
 import LungfishWorkflow
 
 // MARK: - ReadTrackRenderer
@@ -21,10 +21,10 @@ import LungfishWorkflow
 ///
 /// ## Design Notes
 ///
-/// Follows the `VariantTrackRenderer` pattern: a `@MainActor` enum with static
-/// methods for testability and reuse. The renderer does not maintain state;
-/// all data is passed as parameters.
-@MainActor
+/// Follows the `VariantTrackRenderer` pattern: an enum of static methods for
+/// testability and reuse. The renderer does not maintain state, all data is
+/// passed as parameters, and it draws a `ViewerFigureFrame` with the colours of
+/// a `ViewerFigureTheme`.
 public enum ReadTrackRenderer {
 
     // MARK: - Layout Constants
@@ -48,75 +48,37 @@ public enum ReadTrackRenderer {
     static let rowGapCompact: CGFloat = 1
 
     /// Height of the coverage track.
-    static let coverageTrackHeight: CGFloat = 60
+    public static let coverageTrackHeight: CGFloat = 60
 
     /// Maximum number of read rows to render.
     static let maxReadRows: Int = 75
 
     /// Minimum pixels per read to render individually.
-    nonisolated static let minReadPixels: CGFloat = 2
+    public nonisolated static let minReadPixels: CGFloat = 2
 
     /// Zoom tier thresholds.
-    static let coverageThresholdBpPerPx: Double = ReadViewportPolicy.coverageThresholdBpPerPx
-    static let baseThresholdBpPerPx: Double = ReadViewportPolicy.baseThresholdBpPerPx
+    public static let coverageThresholdBpPerPx: Double = 2.0
+    public static let baseThresholdBpPerPx: Double = 0.6
     /// In base tier, switch from dot-mode matches to letter-mode matches once bases are clearly legible.
     static let matchLetterThresholdPxPerBase: Double = 4.0
 
     // MARK: - Colors
 
-    /// Forward read fill color.
-    static let forwardReadColor = NSColor(red: 0.69, green: 0.77, blue: 0.87, alpha: 1.0).cgColor
-    /// Forward read stroke color.
-    static let forwardReadStroke = NSColor(red: 0.55, green: 0.65, blue: 0.77, alpha: 1.0).cgColor
-    /// Reverse read fill color.
-    static let reverseReadColor = NSColor(red: 0.87, green: 0.69, blue: 0.69, alpha: 1.0).cgColor
-    /// Reverse read stroke color.
-    static let reverseReadStroke = NSColor(red: 0.77, green: 0.55, blue: 0.55, alpha: 1.0).cgColor
-
-    /// Forward coverage area fill.
-    static let forwardCoverageColor = NSColor(red: 0.42, green: 0.60, blue: 0.77, alpha: 0.7).cgColor
-    /// Reverse coverage area fill.
-    static let reverseCoverageColor = NSColor(red: 0.77, green: 0.42, blue: 0.42, alpha: 0.7).cgColor
-
-    /// Base colors for mismatches (delegated to SemanticColors.DNA).
-    static let baseA = SemanticColors.DNA.baseA.cgColor
-    static let baseT = SemanticColors.DNA.baseT.cgColor
-    static let baseC = SemanticColors.DNA.baseC.cgColor
-    static let baseG = SemanticColors.DNA.baseG.cgColor
-    static let baseN = SemanticColors.DNA.baseN.cgColor
-    /// Match dot color.
-    static let matchDotColor = NSColor(white: 0.48, alpha: 0.82).cgColor
-    /// Insertion indicator color (magenta).
-    static let insertionColor = NSColor(red: 0.8, green: 0, blue: 0.8, alpha: 1.0).cgColor
-    /// Deletion line color.
-    static let deletionColor = NSColor.gray.cgColor
-    /// Soft-clip indicator color for packed mode (blue-gray).
-    static let softClipColor = NSColor(red: 0.5, green: 0.6, blue: 0.75, alpha: 0.6).cgColor
-
-    // Insert size coloring (IGV convention)
-    /// Normal insert size.
-    static let insertNormalColor = NSColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 1.0).cgColor
-    /// Insert size too small (potential deletion).
-    static let insertTooSmallColor = NSColor(red: 0.0, green: 0.0, blue: 0.85, alpha: 1.0).cgColor
-    /// Insert size too large (potential insertion).
-    static let insertTooLargeColor = NSColor(red: 0.85, green: 0.0, blue: 0.0, alpha: 1.0).cgColor
-    /// Inter-chromosomal mates.
-    static let insertInterchromosomalColor = NSColor(red: 0.6, green: 0.0, blue: 0.85, alpha: 1.0).cgColor
-    /// Abnormal orientation (inversion).
-    static let insertAbnormalOrientationColor = NSColor(red: 0.0, green: 0.75, blue: 0.75, alpha: 1.0).cgColor
-
-    // First/Second in pair coloring
-    static let firstInPairColor = NSColor(red: 0.45, green: 0.45, blue: 0.85, alpha: 1.0).cgColor
-    static let secondInPairColor = NSColor(red: 0.85, green: 0.45, blue: 0.45, alpha: 1.0).cgColor
-
-    /// Split-read indicator color (bright orange line connecting chimeric parts).
-    static let splitReadColor = NSColor(red: 1.0, green: 0.5, blue: 0.0, alpha: 0.8).cgColor
+    // The read, coverage, mismatch, insertion, deletion, soft-clip, insert-size, pair and
+    // split-read colours are the `ViewerFigureColorRole` roles of the same names, taken from the
+    // `ViewerFigureTheme` each draw function receives.
 
     // MARK: - Zoom Tier Detection
 
     /// Returns the appropriate zoom tier for the current scale.
     public static func zoomTier(scale: Double) -> ZoomTier {
-        ReadViewportPolicy.zoomTier(scale: scale)
+        if scale > coverageThresholdBpPerPx {
+            return .coverage
+        } else if scale > baseThresholdBpPerPx {
+            return .packed
+        } else {
+            return .base
+        }
     }
 
     /// Zoom tier for read rendering.
@@ -176,32 +138,33 @@ public enum ReadTrackRenderer {
     // MARK: - Color Mode Support
 
     /// Returns fill and stroke colors for a read based on the current color mode.
-    static func readColors(
+    public static func readColors(
         for read: AlignedRead,
         colorMode: ReadColorMode,
         alpha: CGFloat,
+        figureTheme: ViewerFigureTheme,
         expectedInsertSize: Int = 400,
         insertSizeStdDev: Int = 100,
         readGroupColorMap: [String: CGColor]? = nil
     ) -> (fill: CGColor, stroke: CGColor) {
         switch colorMode {
         case .strand:
-            let fill = (read.isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-            let stroke = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+            let fill = figureTheme.color(read.isReverse ? .reverseRead : .forwardRead).withAlpha(alpha).cgColor
+            let stroke = figureTheme.color(read.isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(alpha).cgColor
             return (fill, stroke)
 
         case .insertSize:
             let sizeClass = read.insertSizeClass(expectedInsertSize: expectedInsertSize, stdDev: insertSizeStdDev)
             let baseColor: CGColor
             switch sizeClass {
-            case .normal: baseColor = insertNormalColor
-            case .tooSmall: baseColor = insertTooSmallColor
-            case .tooLarge: baseColor = insertTooLargeColor
-            case .interchromosomal: baseColor = insertInterchromosomalColor
-            case .abnormalOrientation: baseColor = insertAbnormalOrientationColor
+            case .normal: baseColor = figureTheme.color(.insertNormal).cgColor
+            case .tooSmall: baseColor = figureTheme.color(.insertTooSmall).cgColor
+            case .tooLarge: baseColor = figureTheme.color(.insertTooLarge).cgColor
+            case .interchromosomal: baseColor = figureTheme.color(.insertInterchromosomal).cgColor
+            case .abnormalOrientation: baseColor = figureTheme.color(.insertAbnormalOrientation).cgColor
             case .notApplicable:
-                let fill = (read.isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-                let stroke = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+                let fill = figureTheme.color(read.isReverse ? .reverseRead : .forwardRead).withAlpha(alpha).cgColor
+                let stroke = figureTheme.color(read.isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(alpha).cgColor
                 return (fill, stroke)
             }
             let fill = baseColor.copy(alpha: alpha)!
@@ -237,17 +200,17 @@ public enum ReadTrackRenderer {
             if let rg = read.readGroup, let color = readGroupColorMap?[rg] {
                 return (color.copy(alpha: alpha)!, color.copy(alpha: max(alpha - 0.15, 0.1))!)
             }
-            let fill = (read.isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-            let stroke = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+            let fill = figureTheme.color(read.isReverse ? .reverseRead : .forwardRead).withAlpha(alpha).cgColor
+            let stroke = figureTheme.color(read.isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(alpha).cgColor
             return (fill, stroke)
 
         case .firstOfPair:
             guard read.isPaired else {
-                let fill = (read.isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-                let stroke = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+                let fill = figureTheme.color(read.isReverse ? .reverseRead : .forwardRead).withAlpha(alpha).cgColor
+                let stroke = figureTheme.color(read.isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(alpha).cgColor
                 return (fill, stroke)
             }
-            let baseColor = read.isFirstInPair ? firstInPairColor : secondInPairColor
+            let baseColor = figureTheme.color(read.isFirstInPair ? .firstInPair : .secondInPair).cgColor
             return (baseColor.copy(alpha: alpha)!, baseColor.copy(alpha: max(alpha - 0.15, 0.1))!)
 
         case .baseQuality:
@@ -281,7 +244,7 @@ public enum ReadTrackRenderer {
         let count = max(orderedGroups.count, 1)
         for (i, rg) in orderedGroups.enumerated() {
             let hue = CGFloat(i) / CGFloat(count)
-            let color = NSColor(hue: hue, saturation: 0.55, brightness: 0.75, alpha: 1.0).cgColor
+            let color = ViewerFigureColor(hue: Double(hue), saturation: 0.55, brightness: 0.75).cgColor
             map[rg] = color
         }
         return map
@@ -298,8 +261,9 @@ public enum ReadTrackRenderer {
     ///   - rect: Drawing rectangle for the coverage track
     public static func drawCoverage(
         reads: [AlignedRead],
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect
     ) {
         let pixelWidth = Int(rect.width)
@@ -316,8 +280,8 @@ public enum ReadTrackRenderer {
             for op in read.cigar {
                 switch op.op {
                 case .match, .seqMatch, .seqMismatch:
-                    let opStart = max(0, Int(frame.genomicToPixel(Double(refPos)) - rect.minX))
-                    let opEnd = min(pixelWidth - 1, Int(frame.genomicToPixel(Double(refPos + op.length)) - rect.minX))
+                    let opStart = max(0, Int(frame.screenPosition(for: Double(refPos)) - rect.minX))
+                    let opEnd = min(pixelWidth - 1, Int(frame.screenPosition(for: Double(refPos + op.length)) - rect.minX))
                     if opStart <= opEnd {
                         if read.isReverse {
                             for i in opStart...opEnd { reverseBins[i] += 1 }
@@ -344,7 +308,7 @@ public enum ReadTrackRenderer {
 
         // Draw forward coverage (bottom up)
         context.saveGState()
-        context.setFillColor(forwardCoverageColor)
+        context.setFillColor(figureTheme.color(.forwardCoverage).cgColor)
         let forwardPath = CGMutablePath()
         forwardPath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         for px in 0..<pixelWidth {
@@ -357,7 +321,7 @@ public enum ReadTrackRenderer {
         context.fillPath()
 
         // Draw reverse coverage (stacked on top of forward)
-        context.setFillColor(reverseCoverageColor)
+        context.setFillColor(figureTheme.color(.reverseCoverage).cgColor)
         let reversePath = CGMutablePath()
         reversePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         for px in 0..<pixelWidth {
@@ -375,7 +339,7 @@ public enum ReadTrackRenderer {
         context.fillPath()
 
         // Draw coverage outline
-        context.setStrokeColor(NSColor(white: 0.33, alpha: 1).cgColor)
+        context.setStrokeColor(figureTheme.color(.coverageOutline).cgColor)
         context.setLineWidth(0.5)
         let outlinePath = CGMutablePath()
         outlinePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
@@ -388,13 +352,13 @@ public enum ReadTrackRenderer {
 
         // Max coverage label
         if maxCoverage > 0 {
-            let label = "max: \(maxCoverage)x" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-            let size = label.size(withAttributes: attrs)
-            label.draw(at: CGPoint(x: rect.maxX - size.width - 4, y: rect.minY + 2), withAttributes: attrs)
+            let label = "max: \(maxCoverage)x"
+            let font = ViewerFigureTrackText.font(.monospacedDigitSystem, size: 9)
+            let width = CGFloat(ViewerFigureTrackText.width(label, font: font))
+            ViewerFigureTrackText.draw(
+                label, font: font, color: figureTheme.color(.secondaryLabel).cgColor,
+                topLeft: CGPoint(x: rect.maxX - width - 4, y: rect.minY + 2), in: context
+            )
         }
 
         context.restoreGState()
@@ -408,8 +372,9 @@ public enum ReadTrackRenderer {
         depthPoints: [CoveragePoint],
         regionStart: Int,
         regionEnd: Int,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect,
         scaleMode: CoverageScaleMode = .default
     ) {
@@ -449,7 +414,7 @@ public enum ReadTrackRenderer {
         context.saveGState()
 
         // Filled depth area
-        context.setFillColor(forwardCoverageColor)
+        context.setFillColor(figureTheme.color(.forwardCoverage).cgColor)
         let areaPath = CGMutablePath()
         areaPath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         for px in 0..<pixelWidth {
@@ -462,7 +427,7 @@ public enum ReadTrackRenderer {
         context.fillPath()
 
         // Outline
-        context.setStrokeColor(NSColor(white: 0.33, alpha: 1).cgColor)
+        context.setStrokeColor(figureTheme.color(.coverageOutline).cgColor)
         context.setLineWidth(0.6)
         let outlinePath = CGMutablePath()
         outlinePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
@@ -475,32 +440,33 @@ public enum ReadTrackRenderer {
 
         // Legend key
         let legendRect = CGRect(x: rect.minX + 4, y: rect.minY + 4, width: 10, height: 10)
-        context.setFillColor(forwardCoverageColor)
+        context.setFillColor(figureTheme.color(.forwardCoverage).cgColor)
         context.fill(legendRect)
-        context.setStrokeColor(NSColor(white: 0.25, alpha: 1).cgColor)
+        context.setStrokeColor(figureTheme.color(.coverageLegendStroke).cgColor)
         context.stroke(legendRect)
 
-        let legendAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ]
+        let legendFont = ViewerFigureTrackText.font(.system, size: 9)
+        let legendColor = figureTheme.color(.secondaryLabel).cgColor
         let depthLegend = scaleMode.axisLabel.map { "Depth (\($0))" } ?? "Depth"
-        (depthLegend as NSString).draw(at: CGPoint(x: legendRect.maxX + 4, y: rect.minY + 3), withAttributes: legendAttrs)
+        ViewerFigureTrackText.draw(
+            depthLegend, font: legendFont, color: legendColor,
+            topLeft: CGPoint(x: legendRect.maxX + 4, y: rect.minY + 3), in: context
+        )
 
         // Summary labels
-        let rightLabel = "max: \(maxDepth)x  mean: \(String(format: "%.1f", meanDepth))x" as NSString
-        let rightSize = rightLabel.size(withAttributes: legendAttrs)
-        rightLabel.draw(
-            at: CGPoint(x: rect.maxX - rightSize.width - 4, y: rect.minY + 2),
-            withAttributes: legendAttrs
+        let rightLabel = "max: \(maxDepth)x  mean: \(String(format: "%.1f", meanDepth))x"
+        let rightWidth = CGFloat(ViewerFigureTrackText.width(rightLabel, font: legendFont))
+        ViewerFigureTrackText.draw(
+            rightLabel, font: legendFont, color: legendColor,
+            topLeft: CGPoint(x: rect.maxX - rightWidth - 4, y: rect.minY + 2), in: context
         )
 
         let coveragePct = Double(stats.coveredBases) / Double(max(1, stats.span)) * 100
-        let leftDetail = "\(Int(coveragePct.rounded()))% covered" as NSString
-        let depthLegendWidth = (depthLegend as NSString).size(withAttributes: legendAttrs).width
-        leftDetail.draw(
-            at: CGPoint(x: legendRect.maxX + 8 + depthLegendWidth + 8, y: rect.minY + 3),
-            withAttributes: legendAttrs
+        let leftDetail = "\(Int(coveragePct.rounded()))% covered"
+        let depthLegendWidth = CGFloat(ViewerFigureTrackText.width(depthLegend, font: legendFont))
+        ViewerFigureTrackText.draw(
+            leftDetail, font: legendFont, color: legendColor,
+            topLeft: CGPoint(x: legendRect.maxX + 8 + depthLegendWidth + 8, y: rect.minY + 3), in: context
         )
 
         context.restoreGState()
@@ -514,7 +480,7 @@ public enum ReadTrackRenderer {
         depthPoints: [CoveragePoint],
         regionStart: Int,
         regionEnd: Int,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         rect: CGRect
     ) -> [Int] {
         let pixelWidth = Int(rect.width)
@@ -525,8 +491,8 @@ public enum ReadTrackRenderer {
             if point.depth <= 0 { continue }
             if point.position < regionStart || point.position >= regionEnd { continue }
 
-            let startX = frame.genomicToPixel(Double(point.position)) - rect.minX
-            let endX = frame.genomicToPixel(Double(point.position + 1)) - rect.minX
+            let startX = frame.screenPosition(for: Double(point.position)) - rect.minX
+            let endX = frame.screenPosition(for: Double(point.position + 1)) - rect.minX
             let startPx = max(0, Int(floor(startX)))
             let endPxExclusive = min(pixelWidth, max(startPx + 1, Int(ceil(endX))))
             if startPx >= pixelWidth || endPxExclusive <= 0 { continue }

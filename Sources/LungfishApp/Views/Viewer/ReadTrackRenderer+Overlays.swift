@@ -2,9 +2,10 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
+import CoreGraphics
+import Foundation
 import LungfishCore
-import LungfishKit
+import LungfishWorkflow
 
 extension ReadTrackRenderer {
 
@@ -79,7 +80,7 @@ extension ReadTrackRenderer {
     /// Used when `ReadColorMode.baseQuality` is active.
     static func drawBaseQualityOverlay(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
         y: CGFloat,
         readHeight: CGFloat
@@ -99,7 +100,7 @@ extension ReadTrackRenderer {
                     let q = read.qualities[byteIndex]
                     byteIndex += 1
 
-                    let x = frame.genomicToPixel(Double(refPos))
+                    let x = frame.screenPosition(for: Double(refPos))
                     refPos += 1
 
                     // Quality threshold: highlight bases below Q20
@@ -133,8 +134,9 @@ extension ReadTrackRenderer {
     /// to the supplementary alignment positions.
     static func drawSplitReadIndicators(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat,
         currentChromosome: String
@@ -145,7 +147,7 @@ extension ReadTrackRenderer {
         let readMidY = y + readHeight / 2
 
         context.saveGState()
-        context.setStrokeColor(splitReadColor)
+        context.setStrokeColor(figureTheme.color(.splitRead).cgColor)
         context.setLineWidth(1.5)
         context.setLineDash(phase: 0, lengths: [3, 2])
 
@@ -155,12 +157,12 @@ extension ReadTrackRenderer {
             // Draw arc connecting primary and supplementary
             let primaryEndPx: CGFloat
             if read.isReverse {
-                primaryEndPx = frame.genomicToPixel(Double(read.position))
+                primaryEndPx = frame.screenPosition(for: Double(read.position))
             } else {
-                primaryEndPx = frame.genomicToPixel(Double(read.alignmentEnd))
+                primaryEndPx = frame.screenPosition(for: Double(read.alignmentEnd))
             }
 
-            let suppStartPx = frame.genomicToPixel(Double(supp.position))
+            let suppStartPx = frame.screenPosition(for: Double(supp.position))
 
             // Arc height based on distance
             let dist = abs(suppStartPx - primaryEndPx)
@@ -191,7 +193,7 @@ extension ReadTrackRenderer {
                 triPath.addLine(to: CGPoint(x: suppStartPx + triSize, y: readMidY + triSize))
             }
             triPath.closeSubpath()
-            context.setFillColor(splitReadColor)
+            context.setFillColor(figureTheme.color(.splitRead).cgColor)
             context.addPath(triPath)
             context.fillPath()
         }
@@ -208,8 +210,9 @@ extension ReadTrackRenderer {
     /// which helps visualize fragment structure and insert sizes.
     static func drawMatePairLinks(
         packedReads: [(row: Int, read: AlignedRead)],
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect,
         readHeight: CGFloat
     ) {
@@ -220,7 +223,7 @@ extension ReadTrackRenderer {
         }
 
         context.saveGState()
-        context.setStrokeColor(NSColor(white: 0.6, alpha: 0.4).cgColor)
+        context.setStrokeColor(figureTheme.color(.mateLink).cgColor)
         context.setLineWidth(0.5)
 
         for (_, mates) in nameLookup where mates.count == 2 {
@@ -232,8 +235,8 @@ extension ReadTrackRenderer {
 
             let y = rect.minY + CGFloat(row1) * (readHeight + rowGap) + readHeight / 2
 
-            let end1 = frame.genomicToPixel(Double(read1.alignmentEnd))
-            let start2 = frame.genomicToPixel(Double(read2.position))
+            let end1 = frame.screenPosition(for: Double(read1.alignmentEnd))
+            let start2 = frame.screenPosition(for: Double(read2.position))
 
             // Draw connecting line between mates
             let left = min(end1, start2)
@@ -276,16 +279,5 @@ extension ReadTrackRenderer {
             }
         }
         return 255 // Position not covered by this read
-    }
-}
-
-// MARK: - ReferenceFrame Extension
-
-extension ReferenceFrame {
-
-    /// Converts a genomic position to a pixel X coordinate.
-    /// Equivalent to `screenPosition(for:)` — includes leadingInset offset.
-    func genomicToPixel(_ position: Double) -> CGFloat {
-        screenPosition(for: position)
     }
 }

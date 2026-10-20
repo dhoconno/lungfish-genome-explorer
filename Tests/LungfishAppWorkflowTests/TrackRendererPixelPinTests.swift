@@ -100,27 +100,27 @@ final class TrackRendererPixelPinTests: XCTestCase {
         return [
             PinCase(name: "coverage-reads", width: 200, height: 60, textRects: [CGRect(x: 120, y: 0, width: 80, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawCoverage(
-                    reads: coverageReads, frame: Self.frame(end: 200, width: 200), context: context,
+                    reads: coverageReads, frame: Self.frame(end: 200, width: 200).figureFrame, context: context, figureTheme: figureTheme,
                     rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
             PinCase(name: "coverage-depth", width: 200, height: 60, textRects: [CGRect(x: 16, y: 0, width: 184, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawCoverage(
-                    depthPoints: depth, regionStart: 0, regionEnd: 200, frame: Self.frame(end: 200, width: 200),
-                    context: context, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
+                    depthPoints: depth, regionStart: 0, regionEnd: 200, frame: Self.frame(end: 200, width: 200).figureFrame,
+                    context: context, figureTheme: figureTheme, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
             PinCase(name: "packed-reads", width: 200, height: 60, textRects: [CGRect(x: 30, y: 44, width: 140, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawPackedReads(
-                    packedReads: packed, overflow: 5, frame: Self.frame(end: 400, width: 200),
+                    packedReads: packed, overflow: 5, frame: Self.frame(end: 400, width: 200).figureFrame,
                     referenceSequence: String(repeating: "A", count: 400), referenceStart: 0, maxRowsLimit: 75,
-                    maskedPositions: [300, 301], context: context, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
+                    maskedPositions: [300, 301], context: context, figureTheme: figureTheme, rect: CGRect(x: 0, y: 0, width: 200, height: 60)
                 )
             },
             PinCase(name: "base-reads", width: 200, height: 50, textRects: [CGRect(x: 20, y: 34, width: 160, height: 16)]) { context, figureTheme in
                 ReadTrackRenderer.drawBaseReads(
-                    packedReads: bases, overflow: 2, frame: Self.frame(end: 20, width: 200),
-                    referenceSequence: reference, referenceStart: 0, maxRowsLimit: 75, context: context,
+                    packedReads: bases, overflow: 2, frame: Self.frame(end: 20, width: 200).figureFrame,
+                    referenceSequence: reference, referenceStart: 0, maxRowsLimit: 75, context: context, figureTheme: figureTheme,
                     rect: CGRect(x: 0, y: 0, width: 200, height: 50)
                 )
             },
@@ -204,7 +204,7 @@ final class TrackRendererPixelPinTests: XCTestCase {
     func testPackReadsKeepsItsRowsAndOverflowPastTheRowCap() {
         let stacked = (0..<80).map { Self.read(String(format: "s%02d", $0), flag: $0 % 2 == 0 ? 0 : 16, at: 100 + $0 % 3, cigar: [(.match, 50)]) }
         let reads = [Self.read("a", at: 0, cigar: [(.match, 50)])] + stacked + [Self.read("b", at: 170, cigar: [(.match, 30)])]
-        let result = ReadTrackRenderer.packReads(reads, frame: Self.frame(end: 400, width: 400), maxRows: 75)
+        let result = ReadTrackRenderer.packReads(reads, frame: Self.frame(end: 400, width: 400).figureFrame, maxRows: 75)
         let rows = result.packed.map { "\($0.read.name):\($0.row)" }.joined(separator: " ")
         if recording {
             print("PACKPIN overflow=\(result.overflow) \(rows)")

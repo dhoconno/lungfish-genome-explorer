@@ -2,9 +2,11 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
+import CoreGraphics
+import CoreText
+import Foundation
 import LungfishCore
-import LungfishKit
+import LungfishWorkflow
 
 extension ReadTrackRenderer {
 
@@ -24,7 +26,7 @@ extension ReadTrackRenderer {
     public static func drawBaseReads(
         packedReads: [(row: Int, read: AlignedRead)],
         overflow: Int,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         referenceSequence: String?,
         referenceStart: Int,
         settings: DisplaySettings = DisplaySettings(),
@@ -35,6 +37,7 @@ extension ReadTrackRenderer {
         clipRect: CGRect? = nil,
         mismatchCache: ReadMismatchCache? = nil,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect
     ) {
         context.saveGState()
@@ -50,10 +53,10 @@ extension ReadTrackRenderer {
         let cache = GlyphCache(font: font)
 
         // Pre-compute background colors for each strand to avoid per-read alloc
-        let fwdBgTemplate = NSColor(red: 0.84, green: 0.89, blue: 0.95, alpha: 1.0).cgColor
-        let revBgTemplate = NSColor(red: 0.95, green: 0.86, blue: 0.86, alpha: 1.0).cgColor
-        let neutralBgTemplate = NSColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0).cgColor
-        let neutralStroke = NSColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1.0).cgColor
+        let fwdBgTemplate = figureTheme.color(.baseReadForwardBackground).cgColor
+        let revBgTemplate = figureTheme.color(.baseReadReverseBackground).cgColor
+        let neutralBgTemplate = figureTheme.color(.baseReadNeutralBackground).cgColor
+        let neutralStroke = figureTheme.color(.baseReadNeutralStroke).cgColor
         let useStrandColors = settings.showStrandColors
         let colorMode = settings.colorMode
 
@@ -70,23 +73,23 @@ extension ReadTrackRenderer {
 
             // Draw soft-clip background extensions
             if settings.showSoftClips {
-                drawSoftClipExtensions(read: read, frame: frame, context: context, y: y, readHeight: readHeight, alpha: alpha)
+                drawSoftClipExtensions(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y, readHeight: readHeight, alpha: alpha)
             }
 
             // Draw read background
-            let startPx = frame.genomicToPixel(Double(read.position))
-            let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
+            let startPx = frame.screenPosition(for: Double(read.position))
+            let endPx = frame.screenPosition(for: Double(read.alignmentEnd))
             let readRect = CGRect(x: startPx, y: y, width: endPx - startPx, height: readHeight)
             let bgAlpha = max(0.35, alpha * 0.72)
             let bgColor: CGColor
             let borderColor: CGColor
             if useStrandColors, colorMode != .strand {
-                let modeColors = readColors(for: read, colorMode: colorMode, alpha: bgAlpha)
+                let modeColors = readColors(for: read, colorMode: colorMode, alpha: bgAlpha, figureTheme: figureTheme)
                 bgColor = modeColors.fill
                 borderColor = modeColors.stroke.copy(alpha: max(0.45, alpha * 0.7)) ?? modeColors.stroke
             } else if useStrandColors {
                 bgColor = (read.isReverse ? revBgTemplate : fwdBgTemplate).copy(alpha: bgAlpha)!
-                borderColor = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: max(0.45, alpha * 0.7))!
+                borderColor = figureTheme.color(read.isReverse ? .reverseReadStroke : .forwardReadStroke).withAlpha(max(0.45, alpha * 0.7)).cgColor
             } else {
                 bgColor = neutralBgTemplate.copy(alpha: bgAlpha)!
                 borderColor = neutralStroke.copy(alpha: max(0.45, alpha * 0.7))!
@@ -108,6 +111,7 @@ extension ReadTrackRenderer {
                 cachedMDMismatchPositions: mismatchCache?.positions(for: read),
                 hasMismatchCache: mismatchCache != nil,
                 context: context,
+                figureTheme: figureTheme,
                 y: y,
                 readHeight: readHeight,
                 font: font,
@@ -117,18 +121,18 @@ extension ReadTrackRenderer {
 
             // Draw insertion markers
             if settings.showIndels {
-                drawInsertionMarkers(read: read, frame: frame, context: context, y: y, readHeight: readHeight)
-                drawDeletions(read: read, frame: frame, context: context, y: y + readHeight / 2, readHeight: readHeight)
+                drawInsertionMarkers(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y, readHeight: readHeight)
+                drawDeletions(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y + readHeight / 2, readHeight: readHeight)
             }
         }
 
         if !maskedPositions.isEmpty {
-            drawMaskedColumns(maskedPositions, frame: frame, context: context, rect: rect)
+            drawMaskedColumns(maskedPositions, frame: frame, context: context, figureTheme: figureTheme, rect: rect)
         }
 
         // Draw overflow indicator
         if overflow > 0 {
-            drawOverflowIndicator(context: context, rect: rect, overflow: overflow, maxRowsLimit: maxRowsLimit)
+            drawOverflowIndicator(context: context, figureTheme: figureTheme, rect: rect, overflow: overflow, maxRowsLimit: maxRowsLimit)
         }
 
         context.restoreGState()
@@ -171,7 +175,7 @@ extension ReadTrackRenderer {
     /// Draws individual bases using CTFont glyph rendering (50-100x faster than NSString.draw).
     static func drawReadBases(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         refBytes: [UInt8]?,
         referenceStart: Int,
         showMismatches: Bool = true,
@@ -179,6 +183,7 @@ extension ReadTrackRenderer {
         cachedMDMismatchPositions: Set<Int>? = nil,
         hasMismatchCache: Bool = false,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat,
         font: CTFont,
@@ -192,20 +197,20 @@ extension ReadTrackRenderer {
 
         // Pre-compute alpha-modulated colors (Geneious-style: all bases colored by identity)
         let mismatchAlpha = max(alpha, 0.85)
-        let colorA = baseA.copy(alpha: mismatchAlpha)!
-        let colorT = baseT.copy(alpha: mismatchAlpha)!
-        let colorC = baseC.copy(alpha: mismatchAlpha)!
-        let colorG = baseG.copy(alpha: mismatchAlpha)!
-        let colorN = baseN.copy(alpha: mismatchAlpha)!
+        let colorA = figureTheme.color(.readBaseA).withAlpha(mismatchAlpha).cgColor
+        let colorT = figureTheme.color(.readBaseT).withAlpha(mismatchAlpha).cgColor
+        let colorC = figureTheme.color(.readBaseC).withAlpha(mismatchAlpha).cgColor
+        let colorG = figureTheme.color(.readBaseG).withAlpha(mismatchAlpha).cgColor
+        let colorN = figureTheme.color(.readBaseN).withAlpha(mismatchAlpha).cgColor
         // Match bases: colored but slightly dimmer than mismatches
         let matchAlpha = max(alpha * 0.72, 0.48)
-        let matchColorA = baseA.copy(alpha: matchAlpha)!
-        let matchColorT = baseT.copy(alpha: matchAlpha)!
-        let matchColorC = baseC.copy(alpha: matchAlpha)!
-        let matchColorG = baseG.copy(alpha: matchAlpha)!
-        let matchColorN = baseN.copy(alpha: matchAlpha)!
+        let matchColorA = figureTheme.color(.readBaseA).withAlpha(matchAlpha).cgColor
+        let matchColorT = figureTheme.color(.readBaseT).withAlpha(matchAlpha).cgColor
+        let matchColorC = figureTheme.color(.readBaseC).withAlpha(matchAlpha).cgColor
+        let matchColorG = figureTheme.color(.readBaseG).withAlpha(matchAlpha).cgColor
+        let matchColorN = figureTheme.color(.readBaseN).withAlpha(matchAlpha).cgColor
         // Dot mode: use gray dots for matches (clear visual distinction)
-        let matchDotAlpha = matchDotColor.copy(alpha: alpha)!
+        let matchDotAlpha = figureTheme.color(.matchDot).withAlpha(alpha).cgColor
         // Precomputed by `ReadMismatchCache` when the read batch was stored;
         // only fall back to parsing the MD tag when no cache was supplied.
         let mdMismatchPositions = hasMismatchCache
@@ -240,7 +245,7 @@ extension ReadTrackRenderer {
                         continue
                     }
 
-                    let x = frame.genomicToPixel(Double(refPos))
+                    let x = frame.screenPosition(for: Double(refPos))
 
                     // Resolves the render classification and the byte used for letter-mode
                     // glyph/color lookups from the RAW (unmasked) SEQ byte — this is the single
@@ -335,7 +340,7 @@ extension ReadTrackRenderer {
 
     /// Determines whether matched bases should be rendered as dots or letters in base-tier drawing.
     /// When bases are sufficiently wide, letters improve SNP readability.
-    static func shouldRenderMatchAsDot(showMismatches: Bool, pixelsPerBase: Double) -> Bool {
+    public static func shouldRenderMatchAsDot(showMismatches: Bool, pixelsPerBase: Double) -> Bool {
         showMismatches && pixelsPerBase < matchLetterThresholdPxPerBase
     }
 
@@ -551,18 +556,18 @@ extension ReadTrackRenderer {
     // MARK: - Degradation Badge (no reference + no MD tags)
 
     /// User-facing message for the "no reference, no MD tags" degradation badge.
-    static let noReferenceBadgeMessage = "No reference: all bases shown as mismatches"
+    public static let noReferenceBadgeMessage = "No reference: all bases shown as mismatches"
 
     /// Tooltip detail for the "no reference, no MD tags" degradation badge: states the two
     /// actionable remedies (load a reference bundle, or re-run with `samtools calmd` MD tags).
-    static let noReferenceBadgeTooltip =
+    public static let noReferenceBadgeTooltip =
         "No reference sequence is loaded and the alignment has no MD tags, so base identity cannot be " +
         "compared against the reference — every base renders as a mismatch letter. Load the reference " +
         "bundle used for mapping, or re-run alignment with samtools calmd to add MD tags."
 
     /// True when reads draw with NEITHER a loaded reference NOR MD tags — the condition under
     /// which `classifyBase` degrades to calling every base a mismatch. Drives the degradation badge.
-    static func shouldShowNoReferenceBadge(hasReference: Bool, hasMDTags: Bool) -> Bool {
+    public static func shouldShowNoReferenceBadge(hasReference: Bool, hasMDTags: Bool) -> Bool {
         !hasReference && !hasMDTags
     }
 }

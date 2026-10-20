@@ -38,3 +38,14 @@ extension ReferenceFrame {
         )
     }
 }
+
+// MARK: - ReferenceFrame Extension
+
+extension ReferenceFrame {
+
+    /// Converts a genomic position to a pixel X coordinate.
+    /// Equivalent to `screenPosition(for:)` — includes leadingInset offset.
+    func genomicToPixel(_ position: Double) -> CGFloat {
+        screenPosition(for: position)
+    }
+}

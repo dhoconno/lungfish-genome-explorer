@@ -2,9 +2,10 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import AppKit
+import CoreGraphics
+import Foundation
 import LungfishCore
-import LungfishKit
+import LungfishWorkflow
 
 extension ReadTrackRenderer {
 
@@ -14,23 +15,24 @@ extension ReadTrackRenderer {
     /// At wider zoom levels, mismatches within the same pixel column are coalesced.
     static func drawMismatchTicks(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         refBytes: [UInt8]?,
         referenceStart: Int,
         mdMismatchPositions: Set<Int>?,
         maskedPositions: Set<Int>,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat
     ) {
         let pixelsPerBase = 1.0 / frame.scale
         // Geneious-style cue in packed mode: mismatch ticks use nucleotide colors.
         let tickAlpha: CGFloat = 0.92
-        let colorA = baseA.copy(alpha: tickAlpha)!
-        let colorT = baseT.copy(alpha: tickAlpha)!
-        let colorC = baseC.copy(alpha: tickAlpha)!
-        let colorG = baseG.copy(alpha: tickAlpha)!
-        let colorN = baseN.copy(alpha: tickAlpha)!
+        let colorA = figureTheme.color(.readBaseA).withAlpha(tickAlpha).cgColor
+        let colorT = figureTheme.color(.readBaseT).withAlpha(tickAlpha).cgColor
+        let colorC = figureTheme.color(.readBaseC).withAlpha(tickAlpha).cgColor
+        let colorG = figureTheme.color(.readBaseG).withAlpha(tickAlpha).cgColor
+        let colorN = figureTheme.color(.readBaseN).withAlpha(tickAlpha).cgColor
 
         var lastMismatchPixel: Int = Int.min
         forEachPackedMismatch(
@@ -40,7 +42,7 @@ extension ReadTrackRenderer {
             mdMismatchPositions: mdMismatchPositions,
             maskedPositions: maskedPositions
         ) { refPos, upperRead in
-            let x = frame.genomicToPixel(Double(refPos))
+            let x = frame.screenPosition(for: Double(refPos))
             let px = Int(x)
             if px != lastMismatchPixel {
                 lastMismatchPixel = px
@@ -284,8 +286,9 @@ extension ReadTrackRenderer {
     /// Draws semi-opaque column overlays for masked (high-gap) positions.
     static func drawMaskedColumns(
         _ maskedPositions: Set<Int>,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect
     ) {
         guard !maskedPositions.isEmpty else { return }
@@ -295,11 +298,11 @@ extension ReadTrackRenderer {
         var runEnd = sorted[0]
 
         context.saveGState()
-        context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.9).cgColor)
+        context.setFillColor(figureTheme.color(.controlBackground).withAlpha(0.9).cgColor)
 
         func fillRun(_ start: Int, _ end: Int) {
-            let x0 = frame.genomicToPixel(Double(start))
-            let x1 = frame.genomicToPixel(Double(end + 1))
+            let x0 = frame.screenPosition(for: Double(start))
+            let x1 = frame.screenPosition(for: Double(end + 1))
             guard x1 > x0 else { return }
             context.fill(CGRect(x: x0, y: rect.minY, width: x1 - x0, height: rect.height))
         }
@@ -324,8 +327,9 @@ extension ReadTrackRenderer {
     /// indicating where the read sequence continues past the alignment boundary.
     static func drawSoftClipExtensions(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat,
         alpha: CGFloat
@@ -335,11 +339,11 @@ extension ReadTrackRenderer {
         // Check for leading soft clip
         if let first = read.cigar.first, first.op == .softClip {
             let clipBases = first.length
-            let alignStartPx = frame.genomicToPixel(Double(read.position))
-            let clipStartPx = frame.genomicToPixel(Double(read.position - clipBases))
+            let alignStartPx = frame.screenPosition(for: Double(read.position))
+            let clipStartPx = frame.screenPosition(for: Double(read.position - clipBases))
             let width = alignStartPx - clipStartPx
             if width >= 1 {
-                context.setFillColor(softClipColor.copy(alpha: alpha * 0.5)!)
+                context.setFillColor(figureTheme.color(.softClip).withAlpha(alpha * 0.5).cgColor)
                 context.fill(CGRect(x: clipStartPx, y: y, width: width, height: readHeight))
             }
         }
@@ -347,18 +351,15 @@ extension ReadTrackRenderer {
         // Check for trailing soft clip
         if let last = read.cigar.last, last.op == .softClip {
             let clipBases = last.length
-            let alignEndPx = frame.genomicToPixel(Double(read.alignmentEnd))
-            let clipEndPx = frame.genomicToPixel(Double(read.alignmentEnd + clipBases))
+            let alignEndPx = frame.screenPosition(for: Double(read.alignmentEnd))
+            let clipEndPx = frame.screenPosition(for: Double(read.alignmentEnd + clipBases))
             let width = clipEndPx - alignEndPx
             if width >= 1 {
-                context.setFillColor(softClipColor.copy(alpha: alpha * 0.5)!)
+                context.setFillColor(figureTheme.color(.softClip).withAlpha(alpha * 0.5).cgColor)
                 context.fill(CGRect(x: alignEndPx, y: y, width: width, height: readHeight))
             }
         }
     }
-
-    /// Intron (splice junction) indicator color — thin gray line, distinct from deletion.
-    static let intronColor = NSColor(white: 0.5, alpha: 0.7).cgColor
 
     /// Draws deletion and intron (N/skip) connecting lines for a read.
     ///
@@ -366,17 +367,18 @@ extension ReadTrackRenderer {
     /// thin solid lighter lines (matching IGV convention for RNA-seq data).
     static func drawDeletions(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat
     ) {
         var refPos = read.position
         for op in read.cigar {
             if op.op == .deletion {
-                let startPx = frame.genomicToPixel(Double(refPos))
-                let endPx = frame.genomicToPixel(Double(refPos + op.length))
-                context.setStrokeColor(deletionColor)
+                let startPx = frame.screenPosition(for: Double(refPos))
+                let endPx = frame.screenPosition(for: Double(refPos + op.length))
+                context.setStrokeColor(figureTheme.color(.deletion).cgColor)
                 context.setLineWidth(1)
                 context.setLineDash(phase: 0, lengths: [2, 2])
                 context.move(to: CGPoint(x: startPx, y: y))
@@ -385,9 +387,9 @@ extension ReadTrackRenderer {
                 context.setLineDash(phase: 0, lengths: [])
             } else if op.op == .skip {
                 // N operations (introns) — thin solid line, distinct from deletions
-                let startPx = frame.genomicToPixel(Double(refPos))
-                let endPx = frame.genomicToPixel(Double(refPos + op.length))
-                context.setStrokeColor(intronColor)
+                let startPx = frame.screenPosition(for: Double(refPos))
+                let endPx = frame.screenPosition(for: Double(refPos + op.length))
+                context.setStrokeColor(figureTheme.color(.intron).cgColor)
                 context.setLineWidth(0.5)
                 context.move(to: CGPoint(x: startPx, y: y))
                 context.addLine(to: CGPoint(x: endPx, y: y))
@@ -402,14 +404,15 @@ extension ReadTrackRenderer {
     /// Draws small insertion ticks (for packed mode).
     static func drawInsertionTicks(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat
     ) {
         for ins in read.insertions {
-            let x = frame.genomicToPixel(Double(ins.position))
-            context.setFillColor(insertionColor)
+            let x = frame.screenPosition(for: Double(ins.position))
+            context.setFillColor(figureTheme.color(.insertion).cgColor)
             context.fill(CGRect(x: x - 0.5, y: y - 1, width: 1, height: readHeight + 2))
         }
     }
@@ -417,17 +420,18 @@ extension ReadTrackRenderer {
     /// Draws insertion markers with triangle indicators (for base mode).
     static func drawInsertionMarkers(
         read: AlignedRead,
-        frame: ReferenceFrame,
+        frame: ViewerFigureFrame,
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         y: CGFloat,
         readHeight: CGFloat
     ) {
         let pixelsPerBase = 1.0 / frame.scale
-        let labelColor = NSColor(cgColor: insertionColor) ?? NSColor.magenta
+        let labelColor = figureTheme.color(.insertion).cgColor
         for ins in read.insertions {
-            let x = frame.genomicToPixel(Double(ins.position))
+            let x = frame.screenPosition(for: Double(ins.position))
             // Vertical line
-            context.setFillColor(insertionColor)
+            context.setFillColor(figureTheme.color(.insertion).cgColor)
             context.fill(CGRect(x: x - 0.8, y: y, width: 1.6, height: readHeight))
 
             // Small triangle pointing down
@@ -440,12 +444,10 @@ extension ReadTrackRenderer {
             context.fillPath()
 
             if let labelText = insertionLabel(for: ins.bases, pixelsPerBase: pixelsPerBase) {
-                let label = labelText as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: insertionLabelFont,
-                    .foregroundColor: labelColor
-                ]
-                label.draw(at: CGPoint(x: x + 2, y: y + 0.5), withAttributes: attrs)
+                ViewerFigureTrackText.draw(
+                    labelText, font: insertionLabelFont(), color: labelColor,
+                    topLeft: CGPoint(x: x + 2, y: y + 0.5), in: context
+                )
             }
         }
     }
@@ -475,6 +477,7 @@ extension ReadTrackRenderer {
     /// Draws the overflow indicator bar at the bottom of the track.
     static func drawOverflowIndicator(
         context: CGContext,
+        figureTheme: ViewerFigureTheme,
         rect: CGRect,
         overflow: Int,
         maxRowsLimit: Int?
@@ -483,25 +486,23 @@ extension ReadTrackRenderer {
         let barRect = CGRect(x: rect.minX, y: rect.maxY - barHeight, width: rect.width, height: barHeight)
 
         // A fixed near-white fill (NSColor(white: 0.88, ...)) put light secondaryLabelColor
-        // text on a light bar in Dark Aqua. quaternarySystemFill/labelColor track dark mode.
-        context.setFillColor(NSColor.quaternarySystemFill.cgColor)
+        // text on a light bar in Dark Aqua. The quaternarySystemFill and label roles track dark mode.
+        context.setFillColor(figureTheme.color(.quaternarySystemFill).cgColor)
         context.fill(barRect)
 
         // Text
-        let text: NSString
+        let text: String
         if let maxRowsLimit {
-            text = "+\(overflow) reads not shown (max \(maxRowsLimit) rows)" as NSString
+            text = "+\(overflow) reads not shown (max \(maxRowsLimit) rows)"
         } else {
-            text = "+\(overflow) reads not shown" as NSString
+            text = "+\(overflow) reads not shown"
         }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let size = text.size(withAttributes: attrs)
-        text.draw(
-            at: CGPoint(x: barRect.midX - size.width / 2, y: barRect.minY + (barHeight - size.height) / 2),
-            withAttributes: attrs
+        let font = ViewerFigureTrackText.font(.system, size: 9)
+        let width = CGFloat(ViewerFigureTrackText.width(text, font: font))
+        let height = CGFloat(ViewerFigureTrackText.boxHeight(font))
+        ViewerFigureTrackText.draw(
+            text, font: font, color: figureTheme.color(.label).cgColor,
+            topLeft: CGPoint(x: barRect.midX - width / 2, y: barRect.minY + (barHeight - height) / 2), in: context
         )
     }
 
