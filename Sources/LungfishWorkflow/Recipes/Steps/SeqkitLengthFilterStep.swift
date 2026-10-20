@@ -91,8 +91,11 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
                 r1: pairs.r1,
                 r2: pairs.r2,
                 format: .pairedR1R2,
+                readCount: pairs.counts?.output,
+                inputReadCount: pairs.counts?.input,
                 tool: .fastp,
                 arguments: pairs.invocation.arguments,
+                auxiliaryOutputs: pairs.invocation.auxiliaryOutputs,
                 exitStatus: pairs.invocation.exitStatus,
                 stderr: pairs.invocation.stderr,
                 startedAt: pairs.invocation.startedAt,
@@ -107,11 +110,19 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
             let merged = try await filterSingleStream(input.r1, input: input, context: context)
             let pairs = try await filterPairs(
                 r1: unmergedR1, r2: unmergedR2, input: input, context: context, label: "unmerged pairs")
+            // seqkit reports no count, so its merged reads are counted from
+            // their lines; fastp's report gives the pairs.
+            let mergedReads = try? await RecipeEngine.countReadsForRecipeStep(
+                StepOutput(r1: merged.r1, format: .single))
+            let readCount = mergedReads.flatMap { mergedCount in
+                pairs.counts.map { mergedCount + 2 * $0.output }
+            }
             return StepOutput(
                 r1: merged.r1,
                 r2: pairs.r1,
                 r3: pairs.r2,
                 format: .merged,
+                readCount: readCount,
                 tool: merged.tool,
                 arguments: merged.arguments,
                 exitStatus: merged.exitStatus,
@@ -180,7 +191,7 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
     /// length bounds. Adapter trimming, poly-G trimming, and quality
     /// filtering are all off so length is the only criterion.
     static func fastpPairArguments(
-        r1: URL, r2: URL, outR1: URL, outR2: URL,
+        r1: URL, r2: URL, outR1: URL, outR2: URL, report: URL,
         minLength: Int, maxLength: Int?, threads: Int
     ) -> [String] {
         var args = [
@@ -196,7 +207,7 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
         }
         args += [
             "-w", "\(threads)",
-            "-j", "/dev/null",
+            "-j", report.path,
             "-h", "/dev/null",
         ]
         return args
@@ -208,13 +219,16 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
         input: StepInput,
         context: StepContext,
         label: String
-    ) async throws -> (r1: URL, r2: URL, invocation: RecipeSupplementaryInvocation) {
+    ) async throws -> (
+        r1: URL, r2: URL, invocation: RecipeSupplementaryInvocation, counts: (input: Int, output: Int)?
+    ) {
         let prefix = input.format == .merged ? "_lengthfilter_unmerged" : "_lengthfilter"
         let outR1 = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_R1.fq.gz")
         let outR2 = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_R2.fq.gz")
+        let report = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_fastp_report.json")
 
         let args = Self.fastpPairArguments(
-            r1: r1, r2: r2, outR1: outR1, outR2: outR2,
+            r1: r1, r2: r2, outR1: outR1, outR2: outR2, report: report,
             minLength: minLength, maxLength: maxLength, threads: context.threads
         )
 
@@ -238,8 +252,9 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
             stderr: result.stderr,
             startedAt: fastpClock.startedAt,
             completedAt: completedAt,
-            outputFiles: [outR1, outR2]
+            outputFiles: [outR1, outR2],
+            auxiliaryOutputs: [report]
         )
-        return (outR1, outR2, invocation)
+        return (outR1, outR2, invocation, RecipeToolReportCounts.fastpPairs(reportAt: report))
     }
 }

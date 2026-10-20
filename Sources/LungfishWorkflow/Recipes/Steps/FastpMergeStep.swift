@@ -44,6 +44,7 @@ public struct FastpMergeStep: RecipeStepExecutor {
         let merged    = context.workspace.appendingPathComponent("\(context.sampleName)_merged.fq.gz")
         let unmergedR1 = context.workspace.appendingPathComponent("\(context.sampleName)_unmerged_R1.fq.gz")
         let unmergedR2 = context.workspace.appendingPathComponent("\(context.sampleName)_unmerged_R2.fq.gz")
+        let report = context.workspace.appendingPathComponent("\(context.sampleName)_merge_fastp_report.json")
 
         let args = [
             "-i", input.r1.path,
@@ -55,7 +56,7 @@ public struct FastpMergeStep: RecipeStepExecutor {
             "--overlap_len_require", "\(minOverlap)",
             "-A", "-G", "-Q", "-L",
             "-w", "\(context.threads)",
-            "-j", "/dev/null",
+            "-j", report.path,
             "-h", "/dev/null",
         ]
 
@@ -69,6 +70,7 @@ public struct FastpMergeStep: RecipeStepExecutor {
                 tool: "fastp", step: Self.typeID, stderr: result.stderr)
         }
 
+        let counts = RecipeToolReportCounts.fastpMerge(reportAt: report)
         if keepUnmerged {
             // r1 = merged reads, r2 = unmerged R1, r3 = unmerged R2
             return StepOutput(
@@ -76,13 +78,24 @@ public struct FastpMergeStep: RecipeStepExecutor {
                 r2: unmergedR1,
                 r3: unmergedR2,
                 format: .merged,
+                readCount: counts.map { $0.mergedReads + 2 * $0.unmergedPairs },
+                inputReadCount: counts?.inputPairs,
                 tool: .fastp,
-                arguments: result.arguments
+                arguments: result.arguments,
+                auxiliaryOutputs: [report]
             )
         }
 
         try? FileManager.default.removeItem(at: unmergedR1)
         try? FileManager.default.removeItem(at: unmergedR2)
-        return StepOutput(r1: merged, format: .single, tool: .fastp, arguments: result.arguments)
+        return StepOutput(
+            r1: merged,
+            format: .single,
+            readCount: counts?.mergedReads,
+            inputReadCount: counts?.inputPairs,
+            tool: .fastp,
+            arguments: result.arguments,
+            auxiliaryOutputs: [report]
+        )
     }
 }

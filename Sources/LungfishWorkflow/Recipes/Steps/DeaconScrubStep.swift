@@ -73,10 +73,13 @@ public struct DeaconScrubStep: RecipeStepExecutor {
                 tool: "deacon", step: Self.typeID, stderr: result.stderr)
         }
 
+        let counts = RecipeToolReportCounts.deaconPairs(summaryAt: summary)
         return StepOutput(
             r1: outR1,
             r2: outR2,
             format: .pairedR1R2,
+            readCount: counts?.output,
+            inputReadCount: counts?.input,
             tool: .deacon,
             arguments: result.arguments,
             auxiliaryOutputs: [summary]

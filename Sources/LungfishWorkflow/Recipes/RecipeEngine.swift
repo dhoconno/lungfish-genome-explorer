@@ -237,7 +237,11 @@ public final class RecipeEngine: Sendable {
         var reportableStepIndex = 0
 
         var stepRecords: [RecipeStepResult] = []
-        var previousReadCount: Int? = try? await Self.countReadsForRecipeStep(currentOutput)
+        // What the last recorded step wrote, which the next step reads. Counts
+        // come from each tool's report (fastp JSON, deacon summary); the input
+        // is never read just to count it. On 2026-10-20 a 30 GB `.gz` R1 was
+        // still being counted 21 minutes in, before fastp had started.
+        var previousReadCount: Int?
 
         for plannedStep in steps {
             let stepInput = StepInput(
@@ -312,6 +316,14 @@ public final class RecipeEngine: Sendable {
                 }
                 let commandArguments = currentOutput.arguments
                 let commandLine = commandArguments?.map(shellEscapeForRecipeCommand).joined(separator: " ")
+                // Only a step whose tool reports no count is counted, by the
+                // lines of its files.
+                var inputReadCount = currentOutput.inputReadCount ?? previousReadCount
+                if inputReadCount == nil {
+                    inputReadCount = try? await Self.countReadsForRecipeStep(StepOutput(
+                        r1: stepInput.r1, r2: stepInput.r2, r3: stepInput.r3, format: stepInput.format
+                    ))
+                }
                 var outputReadCount = currentOutput.readCount
                 if outputReadCount == nil {
                     outputReadCount = try? await Self.countReadsForRecipeStep(currentOutput)
@@ -337,7 +349,7 @@ public final class RecipeEngine: Sendable {
                     toolVersion: toolVersion,
                     commandLine: commandLine,
                     commandArguments: commandArguments,
-                    inputReadCount: previousReadCount,
+                    inputReadCount: inputReadCount,
                     outputReadCount: outputReadCount,
                     durationSeconds: stepDuration,
                     auxiliaryOutputPaths: currentOutput.auxiliaryOutputs.map(\.path),
@@ -368,7 +380,7 @@ public final class RecipeEngine: Sendable {
                         inputReadCount: nil,
                         outputReadCount: nil,
                         durationSeconds: duration,
-                        auxiliaryOutputPaths: [],
+                        auxiliaryOutputPaths: invocation.auxiliaryOutputs.map(\.path),
                         logicalComponents: logicalComponents,
                         executionOutputFiles: try invocation.outputFiles.map { outputURL in
                             RecipeStepOutputFile(
@@ -403,23 +415,22 @@ public final class RecipeEngine: Sendable {
         }.count
     }
 
+    /// Records in a step's files, counted from their lines rather than parsed:
+    /// pairs for R1/R2, the records of one stream, and every record of a merged
+    /// layout. Only for a step whose tool reports no count.
     static func countReadsForRecipeStep(_ output: StepOutput) async throws -> Int {
-        let reader = FASTQReader(validateSequence: false)
+        let files: [URL]
         switch output.format {
-        case .pairedR1R2:
-            return try await reader.countRecords(in: output.r1)
-        case .interleaved, .single, .mixed:
-            return try await reader.countRecords(in: output.r1)
+        case .pairedR1R2, .interleaved, .single, .mixed:
+            files = [output.r1]
         case .merged:
-            var count = try await reader.countRecords(in: output.r1)
-            if let r2 = output.r2 {
-                count += try await reader.countRecords(in: r2)
-            }
-            if let r3 = output.r3 {
-                count += try await reader.countRecords(in: r3)
-            }
-            return count
+            files = [output.r1, output.r2, output.r3].compactMap { $0 }
         }
+        return try await Task.detached(priority: .utility) {
+            try files.reduce(0) { total, file in
+                total + (try FASTQPairInterleaver.countRecords(in: file))
+            }
+        }.value
     }
 
     // MARK: - Private helpers
@@ -527,11 +538,14 @@ public final class RecipeEngine: Sendable {
 
         try Self.validateRequiredJSONReport(at: report, tool: "fastp", evidence: evidence)
         acceptedOutputs = true
+        let counts = RecipeToolReportCounts.fastpPairs(reportAt: report)
 
         return StepOutput(
             r1: outR1,
             r2: outR2,
             format: .pairedR1R2,
+            readCount: counts?.output,
+            inputReadCount: counts?.input,
             tool: .fastp,
             arguments: result.arguments,
             auxiliaryOutputs: [report],

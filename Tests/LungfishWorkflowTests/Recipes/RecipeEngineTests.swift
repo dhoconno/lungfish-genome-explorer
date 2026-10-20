@@ -216,6 +216,7 @@ final class RecipeEngineTests: XCTestCase {
             r2: root.appendingPathComponent("R2.fq.gz"),
             outR1: root.appendingPathComponent("out_R1.fq.gz"),
             outR2: root.appendingPathComponent("out_R2.fq.gz"),
+            report: root.appendingPathComponent("lengthfilter_fastp_report.json"),
             minLength: 50, maxLength: 300, threads: 3
         )
         // One paired fastp run: a pair is dropped when either mate fails.
@@ -227,6 +228,11 @@ final class RecipeEngineTests: XCTestCase {
         XCTAssertEqual(args.firstIndex(of: "-l").map { args[$0 + 1] }, "50")
         XCTAssertEqual(args.firstIndex(of: "--length_limit").map { args[$0 + 1] }, "300")
         XCTAssertEqual(args.firstIndex(of: "-w").map { args[$0 + 1] }, "3")
+        XCTAssertEqual(
+            args.firstIndex(of: "-j").map { args[$0 + 1] },
+            "/tmp/lf/lengthfilter_fastp_report.json",
+            "the report gives the step its read counts"
+        )
     }
 
     // MARK: - Mixed layout

@@ -66,6 +66,8 @@ public struct RecipeSupplementaryInvocation: Sendable {
     public let completedAt: Date?
     /// Files this invocation wrote, snapshotted before intermediate cleanup.
     public let outputFiles: [URL]
+    /// Machine-readable files the invocation emitted, such as its fastp report.
+    public let auxiliaryOutputs: [URL]
 
     public init(
         label: String,
@@ -75,7 +77,8 @@ public struct RecipeSupplementaryInvocation: Sendable {
         stderr: String? = nil,
         startedAt: Date? = nil,
         completedAt: Date? = nil,
-        outputFiles: [URL] = []
+        outputFiles: [URL] = [],
+        auxiliaryOutputs: [URL] = []
     ) {
         self.label = label
         self.tool = tool
@@ -85,6 +88,7 @@ public struct RecipeSupplementaryInvocation: Sendable {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.outputFiles = outputFiles
+        self.auxiliaryOutputs = auxiliaryOutputs
     }
 }
 
@@ -121,8 +125,11 @@ public struct StepOutput: Sendable {
     public let r3: URL?
     /// Format of the output data.
     public let format: RecipeFileFormat
-    /// Optional read count reported by the step (e.g. from fastp JSON stats).
+    /// Records the step wrote, as its tool's report gives them (fastp JSON,
+    /// deacon summary): pairs for R1/R2, every record of a merged layout.
     public let readCount: Int?
+    /// Records the step read, in the same units, when its tool's report gives them.
+    public let inputReadCount: Int?
     /// The native tool that was invoked to produce this output (nil for internal operations).
     public let tool: NativeTool?
     /// The reproducible argv used for the tool, including the executable path when available.
@@ -144,6 +151,7 @@ public struct StepOutput: Sendable {
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
+                inputReadCount: Int? = nil,
                 tool: NativeTool? = nil, arguments: [String]? = nil,
                 auxiliaryOutputs: [URL] = [], exitStatus: Int? = nil,
                 stderr: String? = nil, startedAt: Date? = nil,
@@ -155,6 +163,7 @@ public struct StepOutput: Sendable {
         self.r3 = r3
         self.format = format
         self.readCount = readCount
+        self.inputReadCount = inputReadCount
         self.tool = tool
         self.arguments = arguments
         self.auxiliaryOutputs = auxiliaryOutputs

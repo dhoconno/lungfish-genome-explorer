@@ -542,7 +542,7 @@ public enum FASTQPairInterleaver {
         while let chunk = try reader.readChunk() {
             if chunk.isEmpty { continue }
             sawBytes = true
-            for byte in chunk where byte == 0x0A { lines += 1 }
+            lines += newlineCount(in: chunk)
             lastByte = chunk[chunk.count - 1]
         }
         if sawBytes && lastByte != 0x0A { lines += 1 }
@@ -554,6 +554,21 @@ public enum FASTQPairInterleaver {
             )
         }
         return lines / 4
+    }
+
+    /// Newlines in `bytes`, found with `memchr` so a count of a step's output
+    /// runs at memory speed in any build.
+    private static func newlineCount(in bytes: [UInt8]) -> Int {
+        bytes.withUnsafeBufferPointer { buffer in
+            guard var cursor = buffer.baseAddress else { return 0 }
+            let end = cursor + buffer.count
+            var count = 0
+            while cursor < end, let found = memchr(cursor, 0x0A, end - cursor) {
+                count += 1
+                cursor = UnsafePointer(found.assumingMemoryBound(to: UInt8.self)) + 1
+            }
+            return count
+        }
     }
 
     private static func readRecord(
@@ -690,12 +705,17 @@ final class FASTQRawLineReader {
 
     func readChunk() throws -> [UInt8]? {
         guard !reachedEnd else { return nil }
-        let data = try readNext()
-        if data.isEmpty {
+        // A plain file's `read(upToCount:)` hands back an autoreleased buffer.
+        // Without a pool per chunk, a caller that never leaves its thread keeps
+        // every chunk.
+        let chunk = try autoreleasepool { () -> [UInt8] in
+            [UInt8](try readNext())
+        }
+        if chunk.isEmpty {
             try finishInput()
             return nil
         }
-        return [UInt8](data)
+        return chunk
     }
 
     func close() {
@@ -731,11 +751,13 @@ final class FASTQRawLineReader {
             buffer.removeSubrange(0..<position)
             position = 0
         }
-        let data = try readNext()
-        if data.isEmpty {
-            try finishInput()
-        } else {
+        let reachedEndOfInput = try autoreleasepool { () -> Bool in
+            let data = try readNext()
             buffer.append(contentsOf: data)
+            return data.isEmpty
+        }
+        if reachedEndOfInput {
+            try finishInput()
         }
     }
 

@@ -472,6 +472,30 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         let pairFilter = try XCTUnwrap(ingestion.recipeApplied?.stepResults.first { $0.stepName == "Remove short reads (unmerged pairs)" })
         XCTAssertEqual(pairFilter.tool, "fastp")
         XCTAssertEqual(pairFilter.commandArguments?.firstIndex(of: "-l").map { pairFilter.commandArguments![$0 + 1] }, "50")
+
+        // Each step's counts come from its tool's report, or from a count of
+        // its output's lines where it has none (the seqkit pass), never from
+        // parsing the reads again. The first step read every input pair, each
+        // step read what the one before it wrote, and the last step wrote
+        // every record the bundle holds.
+        let countedSteps = (ingestion.recipeApplied?.stepResults ?? []).filter {
+            $0.stepName != pairFilter.stepName && $0.tool != "clumpify.sh"
+        }
+        XCTAssertEqual(countedSteps.map(\.tool), ["fastp", "deacon", "fastp", "seqkit"])
+        XCTAssertEqual(countedSteps.first?.inputReadCount, try FASTQPairInterleaver.countRecords(in: pair.r1))
+        for (previous, step) in zip(countedSteps, countedSteps.dropFirst()) {
+            XCTAssertEqual(step.inputReadCount, previous.outputReadCount, "\(step.stepName) reads what \(previous.stepName) wrote")
+        }
+        XCTAssertEqual(countedSteps.last?.outputReadCount, classification.totalReadCount)
+
+        // The merge and the pair filter keep their fastp reports beside the
+        // fused step's, as evidence for those counts.
+        let mergeStep = try XCTUnwrap(countedSteps.first { $0.commandArguments?.contains("--merge") == true })
+        for (step, suffix) in [(mergeStep, "_merge_fastp_report.json"), (pairFilter, "_lengthfilter_unmerged_fastp_report.json")] {
+            let report = try XCTUnwrap(step.auxiliaryOutputPaths.first { $0.hasSuffix(suffix) }, "\(step.stepName): \(step.auxiliaryOutputPaths)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: report), "\(report) is in the bundle")
+            XCTAssertTrue(step.auxiliaryCommandPathRewrites.values.contains(report), "\(step.stepName) replays with the kept report")
+        }
     }
 
     private func requireManagedTools(_ tools: [NativeTool]) async throws {
