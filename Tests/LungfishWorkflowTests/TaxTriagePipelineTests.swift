@@ -1637,171 +1637,96 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(loaded.config.samples.count, 2)
     }
 
-    func testSerialBatchRunnerRunsSamplesInOrderAndPersistsAggregateResult() async throws {
+    // MARK: - The batch result (2.13 K1b)
+
+    // These three cases ran `TaxTriageSerialBatchRunner`, which no route ran after 2.12 K1. They run the batch result
+    // of `TaxTriageAnalysisRunTool` now, the one a TaxTriage batch publishes at its root, from one unit report per
+    // sample. The launch order, the sample folders and the root record are the plan's and the executor's, pinned by
+    // `TaxTriageAnalysisRunToolPlanTests` and `TaxTriageAnalysisRunToolReplayTests`.
+
+    func testABatchResultHoldsEverySampleInOrderAndIsPublishedAtTheRoot() throws {
         let tmpDir = try makeTempDirectory(prefix: "taxtriage-serial")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let recorder = SerialTaxTriageRecorder()
-        let runner = TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
-            await recorder.record(sampleConfig)
-            let sample = sampleConfig.samples[0]
-            let reportURL = sampleConfig.outputDirectory
-                .appendingPathComponent("top", isDirectory: true)
-                .appendingPathComponent("\(sample.sampleId).top_report.tsv")
-            try FileManager.default.createDirectory(
-                at: reportURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try "sample\torganism\n\(sample.sampleId)\tExample virus\n"
-                .write(to: reportURL, atomically: true, encoding: .utf8)
-            return TaxTriageResult(
-                config: sampleConfig,
-                runtime: 1.5,
-                exitCode: 0,
-                outputDirectory: sampleConfig.outputDirectory,
-                reportFiles: [reportURL],
-                allOutputFiles: [reportURL]
-            )
-        })
-
         let sourceBundles = [
             URL(fileURLWithPath: "/data/Alpha.lungfishfastq"),
             URL(fileURLWithPath: "/data/Beta.lungfishfastq"),
         ]
-        let config = TaxTriageConfig(
-            samples: [
-                TaxTriageSample(sampleId: "Alpha", fastq1: URL(fileURLWithPath: "/data/alpha.fastq.gz")),
-                TaxTriageSample(sampleId: "Beta", fastq1: URL(fileURLWithPath: "/data/beta.fastq.gz")),
-            ],
-            outputDirectory: tmpDir,
-            sourceBundleURLs: sourceBundles
-        )
+        let units = try ["Alpha", "Beta"].enumerated().map { index, id in
+            try batchUnit(index, id, root: tmpDir, files: ["top/\(id).top_report.tsv"], bundle: sourceBundles[index])
+        }
 
-        let result = try await runner.run(config: config)
-        let calls = await recorder.calls
+        let result = try XCTUnwrap(TaxTriageAnalysisRunTool.publishAggregateResult(of: units, planned: nil, root: tmpDir))
 
-        XCTAssertEqual(calls.map { $0.samples.map(\.sampleId) }, [["Alpha"], ["Beta"]])
-        XCTAssertEqual(
-            calls.map { $0.outputDirectory.deletingLastPathComponent().standardizedFileURL },
-            [tmpDir.standardizedFileURL, tmpDir.standardizedFileURL]
-        )
-        XCTAssertEqual(calls.map { $0.outputDirectory.lastPathComponent }, ["Alpha", "Beta"])
         XCTAssertEqual(result.outputDirectory.standardizedFileURL, tmpDir.standardizedFileURL)
         XCTAssertEqual(result.config.samples.map(\.sampleId), ["Alpha", "Beta"])
         XCTAssertEqual(result.reportFiles.count, 2)
         XCTAssertEqual(result.sourceBundleURLs, sourceBundles)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent("taxtriage-result.json").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent(".lungfish-provenance.json").path))
     }
 
-    func testSerialBatchRunnerExcludesWorkflowSourceFromAggregateOutputs() async throws {
+    func testABatchResultExcludesWorkflowSourceFromItsOutputs() throws {
         let tmpDir = try makeTempDirectory(prefix: "taxtriage-serial-source-filter")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let units = try ["SampleA", "SampleB"].enumerated().map { index, id in
+            try batchUnit(index, id, root: tmpDir, files: [
+                "report/\(id).organisms.report.txt", "workflow-source/taxtriage/assets/large-reference.tsv",
+            ])
+        }
 
-        let runner = TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
-            let sample = sampleConfig.samples[0]
-            let reportURL = sampleConfig.outputDirectory
-                .appendingPathComponent("report", isDirectory: true)
-                .appendingPathComponent("\(sample.sampleId).organisms.report.txt")
-            let workflowSourceURL = sampleConfig.outputDirectory
-                .appendingPathComponent("workflow-source/taxtriage/assets/large-reference.tsv")
-            try FileManager.default.createDirectory(
-                at: reportURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try FileManager.default.createDirectory(
-                at: workflowSourceURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try "organism\treads\nExample virus\t7\n".write(to: reportURL, atomically: true, encoding: .utf8)
-            try "large fixture\n".write(to: workflowSourceURL, atomically: true, encoding: .utf8)
-            return TaxTriageResult(
-                config: sampleConfig,
-                runtime: 1.0,
-                exitCode: 0,
-                outputDirectory: sampleConfig.outputDirectory,
-                reportFiles: [reportURL],
-                allOutputFiles: [reportURL, workflowSourceURL]
-            )
-        })
-
-        let config = TaxTriageConfig(
-            samples: [
-                TaxTriageSample(sampleId: "SampleA", fastq1: URL(fileURLWithPath: "/data/a.fastq.gz")),
-                TaxTriageSample(sampleId: "SampleB", fastq1: URL(fileURLWithPath: "/data/b.fastq.gz")),
-            ],
-            outputDirectory: tmpDir
-        )
-
-        let result = try await runner.run(config: config)
+        let result = try XCTUnwrap(TaxTriageAnalysisRunTool.aggregateResult(of: units, planned: nil, root: tmpDir))
 
         XCTAssertEqual(result.reportFiles.count, 2)
         XCTAssertFalse(result.allOutputFiles.contains { $0.path.contains("/workflow-source/") })
     }
 
-    func testSerialBatchRunnerContinuesAfterSampleFailure() async throws {
+    func testABatchResultListsAFailedSampleBetweenCompletedOnes() throws {
         let tmpDir = try makeTempDirectory(prefix: "taxtriage-serial-failure")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let units = [
+            try batchUnit(0, "GoodA", root: tmpDir, files: ["top/GoodA.top_report.tsv"]),
+            AnalysisUnitReport<TaxTriageUnitResult>(
+                index: 1, label: "Bad", sampleName: "Bad", directory: tmpDir.appendingPathComponent("Bad", isDirectory: true),
+                outcome: .failed(reason: "synthetic sample failure")
+            ),
+            try batchUnit(2, "GoodB", root: tmpDir, files: ["top/GoodB.top_report.tsv"]),
+        ]
 
-        let recorder = SerialTaxTriageRecorder()
-        let runner = TaxTriageSerialBatchRunner(runPipeline: { sampleConfig, _ in
-            await recorder.record(sampleConfig)
-            let sample = sampleConfig.samples[0]
-            if sample.sampleId == "Bad" {
-                throw NSError(
-                    domain: "TaxTriageSerialBatchRunnerTests",
-                    code: 42,
-                    userInfo: [NSLocalizedDescriptionKey: "synthetic sample failure"]
-                )
-            }
-            let reportURL = sampleConfig.outputDirectory
-                .appendingPathComponent("top", isDirectory: true)
-                .appendingPathComponent("\(sample.sampleId).top_report.tsv")
-            try FileManager.default.createDirectory(
-                at: reportURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try "sample\torganism\n\(sample.sampleId)\tExample virus\n"
-                .write(to: reportURL, atomically: true, encoding: .utf8)
-            return TaxTriageResult(
-                config: sampleConfig,
-                runtime: 1.0,
-                exitCode: 0,
-                outputDirectory: sampleConfig.outputDirectory,
-                reportFiles: [reportURL],
-                allOutputFiles: [reportURL]
-            )
-        })
+        let result = try XCTUnwrap(TaxTriageAnalysisRunTool.aggregateResult(of: units, planned: nil, root: tmpDir))
 
-        let config = TaxTriageConfig(
-            samples: [
-                TaxTriageSample(sampleId: "GoodA", fastq1: URL(fileURLWithPath: "/data/good-a.fastq.gz")),
-                TaxTriageSample(sampleId: "Bad", fastq1: URL(fileURLWithPath: "/data/bad.fastq.gz")),
-                TaxTriageSample(sampleId: "GoodB", fastq1: URL(fileURLWithPath: "/data/good-b.fastq.gz")),
-            ],
-            outputDirectory: tmpDir
-        )
-
-        let result = try await runner.run(config: config)
-        let calls = await recorder.calls
-
-        XCTAssertEqual(calls.map { $0.samples[0].sampleId }, ["GoodA", "Bad", "GoodB"])
         XCTAssertEqual(result.reportFiles.count, 2)
         XCTAssertEqual(result.sampleFailures.map(\.sampleID), ["Bad"])
         XCTAssertEqual(result.sampleFailures.first?.errorDescription, "synthetic sample failure")
         XCTAssertTrue(result.hasSampleFailures)
     }
-}
 
-private actor SerialTaxTriageRecorder {
-    private var recordedCalls: [TaxTriageConfig] = []
-
-    var calls: [TaxTriageConfig] {
-        recordedCalls
-    }
-
-    func record(_ config: TaxTriageConfig) {
-        recordedCalls.append(config)
+    /// A completed unit of the batch at `root`, one sample in its own folder, whose result names `files` (relative to
+    /// that folder, the first its report), written there.
+    private func batchUnit(
+        _ index: Int,
+        _ id: String,
+        root: URL,
+        files: [String],
+        bundle: URL? = nil
+    ) throws -> AnalysisUnitReport<TaxTriageUnitResult> {
+        let folder = root.appendingPathComponent(id, isDirectory: true)
+        let urls = try files.map { relative -> URL in
+            let url = folder.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "\(id)\t\(relative)\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let config = TaxTriageConfig(
+            samples: [TaxTriageSample(sampleId: id, fastq1: URL(fileURLWithPath: "/data/\(id).fastq.gz"))],
+            outputDirectory: folder,
+            sourceBundleURLs: bundle.map { [$0] }
+        )
+        let result = TaxTriageResult(
+            config: config, runtime: 1.0, exitCode: 0, outputDirectory: folder,
+            reportFiles: Array(urls.prefix(1)), allOutputFiles: urls, sourceBundleURLs: bundle.map { [$0] }
+        )
+        return AnalysisUnitReport(
+            index: index, label: id, sampleName: id, directory: folder, outcome: .completed(TaxTriageUnitResult(result: result))
+        )
     }
 }
 
