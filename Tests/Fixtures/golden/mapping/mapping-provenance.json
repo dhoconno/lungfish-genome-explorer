@@ -365,6 +365,82 @@
       "toolName" : "samtools",
       "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
       "wallTime" : "<DURATION>"
+    },
+    {
+      "command" : [
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
+        "coverage",
+        "--ff",
+        "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP",
+        "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "endTime" : "<EPOCH>",
+      "exitCode" : 0,
+      "id" : "<UUID-7>",
+      "inputs" : [
+        {
+          "format" : "bam",
+          "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
+          "role" : "input",
+          "sha256" : "<SHA256-R8>",
+          "sizeBytes" : "<SIZE-R8>"
+        },
+        {
+          "format" : "bai",
+          "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam.bai",
+          "role" : "index",
+          "sha256" : "<SHA256-R8>",
+          "sizeBytes" : "<SIZE-R8>"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "startTime" : "<EPOCH>",
+      "stdoutReadInProcess" : true,
+      "toolName" : "samtools",
+      "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
+      "wallTime" : "<DURATION>"
+    },
+    {
+      "command" : [
+        "\/Users\/Shared\/lungfish-golden\/storage\/conda\/envs\/samtools\/bin\/samtools",
+        "view",
+        "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam"
+      ],
+      "dependsOn" : [
+
+      ],
+      "endTime" : "<EPOCH>",
+      "exitCode" : 0,
+      "id" : "<UUID-8>",
+      "inputs" : [
+        {
+          "format" : "bam",
+          "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam",
+          "role" : "input",
+          "sha256" : "<SHA256-R8>",
+          "sizeBytes" : "<SIZE-R8>"
+        },
+        {
+          "format" : "bai",
+          "path" : "<RUN_ROOT>\/mapping\/out\/sarscov2-test.sorted.bam.bai",
+          "role" : "index",
+          "sha256" : "<SHA256-R8>",
+          "sizeBytes" : "<SIZE-R8>"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "startTime" : "<EPOCH>",
+      "stdoutReadInProcess" : true,
+      "toolName" : "samtools",
+      "toolVersion" : "1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)",
+      "wallTime" : "<DURATION>"
     }
   ],
   "threads" : 2,
