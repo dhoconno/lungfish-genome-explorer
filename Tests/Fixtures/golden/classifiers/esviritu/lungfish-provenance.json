@@ -83,34 +83,6 @@
         "type" : "string",
         "value" : ""
       },
-      "github_release_version" : {
-        "type" : "string",
-        "value" : "v1.3.3"
-      },
-      "inputReadLayout" : {
-        "type" : "string",
-        "value" : "single_end"
-      },
-      "inputReadLayoutMatePairs" : {
-        "type" : "integer",
-        "value" : 0
-      },
-      "inputReadLayoutReason" : {
-        "type" : "string",
-        "value" : "No record in all 55 records is followed by its mate."
-      },
-      "inputReadLayoutScannedRecords" : {
-        "type" : "integer",
-        "value" : 55
-      },
-      "inputReadLayoutUnpairedRecords" : {
-        "type" : "integer",
-        "value" : 55
-      },
-      "pairedEnd" : {
-        "type" : "boolean",
-        "value" : false
-      },
       "qualityFilter" : {
         "type" : "boolean",
         "value" : true
@@ -169,6 +141,34 @@
       "databaseSourceURL" : {
         "type" : "string",
         "value" : "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz"
+      },
+      "github_release_version" : {
+        "type" : "string",
+        "value" : "v1.3.3"
+      },
+      "inputReadLayout" : {
+        "type" : "string",
+        "value" : "single_end"
+      },
+      "inputReadLayoutMatePairs" : {
+        "type" : "integer",
+        "value" : 0
+      },
+      "inputReadLayoutReason" : {
+        "type" : "string",
+        "value" : "No record in all 55 records is followed by its mate."
+      },
+      "inputReadLayoutScannedRecords" : {
+        "type" : "integer",
+        "value" : 55
+      },
+      "inputReadLayoutUnpairedRecords" : {
+        "type" : "integer",
+        "value" : 55
+      },
+      "pairedEnd" : {
+        "type" : "boolean",
+        "value" : false
       },
       "readFormat" : {
         "type" : "string",

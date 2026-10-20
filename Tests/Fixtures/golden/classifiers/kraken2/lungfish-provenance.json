@@ -102,7 +102,7 @@
     },
     {
       "checksumSHA256" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
-      "fileSize" : 651204094,
+      "fileSize" : 1173577088,
       "format" : "unknown",
       "path" : "<storage-root>/databases/kraken2/viral",
       "role" : "reference"
@@ -524,7 +524,7 @@
         },
         {
           "checksumSHA256" : "7872e5a8f683cbaaeda12cc9f3cfe4bb4ef08ef77a5f4647b83bbfe9cbc88c01",
-          "fileSize" : 651204094,
+          "fileSize" : 1173577088,
           "format" : "unknown",
           "path" : "<storage-root>/databases/kraken2/viral",
           "role" : "reference"
