@@ -62,14 +62,34 @@ extension ProvenanceRecorder {
     public static func findProvenanceReading(
         for url: URL
     ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
+        findProvenanceReading(for: url, sharedFolders: [], listing: { _, _ in })
+    }
+
+    /// Receives each folder the sidecar lookup lists and the number of entries the listing returned,
+    /// once the listing is done, so a test can prove which folders one lookup read and how much it
+    /// read. A folder that cannot be listed is not reported. The public entry points pass a closure
+    /// that does nothing.
+    typealias SidecarListingObserver = (_ folder: URL, _ entryCount: Int) -> Void
+
+    /// The walk of `findProvenanceReading(for:)` with its two seams. `sharedFolders` names the folders
+    /// a lookup with no project may probe and never list. Nothing reads it yet, and the public entry
+    /// points pass none. A test passes its own folders and never the real home or temp folder.
+    static func findProvenanceReading(
+        for url: URL,
+        sharedFolders: [URL],
+        listing: SidecarListingObserver
+    ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         let standardizedURL = url.standardizedFileURL
         let selectedIsDirectory = isDirectory(standardizedURL)
 
         if selectedIsDirectory {
-            if let nestedOperation = singleNestedOperationProvenanceCandidate(for: standardizedURL) {
+            if let nestedOperation = singleNestedOperationProvenanceCandidate(
+                for: standardizedURL,
+                listing: listing
+            ) {
                 return nestedOperation
             }
-            for candidate in directorySidecarCandidates(for: standardizedURL) {
+            for candidate in directorySidecarCandidates(for: standardizedURL, listing: listing) {
                 if let reading = readRecord(fromSidecar: candidate) {
                     return (candidate, reading)
                 }
@@ -103,7 +123,7 @@ extension ProvenanceRecorder {
                 return (bundleSidecar, reading)
             }
 
-            for candidate in directorySidecarCandidates(for: dir) {
+            for candidate in directorySidecarCandidates(for: dir, listing: listing) {
                 guard let reading = readRecord(fromSidecar: candidate) else { continue }
                 if selectedIsDirectory && !checkedSelectedDirectory {
                     return (candidate, reading)
@@ -155,13 +175,14 @@ extension ProvenanceRecorder {
     }
 
     private static func singleNestedOperationProvenanceCandidate(
-        for directory: URL
+        for directory: URL,
+        listing: SidecarListingObserver
     ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         guard ProvenanceWriter.isBundleDirectory(directory) else {
             return nil
         }
         let candidates: [(sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)] =
-            nestedOperationSidecarCandidates(for: directory).compactMap { sidecarURL in
+            nestedOperationSidecarCandidates(for: directory, listing: listing).compactMap { sidecarURL in
                 guard let reading = readRecord(fromSidecar: sidecarURL),
                       provenanceEnvelopeProducedDescendant(reading.envelope, of: directory) else {
                     return nil
@@ -193,7 +214,10 @@ extension ProvenanceRecorder {
     /// The folder's own record and roll-ups first, then root files named like a record, then the
     /// records of operations on the folder. The last two can belong to another operation, so when
     /// the folder's own record was interrupted only the first group is offered.
-    private static func directorySidecarCandidates(for directory: URL) -> [URL] {
+    private static func directorySidecarCandidates(
+        for directory: URL,
+        listing: SidecarListingObserver
+    ) -> [URL] {
         let canonicalCandidates = [
             directory.appendingPathComponent(provenanceFilename),
             directory
@@ -204,10 +228,12 @@ extension ProvenanceRecorder {
                 .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
                 .appendingPathComponent(provenanceFilename),
         ]
-        let contents = (try? FileManager.default.contentsOfDirectory(
+        let listed = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey]
-        )) ?? []
+        )
+        if let listed { listing(directory, listed.count) }
+        let contents = listed ?? []
         guard !canonicalRecordWasInterrupted(in: directory, names: contents.map(\.lastPathComponent)) else {
             return canonicalCandidates
         }
@@ -223,7 +249,7 @@ extension ProvenanceRecorder {
                 .appendingPathComponent("annotations", isDirectory: true)
                 .appendingPathComponent("manual-annotation-provenance.json"),
             directory.appendingPathComponent("extraction-metadata.json"),
-        ] + nestedOperationSidecarCandidates(for: directory)
+        ] + nestedOperationSidecarCandidates(for: directory, listing: listing)
         return canonicalCandidates + workflowNamedRootSidecarCandidates(in: contents) + operationCandidates
     }
 
@@ -324,20 +350,30 @@ extension ProvenanceRecorder {
         return nil
     }
 
-    private static func nestedOperationSidecarCandidates(for directory: URL) -> [URL] {
+    private static func nestedOperationSidecarCandidates(
+        for directory: URL,
+        listing: SidecarListingObserver
+    ) -> [URL] {
         guard ProvenanceWriter.isBundleDirectory(directory) else {
             return []
         }
         let variantsURL = directory.appendingPathComponent("variants", isDirectory: true)
         let annotationsURL = directory.appendingPathComponent("annotations", isDirectory: true)
         let alignmentsURL = directory.appendingPathComponent("alignments", isDirectory: true)
-        return operationSidecars(in: variantsURL)
-            + operationSidecars(in: variantsURL.appendingPathComponent("gatk", isDirectory: true))
-            + operationSidecars(in: annotationsURL, recursive: true)
-            + operationSidecars(in: alignmentsURL, recursive: true)
+        return operationSidecars(in: variantsURL, listing: listing)
+            + operationSidecars(
+                in: variantsURL.appendingPathComponent("gatk", isDirectory: true),
+                listing: listing
+            )
+            + operationSidecars(in: annotationsURL, recursive: true, listing: listing)
+            + operationSidecars(in: alignmentsURL, recursive: true, listing: listing)
     }
 
-    private static func operationSidecars(in directory: URL, recursive: Bool = false) -> [URL] {
+    private static func operationSidecars(
+        in directory: URL,
+        recursive: Bool = false,
+        listing: SidecarListingObserver
+    ) -> [URL] {
         let fileManager = FileManager.default
         let keys: [URLResourceKey] = [.isRegularFileKey]
         let urls: [URL]
@@ -350,6 +386,7 @@ extension ProvenanceRecorder {
                 return []
             }
             urls = enumerator.compactMap { $0 as? URL }
+            if isDirectory(directory) { listing(directory, urls.count) }
         } else {
             guard let contents = try? fileManager.contentsOfDirectory(
                 at: directory,
@@ -357,6 +394,7 @@ extension ProvenanceRecorder {
             ) else {
                 return []
             }
+            listing(directory, contents.count)
             urls = contents
         }
         return urls
