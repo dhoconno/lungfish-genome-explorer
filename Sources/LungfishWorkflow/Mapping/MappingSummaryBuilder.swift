@@ -73,6 +73,47 @@ public enum MappingSummaryBuilder {
         includeUnmappedReferenceRows: Bool = true,
         reportWarning: (@Sendable (String) -> Void)? = nil
     ) async throws -> MappingContigSummaryTable {
+        try await summarize(
+            sortedBAMURL: sortedBAMURL, totalReads: totalReads, readGroupIDs: readGroupIDs, runner: runner,
+            timeout: timeout, includeUnmappedReferenceRows: includeUnmappedReferenceRows, recording: nil
+        ).table
+    }
+
+    /// The rows of `build` with the two samtools passes that made them as steps of the mapping
+    /// record, coverage first and then view (Phase 2.13 lane 13.16, Q-B3). Each step's command is
+    /// the argv its spawn ran, its inputs are the BAM and `indexURL`, and it records no output,
+    /// since the app reads the stdout. The omission rule stays in `mapping-result.json`.
+    public static func buildRecordingSteps(
+        sortedBAMURL: URL,
+        indexURL: URL,
+        totalReads: Int,
+        toolVersion: String,
+        runner: NativeToolRunner = .shared,
+        timeout: TimeInterval = 3_600,
+        includeUnmappedReferenceRows: Bool = true
+    ) async throws -> MappingSummaryWithSteps {
+        let inputs = [
+            ProvenanceRecorder.fileRecord(url: sortedBAMURL, format: .bam, role: .input),
+            ProvenanceRecorder.fileRecord(url: indexURL, role: .index),
+        ]
+        return try await summarize(
+            sortedBAMURL: sortedBAMURL, totalReads: totalReads, readGroupIDs: [], runner: runner, timeout: timeout,
+            includeUnmappedReferenceRows: includeUnmappedReferenceRows,
+            recording: SamtoolsPassRecording(toolVersion: toolVersion, inputs: inputs)
+        )
+    }
+
+    /// The read-group path (`readGroupIDs` not empty) records no step.
+    private static func summarize(
+        sortedBAMURL: URL,
+        totalReads: Int,
+        readGroupIDs: Set<String>,
+        runner: NativeToolRunner,
+        timeout: TimeInterval,
+        includeUnmappedReferenceRows: Bool,
+        recording: SamtoolsPassRecording?
+    ) async throws -> MappingSummaryWithSteps {
+        var steps: [StepExecution] = []
         let effectiveTotalReads: Int
         let coverageOutput: String
         if readGroupIDs.isEmpty {
@@ -81,16 +122,27 @@ public enum MappingSummaryBuilder {
             // own default filter (UNMAP, SECONDARY, QCFAIL, DUP), so `numreads`
             // counts primary reads only and is comparable to `totalReads`
             // (primary reads from flagstat).
+            let coverageArguments = ["coverage", "--ff", Self.primaryMappedReadExclusionFlags, sortedBAMURL.path]
+            let start = Date()
             let coverageResult = try await runner.run(
                 .samtools,
-                arguments: ["coverage", "--ff", Self.primaryMappedReadExclusionFlags, sortedBAMURL.path],
+                arguments: coverageArguments,
                 workingDirectory: sortedBAMURL.deletingLastPathComponent(),
                 timeout: timeout
             )
+            let end = Date()
             guard coverageResult.isSuccess else {
                 throw MappingSummaryBuilderError.samtoolsCoverageFailed(coverageResult.stderr)
             }
             coverageOutput = coverageResult.stdout
+            if let recording {
+                // The executable as the normalization steps write theirs: the found tool, else its name.
+                let executable = (try? await runner.findTool(.samtools))?.path ?? NativeTool.samtools.executableName
+                steps.append(recording.step(
+                    command: [executable] + coverageArguments, exitCode: coverageResult.exitCode,
+                    stderr: coverageResult.stderr, start: start, end: end
+                ))
+            }
         } else {
             coverageOutput = try await filteredCoverageOutput(
                 sortedBAMURL: sortedBAMURL,
@@ -106,19 +158,62 @@ public enum MappingSummaryBuilder {
             )
         }
 
-        let identities = try await streamSAMViewMetrics(
+        let (identities, viewPass) = try await streamSAMViewMetrics(
             sortedBAMURL: sortedBAMURL,
             runner: runner,
             timeout: timeout,
             readGroupIDs: readGroupIDs
         )
+        if let recording, let viewPass {
+            steps.append(recording.step(
+                command: viewPass.command, exitCode: viewPass.result.status, stderr: stderrText(viewPass.result),
+                start: viewPass.start, end: viewPass.end
+            ))
+        }
 
-        return try buildSummaries(
+        let table = try buildSummaries(
             coverageOutput: coverageOutput,
             identities: identities,
             totalReads: effectiveTotalReads,
             includeUnmappedReferenceRows: includeUnmappedReferenceRows
         )
+        return MappingSummaryWithSteps(table: table, steps: steps)
+    }
+
+    /// The rows and, from `buildRecordingSteps`, the samtools passes that made them.
+    public struct MappingSummaryWithSteps {
+        public let table: MappingContigSummaryTable
+        public let steps: [StepExecution]
+    }
+
+    /// The facts of one recorded samtools pass that the run does not give.
+    private struct SamtoolsPassRecording {
+        let toolVersion: String
+        let inputs: [FileRecord]
+
+        func step(command: [String], exitCode: Int32, stderr: String, start: Date, end: Date) -> StepExecution {
+            StepExecution(
+                toolName: NativeTool.samtools.executableName,
+                toolVersion: toolVersion,
+                command: command,
+                inputs: inputs,
+                outputs: [],
+                exitCode: exitCode,
+                wallTime: end.timeIntervalSince(start),
+                stderr: stderr.isEmpty ? nil : stderr,
+                stdoutReadInProcess: true,
+                startTime: start,
+                endTime: end
+            )
+        }
+    }
+
+    /// The unfiltered `samtools view` run, with the argv its spawn ran.
+    private struct SAMViewPass {
+        let command: [String]
+        let result: ToolProcessResult
+        let start: Date
+        let end: Date
     }
 
     public static func buildSummaries(
@@ -216,19 +311,22 @@ public enum MappingSummaryBuilder {
         runner: NativeToolRunner,
         timeout: TimeInterval,
         readGroupIDs: Set<String> = []
-    ) async throws -> [String: ViewMetrics] {
+    ) async throws -> ([String: ViewMetrics], SAMViewPass?) {
         let samtoolsPath = try await runner.findTool(.samtools)
         let workingDirectory = sortedBAMURL.deletingLastPathComponent()
         let metrics = StreamingSAMMetricsAccumulator()
         if readGroupIDs.isEmpty {
-            try await runProcessStreamingOutput(
+            let arguments = ["view", sortedBAMURL.path]
+            let start = Date()
+            let result = try await runProcessStreamingOutput(
                 executableURL: samtoolsPath,
-                arguments: ["view", sortedBAMURL.path],
+                arguments: arguments,
                 workingDirectory: workingDirectory,
                 timeout: timeout,
                 consumeStdout: { metrics.consume($0) }
             )
-            return metrics.finalize()
+            let pass = SAMViewPass(command: [samtoolsPath.path] + arguments, result: result, start: start, end: Date())
+            return (metrics.finalize(), pass)
         }
         return try await withReadGroupList(readGroupIDs) { listURL in
             try await runProcessStreamingOutput(
@@ -238,7 +336,7 @@ public enum MappingSummaryBuilder {
                 timeout: timeout,
                 consumeStdout: { metrics.consume($0) }
             )
-            return metrics.finalize()
+            return (metrics.finalize(), nil)
         }
     }
 
@@ -361,13 +459,14 @@ public enum MappingSummaryBuilder {
     /// to the caller while stderr is captured for diagnostics. A timeout and a
     /// cancelled task both end as a `CancellationError`, and a nonzero exit as
     /// a view failure with the process's stderr.
+    @discardableResult
     static func runProcessStreamingOutput(
         executableURL: URL,
         arguments: [String],
         workingDirectory: URL?,
         timeout: TimeInterval,
         consumeStdout: @escaping @Sendable (Data) -> Void
-    ) async throws {
+    ) async throws -> ToolProcessResult {
         let spec = ToolProcessSpec(
             executableURL: executableURL,
             arguments: arguments,
@@ -394,6 +493,7 @@ public enum MappingSummaryBuilder {
             throw CancellationError()
         }
         try requireSuccess(result)
+        return result
     }
 
     /// Runs a process and captures stdout. `ToolProcess` drains stdout and stderr together, so a child process

@@ -142,8 +142,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         progress?(0.9, "Summarizing mapped contigs...")
         let summary = try await summarizeMappedContigs(
-            sortedBAMURL: normalized.bamURL,
-            totalReads: normalized.totalReads,
+            sortedBAMURL: normalized.bamURL, indexURL: normalized.baiURL,
+            totalReads: normalized.totalReads, samtoolsVersion: samtoolsVersion,
             progress: progress
         )
 
@@ -157,9 +157,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             mappedReads: normalized.mappedReads,
             unmappedReads: normalized.unmappedReads,
             wallClockSeconds: runClock.elapsed,
-            contigs: summary.rows,
-            referenceCount: summary.referenceCount,
-            unalignedReferenceCount: summary.unalignedReferenceCount
+            contigs: summary.table.rows,
+            referenceCount: summary.table.referenceCount,
+            unalignedReferenceCount: summary.table.unalignedReferenceCount
         )
         try result.save(to: prepared.request.outputDirectory)
 
@@ -175,7 +175,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         )
         let mapperArgv = [command.executable] + command.arguments
         let materializationSteps = try readSetInputSteps(for: prepared.request, plan: readSetPlan)
-        let steps = materializationSteps + indexSteps + mapped.steps + normalized.steps
+        let steps = materializationSteps + indexSteps + mapped.steps + normalized.steps + summary.steps
         let provenance = MappingProvenance.build(
             request: prepared.request,
             result: result,
@@ -217,31 +217,29 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     /// every caller routes to `OperationCenter.shared.log`, prefixed
     /// "WARNING:" because the closure has no severity channel.
     private func summarizeMappedContigs(
-        sortedBAMURL: URL,
-        totalReads: Int,
+        sortedBAMURL: URL, indexURL: URL,
+        totalReads: Int, samtoolsVersion: String,
         progress: ProgressHandler?
-    ) async throws -> MappingContigSummaryTable {
-        try await MappingSummaryBuilder.build(
-            sortedBAMURL: sortedBAMURL,
-            totalReads: totalReads,
+    ) async throws -> MappingSummaryBuilder.MappingSummaryWithSteps {
+        try await MappingSummaryBuilder.buildRecordingSteps(
+            sortedBAMURL: sortedBAMURL, indexURL: indexURL,
+            totalReads: totalReads, toolVersion: toolVersionString(samtoolsVersion, tool: .samtools),
             runner: nativeToolRunner,
-            includeUnmappedReferenceRows: false,
-            reportWarning: { warning in
-                progress?(0.9, "WARNING: \(warning)")
-            }
+            includeUnmappedReferenceRows: false
         )
     }
 
+    /// `progress` is kept for the callers; the builder reports no warning today.
     func summarizeMappedContigsForTesting(
         sortedBAMURL: URL,
         totalReads: Int,
         progress: ProgressHandler?
     ) async throws -> MappingContigSummaryTable {
         try await summarizeMappedContigs(
-            sortedBAMURL: sortedBAMURL,
-            totalReads: totalReads,
+            sortedBAMURL: sortedBAMURL, indexURL: URL(fileURLWithPath: sortedBAMURL.path + ".bai"),
+            totalReads: totalReads, samtoolsVersion: "unknown",
             progress: progress
-        )
+        ).table
     }
 
     public func normalizeAlignment(
