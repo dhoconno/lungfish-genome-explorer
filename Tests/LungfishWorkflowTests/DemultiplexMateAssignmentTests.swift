@@ -244,6 +244,42 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(result.manifest.unassigned.readCount, 2)
     }
 
+    /// The gzip step of a physical run that places mates writes the bytes `gzip -c <name>.fastq` writes, header
+    /// included, for every barcode and the unassigned bundle (Phase 2.13 lane 13.07 pin of `gzipPlainDemuxOutputs`).
+    func testAPhysicalRunGzipsEachBarcodeFileWithTheBytesOfGzipC() async throws {
+        try await requireTools()
+        let project = try project()
+        let input = project.appendingPathComponent("pairs.fastq")
+        try Self.fastq(Self.pairs, .casava).write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try kit(),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-gzip-pin", isDirectory: true),
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 8,
+                trimBarcodes: true,
+                threads: 2
+            ),
+            progress: { _, _ in }
+        )
+
+        for id in ["BC01", "BC02", "unassigned"] {
+            let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: try bundle(result, id)))
+            XCTAssertEqual(fastq.pathExtension, "gz", "\(id) holds a gzip FASTQ")
+            let bytes = try Data(contentsOf: fastq)
+            let (header, raw) = try GzipPin.assertGzipOfNamedFile(bytes, flags: [], scratch: root)
+            XCTAssertEqual(
+                header.name, String(fastq.lastPathComponent.dropLast(3)),
+                "\(id) stores the name of the plain FASTQ it compressed"
+            )
+            XCTAssertGreaterThan(header.modificationTime, 0, id)
+            XCTAssertTrue(raw.starts(with: Data("@".utf8)), "\(id) holds FASTQ records")
+        }
+    }
+
     // MARK: - cutadapt, virtual
 
     private func runVirtual(_ naming: Naming) async throws -> DemultiplexResult {
