@@ -113,10 +113,15 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
         let height: Double
         let pixelsPerBase: Double
 
+        /// Floating-point noise in a position, in points. `Double(offset) * pixelsPerBase` is off by
+        /// about 3e-14 at 800 points, so a cell that fits the data area exactly can end a hair past it
+        /// and the base after the window can begin a hair before it.
+        static let tolerance = 1e-6
+
         /// `rect` cut to the data area, or nil when nothing of it is inside.
         func clipped(_ rect: ViewerFigureRect) -> ViewerFigureRect? {
             let x0 = max(rect.x, left), x1 = min(rect.x + rect.width, right)
-            return x1 > x0 ? ViewerFigureRect(x: x0, y: rect.y, width: x1 - x0, height: rect.height) : nil
+            return x1 - x0 > Self.tolerance ? ViewerFigureRect(x: x0, y: rect.y, width: x1 - x0, height: rect.height) : nil
         }
     }
 
@@ -130,7 +135,8 @@ public struct ViewerFigureSequenceTrack: ViewerFigureTrackBuilding {
             let cell = ViewerFigureRect(x: x, y: layout.top, width: max(1, layout.pixelsPerBase - 0.5), height: layout.height)
             guard let visible = layout.clipped(cell) else { continue }
             canvas.fill(visible, ViewerFigurePaint(ViewerFigureTheme.baseRole(for: base)))
-            guard let letterSize, let font, x >= layout.left, x + layout.pixelsPerBase <= layout.right else {
+            guard let letterSize, let font, x >= layout.left - Layout.tolerance,
+                  x + layout.pixelsPerBase <= layout.right + Layout.tolerance else {
                 lettersLeftOut += 1
                 continue
             }

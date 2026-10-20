@@ -106,6 +106,26 @@ final class ViewerFigureSequenceTrackTests: XCTestCase {
         XCTAssertEqual(scene.fonts, [], "no letter, no font")
     }
 
+    func testALetterThatFitsTheDataAreaExactlyIsDrawn() async throws {
+        let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
+        defer { TestTempDirectory.cleanup(root) }
+        // 201 points over 20 bases is 10.05 points a base. The last cell ends a hair past the data
+        // area in floating point, and the track must not read that as a cut by the edge.
+        let scene = try await buildScene(ViewerFigureTrackFixture.frame(start: 100, end: 120, width: 201), in: root)
+        XCTAssertEqual(texts(scene).count, 20)
+        XCTAssertEqual(scene.omissions, [])
+    }
+
+    func testNoCellIsDrawnForTheBaseAfterTheWindow() async throws {
+        let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
+        defer { TestTempDirectory.cleanup(root) }
+        // 201 points over 25 bases is 8.04 points a base. The base after the window begins a hair
+        // before the data area's edge in floating point, and it must not enter the scene.
+        let scene = try await buildScene(ViewerFigureTrackFixture.frame(start: 100, end: 125, width: 201), in: root)
+        XCTAssertEqual(scene.items.count, 50, "25 cells and 25 letters")
+        XCTAssertEqual(scene.omissions, [])
+    }
+
     func testRNAModeShowsUAndDNAModeShowsT() async throws {
         let root = try TestTempDirectory.make(prefix: "viewer-figure-sequence")
         defer { TestTempDirectory.cleanup(root) }
