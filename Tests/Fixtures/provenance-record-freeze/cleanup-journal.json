@@ -1,0 +1,119 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "attestationSources" : [
+    {
+      "provenanceChecksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "provenanceFileSize" : 3072,
+      "provenancePath" : ".lungfish-work/map-01/provenance.json",
+      "sourceIdentity" : {
+        "device" : 16777234,
+        "inode" : 4343
+      },
+      "sourceRelativePath" : ".lungfish-work/map-01"
+    }
+  ],
+  "cleanupID" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01",
+  "completedAt" : "2026-10-19T08:54:02Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "exitStatus" : 0,
+  "intendedAction" : "move-to-trash",
+  "items" : [
+    {
+      "aggregateTreeDigest" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "classification" : {
+        "code" : "completedOwnedWork",
+        "disposition" : "removable",
+        "reason" : "The operation that owns it completed."
+      },
+      "classificationEvidenceDigest" : "abababababababababababababababababababababababababababababababab",
+      "id" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A03",
+      "intendedAction" : "move-to-trash",
+      "inventory" : [
+        {
+          "allocatedSize" : 1052672,
+          "changedNanoseconds" : 250000000,
+          "changedSeconds" : 1792300001,
+          "device" : 16777234,
+          "inode" : 4444,
+          "logicalSize" : 1048576,
+          "modifiedNanoseconds" : 125000000,
+          "modifiedSeconds" : 1792300000,
+          "relativePath" : "reads/sample.fastq.gz",
+          "sha256" : "abababababababababababababababababababababababababababababababab"
+        }
+      ],
+      "sourceCategory" : "workflowStaging",
+      "sourceIdentity" : {
+        "device" : 16777234,
+        "inode" : 4343
+      },
+      "sourceRelativePath" : ".lungfish-work/map-01",
+      "state" : "prepared"
+    }
+  ],
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "items" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : ".lungfish-work/map-01"
+          }
+        ]
+      },
+      "project" : {
+        "type" : "string",
+        "value" : "/Volumes/Frozen/Study.lungfish"
+      }
+    },
+    "resolvedDefaults" : {
+      "action" : {
+        "type" : "string",
+        "value" : "move-to-trash"
+      }
+    }
+  },
+  "projectIdentity" : {
+    "device" : 16777234,
+    "inode" : 4242
+  },
+  "projectRoot" : "/Volumes/Frozen/Study.lungfish",
+  "provenanceFileName" : "provenance.json",
+  "reproducibleCommand" : "lungfish-cli project storage clean /Volumes/Frozen/Study.lungfish --item .lungfish-work/map-01",
+  "runtimeIdentity" : {
+    "appVersion" : "2026.10.21",
+    "architecture" : "arm64",
+    "dependencySet" : "lungfish-tools-2026.10",
+    "executablePath" : "<external>/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.0"
+  },
+  "schemaVersion" : 1,
+  "startedAt" : "2026-10-19T08:53:20Z",
+  "state" : "prepared",
+  "stderr" : "",
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "2026.10.21",
+  "wallTimeSeconds" : 42,
+  "workflowName" : "Project Storage Cleanup Preparation",
+  "workflowVersion" : "2026.10.21"
+}

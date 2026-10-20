@@ -1,0 +1,158 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "createdAt" : "2026-10-19T08:54:02Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "project",
+    "storage",
+    "clean",
+    "/Volumes/Frozen/Study.lungfish",
+    "--item",
+    ".lungfish-work/map-01"
+  ],
+  "exitStatus" : 1,
+  "files" : [
+    {
+      "path" : "/Volumes/Frozen/Study.lungfish",
+      "role" : "input"
+    }
+  ],
+  "id" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A02",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+      "items" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : ".lungfish-work/map-01"
+          }
+        ]
+      },
+      "project" : {
+        "type" : "string",
+        "value" : "/Volumes/Frozen/Study.lungfish"
+      }
+    },
+    "resolvedDefaults" : {
+      "action" : {
+        "type" : "string",
+        "value" : "move-to-trash"
+      }
+    }
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "fileSize" : 512,
+      "format" : "json",
+      "path" : "/Volumes/Frozen/Study.lungfish/.lungfish/operations/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A02/automatic-cleanup-failure.json",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli project storage clean /Volumes/Frozen/Study.lungfish --item .lungfish-work/map-01",
+  "runtimeIdentity" : {
+    "appVersion" : "2026.10.21",
+    "architecture" : "arm64",
+    "dependencySet" : "lungfish-tools-2026.10",
+    "executablePath" : "<external>/lungfish-cli",
+    "operatingSystemVersion" : "macOS 26.0"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "failed",
+  "stderr" : "The project folder could not be read.",
+  "steps" : [
+    {
+      "argv" : [
+        "lungfish-cli",
+        "project",
+        "storage",
+        "clean",
+        "/Volumes/Frozen/Study.lungfish",
+        "--item",
+        ".lungfish-work/map-01"
+      ],
+      "completedAt" : "2026-10-19T08:54:02Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "project",
+        "storage",
+        "clean",
+        "/Volumes/Frozen/Study.lungfish",
+        "--item",
+        ".lungfish-work/map-01"
+      ],
+      "exitStatus" : 1,
+      "id" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A04",
+      "inputs" : [
+        {
+          "path" : "/Volumes/Frozen/Study.lungfish",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "fileSize" : 512,
+          "format" : "json",
+          "path" : "/Volumes/Frozen/Study.lungfish/.lungfish/operations/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A02/automatic-cleanup-failure.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli project storage clean /Volumes/Frozen/Study.lungfish --item .lungfish-work/map-01",
+      "resolvedOptions" : {
+        "items" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "string",
+              "value" : ".lungfish-work/map-01"
+            }
+          ]
+        },
+        "project" : {
+          "type" : "string",
+          "value" : "/Volumes/Frozen/Study.lungfish"
+        }
+      },
+      "runtimeIdentity" : {
+        "appVersion" : "2026.10.21",
+        "architecture" : "arm64",
+        "dependencySet" : "lungfish-tools-2026.10",
+        "executablePath" : "<external>/lungfish-cli",
+        "operatingSystemVersion" : "macOS 26.0"
+      },
+      "startedAt" : "2026-10-19T08:53:20Z",
+      "stderr" : "The project folder could not be read.",
+      "toolName" : "lungfish-cli",
+      "toolVersion" : "2026.10.21",
+      "wallTimeSeconds" : 42
+    }
+  ],
+  "tool" : {
+    "name" : "lungfish-cli",
+    "version" : "2026.10.21"
+  },
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "2026.10.21",
+  "wallTimeSeconds" : 42,
+  "workflowName" : "Project Temporary Storage Cleanup Failure",
+  "workflowVersion" : "2026.10.21"
+}

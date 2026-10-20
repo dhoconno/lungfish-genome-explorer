@@ -1,0 +1,24 @@
+{
+  "cleanupID" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01",
+  "completedAt" : "2026-10-19T08:54:02Z",
+  "exitStatus" : 0,
+  "items" : [
+    {
+      "itemID" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A03",
+      "quarantineRelativePath" : ".lungfish/quarantine/6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A03",
+      "sourceRelativePath" : ".lungfish-work/map-01",
+      "state" : "moved-to-trash",
+      "trashDestinationPath" : "/Users/Shared/.Trash/map-01"
+    }
+  ],
+  "projectIdentity" : {
+    "device" : 16777234,
+    "inode" : 4242
+  },
+  "projectRoot" : "/Volumes/Frozen/Study.lungfish",
+  "schemaVersion" : 1,
+  "startedAt" : "2026-10-19T08:53:20Z",
+  "state" : "completed",
+  "stderr" : "",
+  "wallTimeSeconds" : 42
+}

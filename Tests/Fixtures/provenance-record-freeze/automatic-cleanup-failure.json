@@ -1,0 +1,11 @@
+{
+  "cleanupID" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A01",
+  "completedAt" : "2026-10-19T08:54:02Z",
+  "error" : "The project folder could not be read.",
+  "failureID" : "6C1E2A57-0D5B-4B8E-9A43-2F0D4C7B1A02",
+  "projectPath" : "/Volumes/Frozen/Study.lungfish",
+  "retryRecommended" : true,
+  "schemaVersion" : 1,
+  "startedAt" : "2026-10-19T08:53:20Z",
+  "trigger" : "project-close"
+}
