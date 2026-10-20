@@ -615,14 +615,29 @@ public enum FASTQPairInterleaver {
     }
 }
 
+extension ToolProcessOutputStream {
+    /// Reads until `count` bytes arrived or the stream ended, as `FileHandle.readData(ofLength:)` does, so a
+    /// caller that sized its chunks for a file handle sees the same chunks. Fewer than `count` bytes mean the
+    /// end. Never call it on the main thread.
+    func readUntilFull(_ count: Int) -> Data {
+        var data = Data()
+        while data.count < count {
+            let piece = read(upTo: count - data.count)
+            if piece.isEmpty { break }
+            data.append(piece)
+        }
+        return data
+    }
+}
+
 /// Pull-based byte line reader over a plain or gzip/BGZF file.
 ///
 /// Gzip input is decompressed through `/usr/bin/gzip -dc`, the same route
 /// `GzipLineSource` takes, because it handles concatenated BGZF members.
 final class FASTQRawLineReader {
     private let url: URL
-    private let handle: FileHandle
-    private let process: Process?
+    private let handle: FileHandle?
+    private let run: ToolProcessRun?
     private var buffer: [UInt8] = []
     private var position = 0
     private var reachedEnd = false
@@ -638,18 +653,18 @@ final class FASTQRawLineReader {
         let isGzip = magic.count == 2 && magic[magic.startIndex] == 0x1F && magic[magic.startIndex + 1] == 0x8B
         if isGzip {
             try? probe.close()
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-dc", url.path]
-            let stdout = Pipe()
-            process.standardOutput = stdout
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            self.process = process
-            self.handle = stdout.fileHandleForReading
+            self.run = try ToolProcess.start(ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+                arguments: ["-dc", url.path],
+                environment: ["PATH": "/usr/bin:/bin"],
+                stdout: .stream,
+                stderr: .discard,
+                label: "gzip -dc"
+            ))
+            self.handle = nil
         } else {
             try probe.seek(toOffset: 0)
-            self.process = nil
+            self.run = nil
             self.handle = probe
         }
     }
@@ -675,7 +690,7 @@ final class FASTQRawLineReader {
 
     func readChunk() throws -> [UInt8]? {
         guard !reachedEnd else { return nil }
-        let data = try handle.read(upToCount: chunkSize) ?? Data()
+        let data = try readNext()
         if data.isEmpty {
             try finishInput()
             return nil
@@ -686,11 +701,19 @@ final class FASTQRawLineReader {
     func close() {
         guard !closed else { return }
         closed = true
-        try? handle.close()
-        if let process, process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
+        try? handle?.close()
+        if let run {
+            run.cancel()
+            // Reaps gzip before returning, as terminate and wait did. The main thread never waits.
+            if !Thread.isMainThread { _ = try? run.waitBlocking() }
         }
+    }
+
+    /// The next piece of input, empty at the end. A plain file gives up to a chunk, and gzip gives a whole
+    /// chunk unless its output ends.
+    private func readNext() throws -> Data {
+        if let run { return run.stdout.readUntilFull(chunkSize) }
+        return try handle?.read(upToCount: chunkSize) ?? Data()
     }
 
     private func indexOfNewline() -> Int? {
@@ -708,7 +731,7 @@ final class FASTQRawLineReader {
             buffer.removeSubrange(0..<position)
             position = 0
         }
-        let data = try handle.read(upToCount: chunkSize) ?? Data()
+        let data = try readNext()
         if data.isEmpty {
             try finishInput()
         } else {
@@ -718,11 +741,18 @@ final class FASTQRawLineReader {
 
     private func finishInput() throws {
         reachedEnd = true
-        guard let process else { return }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        guard let run else { return }
+        let result: ToolProcessResult
+        do {
+            result = try run.waitBlocking()
+        } catch {
             throw FASTQPairInterleaver.InterleaveError.unreadableInput(
-                file: url.lastPathComponent, reason: "gzip decompression failed (exit \(process.terminationStatus))"
+                file: url.lastPathComponent, reason: "gzip decompression failed (\(error.localizedDescription))"
+            )
+        }
+        guard result.isSuccess else {
+            throw FASTQPairInterleaver.InterleaveError.unreadableInput(
+                file: url.lastPathComponent, reason: "gzip decompression failed (exit \(result.status))"
             )
         }
     }
