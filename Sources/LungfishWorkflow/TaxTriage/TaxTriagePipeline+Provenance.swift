@@ -288,6 +288,13 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         } else {
             explicit.merge(TaxTriagePipeline.readSetProvenanceParameters(for: config)) { current, _ in current }
         }
+        // SW13. A platform the user did not choose, one a bundle recorded or the default, is what the run resolved, and
+        // the record names where it came from. A platform the user chose stays an explicit option with no source.
+        if config.platformSource != .chosen {
+            explicit["platform"] = nil
+            resolved["platform"] = .string(config.platform.rawValue)
+            resolved[Self.platformSourceKey] = .string(config.platformSource.rawValue)
+        }
         explicitOptions = explicit
         resolvedDefaults = resolved
     }
@@ -314,19 +321,31 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// recorder merges the other parameters into the explicit options and leaves out each one it records as a resolved
     /// default with the same value.
     static func recordOptions(fromRunParameters parameters: [String: ParameterValue]) -> ProvenanceOptions {
-        ProvenanceOptions(resolvedDefaults: parameters.filter { resolvedDefaultKeys.contains($0.key) })
+        let keys = resolvedKeys(in: parameters)
+        return ProvenanceOptions(resolvedDefaults: parameters.filter { keys.contains($0.key) })
     }
 
     /// The root record's options for a run that began with `parameters`, each under the home the
     /// pipeline's own save gives it, with the plan of a one-sample record in its one home (E13).
     static func rootRecordOptions(fromRunParameters parameters: [String: ParameterValue]) -> AnalysisRootRecordOptions {
-        var resolved = parameters.filter { resolvedDefaultKeys.contains($0.key) }
+        let keys = resolvedKeys(in: parameters)
+        var resolved = parameters.filter { keys.contains($0.key) }
         let plan = resolved.removeValue(forKey: RecordedReadSetPlan.key)
         return AnalysisRootRecordOptions(
-            explicit: parameters.filter { !resolvedDefaultKeys.contains($0.key) },
+            explicit: parameters.filter { !keys.contains($0.key) },
             resolved: resolved,
             readSetPlan: plan
         )
+    }
+
+    /// The key beside a resolved `platform` that names where the platform came from (SW13).
+    static let platformSourceKey = "platformSource"
+
+    /// The keys of `parameters` a record files as resolved defaults. The platform joins them, with its source key, when
+    /// the parameters name a source, which only a platform the user did not choose does (SW13). A platform the user
+    /// chose carries no source key and stays among the explicit options.
+    static func resolvedKeys(in parameters: [String: ParameterValue]) -> Set<String> {
+        parameters[platformSourceKey] == nil ? resolvedDefaultKeys : resolvedDefaultKeys.union(["platform", platformSourceKey])
     }
 
     /// The identity of the Kraken 2 database at `databaseURL`, as decision E9 gives EsViritu's. Its path, the size of

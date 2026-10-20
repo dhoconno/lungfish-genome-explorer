@@ -82,6 +82,16 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         let units = try launches.map { launchSamples in
             // A launch runs on its samples' one platform, which its record and analysis entry name (2.10 T6).
             var config = Self.settings(request.settings, platform: launchSamples[0].platform)
+            // SW13 and MD34. Where the launch's one platform came from, which its record names. Samples that all took
+            // the platform of their bundles give `.bundle`. Otherwise a `--platform` on the command line, or a
+            // samplesheet that names the platform of each row, gives `.chosen` and the record keeps it as an explicit
+            // option. With neither the run took the default platform.
+            let fromBundles = request.samplesheet == nil && launchSamples.allSatisfy { sample in
+                SequenceInputResolver.enclosingFASTQBundleURL(for: sample.fastq1).flatMap(Self.recordedPlatform(of:)) != nil
+            }
+            let typedPlatform = request.samplesheet != nil
+                || runRequest.commandLine.contains { $0 == "--platform" || $0.hasPrefix("--platform=") }
+            config.platformSource = fromBundles ? .bundle : (typedPlatform ? .chosen : .default)
             config.samples = launchSamples
             config.outputDirectory = runRequest.destination.url
             config.revision = revision

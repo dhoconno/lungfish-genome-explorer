@@ -1,10 +1,10 @@
-// TaxTriagePlatformPinTests.swift - What a TaxTriage record files for the platform a launch took, pinned before SW13
+// TaxTriagePlatformPinTests.swift - What a TaxTriage record files for a platform the user typed, and the fixtures of the platform tests
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.15 M1 (SW13, BIO 4 and 7). The pins hold the records of the base for the three places the
-// platform of a launch comes from, the bundle of its reads, a typed `--platform` and neither. The base files each one
-// among the explicit options and no key names where it came from. `TaxTriagePlatformSourceTests` holds what SW13 changes.
+// Phase 2.13 lane 13.15 M1 (SW13, BIO 4 and 7). A platform the user typed stays an explicit option and the record names
+// no source for it. At the base the same held for the platform of a bundle and for the default platform, and the SW13
+// commit moved those two pins into `TaxTriagePlatformSourceTests`.
 
 import Foundation
 import XCTest
@@ -82,46 +82,23 @@ class TaxTriagePlatformTestCase: XCTestCase {
 
 final class TaxTriagePlatformPinTests: TaxTriagePlatformTestCase {
 
-    /// A bundle that records Oxford Nanopore reads runs on that platform whatever `--platform` says (BIO R5). At the
-    /// base its record files the platform as an option the user chose.
-    func testABundlesPlatformIsAnExplicitOptionOfTheBaseRecord() async throws {
-        let config = try await plannedConfig(of: try makeBundle("ont", platform: .oxfordNanopore), typed: false)
-
-        XCTAssertEqual(config.platform, .oxford)
-        assertFiledAsExplicit(config, platform: "OXFORD")
-    }
-
-    /// Loose reads record no platform, so they run on the `--platform` the user typed.
-    func testATypedPlatformIsAnExplicitOptionOfTheBaseRecord() async throws {
+    /// Loose reads record no platform, so they run on the `--platform` the user typed, and the record files it as
+    /// an option the user chose, with no key that names a source.
+    func testATypedPlatformIsAnExplicitOptionWithNoSource() async throws {
         let config = try await plannedConfig(of: try makeLooseReads("loose"), platform: .pacbio, typed: true)
 
         XCTAssertEqual(config.platform, .pacbio)
-        assertFiledAsExplicit(config, platform: "PACBIO")
-    }
-
-    /// Loose reads and no `--platform` run on the default platform, which the base files as a chosen option too.
-    func testTheDefaultPlatformIsAnExplicitOptionOfTheBaseRecord() async throws {
-        let config = try await plannedConfig(of: try makeLooseReads("loose"), typed: false)
-
-        XCTAssertEqual(config.platform, .illumina)
-        assertFiledAsExplicit(config, platform: "ILLUMINA")
-    }
-
-    private func assertFiledAsExplicit(
-        _ config: TaxTriageConfig,
-        platform: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
         let facts = TaxTriageRecordFacts(config: config)
-        XCTAssertEqual(facts.explicitOptions["platform"], .string(platform), file: file, line: line)
-        XCTAssertNil(facts.resolvedDefaults["platform"], file: file, line: line)
-        XCTAssertNil(facts.explicitOptions["platformSource"], file: file, line: line)
-        XCTAssertNil(facts.resolvedDefaults["platformSource"], file: file, line: line)
+        XCTAssertEqual(facts.explicitOptions["platform"], .string("PACBIO"))
+        XCTAssertNil(facts.resolvedDefaults["platform"])
+        XCTAssertNil(facts.explicitOptions["platformSource"])
+        XCTAssertNil(facts.resolvedDefaults["platformSource"])
         let rootOptions = TaxTriageRecordFacts.rootRecordOptions(fromRunParameters: facts.runParameters)
-        XCTAssertEqual(rootOptions.explicit["platform"], .string(platform), file: file, line: line)
-        XCTAssertNil(rootOptions.resolved["platform"], file: file, line: line)
+        XCTAssertEqual(rootOptions.explicit["platform"], .string("PACBIO"))
+        XCTAssertNil(rootOptions.resolved["platform"])
+        XCTAssertNil(rootOptions.resolved["platformSource"])
         let saved = TaxTriageRecordFacts.recordOptions(fromRunParameters: facts.runParameters)
-        XCTAssertNil(saved.resolvedDefaults["platform"], file: file, line: line)
+        XCTAssertNil(saved.resolvedDefaults["platform"])
+        XCTAssertNil(saved.resolvedDefaults["platformSource"])
     }
 }

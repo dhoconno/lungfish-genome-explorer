@@ -246,7 +246,7 @@ final class TaxTriageRunBundleInputsTests: XCTestCase {
         XCTAssertEqual(moved.platform, .oxford)
         let before = Array(Mirror(reflecting: settings).children)
         let after = Array(Mirror(reflecting: moved).children)
-        XCTAssertEqual(before.count, 18, "a new stored value of TaxTriageConfig needs its line in TaxTriageAnalysisRunTool.settings(_:platform:)")
+        XCTAssertEqual(before.count, 19, "a new stored value of TaxTriageConfig needs its line in TaxTriageAnalysisRunTool.settings(_:platform:), except platformSource, which only the plan sets (SW13)")
         XCTAssertEqual(after.map(\.label), before.map(\.label))
         for (old, new) in zip(before, after) where old.label != "platform" {
             XCTAssertEqual(String(describing: new.value), String(describing: old.value), old.label ?? "?")

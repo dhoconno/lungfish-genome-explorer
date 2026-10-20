@@ -80,6 +80,21 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     /// Default sequencing platform for samples without explicit platform.
     public let platform: Platform
 
+    /// Where ``platform`` came from, which only the plan of a `taxtriage run` knows and the record names (SW13, MD34).
+    package enum PlatformSource: String, Sendable, Equatable {
+        /// The user chose the platform, by `--platform` or in the wizard, and the record files it among the explicit
+        /// options. A configuration built anywhere but the plan starts here, which leaves its record as it was.
+        case chosen
+        /// Every sample of the launch took the platform its bundle records.
+        case bundle
+        /// The user chose no platform and no bundle gave one, so the launch ran on the default platform.
+        case `default`
+    }
+
+    /// Where ``platform`` came from. It is no setting of the run, so it stays out of `CodingKeys` and a saved
+    /// configuration reads back as ``PlatformSource/chosen``.
+    package var platformSource: PlatformSource = .chosen
+
     // MARK: - Output
 
     /// Directory where TaxTriage writes all output files.
