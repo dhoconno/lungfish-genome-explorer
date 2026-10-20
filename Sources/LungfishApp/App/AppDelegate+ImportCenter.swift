@@ -1181,9 +1181,9 @@ extension AppDelegate {
             return
         }
 
-        let hasSelection = viewerController.viewerView.selectionRange?.isEmpty == false
         let formats: [ViewerGraphicFormat] = includeBitmapFormats ? [.png, .jpeg, .tiff, .pdf] : [.pdf]
-        let scopes: [ViewerExportScope] = hasSelection ? [.tracks, .fullViewer, .selectedRegion] : [.tracks, .fullViewer]
+        // A bundle runs `bundle export-graphic` behind a row, other content keeps its capture (lane 13.30, O18, V1-3).
+        let (content, scopes) = Self.viewerGraphicsExportScopes(viewerController: viewerController)
         let panelController = ViewerGraphicsExportPanelController(
             formats: formats,
             scopes: scopes,
@@ -1193,28 +1193,18 @@ extension AppDelegate {
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self, let rawURL = panel.url else { return }
-
-            let scope = panelController.selectedScope
-            let format = panelController.selectedFormat
-            let scale = panelController.selectedBitmapScale
-            let outputURL = panelController.normalizedOutputURL(from: rawURL)
-
-            do {
-                let data = try self.viewerExportData(
-                    viewerController: viewerController,
-                    scope: scope,
-                    format: format,
-                    bitmapScale: scale
-                )
-                try data.write(to: outputURL, options: .atomic)
-                self.showExportSuccess(filename: outputURL.lastPathComponent, count: 1, itemType: "graphic")
-            } catch {
-                self.showExportError(message: "Failed to export viewer graphics: \(error.localizedDescription)")
-            }
+            self.finishViewerGraphicsExport(
+                viewerController: viewerController,
+                content: content,
+                scope: panelController.selectedScope,
+                format: panelController.selectedFormat,
+                bitmapScale: panelController.selectedBitmapScale,
+                outputURL: panelController.normalizedOutputURL(from: rawURL)
+            )
         }
     }
 
-    private func viewerExportData(
+    func viewerExportData(
         viewerController: ViewerViewController,
         scope: ViewerExportScope,
         format: ViewerGraphicFormat,
@@ -1274,7 +1264,7 @@ extension AppDelegate {
         scope: ViewerExportScope
     ) throws -> (NSView, NSRect) {
         switch scope {
-        case .tracks:
+        case .tracks, .rulerAndTracks:
             return (viewerController.viewerView, viewerController.viewerView.bounds)
         case .fullViewer:
             return (viewerController.view, viewerController.view.bounds)
@@ -1306,19 +1296,6 @@ extension AppDelegate {
         alert.messageText = "Export Failed"
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        if let window = mainWindowController?.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        }
-    }
-
-    /// Shows a success alert after export
-    private func showExportSuccess(filename: String, count: Int, itemType: String) {
-        let alert = NSAlert()
-        alert.messageText = "Export Successful"
-        let plural = count == 1 ? itemType : "\(itemType)s"
-        alert.informativeText = "Successfully exported \(count) \(plural) to \(filename)."
-        alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         if let window = mainWindowController?.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)

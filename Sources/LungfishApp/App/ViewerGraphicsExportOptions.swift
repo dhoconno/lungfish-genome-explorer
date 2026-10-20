@@ -4,16 +4,20 @@
 
 import UniformTypeIdentifiers
 
+/// The Scope menu's choices. A bundle offers Tracks, Ruler and Tracks and Selected Region, a document Tracks, Full
+/// Viewer Pane and Selected Region, and other content Full Viewer Pane (UX ruling Q-G2 items 2 and 3).
 enum ViewerExportScope: String, CaseIterable {
     case tracks = "tracks"
+    case rulerAndTracks = "ruler"
     case fullViewer = "full"
     case selectedRegion = "selection"
 
     var title: String {
         switch self {
-        case .tracks: return "Tracks View (Sequence + Variants + Annotations)"
-        case .fullViewer: return "Full Viewer Pane (Ruler + Tracks + Table)"
-        case .selectedRegion: return "Selected Region Only"
+        case .tracks: return "Tracks"
+        case .rulerAndTracks: return "Ruler and Tracks"
+        case .fullViewer: return "Full Viewer Pane"
+        case .selectedRegion: return "Selected Region"
         }
     }
 }

@@ -122,6 +122,20 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         }
     }
 
+    /// UX ruling Q-G2 item 6. A command line with no `--theme` passes none, so the leaf draws light and its record
+    /// holds the theme under `defaults` (`testExportGraphicRecordHoldsEveryPixelSetting`), and the help says so.
+    func testBundleExportGraphicThemeDefaultsToLight() throws {
+        let base = [bundle.path, "--region", "chr1:1-10", "--output-format", "png", "--output"]
+        XCTAssertNil(try command(base + [folder.appendingPathComponent("a.png").path]).graphic.settings.theme)
+        XCTAssertEqual(
+            try command(base + [folder.appendingPathComponent("b.png").path, "--theme", "dark"]).graphic.settings.theme, .dark
+        )
+        let help = LungfishCLI.helpMessage(for: BundleExportGraphicSubcommand.self, columns: 400)
+        XCTAssertTrue(help.contains(
+            "The theme to draw with, light or dark. The default is light. The app passes the appearance of its viewer."
+        ), help)
+    }
+
     func testExportGraphicRefusesARegionItCannotDraw() async throws {
         let output = folder.appendingPathComponent("refused.png")
         for region in ["chr1:0-10", "chr1:10-5", "chr1:2990-3001", "chr2:1-10", "chr1", "chr1:a-b"] {
