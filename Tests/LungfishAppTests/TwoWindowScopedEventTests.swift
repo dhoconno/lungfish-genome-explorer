@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 
 /// Two real project windows side by side. A window event reaches only the
 /// window whose scope it carries, an unscoped window event reaches neither,

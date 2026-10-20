@@ -13,7 +13,7 @@ import os.log
 import LungfishKit
 import LungfishOperations
 import CryptoKit
-import Darwin
+import LungfishWorkflow
 
 /// Logger for SequenceViewerView operations
 let sequenceViewerLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceViewerView")

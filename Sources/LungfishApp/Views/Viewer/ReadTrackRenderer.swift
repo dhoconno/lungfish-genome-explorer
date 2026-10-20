@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishKit
+import LungfishWorkflow
 
 // MARK: - ReadTrackRenderer
 
