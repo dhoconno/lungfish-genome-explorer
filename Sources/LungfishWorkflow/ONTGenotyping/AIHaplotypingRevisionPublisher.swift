@@ -16,7 +16,7 @@ public struct AIHaplotypingRevisionPublisher {
         dateProvider: @escaping () -> Date = Date.init,
         revisionIDProvider: @escaping () -> String = { "haprev-ai-\(UUID().uuidString)" },
         provenanceWriter: @escaping AIHaplotypingProvenanceWriter = {
-            try ProvenanceWriter(signingProvider: nil).write($0, toSidecar: $1)
+            try ProvenanceWriter().write($0, toSidecar: $1)
         }
     ) {
         self.fileManager = fileManager

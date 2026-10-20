@@ -236,7 +236,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             signatures: envelope.signatures,
             status: envelope.status, legacyWorkflowRun: envelope.legacyRun
         )
-        try ProvenanceWriter(signingProvider: nil).write(updated, toSidecar: provenanceURL)
+        try ProvenanceWriter().write(updated, toSidecar: provenanceURL)
     }
 
     internal func publishRelocatedSuccessManifest(

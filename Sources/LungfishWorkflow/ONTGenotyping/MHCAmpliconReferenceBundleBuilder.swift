@@ -467,7 +467,7 @@ public struct MHCAmpliconReferenceBundleBuilder: Sendable {
             exitStatus: 0,
             stderr: warnings.isEmpty ? nil : warnings.map(warningDiagnostic).joined(separator: "\n")
         )
-        return try ProvenanceWriter(signingProvider: nil).write(
+        return try ProvenanceWriter().write(
             envelope,
             to: bundleURL,
             bundleLayoutRoot: publishedBundleURL

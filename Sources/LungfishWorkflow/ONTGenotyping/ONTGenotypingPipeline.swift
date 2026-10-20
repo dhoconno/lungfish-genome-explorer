@@ -586,7 +586,7 @@ public struct ONTGenotypingPipeline: Sendable {
         }
 
         let envelope = try builder.complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: request.outputDirectory)
+        try ProvenanceWriter().write(envelope, to: request.outputDirectory)
     }
 
     private func fileFormat(for url: URL) -> FileFormat {

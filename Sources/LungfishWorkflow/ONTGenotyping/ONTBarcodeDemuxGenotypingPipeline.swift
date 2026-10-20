@@ -592,7 +592,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             if let failure =
                 error as? GenotypeReviewableRowCatalogPublicationFailure {
                 do {
-                    try ProvenanceWriter(signingProvider: nil).write(
+                    try ProvenanceWriter().write(
                         failure.provenance,
                         to: request.outputDirectory
                     )

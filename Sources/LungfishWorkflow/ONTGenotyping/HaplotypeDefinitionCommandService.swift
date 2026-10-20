@@ -734,7 +734,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             HaplotypeDefinitionEditProvenance.self,
             from: Data(contentsOf: provenanceURL)
         )
-        try ProvenanceWriter(signingProvider: nil).write(
+        try ProvenanceWriter().write(
             canonicalEnvelope(from: primitive),
             toSidecar: provenanceURL
         )
@@ -950,7 +950,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             exitStatus: 0
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+        try ProvenanceWriter().write(envelope, to: bundleURL)
     }
 
     private func writeMHCReferenceBundleInstallProvenance(

@@ -338,7 +338,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             signatures: builtEnvelope.signatures,
             status: builtEnvelope.status, legacyWorkflowRun: builtEnvelope.legacyRun
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: request.provenanceURL)
+        try ProvenanceWriter().write(envelope, toSidecar: request.provenanceURL)
     }
 
     internal func loadPartialFailureEnvelope(
@@ -483,7 +483,7 @@ extension FullLengthONTMHCGenotypingPipeline {
         if FileManager.default.fileExists(atPath: request.failureProvenanceURL.path) {
             try FileManager.default.removeItem(at: request.failureProvenanceURL)
         }
-        try ProvenanceWriter(signingProvider: nil).write(
+        try ProvenanceWriter().write(
             envelope,
             toSidecar: request.failureProvenanceURL
         )
