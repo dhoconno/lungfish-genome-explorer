@@ -169,7 +169,13 @@ enum ViewerExportOptions {
             name: .customLong(ViewerGraphicExport.Option.region.rawValue),
             help: "The region to draw, as contig:start-end, 1-based and inclusive, as samtools takes it, such as chr1:101-200."
         )
-        var region: String
+        var region: String?
+
+        @Option(
+            name: .customLong(ViewerGraphicExport.Option.regionsFile.rawValue),
+            help: "A BED file of regions, one image each, written into the new folder --output names. Each line gives the contig, the 0-based start, the end and an optional name, separated by tabs."
+        )
+        var regionsFile: String?
 
         @Option(
             name: .customLong(ViewerGraphicExport.Option.width.rawValue),
@@ -227,6 +233,9 @@ enum ViewerExportOptions {
         var viewState: String?
 
         func validate() throws {
+            if (region == nil) == (regionsFile == nil) {
+                throw ValidationError("Pass --region for one image or --regions-file for one image a region, not both.")
+            }
             if let scale, !ViewerGraphicExport.scales.contains(scale) {
                 throw ValidationError("Pass --scale 1, 2 or 4.")
             }
@@ -240,7 +249,8 @@ enum ViewerExportOptions {
 
         var settings: ViewerGraphicExport.Settings {
             ViewerGraphicExport.Settings(
-                region: region, width: width, includeRuler: includeRuler, tracks: tracks, format: format, scale: scale,
+                region: region, regionsFile: regionsFile, width: width, includeRuler: includeRuler, tracks: tracks,
+                format: format, scale: scale,
                 theme: theme, excludeFlags: excludeFlags, coverageScale: coverageScale, viewState: viewState
             )
         }

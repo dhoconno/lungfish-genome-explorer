@@ -42,7 +42,8 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
         let command = self
         try await ViewerExportLeaf.run(
             globalOptions: globalOptions,
-            startMessage: "Drawing \(graphic.region) of \(URL(fileURLWithPath: bundlePath).lastPathComponent)."
+            startMessage: "Drawing \(graphic.region ?? "the regions of " + URL(fileURLWithPath: graphic.regionsFile ?? "").lastPathComponent) "
+                + "of \(URL(fileURLWithPath: bundlePath).lastPathComponent)."
         ) { events in
             try await command.export(events: events)
         }
@@ -60,9 +61,16 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
         let invocation = invocation()
         let settings = graphic.settings
         let outputURL = URL(fileURLWithPath: invocation.output)
-        guard let parsed = GenomicRegionArgument.parseRegion(settings.region) else {
+        if let regionsFile = settings.regionsFile {
+            return try await exportBulk(
+                events: events, render: render, invocation: invocation,
+                regionsURL: URL(fileURLWithPath: regionsFile).standardizedFileURL, runClock: runClock
+            )
+        }
+        let passed = settings.region ?? ""
+        guard let parsed = GenomicRegionArgument.parseRegion(passed) else {
             throw ViewerExportRefusal(
-                "The region \(settings.region) is not contig:start-end with 1 <= start <= end. Pass a region such as chr1:101-200."
+                "The region \(passed) is not contig:start-end with 1 <= start <= end. Pass a region such as chr1:101-200."
             )
         }
         let bundle: ViewerGraphicBundle

@@ -285,6 +285,73 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         XCTAssertThrowsError(try command([bundle.path, "--region", "chr1:1-10", "--output-format", "png", "--scale", "3", "-o", "/tmp/x.png"]))
     }
 
+    /// BIO ruling Q-G3 item 4 and ARCH ruling B10 3.2. The BED start is 0-based and the end exclusive, a line with no
+    /// name writes `<contig>_<start>_<end>.<ext>`, and one record in the published folder lists every figure.
+    func testExportGraphicBulkReadsBEDZeroBased() async throws {
+        let bed = folder.appendingPathComponent("regions.bed")
+        try "track name=regions\nchr1\t100\t200\tfirst\textra\nchr1\t999\t2000\n\n# end\n"
+            .write(to: bed, atomically: true, encoding: .utf8)
+        let output = folder.appendingPathComponent("figures", isDirectory: true)
+        let outcome = try await export(["--regions-file", bed.path, "--track", "genes", "--output-format", "png", "-o", output.path])
+        XCTAssertEqual(outcome.message, "Exported 2 images to figures")
+        let names = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
+        XCTAssertEqual(names, [ProvenanceRecorder.provenanceFilename, "chr1_999_2000.png", "first.png"])
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: output.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
+        let outputs = record.files.filter { $0.role == .output }
+        XCTAssertEqual(outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, ["first.png", "chr1_999_2000.png"])
+        for written in outputs {
+            let file = output.appendingPathComponent(URL(fileURLWithPath: written.path).lastPathComponent)
+            XCTAssertEqual(written.checksumSHA256, try ProvenanceFileHasher.sha256(of: file))
+        }
+        let inputs = record.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        XCTAssertEqual(inputs, ["manifest.json", "genes.db", "regions.bed"])
+        XCTAssertNil(record.options.explicit["region"])
+        XCTAssertNotNil(record.options.explicit["regionsFile"])
+        XCTAssertTrue(record.argv.contains("--regions-file"))
+        guard case .array(let figures)? = record.options.resolvedDefaults["figures"], figures.count == 2,
+              case .dictionary(let third) = figures[1] else {
+            return XCTFail("the record lists no figures")
+        }
+        XCTAssertEqual(third["region"], .string("chr1:1000-2000"))
+        XCTAssertEqual(third["bedLine"], .integer(3))
+        XCTAssertEqual(third["output"], .string("chr1_999_2000.png"))
+        XCTAssertEqual(third["regionLength"], .integer(1001))
+        XCTAssertEqual(record.options.resolvedDefaults["degraded"], .array([]))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".export.tmp") }, [])
+    }
+
+    /// Each bad BED file is refused before any write, with no folder and no staged folder left.
+    func testExportGraphicBulkRefusesABadBEDLine() async throws {
+        let bad = [
+            "# no regions\n",
+            "chr1\t100\n",
+            "chr1\tten\t200\n",
+            "chr1\t-1\t200\n",
+            "chr1\t200\t200\n",
+            "chrX\t100\t200\n",
+            "chr1\t100\t3001\n",
+            "chr1\t100\t200\tsame\nchr1\t300\t400\tsame\n",
+        ]
+        let output = folder.appendingPathComponent("figures", isDirectory: true)
+        for (index, text) in bad.enumerated() {
+            let bed = folder.appendingPathComponent("bad-\(index).bed")
+            try text.write(to: bed, atomically: true, encoding: .utf8)
+            do {
+                _ = try await export(["--regions-file", bed.path, "--output-format", "png", "-o", output.path])
+                XCTFail("line set \(index) was not refused")
+            } catch is ViewerExportRefusal {
+            } catch {
+                XCTFail("line set \(index) failed with \(error) and not a refusal")
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "line set \(index)")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".export.tmp") }, [])
+        XCTAssertThrowsError(try command([bundle.path, "--region", "chr1:1-10", "--regions-file", "/tmp/r.bed", "--output-format", "png", "-o", "/tmp/x"]))
+        XCTAssertThrowsError(try command([bundle.path, "--output-format", "png", "-o", "/tmp/x"]))
+    }
+
     func testEachPDFReasonReadsAsOneSentence() {
         let sentences = [
             "the PDF has no trailer keyword": "The file has no trailer.",

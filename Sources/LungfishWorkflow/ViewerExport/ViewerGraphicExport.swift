@@ -58,8 +58,10 @@ public enum ViewerGraphicExport {
 
     /// What one figure draws, as the leaf's options state it. A nil value is one the command line left out.
     public struct Settings: Sendable, Equatable {
-        /// The region as passed, `contig:start-end`, 1-based and closed.
-        public var region: String
+        /// The region as passed, `contig:start-end`, 1-based and closed. Nil in the bulk form.
+        public var region: String?
+        /// The absolute path of the BED file of the bulk form, one figure for each region line.
+        public var regionsFile: String?
         public var width: Double?
         public var includeRuler: Bool
         /// Track ids in drawn order. Empty means the bundle's default tracks.
@@ -73,11 +75,12 @@ public enum ViewerGraphicExport {
         public var viewState: String?
 
         public init(
-            region: String, width: Double? = nil, includeRuler: Bool = false, tracks: [String] = [],
-            format: ViewerFigureFormat, scale: Int? = nil, theme: Theme? = nil, excludeFlags: UInt16? = nil,
-            coverageScale: CoverageScaleMode? = nil, viewState: String? = nil
+            region: String? = nil, regionsFile: String? = nil, width: Double? = nil, includeRuler: Bool = false,
+            tracks: [String] = [], format: ViewerFigureFormat, scale: Int? = nil, theme: Theme? = nil,
+            excludeFlags: UInt16? = nil, coverageScale: CoverageScaleMode? = nil, viewState: String? = nil
         ) {
             self.region = region
+            self.regionsFile = regionsFile
             self.width = width
             self.includeRuler = includeRuler
             self.tracks = tracks
@@ -107,7 +110,13 @@ public enum ViewerGraphicExport {
 
     /// The leaf's own flags in one fixed order.
     static func leafArguments(_ settings: Settings) -> [String] {
-        var arguments = [Option.region.flag, settings.region]
+        var arguments: [String] = []
+        if let region = settings.region {
+            arguments += [Option.region.flag, region]
+        }
+        if let regionsFile = settings.regionsFile {
+            arguments += [Option.regionsFile.flag, URL(fileURLWithPath: regionsFile).standardizedFileURL.path]
+        }
         if let width = settings.width {
             arguments += [Option.width.flag, number(width)]
         }

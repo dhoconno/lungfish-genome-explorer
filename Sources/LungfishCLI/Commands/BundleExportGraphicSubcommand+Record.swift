@@ -13,6 +13,12 @@ struct BundleExportGraphicRecord {
     let defaults: [String: ParameterValue]
     let resolved: [String: ParameterValue]
 
+    init(explicitOptions: [String: ParameterValue], defaults: [String: ParameterValue], resolved: [String: ParameterValue]) {
+        self.explicitOptions = explicitOptions
+        self.defaults = defaults
+        self.resolved = resolved
+    }
+
     init(
         settings: ViewerGraphicExport.Settings, region: ViewerGraphicRegion, trackIDs: [String],
         figure: ViewerGraphicFigure, degraded: [ViewerFigureOmission], rendering: ViewerFigureRendering,
@@ -20,10 +26,15 @@ struct BundleExportGraphicRecord {
     ) {
         let format = settings.format
         var explicit: [String: ParameterValue] = [
-            "region": .string(settings.region),
             "outputPath": .file(outputURL),
             "outputFormat": .string(format.rawValue),
         ]
+        if let passed = settings.region {
+            explicit["region"] = .string(passed)
+        }
+        if let regionsFile = settings.regionsFile {
+            explicit["regionsFile"] = .file(URL(fileURLWithPath: regionsFile))
+        }
         var defaults: [String: ParameterValue] = [:]
         func take<Value>(_ key: String, _ value: Value?, default fallback: ParameterValue?, _ wrap: (Value) -> ParameterValue) {
             if let value {
