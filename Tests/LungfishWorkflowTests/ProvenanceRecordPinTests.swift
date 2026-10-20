@@ -144,6 +144,20 @@ final class ProvenanceRecordPinTests: XCTestCase {
         try ProvenanceRecordPin.assertBytes(bytes, equalFixture: "exporter-container-manifest.json")
     }
 
+    /// Row 11 takes an encoder of its own. Its marker protocol is not adopted by an envelope, so an envelope cannot be
+    /// encoded with it, and the encoder writes the options of `ProvenanceJSON`, with slashes as typed.
+    func testTheContainerManifestEncoderTakesNoEnvelope() throws {
+        struct Entry: ContainerManifestPayload {
+            let image: String
+        }
+        XCTAssertFalse(ProvenanceEnvelope.self is ContainerManifestPayload.Type)
+        let data = try ContainerManifestJSON.encode([Entry(image: "quay.io/biocontainers/fastp:0.23.4--h125f33a_5")])
+        XCTAssertEqual(
+            data,
+            try ProvenanceJSON.encoder.encode([["image": "quay.io/biocontainers/fastp:0.23.4--h125f33a_5"]])
+        )
+    }
+
     /// Item 4 of the ARCH ruling predicts that a site of A-F5 moved onto the writer changes its bytes by slashes only.
     func testThePlainEncoderAndTheWriterDifferOnlyInSlashes() throws {
         let envelope = ProvenanceRecordFreezeFixtures.preparationEnvelope()

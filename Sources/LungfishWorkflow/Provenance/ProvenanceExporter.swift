@@ -625,7 +625,7 @@ public struct ProvenanceExporter: Sendable {
     }
 
     private func exportContainerManifest(_ run: WorkflowRun) throws -> String {
-        struct ContainerEntry: Encodable {
+        struct ContainerEntry: ContainerManifestPayload {
             let toolName: String
             let toolVersion: String
             let image: String
@@ -640,7 +640,7 @@ public struct ProvenanceExporter: Sendable {
                 digest: step.containerDigest
             )
         }
-        let data = try ProvenanceJSON.encoder.encode(entries)
+        let data = try ContainerManifestJSON.encode(entries)
         guard let string = String(data: data, encoding: .utf8) else {
             throw ProvenanceError.exportFailed("Failed to encode container manifest as UTF-8")
         }
