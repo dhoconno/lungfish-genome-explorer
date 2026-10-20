@@ -1,6 +1,6 @@
 OVERVIEW: Draw one region of a bundle as an image with provenance
 
-USAGE: lungfish-cli bundle export-graphic [<options>] <bundle-path> --region <region> --output-format <output-format> --output <output>
+USAGE: lungfish-cli bundle export-graphic [<options>] <bundle-path> --output-format <output-format> --output <output>
 
 ARGUMENTS:
   <bundle-path>           The reference bundle to draw
@@ -8,6 +8,11 @@ ARGUMENTS:
 OPTIONS:
   --region <region>       The region to draw, as contig:start-end, 1-based and
                           inclusive, as samtools takes it, such as chr1:101-200.
+  --regions-file <regions-file>
+                          A BED file of regions, one image each, written into
+                          the new folder --output names. Each line gives the
+                          contig, the 0-based start, the end and an optional
+                          name, separated by tabs.
   --width <width>         The figure width in points. The default is 800. The
                           app passes the width of its view.
   --include-ruler         Draw the coordinate ruler above the tracks.
