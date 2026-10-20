@@ -541,7 +541,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         return nil
     }
 
-    private static func runIndex(bamPath: String, samtoolsPath: String) throws -> MarkdupSamtoolsInvocation {
+    static func runIndex(bamPath: String, samtoolsPath: String) throws -> MarkdupSamtoolsInvocation {
         let indexClock = ProvenanceRunClock()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: samtoolsPath)
@@ -1051,7 +1051,7 @@ private struct MarkdupPipelineRunRecord: Sendable {
     let invocations: [MarkdupSamtoolsInvocation]
 }
 
-private struct MarkdupSamtoolsInvocation: Sendable {
+struct MarkdupSamtoolsInvocation: Sendable {
     let startedAt: Date
     let completedAt: Date
     let result: NativeToolResult
