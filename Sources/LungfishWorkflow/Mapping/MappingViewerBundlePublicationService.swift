@@ -1119,28 +1119,21 @@ public enum MappingViewerBundlePublicationService {
 
         for name in names where name.hasSuffix(".import.lungfish-provenance.json") {
             let relativePath = "alignments/\(name)"
-            // Resolve project-relative paths against the candidate so the
-            // candidate-to-final remap sees real paths, then store the
-            // result in portable form for the final location.
-            let envelope = try ProvenanceJSON.decoder.decode(
-                ProvenanceEnvelope.self,
-                from: PortablePath.resolveJSON(
-                    bundleRoot.readData(relativePath: relativePath),
-                    forFileAt: candidateBundleURL.appendingPathComponent(relativePath),
-                    encoder: ProvenanceJSON.encoder
+            // The writer resolves project-relative paths against the
+            // candidate so the candidate-to-final remap sees real paths,
+            // then stores the result in portable form for the final location.
+            let encoded = try ProvenanceWriter.rewrite(
+                bundleRoot.readData(relativePath: relativePath),
+                at: candidateBundleURL.appendingPathComponent(relativePath),
+                for: finalBundleURL.appendingPathComponent(relativePath)
+            ) { envelope in
+                try remappedEnvelope(
+                    envelope,
+                    replacingRoot: candidateBundleURL,
+                    with: finalBundleURL,
+                    bundleRoot: bundleRoot
                 )
-            )
-            let rehydrated = try remappedEnvelope(
-                envelope,
-                replacingRoot: candidateBundleURL,
-                with: finalBundleURL,
-                bundleRoot: bundleRoot
-            )
-            let encoded = PortablePath.sanitizeJSON(
-                try ProvenanceJSON.encoder.encode(rehydrated),
-                forFileAt: finalBundleURL.appendingPathComponent(relativePath),
-                encoder: ProvenanceJSON.encoder
-            )
+            }
             try bundleRoot.replaceFile(
                 relativePath: relativePath,
                 data: encoded,
