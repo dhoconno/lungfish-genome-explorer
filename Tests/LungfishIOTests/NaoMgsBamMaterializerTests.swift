@@ -4,6 +4,8 @@
 
 import XCTest
 import SQLite3
+import CryptoKit
+import OSLog
 import LungfishTestSupport
 @testable import LungfishIO
 
@@ -579,5 +581,220 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
             seen.flagsAfterRelease, -1,
             "Releasing the Pipe closed descriptor \(seen.number) a second time, after the test had taken it"
         )
+    }
+}
+
+// MARK: - Lane 13.09 M0, the freeze before generateBam moves onto ToolProcess (QA 1)
+
+/// Each pin holds what the base gives, with the folder and the samtools path as `<TMP>` and `<SAMTOOLS>`. The BAM
+/// pins skip the markdup pass, so they hold the pipeline's own output, whose `@PG` `CL:` lines carry each argv.
+extension NaoMgsBamMaterializerTests {
+    struct PinnedStep: Equatable {
+        let tool: String
+        let argv: [String]
+        let exitStatus: Int?
+        let stderr: String?
+        let outputs: [String]
+    }
+
+    func testBAMTextOfEachRowShapeIsPinned() throws {
+        try assertPinnedBAMText("8a568ec43ac1bbe1d656da3d4642c5c19cba1300d677f35462c39ddd5119154d") {
+            try self.makeTestDatabase(at: $0, sample: "S1", duplicateCount: 3)
+        }
+        try assertPinnedBAMText("d888bb9655230cc69a402fc375fd265f7b789b1085e68f0728fa27f778587d57") {
+            try self.makePairedTestDatabase(at: $0, sample: "S1")
+        }
+        try assertPinnedBAMText("5510ee6b01b2184d8bb660b2b317d6a404096b5015a5c42aa5d7eb2d76caa661") {
+            try self.makeR2OnlyTestDatabase(at: $0, sample: "S1")
+        }
+    }
+
+    /// Three runs on one database. The first makes the BAM alone. The second finds it with a samtools whose markdup
+    /// fails, so it records the failed markdup and then the index. The third marks the duplicates.
+    func testRecordedStepsOfAMaterializationArePinned() throws {
+        let samtools = try pinSamtools()
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "S1", duplicateCount: 3)
+        let bam = "<TMP>/bams/S1.bam"
+        let markdupScript = "<SAMTOOLS> sort -n -@ 4 \(bam) | <SAMTOOLS> fixmate -m - - | <SAMTOOLS> sort -@ 4 - | "
+            + "<SAMTOOLS> markdup - \(bam).markdup.tmp && <SAMTOOLS> index \(bam).markdup.tmp"
+            + " && rm -f \(bam).bai \(bam).csi && mv \(bam).markdup.tmp \(bam) && mv \(bam).markdup.tmp.bai \(bam).bai"
+
+        let first = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: false)
+        XCTAssertEqual(pinnedSteps(first.steps, tmp: tmp, samtools: samtools), [
+            PinnedStep(tool: "lungfish nao-mgs materialize-bam", argv: materializeArgv(sample: "S1"),
+                       exitStatus: 0, stderr: nil, outputs: [bam]),
+        ])
+
+        let failing = try makeFakeSamtools(in: tmp, body: """
+            if [ "$1" = markdup ]; then cat > /dev/null; echo "fake samtools markdup failed" >&2; exit 1; fi
+            exec \(samtools) "$@"
+            """)
+        let second = pinnedSteps(
+            try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: failing, markDuplicates: true).steps,
+            tmp: tmp, samtools: failing
+        )
+        XCTAssertEqual(second.map { $0.stderr != nil }, [true, false], "Only the failed markdup records an error")
+        XCTAssertEqual(second.map { PinnedStep(tool: $0.tool, argv: $0.argv, exitStatus: $0.exitStatus, stderr: nil, outputs: $0.outputs) }, [
+            PinnedStep(tool: "samtools", argv: ["/bin/sh", "-c", markdupScript], exitStatus: 1, stderr: nil, outputs: []),
+            PinnedStep(tool: "samtools", argv: ["<SAMTOOLS>", "index", bam], exitStatus: 0, stderr: nil, outputs: ["\(bam).bai"]),
+        ])
+
+        let third = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: true)
+        XCTAssertEqual(pinnedSteps(third.steps, tmp: tmp, samtools: samtools), [
+            PinnedStep(tool: "samtools", argv: ["/bin/sh", "-c", markdupScript],
+                       exitStatus: 0, stderr: nil, outputs: [bam, "\(bam).bai"]),
+        ])
+    }
+
+    /// Code 5 with the failing stage's stderr. Only the last stage fails, which `sh -c` and ToolProcess both report.
+    func testAFailingLastStageGivesThePipelineFailureWords() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "PinLast", duplicateCount: 3)
+        let fake = try makeFakeSamtools(in: tmp, body: """
+            cat > /dev/null
+            if [ "$1" = sort ]; then echo "fake samtools sort failed" >&2; exit 1; fi
+            exit 0
+            """)
+        let start = Date()
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: fake, markDuplicates: false)
+        XCTAssertEqual(result.bamURLs, [])
+        XCTAssertTrue(result.steps.isEmpty)
+        XCTAssertEqual(try materializerWarnings(forSample: "PinLast", since: start), [
+            "Failed to materialize BAM for sample PinLast: samtools pipeline failed: fake samtools sort failed",
+        ])
+    }
+
+    /// Code 7. Each stage exits 1 after a second unread, and the rows overfill the pipe, so the writer is waiting.
+    func testAStageThatStopsReadingGivesTheBrokenPipeWords() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "PinPipe", duplicateCount: 0)
+        try addSingleEndRows(to: dbURL, sample: "PinPipe", count: 2000)
+        let fake = try makeFakeSamtools(in: tmp, body: "sleep 1\nexit 1\n")
+        let start = Date()
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: fake, markDuplicates: false)
+        XCTAssertEqual(result.bamURLs, [])
+        XCTAssertTrue(result.steps.isEmpty)
+        XCTAssertEqual(try materializerWarnings(forSample: "PinPipe", since: start), [
+            "Failed to materialize BAM for sample PinPipe: Broken pipe writing SAM record for sample PinPipe",
+        ])
+    }
+
+    /// Only the first stage fails. `sh -c` reports the last stage's status, so the base records a success with the
+    /// first stage's stderr (prediction (b) of lane 13.09).
+    func testAFailingFirstStageAloneGivesWhatTheBaseReports() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try makeTestDatabase(at: dbURL, sample: "PinFirst", duplicateCount: 3)
+        let fake = try makeFakeSamtools(in: tmp, body: """
+            cat > /dev/null
+            if [ "$1" = view ]; then echo "fake samtools view failed" >&2; exit 1; fi
+            exit 0
+            """)
+        let start = Date()
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: fake, markDuplicates: false)
+        XCTAssertEqual(result.bamURLs.map(\.lastPathComponent), ["PinFirst.bam"])
+        XCTAssertEqual(pinnedSteps(result.steps, tmp: tmp, samtools: fake), [
+            PinnedStep(tool: "lungfish nao-mgs materialize-bam", argv: materializeArgv(sample: "PinFirst"),
+                       exitStatus: 0, stderr: "fake samtools view failed\n", outputs: ["<TMP>/bams/PinFirst.bam"]),
+        ])
+        XCTAssertEqual(try materializerWarnings(forSample: "PinFirst", since: start), [])
+    }
+
+    // MARK: Pin helpers
+
+    private func pinSamtools() throws -> String {
+        guard let path = BamFixtureBuilder.locateSamtools() else {
+            try ToolAvailability.skipOrFail("samtools is not installed")
+        }
+        return path
+    }
+
+    private func materializeForPin(dbURL: URL, tmp: URL, samtools: String, markDuplicates: Bool) throws -> NaoMgsBamMaterializationResult {
+        try NaoMgsBamMaterializer.materializeAllWithProvenance(
+            dbPath: dbURL.path, resultURL: tmp, samtoolsPath: samtools,
+            markDuplicates: markDuplicates, samtoolsVersion: "samtools-test", lungfishVersion: "test"
+        )
+    }
+
+    private func materializeArgv(sample: String) -> [String] {
+        ["lungfish-internal", "nao-mgs-materialize-bam", "--database", "<TMP>/naomgs.sqlite", "--sample", sample,
+         "--output", "<TMP>/bams/\(sample).bam", "--samtools", "<SAMTOOLS>"]
+    }
+
+    /// The samtools path goes first, since a fake samtools lives in the folder.
+    private func tokenized(_ text: String, tmp: URL, samtools: String) -> String {
+        text.replacingOccurrences(of: samtools, with: "<SAMTOOLS>").replacingOccurrences(of: tmp.path, with: "<TMP>")
+    }
+
+    private func pinnedSteps(_ steps: [NaoMgsBamMaterializationStep], tmp: URL, samtools: String) -> [PinnedStep] {
+        steps.map { step in
+            PinnedStep(
+                tool: step.toolName,
+                argv: step.argv.map { tokenized($0, tmp: tmp, samtools: samtools) },
+                exitStatus: step.exitStatus,
+                stderr: step.stderr.map { tokenized($0, tmp: tmp, samtools: samtools) },
+                outputs: step.outputURLs.map { tokenized($0.path, tmp: tmp, samtools: samtools) }
+            )
+        }
+    }
+
+    private func assertPinnedBAMText(
+        _ expected: String, file: StaticString = #filePath, line: UInt = #line, build: (URL) throws -> Void
+    ) throws {
+        let samtools = try pinSamtools()
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        try build(dbURL)
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: false)
+        let bamURL = try XCTUnwrap(result.bamURLs.first, file: file, line: line)
+        let output = try runProcess(executable: samtools, arguments: ["view", "-h", bamURL.path])
+        XCTAssertEqual(output.exitCode, 0, file: file, line: line)
+        let text = tokenized(output.stdout, tmp: tmp, samtools: samtools)
+        let digest = SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, expected, "samtools view -h text:\n\(text)", file: file, line: line)
+    }
+
+    private func makeFakeSamtools(in tmp: URL, body: String) throws -> String {
+        let url = tmp.appendingPathComponent("fake-samtools")
+        try ("#!/bin/sh\n" + body).write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url.path
+    }
+
+    /// `count` single-end rows at distinct positions, in one transaction.
+    private func addSingleEndRows(to dbURL: URL, sample: String, count: Int) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { throw NSError(domain: "test", code: 3) }
+        defer { sqlite3_close(db) }
+        let seq = String(repeating: "A", count: 100)
+        let qual = String(repeating: "I", count: 100)
+        var sql = "BEGIN;"
+        for i in 0..<count {
+            sql += """
+            INSERT INTO virus_hits VALUES (NULL, '\(sample)', 'bulk\(i)', 1, 'NC_001', 'Test virus', \(i % 900),
+            '100M', '\(seq)', '\(qual)', 99.0, 100.0, 0.001, 0, 100, 0, 'unpaired', 100, 90.0,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            """
+        }
+        sql += "COMMIT;"
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+    }
+
+    /// The warnings the materializer logged for `sample` since `start`, read back from this process's log.
+    private func materializerWarnings(forSample sample: String, since start: Date) throws -> [String] {
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        let predicate = NSPredicate(format: "subsystem == %@ AND category == %@", "com.lungfish.io", "NaoMgsBamMaterializer")
+        return try store.getEntries(at: store.position(date: start), matching: predicate)
+            .compactMap { ($0 as? OSLogEntryLog)?.composedMessage }
+            .filter { $0.contains("for sample \(sample):") }
     }
 }
