@@ -35,8 +35,11 @@ extension ProvenanceRecorder {
 
     /// Searches for a provenance record by walking up from a file path.
     ///
-    /// Looks for `.lungfish-provenance.json` in the file's directory,
-    /// then parent, up to 5 levels.
+    /// Looks for `.lungfish-provenance.json` in the file's directory, then in
+    /// its parents, at most five folders in all. The climb stops at the project
+    /// root (the nearest `.lungfish` folder) and lists nothing above it. With no
+    /// project it probes a shared folder above the input for fixed names and
+    /// never lists it (see `findProvenanceEnvelope(for:)`).
     ///
     /// - Parameter filePath: Path to a derivative file
     /// - Returns: The workflow run that produced it, or nil
@@ -50,6 +53,16 @@ extension ProvenanceRecorder {
     /// individual payload file. This lookup checks bundle roots, documented `provenance/` roll-ups,
     /// exact file sidecars, and nearby parent-directory sidecars while still rejecting unrelated
     /// parent provenance for regular files.
+    ///
+    /// The climb starts at the input's folder and visits at most five folders. Inside a project it
+    /// ends at the project root, the nearest `.lungfish` folder, which is listed and checked, and no
+    /// folder above the root is listed, probed or read. A bundle alone is not a root, since a run
+    /// folder above a bundle can list it as produced. With no project the five folders stay, and a
+    /// shared folder above the input's own folder is probed for fixed names and never listed. The
+    /// shared folders are the temp, home, Downloads, Desktop and Documents folders and every
+    /// ancestor of one of them. The probe reads the four canonical sidecars, `mapping-provenance.json`,
+    /// the bundle output sidecar and `<child>.lungfish-provenance.json`, where `<child>` is the next
+    /// folder down toward the input.
     public static func findProvenanceEnvelope(
         for url: URL
     ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
@@ -62,7 +75,7 @@ extension ProvenanceRecorder {
     public static func findProvenanceReading(
         for url: URL
     ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
-        findProvenanceReading(for: url, sharedFolders: [], listing: { _, _ in })
+        findProvenanceReading(for: url, listing: { _, _ in })
     }
 
     /// Receives each folder the sidecar lookup lists and the number of entries the listing returned,
@@ -72,11 +85,12 @@ extension ProvenanceRecorder {
     typealias SidecarListingObserver = (_ folder: URL, _ entryCount: Int) -> Void
 
     /// The walk of `findProvenanceReading(for:)` with its two seams. `sharedFolders` names the folders
-    /// a lookup with no project may probe and never list. Nothing reads it yet, and the public entry
-    /// points pass none. A test passes its own folders and never the real home or temp folder.
+    /// a lookup with no project probes and never lists, and every ancestor of one of them is shared
+    /// too. The default is the temp, home, Downloads, Desktop and Documents folders. A test passes
+    /// its own folders and never the real home or temp folder.
     static func findProvenanceReading(
         for url: URL,
-        sharedFolders: [URL],
+        sharedFolders: [URL] = ProvenanceRecorder.defaultSharedFolders(),
         listing: SidecarListingObserver
     ) -> (sidecarURL: URL, reading: ProvenanceEnvelopeReader.Reading)? {
         let standardizedURL = url.standardizedFileURL
@@ -115,6 +129,12 @@ extension ProvenanceRecorder {
         }
 
         var dir = selectedIsDirectory ? standardizedURL : standardizedURL.deletingLastPathComponent()
+        // The climb ends at the project root, the nearest `.lungfish` folder at or above its first
+        // folder, found by path with no listing. With no project, a shared folder above the input's
+        // own folder is probed for fixed names and never listed.
+        let projectRootPath = ProjectTempDirectory.findProjectRoot(dir)?.path
+        let sharedPaths = projectRootPath == nil ? sharedFolderPaths(sharedFolders) : []
+        var below: URL?
         var checkedSelectedDirectory = false
         for _ in 0..<5 {
             if let bundleSidecar = ProvenanceWriter.bundleOutputSidecarURL(for: standardizedURL, inBundle: dir),
@@ -123,7 +143,11 @@ extension ProvenanceRecorder {
                 return (bundleSidecar, reading)
             }
 
-            for candidate in directorySidecarCandidates(for: dir, listing: listing) {
+            let probeOnly = below != nil && isSharedFolder(dir, among: sharedPaths)
+            let candidates = probeOnly
+                ? probeSidecarCandidates(for: dir, below: below)
+                : directorySidecarCandidates(for: dir, listing: listing)
+            for candidate in candidates {
                 guard let reading = readRecord(fromSidecar: candidate) else { continue }
                 if selectedIsDirectory && !checkedSelectedDirectory {
                     return (candidate, reading)
@@ -141,8 +165,10 @@ extension ProvenanceRecorder {
                 }
             }
             checkedSelectedDirectory = checkedSelectedDirectory || selectedIsDirectory
+            if dir.path == projectRootPath { break }
             let parent = dir.deletingLastPathComponent()
             if parent == dir { break }
+            below = dir
             dir = parent
         }
         return nil
@@ -218,16 +244,7 @@ extension ProvenanceRecorder {
         for directory: URL,
         listing: SidecarListingObserver
     ) -> [URL] {
-        let canonicalCandidates = [
-            directory.appendingPathComponent(provenanceFilename),
-            directory
-                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
-                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
-            directory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
-            directory
-                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
-                .appendingPathComponent(provenanceFilename),
-        ]
+        let canonicalCandidates = canonicalSidecarCandidates(in: directory)
         let listed = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey]
@@ -251,6 +268,60 @@ extension ProvenanceRecorder {
             directory.appendingPathComponent("extraction-metadata.json"),
         ] + nestedOperationSidecarCandidates(for: directory, listing: listing)
         return canonicalCandidates + workflowNamedRootSidecarCandidates(in: contents) + operationCandidates
+    }
+
+    /// The four sidecars a folder can hold for itself, in the order the lookup offers them.
+    private static func canonicalSidecarCandidates(in directory: URL) -> [URL] {
+        [
+            directory.appendingPathComponent(provenanceFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(provenanceFilename),
+        ]
+    }
+
+    /// What the lookup reads in a shared folder above the input instead of listing it. These are the
+    /// four canonical sidecars and `<child>.lungfish-provenance.json`, the sidecar a command writes
+    /// beside an output folder, where `child` is the folder the climb came from. As for a listed
+    /// folder, one whose own record was interrupted offers its canonical sidecars only.
+    private static func probeSidecarCandidates(for directory: URL, below child: URL?) -> [URL] {
+        let canonicalCandidates = canonicalSidecarCandidates(in: directory)
+        guard let child, !canonicalRecordWasInterrupted(in: directory, names: []) else {
+            return canonicalCandidates
+        }
+        return canonicalCandidates + [fileSidecarURL(for: child)]
+    }
+
+    /// The folders a lookup with no project probes and never lists. These are the process temp
+    /// folder, the home folder and the user's Downloads, Desktop and Documents folders. Every
+    /// ancestor of one of them is shared too (`isSharedFolder`).
+    static func defaultSharedFolders() -> [URL] {
+        let fileManager = FileManager.default
+        var folders = [fileManager.temporaryDirectory, fileManager.homeDirectoryForCurrentUser]
+        let userFolders: [FileManager.SearchPathDirectory] = [
+            .downloadsDirectory, .desktopDirectory, .documentDirectory,
+        ]
+        for directory in userFolders {
+            folders.append(contentsOf: fileManager.urls(for: directory, in: .userDomainMask))
+        }
+        return folders
+    }
+
+    /// The paths of `folders` with their links resolved, so `/var` and `/private/var` compare equal.
+    static func sharedFolderPaths(_ folders: [URL]) -> [String] {
+        folders.map { $0.resolvingSymlinksInPath().path }
+    }
+
+    /// Whether `folder` is one of the shared folders or an ancestor of one, compared by resolved path.
+    static func isSharedFolder(_ folder: URL, among sharedPaths: [String]) -> Bool {
+        guard !sharedPaths.isEmpty else { return false }
+        let path = folder.resolvingSymlinksInPath().path
+        let ancestorPrefix = path.hasSuffix("/") ? path : path + "/"
+        return sharedPaths.contains { $0 == path || $0.hasPrefix(ancestorPrefix) }
     }
 
     /// Root files named like a record, for a folder that holds no canonical record.

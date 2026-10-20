@@ -8,14 +8,15 @@ import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
-/// Pins of lane 13.34 (PROV-SIDECAR-WALK), taken at the base before the climb is bounded.
+/// Pins and defect tests of lane 13.34 (PROV-SIDECAR-WALK). The pins were taken at the base before the
+/// climb was bounded, and the comment of a pin names what the fix changed in it.
 ///
-/// The lookup that finds a record's sidecar climbs at most five folders from the input's folder and
-/// lists each one. Its seam (`findProvenanceReading(for:sharedFolders:listing:)`) reports each folder
-/// it lists with the number of entries, so each test states the sidecar one lookup returns and the
-/// folders it read. Every case lives under `TestTempDirectory`, one folder below the scratch folder,
-/// so a climb of five folders never reaches the shared temp folder. Every pin passes at the base.
-/// The comment of a pin names what the lane's fix changes in it.
+/// The lookup that finds a record's sidecar climbs at most five folders from the input's folder, ends at
+/// the project root and probes a shared folder above the input instead of listing it. Its seam
+/// (`findProvenanceReading(for:sharedFolders:listing:)`) reports each folder it lists with the number of
+/// entries, so each test states the sidecar one lookup returns and the folders it read. Every case lives
+/// under `TestTempDirectory`, one folder below the scratch folder, and the shared folders are passed in,
+/// so a test lists no real home, Downloads or temp folder except the one that checks the default set.
 final class ProvenanceSidecarLookupBoundTests: XCTestCase {
     private var scratch: URL!
     private var caseRoot: URL!
@@ -32,10 +33,11 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
 
     // MARK: - Pins
 
-    /// (a) A record above the project root. At the base it is found, and the climb lists `Outer`, the
-    /// folder above the root. The climb ends on its fourth folder because the `Outer` record answers.
-    /// The fix returns nil here and never lists `Outer`, which is its one predicted change.
-    func testPinARecordAboveTheProjectRootIsFoundAtTheBase() throws {
+    /// (a) A record above the project root is not found, and the climb lists `run`, `Analyses` and
+    /// `Project.lungfish` only, never `Outer`. This is the fix's one predicted change inside a project.
+    /// At the base the record was found and the climb listed `Outer` as its fourth folder, since the
+    /// `Outer` record answers there (the base walks four folders here, not five).
+    func testARecordAboveTheProjectRootIsNotFound() throws {
         let file = try payload("Outer/Project.lungfish/Analyses/run/out.txt")
         let run = file.deletingLastPathComponent()
         let analyses = run.deletingLastPathComponent()
@@ -46,8 +48,8 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
 
         let result = walk(file)
 
-        XCTAssertEqual(result.sidecar, path(record))
-        XCTAssertEqual(result.folders, paths([run, analyses, project, outer]))
+        XCTAssertNil(result.sidecar)
+        XCTAssertEqual(result.folders, paths([run, analyses, project]))
     }
 
     /// (b) A bundle inside a project, with the record of the run folder that holds the bundle. The
@@ -90,9 +92,9 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
     }
 
     /// (d1) No root, with a shared parent. The CLI sidecar of an output folder sits in the shared folder
-    /// beside the folder it describes. The base finds it by listing the shared folder, and the fix finds
-    /// it by probing the name `run1.lungfish-provenance.json`. The folders listed change with the fix.
-    func testPinTheSidecarOfAnOutputFolderIsFoundInASharedParent() throws {
+    /// beside the folder it describes. The base found it by listing the shared folder, and the fix finds
+    /// it by probing the name `run1.lungfish-provenance.json`, so the shared folder is no longer listed.
+    func testTheSidecarOfAnOutputFolderIsFoundInASharedParent() throws {
         let tsv = try payload("Shared/run1/sub/x.tsv")
         let sub = tsv.deletingLastPathComponent()
         let run1 = sub.deletingLastPathComponent()
@@ -103,12 +105,12 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
         let result = walk(tsv, shared: [shared])
 
         XCTAssertEqual(result.sidecar, path(record))
-        XCTAssertEqual(result.folders, paths([sub, run1, shared]))
+        XCTAssertEqual(result.folders, paths([sub, run1]))
     }
 
     /// (d2) The same tree, with the canonical record of the shared folder listing the input's folder.
-    /// The base finds it by listing and the fix finds it by probing `.lungfish-provenance.json`.
-    func testPinTheCanonicalRecordOfASharedParentIsFound() throws {
+    /// The base found it by listing and the fix finds it by probing `.lungfish-provenance.json`.
+    func testTheCanonicalRecordOfASharedParentIsFound() throws {
         let tsv = try payload("Shared/run1/sub/x.tsv")
         let sub = tsv.deletingLastPathComponent()
         let run1 = sub.deletingLastPathComponent()
@@ -119,13 +121,14 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
         let result = walk(tsv, shared: [shared])
 
         XCTAssertEqual(result.sidecar, path(record))
-        XCTAssertEqual(result.folders, paths([sub, run1, shared]))
+        XCTAssertEqual(result.folders, paths([sub, run1]))
     }
 
-    /// (e) The one record the fix loses. A workflow-named record that lies directly in a shared folder
-    /// and lists a file in a subfolder is found at the base by listing the shared folder. After the fix
-    /// the shared folder is only probed for fixed names, so the lookup returns nil (the predicted change).
-    func testPinAWorkflowNamedRecordInASharedParentIsFoundAtTheBase() throws {
+    /// (e) The one record the fix loses outside a project. A workflow-named record that lies directly in
+    /// a shared folder and lists a file in a subfolder was found at the base by listing the shared
+    /// folder. The shared folder is now only probed for fixed names, so the lookup returns nil (the
+    /// predicted change, a Known limit).
+    func testAWorkflowNamedRecordInASharedParentIsNotFound() throws {
         let tsv = try payload("Shared/run1/sub/x.tsv")
         let sub = tsv.deletingLastPathComponent()
         let run1 = sub.deletingLastPathComponent()
@@ -135,8 +138,8 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
 
         let result = walk(tsv, shared: [shared])
 
-        XCTAssertEqual(result.sidecar, path(record))
-        XCTAssertEqual(result.folders, paths([sub, run1, shared]))
+        XCTAssertNil(result.sidecar)
+        XCTAssertEqual(result.folders, paths([sub, run1]))
     }
 
     /// (f) A bundle with no project, selected as a folder. The record beside the bundle is found by the
@@ -160,12 +163,13 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
         )
     }
 
-    // MARK: - Cost pins
+    // MARK: - Defect tests
 
-    /// A crowded folder above the project root is listed in full at the base. `Crowded` holds 2,000
-    /// empty files, 200 records and the project, so the lookup lists 2,201 entries and reads the 200
-    /// records, none of which names the input. The fix lists only `run`, `Analyses` and `Project.lungfish`.
-    func testPinTheBaseListsACrowdedFolderAboveTheProjectRoot() throws {
+    /// The lookup lists no folder above the project root. `Crowded` holds 2,000 empty files, 200 records
+    /// and the project, so a lookup that listed it would list 2,201 entries and read the 200 records,
+    /// none of which names the input. The climb ends at `Project.lungfish`, so the lookup lists `run`,
+    /// `Analyses` and `Project.lungfish` only. At the base it also lists `Crowded` and `case`.
+    func testTheLookupListsNoFolderAboveTheProjectRoot() throws {
         let crowded = try makeCrowdedFolder()
         let file = try payload("Crowded/Project.lungfish/Analyses/run/out.txt")
         let run = file.deletingLastPathComponent()
@@ -174,16 +178,18 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
 
         let (result, seconds) = timedWalk(file)
         print("[13.34 cost] crowded folder above the project root: \(seconds) s, "
-              + "\(result.listings.count) folders, \(result.listings.map(\.entries).reduce(0, +)) entries")
+              + "\(result.listings.count) folders, \(result.entryTotal) entries")
 
         XCTAssertNil(result.sidecar)
-        XCTAssertEqual(result.folders, paths([run, analyses, project, crowded, caseRoot]))
-        XCTAssertEqual(result.listings.first { $0.path == path(crowded) }?.entries, 2_201)
+        XCTAssertFalse(result.folders.contains(path(crowded)), "The folder above the root should not be listed.")
+        XCTAssertEqual(result.folders, paths([run, analyses, project]))
+        XCTAssertLessThan(result.entryTotal, 200, "None of the 200 records of the crowded folder should be read.")
     }
 
-    /// A crowded shared folder above an input with no project is listed in full at the base, though the
-    /// test names it as shared. The fix lists only `b` and `a`.
-    func testPinTheBaseListsACrowdedFolderAboveTheInput() throws {
+    /// With no project, a shared folder above the input's own folder is probed and never listed. The test
+    /// names `Crowded` as shared, so the lookup from `Crowded/a/b/x.txt` lists `b` and `a` only. At the
+    /// base it also lists `Crowded`, `case` and the scratch folder.
+    func testTheLookupListsNoSharedFolderAboveTheInput() throws {
         let crowded = try makeCrowdedFolder()
         let file = try payload("Crowded/a/b/x.txt")
         let b = file.deletingLastPathComponent()
@@ -191,11 +197,61 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
 
         let (result, seconds) = timedWalk(file, shared: [crowded])
         print("[13.34 cost] crowded folder above an input with no root: \(seconds) s, "
-              + "\(result.listings.count) folders, \(result.listings.map(\.entries).reduce(0, +)) entries")
+              + "\(result.listings.count) folders, \(result.entryTotal) entries")
 
         XCTAssertNil(result.sidecar)
-        XCTAssertEqual(result.folders, paths([b, a, crowded, caseRoot, scratch]))
-        XCTAssertEqual(result.listings.first { $0.path == path(crowded) }?.entries, 2_201)
+        XCTAssertFalse(result.folders.contains(path(crowded)), "The shared folder should not be listed.")
+        XCTAssertEqual(result.folders, paths([b, a]))
+        XCTAssertLessThan(result.entryTotal, 200, "None of the 200 records of the crowded folder should be read.")
+    }
+
+    // MARK: - The default shared folders
+
+    /// The default set is the temp folder, the home folder and the user's Downloads, Desktop and
+    /// Documents folders, and every ancestor of one of them is shared. A folder made under the temp
+    /// folder is not shared. The test lists nothing and reads no record.
+    func testTheDefaultSharedFoldersAreTheTempAndHomeFoldersAndTheirAncestors() {
+        let fileManager = FileManager.default
+        let sharedPaths = ProvenanceRecorder.sharedFolderPaths(ProvenanceRecorder.defaultSharedFolders())
+        func isShared(_ url: URL) -> Bool {
+            ProvenanceRecorder.isSharedFolder(url, among: sharedPaths)
+        }
+        let temp = fileManager.temporaryDirectory
+        let home = fileManager.homeDirectoryForCurrentUser
+        XCTAssertTrue(isShared(temp))
+        XCTAssertTrue(isShared(temp.deletingLastPathComponent()))
+        XCTAssertTrue(isShared(home))
+        XCTAssertTrue(isShared(home.deletingLastPathComponent()))
+        XCTAssertTrue(isShared(URL(fileURLWithPath: "/")))
+        let userFolders: [FileManager.SearchPathDirectory] = [
+            .downloadsDirectory, .desktopDirectory, .documentDirectory,
+        ]
+        for directory in userFolders {
+            for folder in fileManager.urls(for: directory, in: .userDomainMask) {
+                XCTAssertTrue(isShared(folder), "\(folder.path) should be shared.")
+            }
+        }
+        XCTAssertFalse(isShared(scratch), "A folder made under the temp folder is not shared.")
+        XCTAssertFalse(isShared(caseRoot))
+        if temp.standardizedFileURL.path.hasPrefix("/var/") {
+            XCTAssertTrue(
+                isShared(URL(fileURLWithPath: "/private" + temp.standardizedFileURL.path)),
+                "The temp folder spelled through /private should compare equal."
+            )
+        }
+    }
+
+    /// A lookup with the default shared folders never lists the temp folder. The case sits under it, so
+    /// the fourth folder of the climb from `a/x.txt` is the temp folder, which holds thousands of
+    /// entries on a busy Mac. The base listed it, which took seconds.
+    func testTheDefaultSharedFoldersKeepTheTempFolderUnlisted() throws {
+        let file = try payload("a/x.txt")
+        let a = file.deletingLastPathComponent()
+
+        let result = walk(file, shared: ProvenanceRecorder.defaultSharedFolders())
+
+        XCTAssertNil(result.sidecar)
+        XCTAssertEqual(result.folders, paths([a, caseRoot, scratch]))
     }
 
     // MARK: - Fixtures
@@ -209,6 +265,7 @@ final class ProvenanceSidecarLookupBoundTests: XCTestCase {
         let sidecar: String?
         let listings: [Listing]
         var folders: [String] { listings.map(\.path) }
+        var entryTotal: Int { listings.map(\.entries).reduce(0, +) }
     }
 
     /// One lookup through the seam, with the sidecar it returned and every listing it made, in order.
