@@ -260,7 +260,8 @@ final class NextflowRecordFactsTests: XCTestCase {
     }
 
     /// R3. One vocabulary of three statuses. Each writer keeps its word, TaxTriage's through the type, and a reader
-    /// takes Kraken 2's `unresolved-bounded-metadata` as `unpinned`, as the classifier goldens record the two words.
+    /// takes Kraken 2's `unresolved-bounded-metadata` as `unpinned` and its `provided-aggregate-digest` as `pinned`,
+    /// as the classifier goldens record EsViritu's `unpinned` and Kraken 2's `provided-aggregate-digest`.
     func testEveryRecordedStatusWordReadsAsOneStatus() throws {
         let goldens = ProvenanceCompatCorpus.repositoryRoot
             .appendingPathComponent("Tests/Fixtures/golden/classifiers", isDirectory: true)
@@ -274,8 +275,10 @@ final class NextflowRecordFactsTests: XCTestCase {
         XCTAssertEqual(TaxTriageRecordFacts.databaseIdentityStatus, "unpinned", "TaxTriage keeps its word")
         XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: EsVirituAnalysisRunTool.databaseIdentityStatus), .unpinned)
         XCTAssertEqual(esViritu, ["unpinned"])
-        XCTAssertEqual(kraken2, ["unresolved-bounded-metadata"])
-        XCTAssertEqual(esViritu.union(kraken2).map(DatabaseIdentityStatus.status(ofRecordedWord:)), [.unpinned, .unpinned])
+        XCTAssertEqual(kraken2, ["provided-aggregate-digest"])
+        XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: "unresolved-bounded-metadata"), .unpinned)
+        XCTAssertEqual(kraken2.compactMap(DatabaseIdentityStatus.status(ofRecordedWord:)), [.pinned])
+        XCTAssertEqual(esViritu.compactMap(DatabaseIdentityStatus.status(ofRecordedWord:)), [.unpinned])
         XCTAssertNil(DatabaseIdentityStatus.status(ofRecordedWord: "Unpinned"))
         XCTAssertNil(DatabaseIdentityStatus.status(ofRecordedWord: ""))
     }

@@ -97,23 +97,22 @@ final class DatabaseIdentityStatusReaderTests: XCTestCase {
         }
     }
 
-    /// `unresolved-bounded-metadata`, Kraken 2's word for a database with no digest. Its golden holds it, and so does
-    /// the writer, which this test reads as text because the function is private.
+    /// `unresolved-bounded-metadata`, Kraken 2's word for a database with no digest. The writer holds it, which this
+    /// test reads as text because the function is private. No classifier golden holds it since lane 13.31 gave the
+    /// golden environment a database that LGE installed, and the Kraken 2 golden records `provided-aggregate-digest`.
     func testUnresolvedBoundedMetadataReadsAsUnpinned() throws {
-        let golden = try recordedStatusWords(inFile: "Tests/Fixtures/golden/classifiers/kraken2/lungfish-provenance.json")
-
-        XCTAssertEqual(golden, ["unresolved-bounded-metadata"])
         XCTAssertEqual(DatabaseIdentityStatus(recordedWord: "unresolved-bounded-metadata"), .unpinned)
         XCTAssertTrue(try kraken2WriterWords().contains("unresolved-bounded-metadata"), "Kraken 2 keeps its word")
     }
 
     /// `provided-aggregate-digest`, Kraken 2's word when the run was given the digest of the whole database. Released
-    /// since 2026-08-15, it is in the three writer parity facts that record a Kraken 2 run with a digest, and a digest
-    /// names the database, so it reads as `pinned`.
+    /// since 2026-08-15, it is in the three writer parity facts that record a Kraken 2 run with a digest and, since
+    /// lane 13.31, in the Kraken 2 golden, and a digest names the database, so it reads as `pinned`.
     func testProvidedAggregateDigestReadsAsPinned() throws {
         let facts = [
             "kraken2-batch", "kraken2-pipeline-profile", "conda-classify-wrapper",
         ].map { "Tests/Fixtures/provenance-writer-parity/classifiers/\($0).facts.json" }
+            + ["Tests/Fixtures/golden/classifiers/kraken2/lungfish-provenance.json"]
 
         for path in facts {
             XCTAssertEqual(try recordedStatusWords(inFile: path), ["provided-aggregate-digest"], path)
