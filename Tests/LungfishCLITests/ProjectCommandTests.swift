@@ -434,7 +434,9 @@ final class ProjectCommandTests: XCTestCase {
             provenanceWrite.lowerBound < manifestPublish.lowerBound,
             "Migration provenance must be durable before the final manifest is published."
         )
-        XCTAssertTrue(method.contains("try? fileManager.removeItem(at: provenanceURL)"))
+        // Review of M3, Fix 2. With a key set the record has `.signature.json` and `.pub` beside it, so the rollback
+        // removes the record with its pair, and not the record alone.
+        XCTAssertTrue(method.contains("try? ProvenancePublicationArtifacts.removeSidecarArtifacts(for: provenanceURL)"))
     }
 
     private func makeProject() throws -> URL {

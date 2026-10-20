@@ -504,7 +504,7 @@ private struct ProjectBundleMigrator {
                 options: []
             )
         } catch {
-            try? fileManager.removeItem(at: provenanceURL)
+            try? ProvenancePublicationArtifacts.removeSidecarArtifacts(for: provenanceURL)
             try? fileManager.removeItem(at: stagedManifestURL)
             try? fileManager.removeItem(at: backupURL)
             throw error
