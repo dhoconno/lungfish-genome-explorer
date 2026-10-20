@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 /// One entry from a ZIP archive's central directory.
@@ -225,44 +226,31 @@ public struct SafeZipExtractor: Sendable {
     // MARK: - Extraction
 
     private func runUnzip(archiveURL: URL, destination: URL) async throws {
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lge-unzip-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: stderrURL) }
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer { try? stderrHandle.close() }
-
-        let process = Process()
-        process.executableURL = unzipURL
-        process.arguments = ["-qq", "-o", archiveURL.path, "-d", destination.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrHandle
-        process.standardInput = FileHandle.nullDevice
-
-        let status: Int32 = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-                process.terminationHandler = { finished in
-                    continuation.resume(returning: finished.terminationStatus)
-                }
-                do {
-                    try process.run()
-                } catch {
-                    process.terminationHandler = nil
-                    continuation.resume(throwing: DemoProjectError.extractionFailed(
-                        "unzip could not be started (\(error.localizedDescription))"
-                    ))
-                }
-            }
-        } onCancel: {
-            if process.isRunning { process.terminate() }
+        let spec = ToolProcessSpec(
+            executableURL: unzipURL,
+            arguments: ["-qq", "-o", archiveURL.path, "-d", destination.path],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .discard,
+            stderr: .capture(limit: 64 * 1024),
+            label: "unzip"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.cancelled {
+            throw DemoProjectError.cancelled
+        } catch ToolProcessError.launchFailed(_, let reason, _) {
+            throw DemoProjectError.extractionFailed("unzip could not be started (\(reason))")
         }
 
         if Task.isCancelled { throw DemoProjectError.cancelled }
-        guard status == 0 else {
-            let message = (try? String(contentsOf: stderrURL, encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard result.isSuccess else {
+            if result.status == 0, let reason = result.incompleteOutputReason {
+                throw DemoProjectError.extractionFailed(reason)
+            }
+            let message = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
             throw DemoProjectError.extractionFailed(
-                "unzip exited with status \(status)\(message.isEmpty ? "" : ": \(message.prefix(500))")"
+                "unzip exited with status \(result.status)\(message.isEmpty ? "" : ": \(message.prefix(500))")"
             )
         }
     }
