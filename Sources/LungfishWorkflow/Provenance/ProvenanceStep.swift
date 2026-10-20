@@ -43,6 +43,11 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     /// adapter changed and its place in the run. Nil for a step nobody observed, and a record holding an
     /// observation this build cannot read keeps the rest of the step.
     public var observation: ProvenanceStepObservation?
+
+    /// True when LGE read the step's standard output in the app and kept no file of it, as for the
+    /// `samtools coverage` and `samtools view` passes of a mapping summary. Nil for every other step and
+    /// in every record written before 2.13. Never written as false.
+    public var stdoutReadInProcess: Bool?
     /// The record that holds this step whole, written only on a copy whose inputs the record of a BAM or BAM
     /// index of `build-db esviritu` narrowed to the file's lineage. The copy keeps its `id`. Nil on every other
     /// step, and a record holding a narrowing this build cannot read keeps the rest of the step.
@@ -76,6 +81,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case managedToolID
         case toolVersionEvidence
         case observation
+        case stdoutReadInProcess
         case narrowedFrom
     }
 
@@ -102,6 +108,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         managedToolID: ManagedToolID? = nil,
         toolVersionEvidence: ToolVersionEvidence? = nil,
         observation: ProvenanceStepObservation? = nil,
+        stdoutReadInProcess: Bool? = nil,
         narrowedFrom: ProvenanceStepNarrowing? = nil
     ) {
         self.id = id
@@ -126,6 +133,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.managedToolID = managedToolID
         self.toolVersionEvidence = toolVersionEvidence
         self.observation = observation
+        self.stdoutReadInProcess = stdoutReadInProcess
         self.narrowedFrom = narrowedFrom
     }
 
@@ -162,6 +170,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         toolVersionEvidence = try? container.decodeIfPresent(ToolVersionEvidence.self, forKey: .toolVersionEvidence)
         // So may an observation in a shape this build does not know. It reads as not observed.
         observation = try? container.decodeIfPresent(ProvenanceStepObservation.self, forKey: .observation)
+        stdoutReadInProcess = try? container.decodeIfPresent(Bool.self, forKey: .stdoutReadInProcess)
         // And so may a narrowing. The step reads as one no file's record narrowed.
         narrowedFrom = try? container.decodeIfPresent(ProvenanceStepNarrowing.self, forKey: .narrowedFrom)
     }
@@ -192,6 +201,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(managedToolID, forKey: .managedToolID)
         try container.encodeIfPresent(toolVersionEvidence, forKey: .toolVersionEvidence)
         try container.encodeIfPresent(observation, forKey: .observation)
+        try container.encodeIfPresent(stdoutReadInProcess, forKey: .stdoutReadInProcess)
         try container.encodeIfPresent(narrowedFrom, forKey: .narrowedFrom)
     }
 

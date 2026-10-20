@@ -420,6 +420,7 @@ extension ProvenanceEnvelope {
                     parentStepID: step.parentStepID,
                     managedToolID: step.managedToolID,
                     toolVersionEvidence: step.toolVersionEvidence,
+                    stdoutReadInProcess: step.stdoutReadInProcess,
                     startTime: step.startedAt ?? createdAt,
                     endTime: step.completedAt
                 )
@@ -572,7 +573,8 @@ extension ProvenanceStep {
             completedAt: stepExecution.endTime,
             parentStepID: stepExecution.parentStepID,
             managedToolID: stepExecution.managedToolID,
-            toolVersionEvidence: stepExecution.toolVersionEvidence
+            toolVersionEvidence: stepExecution.toolVersionEvidence,
+            stdoutReadInProcess: stepExecution.stdoutReadInProcess
         )
     }
 }

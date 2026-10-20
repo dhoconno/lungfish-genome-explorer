@@ -507,6 +507,7 @@ private extension StepExecution {
             parentStepID: step.parentStepID,
             managedToolID: step.managedToolID,
             toolVersionEvidence: step.toolVersionEvidence,
+            stdoutReadInProcess: step.stdoutReadInProcess,
             // The recorder stamps every step it records, so both times are always there.
             startTime: step.startedAt ?? Date.distantPast,
             endTime: step.completedAt

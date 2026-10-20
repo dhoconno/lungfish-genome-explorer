@@ -75,6 +75,11 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// What `toolVersion` is known from: a probe's output, a lock pin or a gap.
     public var toolVersionEvidence: ToolVersionEvidence?
 
+    /// True when LGE read the step's standard output in the app and kept no file of it, as for the
+    /// `samtools coverage` and `samtools view` passes of a mapping summary. Nil for every other step and
+    /// in every record written before 2.13. Never written as false.
+    public var stdoutReadInProcess: Bool?
+
     /// When this step started.
     public let startTime: Date
 
@@ -102,6 +107,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         parentStepID: UUID? = nil,
         managedToolID: ManagedToolID? = nil,
         toolVersionEvidence: ToolVersionEvidence? = nil,
+        stdoutReadInProcess: Bool? = nil,
         startTime: Date = Date(),
         endTime: Date? = nil
     ) {
@@ -125,6 +131,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.parentStepID = parentStepID
         self.managedToolID = managedToolID
         self.toolVersionEvidence = toolVersionEvidence
+        self.stdoutReadInProcess = stdoutReadInProcess
         self.startTime = startTime
         self.endTime = endTime
     }

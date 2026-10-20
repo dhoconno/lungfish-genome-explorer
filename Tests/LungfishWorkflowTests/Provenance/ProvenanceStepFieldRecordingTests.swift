@@ -93,7 +93,7 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
             outputs: [FileRecord(path: sourceOutput.path, role: .output)],
             exitCode: 0, wallTime: 3, peakMemoryBytes: 2_048, stderr: "a warning", dependsOn: [UUID()],
             parentStepID: UUID(), managedToolID: ManagedToolID(rawValue: "bbtools"),
-            toolVersionEvidence: .observed(version: "40.02", reportedLine: nil),
+            toolVersionEvidence: .observed(version: "40.02", reportedLine: nil), stdoutReadInProcess: true,
             startTime: Date(timeIntervalSince1970: 1_790_000_000), endTime: Date(timeIntervalSince1970: 1_790_000_003)
         )
         assertEveryPropertyIsSet(in: original)
@@ -101,8 +101,10 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
         let rehydrated = try XCTUnwrap(FASTQBatchImporter.rehydratedIngestionSteps(
             [original], sourceOutputURL: sourceOutput, finalOutputURL: finalOutput, originalInputURLs: []
         ).first)
+        // The importer rebuilds the steps of a FASTQ import, which LGE never reads in the app, and the ARCH ruling
+        // for 13.16 M2 leaves this site as it is, so it does not carry `stdoutReadInProcess`.
         assertEveryPropertyCarried(
-            rehydrated, from: original, except: ["durableReplayArgv", "inputs", "outputs"],
+            rehydrated, from: original, except: ["durableReplayArgv", "inputs", "outputs", "stdoutReadInProcess"],
             "FASTQBatchImporter.rehydratedIngestionSteps"
         )
         XCTAssertEqual(rehydrated.outputs.first?.path, finalOutput.path, "and it still names the published bundle")
@@ -118,10 +120,51 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
             "id", "toolName", "toolVersion", "githubReleaseVersion", "argv", "durableReplayArgv", "reproducibleCommand",
             "resolvedOptions", "runtimeIdentity", "inputs", "outputs", "exitStatus", "wallTimeSeconds", "peakMemoryBytes",
             "stderr", "dependsOn", "startedAt", "completedAt", "parentStepID", "managedToolID", "toolVersionEvidence",
-            "observation",
+            "observation", "stdoutReadInProcess",
             // A fact of one file's sidecar view of a `build-db esviritu` step, never of the run, so the run
             // conversions do not carry it (2.13 lane 13.15 M2, ARCH Q-A3-SHAPE item 7).
             "narrowedFrom",
         ], "ProvenanceStep gained or lost a field. Carry it through StepExecution, recordStep, ProvenanceStep.init(stepExecution:) and legacyWorkflowRun, then list it here.")
+    }
+
+    // MARK: - stdoutReadInProcess (Phase 2.13 lane 13.16, the ARCH ruling for M2)
+
+    /// The mark the `samtools coverage` and `samtools view` passes of a mapping summary carry crosses every
+    /// hop the other step fields cross: the typed record, the record's step, the envelope and the run view.
+    func testAStepReadInProcessKeepsTheMarkThroughTheRecordAndTheRunView() throws {
+        let original = StepExecution(
+            toolName: "samtools", toolVersion: "1.24", command: ["samtools", "coverage", "/data/a.bam"], inputs: [],
+            exitCode: 0, wallTime: 1, stdoutReadInProcess: true
+        )
+        XCTAssertEqual(original.stdoutReadInProcess, true)
+        let typed = try JSONDecoder().decode(StepExecution.self, from: JSONEncoder().encode(original))
+        XCTAssertEqual(typed.stdoutReadInProcess, true, "the typed record's step written and read")
+
+        let converted = ProvenanceStep(stepExecution: typed)
+        XCTAssertEqual(converted.stdoutReadInProcess, true, "the conversion to the record's step")
+        let record = ProvenanceEnvelope(workflowName: "mark test", toolName: "lungfish-cli", steps: [converted])
+        let readBack = try JSONDecoder().decode(ProvenanceEnvelope.self, from: JSONEncoder().encode(record))
+        XCTAssertEqual(readBack.steps.map(\.stdoutReadInProcess), [true], "the envelope written and read")
+
+        let run = readBack.legacyWorkflowRun(preferCanonicalSteps: true)
+        XCTAssertEqual(run.steps.map(\.stdoutReadInProcess), [true], "the run view")
+        let again = ProvenanceStep(stepExecution: try XCTUnwrap(run.steps.first))
+        XCTAssertEqual(again.stdoutReadInProcess, true, "and back to the record's step")
+    }
+
+    /// A step that was not read in the app writes no key, and a step written without the key reads as nil, so
+    /// the record of every other writer and every record written before 2.13 stays as it was.
+    func testAStepWithoutTheMarkWritesNoKey() throws {
+        let execution = StepExecution(toolName: "samtools", toolVersion: "1.24", command: ["samtools", "faidx", "a.fa"], inputs: [])
+        let step = ProvenanceStep(toolName: "samtools")
+        let executionData = try JSONEncoder().encode(execution)
+        let stepData = try JSONEncoder().encode(step)
+        for (label, data) in [("StepExecution", executionData), ("ProvenanceStep", stepData)] {
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertFalse(object.isEmpty, label)
+            XCTAssertNil(object["stdoutReadInProcess"], "\(label) writes no key for a nil mark")
+        }
+        XCTAssertNil(try JSONDecoder().decode(StepExecution.self, from: executionData).stdoutReadInProcess)
+        XCTAssertNil(try JSONDecoder().decode(ProvenanceStep.self, from: stepData).stdoutReadInProcess)
     }
 }
