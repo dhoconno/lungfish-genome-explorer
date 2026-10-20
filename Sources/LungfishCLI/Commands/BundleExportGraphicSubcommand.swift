@@ -48,8 +48,14 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
         }
     }
 
+    /// The rasterizer call the export makes. A test passes its own to force a PDF the normalizer keeps as written.
+    typealias Render = (ViewerFigureScene, ViewerFigureFormat, Double) throws -> ViewerFigureRendering
+
     /// The export, which refuses before it writes and writes the image and its record in one transaction.
-    func export(events: CLIEventEmitter) async throws -> ViewerExportLeafOutcome {
+    func export(
+        events: CLIEventEmitter,
+        render: Render = ViewerFigureRasterizer.renderReporting(_:format:pixelScale:)
+    ) async throws -> ViewerExportLeafOutcome {
         let runClock = ProvenanceRunClock()
         let invocation = invocation()
         let settings = graphic.settings
@@ -88,7 +94,7 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
         try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: figure.inputURLs, force: invocation.force)
         try Task.checkCancellation()
         let pixelScale = Double(settings.format == .pdf ? 1 : settings.scale ?? ViewerGraphicExport.defaultScale)
-        let rendering = try ViewerFigureRasterizer.renderReporting(figure.scene, format: settings.format, pixelScale: pixelScale)
+        let rendering = try render(figure.scene, settings.format, pixelScale)
         let degraded = ViewerGraphicExport.degradedFacts(of: figure.scene)
         for fact in degraded {
             let line = "Warning: \(BundleExportGraphicRecord.warning(fact))"

@@ -254,6 +254,32 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         XCTAssertNil(try envelope(first).options.resolvedDefaults["pixelScale"])
     }
 
+    /// QA ruling item 4 and R-QM1. A PDF the normalizer keeps as written records UX's degraded fact and no fixed
+    /// metadata, and a normal render of the same figure records neither the fact nor any other.
+    func testAPDFKeptAsWrittenIsADegradedFact() async throws {
+        let arguments = ["--region", "chr1:1101-1300", "--width", "2000", "--track", "genes", "--output-format", "pdf"]
+        let kept = folder.appendingPathComponent("kept.pdf")
+        _ = try await command([bundle.path] + arguments + ["-o", kept.path]).export(
+            events: CLIEventEmitter(enabled: false) { _ in }
+        ) { scene, format, pixelScale in
+            let made = try ViewerFigureRasterizer.renderReporting(scene, format: format, pixelScale: pixelScale)
+            return ViewerFigureRendering(data: made.data, pdfKeptAsWritten: "the PDF has no trailer keyword")
+        }
+        let keptResolved = try envelope(kept).options.resolvedDefaults
+        XCTAssertEqual(keptResolved["degraded"], .array([.dictionary([
+            "trackID": .string("figure"), "kind": .string("pdfKeptAsWritten"),
+            "reason": .string("This PDF keeps the creation date, modification date and file ID that macOS wrote, so "
+                + "running its command again writes a file with a different checksum. The file has no trailer."),
+        ])]))
+        XCTAssertNil(keptResolved["pdfFixedMetadata"])
+
+        let normal = folder.appendingPathComponent("normal.pdf")
+        _ = try await export(arguments + ["-o", normal.path])
+        let normalResolved = try envelope(normal).options.resolvedDefaults
+        XCTAssertEqual(normalResolved["degraded"], .array([]))
+        XCTAssertNotNil(normalResolved["pdfFixedMetadata"])
+    }
+
     func testAPDFTakesNoScale() throws {
         XCTAssertThrowsError(try command([bundle.path, "--region", "chr1:1-10", "--output-format", "pdf", "--scale", "2", "-o", "/tmp/x.pdf"]))
         XCTAssertThrowsError(try command([bundle.path, "--region", "chr1:1-10", "--output-format", "png", "--scale", "3", "-o", "/tmp/x.png"]))
