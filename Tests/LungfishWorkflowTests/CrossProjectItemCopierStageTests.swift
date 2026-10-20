@@ -51,11 +51,11 @@ final class CrossProjectItemCopierStageTests: XCTestCase {
         var total = 0
         let counting = root.appendingPathComponent("Counting.lungfish", isDirectory: true)
         try fm.createDirectory(at: counting, withIntermediateDirectories: true)
-        _ = try CrossProjectItemCopier.copy(itemAt: reference, intoProject: counting) { total += 1 }
+        _ = try CrossProjectItemCopier.copy(itemAt: reference, intoProject: counting, identity: .neutral) { total += 1 }
         XCTAssertGreaterThanOrEqual(total, 5, "three files, the bytes and the gate before the rename")
         for cancelAt in 1...total {
             var checks = 0
-            XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: reference, intoProject: targetProject) {
+            XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: reference, intoProject: targetProject, identity: .neutral) {
                 checks += 1
                 if checks == cancelAt { throw CancellationError() }
             }) { error in
@@ -70,7 +70,7 @@ final class CrossProjectItemCopierStageTests: XCTestCase {
     func testTheRecordNamesTheSourceByRelativePathAndDigestAndNoStageRemains() throws {
         let reference = try makeReference()
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: reference, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: reference, intoProject: targetProject, identity: .neutral)
 
         XCTAssertEqual(stages(), [])
         let record = try XCTUnwrap(ProjectItemCopyRecord.load(from: outcome.destinationURL))

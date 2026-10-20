@@ -120,7 +120,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
         try makeReadBundle("Imports/HG002.lungfishfastq", in: sourceProject)
         let source = try makeKrakenResult(readsRelative: "Imports/HG002.lungfishfastq/reads.fastq")
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
 
         XCTAssertEqual(relativePath(of: outcome.destinationURL, in: targetProject), "Analyses/kraken2-2026-09-24T10-00-00")
         XCTAssertEqual(outcome.kind, .analysisResult(tool: "kraken2", isBatch: false))
@@ -159,7 +159,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
         let targetReads = try makeReadBundle("Imports/HG002.lungfishfastq", in: targetProject)
         let source = try makeKrakenResult(readsRelative: "Imports/HG002.lungfishfastq/reads.fastq")
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
 
         XCTAssertFalse(outcome.record.hasMissingSources)
         let loaded = try ClassificationResult.load(from: outcome.destinationURL)
@@ -175,9 +175,9 @@ final class CrossProjectItemCopierTests: XCTestCase {
     func testNameClashAppendsCounter() throws {
         let source = try makeKrakenResult(readsRelative: "Imports/A.lungfishfastq/reads.fastq")
 
-        let first = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject)
-        let second = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject)
-        let third = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject)
+        let first = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
+        let second = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
+        let third = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
 
         XCTAssertEqual(first.destinationURL.lastPathComponent, "kraken2-2026-09-24T10-00-00")
         XCTAssertEqual(second.destinationURL.lastPathComponent, "kraken2-2026-09-24T10-00-00-2")
@@ -185,8 +185,8 @@ final class CrossProjectItemCopierTests: XCTestCase {
         XCTAssertEqual(AnalysesFolder.analysisInfo(for: second.destinationURL)?.tool, "kraken2")
 
         let ref = try makeBundle("Reference Sequences/NC_045512.lungfishref", in: sourceProject)
-        let refFirst = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject)
-        let refSecond = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject)
+        let refFirst = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, identity: .neutral)
+        let refSecond = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, identity: .neutral)
         XCTAssertEqual(refFirst.destinationURL.lastPathComponent, "NC_045512.lungfishref")
         XCTAssertEqual(refSecond.destinationURL.lastPathComponent, "NC_045512-2.lungfishref")
     }
@@ -264,7 +264,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
                 CrossProjectItemCopier.isCopyableProjectItem(expectation.source),
                 "\(expectation.source.lastPathComponent) should be a copyable item"
             )
-            let outcome = try CrossProjectItemCopier.copy(itemAt: expectation.source, intoProject: targetProject)
+            let outcome = try CrossProjectItemCopier.copy(itemAt: expectation.source, intoProject: targetProject, identity: .neutral)
             XCTAssertEqual(
                 relativePath(of: outcome.destinationURL, in: targetProject),
                 expectation.destination,
@@ -298,7 +298,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
             "sourceReferenceBundlePath": "@/Reference Sequences/Missing.lungfishref",
         ], to: minimap.appendingPathComponent("mapping-result.json"))
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: minimap, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: minimap, intoProject: targetProject, identity: .neutral)
 
         XCTAssertTrue(outcome.record.hasMissingSources)
         XCTAssertFalse(outcome.record.missingSourceReads, "a missing reference does not disable read-level actions")
@@ -315,8 +315,8 @@ final class CrossProjectItemCopierTests: XCTestCase {
         try AnalysesFolder.writeAnalysisMetadata(.init(tool: "kraken2", isBatch: false), to: kraken)
         try writeJSON(["config": ["inputFiles": ["/Volumes/Elsewhere/reads.fastq"]]], to: kraken.appendingPathComponent("classification-result.json"))
 
-        let refOutcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject)
-        let krakenOutcome = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject)
+        let refOutcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, identity: .neutral)
+        let krakenOutcome = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject, identity: .neutral)
 
         XCTAssertEqual(relativePath(of: refOutcome.destinationURL, in: targetProject), "Reference Sequences/NC_045512.lungfishref")
         XCTAssertEqual(relativePath(of: krakenOutcome.destinationURL, in: targetProject), "Analyses/kraken2-2026-09-24T10-00-00")
@@ -330,9 +330,9 @@ final class CrossProjectItemCopierTests: XCTestCase {
         let custom = try makeDirectory("Shared", in: targetProject)
         let reviewed = try makeDirectory("Analyses/Reviewed", in: targetProject)
 
-        let refOutcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, requestedFolder: custom)
-        let krakenToCustom = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject, requestedFolder: custom)
-        let krakenToReviewed = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject, requestedFolder: reviewed)
+        let refOutcome = try CrossProjectItemCopier.copy(itemAt: ref, intoProject: targetProject, requestedFolder: custom, identity: .neutral)
+        let krakenToCustom = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject, requestedFolder: custom, identity: .neutral)
+        let krakenToReviewed = try CrossProjectItemCopier.copy(itemAt: kraken, intoProject: targetProject, requestedFolder: reviewed, identity: .neutral)
 
         XCTAssertEqual(relativePath(of: refOutcome.destinationURL, in: targetProject), "Shared/NC_045512.lungfishref")
         XCTAssertEqual(relativePath(of: krakenToCustom.destinationURL, in: targetProject), "Analyses/kraken2-2026-09-24T10-00-00")
@@ -346,7 +346,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
         try fm.createDirectory(at: grouped.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.moveItem(at: kraken, to: grouped)
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: grouped, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: grouped, intoProject: targetProject, identity: .neutral)
 
         XCTAssertEqual(relativePath(of: outcome.destinationURL, in: targetProject), "Analyses/Reviewed/kraken2-2026-09-24T10-00-00")
     }
@@ -361,7 +361,7 @@ final class CrossProjectItemCopierTests: XCTestCase {
         XCTAssertNil(CrossProjectItemCopier.kind(of: package))
         XCTAssertNil(CrossProjectItemCopier.kind(of: plain))
         XCTAssertNil(CrossProjectItemCopier.kind(of: sourceProject.appendingPathComponent("loose.fasta")))
-        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: plain, intoProject: targetProject))
+        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: plain, intoProject: targetProject, identity: .neutral))
     }
 
     // MARK: - Drop routing

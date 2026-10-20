@@ -35,7 +35,7 @@ final class CrossProjectCopyAliasContainmentTests: XCTestCase {
         try fm.createSymbolicLink(at: alias, withDestinationURL: project)
         let requested = alias.appendingPathComponent("Reference Sequences/NC_045512.lungfishref", isDirectory: true)
 
-        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: ref, intoProject: alias, requestedFolder: requested)) { error in
+        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: ref, intoProject: alias, requestedFolder: requested, identity: .neutral)) { error in
             guard case CrossProjectItemCopier.CopyError.destinationInsideSource = error else {
                 return XCTFail("expected destinationInsideSource, got \(error)")
             }

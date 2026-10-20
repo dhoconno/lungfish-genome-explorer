@@ -80,7 +80,7 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         ]
         for item in cases {
             XCTAssertEqual(CrossProjectItemCopier.kind(of: item.source), item.kind, item.source.lastPathComponent)
-            let outcome = try CrossProjectItemCopier.copy(itemAt: item.source, intoProject: targetProject, now: fixedNow)
+            let outcome = try CrossProjectItemCopier.copy(itemAt: item.source, intoProject: targetProject, now: fixedNow, identity: .neutral)
             XCTAssertEqual(outcome.kind, item.kind)
             XCTAssertEqual(relativePath(of: outcome.destinationURL, in: targetProject), item.destination)
             XCTAssertTrue(fm.fileExists(atPath: outcome.destinationURL.appendingPathComponent("manifest.json").path))
@@ -127,7 +127,7 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         let ref = try makeBundle("Reference Sequences/NC_045512.lungfishref")
         let before = try fm.contentsOfDirectory(atPath: ref.path).sorted()
 
-        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: ref, intoProject: sourceProject, requestedFolder: ref)) { error in
+        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: ref, intoProject: sourceProject, requestedFolder: ref, identity: .neutral)) { error in
             guard case CrossProjectItemCopier.CopyError.destinationInsideSource = error else {
                 return XCTFail("expected destinationInsideSource, got \(error)")
             }

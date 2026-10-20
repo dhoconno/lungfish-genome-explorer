@@ -42,7 +42,7 @@ final class CrossProjectCopyRecordDigestTests: XCTestCase {
             argv: ["source-fastq-tool"], files: [output], output: output, outputs: [output], steps: [step], wallTimeSeconds: 0.1, exitStatus: 0
         ), to: bundle)
 
-        let outcome = try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject)
+        let outcome = try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject, identity: .neutral)
 
         let notes = try String(contentsOf: outcome.destinationURL.appendingPathComponent("sample-notes.json"), encoding: .utf8)
         XCTAssertTrue(notes.contains(outcome.destinationURL.appendingPathComponent("reads.fastq").path), "the sidecar link moved with the item: \(notes)")
