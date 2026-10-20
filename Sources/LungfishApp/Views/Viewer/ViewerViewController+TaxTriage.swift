@@ -78,137 +78,10 @@ extension ViewerViewController {
             }
 
             let selectedReadCount = min(50, max(1, readCount))
-            if ClassifierBlastRouteSettings.currentRoute == .cli {
-                self?.launchTaxTriageBlastSubmit(
-                    organism: organism, readCount: selectedReadCount, accessions: orgAccessions, bamURL: bamURL,
-                    bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller
-                )
-                return
-            }
-
-            // The in-process search, the route before Phase 2.12, kept behind `ClassifierBlastRoute` for one
-            // release (C4, U-R1). Its row records no command. Phase 2.13 deletes it with the key.
-            ViewerViewController.beginTaxTriageBlastVerificationOperation(
-                taxonName: organism.name
-            ) { opID in
-                let blastController = controller
-                let task = Task.detached {
-                    do {
-                        let blastService = BlastService.shared
-                        let readService = ReadExtractionService()
-
-                        let tempDir = try ProjectTempDirectory.create(
-                            prefix: "taxtriage-blast-",
-                            in: ProjectTempDirectory.findProjectRoot(resultURL)
-                        )
-                        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-                        let extractionConfig = ViewerViewController.classifierBlastExtractionConfig(
-                            bamURL: bamURL,
-                            indexURL: bamIndexURL,
-                            accessions: orgAccessions,
-                            outputDirectory: tempDir
-                        )
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: 0.1,
-                                    detail: "Extracting reads for selected accessions…"
-                                ) else { return }
-                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                            }
-                        }
-
-                        let extractionResult = try await readService.extractByBAMRegion(config: extractionConfig)
-                        guard let extractedFASTQ = extractionResult.fastqURLs.first else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let reader = FASTQReader(validateSequence: false)
-                        var allReads: [(id: String, sequence: String)] = []
-                        allReads.reserveCapacity(min(5_000, extractionResult.readCount))
-                        for try await record in reader.records(from: extractedFASTQ) {
-                            let seq = record.sequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !seq.isEmpty else { continue }
-                            allReads.append((id: record.identifier, sequence: seq))
-                            if allReads.count >= 5_000 { break }
-                        }
-
-                        guard !allReads.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let longestCount = min(5, selectedReadCount / 4)
-                        let strategy = SubsampleStrategy.mixed(
-                            longest: longestCount,
-                            random: selectedReadCount - longestCount
-                        )
-                        let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
-                        guard !subsampled.isEmpty else {
-                            throw BlastServiceError.noSequences
-                        }
-
-                        let request = organism.blastVerificationRequest(sequences: subsampled)
-
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: 0.2,
-                                    detail: "Submitting \(request.sequences.count) reads to NCBI BLAST…"
-                                ) else { return }
-                                blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                            }
-                        }
-
-                        let blastResult = try await blastService.verify(
-                            request: request,
-                            progress: { fraction, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        guard OperationCenter.shared.update(
-                                            id: opID,
-                                            progress: fraction,
-                                            detail: message
-                                        ) else { return }
-                                        let lower = message.lowercased()
-                                        if lower.contains("waiting") {
-                                            blastController?.showBlastLoading(phase: .waiting, requestId: nil)
-                                        } else if lower.contains("parsing") {
-                                            blastController?.showBlastLoading(phase: .parsing, requestId: nil)
-                                        } else {
-                                            blastController?.showBlastLoading(phase: .submitting, requestId: nil)
-                                        }
-                                    }
-                                }
-                            }
-                        )
-
-                        try FileManager.default.removeItem(at: tempDir)
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.complete(
-                                    id: opID,
-                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
-                                ) else { return }
-                                blastController?.showBlastResults(blastResult, recordURL: nil) // The in-process route saves no file (ARCH T5), and 13.03 deletes it.
-                            }
-                        }
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard OperationCenter.shared.fail(id: opID, detail: errorDesc) else { return }
-                                blastController?.showBlastFailure(errorDesc)
-                            }
-                        }
-                    }
-                }
-
-                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
-            }
+            self?.launchTaxTriageBlastSubmit(
+                organism: organism, readCount: selectedReadCount, accessions: orgAccessions, bamURL: bamURL,
+                bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller
+            )
         }
         controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
             guard let controller else { return }
@@ -360,8 +233,7 @@ extension ViewerViewController {
     /// reads from the sample's BAM and locks no bundle.
     ///
     /// `cliCommand` is the `lungfish-cli blast submit` command the run executes
-    /// (``BlastSubmitPlan/cliCommand``), nil on the in-process route that
-    /// ``ClassifierBlastRouteSettings`` keeps for one release and on the row
+    /// (``BlastSubmitPlan/cliCommand``), nil on the row
     /// ``launchTaxTriageBlastSubmit(organism:readCount:accessions:bamURL:bamIndexURL:resultURL:controller:drawer:runner:extractReads:)``
     /// begins before the reads exist.
     @discardableResult
