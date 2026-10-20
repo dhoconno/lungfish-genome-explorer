@@ -304,10 +304,22 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
         } catch ToolProcessError.cancelled {
             throw CancellationError()
         }
+        var stderr = String(result.stderrWholeLines.prefix(16_384))
+        var exitStatus = result.status
+        if exitStatus == 0 {
+            // tar refuses `..` and absolute names and a write through a link, but it extracts
+            // a symbolic link that leaves the folder, as SafeZipExtractor refuses.
+            do {
+                try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+            } catch DemoProjectError.unsafeArchive(let reason) {
+                exitStatus = 1
+                stderr += (stderr.isEmpty ? "" : "\n") + "The archive was refused because it is unsafe: \(reason)"
+            }
+        }
         return MetagenomicsDatabaseToolResult(
             stdout: "",
-            stderr: String(result.stderrWholeLines.prefix(16_384)),
-            exitStatus: result.status,
+            stderr: stderr,
+            exitStatus: exitStatus,
             argv: argv,
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "/usr/bin/tar"),
             toolVersion: resolvedTarVersion,

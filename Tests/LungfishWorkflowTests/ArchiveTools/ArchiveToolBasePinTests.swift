@@ -171,7 +171,6 @@ final class ArchiveToolBasePinTests: XCTestCase {
     }
 
     func testInstallerTarExtractOfASymlinkThatLeavesTheRootIsRefused() async throws {
-        XCTExpectFailure("Base 916a79b07 extracts the link. Lane 13.08 fixes it in its MetagenomicsDatabaseInstaller commit.")
         let archive = tempDir.appendingPathComponent("db-link.tar.gz")
         try TestTarWriter.write([.file("ok.txt", "ok"), .symlink("link", to: "../outside")], to: archive)
         let destination = tempDir.appendingPathComponent("dest", isDirectory: true)
