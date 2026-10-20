@@ -358,6 +358,54 @@ final class Kraken2DatabaseTests: XCTestCase {
         XCTAssertEqual(dates["S2"], "2024-02-01")
     }
 
+    /// REFRESH-SAMPLE-CACHE (Phase 2.13 lane 13.35, M865). Opening a result sets the same sample metadata again, and
+    /// the cache already holds those rows, so the file keeps its bytes and the digest a record named for it still matches.
+    func testRefreshingTheSampleMetadataCacheTwiceLeavesTheDatabaseBytesUnchanged() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let table = Data("sample_id\tcity\nS1\tDallas\nS2\tAustin\n".utf8)
+
+        try db.refreshSampleMetadataCache(store: try SampleMetadataStore(csvData: table, knownSampleIds: ["S1", "S2"]))
+        let afterFirstOpen = try Data(contentsOf: dbURL)
+        try db.refreshSampleMetadataCache(store: try SampleMetadataStore(csvData: table, knownSampleIds: ["S1", "S2"]))
+
+        XCTAssertEqual(try Data(contentsOf: dbURL), afterFirstOpen, "the second refresh rewrote rows the cache already held")
+    }
+
+    /// The guard of the pin above. A store that differs from the cache still reaches the file, and a sample or a
+    /// column the new store lacks leaves the cache.
+    func testRefreshingTheSampleMetadataCacheWithAChangedStoreRewritesTheRows() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let first = try SampleMetadataStore(
+            csvData: Data("sample_id\tcity\tcountry\nS1\tDallas\tUS\nS2\tAustin\tUS\n".utf8),
+            knownSampleIds: ["S1", "S2"]
+        )
+        let second = try SampleMetadataStore(
+            csvData: Data("sample_id\tcity\nS1\tHouston\nS2\tAustin\n".utf8),
+            knownSampleIds: ["S1", "S2"]
+        )
+
+        try db.refreshSampleMetadataCache(store: first)
+        XCTAssertEqual(try db.fetchMetadataValues(field: "country"), ["S1": "US", "S2": "US"])
+        try db.refreshSampleMetadataCache(store: second)
+
+        XCTAssertEqual(try db.fetchMetadataValues(field: "city"), ["S1": "Houston", "S2": "Austin"])
+        XCTAssertEqual(try db.fetchMetadataValues(field: "country"), [:])
+    }
+
     func testMetadataFilterReturnsMatchingSamples() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

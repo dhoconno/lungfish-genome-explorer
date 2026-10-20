@@ -174,6 +174,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Common prefix stripped from sample display names (empty for single-sample).
     public var strippedPrefix: String = ""
 
+    var sampleMetadataCacheRefresh: Task<Void, Never>?
+
     /// Sample metadata for dynamic column display in the taxonomy table.
     var sampleMetadataStore: SampleMetadataStore? {
         didSet {
@@ -181,9 +183,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             taxonomyTableView.metadataColumns.isMultiSampleMode = sampleEntries.count > 1
             taxonomyTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
             batchTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: nil)
-            if let store = sampleMetadataStore {
-                try? kraken2Database?.refreshSampleMetadataCache(store: store)
-            }
+            scheduleSampleMetadataCacheRefresh(sampleMetadataStore, database: kraken2Database)
         }
     }
 

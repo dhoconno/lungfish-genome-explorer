@@ -614,7 +614,7 @@ public final class Kraken2Database: @unchecked Sendable {
         return results
     }
 
-    public func refreshSampleMetadataCache(store: SampleMetadataStore) throws {
+    func rewriteSampleMetadataCache(records: [String: [String: String]]) throws {
         var writeDB: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
         let rc = sqlite3_open_v2(url.path, &writeDB, flags, nil)
@@ -660,7 +660,7 @@ public final class Kraken2Database: @unchecked Sendable {
         }
         defer { sqlite3_finalize(stmt) }
 
-        for (sample, record) in store.records {
+        for (sample, record) in records {
             for (field, value) in record {
                 sqlite3_reset(stmt)
                 sqlite3_clear_bindings(stmt)
