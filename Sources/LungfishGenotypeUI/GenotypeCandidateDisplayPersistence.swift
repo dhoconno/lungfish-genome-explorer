@@ -102,7 +102,7 @@ enum GenotypeCandidateDisplayPersistence {
             published = next
             return try GenotypeAnnotationPublicationPayload(
                 annotationData: annotationData,
-                provenanceData: ProvenanceJSON.encoder.encode(provenance)
+                provenanceData: ProvenanceWriter.package(provenance)
             )
         }
         return published ?? GenotypeAnnotationSidecar.empty(generatedAt: timestamp)

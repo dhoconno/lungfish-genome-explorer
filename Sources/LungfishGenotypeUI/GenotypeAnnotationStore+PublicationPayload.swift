@@ -68,7 +68,7 @@ extension GenotypeAnnotationStore {
             startedAt: startedAt,
             endedAt: endedAt
         )
-        var encoded = try JSONSerialization.jsonObject(with: ProvenanceJSON.encoder.encode(envelope)) as! [String: Any]
+        var encoded = try JSONSerialization.jsonObject(with: ProvenanceWriter.package(envelope)) as! [String: Any]
         if let previousData = snapshot.provenanceData,
            let previous = try JSONSerialization.jsonObject(with: previousData) as? [String: Any],
            let previousOptions = previous["options"] as? [String: Any],
