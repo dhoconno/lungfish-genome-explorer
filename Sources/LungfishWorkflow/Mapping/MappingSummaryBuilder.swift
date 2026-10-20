@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
@@ -251,126 +252,74 @@ public enum MappingSummaryBuilder {
         timeout: TimeInterval
     ) async throws -> String {
         let samtoolsPath = try await runner.findTool(.samtools)
-        let viewCancellationHandle = NativeProcessCancellationHandle()
-        let coverageCancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
         return try await withReadGroupList(readGroupIDs) { listURL in
-            try await withTaskCancellationHandler {
-                try await Task.detached {
-                    try runFilteredCoverageSynchronously(
-                        samtoolsPath: samtoolsPath,
-                        sortedBAMURL: sortedBAMURL,
-                        listURL: listURL,
-                        timeout: timeout,
-                        viewCancellationHandle: viewCancellationHandle,
-                        coverageCancellationHandle: coverageCancellationHandle,
-                        runState: runState
-                    )
-                }.value
-            } onCancel: {
-                runState.markCancelled()
-                viewCancellationHandle.requestProcessTreeTermination()
-                coverageCancellationHandle.requestProcessTreeTermination()
-            }
+            try await runFilteredCoverage(
+                samtoolsPath: samtoolsPath,
+                sortedBAMURL: sortedBAMURL,
+                listURL: listURL,
+                timeout: timeout
+            )
         }
     }
 
-    private static func runFilteredCoverageSynchronously(
+    /// `samtools view` into `samtools coverage` as one `ToolProcess` pipeline, both stages in the BAM's folder.
+    /// Each stage keeps its own stderr, so a failing view names its own error, and every stage runs to its end,
+    /// as the stages of the Process pipe did, so a failure carries the words of its own stage. The view is
+    /// checked first, then the coverage. A cancelled task ends as a `CancellationError`, and a run past
+    /// `timeout` as a timeout of the whole step, since a limit stops both processes and their exit status
+    /// says nothing about samtools.
+    private static func runFilteredCoverage(
         samtoolsPath: URL,
         sortedBAMURL: URL,
         listURL: URL,
-        timeout: TimeInterval,
-        viewCancellationHandle: NativeProcessCancellationHandle,
-        coverageCancellationHandle: NativeProcessCancellationHandle,
-        runState: NativeProcessRunState
-    ) throws -> String {
-        let coverage = Process()
-        coverage.executableURL = samtoolsPath
-        coverage.arguments = ["coverage", "-"]
-        coverage.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
-        let output = Pipe()
-        let error = Pipe()
-        let input = Pipe()
-        coverage.standardOutput = output
-        coverage.standardError = error
-        coverage.standardInput = input
-
-        let view = Process()
-        view.executableURL = samtoolsPath
+        timeout: TimeInterval
+    ) async throws -> String {
+        let folder = sortedBAMURL.deletingLastPathComponent()
         // Exclude supplementary alignments here too, matching the
         // unfiltered path's `coverage --ff` so numreads means primary reads
         // on both the read-group-filtered and unfiltered paths.
-        view.arguments = ["view", "-h", "-F", Self.primaryMappedReadExclusionFlags, "-R", listURL.path, sortedBAMURL.path]
-        view.currentDirectoryURL = sortedBAMURL.deletingLastPathComponent()
-        // This is an actual pipeline, not an assignment to a nil default stdin.
-        view.standardOutput = input
-        // Captured so that a failing view names its own error. It used to inherit
-        // this process's stderr, and its failure surfaced as coverage's empty one.
-        let viewError = Pipe()
-        view.standardError = viewError
-
-        coverageCancellationHandle.store(coverage)
-        viewCancellationHandle.store(view)
-        defer {
-            coverageCancellationHandle.clear(coverage)
-            viewCancellationHandle.clear(view)
-        }
-
-        let stdoutBox = MappingSummaryDataBox()
-        let stderrBox = MappingSummaryDataBox()
-        let viewStderrBox = MappingSummaryDataBox()
-        let drainGroup = DispatchGroup()
-        for (handle, box) in [
-            (output.fileHandleForReading, stdoutBox),
-            (error.fileHandleForReading, stderrBox),
-            (viewError.fileHandleForReading, viewStderrBox),
-        ] {
-            drainGroup.enter()
-            DispatchQueue.global().async {
-                box.value = handle.readDataToEndOfFile()
-                drainGroup.leave()
-            }
-        }
-        let timeoutItem = DispatchWorkItem {
-            runState.markTimedOut()
-            viewCancellationHandle.requestProcessTreeTermination()
-            coverageCancellationHandle.requestProcessTreeTermination()
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
-        defer { timeoutItem.cancel() }
-        try coverage.run()
-        coverageCancellationHandle.terminateIfRequested()
+        let viewArguments = ["view", "-h", "-F", Self.primaryMappedReadExclusionFlags, "-R", listURL.path, sortedBAMURL.path]
+        let coverageArguments = ["coverage", "-"]
+        let stages = [
+            ToolProcessSpec(
+                executableURL: samtoolsPath,
+                arguments: viewArguments,
+                environment: ToolProcessSpec.inheritedEnvironment(),
+                workingDirectory: folder,
+                label: "samtools view"
+            ),
+            ToolProcessSpec(
+                executableURL: samtoolsPath,
+                arguments: coverageArguments,
+                environment: ToolProcessSpec.inheritedEnvironment(),
+                workingDirectory: folder,
+                label: "samtools coverage"
+            ),
+        ]
+        let result: ToolPipelineResult
         do {
-            try view.run()
-            viewCancellationHandle.terminateIfRequested()
-        } catch {
-            input.fileHandleForWriting.closeFile()
-            viewError.fileHandleForWriting.closeFile()
-            coverageCancellationHandle.requestProcessTreeTermination()
-            coverage.waitUntilExit()
-            drainGroup.wait()
-            if runState.isCancelled { throw CancellationError() }
-            throw error
-        }
-        view.waitUntilExit()
-        input.fileHandleForWriting.closeFile()
-        coverage.waitUntilExit()
-        drainGroup.wait()
-        let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
-        if runState.isCancelled { throw CancellationError() }
-        // A timeout stops both processes, so their exit status says nothing about
-        // samtools. It was reported as "samtools coverage failed: " with no detail.
-        if runState.isTimedOut {
+            result = try await ToolProcess.runPipeline(
+                stages,
+                timeout: CondaFamilyProcess.limit(seconds: timeout),
+                failurePolicy: .runToCompletion
+            )
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
+        } catch ToolProcessError.timedOut {
             throw MappingSummaryBuilderError.samtoolsTimedOut(step: "samtools view | samtools coverage", seconds: timeout)
         }
-        guard view.terminationStatus == 0 else {
-            throw MappingSummaryBuilderError.samtoolsViewFailed(String(data: viewStderrBox.value, encoding: .utf8) ?? "")
+        let view = result.stages[0]
+        let coverage = result.stages[1]
+        guard view.status == 0 else {
+            throw MappingSummaryBuilderError.samtoolsViewFailed(stderrText(view))
         }
-        guard coverage.terminationStatus == 0 else {
-            throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderr)
+        guard coverage.status == 0 else {
+            throw MappingSummaryBuilderError.samtoolsCoverageFailed(stderrText(coverage))
         }
-        return stdout
+        if let reason = coverage.incompleteOutputReason ?? view.incompleteOutputReason {
+            throw MappingSummaryBuilderError.samtoolsCoverageFailed(reason)
+        }
+        return String(data: coverage.stdout, encoding: .utf8) ?? ""
     }
 
     private static func filteredReadCount(
@@ -409,7 +358,9 @@ public enum MappingSummaryBuilder {
     }
 
     /// Runs a process without retaining stdout. Chunks are delivered in order
-    /// to the caller while stderr remains concurrently drained for diagnostics.
+    /// to the caller while stderr is captured for diagnostics. A timeout and a
+    /// cancelled task both end as a `CancellationError`, and a nonzero exit as
+    /// a view failure with the process's stderr.
     static func runProcessStreamingOutput(
         executableURL: URL,
         arguments: [String],
@@ -417,206 +368,77 @@ public enum MappingSummaryBuilder {
         timeout: TimeInterval,
         consumeStdout: @escaping @Sendable (Data) -> Void
     ) async throws {
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
-
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                let process = Process()
-                process.executableURL = executableURL
-                process.arguments = arguments
-                process.currentDirectoryURL = workingDirectory
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-
-                let stderrBox = MappingSummaryDataBox()
-                let group = DispatchGroup()
-                let startOutputDrain: @Sendable () -> Void = {
-                    group.enter()
-                    DispatchQueue.global().async {
-                        while true {
-                            let chunk = stdoutPipe.fileHandleForReading.availableData
-                            guard !chunk.isEmpty else { break }
-                            consumeStdout(chunk)
-                        }
-                        group.leave()
-                    }
-                    group.enter()
-                    DispatchQueue.global().async {
-                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        group.leave()
-                    }
+        let spec = ToolProcessSpec(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            workingDirectory: workingDirectory,
+            stdout: .stream,
+            timeout: CondaFamilyProcess.limit(seconds: timeout),
+            label: "samtools view"
+        )
+        let run = try ToolProcess.start(spec)
+        let result: ToolProcessResult
+        do {
+            result = try await withTaskCancellationHandler {
+                // A waiting drain does not watch the task, so the cancel handler stops the run, which ends the stream.
+                await run.stdout.drain(()) { _, chunk in
+                    consumeStdout(chunk)
+                    return true
                 }
-                cancellationHandle.store(process)
-
-                nonisolated(unsafe) let timeoutWorkItem = DispatchWorkItem {
-                    runState.markTimedOut()
-                    cancellationHandle.requestProcessTreeTermination()
-                }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-
-                process.terminationHandler = { terminatedProcess in
-                    group.notify(queue: .global(qos: .userInitiated)) {
-                        timeoutWorkItem.cancel()
-                        cancellationHandle.clear(terminatedProcess)
-                        runState.resumeOnce { reason in
-                            switch reason {
-                            case .cancelled, .timedOut:
-                                continuation.resume(throwing: CancellationError())
-                            case .completed:
-                                guard terminatedProcess.terminationStatus == 0 else {
-                                    let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
-                                    continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
-                                    return
-                                }
-                                continuation.resume()
-                            }
-                        }
-                    }
-                }
-
-                do {
-                    startOutputDrain()
-                    try process.run()
-                    cancellationHandle.terminateIfRequested()
-                    if runState.isCancelled {
-                        cancellationHandle.requestProcessTreeTermination()
-                    }
-                } catch {
-                    timeoutWorkItem.cancel()
-                    cancellationHandle.clear(process)
-                    stdoutPipe.fileHandleForWriting.closeFile()
-                    stderrPipe.fileHandleForWriting.closeFile()
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled, .timedOut:
-                            continuation.resume(throwing: CancellationError())
-                        case .completed:
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
+                return try await run.result()
+            } onCancel: {
+                run.cancel()
             }
-        } onCancel: {
-            runState.markCancelled()
-            cancellationHandle.requestProcessTreeTermination()
+        } catch ToolProcessError.timedOut, ToolProcessError.cancelled {
+            throw CancellationError()
         }
+        try requireSuccess(result)
     }
 
-    /// Runs a process and captures stdout, draining stdout and stderr concurrently on
-    /// background queues so that a child process which fills the ~64KB stderr pipe buffer
-    /// while stdout is still being read cannot deadlock against this caller (F36).
-    ///
-    /// Wired to `withTaskCancellationHandler` + `NativeProcessCancellationHandle` /
-    /// `NativeProcessRunState` (matching `PBAAClusteringPipeline.runProcess`) so that
-    /// cancelling the enclosing Task terminates the underlying `samtools view` process tree
-    /// instead of leaking it to run to completion (or to the timeout) unattended.
+    /// Runs a process and captures stdout. `ToolProcess` drains stdout and stderr together, so a child process
+    /// which fills the ~64KB stderr pipe buffer while stdout is still being read cannot deadlock against this
+    /// caller (F36). Cancelling the enclosing Task terminates the underlying `samtools view` process tree
+    /// instead of leaking it to run to completion (or to the timeout) unattended, and both a cancel and a
+    /// timeout end as a `CancellationError`.
     static func runProcessCapturingOutput(
         executableURL: URL,
         arguments: [String],
         workingDirectory: URL?,
         timeout: TimeInterval
     ) async throws -> String {
-        let cancellationHandle = NativeProcessCancellationHandle()
-        let runState = NativeProcessRunState()
+        let spec = ToolProcessSpec(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            workingDirectory: workingDirectory,
+            timeout: CondaFamilyProcess.limit(seconds: timeout),
+            label: "samtools view"
+        )
+        let result: ToolProcessResult
+        do {
+            result = try await ToolProcess.run(spec)
+        } catch ToolProcessError.timedOut, ToolProcessError.cancelled {
+            throw CancellationError()
+        }
+        try requireSuccess(result)
+        return String(data: result.stdout, encoding: .utf8) ?? ""
+    }
 
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                let process = Process()
-                process.executableURL = executableURL
-                process.arguments = arguments
-                process.currentDirectoryURL = workingDirectory
-
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-
-                let stdoutBox = MappingSummaryDataBox()
-                let stderrBox = MappingSummaryDataBox()
-                let group = DispatchGroup()
-                let startOutputDrain: @Sendable () -> Void = {
-                    group.enter()
-                    DispatchQueue.global().async {
-                        stdoutBox.value = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                        group.leave()
-                    }
-                    group.enter()
-                    DispatchQueue.global().async {
-                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        group.leave()
-                    }
-                }
-                cancellationHandle.store(process)
-
-                // DispatchWorkItem is not Sendable, but it is only ever cancelled from
-                // process.terminationHandler/the process.run() catch block below, never
-                // concurrently with its own execution (mirrors CondaManager.runTool's
-                // timeoutItem, same rationale).
-                nonisolated(unsafe) let timeoutWorkItem = DispatchWorkItem {
-                    runState.markTimedOut()
-                    cancellationHandle.requestProcessTreeTermination()
-                }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-
-                process.terminationHandler = { terminatedProcess in
-                    group.notify(queue: .global(qos: .userInitiated)) {
-                        timeoutWorkItem.cancel()
-                        cancellationHandle.clear(terminatedProcess)
-                        runState.resumeOnce { reason in
-                            switch reason {
-                            case .cancelled, .timedOut:
-                                continuation.resume(throwing: CancellationError())
-                            case .completed:
-                                let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
-                                let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
-                                guard terminatedProcess.terminationStatus == 0 else {
-                                    continuation.resume(throwing: MappingSummaryBuilderError.samtoolsViewFailed(stderr))
-                                    return
-                                }
-                                continuation.resume(returning: stdout)
-                            }
-                        }
-                    }
-                }
-
-                do {
-                    startOutputDrain()
-                    try process.run()
-                    cancellationHandle.terminateIfRequested()
-                    if runState.isCancelled {
-                        cancellationHandle.requestProcessTreeTermination()
-                    }
-                } catch {
-                    timeoutWorkItem.cancel()
-                    cancellationHandle.clear(process)
-                    stdoutPipe.fileHandleForWriting.closeFile()
-                    stderrPipe.fileHandleForWriting.closeFile()
-                    runState.resumeOnce { reason in
-                        switch reason {
-                        case .cancelled, .timedOut:
-                            continuation.resume(throwing: CancellationError())
-                        case .completed:
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-            }
-        } onCancel: {
-            runState.markCancelled()
-            cancellationHandle.requestProcessTreeTermination()
+    /// Throws the view failure of a run that exited nonzero, or whose output is incomplete.
+    private static func requireSuccess(_ result: ToolProcessResult) throws {
+        guard result.status == 0 else {
+            throw MappingSummaryBuilderError.samtoolsViewFailed(stderrText(result))
+        }
+        if let reason = result.incompleteOutputReason {
+            throw MappingSummaryBuilderError.samtoolsViewFailed(reason)
         }
     }
-}
 
-/// Mutable box used to hand pipe-read results back from a background `DispatchQueue.global()`
-/// block. Access is synchronized externally via `DispatchGroup.wait()` before the value is read,
-/// so no two threads ever touch `value` concurrently.
-private final class MappingSummaryDataBox: @unchecked Sendable {
-    var value = Data()
+    /// A process's stderr, or nothing when it is not valid UTF-8, as the pipe readers it replaces gave.
+    private static func stderrText(_ result: ToolProcessResult) -> String {
+        String(data: result.stderr, encoding: .utf8) ?? ""
+    }
 }
 
 /// Bounded incremental SAM accumulator. It retains only an incomplete final
