@@ -538,227 +538,38 @@ public actor SRAService {
 
     // MARK: - Process Execution
 
-    private final class PipeDataBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage = Data()
+    /// Runs one SRA Toolkit command on ``ToolProcess``, which reads both streams while the tool runs and
+    /// ends the tool's process group and descendant tree when the calling task is cancelled, then
+    /// throws `CancellationError`. The exit code is the tool's own, and a tool that a signal ended reads
+    /// as the signal number, as `Process.terminationStatus` did. A tool that cannot start throws the
+    /// ``ToolProcessError``. Internal so a test can run a stand-in tool.
+    func runCommand(_ path: String, arguments: [String]) async throws -> SRAToolkitRunner.Result {
+        try Task.checkCancellation()
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: path),
+            arguments: arguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stdout: .capture(),
+            stderr: .capture()
+        )
 
-        func set(_ data: Data) {
-            lock.lock()
-            storage = data
-            lock.unlock()
-        }
-
-        func stringValue() -> String {
-            lock.lock()
-            let data = storage
-            lock.unlock()
-            return String(data: data, encoding: .utf8) ?? ""
-        }
-    }
-
-    private final class CommandCancellationState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var process: Process?
-        private var cancellationRequested = false
-
-        var isCancelled: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return cancellationRequested
-        }
-
-        func store(_ process: Process) {
-            let shouldTerminate: Bool
-            lock.lock()
-            self.process = process
-            shouldTerminate = cancellationRequested
-            lock.unlock()
-
-            if shouldTerminate {
-                terminate(process)
+        do {
+            let result = try await ToolProcess.run(spec)
+            let exitCode: Int32
+            if case .exited(let code) = result.termination {
+                exitCode = code
+            } else if case .signaled(let signal) = result.termination {
+                exitCode = signal
+            } else {
+                exitCode = -1
             }
-        }
-
-        func cancel() {
-            let process: Process?
-            lock.lock()
-            cancellationRequested = true
-            process = self.process
-            lock.unlock()
-
-            guard let process else { return }
-            terminate(process)
-        }
-
-        func terminateIfCancelled() {
-            let process: Process?
-            lock.lock()
-            process = cancellationRequested ? self.process : nil
-            lock.unlock()
-
-            guard let process else { return }
-            terminate(process)
-        }
-
-        private func terminate(_ process: Process) {
-            let pid = process.processIdentifier
-            guard pid > 0 else {
-                if process.isRunning {
-                    process.terminate()
-                }
-                return
-            }
-            let initialTree = processTree(rootPID: pid)
-            signal(processIDs: initialTree, rootPID: pid, signal: SIGTERM)
-            if process.isRunning {
-                process.terminate()
-            }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) {
-                let expandedTree = self.uniqueProcessIDs(
-                    initialTree + self.processTree(rootPID: pid) + initialTree.flatMap(self.processTree(rootPID:))
-                )
-                self.signal(processIDs: expandedTree, rootPID: pid, signal: SIGKILL)
-            }
-        }
-
-        private func processTree(rootPID: Int32) -> [Int32] {
-            var processIDs = descendantProcessIDs(of: rootPID)
-            processIDs.append(rootPID)
-            return uniqueProcessIDs(processIDs)
-        }
-
-        private func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
-            let ps = Process()
-            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-            ps.arguments = ["-Ao", "pid=,ppid="]
-            let stdoutPipe = Pipe()
-            ps.standardOutput = stdoutPipe
-            ps.standardError = Pipe()
-
-            do {
-                try ps.run()
-            } catch {
-                return []
-            }
-
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            ps.waitUntilExit()
-            guard ps.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8) else {
-                return []
-            }
-
-            var childrenByParent: [Int32: [Int32]] = [:]
-            for line in output.split(separator: "\n") {
-                let fields = line.split(whereSeparator: \.isWhitespace)
-                guard fields.count == 2,
-                      let pid = Int32(fields[0]),
-                      let parentPID = Int32(fields[1]) else {
-                    continue
-                }
-                childrenByParent[parentPID, default: []].append(pid)
-            }
-
-            var descendants: [Int32] = []
-            var queue = [rootPID]
-            var seen: Set<Int32> = [rootPID]
-            while !queue.isEmpty {
-                let parent = queue.removeFirst()
-                for child in childrenByParent[parent, default: []] where seen.insert(child).inserted {
-                    descendants.append(child)
-                    queue.append(child)
-                }
-            }
-            return descendants
-        }
-
-        private func signal(processIDs: [Int32], rootPID: Int32, signal: Int32) {
-            let descendants = processIDs.filter { $0 != rootPID }
-            for pid in descendants.reversed() where processExists(pid: pid) {
-                kill(pid, signal)
-            }
-            if processExists(pid: rootPID) {
-                kill(rootPID, signal)
-            }
-        }
-
-        private func processExists(pid: Int32) -> Bool {
-            if kill(pid, 0) == 0 {
-                return true
-            }
-            return errno != ESRCH
-        }
-
-        private func uniqueProcessIDs(_ processIDs: [Int32]) -> [Int32] {
-            var seen = Set<Int32>()
-            return processIDs.filter { pid in
-                pid > 0 && seen.insert(pid).inserted
-            }
-        }
-    }
-
-    private func runCommand(_ path: String, arguments: [String]) async throws -> SRAToolkitRunner.Result {
-        let cancellationState = CommandCancellationState()
-
-        return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global().async {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: path)
-                    process.arguments = arguments
-                    cancellationState.store(process)
-
-                    let stdoutPipe = Pipe()
-                    let stderrPipe = Pipe()
-                    process.standardOutput = stdoutPipe
-                    process.standardError = stderrPipe
-
-                    do {
-                        try process.run()
-                        cancellationState.terminateIfCancelled()
-
-                        let stdoutData = PipeDataBox()
-                        let stderrData = PipeDataBox()
-                        let readGroup = DispatchGroup()
-
-                        readGroup.enter()
-                        DispatchQueue.global(qos: .utility).async {
-                            stdoutData.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-                            readGroup.leave()
-                        }
-                        readGroup.enter()
-                        DispatchQueue.global(qos: .utility).async {
-                            stderrData.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-                            readGroup.leave()
-                        }
-
-                        process.waitUntilExit()
-                        readGroup.wait()
-
-                        if cancellationState.isCancelled {
-                            continuation.resume(throwing: CancellationError())
-                            return
-                        }
-
-                        let result = SRAToolkitRunner.Result(
-                            exitCode: process.terminationStatus,
-                            stdout: stdoutData.stringValue(),
-                            stderr: stderrData.stringValue()
-                        )
-
-                        continuation.resume(returning: result)
-                    } catch {
-                        if cancellationState.isCancelled {
-                            continuation.resume(throwing: CancellationError())
-                        } else {
-                            continuation.resume(throwing: error)
-                        }
-                    }
-                }
-            }
-        } onCancel: {
-            cancellationState.cancel()
+            return SRAToolkitRunner.Result(
+                exitCode: exitCode,
+                stdout: result.stdoutText,
+                stderr: result.stderrText
+            )
+        } catch ToolProcessError.cancelled {
+            throw CancellationError()
         }
     }
 }
