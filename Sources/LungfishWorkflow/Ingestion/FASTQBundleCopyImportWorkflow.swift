@@ -157,7 +157,8 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                     sourceDirectory: sourceBundleURL,
                     finalDirectory: stagingBundleURL,
                     pathMap: sourceToStagingPathMap,
-                    argumentPathMap: sourceToDestinationPathMap
+                    argumentPathMap: sourceToDestinationPathMap,
+                    cancellationCheck: checkCancellation
                 )
                 rehydratedSourceEnvelope = rewriteEnvelopePaths(
                     stagingSourceEnvelope,

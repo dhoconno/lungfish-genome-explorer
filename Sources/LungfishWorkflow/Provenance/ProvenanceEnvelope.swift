@@ -563,16 +563,19 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         )
     }
 
+    /// - Parameter cancellationCheck: called between the chunks of the hash. A throw stops the read (2.13 row
+    ///   COPY-CANCEL-CHECKS).
     public static func file(
         url: URL,
         format: FileFormat? = nil,
         role: FileRole = .input,
         originPath: String? = nil,
-        sourceProvenancePath: String? = nil
+        sourceProvenancePath: String? = nil,
+        cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceFileDescriptor {
         try ProvenanceFileDescriptor(
             path: url.path,
-            checksumSHA256: ProvenanceFileHasher.sha256(of: url),
+            checksumSHA256: ProvenanceFileHasher.sha256(of: url, cancellationCheck: cancellationCheck),
             fileSize: ProvenanceFileHasher.fileSize(of: url),
             format: format,
             role: role,

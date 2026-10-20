@@ -33,13 +33,16 @@ public enum ProvenanceRehydrator {
         )
     }
 
+    /// - Parameter cancellationCheck: called between the chunks of each hash the rewrite makes of a recorded output.
+    ///   A throw stops the rehydration before it writes anything (2.13 row COPY-CANCEL-CHECKS).
     @discardableResult
     public static func rehydrateSelectedOutputs(
         sourceDirectory: URL,
         finalDirectory: URL,
         pathMap: [String: String],
         argumentPathMap: [String: String]? = nil,
-        preserveOriginMetadata: Bool = true
+        preserveOriginMetadata: Bool = true,
+        cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
         try rehydrate(
             sourceDirectory: sourceDirectory,
@@ -47,7 +50,8 @@ public enum ProvenanceRehydrator {
             pathMap: pathMap,
             argumentPathMap: argumentPathMap,
             outputMode: .selectedOnly,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
     }
 
@@ -57,7 +61,8 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         argumentPathMap: [String: String]? = nil,
         outputMode: OutputMode,
-        preserveOriginMetadata: Bool = true
+        preserveOriginMetadata: Bool = true,
+        cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
         guard let loadedSource = try loadSourceProvenance(
             sourceDirectory: sourceDirectory,
@@ -76,7 +81,8 @@ public enum ProvenanceRehydrator {
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
             selectedProjection: selectedProjection,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
         let output = try rewritePrimaryOutput(
             sourceEnvelope.output,
@@ -84,7 +90,8 @@ public enum ProvenanceRehydrator {
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
             selectedProjection: selectedProjection,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
         let steps = try rewriteSteps(
             sourceEnvelope.steps,
@@ -92,7 +99,8 @@ public enum ProvenanceRehydrator {
             replayPathMap: replayPathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
             selectedProjection: selectedProjection,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
 
         let topLevelReplayArgv = rewriteArguments(
@@ -114,7 +122,8 @@ public enum ProvenanceRehydrator {
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenanceURL.path,
                 selectedProjection: selectedProjection,
-                preserveOriginMetadata: preserveOriginMetadata
+                preserveOriginMetadata: preserveOriginMetadata,
+                cancellationCheck: cancellationCheck
             )
             copy.output = output
             copy.outputs = outputs
@@ -291,7 +300,8 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> [ProvenanceFileDescriptor] {
         try descriptors.compactMap { descriptor in
             if descriptor.role == .output {
@@ -301,7 +311,8 @@ public enum ProvenanceRehydrator {
                     sourceProvenancePath: sourceProvenancePath,
                     selectedProjection: selectedProjection,
                     preserveConsumedIntermediates: true,
-                    preserveOriginMetadata: preserveOriginMetadata
+                    preserveOriginMetadata: preserveOriginMetadata,
+                    cancellationCheck: cancellationCheck
                 )
             }
             if let selectedProjection,
@@ -313,7 +324,8 @@ public enum ProvenanceRehydrator {
                 descriptor,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenancePath,
-                preserveOriginMetadata: preserveOriginMetadata
+                preserveOriginMetadata: preserveOriginMetadata,
+                cancellationCheck: cancellationCheck
             )
         }
     }
@@ -324,7 +336,8 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> ProvenanceFileDescriptor? {
         guard let output else {
             return rewrittenOutputs.first
@@ -338,7 +351,8 @@ public enum ProvenanceRehydrator {
             sourceProvenancePath: sourceProvenancePath,
             selectedProjection: selectedProjection,
             preserveConsumedIntermediates: false,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
     }
 
@@ -347,7 +361,8 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> [ProvenanceFileDescriptor] {
         let rewritten = try outputs.compactMap {
             try rewriteOutputDescriptor(
@@ -356,7 +371,8 @@ public enum ProvenanceRehydrator {
                 sourceProvenancePath: sourceProvenancePath,
                 selectedProjection: selectedProjection,
                 preserveConsumedIntermediates: false,
-                preserveOriginMetadata: preserveOriginMetadata
+                preserveOriginMetadata: preserveOriginMetadata,
+                cancellationCheck: cancellationCheck
             )
         }
         if selectedProjection != nil, rewritten.isEmpty, let firstOutput = outputs.first {
@@ -371,7 +387,8 @@ public enum ProvenanceRehydrator {
         replayPathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> [ProvenanceStep] {
         let retainedSteps = selectedProjection.map { projection in
             steps.filter { projection.retainedStepIDs.contains($0.id) }
@@ -383,7 +400,8 @@ public enum ProvenanceRehydrator {
                 replayPathMap: replayPathMap,
                 sourceProvenancePath: sourceProvenancePath,
                 selectedProjection: selectedProjection,
-                preserveOriginMetadata: preserveOriginMetadata
+                preserveOriginMetadata: preserveOriginMetadata,
+                cancellationCheck: cancellationCheck
             )
         }
     }
@@ -394,7 +412,8 @@ public enum ProvenanceRehydrator {
         replayPathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> ProvenanceStep {
         let replayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: replayPathMap)
         return try step.with { copy in
@@ -412,7 +431,8 @@ public enum ProvenanceRehydrator {
                     $0,
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
-                    preserveOriginMetadata: preserveOriginMetadata
+                    preserveOriginMetadata: preserveOriginMetadata,
+                    cancellationCheck: cancellationCheck
                 )
             }
             copy.outputs = try step.outputs.compactMap {
@@ -422,7 +442,8 @@ public enum ProvenanceRehydrator {
                     sourceProvenancePath: sourceProvenancePath,
                     selectedProjection: selectedProjection,
                     preserveConsumedIntermediates: true,
-                    preserveOriginMetadata: preserveOriginMetadata
+                    preserveOriginMetadata: preserveOriginMetadata,
+                    cancellationCheck: cancellationCheck
                 )
             }
         }
@@ -432,7 +453,8 @@ public enum ProvenanceRehydrator {
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
         sourceProvenancePath: String,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> ProvenanceFileDescriptor {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
             return descriptor
@@ -441,7 +463,8 @@ public enum ProvenanceRehydrator {
             descriptor,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenancePath,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
     }
 
@@ -451,7 +474,8 @@ public enum ProvenanceRehydrator {
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
         preserveConsumedIntermediates: Bool,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> ProvenanceFileDescriptor? {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
             if preserveConsumedIntermediates,
@@ -467,7 +491,8 @@ public enum ProvenanceRehydrator {
             descriptor,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenancePath,
-            preserveOriginMetadata: preserveOriginMetadata
+            preserveOriginMetadata: preserveOriginMetadata,
+            cancellationCheck: cancellationCheck
         )
     }
 
@@ -475,7 +500,8 @@ public enum ProvenanceRehydrator {
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
         sourceProvenancePath: String,
-        preserveOriginMetadata: Bool
+        preserveOriginMetadata: Bool,
+        cancellationCheck: () throws -> Void
     ) throws -> ProvenanceFileDescriptor {
         guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
             return descriptor
@@ -500,7 +526,8 @@ public enum ProvenanceRehydrator {
             format: descriptor.format,
             role: descriptor.role,
             originPath: preserveOriginMetadata ? descriptor.path : nil,
-            sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
+            sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil,
+            cancellationCheck: cancellationCheck
         )
     }
 

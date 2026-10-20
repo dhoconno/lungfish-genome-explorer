@@ -28,8 +28,28 @@ final class FASTQBundleCopyImportCancellationTests: XCTestCase {
     }
 
     func testACheckThatThrowsWhileTheCopyIsHashedLeavesNoStagingBundle() throws {
-        // Call 1 comes before the copy. Call 2 is the first chunk of the first hash, so the staging bundle exists.
+        // Call 1 comes before the copy. Call 2 is the first chunk of the first hash the import makes, which is the
+        // rehydrator's hash of the file the source record names, so the staging bundle exists.
         try assertCancelled(atCall: 2)
+    }
+
+    func testTheRehydratorOfTheSourceRecordTakesTheCheckToo() throws {
+        // A clean run makes one check before the copy, then the calls of the hash of the source file and of the hash
+        // of the copy, which `FileDigest` makes for this file. Any call beyond those is the rehydrator hashing the
+        // file that the source record names, so a rehydrator that takes no check leaves the total at its floor.
+        let source = try makeBundle()
+        var hashCalls = 0
+        _ = try FileDigest.sha256(of: source.appendingPathComponent("reads.fastq"), cancellationCheck: { hashCalls += 1 })
+        var total = 0
+
+        _ = try FASTQBundleCopyImportWorkflow().importBundle(
+            sourceBundleURL: source,
+            outputURL: root.appendingPathComponent("Target", isDirectory: true),
+            context: .init(workflowName: "copy", toolName: "lungfish-cli", argv: ["lungfish-cli", "copy"]),
+            checkCancellation: { total += 1 }
+        )
+
+        XCTAssertGreaterThan(total, 1 + 2 * hashCalls, "the rehydrator checks the cancel between the chunks of its hash")
     }
 
     private func assertCancelled(atCall stop: Int, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -67,16 +87,13 @@ final class FASTQBundleCopyImportCancellationTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let fastq = bundle.appendingPathComponent("reads.fastq")
         try "@r1\nACGT\n+\nIIII\n".write(to: fastq, atomically: true, encoding: .utf8)
-        let output = try ProvenanceFileDescriptor.file(url: fastq, format: .fastq, role: .output)
-        let step = ProvenanceStep(
-            toolName: "source-fastq-tool", toolVersion: "1.0", argv: ["source-fastq-tool", fastq.path],
-            outputs: [output], exitStatus: 0, wallTimeSeconds: 0.1
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "source FASTQ bundle", workflowVersion: "1.0", toolName: "source-fastq-tool", toolVersion: "1.0"
         )
-        let envelope = ProvenanceEnvelope(
-            workflowName: "source FASTQ bundle", workflowVersion: "1.0", toolName: "source-fastq-tool",
-            toolVersion: "1.0", argv: ["source-fastq-tool", fastq.path], files: [output], output: output,
-            outputs: [output], steps: [step], wallTimeSeconds: 0.1, exitStatus: 0
-        )
+        .argv(["source-fastq-tool", fastq.path])
+        .output(fastq, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
         try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundle)
         return bundle
     }

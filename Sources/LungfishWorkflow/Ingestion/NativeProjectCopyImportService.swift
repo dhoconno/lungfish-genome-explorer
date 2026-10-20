@@ -59,8 +59,10 @@ package enum NativeProjectCopyImportService {
     ///   remembers where it came from.
     /// - Parameter receipt: the command the receipt names. Nil names the app's `import-native`.
     /// - Parameter checkCancellation: called between the chunks of both hashes, of each source file and of each
-    ///   copied file, and once before the copy. A throw stops the copy, removes its `.native-copy-` folder and
-    ///   publishes nothing (2.13 row COPY-CANCEL-CHECKS). The one copy call itself takes no check.
+    ///   copied file, once before the copy, and between the chunks of the hashes that the rehydration of an item's own
+    ///   provenance record makes after the copy is published. A throw stops the copy, removes its `.native-copy-`
+    ///   folder, rolls back a published item and publishes nothing (2.13 row COPY-CANCEL-CHECKS). The one copy call
+    ///   itself takes no check.
     package static func copy(
         from source: URL, to destination: URL, replaceExisting: Bool = false, sourceProjectURL: URL? = nil,
         receipt: NativeCopyReceiptIdentity? = nil, checkCancellation: () throws -> Void = {}
@@ -127,10 +129,12 @@ package enum NativeProjectCopyImportService {
                 if hasSourceProvenance {
                     if isDirectory {
                         try GUIImportedProvenanceRehydrator.rehydrateRelocatedImportedCopy(from: source, to: destination,
-                            provenanceWriter: writer, requireCLIProvenance: false, importStep: step)
+                            provenanceWriter: writer, requireCLIProvenance: false, importStep: step,
+                            cancellationCheck: checkCancellation)
                     } else {
                         try GUIImportedProvenanceRehydrator.rehydrateImportedFileSidecar(from: source, to: destination,
-                            provenanceWriter: writer, requireCLIProvenance: false, importStep: step)
+                            provenanceWriter: writer, requireCLIProvenance: false, importStep: step,
+                            cancellationCheck: checkCancellation)
                     }
                 } else {
                     let receipt = ProvenanceEnvelope(createdAt: startedAt, workflowName: identity.workflowName,

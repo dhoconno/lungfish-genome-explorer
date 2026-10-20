@@ -71,7 +71,7 @@ public enum GUIImportedProvenanceRehydrator {
         to destinationURL: URL,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
         requireCLIProvenance: Bool = true,
-        importStep: ProvenanceStep? = nil
+        importStep: ProvenanceStep? = nil, cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
         let sourceRoot = provenanceRoot(for: sourceURL)
         let destinationRoot = try finalProvenanceRoot(for: destinationURL)
@@ -98,7 +98,7 @@ public enum GUIImportedProvenanceRehydrator {
         guard !pathMap.isEmpty else {
             throw ProvenanceRehydrationError.outputPathNotMapped(sourceURL.path)
         }
-        try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap)
+        try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap, cancellationCheck: cancellationCheck)
 
         // Validate the copied source generation first, then rebind nested Excel
         // replay artifacts before the root envelope rehashes stored outputs.
@@ -111,13 +111,13 @@ public enum GUIImportedProvenanceRehydrator {
         let rehydrated = try rewriteSelectedOutputDescriptors(
             in: source.envelope,
             pathMap: pathMap,
-            sourceProvenancePath: source.sidecarURL.path
+            sourceProvenancePath: source.sidecarURL.path, cancellationCheck: cancellationCheck
         )
         let withImportStep = try appendingGUIImportStep(
             to: rehydrated,
             sourceURL: sourceURL,
             destinationURL: destinationURL,
-            suppliedImportStep: importStep
+            suppliedImportStep: importStep, cancellationCheck: cancellationCheck
         )
         let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
         try provenanceWriter.write(rewrittenArguments, to: destinationRoot)
@@ -130,7 +130,7 @@ public enum GUIImportedProvenanceRehydrator {
         to destinationURL: URL,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter(signingProvider: nil),
         requireCLIProvenance: Bool = true,
-        importStep: ProvenanceStep? = nil
+        importStep: ProvenanceStep? = nil, cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
         let sourceRoot = provenanceRoot(for: sourceURL)
         let source = try loadSourceEnvelopeRecord(for: sourceURL, sourceRoot: sourceRoot)
@@ -142,7 +142,7 @@ public enum GUIImportedProvenanceRehydrator {
             from: source.envelope,
             sourceURL: sourceURL,
             sourceRoot: sourceRoot,
-            destinationURL: destinationURL
+            destinationURL: destinationURL, cancellationCheck: cancellationCheck
         )
         guard !pathMap.isEmpty else {
             throw ProvenanceRehydrationError.outputPathNotMapped(sourceURL.path)
@@ -155,13 +155,13 @@ public enum GUIImportedProvenanceRehydrator {
         let rehydrated = try rewriteSelectedOutputDescriptors(
             in: source.envelope,
             pathMap: pathMap,
-            sourceProvenancePath: source.sidecarURL.path
+            sourceProvenancePath: source.sidecarURL.path, cancellationCheck: cancellationCheck
         )
         let withImportStep = try appendingGUIImportStep(
             to: rehydrated,
             sourceURL: sourceURL,
             destinationURL: destinationURL,
-            suppliedImportStep: importStep
+            suppliedImportStep: importStep, cancellationCheck: cancellationCheck
         )
         let rewrittenArguments = rewriteEnvelopeArguments(in: withImportStep, pathMap: argumentPathMap)
         try provenanceWriter.write(
@@ -246,7 +246,7 @@ public enum GUIImportedProvenanceRehydrator {
     private static func rewriteSelectedOutputDescriptors(
         in envelope: ProvenanceEnvelope,
         pathMap: [String: String],
-        sourceProvenancePath: String? = nil
+        sourceProvenancePath: String? = nil, cancellationCheck: () throws -> Void
     ) throws -> ProvenanceEnvelope {
         let standardizedPathMap = standardized(pathMap)
         let replayArgv = rewriteArguments(
@@ -259,7 +259,7 @@ public enum GUIImportedProvenanceRehydrator {
                     return try rewriteOutputDescriptorIfMapped(
                         $0,
                         pathMap: standardizedPathMap,
-                        sourceProvenancePath: sourceProvenancePath
+                        sourceProvenancePath: sourceProvenancePath, cancellationCheck: cancellationCheck
                     )
                 }
                 return $0
@@ -269,7 +269,7 @@ public enum GUIImportedProvenanceRehydrator {
             try rewriteOutputDescriptorIfMapped(
                 $0,
                 pathMap: standardizedPathMap,
-                sourceProvenancePath: sourceProvenancePath
+                sourceProvenancePath: sourceProvenancePath, cancellationCheck: cancellationCheck
             )
         }
         let outputs = try deduplicated(
@@ -277,7 +277,7 @@ public enum GUIImportedProvenanceRehydrator {
                 try rewriteOutputDescriptorIfMapped(
                     $0,
                     pathMap: standardizedPathMap,
-                    sourceProvenancePath: sourceProvenancePath
+                    sourceProvenancePath: sourceProvenancePath, cancellationCheck: cancellationCheck
                 )
             }
         )
@@ -294,7 +294,7 @@ public enum GUIImportedProvenanceRehydrator {
                     try rewriteOutputDescriptorIfMapped(
                         $0,
                         pathMap: standardizedPathMap,
-                        sourceProvenancePath: sourceProvenancePath
+                        sourceProvenancePath: sourceProvenancePath, cancellationCheck: cancellationCheck
                     )
                 }
                 copy.resolvedOptions = step.resolvedOptions.mapValues {
@@ -467,7 +467,7 @@ public enum GUIImportedProvenanceRehydrator {
         from envelope: ProvenanceEnvelope,
         sourceURL: URL,
         sourceRoot: URL,
-        destinationURL: URL
+        destinationURL: URL, cancellationCheck: () throws -> Void
     ) throws -> [String: String] {
         var pathMap: [String: String] = [:]
         let sourceDescriptors = outputDescriptors(from: envelope)
@@ -478,7 +478,7 @@ public enum GUIImportedProvenanceRehydrator {
                     sourceRoot: sourceRoot
                 )
             }
-        try validateFileOutputIntegrity(sourceDescriptors, sourceURL: sourceURL)
+        try validateFileOutputIntegrity(sourceDescriptors, sourceURL: sourceURL, cancellationCheck: cancellationCheck)
         let destinationPath = destinationURL.standardizedFileURL.path
         for path in sourceDescriptors.map(\.path) {
             pathMap[path] = destinationPath
@@ -508,10 +508,10 @@ public enum GUIImportedProvenanceRehydrator {
 
     private static func validateFileOutputIntegrity(
         _ descriptors: [ProvenanceFileDescriptor],
-        sourceURL: URL
+        sourceURL: URL, cancellationCheck: () throws -> Void
     ) throws {
         guard !descriptors.isEmpty else { return }
-        let actualChecksum = try ProvenanceFileHasher.sha256(of: sourceURL)
+        let actualChecksum = try ProvenanceFileHasher.sha256(of: sourceURL, cancellationCheck: cancellationCheck)
         let actualFileSize = try ProvenanceFileHasher.fileSize(of: sourceURL)
         var hasCompleteMatchingDescriptor = false
 
@@ -533,7 +533,7 @@ public enum GUIImportedProvenanceRehydrator {
 
     private static func validateMappedOutputIntegrity(
         _ descriptors: [ProvenanceFileDescriptor],
-        pathMap: [String: String]
+        pathMap: [String: String], cancellationCheck: () throws -> Void
     ) throws {
         for descriptor in descriptors {
             guard let expectedChecksum = descriptor.checksumSHA256,
@@ -544,7 +544,7 @@ public enum GUIImportedProvenanceRehydrator {
                 continue
             }
             let finalURL = URL(fileURLWithPath: finalPath)
-            let actualChecksum = try ProvenanceFileHasher.sha256(of: finalURL)
+            let actualChecksum = try ProvenanceFileHasher.sha256(of: finalURL, cancellationCheck: cancellationCheck)
             let actualFileSize = try ProvenanceFileHasher.fileSize(of: finalURL)
             guard expectedChecksum == actualChecksum, expectedFileSize == actualFileSize else {
                 throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMismatch(descriptor.path)
@@ -657,9 +657,9 @@ public enum GUIImportedProvenanceRehydrator {
         to envelope: ProvenanceEnvelope,
         sourceURL: URL,
         destinationURL: URL,
-        suppliedImportStep: ProvenanceStep? = nil
+        suppliedImportStep: ProvenanceStep? = nil, cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
-        let outputs = try importStepOutputs(from: envelope, destinationURL: destinationURL)
+        let outputs = try importStepOutputs(from: envelope, destinationURL: destinationURL, cancellationCheck: cancellationCheck)
         let importStep: ProvenanceStep
         if let suppliedImportStep {
             importStep = suppliedImportStep
@@ -670,7 +670,7 @@ public enum GUIImportedProvenanceRehydrator {
                 toolVersion: WorkflowRun.currentAppVersion,
                 argv: ["lungfish-app", "gui-import", sourceURL.path, destinationURL.path],
                 durableReplayArgv: ["lungfish-app", "gui-import", destinationURL.path],
-                inputs: [try importStepInput(for: sourceURL)],
+                inputs: [try importStepInput(for: sourceURL, cancellationCheck: cancellationCheck)],
                 outputs: outputs,
                 exitStatus: 0, wallTimeSeconds: 0,
                 startedAt: importedAt,
@@ -684,16 +684,16 @@ public enum GUIImportedProvenanceRehydrator {
         }
     }
 
-    private static func importStepInput(for sourceURL: URL) throws -> ProvenanceFileDescriptor {
+    private static func importStepInput(for sourceURL: URL, cancellationCheck: () throws -> Void) throws -> ProvenanceFileDescriptor {
         if isRegularFile(sourceURL) {
-            return try ProvenanceFileDescriptor.file(url: sourceURL, role: .input)
+            return try ProvenanceFileDescriptor.file(url: sourceURL, role: .input, cancellationCheck: cancellationCheck)
         }
         return ProvenanceFileDescriptor(path: sourceURL.path, role: .input)
     }
 
     private static func importStepOutputs(
         from envelope: ProvenanceEnvelope,
-        destinationURL: URL
+        destinationURL: URL, cancellationCheck: () throws -> Void
     ) throws -> [ProvenanceFileDescriptor] {
         let outputs = envelope.outputs.isEmpty
             ? envelope.output.map { [$0] } ?? []
@@ -702,7 +702,7 @@ public enum GUIImportedProvenanceRehydrator {
             return outputs
         }
         if isRegularFile(destinationURL) {
-            return [try ProvenanceFileDescriptor.file(url: destinationURL, role: .output)]
+            return [try ProvenanceFileDescriptor.file(url: destinationURL, role: .output, cancellationCheck: cancellationCheck)]
         }
         return []
     }
@@ -711,7 +711,7 @@ public enum GUIImportedProvenanceRehydrator {
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
         sourceProvenancePath: String?,
-        finalDescriptor: ProvenanceFileDescriptor? = nil
+        finalDescriptor: ProvenanceFileDescriptor? = nil, cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceFileDescriptor {
         guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
             return descriptor
@@ -728,7 +728,7 @@ public enum GUIImportedProvenanceRehydrator {
                 format: descriptor.format,
                 role: descriptor.role,
                 originPath: originPath,
-                sourceProvenancePath: provenancePath
+                sourceProvenancePath: provenancePath, cancellationCheck: cancellationCheck
             )
         }
         return ProvenanceFileDescriptor(
@@ -745,7 +745,7 @@ public enum GUIImportedProvenanceRehydrator {
     private static func rewriteOutputDescriptorIfMapped(
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
-        sourceProvenancePath: String?
+        sourceProvenancePath: String?, cancellationCheck: () throws -> Void
     ) throws -> ProvenanceFileDescriptor? {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
             return nil
@@ -753,7 +753,7 @@ public enum GUIImportedProvenanceRehydrator {
         return try rewriteOutputDescriptor(
             descriptor,
             pathMap: pathMap,
-            sourceProvenancePath: sourceProvenancePath
+            sourceProvenancePath: sourceProvenancePath, cancellationCheck: cancellationCheck
         )
     }
 
