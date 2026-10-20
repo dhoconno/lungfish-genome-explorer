@@ -729,17 +729,16 @@ public enum NaoMgsBamMaterializer {
     }
 
     private static func detectSamtoolsVersion(samtoolsPath: String) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = ["--version"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath),
+            arguments: ["--version"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            label: "samtools --version"
+        )
         do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let output = String(data: data, encoding: .utf8) ?? ""
+            let result = try ToolProcess.runBlocking(spec)
+            // Both streams once shared one pipe. samtools prints its version on stdout, so stdout comes first.
+            let output = String(data: result.stdout + result.stderr, encoding: .utf8) ?? ""
             if let firstLine = output.split(separator: "\n").first {
                 return String(firstLine).trimmingCharacters(in: .whitespacesAndNewlines)
             }
