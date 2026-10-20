@@ -80,13 +80,7 @@ extension BundleExportGraphicSubcommand {
             )
             let rendering = try render(figure.scene, settings.format, pixelScale)
             let degraded = ViewerGraphicExport.degradedFacts(of: figure.scene)
-            for fact in degraded {
-                let line = "Warning: \(plan.name), \(BundleExportGraphicRecord.warning(fact))"
-                events.emitLog(.warning, line)
-                if !globalOptions.quiet {
-                    FileHandle.standardError.write(Data((line + "\n").utf8))
-                }
-            }
+            BundleExportGraphicRecord.report(degraded, image: plan.name, events: events, quiet: globalOptions.quiet)
             for url in figure.inputURLs where !inputURLs.contains(url) {
                 inputURLs.append(url)
             }

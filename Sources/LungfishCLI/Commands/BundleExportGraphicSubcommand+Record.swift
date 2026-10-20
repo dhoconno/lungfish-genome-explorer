@@ -128,10 +128,45 @@ struct BundleExportGraphicRecord {
         return .dictionary(entry)
     }
 
-    /// The warning line of one degraded fact, on standard error and in the event stream.
-    static func warning(_ fact: ViewerFigureOmission) -> String {
+    /// One degraded fact as a plain sentence, on standard error and in the event stream (UX review of 13.30, Fix 2 and
+    /// UX 7). The bulk form names the image first.
+    static func warning(_ fact: ViewerFigureOmission, image: String? = nil) -> String {
+        let track = fact.trackID == "figure" ? "figure" : "\(fact.trackID) track"
+        let subject = image.map { "In \($0), the \(track)" } ?? "The \(track)"
+        let what: String
+        switch fact.kind {
+        case .labelsOmitted: what = "left out labels"
+        case .scaleMode: what = "drew a summary at this zoom"
+        case .annotationLimit: what = "stopped at a limit"
+        case .readRowCap: what = "left out rows"
+        case .readSample: what = "drew a sample of the reads"
+        case .trackNotDrawn: what = "was not drawn in full"
+        case .fontFallback: what = "used another font"
+        }
         let count = fact.count.map { ", \($0) left out" } ?? ""
-        return "track \(fact.trackID), \(fact.kind.rawValue), \(fact.reason)\(count)."
+        return "\(subject) \(what) (\(fact.reason)\(count))."
+    }
+
+    /// A fact that leaves data out of the image is a warning. One that repeats a choice the viewer makes too, labels that
+    /// do not fit, a summary at a zoom and a font that stood in, is a note, and the row stays Completed (UX 2).
+    static func warns(_ fact: ViewerFigureOmission) -> Bool {
+        switch fact.kind {
+        case .labelsOmitted, .scaleMode, .fontFallback: return false
+        case .annotationLimit, .readRowCap, .readSample, .trackNotDrawn: return true
+        }
+    }
+
+    /// Reports each fact in the event stream, a warning event when it leaves data out and an information event when
+    /// not, and on standard error as a `Warning:` or `Note:` line unless `quiet`. Every fact stays in the record.
+    static func report(_ facts: [ViewerFigureOmission], image: String? = nil, events: CLIEventEmitter, quiet: Bool) {
+        for fact in facts {
+            let line = warning(fact, image: image)
+            let isWarning = warns(fact)
+            events.emitLog(isWarning ? .warning : .info, line)
+            if !quiet {
+                FileHandle.standardError.write(Data(((isWarning ? "Warning: " : "Note: ") + line + "\n").utf8))
+            }
+        }
     }
 
     /// The degraded fact of a PDF the normalizer could not read (R-QM1, UX words).

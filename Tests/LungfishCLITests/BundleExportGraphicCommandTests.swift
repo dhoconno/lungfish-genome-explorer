@@ -273,8 +273,9 @@ final class BundleExportGraphicCommandTests: XCTestCase {
     func testAPDFKeptAsWrittenIsADegradedFact() async throws {
         let arguments = ["--region", "chr1:1101-1300", "--width", "2000", "--track", "genes", "--output-format", "pdf"]
         let kept = folder.appendingPathComponent("kept.pdf")
+        var lines: [String] = []
         _ = try await command([bundle.path] + arguments + ["-o", kept.path]).export(
-            events: CLIEventEmitter(enabled: false) { _ in }
+            events: CLIEventEmitter(enabled: true) { lines.append($0) }
         ) { scene, format, pixelScale in
             let made = try ViewerFigureRasterizer.renderReporting(scene, format: format, pixelScale: pixelScale)
             return ViewerFigureRendering(data: made.data, pdfKeptAsWritten: "the PDF has no trailer keyword")
@@ -286,6 +287,8 @@ final class BundleExportGraphicCommandTests: XCTestCase {
                 + "running its command again writes a file with a different checksum. The file has no trailer."),
         ])]))
         XCTAssertNil(keptResolved["pdfFixedMetadata"])
+        // R-QM1 5. The fact is in the record only, so the row gets no line for it and no warning.
+        XCTAssertFalse(lines.contains { $0.contains("This PDF keeps") || $0.contains("\"level\":\"warning\"") }, "\(lines)")
 
         let normal = folder.appendingPathComponent("normal.pdf")
         _ = try await export(arguments + ["-o", normal.path])

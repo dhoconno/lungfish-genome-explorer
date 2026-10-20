@@ -104,13 +104,7 @@ struct BundleExportGraphicSubcommand: AsyncParsableCommand {
         let pixelScale = Double(settings.format == .pdf ? 1 : settings.scale ?? ViewerGraphicExport.defaultScale)
         let rendering = try render(figure.scene, settings.format, pixelScale)
         let degraded = ViewerGraphicExport.degradedFacts(of: figure.scene)
-        for fact in degraded {
-            let line = "Warning: \(BundleExportGraphicRecord.warning(fact))"
-            events.emitLog(.warning, line)
-            if !globalOptions.quiet {
-                FileHandle.standardError.write(Data((line + "\n").utf8))
-            }
-        }
+        BundleExportGraphicRecord.report(degraded, events: events, quiet: globalOptions.quiet)
         let record = BundleExportGraphicRecord(
             settings: settings, region: region, trackIDs: trackIDs, figure: figure, degraded: degraded,
             rendering: rendering, pixelScale: pixelScale, outputURL: outputURL, force: invocation.force
