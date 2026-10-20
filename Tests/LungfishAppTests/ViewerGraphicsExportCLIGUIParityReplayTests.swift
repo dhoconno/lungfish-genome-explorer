@@ -44,6 +44,8 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
         case sequence
         case annotation
         case variant
+        /// The read track `reads`, a BAM sorted and indexed by samtools (`ViewerGraphicsExportAlignmentReplayTests`).
+        case alignment
     }
 
     var scratch: URL!
@@ -192,12 +194,20 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
 
     @discardableResult
     func assertCase(_ kind: Kind, _ format: ViewerGraphicFormat) async throws -> RouteParityRuns {
+        try await Self.assertCase(kind, format, scratch: scratch, harness: harness, testCase: self)
+    }
+
+    /// One case in `scratch` with `harness`, so `ViewerGraphicsExportAlignmentReplayTests` runs the same sides.
+    @discardableResult
+    static func assertCase(
+        _ kind: Kind, _ format: ViewerGraphicFormat, scratch: URL, harness: RouteParityHarness, testCase: XCTestCase
+    ) async throws -> RouteParityRuns {
         let name = "\(kind.rawValue)-\(format.rawValue)"
         let caseRoot = scratch.appendingPathComponent("levels/deep/run/\(name)", isDirectory: true)
         let capture = caseRoot.appendingPathComponent("capture-A.\(format.fileExtension)")
         let figureName = "figure.\(format.fileExtension)"
         _ = NSApplication.shared
-        let delegate = makeAppDelegateWithTemporaryState()
+        let delegate = testCase.makeAppDelegateWithTemporaryState()
         let controller = MainWindowController()
         delegate.mainWindowController = controller
         delegate.testingSetMainWindowControllers([controller])
@@ -375,6 +385,10 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
                 databasePath: "variants/calls.db"
             ))
         }
+        var alignments: [AlignmentTrackInfo] = []
+        if kind == .alignment {
+            alignments.append(try makeAlignment(bases: bases, in: bundle))
+        }
         try BundleManifest(
             name: "Parity Fixture",
             identifier: "org.lungfish.viewer-graphics-parity",
@@ -386,7 +400,29 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
             annotations: annotations,
             variants: variants,
             tracks: [],
+            alignments: alignments,
             recordStore: nil
         ).save(to: bundle)
+    }
+
+    /// The read track `reads` at `alignments/reads.bam`, 60 reads of 50 bases that match `bases`, every tenth one on
+    /// the reverse strand, starting every 10 bases from 1001, sorted and indexed by the samtools the app finds.
+    static func makeAlignment(bases: String, in bundle: URL) throws -> AlignmentTrackInfo {
+        let samtools = try XCTUnwrap(BamFixtureBuilder.locateSamtools(), "no samtools to build the BAM")
+        let bytes = Array(bases)
+        let reads = (0..<60).map { index -> BamFixtureBuilder.Read in
+            let position = 1001 + index * 10
+            return BamFixtureBuilder.Read(
+                qname: "read\(index)", flag: index % 10 == 9 ? 16 : 0, rname: "chr1", pos: position, mapq: 60,
+                cigar: "50M", seq: String(bytes[(position - 1)..<(position + 49)]), qual: String(repeating: "I", count: 50)
+            )
+        }
+        try BamFixtureBuilder.makeBAM(
+            at: bundle.appendingPathComponent("alignments/reads.bam"),
+            references: [BamFixtureBuilder.Reference(name: "chr1", length: 3000)], reads: reads, samtoolsPath: samtools
+        )
+        return AlignmentTrackInfo(
+            id: "reads", name: "Reads", sourcePath: "alignments/reads.bam", indexPath: "alignments/reads.bam.bai"
+        )
     }
 }
