@@ -4,3 +4,4 @@ bare_workflow_run_writes 0
 legacy_run_embeds 14
 envelope_encodes_outside_writer 13
 provenance_filename_literals 175
+keyless_writer_sites 87

@@ -16,6 +16,7 @@ Counts, over Sources/**/*.swift, outside each count's exempt files:
     envelope_encodes_outside_writer  an envelope encoded away from the writer, by ProvenanceJSON.encoder or
                                      by a plain encoder of a name the file binds as an envelope
     provenance_filename_literals     a string literal that names a provenance .json file
+    keyless_writer_sites             signingProvider: nil, a writer built never to sign, even with a key set
 Each count may only fall, and each counts occurrences, not files. Text after // on a line is
 ignored (comment lines and trailing comments).
 
@@ -28,7 +29,7 @@ Exempt files, by path from the repository root. A glob may end the file name.
     envelope_encodes_outside_writer  ProvenanceWriter.swift and ProvenanceEnvelopeReader.swift in that
                                      folder, and the Inspector display, which encodes only to show
                                      (Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift)
-The other three counts have no exempt file. The names file that a later sub-phase adds for the
+The other four counts have no exempt file. The names file that a later sub-phase adds for the
 provenance file names becomes the exemption of provenance_filename_literals when it exists.
 
 Blind spots. The scan reads one line at a time, except that write_provenance_functions reads a definition
@@ -41,6 +42,8 @@ binds as an envelope. It does not parse Swift, so review catches the rest.
     - An envelope reached through a name the file never binds or types that way escapes
       envelope_encodes_outside_writer. That covers a generic value, a closure argument and a binding
       whose = sits on a later line than its name.
+    - A provider passed as a variable that is nil, such as the rehydrator's fallback, escapes
+      keyless_writer_sites.
 The other counts are sinks, so they still carry the invariant when a writer escapes by name.
 
 Baseline file: one "<name> <count>" line per count. Lower it with --update after a count falls.
@@ -130,6 +133,15 @@ COUNTS = (
         "A new string literal that names a provenance .json file adds a sidecar name that every "
         "reader must learn. Take the name from ProvenanceRecorder.provenanceFilename or "
         "ProvenanceRecorder.fileSidecarURL(for:), and add no new sidecar file name. " + SEE,
+    ),
+    Count(
+        "keyless_writer_sites",
+        re.compile(r"\bsigningProvider:\s*nil\b"),
+        (),
+        "A ProvenanceWriter built with signingProvider: nil never signs, even when a key is set. Build it with "
+        "ProvenanceWriter() so the record signs when LUNGFISH_PROVENANCE_SIGNING_KEY or "
+        "LUNGFISH_PROVENANCE_SIGNING_KEY_FILE is set. A site that must stay unsigned needs a row with its reason "
+        "in the table of docs/contracts/RECORDING-PROVENANCE.md and a reviewed baseline raise. " + SEE,
     ),
 )
 

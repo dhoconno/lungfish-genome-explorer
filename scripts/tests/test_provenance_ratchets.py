@@ -93,6 +93,7 @@ WRITERS = Ratchet(
         "legacy_run_embeds",
         "envelope_encodes_outside_writer",
         "provenance_filename_literals",
+        "keyless_writer_sites",
     ),
     fix_mentions=(
         "docs/contracts/RECORDING-PROVENANCE.md",
@@ -151,6 +152,11 @@ WRITER_SPECS = (
         WRITERS,
         "provenance_filename_literals",
         'let name = "run.lungfish-provenance.json"',
+    ),
+    Spec(
+        WRITERS,
+        "keyless_writer_sites",
+        "let writer = ProvenanceWriter(signingProvider: nil)",
     ),
 )
 
