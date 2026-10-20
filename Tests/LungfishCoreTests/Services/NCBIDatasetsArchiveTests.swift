@@ -75,6 +75,19 @@ final class NCBIDatasetsArchiveTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
     }
 
+    func testRefusesASymbolicLinkChainThroughALinkToTheFolder() async throws {
+        // `up` reads `self/..`, which collapses to the folder when `..` is removed from the text,
+        // but on disk `self` is the folder, so `up` really points above it.
+        let zip = try await makeZip(files: ["ok.txt": "ok"], links: ["self": ".", "up": "self/.."])
+        let out = try outputFolder()
+        do {
+            try await NCBIDatasetsArchive.extract(zip, to: out)
+            XCTFail("the archive was accepted")
+        } catch DatabaseServiceError.parseError(let message) {
+            XCTAssertTrue(message.contains("points outside its folder"), message)
+        }
+    }
+
     func testRefusesAnAbsoluteSymbolicLink() async throws {
         let zip = try await makeZip(files: ["ok.txt": "ok"], links: ["abs": "/etc"])
         let out = try outputFolder()

@@ -81,6 +81,15 @@ final class SafeZipExtractorTests: XCTestCase {
         try await assertRefused([.symlink("Project.lungfish/abs", to: "/etc/passwd")], reason: "absolute path")
     }
 
+    func testSymbolicLinkChainThroughALinkToTheRootIsRefused() async throws {
+        // `up` reads `self/../..`, which collapses to the root when `..` is removed from the text,
+        // but on disk `self` is the project folder, so `up` really points above the root.
+        try await assertRefused(
+            [.symlink("Project.lungfish/self", to: "."), .symlink("Project.lungfish/up", to: "self/../..")],
+            reason: "points outside"
+        )
+    }
+
     func testRefusesDuplicateEntries() async throws {
         try await assertRefused([.file("a.txt", "1"), .file("A.txt", "2")], reason: "more than once")
     }
