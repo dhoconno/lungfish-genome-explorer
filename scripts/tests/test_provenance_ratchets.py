@@ -443,6 +443,107 @@ def test_filename_literals_need_provenance_and_a_json_name_in_one_literal(tmp_pa
     assert baseline_of(tmp_path, WRITERS)["provenance_filename_literals"] == counted
 
 
+# Lines of one Swift file and the count of write_provenance_functions they give. A definition counts only when its text,
+# signature and body, names neither ProvenanceWriter nor CLIProvenanceSupport.recordSingleStepRun.
+WRITER_FUNCTION_CASES = [
+    (("func writeProvenance() throws {", "    try ProvenanceWriter().write(envelope, to: url)", "}"), 0),
+    (
+        (
+            "func writeProvenance(writer: ProvenanceWriter = ProvenanceWriter()) throws {",
+            "    try writer.write(envelope, to: url)",
+            "}",
+        ),
+        0,
+    ),
+    (
+        (
+            "func writeProvenance() async throws {",
+            '    try await CLIProvenanceSupport.recordSingleStepRun(name: "x")',
+            "}",
+        ),
+        0,
+    ),
+    (
+        (
+            "func writeProvenance() throws {",
+            '    let s = "}"',
+            "    try ProvenanceWriter().write(envelope, to: url)",
+            "}",
+        ),
+        0,
+    ),
+    (
+        (
+            "func writeProvenance() throws {",
+            "    let data = try JSONEncoder().encode(envelope)",
+            "    try data.write(to: url)",
+            "}",
+        ),
+        1,
+    ),
+    (
+        (
+            "func writeProvenance() throws {",
+            "    // try ProvenanceWriter().write(envelope, to: url)",
+            "    try data.write(to: url)",
+            "}",
+        ),
+        1,
+    ),
+    (
+        (
+            "func writeProvenance() throws {",
+            "    try record()",
+            "}",
+            "func record() throws {",
+            "    try ProvenanceWriter().write(envelope, to: url)",
+            "}",
+        ),
+        1,
+    ),
+    (
+        (
+            "let name = ProvenanceWriter.provenanceFilename",
+            "func writeProvenance() throws {",
+            "    try data.write(to: url)",
+            "}",
+        ),
+        1,
+    ),
+    (
+        (
+            "func writeProvenance() throws {",
+            "    try ProvenanceWriter().write(envelope, to: url)",
+            "}",
+            "func writeProvenance(log: Data) throws {",
+            "    try log.write(to: url)",
+            "}",
+        ),
+        1,
+    ),
+    (
+        (
+            "protocol P {",
+            "    func writeProvenance() throws",
+            "    func other() { _ = ProvenanceWriter() }",
+            "}",
+        ),
+        1,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("lines", "counted"),
+    WRITER_FUNCTION_CASES,
+    ids=[f"case{index + 1}-counts-{counted}" for index, (_, counted) in enumerate(WRITER_FUNCTION_CASES)],
+)
+def test_a_writer_function_counts_only_when_its_definition_bypasses_the_writer(tmp_path, lines, counted):
+    script = make_repo(tmp_path, WRITERS_SCRIPT, {"Sources/A/A.swift": swift(*lines)})
+    assert run(script, "--update").returncode == 0
+    assert baseline_of(tmp_path, WRITERS)["write_provenance_functions"] == counted
+
+
 # A line of Swift and the one count it adds to, or None when it adds to none. The None rows are
 # neighbors of a counted spelling, such as a call where the count wants a definition.
 NEIGHBOR_CASES = [

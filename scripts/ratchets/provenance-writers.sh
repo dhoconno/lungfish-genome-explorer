@@ -7,7 +7,9 @@ growing while they wait, so a new operation cannot add another copy. The rules a
 docs/contracts/RECORDING-PROVENANCE.md and in rule 6 of docs/contracts/ADDING-AN-OPERATION.md.
 
 Counts, over Sources/**/*.swift, outside each count's exempt files:
-    write_provenance_functions       func writeProvenance, a private copy of a provenance writer
+    write_provenance_functions       func writeProvenance whose definition, signature and body, names neither
+                                     ProvenanceWriter nor CLIProvenanceSupport.recordSingleStepRun, a private
+                                     copy of a provenance writer
     bare_workflow_run_writes         .writeSidecar(, which writes a bare WorkflowRun and not an envelope
     legacy_run_embeds                legacyWorkflowRun: followed by anything but nil, which nests a
                                      WorkflowRun in an envelope
@@ -28,8 +30,12 @@ Exempt files, by path from the repository root. A glob may end the file name.
 The other three counts have no exempt file. The names file that a later sub-phase adds for the
 provenance file names becomes the exemption of provenance_filename_literals when it exists.
 
-Blind spots. The scan reads one line at a time and does not parse Swift, so review catches the rest.
-    - A renamed writer function escapes write_provenance_functions.
+Blind spots. The scan reads one line at a time, except that write_provenance_functions reads a definition
+from its func to the brace that closes its body. It does not parse Swift, so review catches the rest.
+    - A renamed writer function escapes write_provenance_functions. A definition that reaches the writer only
+      through another function it calls counts 1, so it holds the writer it writes with and passes it down. A
+      definition that names the writer counts 0 even when it also writes another file itself. A brace inside a
+      raw or multi-line string literal can move the end of a body.
     - An envelope encoded with a plain JSONEncoder escapes envelope_encodes_outside_writer. The known
       cases are PrimerAnalysisNativeInspectionService.swift:219, PrimalScheme3DesignPipeline.swift:618
       and :651 and PrimalScheme3AlleleLabelMap.swift:170.
@@ -150,6 +156,72 @@ def is_exempt(rel, exempt):
     return any(fnmatch.fnmatchcase(rel, pattern) for pattern in exempt)
 
 
+WRITER_FUNCTIONS = "write_provenance_functions"
+
+# A definition that names the writer, or the recorder that writes through it, is not a private copy of a writer.
+WRITER_FORMS = re.compile(r"\bProvenanceWriter\b|\bCLIProvenanceSupport\s*\.\s*recordSingleStepRun\b")
+FUNC_WORD = re.compile(r"func\b")
+
+
+def is_word_char(text, index):
+    return index >= 0 and (text[index].isalnum() or text[index] == "_")
+
+
+def definition_text(text, start, name_end):
+    """The text of the definition whose func starts at `start` and whose name ends at `name_end`.
+
+    It runs through the brace that closes the first { after the parameter list. Braces and parentheses
+    inside a double-quoted string are skipped. When a } or the word func comes before that {, the
+    definition has no body (a protocol requirement) and its text is its own line.
+    """
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    own_line = text[line_start : len(text) if line_end < 0 else line_end]
+    in_string = False
+    parens = 0
+    listed = False  # the parameter list has closed
+    braces = 0
+    i = name_end
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                i += 1
+            elif ch in '"\n':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif not listed:
+            if ch == "(":
+                parens += 1
+            elif ch == ")" and parens:
+                parens -= 1
+                listed = parens == 0
+        elif braces == 0:
+            if ch == "{":
+                braces = 1
+            elif ch == "}" or (FUNC_WORD.match(text, i) and not is_word_char(text, i - 1)):
+                return own_line
+        elif ch == "{":
+            braces += 1
+        elif ch == "}":
+            braces -= 1
+            if braces == 0:
+                return text[start : i + 1]
+        i += 1
+    return text[start:] if braces else own_line
+
+
+def writer_copy_lines(codes, count):
+    """The line of each definition the count pattern finds whose text names no writer form."""
+    text = "\n".join(codes)
+    lines = []
+    for match in count.pattern.finditer(text):
+        if not WRITER_FORMS.search(definition_text(text, match.start(), match.end())):
+            lines.append(text.count("\n", 0, match.start()) + 1)
+    return lines
+
+
 def scan():
     counts = {count.name: 0 for count in COUNTS}
     sites = []
@@ -161,12 +233,19 @@ def scan():
         if not active:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        for lineno, line in enumerate(text.splitlines(), 1):
-            code = strip_line_comment(line)
-            for count in active:
-                for _ in count.pattern.finditer(code):
-                    counts[count.name] += 1
-                    sites.append(f"{rel}:{lineno}: {count.name}")
+        codes = [strip_line_comment(line) for line in text.splitlines()]
+        found = []  # (line, position of the count in COUNTS, name), listed by line and then by count
+        for order, count in enumerate(COUNTS):
+            if count not in active:
+                continue
+            if count.name == WRITER_FUNCTIONS:
+                found += [(lineno, order, count.name) for lineno in writer_copy_lines(codes, count)]
+                continue
+            for lineno, code in enumerate(codes, 1):
+                found += [(lineno, order, count.name) for _ in count.pattern.finditer(code)]
+        for lineno, _, name in sorted(found):
+            counts[name] += 1
+            sites.append(f"{rel}:{lineno}: {name}")
     return counts, sites
 
 
