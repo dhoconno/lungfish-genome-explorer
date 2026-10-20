@@ -185,6 +185,47 @@ final class ToolProcessPipelineTests: XCTestCase {
         }
     }
 
+    /// Phase 2.13 lane 13.05 pin. Each stage rule of runPipeline, and its
+    /// refusal of a streamed stage, in the words it gives today.
+    func testStageRulesAndTheStreamRefusalKeepTheirWords() async throws {
+        var reading = tool("/bin/cat", label: "reader")
+        reading.stdin = .data(Data("x".utf8))
+        var writing = tool("/bin/cat", label: "writer")
+        writing.stdout = .discard
+        var limited = tool("/bin/cat", label: "limited")
+        limited.timeout = .seconds(5)
+        var streamedLast = tool("/bin/cat", label: "last")
+        streamedLast.stdout = .stream
+        var streamedFirst = tool("/bin/cat", label: "first")
+        streamedFirst.stdout = .stream
+        let quiet = Fixtures.shell("true", stdout: .discard, stderr: .discard, label: "quiet")
+        let cases: [(stages: [ToolProcessSpec], idle: Duration?, words: String)] = [
+            ([], nil, "A pipeline needs at least one stage."),
+            ([tool("/bin/cat", label: "cat"), reading], nil,
+             "Stage 1 (reader) reads the previous stage's stdout, so its stdin must stay .null."),
+            ([writing, tool("/bin/cat", label: "cat")], nil,
+             "Stage 0 (writer) writes into the next stage, so its stdout must stay at the default."),
+            ([limited, tool("/bin/cat", label: "cat")], nil,
+             "Stage 0 (limited) sets its own timeout. Pass the pipeline's limits to runPipeline instead."),
+            ([tool("/bin/cat", label: "cat"), streamedLast], nil,
+             "last streams stdout, which needs ToolProcess.start and a reader. runPipeline has none."),
+            ([streamedFirst, tool("/bin/cat", label: "cat")], nil,
+             "first streams stdout, which needs ToolProcess.start and a reader. runPipeline has none."),
+            ([quiet], .seconds(1),
+             "An idle timeout of 1.0 seconds needs a captured stream, because no other output is observed."),
+        ]
+        for (stages, idle, words) in cases {
+            do {
+                _ = try await ToolProcess.runPipeline(stages, idleTimeout: idle)
+                XCTFail("Expected invalidSpec for \(stages.map(\.label))")
+            } catch ToolProcessError.invalidSpec(let reason) {
+                XCTAssertEqual(reason, words)
+            } catch {
+                XCTFail("Unexpected error \(error)")
+            }
+        }
+    }
+
     func testSingleStagePipelineMatchesRun() async throws {
         let result = try await ToolProcess.runPipeline([Fixtures.shell("echo solo; exit 2")])
         XCTAssertEqual(result.stages.count, 1)
