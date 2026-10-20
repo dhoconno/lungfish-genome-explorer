@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import CoreGraphics
+import CoreText
 import Foundation
 import LungfishCore
 
@@ -417,11 +418,15 @@ extension ReadTrackRenderer {
     }
 
     /// Draws insertion markers with triangle indicators (for base mode).
+    ///
+    /// `labelFont` is the label face from `insertionLabelFont()`. The caller builds it once per draw and not
+    /// once per label, since the lookup makes a system font, a descriptor font and a name check each time.
     static func drawInsertionMarkers(
         read: AlignedRead,
         frame: ViewerFigureFrame,
         context: CGContext,
         figureTheme: ViewerFigureTheme,
+        labelFont: CTFont,
         y: CGFloat,
         readHeight: CGFloat
     ) {
@@ -444,7 +449,7 @@ extension ReadTrackRenderer {
 
             if let labelText = insertionLabel(for: ins.bases, pixelsPerBase: pixelsPerBase) {
                 ViewerFigureTrackText.draw(
-                    labelText, font: insertionLabelFont(), color: labelColor,
+                    labelText, font: labelFont, color: labelColor,
                     topLeft: CGPoint(x: x + 2, y: y + 0.5), in: context
                 )
             }

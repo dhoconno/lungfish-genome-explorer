@@ -50,6 +50,8 @@ extension ReadTrackRenderer {
         let font = CTFontCreateWithName("Menlo-Bold" as CFString, fontSize, nil)
         let refBytes: [UInt8]? = referenceSequence.map(uppercaseASCIIBytes)
         let cache = GlyphCache(font: font)
+        // The insertion label face is looked up once per draw, not once per label of each read.
+        let insertionFont = insertionLabelFont()
 
         // Pre-compute background colors for each strand to avoid per-read alloc
         let fwdBgTemplate = figureTheme.color(.baseReadForwardBackground).cgColor
@@ -120,7 +122,10 @@ extension ReadTrackRenderer {
 
             // Draw insertion markers
             if settings.showIndels {
-                drawInsertionMarkers(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y, readHeight: readHeight)
+                drawInsertionMarkers(
+                    read: read, frame: frame, context: context, figureTheme: figureTheme, labelFont: insertionFont,
+                    y: y, readHeight: readHeight
+                )
                 drawDeletions(read: read, frame: frame, context: context, figureTheme: figureTheme, y: y + readHeight / 2, readHeight: readHeight)
             }
         }
