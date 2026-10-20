@@ -442,29 +442,18 @@ public actor EsVirituPipeline {
 
         // Begin provenance recording.
         let provenanceRecorder = ProvenanceRecorder.shared
-        var provenanceParameters: [String: ParameterValue] = [
+        let runFacts = Self.runFacts(for: config, requestedReadFormat: requestedReadFormat)
+        let provenanceParameters: [String: ParameterValue] = [
             "sample": .string(config.sampleName),
             "qualityFilter": .boolean(config.qualityFilter),
             "threads": .integer(config.threads),
-            "pairedEnd": .boolean(config.isPairedEnd),
-            "github_release_version": .string(Self.esVirituGithubReleaseVersion),
             "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
-        ]
-        if requestedReadFormat != config.readFormat {
-            provenanceParameters["requestedReadFormat"] = .string(requestedReadFormat.rawValue)
-        }
-        if let layout = config.inputLayout {
-            provenanceParameters["inputReadLayout"] = .string(layout.layout.rawValue)
-            provenanceParameters["inputReadLayoutScannedRecords"] = .integer(layout.scannedRecords)
-            provenanceParameters["inputReadLayoutMatePairs"] = .integer(layout.matePairs)
-            provenanceParameters["inputReadLayoutUnpairedRecords"] = .integer(layout.unpairedRecords)
-            provenanceParameters["inputReadLayoutReason"] = .string(layout.reason)
-        }
+        ].merging(runFacts) { current, _ in current }
         let runID = await provenanceRecorder.beginRun(
             name: "Viral Metagenomics Detection",
             parameters: provenanceParameters.merging(Self.inputLineageParameters(for: config)) { current, _ in current }
         )
-        let provenanceOptions = Self.resolvedRunOptions(for: config)
+        let provenanceOptions = Self.resolvedRunOptions(for: config, adding: runFacts)
 
         // Phase 3: Run EsViritu (0.15 -- 0.85)
         let esVirituArgs = effectiveConfig.esVirituArguments()

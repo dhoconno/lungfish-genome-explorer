@@ -70,14 +70,6 @@
       "type" : "string",
       "value" : ""
     },
-    "github_release_version" : {
-      "type" : "string",
-      "value" : "v1.3.3"
-    },
-    "pairedEnd" : {
-      "type" : "boolean",
-      "value" : false
-    },
     "qualityFilter" : {
       "type" : "boolean",
       "value" : true
@@ -117,14 +109,6 @@
     "extraArgs" : {
       "type" : "string",
       "value" : ""
-    },
-    "github_release_version" : {
-      "type" : "string",
-      "value" : "v1.3.3"
-    },
-    "pairedEnd" : {
-      "type" : "boolean",
-      "value" : false
     },
     "qualityFilter" : {
       "type" : "boolean",
@@ -211,6 +195,14 @@
   },
   "reproducibleCommand" : "EsViritu -r <project>/inputs/sample.fastq -s sample -o <project>/Analyses/esviritu-batch/sample -p unpaired -t 4 -q True --db <project>/esviritu-db --keep True",
   "resolvedDefaultOptions" : {
+    "github_release_version" : {
+      "type" : "string",
+      "value" : "v1.3.3"
+    },
+    "pairedEnd" : {
+      "type" : "boolean",
+      "value" : false
+    },
     "readFormat" : {
       "type" : "string",
       "value" : "unpaired"

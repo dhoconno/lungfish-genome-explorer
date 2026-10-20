@@ -67,9 +67,9 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
         ])
     }
 
-    /// 2.13 lane 13.15 pin (BIO-13.15-SW26 item 5). The build's EsViritu release stays the `githubReleaseVersion` of the
-    /// EsViritu step and a parameter of the legacy run, wherever the record's options file it.
-    func testTheEsVirituReleaseVersionStaysOnTheStepAndInTheRunParameters() async throws {
+    /// 2.13 lane 13.15 pin (BIO-13.15-legacy item 2). The build's EsViritu release stays the `githubReleaseVersion` of
+    /// the EsViritu step, of that step in the legacy view and of the record, wherever the options file it.
+    func testTheEsVirituReleaseVersionStaysOnTheStepTheLegacyStepAndTheRecord() async throws {
         let run = try StandInEsVirituRun()
         defer { run.remove() }
 
@@ -79,7 +79,8 @@ final class ClassifierRecordObservationPinTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run.config.outputDirectory))
         XCTAssertEqual(envelope.steps.first { $0.toolName == "EsViritu" }?.githubReleaseVersion, release)
         let legacy = try XCTUnwrap(ProvenanceRecorder.load(from: run.config.outputDirectory))
-        XCTAssertEqual(legacy.parameters["github_release_version"], .string(release))
+        XCTAssertEqual(legacy.steps.first { $0.toolName == "EsViritu" }?.githubReleaseVersion, release)
+        XCTAssertEqual(envelope.githubReleaseVersion, release)
     }
 
     // MARK: - The probe and the peak memory

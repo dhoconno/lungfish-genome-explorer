@@ -128,8 +128,8 @@ final class EsVirituReadSetTests: XCTestCase {
         XCTAssertNil(run.plan, "a sample of pairs only records no plan")
         XCTAssertEqual(run.options.resolvedDefaults["readFormat"], .string("interleaved"), "the planner's choice (B8)")
         XCTAssertNil(run.parameters?["readFormat"], "the user chose no format (E12)")
-        XCTAssertNil(run.parameters?["requestedReadFormat"], "the run was not changed after it was asked for")
-        XCTAssertNotEqual(run.parameters?["inputReadLayout"], .string("mixed_interleaved"))
+        XCTAssertNil(run.options.resolvedDefaults["requestedReadFormat"] ?? run.options.explicit["requestedReadFormat"], "the run was not changed after it was asked for")
+        XCTAssertNotEqual(run.options.resolvedDefaults["inputReadLayout"] ?? run.options.explicit["inputReadLayout"], .string("mixed_interleaved"))
     }
 
     // MARK: - Chunks of single reads are joined
