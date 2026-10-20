@@ -132,35 +132,10 @@ public final class GzipInputStream: Sendable {
     func forEachLine(_ body: (String) throws -> Void) throws {
         try Self.validateGzipHeader(at: url)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-dc", url.path]
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        var processStarted = false
-        var processWaited = false
-
-        defer {
-            if processStarted {
-                if process.isRunning {
-                    process.terminate()
-                }
-                if !processWaited {
-                    process.waitUntilExit()
-                }
-            }
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-        }
-
-        try process.run()
-        processStarted = true
+        // gzip runs on ToolProcess. Leaving this function for any reason, a thrown body and a cancelled task
+        // included, cancels the run, which ends the process tree and reaps it.
+        let child = try GzipChildStream(decompressing: url)
+        defer { child.close() }
 
         let chunkSize = 1_048_576 // 1 MB
         var partial = Data() // Leftover bytes from previous chunk (incomplete line)
@@ -168,7 +143,7 @@ public final class GzipInputStream: Sendable {
         while true {
             try Task.checkCancellation()
 
-            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            let chunk = child.readChunk(upTo: chunkSize)
             if chunk.isEmpty { break }
 
             partial.append(chunk)
@@ -178,17 +153,7 @@ public final class GzipInputStream: Sendable {
         try Task.checkCancellation()
         try Self.emitFinalLine(from: partial, body)
 
-        process.waitUntilExit()
-        processWaited = true
-
-        if process.terminationStatus != 0 {
-            let stderrData = stderrHandle.readDataToEndOfFile()
-            let stderrText = String(data: stderrData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GzipError.decompressionFailed(
-                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
-            )
-        }
+        try child.finish()
     }
 
     /// Synchronously iterates over decompressed byte chunks.
