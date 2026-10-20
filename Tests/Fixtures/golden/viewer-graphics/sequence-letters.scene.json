@@ -1,0 +1,1576 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+    {
+      "fallback" : false,
+      "requested" : "Menlo-Regular",
+      "resolved" : "Menlo-Regular",
+      "size" : 10
+    },
+    {
+      "fallback" : false,
+      "requested" : "Menlo-Bold",
+      "resolved" : "Menlo-Bold",
+      "size" : 7.5
+    }
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "figure-contig",
+    "end" : 140,
+    "leadingInset" : 0,
+    "pixelWidth" : 412,
+    "sequenceLength" : 30000,
+    "start" : 100,
+    "trailingInset" : 12
+  },
+  "height" : 60,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "windowBackground"
+        },
+        "rect" : {
+          "height" : 20,
+          "width" : 412,
+          "x" : 0,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "role" : "tertiaryLabel"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 20,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 20,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 40,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 40,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 60,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 60,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 80,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 80,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 120,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 120,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 140,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 140,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 160,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 160,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 180,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 180,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 220,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 220,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 240,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 240,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 260,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 260,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 280,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 280,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 320,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 320,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 340,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 340,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 360,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 360,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 380,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 380,
+              "y" : 20
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "secondaryLabel"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 0,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 0,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 100,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 100,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 200,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 200,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 300,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 300,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 400,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 400,
+              "y" : 20
+            }
+          }
+        ]
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 100,
+            "y" : 10.2822265625
+          },
+          "string" : "110"
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 200,
+            "y" : 10.2822265625
+          },
+          "string" : "120"
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 300,
+            "y" : 10.2822265625
+          },
+          "string" : "130"
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "role" : "separator"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 0,
+              "y" : 19.5
+            },
+            "to" : {
+              "x" : 412,
+              "y" : 19.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "separator"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 0,
+              "y" : 19.5
+            },
+            "to" : {
+              "x" : 412,
+              "y" : 19.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 0,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 5,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 10,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 15,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 20,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 25,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 30,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 35,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 40,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 45,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 50,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 55,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 60,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 65,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 70,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 75,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 80,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 85,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 90,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 95,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseN"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 100,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 105,
+            "y" : 42.596435546875
+          },
+          "string" : "N"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseN"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 110,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 115,
+            "y" : 42.596435546875
+          },
+          "string" : "N"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseN"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 120,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 125,
+            "y" : 42.596435546875
+          },
+          "string" : "N"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseN"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 130,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 135,
+            "y" : 42.596435546875
+          },
+          "string" : "N"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 140,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 145,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 150,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 155,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 160,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 165,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 170,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 175,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 180,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 185,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 190,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 195,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 200,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 205,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 210,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 215,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 220,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 225,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 230,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 235,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 240,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 245,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 250,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 255,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 260,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 265,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 270,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 275,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 280,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 285,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 290,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 295,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 300,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 305,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 310,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 315,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 320,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 325,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseC"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 330,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 335,
+            "y" : 42.596435546875
+          },
+          "string" : "C"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 340,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 345,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 350,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 355,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 360,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 365,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseG"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 370,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 375,
+            "y" : 42.596435546875
+          },
+          "string" : "G"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseT"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 380,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 385,
+            "y" : 42.596435546875
+          },
+          "string" : "T"
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 9.5,
+          "x" : 390,
+          "y" : 20
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Bold",
+          "fontSize" : 7.5,
+          "paint" : {
+            "role" : "textOnColor"
+          },
+          "point" : {
+            "x" : 395,
+            "y" : 42.596435546875
+          },
+          "string" : "A"
+        }
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 2,
+      "kind" : "labelsOmitted",
+      "reason" : "2 of 5 position labels had no room",
+      "trackID" : "ruler"
+    }
+  ],
+  "width" : 412
+}

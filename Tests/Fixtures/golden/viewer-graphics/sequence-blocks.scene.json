@@ -1,0 +1,1331 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "figure-contig",
+    "end" : 2000,
+    "leadingInset" : 0,
+    "pixelWidth" : 100,
+    "sequenceLength" : 30000,
+    "start" : 0,
+    "trailingInset" : 0
+  },
+  "height" : 40,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 1,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 2,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 3,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 4,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 5,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 6,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 7,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 8,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 9,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 10,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 11,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 12,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 13,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 14,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 15,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 16,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 17,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 18,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 19,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 20,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 21,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 22,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 23,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 24,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 25,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 26,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 27,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 28,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 29,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 30,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 31,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 32,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 33,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 34,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 35,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 36,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 37,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 38,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 39,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 40,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 41,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 42,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 43,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 44,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 45,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 46,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 47,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 48,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 49,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 50,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 51,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 52,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 53,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 54,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 55,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 56,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 57,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 58,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 59,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 60,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 61,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 62,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 63,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 64,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 65,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 66,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 67,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 68,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 69,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 70,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 71,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 72,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 73,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 74,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 75,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 76,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 77,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 78,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 79,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 80,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 81,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 82,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 83,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 84,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 85,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 86,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 87,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 88,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 89,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 90,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 91,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 92,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 93,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 94,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 95,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 96,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 97,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 98,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "baseA"
+        },
+        "rect" : {
+          "height" : 40,
+          "width" : 1,
+          "x" : 99,
+          "y" : 0
+        }
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 2001,
+      "kind" : "scaleMode",
+      "reason" : "bases drawn as blocks of their most common base at 20 bases per point, 10 or more",
+      "trackID" : "sequence"
+    }
+  ],
+  "width" : 100
+}

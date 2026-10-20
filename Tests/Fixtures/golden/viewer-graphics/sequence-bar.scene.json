@@ -1,0 +1,59 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "figure-contig",
+    "end" : 30000,
+    "leadingInset" : 0,
+    "pixelWidth" : 80,
+    "sequenceLength" : 30000,
+    "start" : 0,
+    "trailingInset" : 0
+  },
+  "height" : 40,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "systemGray"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 80,
+          "x" : 0,
+          "y" : 12
+        }
+      }
+    },
+    {
+      "strokeRect" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "systemGray"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 80,
+          "x" : 0,
+          "y" : 12
+        }
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 30000,
+      "kind" : "scaleMode",
+      "reason" : "bases drawn as a bar at 375 bases per point, 300 or more",
+      "trackID" : "sequence"
+    }
+  ],
+  "width" : 80
+}

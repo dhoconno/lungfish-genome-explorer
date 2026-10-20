@@ -1,0 +1,427 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+    {
+      "fallback" : false,
+      "requested" : "Menlo-Regular",
+      "resolved" : "Menlo-Regular",
+      "size" : 10
+    }
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "MN908947.3",
+    "end" : 21662,
+    "leadingInset" : 0,
+    "pixelWidth" : 400,
+    "sequenceLength" : 29903,
+    "start" : 21562,
+    "trailingInset" : 12
+  },
+  "height" : 20,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "windowBackground"
+        },
+        "rect" : {
+          "height" : 20,
+          "width" : 400,
+          "x" : 0,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "role" : "tertiaryLabel"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 7.76,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 7.76,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 23.28,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 23.28,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 38.8,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 38.8,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 54.32,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 54.32,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 85.36,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 85.36,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 100.88,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 100.88,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 116.39999999999999,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 116.39999999999999,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 131.92,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 131.92,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 162.96,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 162.96,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 178.48,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 178.48,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 194,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 194,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 209.51999999999998,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 209.51999999999998,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 240.56,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 240.56,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 256.08,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 256.08,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 271.59999999999997,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 271.59999999999997,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 287.12,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 287.12,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 318.15999999999997,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 318.15999999999997,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 333.68,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 333.68,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 349.2,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 349.2,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 364.71999999999997,
+              "y" : 16
+            },
+            "to" : {
+              "x" : 364.71999999999997,
+              "y" : 20
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "secondaryLabel"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 69.84,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 69.84,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 147.44,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 147.44,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 225.04,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 225.04,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 302.64,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 302.64,
+              "y" : 20
+            }
+          },
+          {
+            "from" : {
+              "x" : 380.24,
+              "y" : 13.640625
+            },
+            "to" : {
+              "x" : 380.24,
+              "y" : 20
+            }
+          }
+        ]
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 69.84,
+            "y" : 10.2822265625
+          },
+          "string" : "21,580"
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 147.44,
+            "y" : 10.2822265625
+          },
+          "string" : "21,600"
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 225.04,
+            "y" : 10.2822265625
+          },
+          "string" : "21,620"
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "Menlo-Regular",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 302.64,
+            "y" : 10.2822265625
+          },
+          "string" : "21,640"
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "role" : "separator"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 0,
+              "y" : 19.5
+            },
+            "to" : {
+              "x" : 400,
+              "y" : 19.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "separator"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 0,
+              "y" : 19.5
+            },
+            "to" : {
+              "x" : 400,
+              "y" : 19.5
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 1,
+      "kind" : "labelsOmitted",
+      "reason" : "1 of 5 position labels had no room",
+      "trackID" : "ruler"
+    }
+  ],
+  "width" : 400
+}
