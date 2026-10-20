@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 final class ViewerFigureAnnotationTrackTests: XCTestCase {
@@ -93,5 +94,48 @@ final class ViewerFigureAnnotationTrackTests: XCTestCase {
         let roles = Set(AnnotationType.allCases.map(ViewerFigureAnnotationColors.role(for:)))
         XCTAssertEqual(roles.count, 51)
         XCTAssertTrue(roles.allSatisfy { $0.rawValue.hasPrefix("annotation") })
+    }
+
+    func testBuildReadsARealAnnotationDatabaseOffTheMainActor() async throws {
+        let scene = try await ViewerFigureAnnotationFixture.databaseScene()
+        let strings = scene.items.compactMap { if case .text(let text) = $0 { text.string } else { nil } }
+        XCTAssertEqual(strings, ["geneA", "tx1", "geneB"], "the BED rows read back through queryByRegion")
+        XCTAssertTrue(scene.items.contains(.fill(
+            rect: ViewerFigureRect(x: 10, y: 0, width: 190, height: 16), paint: ViewerFigurePaint(.annotationGene, alpha: 0.7)
+        )))
+        XCTAssertEqual(scene.omissions, [
+            ViewerFigureOmission(trackID: "annotations", kind: .labelsOmitted, reason: "narrower than 72 points or more than 12 rows", count: 1),
+            ViewerFigureOmission(trackID: "annotations", kind: .trackNotDrawn, reason: "embedded CDS translations", count: 1),
+        ])
+        XCTAssertEqual(scene.fonts.map(\.resolved), ["HelveticaNeue"])
+    }
+}
+
+/// An annotation database built from a BED file, for the database and golden cases.
+enum ViewerFigureAnnotationFixture {
+    /// Four BED rows with a type column: two genes, a CDS and an mRNA on chr1.
+    static let bed = [
+        "chr1\t10\t200\tgeneA\t0\t+\t10\t200\t0\t1\t190\t0\tgene",
+        "chr1\t100\t300\tgeneB\t0\t-\t100\t300\t0\t1\t200\t0\tgene",
+        "chr1\t250\t260\tcdsX\t0\t+\t250\t260\t0\t1\t10\t0\tCDS",
+        "chr1\t400\t600\ttx1\t0\t+\t400\t600\t0\t1\t200\t0\tmRNA",
+    ].joined(separator: "\n") + "\n"
+
+    /// The scene of a 1,000-point annotation track over the database, read off the main actor.
+    static func databaseScene(appearance: ViewerFigureAppearance = .light) async throws -> ViewerFigureScene {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("figure-annotations-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let bedURL = folder.appendingPathComponent("genes.bed")
+        let databaseURL = folder.appendingPathComponent("genes.db")
+        try Data(bed.utf8).write(to: bedURL)
+        XCTAssertEqual(try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: databaseURL), 4)
+        let track = ViewerFigureAnnotationTrack(
+            sources: [.init(id: "genes", name: "Genes", databaseURL: databaseURL)], height: 200
+        )
+        return try await ViewerFigureSceneBuilder.build(
+            frame: ViewerFigureFrame(chromosome: "chr1", start: 0, end: 1_000, pixelWidth: 1_000),
+            appearance: appearance, tracks: [track]
+        )
     }
 }
