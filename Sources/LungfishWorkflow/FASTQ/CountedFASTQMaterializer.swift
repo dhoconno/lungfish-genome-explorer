@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 
 public enum CountedFASTQSequenceNormalization: Sendable, Equatable {
@@ -227,32 +228,19 @@ public struct CountedFASTQMaterializer: Sendable {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        var shouldCloseOutputHandle = true
-        defer {
-            if shouldCloseOutputHandle {
-                try? outputHandle.close()
-            }
-        }
-
-        let process = Process()
-        let stderrPipe = Pipe()
         let command = ["/usr/bin/gzip", "-1", "-c", rawURL.path]
         let gzipClock = ProvenanceRunClock()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-        process.arguments = ["-1", "-c", rawURL.path]
-        process.standardOutput = outputHandle
-        process.standardError = stderrPipe
-        try process.run()
-        process.waitUntilExit()
+        let result = try ToolProcess.runBlocking(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
+            arguments: ["-1", "-c", rawURL.path],
+            environment: ["PATH": "/usr/bin:/bin"],
+            stdout: .file(outputURL),
+            label: "gzip -1 -c"
+        ))
         let wallTime = gzipClock.elapsed
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-        try outputHandle.close()
-        shouldCloseOutputHandle = false
-        guard process.terminationReason == .exit,
-              process.terminationStatus == 0 else {
-            throw CountedFASTQMaterializerError.compressionFailed(rawURL, process.terminationStatus)
+        let stderr = result.stderrText
+        guard result.isSuccess else {
+            throw CountedFASTQMaterializerError.compressionFailed(rawURL, result.status)
         }
         let outputRecord = ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)
         try? FileManager.default.removeItem(at: rawURL)
@@ -262,7 +250,7 @@ public struct CountedFASTQMaterializer: Sendable {
                 command: command,
                 input: inputRecord,
                 output: outputRecord,
-                exitCode: process.terminationStatus,
+                exitCode: result.status,
                 wallTime: wallTime,
                 stderr: stderr
             )
