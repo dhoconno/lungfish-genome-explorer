@@ -543,30 +543,28 @@ struct MarkdupCommand: AsyncParsableCommand {
 
     static func runIndex(bamPath: String, samtoolsPath: String) throws -> MarkdupSamtoolsInvocation {
         let indexClock = ProvenanceRunClock()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: samtoolsPath)
-        process.arguments = ["index", bamPath]
-        let errPipe = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errPipe
-
-        do {
-            try process.run()
-        } catch {
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: samtoolsPath), arguments: ["index", bamPath],
+            environment: ToolProcessSpec.inheritedEnvironment(), stdout: .discard, label: "samtools index"
+        )
+        let run: ToolProcessResult
+        do { run = try ToolProcess.runBlocking(spec) } catch {
             throw MarkdupError.indexFailed(stderr: error.localizedDescription)
         }
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         let completedAt = indexClock.now
-        let stderr = String(data: errData, encoding: .utf8) ?? ""
+        var stderr = String(data: run.stderr, encoding: .utf8) ?? ""
+        if let incomplete = run.incompleteOutputReason {
+            // A process samtools started still held its stderr after it exited, so the text may be cut short.
+            stderr += stderr.isEmpty || stderr.hasSuffix("\n") ? incomplete : "\n" + incomplete
+        }
         let result = NativeToolResult(
-            exitCode: process.terminationStatus,
+            exitCode: run.status,
             stdout: "",
             stderr: stderr,
             arguments: [samtoolsPath, "index", bamPath]
         )
 
-        guard result.isSuccess else {
+        guard result.isSuccess, run.outputComplete else {
             throw MarkdupError.indexFailed(stderr: stderr)
         }
         return MarkdupSamtoolsInvocation(
