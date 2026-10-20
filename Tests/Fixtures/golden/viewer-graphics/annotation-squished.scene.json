@@ -1,0 +1,73 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "chr1",
+    "end" : 1000000,
+    "leadingInset" : 0,
+    "pixelWidth" : 1000,
+    "sequenceLength" : 9223372036854775807,
+    "start" : 0,
+    "trailingInset" : 0
+  },
+  "height" : 60,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 190,
+          "x" : 10,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationMRNA"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 200,
+          "x" : 400,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 200,
+          "x" : 100,
+          "y" : 7
+        }
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 3,
+      "kind" : "labelsOmitted",
+      "reason" : "squished rows above 500 bases per point",
+      "trackID" : "annotations"
+    }
+  ],
+  "width" : 1000
+}

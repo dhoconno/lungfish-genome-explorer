@@ -1,0 +1,1023 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+    {
+      "fallback" : false,
+      "requested" : "HelveticaNeue",
+      "resolved" : "HelveticaNeue",
+      "size" : 9
+    }
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "chr1",
+    "end" : 1000,
+    "leadingInset" : 0,
+    "pixelWidth" : 1000,
+    "sequenceLength" : 9223372036854775807,
+    "start" : 0,
+    "trailingInset" : 0
+  },
+  "height" : 100,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 97,
+          "x" : 10,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 0.5
+            },
+            "to" : {
+              "x" : 107.5,
+              "y" : 0.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 1.5
+            },
+            "to" : {
+              "x" : 108.5,
+              "y" : 1.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 2.5
+            },
+            "to" : {
+              "x" : 109.5,
+              "y" : 2.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 3.5
+            },
+            "to" : {
+              "x" : 109.5,
+              "y" : 3.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 4.5
+            },
+            "to" : {
+              "x" : 108.5,
+              "y" : 4.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 5.5
+            },
+            "to" : {
+              "x" : 107.5,
+              "y" : 5.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 10,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 107,
+              "y" : 0
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 110,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 110,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 107,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 107,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 10,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 10,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 10,
+              "y" : 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.92,
+          "role" : "readBaseA"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 1,
+          "x" : 60,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "reverseRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 97,
+          "x" : 53,
+          "y" : 7
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "reverseRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 52.5,
+              "y" : 7.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 7.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 51.5,
+              "y" : 8.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 8.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 50.5,
+              "y" : 9.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 9.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 50.5,
+              "y" : 10.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 10.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 51.5,
+              "y" : 11.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 11.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 52.5,
+              "y" : 12.5
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 12.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "reverseReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 53,
+              "y" : 7
+            },
+            "to" : {
+              "x" : 150,
+              "y" : 7
+            }
+          },
+          {
+            "from" : {
+              "x" : 150,
+              "y" : 7
+            },
+            "to" : {
+              "x" : 150,
+              "y" : 13
+            }
+          },
+          {
+            "from" : {
+              "x" : 150,
+              "y" : 13
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 13
+            }
+          },
+          {
+            "from" : {
+              "x" : 53,
+              "y" : 13
+            },
+            "to" : {
+              "x" : 50,
+              "y" : 10
+            }
+          },
+          {
+            "from" : {
+              "x" : 50,
+              "y" : 10
+            },
+            "to" : {
+              "x" : 53,
+              "y" : 7
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.5,
+          "role" : "softClip"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 5,
+          "x" : 295,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 102,
+          "x" : 300,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 0.5
+            },
+            "to" : {
+              "x" : 402.5,
+              "y" : 0.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 1.5
+            },
+            "to" : {
+              "x" : 403.5,
+              "y" : 1.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 2.5
+            },
+            "to" : {
+              "x" : 404.5,
+              "y" : 2.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 3.5
+            },
+            "to" : {
+              "x" : 404.5,
+              "y" : 3.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 4.5
+            },
+            "to" : {
+              "x" : 403.5,
+              "y" : 4.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 5.5
+            },
+            "to" : {
+              "x" : 402.5,
+              "y" : 5.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 300,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 402,
+              "y" : 0
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 405,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 405,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 402,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 402,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 300,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 300,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 300,
+              "y" : 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "deletion"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 335,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 337,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 339,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 341,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 343,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 345,
+              "y" : 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 94,
+          "x" : 500,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 0.5
+            },
+            "to" : {
+              "x" : 594.5,
+              "y" : 0.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 1.5
+            },
+            "to" : {
+              "x" : 595.5,
+              "y" : 1.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 2.5
+            },
+            "to" : {
+              "x" : 596.5,
+              "y" : 2.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 3.5
+            },
+            "to" : {
+              "x" : 596.5,
+              "y" : 3.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 4.5
+            },
+            "to" : {
+              "x" : 595.5,
+              "y" : 4.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 5.5
+            },
+            "to" : {
+              "x" : 594.5,
+              "y" : 5.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 500,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 594,
+              "y" : 0
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 597,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 597,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 594,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 500,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 500,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 500,
+              "y" : 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "insertion"
+        },
+        "rect" : {
+          "height" : 8,
+          "width" : 1,
+          "x" : 549.5,
+          "y" : -1
+        }
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 97,
+          "x" : 700,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 0.5
+            },
+            "to" : {
+              "x" : 797.5,
+              "y" : 0.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 1.5
+            },
+            "to" : {
+              "x" : 798.5,
+              "y" : 1.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 2.5
+            },
+            "to" : {
+              "x" : 799.5,
+              "y" : 2.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 3.5
+            },
+            "to" : {
+              "x" : 799.5,
+              "y" : 3.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 4.5
+            },
+            "to" : {
+              "x" : 798.5,
+              "y" : 4.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 5.5
+            },
+            "to" : {
+              "x" : 797.5,
+              "y" : 5.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 700,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 797,
+              "y" : 0
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 0
+            },
+            "to" : {
+              "x" : 800,
+              "y" : 3
+            }
+          },
+          {
+            "from" : {
+              "x" : 800,
+              "y" : 3
+            },
+            "to" : {
+              "x" : 797,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 797,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 700,
+              "y" : 6
+            }
+          },
+          {
+            "from" : {
+              "x" : 700,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 700,
+              "y" : 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "rect" : {
+          "height" : 6,
+          "width" : 97,
+          "x" : 710,
+          "y" : 7
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardRead"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 7.5
+            },
+            "to" : {
+              "x" : 807.5,
+              "y" : 7.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 8.5
+            },
+            "to" : {
+              "x" : 808.5,
+              "y" : 8.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 9.5
+            },
+            "to" : {
+              "x" : 809.5,
+              "y" : 9.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 10.5
+            },
+            "to" : {
+              "x" : 809.5,
+              "y" : 10.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 11.5
+            },
+            "to" : {
+              "x" : 808.5,
+              "y" : 11.5
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 12.5
+            },
+            "to" : {
+              "x" : 807.5,
+              "y" : 12.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 0.5,
+        "paint" : {
+          "alpha" : 1,
+          "role" : "forwardReadStroke"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 710,
+              "y" : 7
+            },
+            "to" : {
+              "x" : 807,
+              "y" : 7
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 7
+            },
+            "to" : {
+              "x" : 810,
+              "y" : 10
+            }
+          },
+          {
+            "from" : {
+              "x" : 810,
+              "y" : 10
+            },
+            "to" : {
+              "x" : 807,
+              "y" : 13
+            }
+          },
+          {
+            "from" : {
+              "x" : 807,
+              "y" : 13
+            },
+            "to" : {
+              "x" : 710,
+              "y" : 13
+            }
+          },
+          {
+            "from" : {
+              "x" : 710,
+              "y" : 13
+            },
+            "to" : {
+              "x" : 710,
+              "y" : 7
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "role" : "quaternarySystemFill"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 1000,
+          "x" : 0,
+          "y" : 84
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineCenter",
+          "fontName" : "HelveticaNeue",
+          "fontSize" : 9,
+          "paint" : {
+            "role" : "label"
+          },
+          "point" : {
+            "x" : 500,
+            "y" : 95.32549285888672
+          },
+          "string" : "+1 reads not shown (max 2 rows)"
+        }
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 1,
+      "kind" : "readRowCap",
+      "reason" : "max 2 rows",
+      "trackID" : "reads"
+    }
+  ],
+  "width" : 1000
+}

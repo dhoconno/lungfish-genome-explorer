@@ -1,0 +1,329 @@
+{
+  "appearance" : "light",
+  "background" : {
+    "role" : "textBackground"
+  },
+  "fonts" : [
+    {
+      "fallback" : false,
+      "requested" : "HelveticaNeue",
+      "resolved" : "HelveticaNeue",
+      "size" : 10
+    }
+  ],
+  "formatVersion" : 1,
+  "frame" : {
+    "chromosome" : "chr1",
+    "end" : 1000,
+    "leadingInset" : 0,
+    "pixelWidth" : 1000,
+    "sequenceLength" : 9223372036854775807,
+    "start" : 0,
+    "trailingInset" : 0
+  },
+  "height" : 200,
+  "items" : [
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 190,
+          "x" : 10,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeRect" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 190,
+          "x" : 10,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineStart",
+          "fontName" : "HelveticaNeue",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "text"
+          },
+          "point" : {
+            "x" : 12,
+            "y" : 10.51995849609375
+          },
+          "string" : "geneA"
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.5,
+          "role" : "text"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 194,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 198,
+              "y" : 8
+            }
+          },
+          {
+            "from" : {
+              "x" : 198,
+              "y" : 8
+            },
+            "to" : {
+              "x" : 194,
+              "y" : 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationCDS"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 10,
+          "x" : 250,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeRect" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "annotationCDS"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 10,
+          "x" : 250,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.5,
+          "role" : "text"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 254,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 258,
+              "y" : 8
+            }
+          },
+          {
+            "from" : {
+              "x" : 258,
+              "y" : 8
+            },
+            "to" : {
+              "x" : 254,
+              "y" : 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationMRNA"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 200,
+          "x" : 400,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "strokeRect" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "annotationMRNA"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 200,
+          "x" : 400,
+          "y" : 0
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineStart",
+          "fontName" : "HelveticaNeue",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "text"
+          },
+          "point" : {
+            "x" : 402,
+            "y" : 10.51995849609375
+          },
+          "string" : "tx1"
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.5,
+          "role" : "text"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 594,
+              "y" : 6
+            },
+            "to" : {
+              "x" : 598,
+              "y" : 8
+            }
+          },
+          {
+            "from" : {
+              "x" : 598,
+              "y" : 8
+            },
+            "to" : {
+              "x" : 594,
+              "y" : 10
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fill" : {
+        "paint" : {
+          "alpha" : 0.7,
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 200,
+          "x" : 100,
+          "y" : 18
+        }
+      }
+    },
+    {
+      "strokeRect" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "role" : "annotationGene"
+        },
+        "rect" : {
+          "height" : 16,
+          "width" : 200,
+          "x" : 100,
+          "y" : 18
+        }
+      }
+    },
+    {
+      "text" : {
+        "_0" : {
+          "anchor" : "baselineStart",
+          "fontName" : "HelveticaNeue",
+          "fontSize" : 10,
+          "paint" : {
+            "role" : "text"
+          },
+          "point" : {
+            "x" : 102,
+            "y" : 28.51995849609375
+          },
+          "string" : "geneB"
+        }
+      }
+    },
+    {
+      "strokeSegments" : {
+        "lineWidth" : 1,
+        "paint" : {
+          "alpha" : 0.5,
+          "role" : "text"
+        },
+        "segments" : [
+          {
+            "from" : {
+              "x" : 106,
+              "y" : 24
+            },
+            "to" : {
+              "x" : 102,
+              "y" : 26
+            }
+          },
+          {
+            "from" : {
+              "x" : 102,
+              "y" : 26
+            },
+            "to" : {
+              "x" : 106,
+              "y" : 28
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "omissions" : [
+    {
+      "count" : 1,
+      "kind" : "labelsOmitted",
+      "reason" : "narrower than 72 points or more than 12 rows",
+      "trackID" : "annotations"
+    },
+    {
+      "count" : 1,
+      "kind" : "trackNotDrawn",
+      "reason" : "embedded CDS translations",
+      "trackID" : "annotations"
+    }
+  ],
+  "width" : 1000
+}
