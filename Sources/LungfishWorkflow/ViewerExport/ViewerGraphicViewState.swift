@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// The per-track settings a viewer holds only in memory, which a figure of the view needs (ARCH ruling B10, 3.1).
 ///
@@ -31,11 +32,14 @@ public struct ViewerGraphicViewState: Codable, Sendable, Equatable {
     public var tracks: [Track]
     /// The read row cap the view drew with, or nil for the default of 75 rows.
     public var readRowCap: Int?
+    /// The sample order, filters, row heights and colour theme the variant track drew with, or nil for the defaults.
+    public var sampleDisplay: SampleDisplayState?
 
-    public init(tracks: [Track] = [], readRowCap: Int? = nil) {
+    public init(tracks: [Track] = [], readRowCap: Int? = nil, sampleDisplay: SampleDisplayState? = nil) {
         self.schemaVersion = Self.currentSchemaVersion
         self.tracks = tracks
         self.readRowCap = readRowCap
+        self.sampleDisplay = sampleDisplay
     }
 
     /// The height set for `trackID`, if any.

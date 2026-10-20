@@ -95,11 +95,14 @@ public struct ViewerFigureVariantSummaryLayer: Sendable, Hashable, Codable {
     public let yOffset: Double
     public let barHeight: Double
     public let marks: [Mark]
+    /// The `VariantColorTheme` name the viewer draws variants with.
+    public let colorThemeName: String
 
-    public init(yOffset: Double, barHeight: Double, marks: [Mark]) {
+    public init(yOffset: Double, barHeight: Double, marks: [Mark], colorThemeName: String = VariantColorTheme.modern.name) {
         self.yOffset = yOffset
         self.barHeight = barHeight
         self.marks = marks
+        self.colorThemeName = colorThemeName
     }
 
     /// The annotations the moved function takes. The id is fixed, since the bar never reads it.
@@ -115,7 +118,7 @@ public struct ViewerFigureVariantSummaryLayer: Sendable, Hashable, Codable {
     func draw(in context: CGContext, frame: ViewerFigureFrame, theme: ViewerFigureTheme) {
         VariantTrackRenderer.drawSummaryBar(
             variants: annotations, frame: frame, context: context, figureTheme: theme,
-            yOffset: CGFloat(yOffset), barHeight: CGFloat(barHeight)
+            yOffset: CGFloat(yOffset), barHeight: CGFloat(barHeight), theme: VariantColorTheme.named(colorThemeName)
         )
     }
 }
@@ -195,7 +198,7 @@ public struct ViewerFigureGenotypeRowsLayer: Sendable, Hashable, Codable {
         VariantTrackRenderer.drawGenotypeRows(
             genotypeData: data, frame: frame, context: context, figureTheme: theme, yOffset: CGFloat(yOffset),
             state: state, useHaploidAFShading: useHaploidAFShading, sampleDisplayNames: sampleDisplayNames,
-            availableHeight: CGFloat(availableHeight)
+            availableHeight: CGFloat(availableHeight), theme: VariantColorTheme.named(state.colorThemeName)
         )
     }
 }

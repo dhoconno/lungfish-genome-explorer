@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.13 lane 13.30 (GFX-2). The leaf's region, refusals and record, on a small bundle with a plain FASTA, two
-// annotation tracks and a variant track that has no figure builder yet.
+// annotation tracks, a variant track and a signal track that has no figure builder yet.
 
 import Foundation
 import LungfishCore
@@ -27,8 +27,9 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// A bundle with `chr1` (alias `1`) of 3,000 bases in a plain FASTA, annotation tracks `genes` and `repeats`, and
-    /// a variant track `calls`.
+    /// A bundle with `chr1` (alias `1`) of 3,000 bases in a plain FASTA, annotation tracks `genes` and `repeats`, a
+    /// variant track `calls` of one SNP at 1151 for samples `s1` and `s2`, and a signal track `signal` that has no
+    /// figure builder.
     static func makeBundle(in folder: URL) throws -> URL {
         let bundle = folder.appendingPathComponent("figure.lungfishref", isDirectory: true)
         for sub in ["genome", "annotations", "variants"] {
@@ -48,6 +49,15 @@ final class BundleExportGraphicCommandTests: XCTestCase {
             _ = try AnnotationDatabase.createFromBED(bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/\(name).db"))
             try FileManager.default.removeItem(at: bed)
         }
+        let vcf = folder.appendingPathComponent("calls.vcf")
+        try ([
+            "##fileformat=VCFv4.2", "##contig=<ID=chr1,length=3000>",
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2",
+            "chr1\t1151\t.\tA\tG\t50\tPASS\t.\tGT\t0/1\t1/1",
+        ].joined(separator: "\n") + "\n").write(to: vcf, atomically: true, encoding: .utf8)
+        _ = try VariantDatabase.createFromVCF(vcfURL: vcf, outputURL: bundle.appendingPathComponent("variants/calls.db"))
+        try FileManager.default.removeItem(at: vcf)
         try BundleManifest(
             name: "Figure Fixture",
             identifier: "org.lungfish.figure-fixture",
@@ -60,7 +70,11 @@ final class BundleExportGraphicCommandTests: XCTestCase {
                 AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db"),
                 AnnotationTrackInfo(id: "repeats", name: "Repeats", path: "annotations/repeats.bb", databasePath: "annotations/repeats.db"),
             ],
-            variants: [VariantTrackInfo(id: "calls", name: "Calls", path: "variants/calls.vcf.gz", indexPath: "variants/calls.vcf.gz.tbi")],
+            variants: [VariantTrackInfo(
+                id: "calls", name: "Calls", path: "variants/calls.vcf.gz", indexPath: "variants/calls.vcf.gz.tbi",
+                databasePath: "variants/calls.db"
+            )],
+            tracks: [SignalTrackInfo(id: "signal", name: "Signal", path: "signal/signal.bw")],
             recordStore: nil
         ).save(to: bundle)
         return bundle
@@ -161,7 +175,7 @@ final class BundleExportGraphicCommandTests: XCTestCase {
         XCTAssertEqual(resolved["theme"], .string("light"))
         XCTAssertNil(record.options.explicit["theme"])
         XCTAssertEqual(record.options.defaults["theme"], .string("light"))
-        XCTAssertEqual(record.options.defaults["tracks"], .array(["sequence", "genes", "repeats", "calls"].map { .string($0) }))
+        XCTAssertEqual(record.options.defaults["tracks"], .array(["sequence", "genes", "repeats", "calls", "signal"].map { .string($0) }))
         XCTAssertEqual(record.options.explicit["scale"], .integer(4))
         XCTAssertFalse(resolved["hostOSBuild"]?.stringValue?.isEmpty ?? true)
         let output2 = folder.appendingPathComponent("dark.png")
@@ -189,13 +203,41 @@ final class BundleExportGraphicCommandTests: XCTestCase {
     }
 
     func testExportGraphicRecordsATrackItCannotDrawAndDrawsTheRest() async throws {
-        let output = folder.appendingPathComponent("variant.png")
-        _ = try await export(["--region", "chr1:1101-1300", "--width", "2000", "--track", "genes", "--track", "calls",
+        let output = folder.appendingPathComponent("signal.png")
+        _ = try await export(["--region", "chr1:1101-1300", "--width", "2000", "--track", "genes", "--track", "signal",
                               "--output-format", "png", "-o", output.path])
         XCTAssertEqual(try envelope(output).options.resolvedDefaults["degraded"], .array([.dictionary([
-            "trackID": .string("calls"), "kind": .string("trackNotDrawn"), "reason": .string("no figure builder"),
+            "trackID": .string("signal"), "kind": .string("trackNotDrawn"), "reason": .string("no figure builder"),
         ])]))
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testExportGraphicDrawsTheVariantTrackAndNamesItsDatabase() async throws {
+        let output = folder.appendingPathComponent("variant.png")
+        _ = try await export(["--region", "chr1:1101-1300", "--track", "calls", "--output-format", "png", "-o", output.path])
+        let record = try envelope(output)
+        let inputs = record.files.filter { $0.role == .input }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        XCTAssertEqual(inputs, ["manifest.json", "calls.db"])
+        XCTAssertEqual(record.options.resolvedDefaults["tracks"], .array([.dictionary([
+            "id": .string("calls"), "kind": .string("variant"), "displayMode": .string("summaryAndGenotypes"),
+            "height": .number(46),
+        ])]))
+        XCTAssertEqual(record.options.resolvedDefaults["degraded"], .array([]))
+
+        let opened = try ViewerGraphicBundle(url: bundle)
+        let figure = try await ViewerGraphicExport.figure(
+            bundle: opened, region: try opened.region(contig: "chr1", start: 1100, end: 1300), trackIDs: ["calls"],
+            settings: .init(region: "chr1:1101-1300", format: .png), viewState: nil, viewStateURL: nil
+        )
+        let layers = figure.scene.items.compactMap { item -> ViewerFigureContextLayer? in
+            if case .layer(let layer) = item { return layer }
+            return nil
+        }
+        guard case .variantSummary(let bar) = layers.first, case .genotypeRows(let rows) = layers.last else {
+            return XCTFail("expected the summary bar and the genotype rows: \(layers)")
+        }
+        XCTAssertEqual(bar.marks.map(\.start), [1150])
+        XCTAssertEqual(rows.sampleNames, ["s1", "s2"])
     }
 
     func testPDFExportRecordLetsAReplayCheckIt() async throws {

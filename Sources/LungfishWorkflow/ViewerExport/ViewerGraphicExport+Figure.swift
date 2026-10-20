@@ -133,6 +133,11 @@ extension ViewerGraphicExport {
         var inputs = [bundle.manifestURL]
         var notDrawn: [ViewerFigureOmission] = []
         var readRowCap: Int?
+        let frame = ViewerFigureFrame(
+            chromosome: region.contig, start: Double(region.start), end: Double(region.end),
+            pixelWidth: Int((settings.width ?? defaultWidth).rounded()), sequenceLength: region.contigLength,
+            trailingInset: ViewerFigureFrame.defaultTrailingInset
+        )
         if settings.includeRuler {
             builders.append(ViewerFigureRulerTrack())
         }
@@ -178,6 +183,21 @@ extension ViewerGraphicExport {
                 builders.append(track)
                 inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? [])
                 facts.append(ViewerGraphicTrackFact(id: id, kind: "alignment", displayMode: "packed", height: track.height))
+            } else if let info = manifest.variants.first(where: { $0.id == id }) {
+                guard let databasePath = info.databasePath else {
+                    notDrawn.append(ViewerFigureOmission(trackID: id, kind: .trackNotDrawn, reason: "no variant database", count: nil))
+                    continue
+                }
+                let databaseURL = bundle.resolved(databasePath)
+                let state = viewState?.sampleDisplay ?? SampleDisplayState()
+                let aliases = manifest.genome?.chromosomes.first { $0.name == region.contig }?.aliases ?? []
+                let track = try ViewerFigureVariantTrack.load(
+                    trackID: id, databaseURL: databaseURL, chromosome: region.contig, aliases: aliases,
+                    start: region.start, end: region.end, state: state, height: height
+                )
+                builders.append(track)
+                inputs.append(databaseURL)
+                facts.append(ViewerGraphicTrackFact(id: id, kind: "variant", displayMode: variantDisplayMode(state), height: track.height))
             } else {
                 notDrawn.append(ViewerFigureOmission(trackID: id, kind: .trackNotDrawn, reason: noBuilderReason, count: nil))
             }
@@ -185,11 +205,6 @@ extension ViewerGraphicExport {
         if let viewStateURL {
             inputs.append(viewStateURL)
         }
-        let frame = ViewerFigureFrame(
-            chromosome: region.contig, start: Double(region.start), end: Double(region.end),
-            pixelWidth: Int((settings.width ?? defaultWidth).rounded()), sequenceLength: region.contigLength,
-            trailingInset: ViewerFigureFrame.defaultTrailingInset
-        )
         let built = try await ViewerFigureSceneBuilder.build(
             frame: frame, appearance: (settings.theme ?? .light).appearance, tracks: builders
         )
@@ -200,6 +215,16 @@ extension ViewerGraphicExport {
         var seen = Set<String>()
         let unique = inputs.map(\.standardizedFileURL).filter { seen.insert($0.path).inserted }
         return ViewerGraphicFigure(scene: scene, inputURLs: unique, tracks: facts, readRowCap: readRowCap)
+    }
+
+    /// The variant track's display mode as the record states it, from what its sample display state shows.
+    static func variantDisplayMode(_ state: SampleDisplayState) -> String {
+        switch (state.showSummaryBar, state.showGenotypeRows) {
+        case (true, true): return "summaryAndGenotypes"
+        case (true, false): return "summary"
+        case (false, true): return "genotypes"
+        case (false, false): return "hidden"
+        }
     }
 
     /// Every fact the record's `resolved.degraded` lists, the scene's omissions and one `fontFallback` entry for
