@@ -90,7 +90,10 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         let engine = try makeEngine(.failsSamples(["S2"]))
         let config = try makeConfig([("S1", 3), ("S2", 4)], output: "batch")
 
-        let result = try await engine.makeRunner().run(config: config)
+        // 2.13 K1b. The batch runs on the executor, the route of a TaxTriage batch, where it ran the serial batch
+        // runner, and the batch result it reads is the aggregate the executor publishes at the batch root.
+        _ = try await engine.runBatch(config)
+        let result = try TaxTriageResult.load(from: config.outputDirectory)
 
         XCTAssertEqual(result.sampleFailures.map(\.sampleID), ["S2"])
         XCTAssertEqual(result.reportFiles.map(\.lastPathComponent), ["S1.odr.txt"])
