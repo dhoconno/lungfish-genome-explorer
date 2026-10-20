@@ -16,8 +16,8 @@
 // reads `cancelled` with exit status 125, and leaves no process of its tree. The row of side C reads Cancelled and
 // holds no failure, and the drop helper returns a `CancellationError`.
 //
-// The leaf takes the cancel only after its byte copy and the two hashes of the copy end (review note N2), so the
-// size of the sparse file sets the margin inside the grace. The in-process copy has no cancel, so side A is not
+// Since 2.13 row COPY-CANCEL-CHECKS the leaf takes the cancel at the next chunk of the native copy's hashes, so
+// the size of the sparse file no longer sets the margin inside the grace. The in-process copy has no cancel, so side A is not
 // run. The class launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration
 // tier. It needs no real tool.
 
@@ -35,9 +35,10 @@ import LungfishWorkflow
 @MainActor
 final class CrossProjectCopySIGTERMReplayTests: XCTestCase {
     nonisolated private static let relativePath = "Reference Sequences/Big.lungfishref"
-    /// The size of the sparse file the item holds, so the copy's hashes are the work a cancel has to wait for. The
-    /// leaf takes its cancel only after them, which sets the margin inside the 6 s grace. With 2 GiB the cancel took
-    /// 4.5 to 5.9 s of it with every core busy, too close to trust, so the item holds 1 GiB.
+    /// The size of the sparse file the item holds. Before 2.13 row COPY-CANCEL-CHECKS the copy's hashes were the work
+    /// a cancel had to wait for, and with 2 GiB the cancel took 4.5 to 5.9 s of the 6 s grace with every core busy, so
+    /// the item holds 1 GiB. The leaf now takes the cancel at the next chunk. The 4 GiB case is in
+    /// `ProjectCopyItemFourGiBSIGTERMReplayTests`.
     nonisolated private static let sparseBytes: UInt64 = 1 << 30
     /// How many times the copy cancels in one busy window. Whether the leaf takes its cancel before the grace ends
     /// is a race a busy machine decides, so one run proves little.

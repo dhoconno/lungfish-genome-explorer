@@ -10,11 +10,11 @@
 // What holds the command. The copy runs no tool, so no stand-in can hold it. The item holds a sparse file
 // of 512 MiB instead, the way `VariantsImportSampleMetadataSIGTERMTests` holds its command. The copier
 // hashes it once, with a check between chunks, before it makes its stage. The native copy then hashes the
-// source, clones it (instant on APFS) and hashes the clone inside the stage with no check, so the leaf's
-// time after SIGTERM grows with the item's size (2.13 row COPY-CANCEL-CHECKS). The test sends SIGTERM when
-// the stage appears, so the signal lands while the native copy hashes, and the copier takes the cancel at
-// its next check, before the rename. At 2 GiB a loaded Mac needed 9.4 s, past the 6.0 s grace, and 512 MiB
-// keeps the signal inside the native copy with a quarter of that work.
+// source with a check between chunks, clones it (instant on APFS) and hashes the clone the same way, so the
+// leaf takes the cancel at the next chunk and its time after SIGTERM does not grow with the item's size (2.13
+// row COPY-CANCEL-CHECKS, held at 4 GiB by `ProjectCopyItemFourGiBSIGTERMReplayTests`). The test sends SIGTERM
+// when the stage appears, so the signal lands while the native copy hashes the source. Before that row a loaded
+// Mac needed 9.4 s at 2 GiB, past the 6.0 s grace, and 512 MiB keeps the signal inside the native copy.
 
 import Foundation
 import XCTest
