@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 public enum ScientificTableCell: Codable, Sendable, Equatable {
     case text(String)
@@ -261,35 +262,48 @@ public enum ScientificTableWriter {
 
         let archiveURL = directory.deletingLastPathComponent()
             .appendingPathComponent("\(UUID().uuidString).xlsx")
-        let stderrURL = directory.deletingLastPathComponent()
-            .appendingPathComponent("\(UUID().uuidString).zip-stderr")
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stderrHandle.close()
-            try? fileManager.removeItem(at: archiveURL)
-            try? fileManager.removeItem(at: stderrURL)
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.currentDirectoryURL = directory
+        defer { try? fileManager.removeItem(at: archiveURL) }
         let archiveArguments = ["-q", "-r", archiveURL.path, "."]
-        process.arguments = archiveArguments
-        process.standardError = stderrHandle
-        try process.run()
-        while process.isRunning {
-            if shouldCancel() {
-                process.terminate()
-                process.waitUntilExit()
-                throw ScientificTableWriterError.cancelled
-            }
-            Thread.sleep(forTimeInterval: 0.02)
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/zip"),
+            arguments: archiveArguments,
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            workingDirectory: directory,
+            stdout: .discard,
+            stderr: .capture(limit: 64 * 1024),
+            label: "zip"
+        )
+        let run: ToolProcessRun
+        do {
+            run = try ToolProcess.start(spec)
+        } catch {
+            throw ScientificTableWriterError.archiveFailed(error.localizedDescription)
         }
-        try stderrHandle.synchronize()
-        let errorData = (try? Data(contentsOf: stderrURL)) ?? Data()
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw ScientificTableWriterError.archiveFailed(message?.isEmpty == false ? message! : "zip exited with status \(process.terminationStatus)")
+        // The cancel poll runs here, on the caller's thread, since shouldCancel may not escape.
+        let finished = DispatchGroup()
+        finished.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? run.waitBlocking()
+            finished.leave()
+        }
+        var cancelRequested = false
+        while finished.wait(timeout: .now() + .milliseconds(20)) == .timedOut {
+            if !cancelRequested, shouldCancel() {
+                cancelRequested = true
+                run.cancel()
+            }
+        }
+        let result: ToolProcessResult
+        do {
+            result = try run.waitBlocking()
+        } catch ToolProcessError.cancelled {
+            throw ScientificTableWriterError.cancelled
+        } catch {
+            throw ScientificTableWriterError.archiveFailed(error.localizedDescription)
+        }
+        guard result.isSuccess else {
+            let message = result.stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw ScientificTableWriterError.archiveFailed(message.isEmpty ? "zip exited with status \(result.status)" : message)
         }
         try fileManager.moveItem(at: archiveURL, to: url)
         return ScientificTableWriteReport(
@@ -466,21 +480,15 @@ public enum ScientificTableWriter {
     }
 
     private static func systemZipVersion() -> String? {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-v"]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-                .split(separator: "\n").first.map(String.init)
-        } catch {
-            return nil
-        }
+        let spec = ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/zip"),
+            arguments: ["-v"],
+            environment: ToolProcessSpec.inheritedEnvironment(),
+            stderr: .discard,
+            label: "zip"
+        )
+        guard let result = try? ToolProcess.runBlocking(spec), result.status == 0 else { return nil }
+        return result.stdoutText.split(separator: "\n").first.map(String.init)
     }
 
     private static let contentTypesXML = """
