@@ -164,10 +164,7 @@ enum PrimalScheme3AlleleLabelBridge {
     try FileManager.default.createDirectory(
       at: provenanceURL.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    let provenanceEncoder = JSONEncoder()
-    provenanceEncoder.dateEncodingStrategy = .iso8601
-    provenanceEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    try provenanceEncoder.encode(envelope).write(to: provenanceURL, options: .withoutOverwriting)
+    try ProvenanceWriter.package(envelope).write(to: provenanceURL, options: .withoutOverwriting)
     let artifacts = [
       PrimerAnalysisSourceArtifact(
         sourceURL: mapURL, relativePath: mapPath, role: "derived-label-map", format: "json"),

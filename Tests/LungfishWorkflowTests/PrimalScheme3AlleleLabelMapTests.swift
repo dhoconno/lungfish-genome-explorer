@@ -39,7 +39,7 @@ final class PrimalScheme3AlleleLabelMapTests: XCTestCase {
     let envelope = try ProvenanceEnvelopeReader.decodeCanonical(
       Data(contentsOf: publication.artifacts[1].sourceURL))
     XCTAssertEqual(envelope.workflowName, "lungfish.primalscheme3.allele-label-enrichment")
-    try ProvenanceRecordPin.assertPlainEncoderBytes(Data(contentsOf: publication.artifacts[1].sourceURL))
+    try ProvenanceRecordPin.assertWriterBytes(Data(contentsOf: publication.artifacts[1].sourceURL))
     XCTAssertEqual(envelope.exitStatus, 0)
     let consumed = Set(envelope.files.map(\.path))
     XCTAssertTrue(
