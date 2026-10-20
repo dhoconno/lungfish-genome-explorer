@@ -26,6 +26,13 @@ public enum ViewerFigureSequenceTrackError: Error, Hashable, LocalizedError {
 /// one block in the colour of its most common base (`drawBlockLevelSequence`). From there on the
 /// sequence is a grey bar (`drawLineSequence`, `drawSequenceLine`). Like the live view, the
 /// track draws only inside the data area between the frame's insets.
+/// This copies the viewer's single-sequence drawing. For a bundle the viewer draws through
+/// `drawBundleSequence` (`SequenceViewerView+Alignment.swift:1140`), and a figure differs from that
+/// screen in five ways. The bar starts at 300 bases a point, where the bundle view keeps colours to
+/// 500 (`showLineThreshold`, `SequenceViewerView.swift:1271`). The bar is a grey bar with an outline,
+/// where the bundle view draws a 2 point line. A block is the most common base of a bin, where the
+/// bundle view fills one block for each run of one base. A cell leaves a half point gap. A letter is
+/// bold and sized to its cell, where the bundle view writes a fixed 12 point medium letter.
 ///
 /// Letters use `Menlo-Bold`, the face the read track names (13.29), since the live monospaced
 /// system face has only a private dot name. Base colours come from `ViewerFigureTheme.baseRole(for:)`
