@@ -51,6 +51,81 @@ final class VariantDatabaseBookmarkReadOnlyTests: XCTestCase {
         )
     }
 
+    /// A bookmark write is the one thing that creates the table, and what it writes persists.
+    func testToggleBookmarkCreatesTheTableAndPersists() throws {
+        let url = try makeCallsDatabase()
+        XCTAssertFalse(try Self.tableNames(in: url).contains("variant_bookmarks"), "A fresh import holds no bookmark table.")
+
+        do {
+            let writer = try VariantDatabase(url: url, readWrite: true)
+            XCTAssertTrue(writer.toggleBookmark(variantId: 1), "The first toggle bookmarks the variant.")
+            XCTAssertTrue(writer.isBookmarked(variantId: 1))
+        }
+        XCTAssertTrue(
+            try Self.tableNames(in: url).contains("variant_bookmarks"),
+            "A bookmark write creates the table."
+        )
+
+        do {
+            let reader = try VariantDatabase(url: url)
+            XCTAssertEqual(reader.bookmarkedVariantIds(), [1])
+            XCTAssertEqual(reader.allBookmarks().map { $0.variantId }, [1])
+            XCTAssertEqual(reader.bookmarkedVariants().count, 1)
+        }
+
+        do {
+            let writer = try VariantDatabase(url: url, readWrite: true)
+            XCTAssertFalse(writer.toggleBookmark(variantId: 1), "The second toggle removes the bookmark.")
+        }
+        let afterRemoval = try VariantDatabase(url: url)
+        XCTAssertTrue(afterRemoval.bookmarkedVariantIds().isEmpty)
+    }
+
+    /// A read-only handle answers every bookmark read with none when the table is missing, and writes nothing.
+    func testReadsOfADatabaseWithoutTheTableReturnNoBookmarksOnAReadOnlyHandle() throws {
+        let url = try makeCallsDatabase()
+        let before = try Self.sha256(of: url)
+
+        do {
+            let database = try VariantDatabase(url: url)
+            XCTAssertFalse(database.isBookmarked(variantId: 1))
+            XCTAssertTrue(database.bookmarkedVariantIds().isEmpty)
+            XCTAssertTrue(database.allBookmarks().isEmpty)
+            XCTAssertTrue(database.bookmarkedVariants().isEmpty)
+        }
+
+        XCTAssertEqual(try Self.sha256(of: url), before, "A read-only bookmark read changed the calls database.")
+        XCTAssertFalse(try Self.tableNames(in: url).contains("variant_bookmarks"))
+    }
+
+    /// Removing a bookmark or its note where no bookmark table exists is a no-op that creates nothing.
+    func testRemoveAndNoteOnADatabaseWithoutTheTableCreateNothing() throws {
+        let url = try makeCallsDatabase()
+        let before = try Self.sha256(of: url)
+
+        do {
+            let database = try VariantDatabase(url: url, readWrite: true)
+            database.removeBookmark(variantId: 1)
+            database.updateBookmarkNote(variantId: 1, note: "no bookmark here")
+        }
+
+        XCTAssertEqual(try Self.sha256(of: url), before, "Removing or annotating a missing bookmark changed the calls database.")
+        XCTAssertFalse(try Self.tableNames(in: url).contains("variant_bookmarks"))
+    }
+
+    /// The table check asks again while the table is missing, so a bookmark that a second handle writes later is seen.
+    func testAHandleThatReadBeforeTheTableExistedSeesABookmarkAnotherHandleToggles() throws {
+        let url = try makeCallsDatabase()
+        let reader = try VariantDatabase(url: url)
+        XCTAssertTrue(reader.bookmarkedVariantIds().isEmpty, "No table yet, so no bookmarks.")
+
+        let writer = try VariantDatabase(url: url, readWrite: true)
+        XCTAssertTrue(writer.toggleBookmark(variantId: 1))
+
+        XCTAssertEqual(reader.bookmarkedVariantIds(), [1], "The reader asks again and finds the table the writer made.")
+        XCTAssertTrue(reader.isBookmarked(variantId: 1))
+    }
+
     // MARK: - Helpers
 
     /// A calls database made by the importer from two variants and two samples.
