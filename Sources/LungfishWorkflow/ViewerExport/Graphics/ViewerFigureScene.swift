@@ -92,6 +92,9 @@ public enum ViewerFigureItem: Sendable, Hashable, Codable {
     case strokeSegments(segments: [ViewerFigureSegment], lineWidth: Double, paint: ViewerFigurePaint)
     /// Draws one line of text.
     case text(ViewerFigureText)
+    /// Draws one call of a moved CGContext renderer with the scene's theme and frame
+    /// (`ViewerFigureContextLayers.swift`). A scene with a layer must have a frame.
+    case layer(ViewerFigureContextLayer)
 }
 
 /// A straight segment between two points.

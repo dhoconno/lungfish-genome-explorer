@@ -43,6 +43,11 @@ public struct ViewerFigureCanvas: Sendable {
         items.append(.strokeSegments(segments: segments, lineWidth: lineWidth, paint: paint))
     }
 
+    /// Adds one call of a moved CGContext renderer, drawn in order with the items.
+    public mutating func layer(_ layer: ViewerFigureContextLayer) {
+        items.append(.layer(layer))
+    }
+
     /// Resolves a font by checked name and records the resolution once, in order of first use.
     /// The font is returned for measuring and never stored.
     public mutating func font(_ names: [String], size: Double) throws(ViewerFigureFontError) -> CTFont {

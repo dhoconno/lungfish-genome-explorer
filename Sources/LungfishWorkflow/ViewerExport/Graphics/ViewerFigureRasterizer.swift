@@ -39,6 +39,7 @@ public enum ViewerFigureRasterizerError: Error, Hashable, LocalizedError {
     case contextUnavailable(ViewerFigureFormat)
     case encodingFailed(ViewerFigureFormat)
     case fontMissing(String)
+    case layerWithoutFrame
 
     public var errorDescription: String? {
         switch self {
@@ -50,6 +51,8 @@ public enum ViewerFigureRasterizerError: Error, Hashable, LocalizedError {
             "The figure could not be written as \(format.rawValue)."
         case .fontMissing(let name):
             "The font \(name) the figure was built with is not installed."
+        case .layerWithoutFrame:
+            "The figure draws a track layer but holds no genomic frame to place it in."
         }
     }
 }
@@ -207,8 +210,9 @@ public enum ViewerFigureRasterizer {
         return data as Data
     }
 
-    /// Sets every drawing switch that could otherwise follow a default.
-    private static func configure(_ context: CGContext) {
+    /// Sets every drawing switch that could otherwise follow a default. Tests reach it to draw a moved
+    /// renderer directly in the same state.
+    static func configure(_ context: CGContext) {
         context.setAllowsAntialiasing(true)
         context.setShouldAntialias(true)
         context.setAllowsFontSmoothing(false)
@@ -248,6 +252,9 @@ public enum ViewerFigureRasterizer {
                 context.strokeLineSegments(between: segments.flatMap { [$0.from.cgPoint, $0.to.cgPoint] })
             case .text(let text):
                 try draw(text, theme: theme, in: context)
+            case .layer(let layer):
+                guard let frame = scene.frame else { throw .layerWithoutFrame }
+                layer.draw(in: context, frame: frame, theme: theme)
             }
         }
     }
