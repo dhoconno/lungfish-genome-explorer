@@ -2757,7 +2757,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
     }
 
-    private func runSamtoolsMerge(
+    func runSamtoolsMerge(
         samtoolsURL: URL,
         arguments: [String],
         stderrURL: URL
@@ -2770,7 +2770,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
     }
 
-    private func runSamtoolsIndex(
+    func runSamtoolsIndex(
         samtoolsURL: URL,
         arguments: [String],
         stderrURL: URL
@@ -3604,7 +3604,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     }
 
     @discardableResult
-    private func writeHaplotypeDefinitionSnapshot(
+    func writeHaplotypeDefinitionSnapshot(
         _ definitionSet: GenotypeHaplotypeDefinitionSet,
         to url: URL
     ) throws -> DurableAtomicFileStore.OpenPublishedFile {
