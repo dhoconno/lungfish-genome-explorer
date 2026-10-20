@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Each case
-// cancels `TaxTriagePipeline` or `TaxTriageSerialBatchRunner` on `TaxTriageStandInEngine`, most of them
+// cancels `TaxTriagePipeline`, or a batch of `TaxTriageAnalysisRunTool` on the analysis run executor (the serial
+// batch runner's two cases, retargeted in 2.13 K1b when the runner went), on `TaxTriageStandInEngine`, most of them
 // in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM and go on, so
 // only a KILL after a grace ends the tree. The cases of the Tools menu's in-process route went with that
 // route in Phase 2.12 K1. `TaxTriageCLIRouteRowTests`, `CLIClassifierRunnerTests`,
@@ -118,48 +119,61 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: resultFile.path), "a cancelled run writes no result")
     }
 
-    // MARK: - The serial batch runner
+    // MARK: - A batch on the executor
+
+    // 2.13 K1b. These two cases cancelled `TaxTriageSerialBatchRunner`, which no route ran after 2.12 K1. They run the
+    // same batch on the executor, the route of a TaxTriage batch, and keep every outcome they asserted (SWIFT 3). A
+    // cancel ends the run as a report, never a thrown error, so `cancelled` with exit 125 takes the place of the
+    // `CancellationError`. A batch root keeps each sample's steps in the sample's own record (B12 row 256), so the
+    // steps are read there.
 
     func testACancelInASerialBatchStopsAtTheNextSampleAndRecordsTheCancel() async throws {
         let engine = try makeEngine(.waitsUntilCancelled)
         let config = try makeConfig([("B1", 2), ("B2", 3)], output: "batch")
 
-        let run = Task { try await engine.makeRunner().run(config: config) }
+        let run = Task { try await engine.runBatch(config) }
         let started = await engine.waitForLaunch()
-        XCTAssertNotNil(started, "the first sample never launched")
+        let launch = try XCTUnwrap(started, "the first sample never launched")
+        let engineID = try XCTUnwrap(launch.processIdentifier)
         run.cancel()
-        let outcome = await run.result
+        let report = try await run.value
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
+        let steps = try Self.sampleSteps(["B1"], in: config.outputDirectory)
 
-        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(report.status, .cancelled, report.message ?? "")
+        XCTAssertEqual(report.exitCode, 125, "a cancel ends the run with exit 125")
         XCTAssertEqual(try engine.launches().count, 1, "the batch stops before its next sample")
+        XCTAssertFalse(Self.isRunning(engineID), "no process of the engine outlives the run")
         // T9, where the batch run was begun and never completed or saved.
         XCTAssertEqual(record?.status, .cancelled, "the batch records the cancel")
-        XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [125], "one step, the cancelled sample, exit 125")
-        XCTAssertEqual(record?.steps.first?.outputs.count, 0, "a cancel hashes no partial output")
+        XCTAssertEqual(record?.exitStatus, 125)
+        XCTAssertEqual(steps.map(\.exitStatus), [125], "one step, the cancelled sample, exit 125")
+        XCTAssertEqual(steps.first?.outputs.count, 0, "a cancel hashes no partial output")
     }
 
     func testACancelInTheLastSampleAfterACompletedOneWritesNoBatchResult() async throws {
         let engine = try makeEngine(.completes)
         let config = try makeConfig([("P1", 2), ("P2", 3)], output: "partial")
+        let handle = RunHandle()
+        // The executor configures each launch just before it starts it, so this cancel lands once the first sample
+        // has completed, before the second launches.
+        let presentation = TaxTriageRunPresentation(configured: { launch in
+            if launch.samples.map(\.sampleId) == ["P2"] { handle.cancel() }
+        })
 
-        let run = Task {
-            try await engine.makeRunner().run(config: config, progress: { _, message in
-                // The runner says this once the first sample has completed, before the second launches.
-                if message == "Sample 2/2 (P2): Starting TaxTriage" {
-                    withUnsafeCurrentTask { $0?.cancel() }
-                }
-            })
-        }
-        let outcome = await run.result
+        let run = Task { try await engine.runBatch(config, presentation: presentation) }
+        handle.set(run)
+        let report = try await run.value
         let record = try ProvenanceEnvelopeReader.load(from: config.outputDirectory)
+        let steps = try Self.sampleSteps(["P1", "P2"], in: config.outputDirectory)
         let batchResult = config.outputDirectory.appendingPathComponent("taxtriage-result.json")
 
         // At the base the batch returned a partial result, so the app's end of run wrote
         // cross-references into the source bundles and logged the cancelled sample as failed.
-        XCTAssertTrue(outcome.failure is CancellationError, "\(String(describing: outcome.failure))")
+        XCTAssertEqual(report.status, .cancelled, report.message ?? "")
+        XCTAssertEqual(report.exitCode, 125, "a cancel ends the run with exit 125")
         XCTAssertEqual(record?.status, .cancelled, "the cancel wins over the completed first sample")
-        XCTAssertEqual(record?.steps.map(\.exitStatus) ?? [], [0, 125], "the completed sample, then the cancelled one")
+        XCTAssertEqual(steps.map(\.exitStatus), [0, 125], "the completed sample, then the cancelled one")
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchResult.path), "a cancelled batch writes no aggregate result")
     }
 
@@ -243,6 +257,36 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         return children
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// The TaxTriage steps the records of `samples` hold, each in its own folder of a batch root, in order.
+    nonisolated private static func sampleSteps(_ samples: [String], in root: URL) throws -> [ProvenanceStep] {
+        try samples.flatMap { sample -> [ProvenanceStep] in
+            let record = try ProvenanceEnvelopeReader.load(from: root.appendingPathComponent(sample, isDirectory: true))
+            return record?.steps.filter { $0.toolName == TaxTriageRecordFacts.toolName } ?? []
+        }
+    }
+}
+
+/// The task of a batch run, which a launch's `configured` call cancels. A cancel asked for before the task is set
+/// lands when it is set.
+private final class RunHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<AnalysisRunReport, any Error>?
+    private var cancelRequested = false
+
+    func set(_ task: Task<AnalysisRunReport, any Error>) {
+        lock.withLock {
+            self.task = task
+            if cancelRequested { task.cancel() }
+        }
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelRequested = true
+            task?.cancel()
+        }
     }
 }
 

@@ -236,13 +236,10 @@ final class TaxTriageAnalysisRunToolPlanTests: XCTestCase {
         let folders = try planned.units.map { try AnalysesFolder.batchSampleDirectory(named: $0.label, in: batchRoot).lastPathComponent }
         XCTAssertEqual(folders, ["S_1", "S_1-2", "S_1-3"])
 
-        // The legacy route keeps its own names (T9).
-        var used = Set<String>()
-        var legacy: [String] = []
-        for unit in planned.units {
-            legacy.append(TaxTriageSerialBatchRunner.uniqueDirectoryName(for: unit.label, usedNames: &used))
-        }
-        XCTAssertEqual(legacy, ["S.1", "S_1", "S__1"])
+        // The legacy route kept its own names (T9). Its serial runner went in 2.13 K1b, so the names its namer gave these
+        // three samples at the base stand here as a literal list (QA 2), which the one sanitizer's never equal.
+        let legacy = ["S.1", "S_1", "S__1"]
+        XCTAssertNotEqual(folders, legacy, "the executor's folders are not the legacy route's")
     }
 
     // MARK: - Layouts (T5)
