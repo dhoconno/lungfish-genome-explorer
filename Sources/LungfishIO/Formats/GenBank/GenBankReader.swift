@@ -1387,15 +1387,15 @@ public final class GenBankWriter: Sendable {
 
     private func formatFeature(_ annotation: SequenceAnnotation) -> [String] {
         var lines: [String] = []
-
         // Feature key and location
         let featureType = Self.featureKey(of: annotation)
         let location = Self.featureLocation(of: annotation, rebuilt: formatLocation(annotation))
         let paddedType = featureType.padding(toLength: 15, withPad: " ", startingAt: 0)
         lines.append("     \(paddedType) \(location)")
 
-        // Qualifiers, without the internal `_lf_` keys, which the reader sets again from each feature line it reads.
-        for (key, qualifier) in annotation.qualifiers.sorted(by: { $0.key < $1.key }) where !key.hasPrefix("_lf_") {
+        // Qualifiers, without the internal `_lf_` keys (the reader sets them again) and `GFF3ExportIdentifiers.internalKeys`.
+        for (key, qualifier) in annotation.qualifiers.sorted(by: { $0.key < $1.key })
+            where !key.hasPrefix("_lf_") && !GFF3ExportIdentifiers.internalKeys.contains(key) {
             for value in qualifier.values {
                 if value.isEmpty {
                     lines.append("                     /\(key)")
