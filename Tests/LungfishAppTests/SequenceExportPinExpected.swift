@@ -10,7 +10,6 @@ enum SequenceExportPinExpected {
 LOCUS       chrA                     20 bp    DNA  linear <DATE>
 FEATURES             Location/Qualifiers
      gene            1..10
-                     /annotation_db_row_id="1"
 ORIGIN      
         1 acgtacgtac gtacgtacgt
 //
