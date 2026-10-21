@@ -747,9 +747,15 @@ if args[:3] == ['conda', 'db', 'update']:
             "  chmod +x \"$3/bin/python\"\n"
             "  exit 0\n"
             "fi\n"
+            # Tier 2 diffs the goldens it regenerated, which the stubs below skip.
+            "if [[ \"${1:-}\" == \"scripts/deps/diff_goldens.py\" ]]; then\n"
+            "  exit 0\n"
+            "fi\n"
             f"exec {shlex.quote(sys.executable)} \"$@\"\n",
         )
-        # The suite gate records what it was handed and passes.
+        # The suite gate records what it was handed and passes. The golden
+        # regeneration of tier 2 and the pipelines of tier 3 record theirs too,
+        # so a test can see what the gate's inputs did not reach.
         self._stub(
             "bash",
             "#!/bin/bash\nset -eu\n"
@@ -759,6 +765,14 @@ if args[:3] == ['conda', 'db', 'update']:
             "  if [[ -n \"${LUNGFISH_PARITY_EVIDENCE:-}\" && -e \"${LUNGFISH_PARITY_EVIDENCE}\" ]]; then\n"
             f"    touch {shlex.quote(str(self.record / 'evidence-existed'))}\n"
             "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == \"scripts/deps/regenerate-goldens.sh\" ]]; then\n"
+            f"  env > {shlex.quote(str(self.record / 'tier2-env.txt'))}\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [[ \"${1:-}\" == \"scripts/deps/run-pipelines.sh\" ]]; then\n"
+            f"  env > {shlex.quote(str(self.record / 'tier3-env.txt'))}\n"
             "  exit 0\n"
             "fi\n"
             "exec /bin/bash \"$@\"\n",
@@ -786,12 +800,15 @@ if args[:3] == ['conda', 'db', 'update']:
             env=environment,
         )
 
-    def gate_env(self):
-        path = self.record / "gate-env.txt"
+    def recorded_env(self, filename):
+        path = self.record / filename
         if not path.exists():
             return None
         lines = path.read_text(encoding="utf-8").splitlines()
         return dict(line.split("=", 1) for line in lines if "=" in line)
+
+    def gate_env(self):
+        return self.recorded_env("gate-env.txt")
 
     def cli_calls(self):
         path = self.record / "cli-calls.txt"
@@ -922,16 +939,26 @@ class Tier1GateInputTests(unittest.TestCase):
                 with self.subTest(name=name):
                     self.assertEqual(gate.get(name), value)
 
-    def test_the_inputs_are_set_on_the_gate_command_only(self):
-        script = VERIFY.read_text(encoding="utf-8")
-        self.assertNotRegex(
-            script, r"(?m)^\s*export LUNGFISH_(CLI_PATH|DEMO_ARCHIVE_DIR|PARITY_|LIVE_)"
-        )
-        tier1 = re.search(r"^run_tier1\(\) \{\n(.*?)\n\}", script, re.MULTILINE | re.DOTALL)
-        self.assertIsNotNone(tier1, "run_tier1 function not found")
-        for name in self.CALLER_VALUES:
-            with self.subTest(name=name):
-                self.assertIn(f"{name}=", tier1.group(1))
+    def test_the_inputs_do_not_reach_the_other_tiers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.add_demo_archive(harness)
+            self.add_evidence(harness, "earlier", days_old=1)
+            result = harness.run(args=("--tier", "all"))
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            gate = harness.gate_env()
+            self.assertIsNotNone(gate, "the suite gate was not launched\n" + output)
+            for name in self.CALLER_VALUES:
+                with self.subTest(gate=name):
+                    self.assertTrue(gate.get(name), f"{name} did not reach the suite gate\n{output}")
+            for tier in (2, 3):
+                later = harness.recorded_env(f"tier{tier}-env.txt")
+                self.assertIsNotNone(later, f"tier {tier} was not launched\n{output}")
+                for name in self.CALLER_VALUES:
+                    with self.subTest(tier=tier, name=name):
+                        # Not assertNotIn, whose failure text would print the whole environment.
+                        self.assertFalse(name in later, f"{name} leaked into tier {tier}")
 
 
 class Tier1ProvisioningTests(unittest.TestCase):
