@@ -76,6 +76,7 @@ final class FastqCompressHonestTests: XCTestCase {
                 file: file,
                 line: line
             )
+            XCTAssertEqual(C.exitCode(for: error).rawValue, 64, "\(name) exits 64", file: file, line: line)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name) wrote no output", file: file, line: line)
         XCTAssertFalse(

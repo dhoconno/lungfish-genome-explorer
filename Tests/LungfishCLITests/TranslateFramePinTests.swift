@@ -300,6 +300,7 @@ final class FastqTranslateInputPinTests: XCTestCase {
                 FastqTranslateSubcommand.message(for: error),
                 "--compress is not supported by fastq translate. Remove it to write plain output."
             )
+            XCTAssertEqual(FastqTranslateSubcommand.exitCode(for: error).rawValue, 64)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
