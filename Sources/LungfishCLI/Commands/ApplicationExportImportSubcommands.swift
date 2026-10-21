@@ -63,11 +63,7 @@ extension ImportCommand {
                     importStandaloneReferences: importStandaloneReferences,
                     preserveUnsupportedArtifacts: preserveUnsupportedArtifacts
                 )
-                let service = GeneiousImportCollectionService(
-                    toolName: CLICommandIdentity.executableName,
-                    toolKind: CLICommandIdentity.recordedToolKind,
-                    referenceImporter: Self.importReferenceViaSharedService
-                )
+                let service = Self.importService()
                 let result = try await service.importGeneiousExport(
                     sourceURL: sourceURL,
                     projectURL: projectURL,
@@ -102,6 +98,16 @@ extension ImportCommand {
                 emitter.emitFailed(CLIFailureWords.describe(error))
                 throw CLIExitCode.workflowError.exitCode
             }
+        }
+
+        /// The service the command runs. It names this process in the annotation records of its default importer.
+        static func importService() -> GeneiousImportCollectionService {
+            GeneiousImportCollectionService(
+                toolName: CLICommandIdentity.executableName,
+                toolKind: CLICommandIdentity.recordedToolKind,
+                invocationArgv: CommandLine.arguments,
+                referenceImporter: Self.importReferenceViaSharedService
+            )
         }
 
         private static func importReferenceViaSharedService(

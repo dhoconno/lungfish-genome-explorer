@@ -71,6 +71,35 @@ final class ImportFastaAnnotatedLeafTests: XCTestCase {
         XCTAssertEqual(explicit["feature_count"], .integer(2))
     }
 
+    /// MD62. The attach is a step of `import fasta`, so its record names the command that ran and never
+    /// `lungfish-cli annotation-import`, which no leaf has. Under the test runner the words are the ones the
+    /// command would run, as the bundle's own import record holds them.
+    func testTheAnnotationRecordNamesTheImportFastaCommandThatRan() async throws {
+        let staged = try stageSelection()
+        try await ImportCommand.FASTASubcommand.parse([
+            staged.fasta.path, "--output-dir", project.path, "--name", "Annotated Selection",
+            "--annotations", staged.bed.path, "--annotation-selection", staged.selectionJSON.path, "--quiet",
+        ]).run()
+
+        let bundle = project.appendingPathComponent("Reference Sequences/Annotated_Selection.lungfishref", isDirectory: true)
+        let annotations = bundle.appendingPathComponent("annotations", isDirectory: true)
+        let logName = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(atPath: annotations.path).first { $0.hasSuffix("-import-provenance.json") }
+        )
+        let log = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: annotations.appendingPathComponent(logName))) as? [String: Any]
+        )
+        let entry = try XCTUnwrap((log["entries"] as? [[String: Any]])?.first)
+        let argv = try XCTUnwrap(entry["argv"] as? [String])
+        XCTAssertEqual(Array(argv.prefix(3)), ["lungfish-cli", "import", "fasta"], "\(argv)")
+        XCTAssertTrue(argv.contains(staged.fasta.path), "\(argv)")
+        XCTAssertTrue(argv.contains("--annotations"), "\(argv)")
+        XCTAssertFalse(argv.contains("annotation-import"), "\(argv)")
+        // The bundle's root record is the annotation import's, and its step holds the same command.
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundle))
+        XCTAssertEqual(record.steps.first?.argv, argv)
+    }
+
     func testJSONEventsAreOneStartProgressAndOneComplete() async throws {
         let source = root.appendingPathComponent("plain.fa")
         try ">chr1\nACGTACGT\n".write(to: source, atomically: true, encoding: .utf8)

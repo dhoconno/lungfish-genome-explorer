@@ -10,12 +10,17 @@ public struct GeneiousImportCollectionService: Sendable {
     private let scanner: GeneiousImportScanner
     private let archiveTool: GeneiousArchiveTool
     private let referenceImporter: GeneiousReferenceImporter
-    private let annotationImporter: GeneiousAnnotationImporter
+    /// The importer the caller gave, or the default that attaches a track with ``ReferenceBundleAnnotationImportService``.
+    /// Internal so a test can run the importer a caller built.
+    let annotationImporter: GeneiousAnnotationImporter
 
     /// `toolName` and `toolKind` name the caller in the annotation records of the default importer (BIO-Q-A2 R2).
+    /// `invocationArgv` is the command the process ran, which a CLI caller gives so those records name it and not an
+    /// `annotation-import` command no leaf has (MD62). The app gives none, so its records start with the app's name.
     public init(
         toolName: String,
         toolKind: String,
+        invocationArgv: [String]? = nil,
         scanner: GeneiousImportScanner = GeneiousImportScanner(),
         archiveTool: GeneiousArchiveTool = GeneiousArchiveTool(),
         referenceImporter: @escaping GeneiousReferenceImporter = { sourceURL, outputDirectory, preferredName in
@@ -32,7 +37,7 @@ public struct GeneiousImportCollectionService: Sendable {
         self.referenceImporter = referenceImporter
         self.annotationImporter = annotationImporter ?? { sourceURL, bundleURL in
             let service = ReferenceBundleAnnotationImportService(toolName: toolName, toolKind: toolKind)
-            return try await service.attachAnnotationTrack(sourceURL: sourceURL, bundleURL: bundleURL)
+            return try await service.attachAnnotationTrack(sourceURL: sourceURL, bundleURL: bundleURL, invocationArgv: invocationArgv)
         }
     }
 

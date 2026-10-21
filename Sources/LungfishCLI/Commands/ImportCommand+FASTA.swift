@@ -231,7 +231,11 @@ extension ImportCommand {
                     try Task.checkCancellation()
                     events.emitProgress(0.88, message: "Attaching projected annotations...")
                     let annotationResult = try await ReferenceBundleAnnotationImportService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
-                        .attachAnnotationTrack(sourceURL: annotationsURL, bundleURL: result.bundleURL)
+                        .attachAnnotationTrack(
+                            sourceURL: annotationsURL, bundleURL: result.bundleURL,
+                            // The attach is a step of this command, so its record names the command that ran (MD62).
+                            invocationArgv: recordedCommand(outputDirectory: outputDirectory)
+                        )
                     try Task.checkCancellation()
                     try MSAExtractionAnnotationProvenance.write(
                         bundleURL: result.bundleURL,
