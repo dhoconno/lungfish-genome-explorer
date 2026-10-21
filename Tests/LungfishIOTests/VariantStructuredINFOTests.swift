@@ -78,6 +78,44 @@ final class VariantStructuredINFOTests: XCTestCase {
         XCTAssertEqual(keysByProfile[.ultraLowMemory], fast, "ultra-low-memory against fast")
     }
 
+    func testMultiAllelicRecordStoresTheSameRowsAtEveryProfile() throws {
+        var keysByProfile: [VCFImportProfile: [Int: [String]]] = [:]
+        for profile in StructuredINFOFixture.profiles {
+            let dbURL = try StructuredINFOFixture.importDatabase(
+                StructuredINFOFixture.multiAllelicVCF, profile: profile, in: directory, name: "multi")
+            keysByProfile[profile] = try StructuredINFOFixture.keysByPosition(dbURL)
+            let expected = [
+                ("AF", "0.25,0.5"), ("ANN_Allele", "T,G"), ("ANN_IMPACT", "MODERATE,HIGH"), ("ANN_entries", "2"),
+            ]
+            for (key, value) in expected {
+                XCTAssertEqual(
+                    try StructuredINFOFixture.storedValue(dbURL, position: 100, key: key), value, "\(profile) \(key)")
+            }
+        }
+        let fast = try XCTUnwrap(keysByProfile[.fast])
+        XCTAssertEqual(fast.keys.sorted(), [100])
+        XCTAssertEqual(keysByProfile[.lowMemory], fast, "low-memory against fast")
+        XCTAssertEqual(keysByProfile[.ultraLowMemory], fast, "ultra-low-memory against fast")
+    }
+
+    func testOlderFastDatabaseKeepsItsRawANNAndSplitsItOnRead() throws {
+        let dbURL = try StructuredINFOFixture.importDatabase(
+            StructuredINFOFixture.threeRecordVCF, profile: .fast, in: directory, name: "older")
+        // The shape of a database built before the lane: the raw ANN row only, and no stored part names.
+        try StructuredINFOFixture.execute(dbURL, "DELETE FROM variant_info WHERE key LIKE 'ANN\\_%' ESCAPE '\\'")
+        try StructuredINFOFixture.execute(dbURL, "DELETE FROM db_metadata WHERE key = 'structured_info_formats'")
+        let database = try VariantDatabase(url: dbURL)
+        let id = try XCTUnwrap(database.queryForTable().first(where: { $0.position + 1 == 100 })?.id)
+        let info = database.infoValues(variantId: id)
+        XCTAssertEqual(info["ANN_IMPACT"], "MODERATE,MODIFIER")
+        XCTAssertEqual(info["ANN_entries"], "2")
+        XCTAssertEqual(info["ANN"]?.hasPrefix("T|missense_variant|MODERATE|"), true)
+        // The Known limit for a database imported before this release: the filters and the value lists read stored rows.
+        XCTAssertTrue(
+            database.queryForTable(infoFilters: [.init(key: "ANN_Consequence", op: .like, value: "missense")]).isEmpty)
+        XCTAssertTrue(database.distinctInfoValues(forKey: "ANN_IMPACT").isEmpty)
+    }
+
     func testHighImpactAndANNConsequenceFiltersFindTheirVariantsAtEveryProfile() throws {
         for profile in StructuredINFOFixture.profiles {
             let dbURL = try StructuredINFOFixture.importDatabase(

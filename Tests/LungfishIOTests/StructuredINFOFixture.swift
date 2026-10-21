@@ -50,6 +50,18 @@ enum StructuredINFOFixture {
 
     """
 
+    /// One multi-allelic record (`C` to `T,G`) with a `Number=A` AF and a SnpEff ANN that holds one entry an allele.
+    static let multiAllelicVCF = """
+    ##fileformat=VCFv4.2
+    ##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+    ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+    ##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO' ">
+    ##contig=<ID=chr1,length=1000>
+    #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+    chr1\t100\t.\tC\tT,G\t50\tPASS\tAF=0.25,0.5;DP=40;ANN=T|missense_variant|MODERATE|geneA|GENE_A|transcript|TX_A|protein_coding|2/5|c.100C>T|p.Pro34Ser|150/1200|100/900|34/299||,G|stop_gained|HIGH|geneA|GENE_A|transcript|TX_A|protein_coding|2/5|c.101C>G|p.Pro34Ter|150/1200|100/900|34/299||
+
+    """
+
     /// The 15 SnpEff template parts that the two entries at POS 100 fill.
     static let annPartsAt100 = [
         "Allele", "Annotation", "Annotation_Impact", "Gene_Name", "Gene_ID", "Feature_Type", "Feature_ID",
@@ -107,6 +119,19 @@ enum StructuredINFOFixture {
         try rows(dbURL, "SELECT v.position + 1 FROM variants v WHERE v.id IN (\(sql))")
             .compactMap { Int($0[0]) }
             .sorted()
+    }
+
+    /// Runs `sql` on a read-write connection, for a test that rebuilds the shape of a database built by an older release.
+    static func execute(_ dbURL: URL, _ sql: String) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            throw VariantDatabaseError.openFailed("Could not open \(dbURL.lastPathComponent)")
+        }
+        defer { sqlite3_close(db) }
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
     }
 
     /// The rows of `query` on a read-only connection, each column as text.
