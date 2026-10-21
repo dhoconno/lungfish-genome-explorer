@@ -611,123 +611,6 @@ public actor MetagenomicsDatabaseRegistry {
         return db.status
     }
 
-    /// Relocates a database to a new directory.
-    ///
-    /// The registry entry is updated with the new path. If the destination
-    /// is on an external volume, a security-scoped bookmark is created.
-    /// The actual file move must be performed by the caller before calling
-    /// this method.
-    ///
-    /// - Parameters:
-    ///   - name: Name of the database to relocate.
-    ///   - destination: The new directory URL.
-    public func relocateDatabase(name: String, to destination: URL) throws {
-        try loadIfNeeded()
-
-        guard var db = databases[name] else {
-            throw MetagenomicsDatabaseRegistryError.databaseNotFound(name: name)
-        }
-
-        // Validate the destination contains the required files.
-        let missing = Self.missingRequiredFiles(in: destination, tool: db.tool)
-        if !missing.isEmpty {
-            throw MetagenomicsDatabaseRegistryError.invalidDatabaseDirectory(
-                path: destination.path, missingFiles: missing
-            )
-        }
-
-        let prior = db
-        let source = db.path?.standardizedFileURL
-        let final = destination.standardizedFileURL
-        let runClock = ProvenanceRunClock()
-        let boundIdentity = db.canonicalReceiptSHA256 != nil && db.payloadDigest != nil
-        if boundIdentity {
-            _ = try MetagenomicsDatabaseConformanceIdentity.verify(db, readingPayloadAt: final)
-        }
-        let restoreMovedPayload = boundIdentity && source != final
-            && source.map { !FileManager.default.fileExists(atPath: $0.path) } == true
-        var publication: ScientificFilePublicationTransaction?
-        var receiptStage: URL?
-        defer { if let receiptStage { try? FileManager.default.removeItem(at: receiptStage) } }
-        do {
-            if boundIdentity, let source {
-                let sidecar = final.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-                let receiptBytes = try Data(contentsOf: sidecar)
-                let receiptSHA = SHA256.hash(data: receiptBytes).map { String(format: "%02x", $0) }.joined()
-                let receipt = try ProvenanceEnvelopeReader.decodeCanonical(receiptBytes)
-                let previousReceipt = ProvenanceFileDescriptor(path: sidecar.path, checksumSHA256: receiptSHA,
-                    fileSize: UInt64(receiptBytes.count), role: .input)
-                guard receiptSHA == prior.canonicalReceiptSHA256 else {
-                    throw MetagenomicsDatabaseIdentityError.changed(name)
-                }
-                publication = try ScientificFilePublicationTransaction(protectedURLs: [sidecar], fileDestinations: [sidecar])
-                let stage = FileManager.default.temporaryDirectory.appendingPathComponent("database-relocation-\(UUID().uuidString)")
-                receiptStage = stage
-                try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
-                var pathMap = [source.path: final.path]
-                for output in receipt.outputs {
-                    let relative = CanonicalFilePath.relativePath(of: URL(fileURLWithPath: output.path), within: source)
-                        ?? String(output.path.dropFirst(source.path.count + 1))
-                    pathMap[output.path] = final.appendingPathComponent(relative).path
-                }
-                let relocated = try ProvenanceRehydrator.rehydrate(sourceDirectory: final, finalDirectory: stage, pathMap: pathMap)
-                let withRelocation = CanonicalMetagenomicsDatabaseInstallProvenanceWriter.appendingRelocation(
-                    to: relocated, databaseName: name, from: source, to: final,
-                    previousReceipt: previousReceipt, runClock: runClock)
-                try ProvenanceWriter(signingProvider: nil).write(withRelocation, to: stage)
-                try publication?.publish(stagedURL: stage.appendingPathComponent(ProvenanceWriter.provenanceFilename), to: sidecar)
-                db.canonicalReceiptSHA256 = try ProvenanceFileHasher.sha256(of: sidecar)
-            }
-            db.path = destination
-            db.isExternal = externalVolumeDetector(destination)
-            db.lastUpdated = Date()
-            db.status = .ready
-
-            // Create bookmark for external volumes.
-            if db.isExternal {
-                do {
-                    db.bookmarkData = try createBookmark(for: destination)
-                    logger.info(
-                        "Created bookmark for '\(name, privacy: .public)' on external volume"
-                    )
-                } catch {
-                    logger.warning(
-                        "Failed to create bookmark for '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)"
-                    )
-                    // Continue without bookmark -- the path alone may still work.
-                }
-            } else {
-                db.bookmarkData = nil
-                endSecurityScopedAccess(for: name)
-            }
-
-            if boundIdentity {
-                _ = try MetagenomicsDatabaseConformanceIdentity.verify(db, readingPayloadAt: nil, publication: publication)
-            }
-            databases[name] = db
-            try saveManifest()
-            publication?.commit()
-        } catch let originalError {
-            databases[name] = prior
-            if let publication {
-                do { try publication.rollback(after: originalError) }
-                catch let recovery as ScientificPublicationRecoveryRequired { throw recovery }
-                catch { /* Receipt restored; restore a verified caller move below. */ }
-            }
-            if restoreMovedPayload, let source {
-                do {
-                    _ = try MetagenomicsDatabaseConformanceIdentity.verify(prior, readingPayloadAt: final)
-                    try FileManager.default.moveItem(at: final, to: source)
-                } catch {
-                    throw ScientificPublicationRecoveryRequired(originalError: originalError, restorationError: error,
-                        recoveryURLs: [final, source])
-                }
-            }
-            throw originalError
-        }
-        logger.info("Relocated database '\(name, privacy: .public)' to \(destination.path, privacy: .public)")
-    }
-
     // MARK: - Bookmark Support
 
     /// Resolves a security-scoped bookmark to a current URL.
@@ -1164,8 +1047,7 @@ public actor MetagenomicsDatabaseRegistry {
 
         // An external-volume database is reachable only inside a security scope, and
         // its bookmark encodes the directory identity that the swap replaces. Access
-        // is held across the renames and the bookmark is re-created afterwards, the
-        // same way `relocateDatabase` handles a moved external database.
+        // is held across the renames and the bookmark is re-created afterwards.
         if installed.isExternal {
             guard beginSecurityScopedAccess(for: name, url: installedPath) else {
                 throw MetagenomicsDatabaseRegistryError.updateNotSupported(

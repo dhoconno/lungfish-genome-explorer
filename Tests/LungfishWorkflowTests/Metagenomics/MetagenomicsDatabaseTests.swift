@@ -1087,43 +1087,6 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
     }
 
-    // MARK: - Relocation
-
-    func testRelocateDatabase() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        let dbDir = createMockKraken2Database(name: "relocatable")
-        try await registry.seedRowThroughManifest(at: dbDir, name: "RelocatableDB")
-
-        // Create destination with the required files.
-        let newDir = createMockKraken2Database(name: "new-location")
-
-        try await registry.relocateDatabase(name: "RelocatableDB", to: newDir)
-
-        let db = try await registry.database(named: "RelocatableDB")
-        XCTAssertEqual(db?.path?.path, newDir.path)
-        XCTAssertEqual(db?.status, .ready)
-    }
-
-    func testRelocateToInvalidDirectoryThrows() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        let dbDir = createMockKraken2Database(name: "source-db")
-        try await registry.seedRowThroughManifest(at: dbDir, name: "SourceDB")
-
-        let emptyDir = tempDir.appendingPathComponent("empty-dest")
-        try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
-
-        do {
-            try await registry.relocateDatabase(name: "SourceDB", to: emptyDir)
-            XCTFail("Should have thrown invalidDatabaseDirectory")
-        } catch let error as MetagenomicsDatabaseRegistryError {
-            if case .invalidDatabaseDirectory = error {
-                // Expected.
-            } else {
-                XCTFail("Wrong error type: \(error)")
-            }
-        }
-    }
-
     // MARK: - Filtering
 
     func testDatabasesFilteredByTool() async throws {
