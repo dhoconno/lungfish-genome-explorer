@@ -406,6 +406,52 @@ final class Kraken2DatabaseTests: XCTestCase {
         XCTAssertEqual(try db.fetchMetadataValues(field: "country"), [:])
     }
 
+    /// The fold of the SWIFT Fix 2 (Phase 2.13 lane 13.35). A cache table whose root page is damaged prepares and then
+    /// fails its first step with SQLITE_CORRUPT. The rows read so far are not the cache, so the table counts as
+    /// unreadable and differs from any wanted rows, and the refresh rewrites it and meets the damage. Before the fold,
+    /// the failed step ended the loop with no rows, which equal an empty wanted set, so the refresh returned false and
+    /// wrote nothing.
+    func testAnUnreadableSampleMetadataCacheCountsAsADifference() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        // Makes sure the cache table exists, whether or not `create` made it.
+        try db.refreshSampleMetadataCache(records: [:])
+
+        var raw: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(dbURL.path, &raw, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        sqlite3_exec(raw, "PRAGMA wal_checkpoint(TRUNCATE)", nil, nil, nil)
+        let rootPage = firstInteger("SELECT rootpage FROM sqlite_master WHERE name = 'sample_metadata_cache'", of: raw)
+        let pageSize = firstInteger("PRAGMA page_size", of: raw)
+        sqlite3_close(raw)
+        XCTAssertGreaterThan(rootPage, 1)
+        XCTAssertGreaterThan(pageSize, 0)
+
+        // An invalid page type byte makes the first read of the table's root page fail with SQLITE_CORRUPT.
+        let handle = try FileHandle(forUpdating: dbURL)
+        try handle.seek(toOffset: UInt64((rootPage - 1) * pageSize))
+        try handle.write(contentsOf: Data([0xFF]))
+        try handle.close()
+
+        XCTAssertThrowsError(try db.refreshSampleMetadataCache(records: [:])) { error in
+            guard case Kraken2DatabaseError.queryFailed = error else { return XCTFail("\(error)") }
+        }
+    }
+
+    /// The first column of the first row `sql` returns on an open connection, or 0 when it returns none.
+    private func firstInteger(_ sql: String, of handle: OpaquePointer?) -> Int {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     func testMetadataFilterReturnsMatchingSamples() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
