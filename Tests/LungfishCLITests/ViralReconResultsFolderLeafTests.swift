@@ -83,7 +83,7 @@ final class ViralReconResultsFolderLeafTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path), "a dry run writes nothing")
     }
 
-    func testAResumedRunMayContinueIntoTheFolderItsEarlierRunUsed() async throws {
+    func testAResumedRunIsNotRefusedForAFolderThatHoldsFiles() async throws {
         let folder = try usedFolder()
         let command = try RunSubcommand.parse([
             "nf-core/viralrecon", "--input", "samplesheet.csv", "--results-dir", folder.path, "--resume", "--dry-run", "--quiet",

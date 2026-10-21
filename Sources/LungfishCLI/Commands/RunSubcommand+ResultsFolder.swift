@@ -10,7 +10,8 @@ extension RunSubcommand {
     /// used would end up with that run's files beside the new run's own. The refusal is an input error (exit status
     /// 3) like the `--timeout` refusal, it comes before anything is written, and it uses the check the app's request
     /// uses, ``ViralReconRunRequest/ResultsFolder``. A resumed run continues into the folder its earlier run used, so
-    /// `--resume` is not refused.
+    /// `--resume` is not refused. The check does not read the folder then, so a resumed run is accepted into any
+    /// folder, and the record names `resume`.
     func requireUnusedViralReconResultsFolder() throws {
         guard !resume else { return }
         guard ViralReconRunRequest.ResultsFolder.holdsFiles(URL(fileURLWithPath: resultsDir)) else { return }
