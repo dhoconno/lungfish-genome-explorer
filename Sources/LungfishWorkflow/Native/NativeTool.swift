@@ -309,7 +309,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .zstd:
             return "BSD-3-Clause or GPL-2.0-only (dual)"
         case .xz:
-            return "0BSD and GPL-2.0-or-later"
+            return "0BSD and LGPL-2.1-or-later and GPL-2.0-or-later"
         }
     }
 
