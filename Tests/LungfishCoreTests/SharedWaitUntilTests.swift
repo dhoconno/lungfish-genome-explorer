@@ -63,4 +63,51 @@ final class SharedWaitUntilTests: XCTestCase {
             XCTAssertTrue(error is ConditionFailure, "\(error)")
         }
     }
+
+    // MARK: - Named budgets
+
+    func testTheStandardBudgetIsFiveSecondsAndTheLookupBudgetSixty() {
+        XCTAssertEqual(WaitBudget.standard.name, "standard")
+        XCTAssertEqual(WaitBudget.standard.duration, .seconds(5))
+        XCTAssertEqual(WaitBudget.standard.seconds, 5)
+        XCTAssertEqual(WaitBudget.standard.nanoseconds, 5_000_000_000)
+        XCTAssertEqual(WaitBudget.lookup.name, "lookup")
+        XCTAssertEqual(WaitBudget.lookup.duration, .seconds(60))
+        XCTAssertEqual(WaitBudget.lookup.seconds, 60)
+        XCTAssertEqual(WaitBudget.lookup.nanoseconds, 60_000_000_000)
+    }
+
+    func testANamedRaiseKeepsTheNameAndNeverShortensABudget() {
+        let raised = WaitBudget.standard.raised(to: .seconds(20))
+        XCTAssertEqual(raised.name, WaitBudget.standard.name)
+        XCTAssertEqual(raised.duration, .seconds(20))
+
+        let kept = WaitBudget.lookup.raised(to: .seconds(20))
+        XCTAssertEqual(kept, WaitBudget.lookup, "A raise to a shorter duration changes nothing.")
+    }
+
+    /// The short budget allows 5 checks at most, since each check is followed by a
+    /// sleep of at least 10 ms, so it cannot reach the tenth check on any machine.
+    /// The raised budget reaches it with a wide margin.
+    func testANamedRaiseLengthensTheDeadline() async {
+        let short = WaitBudget(name: "pin-short", duration: .milliseconds(40))
+        let raised = short.raised(to: .milliseconds(800))
+        XCTAssertEqual(raised.name, short.name)
+
+        var checks = 0
+        let missed = await waitUntil(budget: short, pollInterval: .milliseconds(10)) {
+            checks += 1
+            return checks == 10
+        }
+        XCTAssertFalse(missed, "The short budget ends before the tenth check.")
+        XCTAssertLessThan(checks, 10)
+
+        checks = 0
+        let held = await waitUntil(budget: raised, pollInterval: .milliseconds(10)) {
+            checks += 1
+            return checks == 10
+        }
+        XCTAssertTrue(held, "The raised budget reaches the tenth check.")
+        XCTAssertEqual(checks, 10)
+    }
 }

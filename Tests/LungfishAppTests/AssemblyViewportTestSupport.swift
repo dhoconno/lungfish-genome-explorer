@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 @testable import LungfishApp
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 import LungfishKit
@@ -25,25 +26,20 @@ final class RecordingPasteboard: PasteboardWriting {
 
 /// Fails the test when `predicate` does not hold within the timeout. Swift
 /// picks this over the shared `waitUntil` in LungfishTestSupport for a
-/// synchronous main-actor closure, so its default matches that helper's 5 s,
-/// which leaves room for the parallel unit tier. It returns as soon as the
-/// predicate holds.
+/// synchronous main-actor closure. It forwards to that shared wait, so its
+/// default is the same standard budget of 5 s, which leaves room for the
+/// parallel unit tier. It returns as soon as the predicate holds.
 @MainActor
 func waitUntil(
-    timeoutNanoseconds: UInt64 = 5_000_000_000,
+    timeoutNanoseconds: UInt64 = WaitBudget.standard.nanoseconds,
     file: StaticString = #filePath,
     line: UInt = #line,
     _ predicate: @escaping @MainActor () -> Bool
 ) async {
-    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-    while DispatchTime.now().uptimeNanoseconds < deadline {
-        if predicate() {
-            return
-        }
-        await Task.yield()
-        try? await Task.sleep(nanoseconds: 10_000_000)
+    let held = await LungfishTestSupport.waitUntil(timeout: .nanoseconds(timeoutNanoseconds)) { predicate() }
+    if !held {
+        XCTFail("Timed out waiting for condition", file: file, line: line)
     }
-    XCTFail("Timed out waiting for condition", file: file, line: line)
 }
 
 func makeAssemblyResult() throws -> AssemblyResult {
