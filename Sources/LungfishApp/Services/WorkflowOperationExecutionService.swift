@@ -880,7 +880,7 @@ final class WorkflowOperationExecutionService {
             role: .input
         )
         let argv = [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "workflow-operations",
             "prepare-ont-bam-viewer",
             "--source-reference", sourceBundleURL.path,
@@ -898,7 +898,7 @@ final class WorkflowOperationExecutionService {
             createdAt: runClock.startedAt,
             workflowName: workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
