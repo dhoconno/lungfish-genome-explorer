@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import LungfishWorkflow
 
-/// Lane 13.50 (XLSX-FIXED), M1. Pins that pass at the base d3a1fcdd8 and that `SCR/lanes/13.50/predictions.md` lists.
-/// The parts' bytes and the entry set stay after the fix (BIO 1 and BIO 7, rows P7). The run-varying pin lists what
-/// the base varies and goes with the fix (row P2).
+/// Lane 13.50 (XLSX-FIXED). Pins that passed at the base d3a1fcdd8 and still pass after the fix, which only moves
+/// archive metadata (BIO 1 and BIO 7, row P7 of `SCR/lanes/13.50/predictions.md`). The pin of what varied at the base
+/// (row P2) went with the fix and `ScientificTableWriterArchiveTests` replaces it.
 final class ScientificTableWriterArchivePinTests: XCTestCase {
     private var directory: URL!
 
@@ -38,36 +38,6 @@ final class ScientificTableWriterArchivePinTests: XCTestCase {
         XCTAssertEqual(
             Set(try XLSXArchiveProbe.entries(of: archive).map(\.name)),
             Set(XLSXArchiveProbe.partNames + XLSXArchiveProbe.folderNames)
-        )
-    }
-
-    func testTodaysRunVaryingPartsAreTheArchivePathAndTheEntryTimes() throws {
-        let first = try XLSXArchiveProbe.export("first.xlsx", in: directory)
-        // A ZIP entry time has a resolution of 2 seconds, so the second export starts more than 2 seconds later.
-        Thread.sleep(forTimeInterval: 2.1)
-        let second = try XLSXArchiveProbe.export("second.xlsx", in: directory)
-
-        XCTAssertNotEqual(try Data(contentsOf: first.url), try Data(contentsOf: second.url), "the archives differ in bytes")
-        let firstTimes = Dictionary(uniqueKeysWithValues: try XLSXArchiveProbe.entries(of: first.url).map { ($0.name, $0.time) })
-        let secondEntries = try XLSXArchiveProbe.entries(of: second.url)
-        XCTAssertEqual(Set(firstTimes.keys), Set(secondEntries.map(\.name)))
-        XCTAssertTrue(secondEntries.allSatisfy { firstTimes[$0.name] != $0.time }, "every entry time follows the write time")
-        XCTAssertTrue(secondEntries.allSatisfy { $0.flags.last == "x" }, "every entry carries an extra field")
-
-        XCTAssertEqual(first.report.archiveToolPath, "/usr/bin/zip")
-        XCTAssertEqual(first.report.archiveToolVersion, second.report.archiveToolVersion)
-        let argv = try XCTUnwrap(first.report.archiveArgv)
-        let other = try XCTUnwrap(second.report.archiveArgv)
-        XCTAssertEqual(argv.count, 5)
-        XCTAssertEqual(Array(argv.prefix(3)), ["/usr/bin/zip", "-q", "-r"])
-        XCTAssertEqual(argv.last, ".")
-        XCTAssertEqual(
-            zip(argv, other).enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset), [3],
-            "the archive path is the only argument that differs"
-        )
-        XCTAssertNotNil(
-            UUID(uuidString: URL(fileURLWithPath: argv[3]).deletingPathExtension().lastPathComponent),
-            "the archive is named by a UUID, \(argv[3])"
         )
     }
 }

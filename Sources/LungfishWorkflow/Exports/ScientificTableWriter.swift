@@ -259,15 +259,16 @@ public enum ScientificTableWriter {
         try stylesXML.write(to: xl.appendingPathComponent("styles.xml"), atomically: true, encoding: .utf8)
         try writeWorksheet(table, to: worksheets.appendingPathComponent("sheet1.xml"), shouldCancel: shouldCancel)
         if shouldCancel() { throw ScientificTableWriterError.cancelled }
+        try fixArchiveMetadata(in: directory, fileManager: fileManager)
 
-        let archiveURL = directory.deletingLastPathComponent()
-            .appendingPathComponent("\(UUID().uuidString).xlsx")
-        defer { try? fileManager.removeItem(at: archiveURL) }
-        let archiveArguments = ["-q", "-r", archiveURL.path, "."]
+        // The archive is made in the parts folder under a constant name from the entries in a fixed order, so the
+        // recorded argv is the argv that ran and names no path of this run. The folder goes with the `defer` above.
+        let archiveURL = directory.appendingPathComponent(archiveName)
+        let archiveArguments = ["-X", "-q", archiveName] + archiveEntryNames
         let spec = ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/zip"),
             arguments: archiveArguments,
-            environment: ToolProcessSpec.inheritedEnvironment(),
+            environment: archiveEnvironment(),
             workingDirectory: directory,
             stdout: .discard,
             stderr: .capture(limit: 64 * 1024),
@@ -311,6 +312,41 @@ public enum ScientificTableWriter {
             archiveArgv: ["/usr/bin/zip"] + archiveArguments,
             archiveToolVersion: systemZipVersion()
         )
+    }
+
+    /// The archive's name in the parts folder, a constant so that the recorded argv names no path of the run.
+    private static let archiveName = "table.xlsx"
+
+    /// The archive's entries in byte order of their names. `zip` stores them in the order given, the four folders as
+    /// entries of their own (there is no `-r`), and the six files are the parts `writeWorkbook` writes.
+    private static let archiveEntryNames = [
+        "[Content_Types].xml", "_rels/", "_rels/.rels", "xl/", "xl/_rels/", "xl/_rels/workbook.xml.rels",
+        "xl/styles.xml", "xl/workbook.xml", "xl/worksheets/", "xl/worksheets/sheet1.xml",
+    ]
+
+    /// The one time every entry is stored with, 1980-01-01T00:00:00Z, the first moment a ZIP entry time holds.
+    private static let archiveEntryDate = Date(timeIntervalSince1970: 315_532_800)
+
+    /// Gives every part and folder `archiveEntryDate` and one mode, so the entry times and the unix modes of the
+    /// archive follow neither the clock nor the umask. The files come before their folders, since a folder's
+    /// modification time moves when an entry in it is created or renamed.
+    private static func fixArchiveMetadata(in directory: URL, fileManager: FileManager) throws {
+        for name in archiveEntryNames.reversed() {
+            try fileManager.setAttributes(
+                [.modificationDate: archiveEntryDate, .posixPermissions: name.hasSuffix("/") ? 0o755 : 0o644],
+                ofItemAtPath: directory.appendingPathComponent(name).path
+            )
+        }
+    }
+
+    /// The environment of `zip` with the zone fixed to UTC and without `ZIPOPT` and `ZIP`, whose options `zip` reads
+    /// from the environment. The DOS entry time is local time and the options change the compression, so the user's
+    /// shell would otherwise change the bytes.
+    private static func archiveEnvironment() -> [String: String] {
+        var environment = ToolProcessSpec.inheritedEnvironment(overriding: ["TZ": "UTC"])
+        environment["ZIPOPT"] = nil
+        environment["ZIP"] = nil
+        return environment
     }
 
     private static func writeWorksheet(
