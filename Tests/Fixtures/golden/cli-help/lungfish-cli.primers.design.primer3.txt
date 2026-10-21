@@ -1,7 +1,7 @@
 OVERVIEW: Run independent Primer3 designs for explicit FASTA records or native
 MSA rows
 
-USAGE: lungfish-cli primers design primer3 [<options>] --output <output>
+USAGE: lungfish-cli primers design primer3 <options>
 
 OPTIONS:
   --fasta-record <fasta-record>
@@ -14,7 +14,17 @@ OPTIONS:
                           MSA binding policy: template-only or
                           exclude-variable-and-gapped-columns. (default:
                           exclude-variable-and-gapped-columns)
-  --output <output>       New .lungfishprimeranalysis destination.
+  --output <output>       New .lungfishprimeranalysis destination. It must not
+                          exist. Give --output or --project.
+  --project <project>     Project to write a new
+                          Analyses/<name>.lungfishprimeranalysis bundle in, as
+                          the app does. A second run writes another new bundle.
+                          Give --output or --project.
+  --name <name>           Name of the new bundle that --project writes, without
+                          the extension. The default is Primer analysis. If the
+                          name is in use, the first free of <name> 2, <name> 3
+                          and so on is used, and the command reports the path
+                          it wrote.
   --primer3-path <primer3-path>
                           Optional exact primer3_core executable path.
   --assay <assay>         Assay preset, as in the GUI: pcr, qpcr-dye, or

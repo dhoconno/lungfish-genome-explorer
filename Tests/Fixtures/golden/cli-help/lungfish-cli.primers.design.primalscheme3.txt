@@ -1,12 +1,22 @@
 OVERVIEW: Run PrimalScheme on nucleotide sequences or alignments
 
-USAGE: lungfish-cli primers design primalscheme3 [<options>] --output <output>
+USAGE: lungfish-cli primers design primalscheme3 <options>
 
 OPTIONS:
   --msa <msa>             Native .lungfishmsa, .lungfishref, or raw aligned
                           nucleotide FASTA input. Repeatable; a single sequence
                           is valid.
-  --output <output>
+  --output <output>       New .lungfishprimeranalysis destination. It must not
+                          exist. Give --output or --project.
+  --project <project>     Project to write a new
+                          Analyses/<name>.lungfishprimeranalysis bundle in, as
+                          the app does. A second run writes another new bundle.
+                          Give --output or --project.
+  --name <name>           Name of the new bundle that --project writes, without
+                          the extension. The default is Primer analysis. If the
+                          name is in use, the first free of <name> 2, <name> 3
+                          and so on is used, and the command reports the path
+                          it wrote.
   --grouping <grouping>   independent or combined (default: independent)
   --primalscheme3-path <primalscheme3-path>
   --amplicon-size <amplicon-size>

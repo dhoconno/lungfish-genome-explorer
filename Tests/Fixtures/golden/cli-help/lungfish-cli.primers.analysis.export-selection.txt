@@ -15,7 +15,7 @@ ones the saved analysis stores, and Copy CLI Command on an export made in the
 app records them. The saved analysis is never changed, and an existing --output
 is never replaced.
 
-USAGE: lungfish-cli primers analysis export-selection <bundle-path> --kind <kind> [--target-id <target-id>] [--primer-id <primer-id>] [--amplicon-id <amplicon-id>] [--source-result-id <source-result-id>] [--pool <pool>] [--native-pool <native-pool>] --output <output>
+USAGE: lungfish-cli primers analysis export-selection [<options>] <bundle-path> --kind <kind> --output <output>
 
 ARGUMENTS:
   <bundle-path>           Path to the saved .lungfishprimeranalysis bundle.
@@ -40,6 +40,16 @@ OPTIONS:
                           --source-result-id.
   --output <output>       New .lungfishref bundle to write. It must not exist,
                           and its parent folder must.
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
   --version               Show the version.
   -h, --help              Show help information.
 
