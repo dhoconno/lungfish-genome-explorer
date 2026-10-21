@@ -247,6 +247,42 @@ final class VariantStructuredINFOTests: XCTestCase {
             try StructuredINFOFixture.rows(dbURL, "SELECT COUNT(*) FROM _high_impact"), [["3"]], "second open rebuilt")
     }
 
+    func testWarmSmartTokenCachesIgnoresAnUnstampedBiologicalTableOnAReadOnlyHandleThenReplacesItOnAWritableOne() throws {
+        let dbURL = try StructuredINFOFixture.importDatabase(
+            StructuredINFOFixture.mixedImpactVCF, profile: .fast, in: directory, name: "stampbio")
+        // The shape of a database imported before the list-member match. `_tok_bio_hi` is built over the four impact
+        // keys with `value = 'HIGH'`, which keeps no variant of this fixture, and the stamp row does not exist.
+        let keyList = VariantDatabase.impactInfoKeys.map { "'\($0)'" }.joined(separator: ",")
+        try StructuredINFOFixture.execute(dbURL, "DROP TABLE IF EXISTS _tok_bio_hi")
+        try StructuredINFOFixture.execute(
+            dbURL,
+            "CREATE TABLE _tok_bio_hi AS SELECT DISTINCT variant_id FROM variant_info "
+                + "WHERE key IN (\(keyList)) AND value = 'HIGH'")
+        try StructuredINFOFixture.execute(dbURL, "DELETE FROM db_metadata WHERE key = 'high_impact_match'")
+        let keys = Set(VariantDatabase.impactInfoKeys + VariantDatabase.impactConsequenceInfoKeys)
+        let biologicalSQL = VariantDatabase.biologicalHighImpactTokenSQL(
+            impactKeys: VariantDatabase.impactInfoKeys, consequenceKeys: VariantDatabase.impactConsequenceInfoKeys)
+        let stampQuery = "SELECT value FROM db_metadata WHERE key = 'high_impact_match'"
+        let tablePositions = "SELECT variant_id FROM _tok_bio_hi"
+
+        // A read-only handle does not adopt the table, writes nothing and leaves the token unready.
+        let readOnly = try VariantDatabase(url: dbURL)
+        readOnly.warmSmartTokenCaches(availableInfoKeys: keys)
+        XCTAssertNotEqual(readOnly.tokenCacheState["highImpactBiological"]?.ready, true, "read-only token")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [], "read-only wrote the stamp")
+        XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [], "read-only table")
+
+        // A writable handle drops the table, rebuilds it with the member match, writes the stamp and marks it ready.
+        let writable = try VariantDatabase(url: dbURL, readWrite: true)
+        writable.warmSmartTokenCaches(availableInfoKeys: keys)
+        XCTAssertEqual(writable.tokenCacheState["highImpactBiological"]?.ready, true, "read-write token")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [["member"]], "read-write stamp")
+        let rebuilt = try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions)
+        let expected = try StructuredINFOFixture.positions(dbURL, selectingIDs: biologicalSQL)
+        XCTAssertFalse(expected.isEmpty, "member SQL finds a variant")
+        XCTAssertEqual(rebuilt, expected, "read-write table against the member SQL")
+    }
+
     func testHeaderPartNamesRoundTripThroughMetadata() throws {
         var names = StructuredINFOFieldNames()
         let lof = "Predicted loss of function effects for this variant. Format: 'Gene_Name | Gene_ID | "

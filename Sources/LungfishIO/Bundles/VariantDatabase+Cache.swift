@@ -334,9 +334,9 @@ extension VariantDatabase {
         guard let db else { return _tokenCacheState }
 
         let defs = tokenDefinitions(availableInfoKeys: availableInfoKeys)
-        // Tables an earlier release built carry no stamp and hold the strict match, so a writable handle replaces both
-        // before any is built. When the replacement fails, `_tok_bio_hi` is neither built nor stamped.
-        let highImpactTablesAreCurrent = isReadOnly || highImpactTablesAreStamped || dropHighImpactTables()
+        // Tables an earlier release built carry no stamp and hold the strict match. A writable handle replaces both
+        // before any is built. A read-only handle or a failed replacement leaves _tok_bio_hi unbuilt and unready.
+        let highImpactTablesAreCurrent = highImpactTablesAreStamped || (!isReadOnly && dropHighImpactTables())
 
         for def in defs {
             // Skip if already cached (e.g. loaded from persistent table)
