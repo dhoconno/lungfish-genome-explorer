@@ -82,7 +82,7 @@ enum SequenceExportRoute {
             throw RouteError(
                 detail: detail.isEmpty
                     ? "lungfish-cli convert exited with status \(exit.status)"
-                    : namingChosenFiles(in: detail, arguments: arguments)
+                    : plainWords(in: namingChosenFiles(in: detail, arguments: arguments))
             )
         case .cancelled:
             removeStages(beside: outputURL)
@@ -122,6 +122,18 @@ enum SequenceExportRoute {
             named.replaceSubrange(range, with: chosen)
         }
         return named
+    }
+
+    /// `detail` without the command's own markers `Error: ` and `Conversion failed: ` at its start. The alert's
+    /// title Export Failed already says the export failed, and the person chose Export Sequences, not a
+    /// conversion (2.13 lane 13.41, UX ruling on MD59). The cause that follows stays whole, and a cause with its
+    /// own words, such as `Input file not found: /path`, keeps them. Terminal text keeps both markers.
+    static func plainWords(in detail: String) -> String {
+        var words = Substring(detail)
+        for marker in ["Error: ", "Conversion failed: "] where words.hasPrefix(marker) {
+            words = words.dropFirst(marker.count)
+        }
+        return String(words)
     }
 
     /// The `sequenceCount` of the JSON result `convert --format json` prints.

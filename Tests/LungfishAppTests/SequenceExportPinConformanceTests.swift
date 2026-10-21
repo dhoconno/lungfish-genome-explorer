@@ -414,7 +414,8 @@ final class SequenceExportPinConformanceTests: XCTestCase {
     /// command on a file of no bytes and on a file of white space. Staging copies a file as it is, since only
     /// `convert` can tell, and `convert` refuses an input of no bytes or only white space with "No sequences
     /// found in <file>.", the words of the app's own refusal (2.13 lane 13.41, row CONVERT-EMPTY-INPUT). The
-    /// alert shows that text, the export publishes nothing and its staging is discarded. Until 13.41 the export
+    /// alert shows `No sequences found in <file>.` without the command's `Error: Conversion failed:` markers (UX
+    /// ruling on MD59), the export publishes nothing and its staging is discarded. Until 13.41 the export
     /// completed with an empty output and reported 0 sequences. A captured snapshot of no sequences keeps
     /// "No sequences found in selected files." in `SequenceExportStagingDurabilityTests`.
     func testAnEmptySeqFileStopsTheExportWithNoSequencesFound() async throws {
@@ -446,11 +447,9 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                 }
                 XCTFail("\(name) must not export, it reported \(count) sequences")
             } catch {
-                print("13.41 alert text for \(name): \(error.localizedDescription)")
-                // The alert names the file the person chose, not the staged copy (MD59).
-                XCTAssertEqual(
-                    error.localizedDescription, "Error: Conversion failed: No sequences found in \(name).", name
-                )
+                // The alert names the file the person chose, not the staged copy (MD59), and leaves out the
+                // command's own `Error: Conversion failed:` markers (UX ruling on MD59).
+                XCTAssertEqual(error.localizedDescription, "No sequences found in \(name).", name)
                 XCTAssertFalse(error.localizedDescription.contains(stagedName), "\(name): \(stagedName)")
             }
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name) publishes no output")

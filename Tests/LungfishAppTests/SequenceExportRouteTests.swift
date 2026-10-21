@@ -103,6 +103,28 @@ final class SequenceExportRouteTests: XCTestCase {
         )
     }
 
+    /// The Export Failed alert leaves out the command's own `Error: ` and `Conversion failed: ` markers at the start
+    /// of its text (UX ruling on MD59). A cause with its own words keeps them, a status line is unchanged and a
+    /// marker that is not at the start stays.
+    func testTheAlertLeavesOutTheCommandsOwnMarkers() {
+        XCTAssertEqual(
+            SequenceExportRoute.plainWords(in: "Error: Conversion failed: No sequences found in empty.seq."),
+            "No sequences found in empty.seq."
+        )
+        XCTAssertEqual(
+            SequenceExportRoute.plainWords(in: "Error: Input file not found: /Users/me/a.fa"),
+            "Input file not found: /Users/me/a.fa"
+        )
+        XCTAssertEqual(
+            SequenceExportRoute.plainWords(in: "lungfish-cli convert exited with status 3"),
+            "lungfish-cli convert exited with status 3"
+        )
+        XCTAssertEqual(
+            SequenceExportRoute.plainWords(in: "Warning: x\nError: Conversion failed: y"),
+            "Warning: x\nError: Conversion failed: y"
+        )
+    }
+
     func testRemoveStagesRemovesOnlyTheHiddenConvertStagesOfThatOutput() throws {
         let output = root.appendingPathComponent("out.fa.gz")
         let stages = [
