@@ -58,6 +58,44 @@ final class PrimerAnalysisAnnotatedReferenceServiceTests: XCTestCase {
     XCTAssertEqual(temporaryDirectories, [])
   }
 
+  // MARK: - R2 of BIO-Q-A2 (lane 13.27, review 13.27-M2 Fix 4). The caller gives the identity that the record names.
+
+  /// The CLI builds the service with `lungfish-cli` and kind `cli`, so the import log and the bundle record name it.
+  func testRecordNamesTheCLIWhenTheCLIBuildsTheService() async throws {
+    try await assertRecordNames(
+      toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
+  }
+
+  /// The app builds the service with the recorded name and kind `gui`. The app passes `CommandLine.arguments` (a V1-6 site),
+  /// so this test leaves argv[0] out.
+  func testRecordNamesTheAppWhenTheAppBuildsTheService() async throws {
+    try await assertRecordNames(
+      toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind)
+  }
+
+  /// The `annotations/*-import-provenance.json` log names the caller in `toolName` and `runtime.app`, and the bundle record in `tool.kind`.
+  private func assertRecordNames(toolName: String, toolKind: String, line: UInt = #line) async throws {
+    if let missing = await NativeBundleBuilder().checkRequiredTools() {
+      throw XCTSkip("Native reference tools unavailable: \(missing.description)")
+    }
+    let fixture = try Self.makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let reference = try await PrimerAnalysisAnnotatedReferenceService(toolName: toolName, toolKind: toolKind).createReference(
+      analysisURL: fixture.bundle.url, resultID: fixture.resultID,
+      outputDirectory: fixture.output, invocationArgv: CommandLine.arguments)
+    let annotations = reference.appendingPathComponent("annotations")
+    let logs = try FileManager.default.contentsOfDirectory(atPath: annotations.path)
+      .filter { $0.hasSuffix("-import-provenance.json") }
+    let logName = try XCTUnwrap(logs.first, "the import log", line: line)
+    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: annotations.appendingPathComponent(logName)))
+    let entries = try XCTUnwrap((object as? [String: Any])?["entries"] as? [[String: Any]], "the log entries", line: line)
+    let entry = try XCTUnwrap(entries.first, "the first log entry", line: line)
+    XCTAssertEqual(entry["toolName"] as? String, toolName, line: line)
+    XCTAssertEqual((entry["runtime"] as? [String: Any])?["app"] as? String, toolName, line: line)
+    let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: reference), "the bundle record", line: line)
+    XCTAssertEqual(record.tool.kind, toolKind, line: line)
+  }
+
   private static func makeFixture(wrongLink: Bool = false) throws -> (
     root: URL, output: URL, bundle: PrimerAnalysisBundle, resultID: UUID, inputID: UUID
   ) {
