@@ -1,4 +1,4 @@
-// DatabaseBrowserGenomeRowRouteTests.swift - The route of the NCBI browser's genome rows and what its child gets
+// DatabaseBrowserGenomeRowLaunchTests.swift - The route of the NCBI browser's genome rows and what its child gets
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -15,7 +15,7 @@ import XCTest
 import LungfishCore
 import LungfishTestSupport
 
-final class DatabaseBrowserGenomeRowRouteTests: XCTestCase {
+final class DatabaseBrowserGenomeRowLaunchTests: XCTestCase {
     private let key = "lane-a44-test-key-0000"
 
     func testTheFolderIsTheProjectsDownloadsFolderOrTheUsers() {

@@ -1,4 +1,4 @@
-// DatabaseBrowserNucleotideRowRouteTests.swift - The route of the NCBI browser's nucleotide and virus rows
+// DatabaseBrowserNucleotideRowLaunchTests.swift - The route of the NCBI browser's nucleotide and virus rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -10,7 +10,7 @@ import XCTest
 import LungfishCore
 import LungfishTestSupport
 
-final class DatabaseBrowserNucleotideRowRouteTests: XCTestCase {
+final class DatabaseBrowserNucleotideRowLaunchTests: XCTestCase {
     @MainActor
     func testTheArgumentsHoldNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)

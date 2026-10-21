@@ -1,4 +1,4 @@
-// DatabaseBrowserPathoplexusRowRouteTests.swift - The route of the Pathoplexus browser's rows
+// DatabaseBrowserPathoplexusRowLaunchTests.swift - The route of the Pathoplexus browser's rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -10,7 +10,7 @@ import XCTest
 import LungfishCore
 import LungfishTestSupport
 
-final class DatabaseBrowserPathoplexusRowRouteTests: XCTestCase {
+final class DatabaseBrowserPathoplexusRowLaunchTests: XCTestCase {
     @MainActor
     func testTheArgumentsHoldTheOrganismAndNoKeyAndFollowTheGFF3Setting() {
         let folder = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish/Downloads", isDirectory: true)

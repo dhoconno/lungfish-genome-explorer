@@ -1,4 +1,4 @@
-// ManagedToolsRouteSuccessTests.swift - What the app does once the managed tools CLI route finishes
+// ManagedToolsCommandSuccessTests.swift - What the app does once the managed tools CLI route finishes
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -20,7 +20,7 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @MainActor
-final class ManagedToolsRouteSuccessTests: XCTestCase {
+final class ManagedToolsCommandSuccessTests: XCTestCase {
     private var scratch: URL!
 
     override func setUpWithError() throws {

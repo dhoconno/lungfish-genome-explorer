@@ -72,7 +72,7 @@ final class DatabaseBrowserViewControllerOperationTests: XCTestCase {
         // or several. That is no longer a parity gap (the ratchet carries no
         // `download-sra` id and no test pins one). `startSRADownloadTask` sets
         // one line for each run when the sheet is confirmed, which
-        // DatabaseBrowserSRARowRouteTests and DatabaseBrowserSRARowRouteReplayTests
+        // DatabaseBrowserSRARowLaunchTests and DatabaseBrowserSRARowLaunchReplayTests
         // parse and replay.
         for accessions in [["SRR11140748"], ["SRR11140748", "SRR11140749", "SRR11140750"]] {
             let item = try recordedRow(title: accessions.joined(separator: ", "), accessions: accessions, source: .ena)

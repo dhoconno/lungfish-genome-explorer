@@ -25,7 +25,7 @@
 //
 // The CLI route has one state the in-process route never reached, "row cancelled, result listed",
 // a cancel that comes after the command finished (fix 8 of lane A46, its ruling section 5).
-// ReadsLaunchRouteTests.testACancelThatComesAfterMapFinishedKeepsItsResult holds it.
+// ReadsLaunchCommandTests.testACancelThatComesAfterMapFinishedKeepsItsResult holds it.
 //
 // It launches the built lungfish-cli and needs bgzip, so its name ends in ReplayTests, which sends
 // it to the integration tier (docs/contracts/CLI-EQUIVALENCE.md).

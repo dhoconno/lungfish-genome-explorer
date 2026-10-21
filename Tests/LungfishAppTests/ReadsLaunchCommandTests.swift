@@ -1,4 +1,4 @@
-// ReadsLaunchRouteTests.swift - The CLI route's argv and the L6 runner
+// ReadsLaunchCommandTests.swift - The CLI route's argv and the L6 runner
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -22,7 +22,7 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 @MainActor
-final class ReadsLaunchRouteTests: XCTestCase {
+final class ReadsLaunchCommandTests: XCTestCase {
     func testTheCLIRouteRecordsTheMapArgvItRuns() throws {
         let root = try TestTempDirectory.make(prefix: "reads-route-argv")
         defer { TestTempDirectory.cleanup(root) }

@@ -1,4 +1,4 @@
-// ManagedToolsRouteTests.swift - The commands the managed tools runner builds
+// ManagedToolsCommandTests.swift - The commands the managed tools runner builds
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -14,7 +14,7 @@ import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 
-final class ManagedToolsRouteTests: XCTestCase {
+final class ManagedToolsCommandTests: XCTestCase {
 
     func testEachCommandIsTheArgvItsRowRecordsAndParsesBackToItsLeaf() throws {
         let tools = CLIManagedToolsRunner.updateTools(ids: ["pigz", "samtools"])

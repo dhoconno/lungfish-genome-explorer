@@ -1,4 +1,4 @@
-// DatabaseBrowserSRARowRouteTests.swift - The route of the SRA browser's rows
+// DatabaseBrowserSRARowLaunchTests.swift - The route of the SRA browser's rows
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -15,7 +15,7 @@ import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 
-final class DatabaseBrowserSRARowRouteTests: XCTestCase {
+final class DatabaseBrowserSRARowLaunchTests: XCTestCase {
     private let project = URL(fileURLWithPath: "/tmp/lane a45/Project.lungfish")
 
     /// Every spelling the sheet can produce reaches the leaf as the window passes it to `import fastq`,

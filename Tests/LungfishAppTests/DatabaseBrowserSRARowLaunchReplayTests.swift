@@ -1,4 +1,4 @@
-// DatabaseBrowserSRARowRouteReplayTests.swift - The CLI route of an SRA row launches one child for each run and records its command
+// DatabaseBrowserSRARowLaunchReplayTests.swift - The CLI route of an SRA row launches one child for each run and records its command
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
@@ -24,7 +24,7 @@ import LungfishWorkflow
 @testable import LungfishApp
 
 @MainActor
-final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
+final class DatabaseBrowserSRARowLaunchReplayTests: XCTestCase {
     func testTheCLIRouteRecordsOneLinePerRunAndACancelEndsTheRowCancelled() async throws {
         // A batch with a project asks `AppDelegate.shared` whether the project is writable, which reads `NSApp`.
         _ = NSApplication.shared
@@ -45,7 +45,7 @@ final class DatabaseBrowserSRARowRouteReplayTests: XCTestCase {
         setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
         defer { if let prior { setenv("LUNGFISH_CLI_PATH", prior, 1) } else { unsetenv("LUNGFISH_CLI_PATH") } }
 
-        let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowRouteReplayTests")
+        let suite = makeTestDefaultsSuite(prefix: "DatabaseBrowserSRARowLaunchReplayTests")
         let viewModel = DatabaseBrowserViewModel(
             source: .ena, ncbiService: NCBIService(apiKey: nil, environment: [:]), enaService: ENAService(environment: [:]),
             defaultsSuiteName: suite.name)
