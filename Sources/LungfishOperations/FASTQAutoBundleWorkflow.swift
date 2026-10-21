@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -37,7 +38,7 @@ enum FASTQAutoBundleError: Error, LocalizedError, Sendable, Equatable {
 
 package enum FASTQAutoBundleWorkflow {
     private static let workflowName = "FASTQ Auto-Bundle"
-    private static let toolName = "lungfish-app"
+    private static let toolName = LungfishAppIdentity.recordedToolName
 
     package static func wrapNakedFASTQ(
         sourceURL rawSourceURL: URL,
@@ -206,7 +207,7 @@ package enum FASTQAutoBundleWorkflow {
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: ProvenanceToolIdentity(name: toolName, version: WorkflowRun.currentAppVersion, kind: "app"),
+            tool: ProvenanceToolIdentity(name: toolName, version: WorkflowRun.currentAppVersion, kind: LungfishAppIdentity.recordedToolKind),
             argv: argv,
             durableReplayArgv: durableArgv,
             reproducibleCommand: argv.map(shellEscape).joined(separator: " "),

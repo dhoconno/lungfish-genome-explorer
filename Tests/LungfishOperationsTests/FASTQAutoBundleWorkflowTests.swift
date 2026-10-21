@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishOperations
@@ -40,7 +41,8 @@ final class FASTQAutoBundleWorkflowTests: XCTestCase {
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
         XCTAssertEqual(envelope.workflowName, "FASTQ Auto-Bundle")
-        XCTAssertEqual(envelope.toolName, "lungfish-app")
+        XCTAssertEqual(envelope.toolName, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(envelope.tool.kind, LungfishAppIdentity.recordedToolKind)
         XCTAssertEqual(envelope.output?.path, bundleURL.path)
         XCTAssertTrue(envelope.outputs.contains { $0.path == result.payloadURL.path && $0.checksumSHA256 != nil })
         XCTAssertTrue(envelope.outputs.contains { $0.path == finalMetadataURL.path && $0.fileSize != nil })
@@ -93,7 +95,7 @@ final class FASTQAutoBundleWorkflowTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sourceSidecarURL.path))
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(envelope.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
         XCTAssertTrue(envelope.steps[0].outputs.contains { $0.path == result.payloadURL.path })
         XCTAssertTrue(envelope.steps[0].durableReplayArgv?.contains(result.payloadURL.path) == true)
         XCTAssertTrue(envelope.steps[1].outputs.contains { $0.path == bundleURL.path })
