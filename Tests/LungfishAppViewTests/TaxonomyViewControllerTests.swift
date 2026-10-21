@@ -1473,6 +1473,86 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
             "DB-backed TaxTriage view must wire BLAST verification"
         )
     }
+
+    /// Lane 13.68 (TT-EXTRACT-NOTICE, review Fix 1). The viewer's `onExtractReadsRequested` closure reads
+    /// `extractReadsSelectionSummary` and hands the row count and the left-out line to the dialog. Both
+    /// arguments of `presentClassifierExtractionDialog` default to nil, so a closure that drops them still
+    /// compiles and the dialog counts selectors again. This test calls the closure that the viewer wired.
+    func testDisplayTaxTriageFromDatabase_extractCallbackHandsTheRowCountToTheDialog() throws {
+        let viewerVC = ViewerViewController()
+        _ = viewerVC.view
+        // The dialog opens only from a viewer in a window, since `presentClassifierExtractionDialog` returns
+        // at its `guard let window = view.window`.
+        let window = NSWindow(contentViewController: viewerVC)
+        defer { withExtendedLifetime(window) {} }
+
+        let dir = try makeTempDir(prefix: "TaxTriageDB")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("taxtriage.sqlite")
+        let row = TaxTriageTaxonomyRow(
+            sample: "s1",
+            organism: "Influenza A virus",
+            taxId: 11320,
+            status: nil,
+            tassScore: 0.95,
+            readsAligned: 56,
+            uniqueReads: 56,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: nil,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: nil,
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: "minimap2/s1.bam",
+            bamIndexPath: "minimap2/s1.bam.bai",
+            primaryAccession: "NC_123456.1",
+            accessionLength: 1234
+        )
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
+
+        viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
+
+        let controller = try XCTUnwrap(viewerVC.taxTriageViewController)
+        let action = TaxonomyReadExtractionAction.shared
+        let priorCaptureOnly = action.testingCaptureOnly
+        let priorCapture = action.testingCapture
+        action.testingCaptureOnly = true
+        action.testingCapture = TaxonomyReadExtractionAction.TestingCapture()
+        defer {
+            action.testingCaptureOnly = priorCaptureOnly
+            action.testingCapture = priorCapture
+        }
+        let selector = ClassifierRowSelector(sampleId: "S1", accessions: ["NC_123456.1"], taxIds: [])
+        controller.onExtractReadsRequested?(.taxtriage, dir, [selector], "taxtriage_S1_NC_123456.1")
+
+        XCTAssertEqual(action.testingCapture.presentCount, 1)
+        let summary = controller.extractReadsSelectionSummary
+        XCTAssertEqual(
+            action.testingCapture.lastContext?.selectedRowCount, summary.rowCount,
+            "the viewer closure must pass the row count on, nil means it dropped the argument"
+        )
+        XCTAssertEqual(action.testingCapture.lastContext?.leftOutNotice, summary.leftOutNotice)
+    }
 }
 
 // MARK: - Taxonomy Layout Preference Tests
