@@ -690,7 +690,7 @@ public final class TaxonomyReadExtractionAction {
 
         let provenance = ExtractionFileProvenance(
             workflowName: "lungfish app classifier read extraction",
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             argv: argv,
             explicitOptions: explicitOptions,
             defaults: [
