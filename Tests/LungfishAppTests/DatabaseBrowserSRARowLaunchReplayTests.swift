@@ -66,7 +66,7 @@ final class DatabaseBrowserSRARowLaunchReplayTests: XCTestCase {
         XCTAssertEqual(try lines.map { try RecordedCLICommand.arguments(of: $0) }, expected)
 
         // The first child is launched with the arguments of the first line.
-        let reached = await waitUntil(timeout: .seconds(60)) { Self.launchedLines(launches).count >= 1 }
+        let reached = await waitUntil(budget: .lookup) { Self.launchedLines(launches).count >= 1 }
         XCTAssertTrue(reached, "the route launched the CLI")
         XCTAssertEqual(Self.launchedLines(launches), [expected[0].joined(separator: " ")])
 

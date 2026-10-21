@@ -108,7 +108,7 @@ final class AlignmentReadRowReplayTests: XCTestCase {
     private func endedRow(titled title: String, _ launch: () -> Void) async throws -> OperationCenter.Item {
         let known = Set(OperationCenter.shared.items.map(\.id))
         launch()
-        await waitUntil(timeout: .seconds(60)) {
+        await waitUntil(budget: .lookup) {
             OperationCenter.shared.items.contains { !known.contains($0.id) && $0.title == title && !$0.state.isActive }
         }
         return try XCTUnwrap(OperationCenter.shared.items.first { !known.contains($0.id) && $0.title == title }, "no row \(title)")

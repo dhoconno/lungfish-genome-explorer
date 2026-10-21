@@ -263,7 +263,7 @@ final class ProvenanceLegacyDisplayTests: XCTestCase {
     ) async throws -> ProvenanceInspectorViewModel {
         let model = ProvenanceInspectorViewModel()
         model.load(item: item)
-        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
+        let finished = await waitUntil(budget: .lookup) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.", file: file, line: line)
 
         // These guard the expected file: a lookup that found nothing must not be pinned.

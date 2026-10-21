@@ -213,7 +213,7 @@ final class RenamedClassifierBatchRoutingTests: XCTestCase {
             defer { window.contentViewController = nil }
             controller.displayContent(for: item)
 
-            let opened = await waitUntil(timeout: .seconds(60)) {
+            let opened = await waitUntil(budget: .lookup) {
                 controller.viewerController.genotypeResultViewController != nil
             }
             XCTAssertTrue(opened, "\(tool) must open the genotype viewer")

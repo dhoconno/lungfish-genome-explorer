@@ -197,7 +197,7 @@ final class ReadTimeWriteTests: XCTestCase {
         split.displayContent(for: item)
 
         XCTAssertNotNil(split.fastqLoadTask, "The target of the link gained a read, so the statistics are computed again.")
-        let finished = await waitUntil(timeout: .seconds(60)) { split.fastqLoadTask == nil }
+        let finished = await waitUntil(budget: .lookup) { split.fastqLoadTask == nil }
         XCTAssertTrue(finished, "The second computation did not finish.")
         withExtendedLifetime(delegate) {}
     }
@@ -229,7 +229,7 @@ final class ReadTimeWriteTests: XCTestCase {
         split.displayContent(for: item)
 
         XCTAssertNotNil(split.fastqLoadTask, "The payload is a different file of the same size and date, so the statistics are computed again.")
-        let finished = await waitUntil(timeout: .seconds(60)) { split.fastqLoadTask == nil }
+        let finished = await waitUntil(budget: .lookup) { split.fastqLoadTask == nil }
         XCTAssertTrue(finished, "The second computation did not finish.")
         withExtendedLifetime(delegate) {}
     }
@@ -399,7 +399,7 @@ final class ReadTimeWriteTests: XCTestCase {
     /// schedules the search index.
     private func open(_ project: URL, in windowController: MainWindowController) async throws {
         windowController.mainSplitViewController.sidebarController.openProject(at: project)
-        let indexed = await waitUntil(timeout: .seconds(60)) {
+        let indexed = await waitUntil(budget: .lookup) {
             let stats = try? await UniversalProjectSearchService.shared.indexStats(projectURL: project)
             return (stats?.entityCount ?? 0) > 0
         }
@@ -415,7 +415,7 @@ final class ReadTimeWriteTests: XCTestCase {
             "The sidebar scan has no row for \(bundle.lastPathComponent)."
         )
         split.displayContent(for: item)
-        let shown = await waitUntil(timeout: .seconds(60)) {
+        let shown = await waitUntil(budget: .lookup) {
             switch item.type {
             case .referenceBundle:
                 return split.viewerController.referenceBundleViewportController?

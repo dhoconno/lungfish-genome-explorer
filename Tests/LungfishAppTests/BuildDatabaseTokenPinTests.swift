@@ -130,7 +130,7 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
 
         trigger(controller)
 
-        let finished = await waitUntil(timeout: .seconds(60)) {
+        let finished = await waitUntil(budget: .lookup) {
             (try? String(contentsOf: self.recordURL, encoding: .utf8))?.contains("--end--\n") == true
         }
         XCTAssertTrue(finished, "the build never started lungfish-cli")

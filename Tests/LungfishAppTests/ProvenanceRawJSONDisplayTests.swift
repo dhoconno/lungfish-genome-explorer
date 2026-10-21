@@ -185,7 +185,7 @@ final class ProvenanceRawJSONDisplayTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: "Large"
         ))
-        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
+        let finished = await waitUntil(budget: .lookup) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         return model
     }
@@ -275,7 +275,7 @@ final class ProvenanceRawJSONDisplayTests: XCTestCase {
         model.load(item: ProvenanceInspectableItem(
             url: folder, sidebarType: .analysisResult, contentMode: .genomics, displayName: "Result"
         ))
-        let finished = await waitUntil(timeout: .seconds(60)) { !model.isLoading }
+        let finished = await waitUntil(budget: .lookup) { !model.isLoading }
         XCTAssertTrue(finished, "The provenance lookup did not finish.")
         XCTAssertNotNil(model.resolvedEnvelope, "The record was found.")
         return model

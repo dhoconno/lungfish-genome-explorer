@@ -153,7 +153,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
 
         viewer.presentAlignmentConsensusGeneration()
 
-        await waitUntil(timeout: .seconds(60)) { self.dialog != nil || self.rows(after: known).contains { !$0.state.isActive } }
+        await waitUntil(budget: .lookup) { self.dialog != nil || self.rows(after: known).contains { !$0.state.isActive } }
         if let host = dialog {
             switch choice {
             case .cancelTheDialog:
@@ -164,7 +164,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
             }
         }
         if expectRow {
-            await waitUntil(timeout: .seconds(60)) { self.rows(after: known).contains { !$0.state.isActive } }
+            await waitUntil(budget: .lookup) { self.rows(after: known).contains { !$0.state.isActive } }
         } else {
             await waitUntil(timeout: .seconds(10)) { self.window.attachedSheet == nil }
             try await Task.sleep(for: .milliseconds(500))

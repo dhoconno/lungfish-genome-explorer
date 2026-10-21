@@ -1172,7 +1172,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         viewModel.load(item: item)
         viewModel.load(item: item)
         viewModel.load(item: item)
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
         viewModel.load(item: item)
 
         XCTAssertFalse(viewModel.isLoading, "a finished lookup of the same item does not start again")
@@ -1218,7 +1218,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         viewModel.load(item: ProvenanceInspectableItem(
             url: notes, sidebarType: nil, contentMode: .empty, displayName: "readme.txt"
         ))
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
         await gate.release()
         _ = await superseded.value
 
@@ -1248,13 +1248,13 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
 
         viewModel.load(item: item)
         XCTAssertEqual(readyCalls, 0, "starting a lookup announces nothing")
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
         XCTAssertEqual(readyCalls, 1)
 
         var sameOpen = item
         sameOpen.contentMode = .metagenomics
         viewModel.load(item: sameOpen)
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
         XCTAssertEqual(readyCalls, 1)
         XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
     }
@@ -1276,10 +1276,10 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
 
         viewModel.load(item: item)
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
         index.invalidate([analysis.appendingPathComponent(".lungfish-provenance.json")])
         viewModel.load(item: item)
-        await waitUntil(timeout: .seconds(60)) { !viewModel.isLoading }
+        await waitUntil(budget: .lookup) { !viewModel.isLoading }
 
         XCTAssertEqual(lookups.value, 2)
         XCTAssertEqual(viewModel.lineageRuns.map(\.title), ["lungfish import fastq", "lungfish map"])
