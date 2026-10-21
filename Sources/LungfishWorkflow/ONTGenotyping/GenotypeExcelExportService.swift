@@ -231,7 +231,8 @@ public struct GenotypeExcelExportService: Sendable {
         }
         let runtime = try JSONSerialization.jsonObject(with: runtimeData)
         let record: [String: Any] = [
-            "schemaVersion": 1, "workflowName": provenance.workflowName, "toolName": "lungfish genotype Excel export",
+            "schemaVersion": 1, "workflowName": Self.receiptWorkflowName, "requestWorkflowName": provenance.workflowName,
+            "toolName": CLICommandIdentity.executableName, "toolKind": Self.receiptToolKind,
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
             "durableReplayArgv": replayArgv, "replayCommand": replayArgv.map(Self.shellQuote).joined(separator: " "),
             "options": provenance.options, "resolvedDefaults": provenance.defaults,
@@ -276,6 +277,25 @@ public struct GenotypeExcelExportService: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(value)
+    }
+
+    /// The workflow every workbook receipt names, the `lungfish-cli` leaf whose durable replay the receipt carries.
+    /// The command that writes a workbook is that leaf even when the app runs it (ARCH-12.35-B1), so the receipt names
+    /// tool ``CLICommandIdentity/executableName`` with kind `cli`, and keeps the caller's workflow as
+    /// `requestWorkflowName` (Phase 2.13 lane 13.51).
+    public static let receiptWorkflowName = (["lungfish"] + GenotypeWorkbookExport.commandPath).joined(separator: " ")
+    /// The tool kind every workbook receipt names.
+    public static let receiptToolKind = "cli"
+    /// The tool name of a workbook receipt written before Phase 2.13 lane 13.51. Readers still accept it.
+    public static let legacyReceiptToolName = "lungfish genotype Excel export"
+
+    /// Whether `receipt` is a workbook receipt this service writes, in its current shape or in the shape before
+    /// Phase 2.13 lane 13.51.
+    public static func isWorkbookReceipt(_ receipt: [String: Any]) -> Bool {
+        let toolName = receipt["toolName"] as? String
+        if toolName == legacyReceiptToolName { return true }
+        return toolName == CLICommandIdentity.executableName && receipt["toolKind"] as? String == receiptToolKind
+            && receipt["workflowName"] as? String == receiptWorkflowName
     }
 
     private func verify(_ inputs: [InputWitness]) throws {
