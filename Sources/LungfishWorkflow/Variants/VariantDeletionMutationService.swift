@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishCore
 
 package struct VariantDeletionMutationTarget: Sendable, Equatable {
     let trackId: String
@@ -237,7 +238,7 @@ package struct VariantDeletionMutationService {
             }
         )
         let step = ProvenanceStep(
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -253,7 +254,7 @@ package struct VariantDeletionMutationService {
         var builder = ProvenanceRunBuilder(
             workflowName: kind.workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
