@@ -10,6 +10,7 @@
 import CryptoKit
 import XCTest
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishIO
 
@@ -18,13 +19,11 @@ final class TaxonomyMetadataCacheRefreshTests: XCTestCase {
     private var scratch: URL!
 
     override func setUp() async throws {
-        scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TaxonomyMetadataCache-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        scratch = try TestTempDirectory.make(prefix: "TaxonomyMetadataCache")
     }
 
     override func tearDown() async throws {
-        try? FileManager.default.removeItem(at: scratch)
+        TestTempDirectory.cleanup(scratch)
     }
 
     private static let samples = ["sample-A", "sample-B"]

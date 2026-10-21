@@ -6,19 +6,18 @@
 // `kraken2 export table` leaf can choose between its two stale-database messages with it.
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class Kraken2ReportsAvailableTests: XCTestCase {
     private var folder: URL!
 
     override func setUpWithError() throws {
-        folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Kraken2ReportsAvailable-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        folder = try TestTempDirectory.make(prefix: "Kraken2ReportsAvailable")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: folder)
+        TestTempDirectory.cleanup(folder)
     }
 
     private func manifest(sampleFolders: [String]) -> ClassificationBatchResultManifest {
