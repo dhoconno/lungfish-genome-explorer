@@ -416,6 +416,93 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
         XCTAssertEqual(try runCommand(["/bin/sh", relocatedReplay.path, root.appendingPathComponent("replayed.xlsx").path]), 0)
     }
 
+    private func relocationFixtureSnapshot() throws -> GenotypeWorkbookPresentation.Snapshot {
+        try GenotypeExcelSnapshotBuilder.capture(result: GenotypeTestFixtures.makeResult(calls: []),
+            sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil,
+            generatedAt: timestamp, authority: .init(analysis: nil))
+    }
+
+    /// A bundle exported before Phase 2.13 lane 13.51 holds a receipt in the older shape, tool `lungfish genotype Excel
+    /// export` with no kind and no request workflow. It still relocates, and its replay still runs.
+    func testRelocateReportsStillRelocatesAReceiptInTheOlderShape() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lge-older-receipt-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        let final = root.appendingPathComponent("final")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
+            snapshot: try relocationFixtureSnapshot(), outputURL: source.appendingPathComponent("report.xlsx"),
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]),
+            commandPath: GenotypeWorkbookExport.commandPath)
+        var receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: export.receiptURL)) as? [String: Any])
+        receipt["toolName"] = GenotypeExcelExportService.legacyReceiptToolName
+        receipt["workflowName"] = "genotype.export.excel"
+        receipt.removeValue(forKey: "toolKind")
+        receipt.removeValue(forKey: "requestWorkflowName")
+        try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]).write(to: export.receiptURL)
+        XCTAssertNoThrow(try GenotypeExcelExportService.relocateReports(in: source,
+            from: source.resolvingSymlinksInPath(), to: final))
+        try FileManager.default.moveItem(at: source, to: final)
+        let relocated = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: final.appendingPathComponent("report.xlsx.provenance.json"))) as? [String: Any])
+        XCTAssertEqual(relocated["toolName"] as? String, GenotypeExcelExportService.legacyReceiptToolName)
+        XCTAssertEqual(relocated["workflowName"] as? String, "genotype.export.excel")
+        let relocatedReplay = final.appendingPathComponent(String(export.replayScriptURL.path.dropFirst(source.path.count + 1)))
+        XCTAssertEqual(try runCommand(["/bin/sh", relocatedReplay.path, root.appendingPathComponent("replayed.xlsx").path]), 0)
+    }
+
+    /// A `lungfish-cli` record with no `requestWorkflowName` is not a workbook receipt, so relocation leaves it alone.
+    func testRelocateReportsLeavesALungfishCLIRecordWithoutARequestWorkflowAlone() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lge-other-cli-record-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
+            snapshot: try relocationFixtureSnapshot(), outputURL: source.appendingPathComponent("report.xlsx"),
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]),
+            commandPath: GenotypeWorkbookExport.commandPath)
+        var receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: export.receiptURL)) as? [String: Any])
+        receipt.removeValue(forKey: "requestWorkflowName")
+        try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]).write(to: export.receiptURL)
+        let before = try Data(contentsOf: export.receiptURL)
+        XCTAssertNoThrow(try GenotypeExcelExportService.relocateReports(in: source,
+            from: source.resolvingSymlinksInPath(), to: root.appendingPathComponent("final")))
+        XCTAssertEqual(try Data(contentsOf: export.receiptURL), before)
+    }
+
+    /// The receipt's workflow is `lungfish` and the command path the caller states, the request's own workflow stays
+    /// `requestWorkflowName`, and an empty command path is refused (Phase 2.13 lane 13.51, MD77).
+    func testReceiptWorkflowIsTheCommandPathTheCallerStates() async throws {
+        let root = URL(fileURLWithPath: "/tmp/lge-receipt-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshot = try relocationFixtureSnapshot()
+        let service = GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli())
+        let callers: [(path: [String], request: String)] = [
+            (["genotype", "export-pivot-xlsx"], "genotype.export.pivot-xlsx"),
+            (["fastq", "genotype"], "genotype.pipeline.excel"),
+        ]
+        for caller in callers {
+            let export = try await service.export(
+                snapshot: snapshot, outputURL: root.appendingPathComponent("\(caller.path.last ?? "report").xlsx"),
+                provenance: .init(workflowName: caller.request, toolVersion: "test", argv: ["lungfish-cli"] + caller.path),
+                commandPath: caller.path)
+            let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: export.receiptURL)) as? [String: Any])
+            XCTAssertEqual(receipt["workflowName"] as? String, "lungfish " + caller.path.joined(separator: " "))
+            XCTAssertEqual(receipt["requestWorkflowName"] as? String, caller.request)
+            XCTAssertEqual(receipt["toolName"] as? String, CLICommandIdentity.executableName)
+            XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt(receipt))
+        }
+        let refused = root.appendingPathComponent("empty.xlsx")
+        do {
+            _ = try await service.export(snapshot: snapshot, outputURL: refused,
+                provenance: .init(toolVersion: "test", argv: ["lungfish-cli"]), commandPath: [])
+            XCTFail("an empty command path must be refused")
+        } catch {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: refused.path))
+        }
+    }
+
     func testSnapshotCLIRequiresOneSourceAndExplicitReplayInputs() throws {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-invalid-replay-\(UUID().uuidString).xlsx")
         for options in [[], ["--bundle", "bundle", "--snapshot", "snapshot"],
