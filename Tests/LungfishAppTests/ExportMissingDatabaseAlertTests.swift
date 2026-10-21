@@ -191,6 +191,47 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
         assertNothingStarted(nil, rowsBefore: OperationCenter.shared.items.count, folder: folder)
     }
 
+    private static func taxTriageRow() -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: "sample-1", organism: "Alpha virus", taxId: 1001, status: nil, tassScore: 0.9,
+            readsAligned: 10, uniqueReads: 5, pctReads: nil, pctAlignedReads: nil,
+            coverageBreadth: 50, meanCoverage: nil, meanDepth: nil, confidence: "High",
+            k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
+            mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
+            k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil, hhsPercentile: nil,
+            isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
+            isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil, bamPath: nil,
+            bamIndexPath: nil, primaryAccession: "NC_1001", accessionLength: 1000
+        )
+    }
+
+    /// A TaxTriage viewer in a window with its one sample picked. It opened from a database that sits in another
+    /// folder, so the result folder it exports from holds no database, the shape the NVD test above uses.
+    private func makeTaxTriageViewWithoutItsDatabase(
+        _ name: String
+    ) throws -> (vc: TaxTriageResultViewController, window: NSWindow, presenter: RecordingExportFailurePresenter, folder: URL) {
+        let folder = try makeFolder(name)
+        let databaseURL = try makeFolder("\(name)-database").appendingPathComponent("taxtriage.sqlite")
+        _ = try TaxTriageDatabase.create(at: databaseURL, rows: [Self.taxTriageRow()], metadata: ["tool": "taxtriage"])
+        let vc = TaxTriageResultViewController()
+        let window = host(vc)
+        let presenter = RecordingExportFailurePresenter()
+        vc.exportFailurePresenter = presenter
+        vc.configureFromDatabase(try TaxTriageDatabase(at: databaseURL), resultURL: folder)
+        XCTAssertEqual(vc.sampleIds, ["sample-1"], "a sample is picked, so only the database is missing")
+        return (vc, window, presenter, folder)
+    }
+
+    func testTaxTriageOrganismMatrixExportStopsWithOneAlertWhenTheDatabaseIsGone() throws {
+        let (vc, window, presenter, folder) = try makeTaxTriageViewWithoutItsDatabase("taxtriage-matrix-gone")
+        let rowsBefore = OperationCenter.shared.items.count
+
+        _ = vc.perform(NSSelectorFromString("exportBatchMatrixAction:"), with: vc)
+
+        assertOneAlert(presenter.alerts, tool: "TaxTriage")
+        assertNothingStarted(window, rowsBefore: rowsBefore, folder: folder)
+    }
+
     func testKraken2CheckShowsOneAlertWhenTheSourceFileIsGone() throws {
         let folder = try makeFolder("kraken2-gone")
         let vc = TaxonomyViewController()

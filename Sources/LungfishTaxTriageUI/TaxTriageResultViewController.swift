@@ -3307,7 +3307,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// (`beginTaxTriageOrganismMatrixExportOperation`). The leaf reads no `--sample` as every sample, so an empty
     /// Sample Filter returns before the save panel.
     @objc private func exportBatchMatrixAction(_ sender: Any) {
-        guard let window = view.window, !exportSelectedSampleIds().isEmpty else { return }
+        guard let window = view.window, !exportSelectedSampleIds().isEmpty, exportDatabaseIsPresent(in: window) else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Organism Matrix",
