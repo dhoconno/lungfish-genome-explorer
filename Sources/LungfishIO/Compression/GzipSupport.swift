@@ -160,7 +160,11 @@ public final class GzipInputStream: Sendable {
     ///
     /// This is intended for high-volume parsers that can operate on bytes and
     /// should avoid allocating one `String` per input line.
-    func forEachDecompressedChunk(
+    ///
+    /// gzip runs on ToolProcess, so a caller in another module reads a gzip file in chunks without a `Process` of its
+    /// own. Throws ``GzipError`` for a file that is not gzip, a gzip that cannot start and a run that exits nonzero,
+    /// and `CancellationError` when the task is cancelled.
+    public func forEachDecompressedChunk(
         chunkSize: Int = 1_048_576,
         _ body: (Data) throws -> Void
     ) throws {
