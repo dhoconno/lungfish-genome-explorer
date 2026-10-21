@@ -332,8 +332,8 @@ extension AnnotationTableExportPinTests {
         XCTAssertEqual(String(decoding: try export(snapshot, format: .tsv), as: UTF8.self), tsv, file: file, line: line)
     }
 
-    /// XLSX holds a zip archive whose entry times follow the clock, so the pin reads the sheet, not the bytes.
-    /// JSON is the table encoded with sorted keys.
+    /// XLSX holds a zip archive that is byte-stable since lane 13.50, so the pin reads the bytes. JSON is the table
+    /// encoded with sorted keys.
     func assertWorkbookAndJSON(
         _ snapshot: AnnotationTableExportSnapshot, file: StaticString = #filePath, line: UInt = #line
     ) throws {
@@ -341,26 +341,11 @@ extension AnnotationTableExportPinTests {
         XCTAssertEqual(Array(workbook.prefix(2)), Array("PK".utf8), file: file, line: line)
         let reference = root.appendingPathComponent("reference-\(UUID().uuidString).xlsx")
         try ScientificTableWriter.write(snapshot.table, format: .xlsx, to: reference)
-        let written = root.appendingPathComponent("written-\(UUID().uuidString).xlsx")
-        try workbook.write(to: written)
-        XCTAssertEqual(try Self.sheet(of: written), try Self.sheet(of: reference), file: file, line: line)
+        XCTAssertEqual(workbook, try Data(contentsOf: reference), file: file, line: line)
 
         let json = try export(snapshot, format: .json)
         let decoded = try JSONDecoder().decode(ScientificTableData.self, from: json)
         XCTAssertEqual(decoded, snapshot.table, file: file, line: line)
         XCTAssertEqual(json.last, 0x0A, file: file, line: line)
-    }
-
-    static func sheet(of workbook: URL) throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-p", workbook.path, "xl/worksheets/sheet1.xml"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
-        return data
     }
 }

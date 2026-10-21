@@ -87,7 +87,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         try FileManager.default.copyItem(at: file, to: target)
     }
 
-    /// Runs the case on its three sides and checks it as 1.7 reads it, with R4's compare for xlsx.
+    /// Runs the case on its three sides and checks it as 1.7 reads it.
     @discardableResult
     func assertParity(_ parityCase: Case) async throws -> RouteParityRuns {
         let runs = try await harness.run(
@@ -108,8 +108,8 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         for side in RouteParitySide.allCases {
             XCTAssertEqual(found[.side(side)]?.map(\.description) ?? [], [], "\(parityCase) side \(side) names no other side's root")
         }
-        let cAgainstCPrime = (found[.cAgainstCPrime] ?? []).filter { !Self.variesWithTheArchive($0, parityCase) }
-        XCTAssertEqual(cAgainstCPrime.map(\.description), [], "\(parityCase) C against C' differs in nothing outside R4's mask")
+        let cAgainstCPrime = found[.cAgainstCPrime] ?? []
+        XCTAssertEqual(cAgainstCPrime.map(\.description), [], "\(parityCase) C against C' differs in nothing")
         try assertSameOutput(runs.c, runs.cPrime, parityCase, "\(parityCase) C against C'")
         XCTAssertEqual(
             Self.inputs(of: try Self.envelope(in: runs.c.root, parityCase), under: runs.c.root),
@@ -121,31 +121,13 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         return runs
     }
 
-    /// R4 items 1 and 2. An xlsx export's payload, its record's digest and size of it, and `xlsxArchiveArgv` follow
-    /// the moment and the temporary name of the archive, so they are compared by `assertXLSXEntriesEqual` or masked.
-    private static func variesWithTheArchive(_ difference: RouteParityDifference, _ parityCase: Case) -> Bool {
-        guard parityCase.format == .xlsx else { return false }
-        let output = outputURL(in: URL(fileURLWithPath: "/"), .xlsx)
-        let sidecarName = ProvenanceRecorder.fileSidecarURL(for: output).lastPathComponent
-        if difference.id.contains(sidecarName) {
-            return difference.id.hasSuffix("checksumSHA256") || difference.id.hasSuffix("fileSize")
-                || difference.id.contains("xlsxArchiveArgv")
-        }
-        return difference.id.contains(output.lastPathComponent)
-    }
-
-    /// The payload and the record's output facts of two sides, byte for byte with digest and size, or for xlsx entry
-    /// by entry (R4 item 1).
+    /// The payload and the record's output facts of two sides, byte for byte with digest and size.
     private func assertSameOutput(_ first: RouteParitySideRun, _ second: RouteParitySideRun, _ parityCase: Case, _ label: String) throws {
         let outputFirst = Self.outputURL(in: first.root, parityCase.format)
         let outputSecond = Self.outputURL(in: second.root, parityCase.format)
         let recordFirst = try XCTUnwrap(try Self.envelope(of: outputFirst).output)
         let recordSecond = try XCTUnwrap(try Self.envelope(of: outputSecond).output)
         XCTAssertNotNil(recordFirst.checksumSHA256)
-        if parityCase.format == .xlsx {
-            try Self.assertXLSXEntriesEqual(outputFirst, outputSecond, label)
-            return
-        }
         let payloadFirst = try Data(contentsOf: outputFirst)
         XCTAssertEqual(payloadFirst, try Data(contentsOf: outputSecond), "\(label), the payload byte for byte")
         XCTAssertEqual(recordFirst.fileSize, UInt64(payloadFirst.count), label)
@@ -153,7 +135,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         XCTAssertEqual(recordFirst.checksumSHA256, recordSecond.checksumSHA256, "\(label), the output digest")
     }
 
-    /// R4 item 1. The sorted entry names are equal and each entry's bytes are equal, `xl/workbook.xml` among them.
+    /// Lane 13.50. The sorted entry names are equal and each entry's bytes are equal, `xl/workbook.xml` among them.
     static func assertXLSXEntriesEqual(_ first: URL, _ second: URL, _ label: String) throws {
         let names = try zipEntryNames(first)
         XCTAssertTrue(names.contains("xl/workbook.xml") && names.contains("xl/worksheets/sheet1.xml"), "\(label) \(names)")
@@ -186,7 +168,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     private func assertAEqualsC(_ runs: RouteParityRuns, _ parityCase: Case) throws {
         let sidecarName = ProvenanceRecorder.fileSidecarURL(for: Self.outputURL(in: runs.a.root, parityCase.format)).lastPathComponent
         let others = try harness.differences(runs.a, runs.c).filter {
-            !$0.id.contains(sidecarName) && !$0.id.contains(".lungfish-export-inputs") && !Self.variesWithTheArchive($0, parityCase)
+            !$0.id.contains(sidecarName) && !$0.id.contains(".lungfish-export-inputs")
         }
         XCTAssertEqual(others.map(\.description), [], "\(parityCase) only the record and the inputs folder may differ between A and C")
         try assertSameOutput(runs.a, runs.c, parityCase, "\(parityCase) A against C")
@@ -202,9 +184,8 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         XCTAssertEqual(selections.map { ($0 as NSString).lastPathComponent }, ["selection.json"], "\(parityCase)")
         XCTAssertTrue(allC.values.allSatisfy { $0 != "no digest" }, "\(parityCase) every input has its digest")
 
-        let masked = parityCase.format == .xlsx ? ["xlsxArchiveArgv"] : []
-        let resolvedA = a.options.resolvedDefaults.filter { !(masked + ["replayScope", "replaysUpstreamAnalysis"]).contains($0.key) }
-        let resolvedC = c.options.resolvedDefaults.filter { !masked.contains($0.key) }
+        let resolvedA = a.options.resolvedDefaults.filter { !["replayScope", "replaysUpstreamAnalysis"].contains($0.key) }
+        let resolvedC = c.options.resolvedDefaults
         XCTAssertEqual(resolvedA, resolvedC, "\(parityCase) every resolved key the leaf writes")
         XCTAssertEqual(a.options.defaults, c.options.defaults, "\(parityCase) defaults")
     }

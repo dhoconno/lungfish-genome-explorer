@@ -25,10 +25,9 @@
 // report (BIO 7), pinned by `assertPredictedRecordChanges`. Nothing is declared, so the old writer goes with no key
 // (R-A1, C4).
 //
-// R4. An XLSX archive stores the entry times of the moment it was written under a fresh temporary name, so for xlsx
-// the output's digest and size are replaced by `assertXLSXEntriesEqual` (every entry name and every entry's bytes),
-// and `xlsxArchiveArgv` is a masked run-varying key in both compares. `testXLSXArchiveArgvIsTheOnlyRunVaryingKey`
-// shows it is the only one.
+// R4 closed by lane 13.50. An XLSX archive is byte-stable (fixed entry times, `zip -X`, a fixed name and a fixed entry
+// order), so xlsx is compared like every other format and no key is masked. `testNoResolvedKeyVariesBetweenTwoXLSXExports`
+// shows that two exports of one table give equal records, equal bytes and one digest.
 //
 // Every case root sits four folders below the scratch folder, so no record's sidecar lookup lists the user temporary
 // folder (12.31 M4). The cancel runs through the real transport, as the GFF3 class runs it (ARCH ruling 1.6, X14).
@@ -214,26 +213,45 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output), try Data(contentsOf: reference))
     }
 
-    /// R4 item 3. Two runs of side C to two outputs differ in no `resolved` key but `xlsxArchiveArgv`, and the two
-    /// argvs differ only at index 3, the archive path.
-    func testXLSXArchiveArgvIsTheOnlyRunVaryingKey() async throws {
+    /// Lane 13.50 (X10). Two runs of side C to two outputs differ in no `resolved` key, the two outputs are equal in
+    /// bytes and in the digest their records hold, `xlsxArchiveArgv` is the constant list, and one unzip shows each
+    /// part of the leaf's archive equal to the part the writer makes for the same table (those parts are the base's,
+    /// which `ScientificTableWriterArchivePinTests` pins). The second run starts more than 2 seconds after the first,
+    /// the resolution of a ZIP entry time.
+    func testNoResolvedKeyVariesBetweenTwoXLSXExports() async throws {
         let root = deepRoot("xlsx-twice")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Self.makeFixture(root)
         var resolved: [[String: ParameterValue]] = []
+        var digests: [String?] = []
         for name in ["first.xlsx", "second.xlsx"] {
+            if !resolved.isEmpty { try await Task.sleep(nanoseconds: 2_100_000_000) }
             let output = root.appendingPathComponent(name)
             let run = try await runC(root, try Self.collect(.variants, in: root), format: .xlsx, output: output)
             XCTAssertTrue(run.completed, run.detail)
-            resolved.append(try Self.envelope(of: output).options.resolvedDefaults)
+            let envelope = try Self.envelope(of: output)
+            resolved.append(envelope.options.resolvedDefaults)
+            digests.append(try XCTUnwrap(envelope.output).checksumSHA256)
         }
-        XCTAssertEqual(resolved[0].filter { $0.key != "xlsxArchiveArgv" }, resolved[1].filter { $0.key != "xlsxArchiveArgv" })
-        guard case .array(let first)? = resolved[0]["xlsxArchiveArgv"], case .array(let second)? = resolved[1]["xlsxArchiveArgv"] else {
-            return XCTFail("an xlsx record names its archive argv")
-        }
-        XCTAssertEqual(first.count, second.count)
-        XCTAssertEqual(zip(first, second).enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset), [3])
+        XCTAssertEqual(resolved[0], resolved[1], "no resolved key varies between two exports")
+        XCTAssertNotNil(digests[0])
+        XCTAssertEqual(digests[0], digests[1], "both records hold one output digest")
+        let first = root.appendingPathComponent("first.xlsx")
+        let second = root.appendingPathComponent("second.xlsx")
+        XCTAssertEqual(try Data(contentsOf: first), try Data(contentsOf: second))
+        XCTAssertEqual(resolved[0]["xlsxArchiveArgv"], .array(Self.xlsxArchiveArgv.map { ParameterValue.string($0) }))
+
+        let reference = root.appendingPathComponent("reference.xlsx")
+        try ScientificTableWriter.write(try Self.collect(.variants, in: root).snapshot.table, format: .xlsx, to: reference)
+        try Self.assertXLSXEntriesEqual(first, reference, "the leaf's archive against the writer's")
     }
+
+    /// The archive argv a record names since lane 13.50, which is what `zip` ran in the parts folder.
+    private static let xlsxArchiveArgv = [
+        "/usr/bin/zip", "-X", "-q", "table.xlsx",
+        "[Content_Types].xml", "_rels/", "_rels/.rels", "xl/", "xl/_rels/", "xl/_rels/workbook.xml.rels",
+        "xl/styles.xml", "xl/workbook.xml", "xl/worksheets/", "xl/worksheets/sheet1.xml",
+    ]
 
     /// ARCH ruling on 12.39 R1 item 6 (the review of 12.39 B2, Fix 2). A selection whose feature count differs from
     /// the coding features the bundle gives is a failure, and the leaf says so in the ruling's words and writes
