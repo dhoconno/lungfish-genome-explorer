@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
@@ -69,7 +70,7 @@ final class FASTQIngestionProvenanceTests: XCTestCase {
                 && (output.fileSize ?? 0) > 0
         })
         let metadataStep = try XCTUnwrap(envelope.steps.last)
-        XCTAssertEqual(metadataStep.toolName, "lungfish-app fastq sample-sheet-metadata")
+        XCTAssertEqual(metadataStep.toolName, LungfishAppIdentity.recordedToolName)
         XCTAssertTrue(metadataStep.argv.contains(sampleSheetURL.path))
         XCTAssertTrue(metadataStep.inputs.contains { $0.path == sampleSheetURL.path })
         XCTAssertTrue(metadataStep.outputs.contains { $0.path == metadataURL.path })
@@ -79,6 +80,6 @@ final class FASTQIngestionProvenanceTests: XCTestCase {
         )
         let focusedEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: focusedSidecar))
         XCTAssertEqual(focusedEnvelope.output?.path, metadataURL.path)
-        XCTAssertEqual(focusedEnvelope.steps.last?.toolName, "lungfish-app fastq sample-sheet-metadata")
+        XCTAssertEqual(focusedEnvelope.steps.last?.toolName, LungfishAppIdentity.recordedToolName)
     }
 }

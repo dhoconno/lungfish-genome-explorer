@@ -54,7 +54,7 @@ final class ProvenanceEnvelopeCopySitesAppTests: XCTestCase {
                 site: "FASTQIngestionService:706", kind: kind, copy: copy,
                 keeping: source
             )
-            XCTAssertEqual(copy.steps.last?.toolName, "lungfish-app fastq sample-sheet-metadata")
+            XCTAssertEqual(copy.steps.last?.toolName, LungfishAppIdentity.recordedToolName)
             XCTAssertEqual(copy.steps.count, source.steps.count + 1)
         }
     }

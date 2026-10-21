@@ -561,7 +561,7 @@ public enum FASTQIngestionService {
         )
         let completedAt = metadataClock.now
         let metadataStep = ProvenanceStep(
-            toolName: "lungfish-app fastq sample-sheet-metadata",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: command,
             durableReplayArgv: command,
