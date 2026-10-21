@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishApp
 @testable import LungfishOperations
 @testable import LungfishWorkflow
@@ -65,7 +66,7 @@ final class NativeProjectCopyProvenanceTests: XCTestCase {
         let receipt = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: final.appendingPathComponent(ProvenanceRecorder.provenanceFilename)))
         XCTAssertEqual(receipt.output?.path, final.appendingPathComponent("fixture.txt").path)
         XCTAssertEqual(receipt.argv, argv)
-        XCTAssertTrue(receipt.steps.contains { $0.toolName == "lungfish-app" })
+        XCTAssertTrue(receipt.steps.contains { $0.toolName == LungfishAppIdentity.recordedToolName })
     }
 
     func testOpaqueNativeArchiveReceivesSidecarWithoutChangingArchiveBytes() throws {

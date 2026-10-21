@@ -36,7 +36,7 @@ package struct NativeCopyReceiptIdentity: Sendable, Equatable {
     static func appImportNative(
         source: URL, destination: URL, replaceExisting: Bool, copyMode: ParameterValue, sourceProjectURL: URL?
     ) -> NativeCopyReceiptIdentity {
-        var argv = ["Lungfish.app", "import-native", source.path, "--output", destination.path]
+        var argv = [LungfishAppIdentity.recordedToolName, "import-native", source.path, "--output", destination.path]
         var resolved: [String: ParameterValue] = ["source": .file(source), "destination": .file(destination),
             "replaceExisting": .boolean(replaceExisting), "copyMode": copyMode]
         if let sourceProjectURL {
@@ -44,7 +44,7 @@ package struct NativeCopyReceiptIdentity: Sendable, Equatable {
             resolved["sourceProject"] = .file(sourceProjectURL)
         }
         return NativeCopyReceiptIdentity(
-            workflowName: "Native document import", toolName: "lungfish-app", argv: argv, durableReplayArgv: nil,
+            workflowName: "Native document import", toolName: LungfishAppIdentity.recordedToolName, argv: argv, durableReplayArgv: nil,
             explicitOptions: ["source": .file(source), "destination": .file(destination)],
             defaultOptions: ["replaceExisting": .boolean(false)], resolvedOptions: resolved
         )
