@@ -7,6 +7,7 @@ import Synchronization
 import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishCLI
+import LungfishTestSupport
 
 /// Stand-ins for `tools update`, `conda install --pack` and `conda db update` (Phase 2.10 lane A52),
 /// whose real runs drive micromamba and gigabyte downloads. The leaf tests and the transcript
@@ -155,7 +156,7 @@ enum ManagedToolLeafFixtures {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: base)
         try await registry.loadIfNeeded()
         try writePayload(at: installed, marker: "old")
-        _ = try await registry.registerExisting(at: installed, name: "Viral")
+        _ = try await registry.seedRowThroughManifest(at: installed, name: "Viral")
         await registry.setArchiveInstallerForTesting { _, destination, progress in
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
             try writePayload(at: destination, marker: "new")

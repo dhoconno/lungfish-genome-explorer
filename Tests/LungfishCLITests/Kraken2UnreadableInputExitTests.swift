@@ -38,7 +38,7 @@ final class Kraken2UnreadableInputExitTests: XCTestCase {
             try Data("fixture".utf8).write(to: database.appendingPathComponent(name))
         }
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: location.databaseRootURL)
-        try await registry.registerExisting(at: database, name: "FixtureDB")
+        try await registry.seedRowThroughManifest(at: database, name: "FixtureDB")
         // The manifest of the full derivative stands, and its payload is gone.
         unreadable = fixtures.fullDerivative
         try FileManager.default.removeItem(at: unreadable.appendingPathComponent("reads.fastq"))

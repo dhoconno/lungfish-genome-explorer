@@ -57,7 +57,7 @@ final class ManagedToolLeavesLiveConformanceTests: XCTestCase {
             try "old".write(to: installed.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: databases)
-        let before = try await registry.registerExisting(at: installed, name: "Viral")
+        let before = try await registry.seedRowThroughManifest(at: installed, name: "Viral")
         // The folder was adopted without a receipt, so its row records no version. The equality on `version` at the
         // end then fails if the cancelled update wrote any version at all.
         XCTAssertNil(before.version, "an adopted folder records no version")
