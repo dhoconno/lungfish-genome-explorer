@@ -111,6 +111,7 @@ extension TaxTriageCLIGUIParityReplayTests {
         for side in sides {
             XCTAssertEqual(side.payloadHashes, TaxTriageParityRawBytes.pinnedPayloads[parityCase] ?? [:], "\(label), side \(side.side)'s payload hashes")
             XCTAssertFalse(side.records.isEmpty || side.records.contains { $0.size == 0 }, "\(label), side \(side.side) keeps its records")
+            XCTAssertFalse(side.records.contains { String(decoding: (try? Data(contentsOf: side.root.appendingPathComponent($0.path))) ?? Data(), as: UTF8.self).contains("b6-inherited") }, "\(label) side \(side.side): a record copied a variable of the shell")
             XCTAssertEqual(side.maskedRecordHashes, TaxTriageParityRawBytes.pinnedRecords[parityCase] ?? [:], "\(label), side \(side.side)'s record hashes")
         }
         XCTAssertEqual(sides[0].records.map(\.key), sides[1].records.map(\.key), "\(label), C and C' keep the same records")

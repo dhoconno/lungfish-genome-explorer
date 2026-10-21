@@ -61,13 +61,25 @@ extension TaxTriageParityHarness {
         }
         let script = engine.root.appendingPathComponent("cli-route", isDirectory: true)
             .appendingPathComponent(CLICommandIdentity.executableName)
-        let exports = engine.cliEnvironment.sorted { $0.key < $1.key }.map { "export \($0.key)=\(Self.shellQuoted($0.value))" }
+        // The shell's variables of 12.01 Fix 3 (B6) reach the CLI on this route too, whatever the app's transport inherits.
+        let exported = engine.cliEnvironment.merging(Self.inheritedShellVariables) { _, shellValue in shellValue }
+        let exports = exported.sorted { $0.key < $1.key }.map { "export \($0.key)=\(Self.shellQuoted($0.value))" }
         let text = (["#!/bin/sh"] + exports + ["exec \(Self.shellQuoted(cliBinary.path)) \"$@\""]).joined(separator: "\n") + "\n"
         try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return script
     }
+
+    /// 12.01 Fix 3 (B6). Variables of the shell that no record may copy, with the values of
+    /// `NativeRecordCLIWriterFactsTests.inherited`. Each launch of side C and C' gives them to the CLI child,
+    /// whatever its launcher inherits, so a record that copies one holds the marker `b6-inherited`
+    /// (`assertRawBytes`).
+    nonisolated static let inheritedShellVariables: [String: String] = [
+        "CONDA_DEFAULT_ENV": "b6-inherited-environment",
+        "CONDA_PREFIX": "/b6-inherited/conda-prefix",
+        "LUNGFISH_CONTAINER_IMAGE": "b6-inherited-container-image",
+    ]
 
     /// `value` in single quotes for a POSIX shell.
     nonisolated static func shellQuoted(_ value: String) -> String {
@@ -207,6 +219,8 @@ extension TaxTriageParityHarness {
         // The runner signals the TaxTriage command first (U30 W2), so a cancel here runs the termination the app runs.
         spec.signalsProcessFirst = CLIClassifierRunner.signalsCommandFirst(.taxTriage)
         spec.environment.merge(engine.cliEnvironment) { _, engineValue in engineValue }
+        // 12.01 Fix 3 (B6). The child gets the shell's variables whatever the launcher inherits.
+        spec.environment.merge(Self.inheritedShellVariables) { _, shellValue in shellValue }
         if let storage = engine.cliEnvironment["LUNGFISH_STORAGE_ROOT"] {
             try? FileManager.default.createDirectory(atPath: storage, withIntermediateDirectories: true)
         }

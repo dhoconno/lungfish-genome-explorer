@@ -144,6 +144,8 @@ extension TaxTriageParityLiveConformanceTests {
         // The runner signals the TaxTriage command first (U30 W2), so the live cancel runs the termination the app runs.
         spec.signalsProcessFirst = CLIClassifierRunner.signalsCommandFirst(.taxTriage)
         spec.environment.merge(engine.cliEnvironment) { _, engineValue in engineValue }
+        // 12.01 Fix 3 (B6). The child gets the shell's variables whatever the launcher inherits.
+        spec.environment.merge(TaxTriageParityHarness.inheritedShellVariables) { _, shellValue in shellValue }
         let launcherSpec = spec
         let cancellation = CLIRunCancellation()
         let ended = TaxTriageParityRunEnded()
