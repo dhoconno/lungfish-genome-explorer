@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class FASTACollectionViewerRoutingTests: XCTestCase {
@@ -240,13 +241,10 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         timeout: Duration = .seconds(20),
         condition: @escaping @MainActor () -> Bool
     ) async {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
-            if condition() { return }
-            try? await Task.sleep(for: .milliseconds(10))
+        let held = await LungfishTestSupport.waitUntil(timeout: timeout) { condition() }
+        if !held {
+            XCTFail("Timed out waiting for condition")
         }
-        XCTFail("Timed out waiting for condition")
     }
 
     private func makeBlastResult(label: String, rid: String) -> BlastVerificationResult {

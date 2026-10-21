@@ -110,4 +110,32 @@ final class SharedWaitUntilTests: XCTestCase {
         XCTAssertTrue(held, "The raised budget reaches the tenth check.")
         XCTAssertEqual(checks, 10)
     }
+
+    // MARK: - The run loop wait
+
+    private final class Flag: @unchecked Sendable {
+        var value = false
+    }
+
+    @MainActor
+    func testTheRunLoopWaitSpinsTheRunLoopSoMainQueueWorkRuns() {
+        let flag = Flag()
+        DispatchQueue.main.async { flag.value = true }
+        let held = waitUntilOnRunLoop(budget: WaitBudget(name: "pin-run-loop", duration: .milliseconds(800))) {
+            flag.value
+        }
+        XCTAssertTrue(held, "A block on the main queue must run while the wait spins the run loop.")
+    }
+
+    @MainActor
+    func testTheRunLoopWaitReturnsFalseAtItsDeadline() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let held = waitUntilOnRunLoop(
+            budget: WaitBudget(name: "pin-run-loop", duration: .milliseconds(100)),
+            pollInterval: 0.01
+        ) { false }
+        XCTAssertFalse(held)
+        XCTAssertGreaterThanOrEqual(start.duration(to: clock.now), .milliseconds(100), "The wait must use its whole budget.")
+    }
 }

@@ -39,7 +39,7 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
 
         XCTAssertEqual(harness.reporter.begun.count, 1, "the press must start the download")
         XCTAssertTrue(harness.reporter.begun.first?.hasPrefix("lungfish-cli demo fetch genes-and-sequences") == true)
-        waitUntil { !harness.reporter.failures.isEmpty }
+        waitUntilOnRunLoop { !harness.reporter.failures.isEmpty }
         XCTAssertTrue(
             harness.reporter.failures.first?.contains("lungfish-cli") == true,
             "the download goes to the CLI child, which cannot launch from here, and never to the network: \(harness.reporter.failures)")
@@ -235,15 +235,8 @@ final class DemoProjectsAccessibilityTests: XCTestCase {
         parent.beginSheet(panel)
         windows.append(parent)
 
-        waitUntil { AXTree.element(in: panel, identifier: DemoProjectsAccessibilityID.done) != nil }
+        waitUntilOnRunLoop { AXTree.element(in: panel, identifier: DemoProjectsAccessibilityID.done) != nil }
         return panel
-    }
-
-    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
     }
 }
 

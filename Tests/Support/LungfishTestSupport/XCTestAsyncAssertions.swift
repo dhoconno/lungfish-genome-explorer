@@ -121,3 +121,27 @@ public struct WaitBudget: Sendable, Hashable {
         return UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000)
     }
 }
+
+/// Spins the current run loop until `condition` holds or the budget runs out.
+///
+/// For a synchronous test that waits on work the main thread does, such as a hosted
+/// SwiftUI tree or an AppKit callback, and so cannot suspend in
+/// ``waitUntil(budget:pollInterval:isolation:_:)``. Call it on the thread that owns the
+/// run loop, normally the main thread. The condition is checked before the first spin and
+/// again after the last, so a condition that holds at the deadline still counts.
+///
+/// - Returns: Whether the condition held before the budget ran out.
+@discardableResult
+public func waitUntilOnRunLoop(
+    budget: WaitBudget = .standard,
+    pollInterval: TimeInterval = 0.02,
+    _ condition: () -> Bool
+) -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: budget.duration)
+    while true {
+        if condition() { return true }
+        if clock.now >= deadline { return false }
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: pollInterval))
+    }
+}

@@ -8,6 +8,7 @@ import Combine
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 /// Unit tests for ``DownloadCenter``.
 ///
@@ -787,17 +788,15 @@ final class DownloadCenterTests: XCTestCase {
     /// Returns as soon as `condition` holds; the 5 s default leaves room for
     /// the parallel unit tier.
     private func waitUntil(
-        timeout: TimeInterval = 5,
+        timeout: TimeInterval = WaitBudget.standard.seconds,
         condition: @escaping () -> Bool
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() {
-                return
-            }
-            try await Task.sleep(nanoseconds: 25_000_000)
+        let held = await LungfishTestSupport.waitUntil(timeout: .seconds(timeout), pollInterval: .milliseconds(25)) {
+            condition()
         }
-        XCTFail("Timed out waiting for condition")
+        if !held {
+            XCTFail("Timed out waiting for condition")
+        }
     }
 
     // MARK: - All Operation Types

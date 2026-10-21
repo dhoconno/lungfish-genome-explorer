@@ -19,6 +19,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 
@@ -391,14 +392,11 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
     }
 
     private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for condition")
-                return
-            }
-            await Task.yield()
-            try await Task.sleep(nanoseconds: 5_000_000)
+        let held = await LungfishTestSupport.waitUntil(timeout: .seconds(timeout), pollInterval: .milliseconds(5)) {
+            condition()
+        }
+        if !held {
+            XCTFail("Timed out waiting for condition")
         }
     }
 

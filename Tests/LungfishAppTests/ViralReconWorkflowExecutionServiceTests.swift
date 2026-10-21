@@ -1255,14 +1255,12 @@ private func waitUntil(
     timeout: TimeInterval,
     condition: @escaping () -> Bool
 ) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(nanoseconds: 25_000_000)
+    let held = await LungfishTestSupport.waitUntil(timeout: .seconds(timeout), pollInterval: .milliseconds(25)) {
+        condition()
     }
-    XCTFail("Timed out waiting for condition")
+    if !held {
+        XCTFail("Timed out waiting for condition")
+    }
 }
 
 private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 30) async throws {

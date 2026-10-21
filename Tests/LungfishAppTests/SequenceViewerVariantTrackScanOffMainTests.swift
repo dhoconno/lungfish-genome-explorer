@@ -18,6 +18,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 
@@ -80,7 +81,7 @@ final class SequenceViewerVariantTrackScanOffMainTests: XCTestCase {
         // Assert causal ordering instead of elapsed wall time: under a parallel suite the
         // scheduler may be slow, but the main actor must still run while the scan gate is held.
         XCTAssertTrue(
-            waitUntil(timeout: 5) { scanStarted.fired },
+            waitUntilOnRunLoop { scanStarted.fired },
             "Variant track scan probe never started"
         )
         XCTAssertFalse(scanStarted.wasMainThread, "Variant track scan ran on the main thread")
@@ -91,7 +92,7 @@ final class SequenceViewerVariantTrackScanOffMainTests: XCTestCase {
             mainActorProbeRan.record(isMainThread: Thread.isMainThread)
         }
         XCTAssertTrue(
-            waitUntil(timeout: 5) { mainActorProbeRan.fired },
+            waitUntilOnRunLoop { mainActorProbeRan.fired },
             "A main-actor probe did not run while the background scan was held"
         )
         XCTAssertTrue(mainActorProbeRan.wasMainThread)
@@ -99,17 +100,9 @@ final class SequenceViewerVariantTrackScanOffMainTests: XCTestCase {
 
         releaseGate.signal()
         XCTAssertTrue(
-            waitUntil(timeout: 5) { scanFinished.fired },
+            waitUntilOnRunLoop { scanFinished.fired },
             "Variant track scan did not leave its test gate"
         )
-    }
-
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        return condition()
     }
 
     // MARK: - Fixture

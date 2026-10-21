@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishTestSupport
 import SwiftUI
 import XCTest
 @testable import LungfishApp
@@ -44,7 +45,7 @@ final class ProvenanceSectionAccessibilityTests: XCTestCase {
         ]
         let host = host(ProvenanceSection(viewModel: viewModel))
 
-        waitUntil { AXTree.element(in: host, identifier: "provenance-run-1") != nil }
+        waitUntilOnRunLoop { AXTree.element(in: host, identifier: "provenance-run-1") != nil }
         let run = try XCTUnwrap(
             AXTree.element(in: host, identifier: "provenance-run-1"),
             "the run row must carry its own identifier; tree:\n" + AXTree.dump(host)
@@ -56,7 +57,7 @@ final class ProvenanceSectionAccessibilityTests: XCTestCase {
         XCTAssertFalse(AXTree.all(in: host).contains { AXTree.identifier($0) == "provenance-root" && AXTree.label($0)?.hasPrefix("Run ") == true })
 
         XCTAssertTrue(AXTree.press(run), "the run row must answer AXPress")
-        waitUntil { AXTree.element(in: host, identifier: "provenance-run-1-step-1") != nil }
+        waitUntilOnRunLoop { AXTree.element(in: host, identifier: "provenance-run-1-step-1") != nil }
         let step = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-run-1-step-1"))
         XCTAssertEqual(AXTree.label(step), "Step 1, minimap2")
         XCTAssertNotNil(AXTree.element(in: host, identifier: "provenance-run-1-step-2"))
@@ -64,7 +65,7 @@ final class ProvenanceSectionAccessibilityTests: XCTestCase {
         // The Command row shows the project-relative form and keeps the
         // recorded command as its accessibility value.
         XCTAssertTrue(AXTree.press(step))
-        waitUntil { AXTree.element(in: host, identifier: "provenance-step-command") != nil }
+        waitUntilOnRunLoop { AXTree.element(in: host, identifier: "provenance-step-command") != nil }
         let command = try XCTUnwrap(AXTree.element(in: host, identifier: "provenance-step-command"))
         XCTAssertEqual(AXTree.value(command), recorded)
     }
@@ -91,13 +92,6 @@ final class ProvenanceSectionAccessibilityTests: XCTestCase {
         window.orderFront(nil)
         windows.append(window)
         return window
-    }
-
-    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition(), Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
     }
 }
 

@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishTestSupport
 import LungfishWorkflow
 
 private actor ScanGate {
@@ -38,16 +39,6 @@ final class SampleReadPlanScanTests: XCTestCase {
         }
     }
 
-    /// Polls a condition on the clock, never a fixed number of yields.
-    private func waitUntil(_ timeout: TimeInterval = 10, _ condition: @escaping () async -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if await condition() { return true }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        return false
-    }
-
     func testEverySampleYieldedExactlyOnce() async {
         let input = samples(25)
         var seen: [String: Int] = [:]
@@ -68,7 +59,7 @@ final class SampleReadPlanScanTests: XCTestCase {
             for await _ in stream { count += 1 }
             return count
         }
-        let filled = await waitUntil { await gate.running == 3 }
+        let filled = await waitUntil(timeout: .seconds(10)) { await gate.running == 3 }
         XCTAssertTrue(filled)
         let peakBeforeRelease = await gate.peak
         XCTAssertEqual(peakBeforeRelease, 3)
@@ -86,12 +77,12 @@ final class SampleReadPlanScanTests: XCTestCase {
         let consumer = Task {
             for await _ in stream {}
         }
-        let filled = await waitUntil { await gate.running == 2 }
+        let filled = await waitUntil(timeout: .seconds(10)) { await gate.running == 2 }
         XCTAssertTrue(filled)
         consumer.cancel()
         await consumer.value
         await gate.release()
-        let drained = await waitUntil { await gate.running == 0 }
+        let drained = await waitUntil(timeout: .seconds(10)) { await gate.running == 0 }
         XCTAssertTrue(drained)
         let started = await gate.started
         XCTAssertLessThan(started, 50)

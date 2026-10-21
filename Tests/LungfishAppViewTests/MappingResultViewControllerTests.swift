@@ -5,6 +5,7 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 @MainActor
 final class MappingResultViewControllerTests: XCTestCase {
@@ -1727,16 +1728,12 @@ final class MappingResultViewControllerTests: XCTestCase {
 
     /// Returns as soon as `predicate` holds; the default leaves room for the parallel unit tier.
     private func waitUntil(
-        timeout: TimeInterval = 5.0,
+        timeout: TimeInterval = WaitBudget.standard.seconds,
         predicate: @MainActor @escaping () -> Bool
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !predicate() {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for condition")
-                return
-            }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        let held = await LungfishTestSupport.waitUntil(timeout: .seconds(timeout)) { predicate() }
+        if !held {
+            XCTFail("Timed out waiting for condition")
         }
     }
 
