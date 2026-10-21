@@ -33,7 +33,7 @@
 # The bound for each class. The integration tier runs each class of its serial
 # selection as its own attempt with its own timeout, 15 minutes a class
 # (DEFAULT_CLASS_TIMEOUT_SECONDS in scripts/release/gate_evidence.py) inside a
-# 90-minute budget for the whole run. A class that runs out is killed with its
+# 150-minute budget for the whole run. A class that runs out is killed with its
 # whole process tree and named with the case it hung in (GATE CLASS TIMEOUT), and
 # the next class still runs. A class that would start after the budget is spent
 # is named too (GATE CLASS UNRUN). --class-timeout-seconds gives any serial run

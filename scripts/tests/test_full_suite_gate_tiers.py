@@ -488,7 +488,7 @@ class GateBehaviorTests(unittest.TestCase):
                                                       _legacy_selection("integration")["filter"])
         self.assertEqual(status, 0, evidence["errors"])
         self.assertEqual(GATE.DEFAULT_CLASS_TIMEOUT_SECONDS, {"integration": 15 * 60})
-        self.assertEqual(GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"], 90 * 60)
+        self.assertEqual(GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"], 150 * 60)
         runners = [call for call in calls if call["name"] == "runner"]
         self.assertEqual([call["timeout"] for call in runners], [15 * 60, 15 * 60], "one attempt a class")
         self.assertEqual([call["unbuffered"] for call in runners], ["YES", "YES"])
@@ -557,7 +557,7 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(evidence["authorized"])
         self.assertEqual(evidence["classBound"], {
-            "classTimeoutSeconds": 900, "budgetSeconds": 5400, "timedOut": [], "unrun": [],
+            "classTimeoutSeconds": 900, "budgetSeconds": 9000, "timedOut": [], "unrun": [],
             "classes": [test.split("/")[0] for test in SERIAL_TESTS]})
         # The fixture project has untracked files, so the run's source is not clean. Mark it clean
         # to ask the release reader about the shape of the result alone.

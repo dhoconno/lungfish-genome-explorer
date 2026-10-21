@@ -502,13 +502,15 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 # must pass --timeout-seconds explicitly to be bounded. The integration tier
 # runs one attempt a class (below), and each start of the runner costs about
 # 6 to 8 seconds (the diagnostic retries of 2026-10-09 and 2026-10-12 took 8
-# to 30 seconds for 3 to 21 cases). Its budget covers about 16 minutes of
-# tests, about 20 minutes of runner starts for some 170 classes and one class
-# that runs out its bound.
+# to 30 seconds for 3 to 21 cases). Its budget covers a quiet run of the tier
+# (78.0 minutes for 209 classes at the 2.12 candidate, step 7), one class that
+# runs out its 15-minute bound and one phase of growth at the rate of 2.12
+# (49.8 to 78.0 minutes, 28 minutes), about 121 minutes, with room above that
+# for a build beside the tier (Phase 2.13 ruling QA-13.55).
 DEFAULT_TIER_TIMEOUT_SECONDS = {
     "smoke": 5 * 60,
     "unit": 45 * 60,
-    "integration": 90 * 60,
+    "integration": 150 * 60,
     "conformance": 90 * 60,
     "full": 90 * 60,
 }
