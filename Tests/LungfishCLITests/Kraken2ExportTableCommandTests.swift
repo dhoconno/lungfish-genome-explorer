@@ -552,7 +552,7 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
     /// manifest.
     func testAReferenceDatabaseWithNoDigestIsRecordedAsUnknownWithItsReason() throws {
         let noDigest = "The sample's classification result records no digest for its database."
-        let noResult = "The result folder holds no classification-result.json for the sample, "
+        let noResult = "No readable classification-result.json was found for the sample, "
             + "so its database digest is not recorded."
 
         let batch = try makeReferenceBatch(standardDigest: nil)

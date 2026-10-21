@@ -13,8 +13,8 @@ extension Kraken2TaxonomyTableExport {
         public static let unknown = "unknown"
         /// The reason of an unknown digest when the sample's result records none.
         public static let noDigestReason = "The sample's classification result records no digest for its database."
-        /// The reason of an unknown digest when the folder holds no result for the sample.
-        public static let noResultReason = "The result folder holds no classification-result.json for the sample, "
+        /// The reason of an unknown digest when no readable result is found for the sample.
+        public static let noResultReason = "No readable classification-result.json was found for the sample, "
             + "so its database digest is not recorded."
 
         public let sampleId: String
