@@ -95,6 +95,30 @@ extension ProvenanceCommandDisplayTests {
         XCTAssertEqual(Self.sha256(try Data(contentsOf: outputs.appendingPathComponent("out.fastq"))), recorded)
     }
 
+    /// C3. An input whose bytes differ from the SHA-256 the record holds, or that is gone, stops the script before
+    /// `OUTDIR` is made, and the message names the file and both digests.
+    func testAReplayStopsBeforeMakingOUTDIRWhenAnInputChangedOrIsGone() throws {
+        let record = try copyStepRecord(.none, inputInFolder: false)
+        let input = record.project.appendingPathComponent("Inputs/reads.fastq")
+        let outputs = record.project.deletingLastPathComponent().appendingPathComponent("replay-outputs")
+        let changed = Data("@r\nTTTT\n+\nIIII\n".utf8)
+        try changed.write(to: input)
+
+        let run = try runExportedScript(of: record, outputs: outputs)
+
+        XCTAssertNotEqual(run.status, 0, run.script)
+        XCTAssertTrue(run.stderr.contains(input.path), run.stderr)
+        XCTAssertTrue(run.stderr.contains(Self.sha256(Self.copyStepReads)), run.stderr)
+        XCTAssertTrue(run.stderr.contains(Self.sha256(changed)), run.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputs.path), "OUTDIR was made before the check")
+
+        try FileManager.default.removeItem(at: input)
+        let gone = try runExportedScript(of: record, outputs: outputs)
+        XCTAssertNotEqual(gone.status, 0)
+        XCTAssertTrue(gone.stderr.contains("is missing"), gone.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputs.path))
+    }
+
     // MARK: - Helpers
 
     /// A `/bin/cp` record written into `Analyses/copy-step` that copies the reads (in the folder or in `Inputs`) to
