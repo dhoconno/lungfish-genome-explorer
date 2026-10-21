@@ -394,7 +394,8 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             cli.write_text(
                 Tier1Harness.CLI_STUB.replace("@PYTHON@", sys.executable)
                 .replace("@CALLS@", repr(str(root / "cli-calls.txt")))
-                .replace("@PLAN@", repr(Tier1Harness.EMPTY_PLAN)),
+                .replace("@PLAN@", repr(Tier1Harness.EMPTY_PLAN))
+                .replace("@EXPERIMENTAL@", repr(Tier1Harness.EXPERIMENTAL_PACKS)),
                 encoding="utf-8",
             )
             cli.chmod(0o755)
@@ -649,7 +650,12 @@ class Tier1Harness:
     # database the way the real CLI does: `conda db download Viral` installs a
     # checked row when the registry has none and leaves an installed row alone,
     # and `conda db update kraken2-viral` checks the installed row unless
-    # STUB_UPDATE_FAILS is set.
+    # STUB_UPDATE_FAILS is set. It refuses an experimental pack the way the
+    # real CLI does: `conda install --pack` looks a name up among the packs the
+    # CLI offers, which leave the experimental ones out, so it prints
+    # `Unknown tool pack` and exits 3.
+    EXPERIMENTAL_PACKS = ("gatk-core", "phasing", "wastewater-surveillance")
+
     CLI_STUB = """#!@PYTHON@
 import json, os, sys
 args = sys.argv[1:]
@@ -658,6 +664,10 @@ with open(@CALLS@, 'a') as calls:
 if '--plan' in args and '--json' in args:
     print(json.dumps(@PLAN@))
     sys.exit(0)
+if args[:3] == ['conda', 'install', '--pack'] and args[3:4] and args[3] in @EXPERIMENTAL@:
+    print('Unknown tool pack: ' + args[3])
+    print('Available packs: lungfish-tools, read-mapping, full-length-mhc-genotyping, pcr-primer-design, variant-calling, assembly, multiple-sequence-alignment, phylogenetics, metagenomics')
+    sys.exit(3)
 root = os.environ.get('LUNGFISH_STORAGE_ROOT', '')
 registry = os.path.join(root, 'databases', 'metagenomics-db-registry.json')
 folder = os.path.join(root, 'databases', 'kraken2', 'kraken2-viral')
@@ -734,7 +744,8 @@ if args[:3] == ['conda', 'db', 'update']:
             "lungfish-cli",
             self.CLI_STUB.replace("@PYTHON@", sys.executable)
             .replace("@CALLS@", repr(str(self.record / "cli-calls.txt")))
-            .replace("@PLAN@", repr(self.EMPTY_PLAN)),
+            .replace("@PLAN@", repr(self.EMPTY_PLAN))
+            .replace("@EXPERIMENTAL@", repr(self.EXPERIMENTAL_PACKS)),
             self.build_bin,
         )
         # The venv python of the parity oracle accepts every call.
@@ -1054,18 +1065,44 @@ class Tier1ProvisioningTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(real.is_dir() and not real.is_symlink())
 
-    def test_the_tools_of_the_goldens_are_installed_by_pack_before_the_reconcile(self):
+    def test_tier1_provisioning_installs_no_experimental_pack(self):
+        # The registry marks gatk-core, phasing and wastewater-surveillance experimental and the
+        # CLI refuses to install them, as the stub does. A tier 1 run that asked for one stopped
+        # at exit 3 before the gate in the 2.13 M3 run.
         with tempfile.TemporaryDirectory() as temporary:
             harness = Tier1Harness(temporary)
             result = harness.run()
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            calls = harness.cli_calls()
-            reconcile = calls.index("tools update --apply --yes")
-            for pack in ("gatk-core", "phasing", "wastewater-surveillance"):
+            packs = [
+                call.rsplit(" ", 1)[-1]
+                for call in harness.cli_calls()
+                if call.startswith("conda install --pack ")
+            ]
+            self.assertTrue(packs, "provisioning installed no pack at all")
+            for pack in packs:
                 with self.subTest(pack=pack):
-                    line = f"conda install --pack {pack}"
-                    self.assertIn(line, calls)
-                    self.assertLess(calls.index(line), reconcile)
+                    self.assertNotIn(pack, Tier1Harness.EXPERIMENTAL_PACKS)
+
+    def test_a_loop_over_the_experimental_packs_stops_provisioning_at_the_refusal(self):
+        # Keeps the refusing stub honest. The loop of the 2.13 M2 commit (golden_tool_packs),
+        # put back into a copy of the script, is red against it: exit 3, no suite gate.
+        old_loop = (
+            "for pack in gatk-core phasing wastewater-surveillance; do\n"
+            '    echo "==> conda install --pack ${pack}"\n'
+            '    "${cli}" conda install --pack "${pack}"\n'
+            "done\n\n"
+        )
+        anchor = 'echo "==> Reconciling pack tools against the manifest"'
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            script = harness.verify.read_text(encoding="utf-8")
+            self.assertIn(anchor, script)
+            harness.verify.write_text(script.replace(anchor, old_loop + anchor, 1), encoding="utf-8")
+            result = harness.run()
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 3, output)
+            self.assertIn("Unknown tool pack: gatk-core", output)
+            self.assertIsNone(harness.gate_env(), "the suite gate started after the refusal")
 
 
 if __name__ == "__main__":

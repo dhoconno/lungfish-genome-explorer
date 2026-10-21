@@ -85,14 +85,12 @@ conformance_packs=(
     pcr-primer-design
 )
 
-# The packs of the tools the golden tool cases run: gatk-core (GATK), phasing
-# (WhatsHap) and wastewater-surveillance (Freyja). The CI job installs none of
-# them, so they stay out of conformance_packs, which the CI sync test compares.
-golden_tool_packs=(
-    gatk-core
-    phasing
-    wastewater-surveillance
-)
+# No experimental pack is installed here. gatk-core (GATK), phasing (WhatsHap) and
+# wastewater-surveillance (Freyja) are marked experimental in the registry, the CLI
+# refuses to install them (`Unknown tool pack`, exit 3), the CI job installs none of
+# them and ToolVersionConformanceTests exempts their tools. A root provisioned here
+# holds none of their environments, so the cases that need them run red under
+# --require-tools until Phase 3 (TIER1-EXPERIMENTAL-PACKS) rules.
 
 # The golden environment (docs/contracts/MACHINES.md). Its cache holds the demo
 # archives that the tier 1 live classes unpack. LUNGFISH_GOLDEN_HOME moves it so
@@ -385,14 +383,6 @@ echo "==> Provisioning ${storage_root} from ${manifest}"
 "${cli}" tools update --apply --yes --required-only
 
 for pack in "${conformance_packs[@]}"; do
-    echo "==> conda install --pack ${pack}"
-    "${cli}" conda install --pack "${pack}"
-done
-
-# The tools the golden tool cases run (GATK, Freyja and WhatsHap) sit in packs that
-# the CI job does not install. A pack run installs what is missing, and the full
-# apply below then reconciles each of these environments to the manifest pin.
-for pack in "${golden_tool_packs[@]}"; do
     echo "==> conda install --pack ${pack}"
     "${cli}" conda install --pack "${pack}"
 done
