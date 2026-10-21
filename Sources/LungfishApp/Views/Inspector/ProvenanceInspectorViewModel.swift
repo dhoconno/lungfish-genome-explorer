@@ -374,7 +374,7 @@ final class ProvenanceInspectorViewModel {
             audit: .init(status: .present, requirement: .required("Verified scientific bundle"),
                          sidecarURL: record.sidecarURL, messages: []),
             resolvedEnvelope: record.envelope, resolvedSidecarURL: record.sidecarURL, upstreamRuns: [],
-            statusWasRecorded: record.statesItsStatus), item: item)
+            statusWasRecorded: record.statesItsStatus, toolRoot: PortablePath.defaultManagedRoots.toolRoot), item: item)
     }
 
     func presentUnavailableVerifiedRecord(item: ProvenanceInspectableItem, message: String) {
@@ -509,9 +509,9 @@ final class ProvenanceInspectorViewModel {
         onLineageReady?()
     }
 
-    /// The off-main part of `load(item:)`: the read-only coverage audit, the sidecar lookup and the
-    /// lineage walk. Pure with respect to `self`, so it is safe to run detached. Nil when the
-    /// lookup was cancelled, which only a newer load or a clear does.
+    /// The off-main part of `load(item:)`: the read-only coverage audit, the sidecar lookup, the lineage walk and the
+    /// one read of the managed tool root that the shown commands take (M875). Pure with respect to `self`, so it is
+    /// safe to run detached. Nil when the lookup was cancelled, which only a newer load or a clear does.
     nonisolated private static func performLookup(
         item: ProvenanceInspectableItem,
         monitor: ProvenanceCoverageMonitor,
@@ -542,7 +542,7 @@ final class ProvenanceInspectorViewModel {
             resolvedSidecarURL: resolved.sidecarURL,
             upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) },
             sidecarText: sidecarText(at: resolved.sidecarURL, for: envelope),
-            reading: resolved.reading
+            reading: resolved.reading, toolRoot: PortablePath.defaultManagedRoots.toolRoot
         )
     }
 
@@ -561,6 +561,7 @@ final class ProvenanceInspectorViewModel {
         /// What the reader made of the record: the shape that decoded it and whether it invented the date.
         var reading: ProvenanceEnvelopeReader.Reading? = nil
         var statusWasRecorded: Bool? = nil
+        var toolRoot: URL? = nil
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called
@@ -582,7 +583,7 @@ final class ProvenanceInspectorViewModel {
             upstreamRuns: outcome.upstreamRuns,
             sidecarText: outcome.sidecarText,
             reading: outcome.reading,
-            statusWasRecorded: outcome.statusWasRecorded
+            statusWasRecorded: outcome.statusWasRecorded, toolRoot: outcome.toolRoot
         )
     }
 
@@ -637,7 +638,7 @@ final class ProvenanceInspectorViewModel {
         upstreamRuns: [ProvenanceUpstreamRun] = [],
         sidecarText: String? = nil,
         reading: ProvenanceEnvelopeReader.Reading? = nil,
-        statusWasRecorded: Bool? = nil
+        statusWasRecorded: Bool? = nil, toolRoot: URL? = nil
     ) {
         // Paths are shown relative to the project the sidecar lies in; the
         // recorded path stays in the copy text, the tooltip and accessibility.
@@ -684,10 +685,10 @@ final class ProvenanceInspectorViewModel {
             + stepWarningRows(for: envelope)
             + fastqPresentation.warningRows()
             + presentationWarnings
-        lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil, projectURL: projectURL) }
-            + [lineageRun(for: envelope, fastqPresentation: fastqPresentation, projectURL: projectURL)]
+        lineageRuns = upstreamRuns.map { lineageRun(for: $0.envelope, fastqPresentation: nil, projectURL: projectURL, toolRoot: toolRoot) }
+            + [lineageRun(for: envelope, fastqPresentation: fastqPresentation, projectURL: projectURL, toolRoot: toolRoot)]
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
-        optionRows = buildOptionRows(envelope.options, projectURL: projectURL)
+        optionRows = buildOptionRows(envelope.options, projectURL: projectURL, toolRoot: toolRoot)
         runtimeRows = Self.withoutUnrecordedProcessID(buildRuntimeRows(envelope.runtimeIdentity), in: envelope, reading: reading)
         applyRawJSON(for: envelope, fileRowCount: deduplicatedDescriptors.count, sidecarText: sidecarText)
         copyableText = buildCopyableText()
@@ -698,7 +699,7 @@ final class ProvenanceInspectorViewModel {
     private func lineageRun(
         for envelope: ProvenanceEnvelope,
         fastqPresentation: ProvenanceFASTQBundlePresentation?,
-        projectURL: URL?
+        projectURL: URL?, toolRoot: URL?
     ) -> ProvenanceLineageRun {
         let identity = ProvenanceToolIdentityText.parse(toolName: envelope.toolName, toolVersion: envelope.toolVersion)
         return ProvenanceLineageRun(
@@ -717,7 +718,8 @@ final class ProvenanceInspectorViewModel {
                     toolName: step.toolName,
                     toolVersion: stepIdentity.displayVersion,
                     command: ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL),
-                    commandLabel: ProvenanceCommandPresentation.display(step.reproducibleCommand, projectURL: projectURL),
+                    commandLabel: ProvenanceCommandPresentation
+                        .display(step.reproducibleCommand, projectURL: projectURL, toolRoot: toolRoot),
                     inputPaths: inputs,
                     outputPaths: outputs,
                     inputPathLabels: inputs.map { pathLabel($0, projectURL: projectURL) },
@@ -911,20 +913,18 @@ final class ProvenanceInspectorViewModel {
         ]
     }
 
-    private func buildOptionRows(_ options: ProvenanceOptions, projectURL: URL?) -> [ProvenanceOptionRow] {
-        rows(from: options.explicit, kind: "Explicit", projectURL: projectURL)
-            + rows(from: options.defaults, kind: "Default", projectURL: projectURL)
-            + rows(from: options.resolvedDefaults, kind: "Resolved Default", projectURL: projectURL)
+    private func buildOptionRows(_ options: ProvenanceOptions, projectURL: URL?, toolRoot: URL?) -> [ProvenanceOptionRow] {
+        rows(from: options.explicit, kind: "Explicit", projectURL: projectURL, toolRoot: toolRoot)
+            + rows(from: options.defaults, kind: "Default", projectURL: projectURL, toolRoot: toolRoot)
+            + rows(from: options.resolvedDefaults, kind: "Resolved Default", projectURL: projectURL, toolRoot: toolRoot)
     }
 
-    private func rows(from values: [String: ParameterValue], kind: String, projectURL: URL?) -> [ProvenanceOptionRow] {
+    private func rows(from values: [String: ParameterValue], kind: String, projectURL: URL?, toolRoot: URL?) -> [ProvenanceOptionRow] {
         values.keys.sorted().map { key in
             let value = values[key]
             return ProvenanceOptionRow(
-                kind: kind,
-                name: key,
-                value: value?.displayValue ?? "",
-                valueLabel: value.map { Self.presentedOptionValue($0, projectURL: projectURL) }
+                kind: kind, name: key, value: value?.displayValue ?? "",
+                valueLabel: value.map { Self.presentedOptionValue($0, projectURL: projectURL, toolRoot: toolRoot) }
             )
         }
     }
@@ -932,17 +932,17 @@ final class ProvenanceInspectorViewModel {
     /// An option value as the Inspector shows it. A file is shown the way a
     /// path list shows it, and a string is treated as a command so any path
     /// argument inside it is shown the same way.
-    private static func presentedOptionValue(_ value: ParameterValue, projectURL: URL?) -> String {
+    private static func presentedOptionValue(_ value: ParameterValue, projectURL: URL?, toolRoot: URL?) -> String {
         switch value {
         case .string(let string):
-            return ProvenanceCommandPresentation.display(string, projectURL: projectURL)
+            return ProvenanceCommandPresentation.display(string, projectURL: projectURL, toolRoot: toolRoot)
         case .file(let url):
             return ProvenanceCommandPresentation.displayPath(url.path, projectURL: projectURL)
         case .array(let values):
-            return values.map { presentedOptionValue($0, projectURL: projectURL) }.joined(separator: ", ")
+            return values.map { presentedOptionValue($0, projectURL: projectURL, toolRoot: toolRoot) }.joined(separator: ", ")
         case .dictionary(let values):
             return values.keys.sorted()
-                .map { "\($0): \(values[$0].map { presentedOptionValue($0, projectURL: projectURL) } ?? "")" }
+                .map { "\($0): \(values[$0].map { presentedOptionValue($0, projectURL: projectURL, toolRoot: toolRoot) } ?? "")" }
                 .joined(separator: ", ")
         case .integer, .number, .boolean, .null:
             return value.displayValue

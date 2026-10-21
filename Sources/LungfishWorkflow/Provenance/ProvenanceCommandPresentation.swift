@@ -42,12 +42,14 @@ public enum ProvenanceCommandPresentation {
     /// `-lc`) is a script and is presented as a command of its own. A command
     /// that cannot be split into shell words, or one read outside any project,
     /// is returned as recorded. A path under the reader's own managed tool root, `toolRoot`, shows the tool's name, so
-    /// a record reads the same whatever storage root the Mac keeps (Phase 2.12 lane 12.25, SW17 (a), Q-U6).
+    /// a record reads the same whatever storage root the Mac keeps (Phase 2.12 lane 12.25, SW17 (a), Q-U6). The caller
+    /// reads that root once, off the main actor, and passes it, and with none a tool's path shows whole, so this reads
+    /// no storage configuration of its own (Phase 2.13 lane 13.45, M875 TOOLROOT-ONCE).
     public static func display(
         _ command: String,
         projectURL: URL?,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
-        toolRoot: URL? = PortablePath.defaultManagedRoots.toolRoot
+        toolRoot: URL? = nil
     ) -> String {
         guard let projectURL, let pieces = split(command, keeping: spacedPaths(of: projectURL)) else { return command }
         var shown = ""

@@ -84,6 +84,8 @@ extension ProvenanceInspectorViewModel {
             projectURL: projectURL
         )
         guard let note = ProvenanceCommandPresentation.renameNote(renames, projectURL: projectURL) else { return [:] }
+        // Read once for every step, here off the main actor (M875 TOOLROOT-ONCE).
+        let toolRoot = PortablePath.defaultManagedRoots.toolRoot
         var commands: [UUID: ProvenanceRenamedCommand] = [:]
         for step in envelope.steps {
             let recorded = ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL)
@@ -92,7 +94,7 @@ extension ProvenanceInspectorViewModel {
             )
             guard copy != recorded else { continue }
             commands[step.id] = ProvenanceRenamedCommand(
-                label: ProvenanceCommandPresentation.display(copy, projectURL: projectURL),
+                label: ProvenanceCommandPresentation.display(copy, projectURL: projectURL, toolRoot: toolRoot),
                 copyCommand: copy,
                 note: note
             )
