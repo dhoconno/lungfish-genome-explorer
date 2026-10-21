@@ -62,6 +62,18 @@ enum StructuredINFOFixture {
 
     """
 
+    /// The headers of `threeRecordVCF` over three records that each hold more than one impact. POS 100 has an ANN with a
+    /// HIGH entry then a MODIFIER entry, POS 200 a CSQ with a MODERATE entry then a HIGH entry and POS 300 an ANN LOW.
+    static let mixedImpactVCF: String = {
+        let headers = StructuredINFOFixture.threeRecordVCF.split(separator: "\n").filter { $0.hasPrefix("#") }.map(String.init)
+        let records = [
+            "chr1\t100\t.\tC\tT\t50\tPASS\tDP=40;ANN=T|stop_gained|HIGH|geneA,T|upstream_gene_variant|MODIFIER|geneB\tGT\t0/1",
+            "chr1\t200\t.\tA\tG\t50\tPASS\tDP=35;CSQ=G|missense_variant|MODERATE|geneC,G|stop_gained|HIGH|geneD\tGT\t0/1",
+            "chr1\t300\t.\tC\tA\t50\tPASS\tDP=30;ANN=A|synonymous_variant|LOW|geneA\tGT\t0/1",
+        ]
+        return (headers + records).joined(separator: "\n") + "\n"
+    }()
+
     /// The 15 SnpEff template parts that the two entries at POS 100 fill.
     static let annPartsAt100 = [
         "Allele", "Annotation", "Annotation_Impact", "Gene_Name", "Gene_ID", "Feature_Type", "Feature_ID",

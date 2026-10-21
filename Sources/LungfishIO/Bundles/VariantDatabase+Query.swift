@@ -169,6 +169,9 @@ extension VariantDatabase {
         public let key: String
         public let op: ComparisonOp
         public let value: String
+        /// More keys the filter reads in the same step, after `key`. The High Impact token lists every impact key the
+        /// file holds, so `ANN_IMPACT` and `CSQ_IMPACT` filter together and a variant is found by either.
+        public let alsoKeys: [String]
 
         public enum ComparisonOp: String, Sendable {
             case gt = ">"
@@ -180,10 +183,11 @@ extension VariantDatabase {
             case like = "~"
         }
 
-        public init(key: String, op: ComparisonOp, value: String) {
+        public init(key: String, op: ComparisonOp, value: String, alsoKeys: [String] = []) {
             self.key = key
             self.op = op
             self.value = value
+            self.alsoKeys = alsoKeys
         }
 
         /// Parses a filter string like "DP>20" or "AF>=0.05" or "GENE~BRCA".
@@ -209,10 +213,20 @@ extension VariantDatabase {
         /// SQL condition fragment for an EXISTS subquery on variant_info.
         func sqlCondition(paramIndex: inout Int32) -> (sql: String, bindings: [(Int32, String)]) {
             var bindings: [(Int32, String)] = []
-            let keyParam = paramIndex; paramIndex += 1
+            let allKeys = [key] + alsoKeys
+            for name in allKeys {
+                bindings.append((paramIndex, name))
+                paramIndex += 1
+            }
             let valueParam = paramIndex; paramIndex += 1
-            bindings.append((keyParam, key))
-            let boundValue = op == .like ? SQLiteLikePattern.contains(value) : value
+            // An equality on a key that holds a comma-joined list matches one member of the list.
+            let matchesMember = op == .eq && allKeys.allSatisfy(Self.holdsValueList)
+            let boundValue: String
+            switch op {
+            case .like: boundValue = SQLiteLikePattern.contains(value)
+            case .eq where matchesMember: boundValue = SQLiteLikePattern.listMember(value)
+            default: boundValue = value
+            }
             bindings.append((valueParam, boundValue))
 
             let cast = "CAST(vi.value AS REAL)"
@@ -222,13 +236,22 @@ extension VariantDatabase {
             case .gte:  cmp = "\(cast) >= CAST(? AS REAL)"
             case .lt:   cmp = "\(cast) < CAST(? AS REAL)"
             case .lte:  cmp = "\(cast) <= CAST(? AS REAL)"
-            case .eq:   cmp = "vi.value = ?"
+            case .eq:   cmp = matchesMember ? "(',' || vi.value || ',') LIKE ? ESCAPE '\\'" : "vi.value = ?"
             case .neq:  cmp = "vi.value != ?"
             case .like: cmp = "vi.value LIKE ? ESCAPE '\\'"
             }
 
-            let sql = "EXISTS (SELECT 1 FROM variant_info vi WHERE vi.variant_id = variants.id AND vi.key COLLATE NOCASE = ? AND \(cmp))"
+            let placeholders = allKeys.map { _ in "?" }.joined(separator: ", ")
+            let keyMatch = alsoKeys.isEmpty ? "vi.key COLLATE NOCASE = ?" : "vi.key COLLATE NOCASE IN (\(placeholders))"
+            let sql = "EXISTS (SELECT 1 FROM variant_info vi WHERE vi.variant_id = variants.id AND \(keyMatch) AND \(cmp))"
             return (sql: sql, bindings: bindings)
+        }
+
+        /// True when `name` holds comma-joined unique values, as every `ANN_` and `CSQ_` part and impact key does.
+        private static func holdsValueList(_ name: String) -> Bool {
+            let upper = name.uppercased()
+            return upper.hasPrefix("ANN_") || upper.hasPrefix("CSQ_")
+                || VariantDatabase.impactInfoKeys.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
         }
     }
 

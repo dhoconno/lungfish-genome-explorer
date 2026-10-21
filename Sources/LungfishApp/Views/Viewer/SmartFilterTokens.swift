@@ -234,12 +234,13 @@ enum SmartToken: String, CaseIterable, Sendable {
             return [.typeFilter(["Indel", "indel", "INS", "DEL", "Insertion", "Deletion"])]
 
         case .highImpact:
-            if let key = Self.impactKeys.first(where: { infoKeys.contains($0) }) {
-                return [.infoFilters([
-                    VariantDatabase.InfoFilter(key: key, op: .eq, value: "HIGH"),
-                ])]
-            }
-            return []
+            // Every impact key the file lists, in one fixed order. A Set iterates in an order seeded per process, so
+            // taking its first match filtered on ANN_IMPACT in one launch and on CSQ_IMPACT in the next.
+            let present = Self.impactKeys.filter { infoKeys.contains($0) }.sorted()
+            guard let key = present.first else { return [] }
+            return [.infoFilters([
+                VariantDatabase.InfoFilter(key: key, op: .eq, value: "HIGH", alsoKeys: Array(present.dropFirst())),
+            ])]
 
         case .moderateImpact:
             // Requires OR semantics (MODERATE or HIGH). Keep this as a post-filter to avoid

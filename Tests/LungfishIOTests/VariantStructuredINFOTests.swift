@@ -137,6 +137,35 @@ final class VariantStructuredINFOTests: XCTestCase {
         }
     }
 
+    func testHighImpactFindsMixedImpactVariantsOfBothAnnotationsAtEveryProfile() throws {
+        for profile in StructuredINFOFixture.profiles {
+            let dbURL = try StructuredINFOFixture.importDatabase(
+                StructuredINFOFixture.mixedImpactVCF, profile: profile, in: directory, name: "mixed")
+            func hits(_ database: VariantDatabase, _ keys: [String], value: String = "HIGH") -> [Int] {
+                let filter = VariantDatabase.InfoFilter(
+                    key: keys[0], op: .eq, value: value, alsoKeys: Array(keys.dropFirst()))
+                return database.queryForTable(infoFilters: [filter]).map { $0.position + 1 }.sorted()
+            }
+            // The token table the import itself built, when this profile builds one.
+            do {
+                let imported = try VariantDatabase(url: dbURL)
+                imported.loadTokenCacheState()
+                XCTAssertEqual(hits(imported, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "imported \(profile)")
+            }
+            // Cache cold. The EXISTS path reads the keys the filter names and finds a HIGH among other impacts.
+            try StructuredINFOFixture.execute(dbURL, "DROP TABLE IF EXISTS _high_impact")
+            // Read-write, since warming the cache creates the table.
+            let database = try VariantDatabase(url: dbURL, readWrite: true)
+            XCTAssertEqual(hits(database, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "cold union \(profile)")
+            XCTAssertEqual(hits(database, ["ANN_IMPACT"]), [100], "cold ANN \(profile)")
+            XCTAssertEqual(hits(database, ["CSQ_IMPACT"]), [200], "cold CSQ \(profile)")
+            XCTAssertEqual(hits(database, ["DP"], value: "4"), [], "DP stays an exact match \(profile)")
+            // Cache warm. The table covers every impact key with the same list-member match.
+            XCTAssertTrue(database.warmHighImpactCache(), profile.rawValue)
+            XCTAssertEqual(hits(database, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "warm union \(profile)")
+        }
+    }
+
     func testHeaderPartNamesRoundTripThroughMetadata() throws {
         var names = StructuredINFOFieldNames()
         let lof = "Predicted loss of function effects for this variant. Format: 'Gene_Name | Gene_ID | "

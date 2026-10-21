@@ -560,6 +560,25 @@ final class VariantTableEnhancementTests: XCTestCase {
         }
     }
 
+    func testHighImpactTokenFiltersTheSortedUnionOfTheImpactKeys() throws {
+        // A Set iterates in an order seeded per process, so the token must not pick a key by that order.
+        let both = SmartToken.highImpact.filterEffects(infoKeys: ["IMPACT", "ANN_IMPACT", "CSQ_IMPACT", "DP"])
+        XCTAssertEqual(both.count, 1)
+        guard case .infoFilters(let filters) = try XCTUnwrap(both.first) else { return XCTFail("Expected .infoFilters") }
+        XCTAssertEqual(filters.count, 1)
+        let filter = try XCTUnwrap(filters.first)
+        XCTAssertEqual(filter.key, "ANN_IMPACT")
+        XCTAssertEqual(filter.op, .eq)
+        XCTAssertEqual(filter.value, "HIGH")
+        XCTAssertEqual(filter.alsoKeys, ["CSQ_IMPACT", "IMPACT"])
+
+        let one = SmartToken.highImpact.filterEffects(infoKeys: ["CSQ_IMPACT", "DP"])
+        guard case .infoFilters(let single) = try XCTUnwrap(one.first) else { return XCTFail("Expected .infoFilters") }
+        XCTAssertEqual(single.first?.key, "CSQ_IMPACT")
+        XCTAssertEqual(single.first?.alsoKeys, [])
+        XCTAssertTrue(SmartToken.highImpact.filterEffects(infoKeys: ["DP"]).isEmpty)
+    }
+
     func testWithinSampleAFTokenLabelsMatchInclusiveBounds() {
         XCTAssertEqual(SmartToken.minorVariant.label, "Minor (≤20%)")
         XCTAssertEqual(SmartToken.mixedInfection.label, "Mixed (20-80%)")
