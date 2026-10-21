@@ -72,7 +72,12 @@ public struct PreparedReferenceSource: Sendable {
 }
 
 public struct ReferenceSourcePreparer: Sendable {
-    public init() {}
+    /// Finds the managed xz and zstd that decompress a `.xz`, `.zst` or `.zstd` wrapper (lane 13.17 M3).
+    private let runner: NativeToolRunner
+
+    public init(runner: NativeToolRunner = .shared) {
+        self.runner = runner
+    }
 
     public func prepare(
         sourceURL: URL,
@@ -209,31 +214,48 @@ public struct ReferenceSourcePreparer: Sendable {
     /// (A48 M3 review, Fix 1). The child writes straight into `outputURL`.
     private func decompressInput(sourceURL: URL, outputURL: URL) async throws {
         let wrapper = sourceURL.pathExtension.lowercased()
-        let executable: String
-        let arguments: [String]
+
+        /// The managed tool, or a failed decompression in Lungfish's own words when it is not installed.
+        func managed(_ tool: NativeTool) async throws -> URL {
+            do {
+                return try await runner.toolPath(for: tool)
+            } catch let error as NativeToolError {
+                if case .toolNotFound = error {
+                    throw ReferenceBundleImportError.decompressionFailed(
+                        "\(tool.rawValue) is not installed, and a .\(wrapper) file needs it. Lungfish installs it "
+                            + "with its Required Setup. In the app, open the Welcome window and click Install, or "
+                            + "run lungfish-cli tools update --apply --yes --required-only."
+                    )
+                }
+                throw ReferenceBundleImportError.decompressionFailed(error.localizedDescription)
+            }
+        }
+
+        let executable: URL
+        let environment: [String: String]
         switch wrapper {
         case "gz", "gzip", "bgz":
-            executable = "/usr/bin/gzip"
-            arguments = ["-dc", sourceURL.path]
+            executable = URL(fileURLWithPath: "/usr/bin/gzip")
+            environment = ToolProcessSpec.inheritedEnvironment()
         case "bz2":
-            executable = "/usr/bin/bzip2"
-            arguments = ["-dc", sourceURL.path]
+            executable = URL(fileURLWithPath: "/usr/bin/bzip2")
+            environment = ToolProcessSpec.inheritedEnvironment()
         case "xz":
-            executable = "/usr/bin/xz"
-            arguments = ["-dc", sourceURL.path]
+            executable = try await managed(.xz)
+            environment = [:]
         case "zst", "zstd":
-            executable = "/usr/bin/env"
-            arguments = ["zstd", "-dc", sourceURL.path]
+            executable = try await managed(.zstd)
+            environment = [:]
         default:
             throw ReferenceBundleImportError.decompressionFailed("Unsupported wrapper '.\(wrapper)'")
         }
 
-        // The child gets the caller's environment, as the process it replaces did, so `env` finds
-        // `zstd` on the caller's PATH.
+        // gzip and bzip2 get the caller's environment, as the processes they replace did. The managed xz and
+        // zstd get an empty one, since a conda build finds its libraries through its own rpath.
         let spec = ToolProcessSpec(
-            executableURL: URL(fileURLWithPath: executable),
-            arguments: arguments,
-            environment: ToolProcessSpec.inheritedEnvironment(),
+            executableURL: executable,
+            arguments: ["-dc", sourceURL.path],
+            environment: environment,
             stdout: .file(outputURL),
             label: "decompress .\(wrapper)"
         )
