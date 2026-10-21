@@ -151,17 +151,19 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             facts[item.label] = "\(envelope.tool.name)|\(envelope.tool.kind ?? "none")|"
                 + envelope.options.resolvedDefaults.keys.sorted().joined(separator: ",")
             let reporter = RecordingOperationReporter()
-            let row = MainSplitViewController.primerSelectionExportCLICommand(
-                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder)
-            MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
-                title: "Save Primer FASTA Bundle", destinationURL: folder, cliCommand: row,
+            let begun = try XCTUnwrap(MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
+                title: "Save Primer FASTA Bundle",
+                invocation: MainSplitViewController.primerSelectionExportInvocation(
+                    analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder),
                 routeContext: OperationRouteContext(projectURL: fixture.root, windowStateScopeID: UUID()),
-                reporter: reporter) { _ in }
+                runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+                reporter: reporter) {}, item.label)
+            _ = await begun.task.value
             let recorded = try XCTUnwrap(reporter.items.first, item.label)
             XCTAssertEqual(recorded.title, "Save Primer FASTA Bundle", item.label)
             XCTAssertEqual(recorded.initialDetail, "Verifying saved primer analysis…", item.label)
             XCTAssertEqual(recorded.operationType, .workflow, item.label)
-            XCTAssertEqual(recorded.targetBundleURL, folder, item.label)
+            XCTAssertEqual(recorded.targetBundleURL?.path, folder.standardizedFileURL.path, item.label)
             XCTAssertEqual(
                 try RecordedCLICommand.arguments(of: recorded.cliCommand),
                 ["primers", "analysis", "export-selection"] + MainSplitViewController.primerSelectionExportCLIArguments(

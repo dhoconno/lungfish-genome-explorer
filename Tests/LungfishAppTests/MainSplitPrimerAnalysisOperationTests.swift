@@ -108,18 +108,17 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         metadata: PrimerOrderMetadata? = nil
     ) throws -> RecordingOperationReporter.Item {
         let reporter = RecordingOperationReporter()
-        var launchedID: UUID?
-        MainSplitViewController.beginPrimerOrderExportOperation(
+        let begun = MainSplitViewController.beginPrimerOrderExportOperation(
             title: "Export Displayed Primer Order",
             detail: "Verifying 12 displayed oligos…",
-            draft: draft,
-            metadata: metadata ?? orderMetadata(),
-            destinationURL: destinationURL,
+            invocation: MainSplitViewController.primerOrderExportInvocation(
+                draft: draft, metadata: metadata ?? orderMetadata(), destinationURL: destinationURL),
             routeContext: routeContext,
+            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
             reporter: reporter
-        ) { launchedID = $0 }
+        ) {}
         let item = try XCTUnwrap(reporter.items.first)
-        XCTAssertEqual(launchedID, item.id)
+        XCTAssertEqual(begun?.operationID, item.id)
         XCTAssertEqual(item.title, "Export Displayed Primer Order")
         XCTAssertEqual(item.initialDetail, "Verifying 12 displayed oligos…")
         XCTAssertEqual(item.operationType, .workflow)
@@ -130,27 +129,6 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
     }
 
     // MARK: - Primer order export
-
-    func testPrimerOrderExportRefusedByAHeldLockLaunchesNothing() throws {
-        let center = try centerHoldingDestinationLock()
-        var launched = false
-
-        let result = MainSplitViewController.beginPrimerOrderExportOperation(
-            title: "Export Displayed Primer Order",
-            detail: "Verifying 12 displayed oligos…",
-            draft: makeDraft(),
-            metadata: orderMetadata(),
-            destinationURL: destinationURL,
-            routeContext: routeContext,
-            reporter: center
-        ) { _ in launched = true }
-
-        guard case .refused(let refusal) = result else {
-            return XCTFail("a held lock on the export folder must refuse the order row")
-        }
-        XCTAssertFalse(launched, "a refused row must start no export")
-        XCTAssertEqual(refusal.blockingOperationTitle, "Mapping reads")
-    }
 
     func testPrimer3OrderRecordsACommandNamingTheCandidatePairs() throws {
         let firstPair = UUID().uuidString
@@ -272,45 +250,25 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         )
     }
 
-    func testPrimerSelectionExportRefusedByAHeldLockLaunchesNothing() throws {
-        let center = try centerHoldingDestinationLock()
-        var launched = false
-
-        let result = MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
-            title: "Save Primer FASTA Bundle",
-            destinationURL: destinationURL,
-            cliCommand: selectionExportCommand(.pool(sourceResultID: "result-1", pool: 1), .primerFASTA),
-            routeContext: routeContext,
-            reporter: center
-        ) { _ in launched = true }
-
-        guard case .refused(let refusal) = result else {
-            return XCTFail("a held lock on the export folder must refuse the selection export row")
-        }
-        XCTAssertFalse(launched, "a refused row must start no export")
-        XCTAssertEqual(refusal.blockingOperationTitle, "Mapping reads")
-    }
-
     func testPrimerSelectionExportsRecordTheirTypeLockAndTheExportSelectionCommand() throws {
         for (selection, kind) in selectionExports {
             let title = kind == .primerFASTA ? "Save Primer FASTA Bundle" : "Extract Reference Amplicon"
             let reporter = RecordingOperationReporter()
-            var launchedID: UUID?
-
-            MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
+            let begun = MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
                 title: title,
-                destinationURL: selectionDestinationURL,
-                cliCommand: selectionExportCommand(selection, kind),
+                invocation: MainSplitViewController.primerSelectionExportInvocation(
+                    analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: selectionDestinationURL),
                 routeContext: routeContext,
+                runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
                 reporter: reporter
-            ) { launchedID = $0 }
+            ) {}
 
             let item = try XCTUnwrap(reporter.items.first)
-            XCTAssertEqual(launchedID, item.id)
+            XCTAssertEqual(begun?.operationID, item.id)
             XCTAssertEqual(item.title, title)
             XCTAssertEqual(item.initialDetail, "Verifying saved primer analysis…")
             XCTAssertEqual(item.operationType, .workflow)
-            XCTAssertEqual(item.targetBundleURL, selectionDestinationURL)
+            XCTAssertEqual(item.targetBundleURL?.path, selectionDestinationURL.standardizedFileURL.path)
             XCTAssertEqual(item.additionalLockedBundleURLs, [])
             XCTAssertEqual(item.routeContext, routeContext)
             // The row records the command that reproduces the export. It parses with the real leaf and

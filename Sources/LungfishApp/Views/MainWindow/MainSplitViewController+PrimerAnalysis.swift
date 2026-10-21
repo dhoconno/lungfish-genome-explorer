@@ -163,38 +163,6 @@ extension MainSplitViewController {
 
     // MARK: - Operations panel registration (finding R4)
 
-    /// Registers the primer order export row and, only when it starts, calls
-    /// `launch` with the operation ID. The row locks the new order folder,
-    /// `destinationURL`, and records the command
-    /// ``primerOrderExportCLICommand(draft:metadata:destinationURL:)`` builds.
-    @discardableResult
-    static func beginPrimerOrderExportOperation(
-        title: String,
-        detail: String,
-        draft: PrimerOrderDraft,
-        metadata: PrimerOrderMetadata,
-        destinationURL: URL,
-        routeContext: OperationRouteContext,
-        reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) -> Void
-    ) -> OperationStartResult {
-        let result = reporter.begin(
-            title: title,
-            detail: detail,
-            operationType: .workflow,
-            targetBundleURL: destinationURL,
-            cliCommand: primerOrderExportCLICommand(draft: draft, metadata: metadata, destinationURL: destinationURL),
-            routeContext: routeContext
-        )
-        switch result {
-        case .started(let operationID):
-            launch(operationID)
-        case .refused:
-            break // The panel already shows the refused row. Nothing was launched.
-        }
-        return result
-    }
-
     /// The `lungfish-cli primers analysis export-order` command that reproduces
     /// a primer order export.
     ///
@@ -226,16 +194,6 @@ extension MainSplitViewController {
             analysisURL: draft.selection.analysisURL, selection: draft.selection, metadata: metadata,
             outputURL: destinationURL
         )
-    }
-
-    /// The argv the order's provenance records. It is the `lungfish-cli primers analysis export-order` command the row
-    /// records, as words, for every order including one from a filtered PrimalScheme view.
-    static func primerOrderExportProvenanceArgv(
-        draft: PrimerOrderDraft,
-        metadata: PrimerOrderMetadata,
-        destinationURL: URL
-    ) -> [String] {
-        primerOrderExportInvocation(draft: draft, metadata: metadata, destinationURL: destinationURL).canonicalArgv()
     }
 
     /// The arguments after `lungfish-cli primers scheme-from-analysis` that
@@ -339,49 +297,5 @@ extension MainSplitViewController {
             analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
         )
         return Array(invocation.arguments().dropFirst(invocation.commandPath.count))
-    }
-
-    /// The argv the provenance of a primer FASTA bundle or reference amplicon export records, which is the command the
-    /// row records, as words.
-    static func primerSelectionExportProvenanceArgv(
-        analysisURL: URL,
-        selection: PrimerAnalysisExportSelection,
-        kind: PrimerAnalysisExportKind,
-        destinationURL: URL
-    ) -> [String] {
-        primerSelectionExportInvocation(
-            analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
-        ).canonicalArgv()
-    }
-
-    /// Registers the primer selection export row ("Save Primer FASTA Bundle" or "Extract Reference
-    /// Amplicon") and, only when it starts, calls `launch` with the operation ID. The row locks the new
-    /// export folder, `destinationURL`, and records `cliCommand`, which
-    /// ``primerSelectionExportCLICommand(analysisURL:selection:kind:destinationURL:)`` builds. `cliCommand`
-    /// has no default, so a caller cannot leave the row without one.
-    @discardableResult
-    static func beginPrimerAnalysisSelectionExportOperation(
-        title: String,
-        destinationURL: URL,
-        cliCommand: String,
-        routeContext: OperationRouteContext,
-        reporter: any OperationReporting = OperationCenter.shared,
-        launch: (UUID) -> Void
-    ) -> OperationStartResult {
-        let result = reporter.begin(
-            title: title,
-            detail: "Verifying saved primer analysis…",
-            operationType: .workflow,
-            targetBundleURL: destinationURL,
-            cliCommand: cliCommand,
-            routeContext: routeContext
-        )
-        switch result {
-        case .started(let operationID):
-            launch(operationID)
-        case .refused:
-            break // The panel already shows the refused row. Nothing was launched.
-        }
-        return result
     }
 }

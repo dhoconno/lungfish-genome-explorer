@@ -98,14 +98,18 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         // The row. The title and the detail are words of the private caller, so the helper's own parts are pinned.
         let reporter = RecordingOperationReporter()
         let route = OperationRouteContext(projectURL: fixture.root, windowStateScopeID: UUID())
-        MainSplitViewController.beginPrimerOrderExportOperation(
-            title: "Export Candidate Pairs", detail: "Verifying 2 candidate oligos…", draft: draft, metadata: metadata,
-            destinationURL: appFolder, routeContext: route, reporter: reporter) { _ in }
+        let begun = try XCTUnwrap(MainSplitViewController.beginPrimerOrderExportOperation(
+            title: "Export Candidate Pairs", detail: "Verifying 2 candidate oligos…",
+            invocation: MainSplitViewController.primerOrderExportInvocation(
+                draft: draft, metadata: metadata, destinationURL: appFolder),
+            routeContext: route, runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+            reporter: reporter) {})
+        _ = await begun.task.value
         let row = try XCTUnwrap(reporter.items.first)
         XCTAssertEqual(row.title, "Export Candidate Pairs")
         XCTAssertEqual(row.initialDetail, "Verifying 2 candidate oligos…")
         XCTAssertEqual(row.operationType, .workflow)
-        XCTAssertEqual(row.targetBundleURL, appFolder)
+        XCTAssertEqual(row.targetBundleURL?.path, appFolder.standardizedFileURL.path)
         XCTAssertEqual(row.additionalLockedBundleURLs, [])
         let words = try RecordedCLICommand.arguments(of: row.cliCommand)
         // The command is built by ViewerExportInvocation (lane 13.43 M3), so `--output` comes after the leaf's own words

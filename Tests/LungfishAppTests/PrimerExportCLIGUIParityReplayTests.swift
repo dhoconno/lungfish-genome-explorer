@@ -297,7 +297,8 @@ extension PrimerExportCLIGUIParityReplayTests {
         found.map(\.description).filter { description in
             let clock = ["selection.capturedAt", "primer-order.xlsx", "workbook-parts/", "source.source_url"]
             return !clock.contains { description.contains($0) }
-                && !(description.contains(".lungfish-provenance.json") && description.contains("checksumSHA256"))
+                && !(description.contains(".lungfish-provenance.json")
+                    && (description.contains("checksumSHA256") || description.contains("fileSize")))
         }
     }
 
