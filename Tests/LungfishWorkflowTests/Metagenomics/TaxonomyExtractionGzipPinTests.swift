@@ -293,4 +293,51 @@ final class TaxonomyExtractionGzipPinTests: XCTestCase {
             try await assertClassificationOutputNotFound(url, label: "corrupt-\(label)")
         }
     }
+
+    func testCancelledTaskReadingGzippedClassificationOutputEndsInCancellationError() async throws {
+        let gz = try write(try gzipped(Data(Self.smallClassification.utf8), named: "cancel-source.kraken"), named: "cancel.kraken.gz")
+        let directory = tempDir.appendingPathComponent("run-cancelled")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let source = directory.appendingPathComponent("source.fastq")
+        try writeFASTQ(Self.smallReads, to: source)
+        let config = TaxonomyExtractionConfig(
+            taxIds: [562],
+            includeChildren: false,
+            sourceFile: source,
+            outputFile: directory.appendingPathComponent("extracted.fastq"),
+            classificationOutput: gz,
+            keepReadPairs: false
+        )
+        let tree = makeTree()
+
+        // The task is cancelled before the route starts, so the scan of the gzipped output meets the cancellation at
+        // its first chunk. The closure captures only `config` and `tree`, since an XCTestCase is not Sendable.
+        let task = Task { () async throws -> Void in
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try await TaxonomyExtractionPipeline().extractEachSource(config: config, tree: tree, progress: nil)
+        }
+        do {
+            try await task.value
+            XCTFail("Expected CancellationError, but the route returned")
+        } catch is CancellationError {
+            // The cancellation is not turned into classificationOutputNotFound.
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+
+        // GzipChildStream.close() reaps gzip before it returns, so no gzip child of the file is left.
+        let pgrep = Process()
+        pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        pgrep.arguments = ["-f", gz.path]
+        let found = Pipe()
+        pgrep.standardOutput = found
+        pgrep.standardError = FileHandle.nullDevice
+        try pgrep.run()
+        let leftover = found.fileHandleForReading.readDataToEndOfFile()
+        pgrep.waitUntilExit()
+        XCTAssertEqual(
+            pgrep.terminationStatus, 1,
+            "no process with \(gz.lastPathComponent) in its command line is left, found: \(String(decoding: leftover, as: UTF8.self))"
+        )
+    }
 }
