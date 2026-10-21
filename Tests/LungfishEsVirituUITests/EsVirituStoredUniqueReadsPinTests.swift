@@ -9,6 +9,7 @@ import CryptoKit
 import LungfishIO
 import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishCore
 
 @MainActor
@@ -23,28 +24,6 @@ private final class StoredCountsRecordingViewer: NSObject, ClassifierAlignmentVi
 }
 
 final class EsVirituStoredUniqueReadsPinTests: XCTestCase {
-    /// The result folder the test opened. `configureFromDatabase` gives the detection table the result path
-    /// as its identity, so the table's metadata column controller writes the key
-    /// `org.lungfish.metadata-column-layout.esviritu.detections:<result path>` to `UserDefaults.standard`,
-    /// since the EsViritu views have no defaults seam yet (lane 13.52 owns it). `tearDownWithError` removes
-    /// that key and then checks that no key named for the folder is left (decision MD45, the 13.53 BIO Fix 1
-    /// probe).
-    private var openedRoot: URL?
-
-    override func tearDownWithError() throws {
-        if let openedRoot {
-            let defaults = UserDefaults.standard
-            let name = openedRoot.lastPathComponent
-            for key in defaults.dictionaryRepresentation().keys where key.contains(name) {
-                defaults.removeObject(forKey: key)
-            }
-            let leaked = defaults.dictionaryRepresentation().keys.filter { $0.contains(name) }
-            XCTAssertTrue(leaked.isEmpty, "the pin left \(leaked) in UserDefaults.standard")
-        }
-        openedRoot = nil
-        try super.tearDownWithError()
-    }
-
     // MARK: - A batch result shows its stored unique reads and writes nothing (13.53, V1-5, UX 6)
 
     /// A production EsViritu batch opens through `configureFromDatabase`. The table shows the stored
@@ -57,7 +36,6 @@ final class EsVirituStoredUniqueReadsPinTests: XCTestCase {
         let root = fm.temporaryDirectory
             .appendingPathComponent("EsVirituStoredUniqueReads-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        openedRoot = root
         defer { try? fm.removeItem(at: root) }
 
         var rows: [EsVirituDetectionRow] = []
@@ -104,6 +82,11 @@ final class EsVirituStoredUniqueReadsPinTests: XCTestCase {
         let recorder = StoredCountsRecordingViewer()
         let controller = EsVirituResultViewController()
         controller.classifierAlignmentViewerFactory = { recorder }
+        // `configureFromDatabase` gives both tables the result path as their identity, which keys their column
+        // layouts, so they save to a suite and not to `UserDefaults.standard` (lane 13.52, decision MD45).
+        let layouts = makeTestDefaultsSuite(prefix: "EsVirituStoredUniqueReadsPinTests")
+        controller.testDetectionTableView.metadataColumns.userDefaults = layouts.defaults
+        controller.testBatchTableView.metadataColumns.userDefaults = layouts.defaults
         _ = controller.view
         controller.configureFromDatabase(database, resultURL: root)
         let table = controller.testDetectionTableView
@@ -127,6 +110,12 @@ final class EsVirituStoredUniqueReadsPinTests: XCTestCase {
         }
 
         XCTAssertEqual(try Self.fileDigests(in: root), before, "opening and selecting changed the result folder")
+        XCTAssertFalse(
+            (layouts.defaults.persistentDomain(forName: layouts.name) ?? [:]).isEmpty,
+            "the tables saved their layouts to the suite"
+        )
+        let leaked = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.contains(root.lastPathComponent) }
+        XCTAssertTrue(leaked.isEmpty, "the pin wrote \(leaked) to UserDefaults.standard")
         withExtendedLifetime(database) {}
     }
 
