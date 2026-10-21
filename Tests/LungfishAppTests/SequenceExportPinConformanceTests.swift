@@ -411,12 +411,13 @@ final class SequenceExportPinConformanceTests: XCTestCase {
     }
 
     /// What the export does with a `.seq` file that holds no sequence (review 12.13 fix 5), measured through the
-    /// command on a file of no bytes and on a file of white space. The app's writer refused an export of no
-    /// sequences. Staging copies a file as it is, since only `convert` can tell, and `convert` has no such
-    /// refusal, so the export completes with an empty output and reports 0 sequences. A `convert` that refuses
-    /// an input with no sequence (row CONVERT-EMPTY-INPUT of 2.13) changes this pin. A captured snapshot of no
-    /// sequences keeps the old message in `SequenceExportStagingDurabilityTests`.
-    func testAnEmptySeqFileExportsAnEmptyFileAndReportsNoSequences() async throws {
+    /// command on a file of no bytes and on a file of white space. Staging copies a file as it is, since only
+    /// `convert` can tell, and `convert` refuses an input of no bytes or only white space with "No sequences
+    /// found in <file>.", the words of the app's own refusal (2.13 lane 13.41, row CONVERT-EMPTY-INPUT). The
+    /// alert shows that text, the export publishes nothing and its staging is discarded. Until 13.41 the export
+    /// completed with an empty output and reported 0 sequences. A captured snapshot of no sequences keeps
+    /// "No sequences found in selected files." in `SequenceExportStagingDurabilityTests`.
+    func testAnEmptySeqFileStopsTheExportWithNoSequencesFound() async throws {
         try requireTools()
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let folder = root.appendingPathComponent("out", isDirectory: true)
@@ -433,15 +434,31 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             )
             let staged = try SequenceExportStaging.stage([source], format: .fasta, outputURL: output)
             if let stagedFolder = staged.folder { stagedFolders.append(stagedFolder) }
-            let count = try await SequenceExportRoute.run(
-                arguments: SequenceExportRoute.arguments(
-                    inputs: staged.inputs, outputURL: output, format: .fasta, compression: .none
-                ),
-                outputURL: output
-            )
-            XCTAssertEqual(count, 0, "\(name) reports no sequence")
-            XCTAssertEqual(try Data(contentsOf: output), Data(), "\(name) exports an empty file")
+            let stagedName = try XCTUnwrap(staged.inputs.first).lastPathComponent
+            do {
+                let count = try await staged.run { inputs in
+                    try await SequenceExportRoute.run(
+                        arguments: SequenceExportRoute.arguments(
+                            inputs: inputs, outputURL: output, format: .fasta, compression: .none
+                        ),
+                        outputURL: output
+                    )
+                }
+                XCTFail("\(name) must not export, it reported \(count) sequences")
+            } catch {
+                print("13.41 alert text for \(name): \(error.localizedDescription)")
+                XCTAssertTrue(
+                    error.localizedDescription.hasSuffix("No sequences found in \(stagedName)."),
+                    "\(name): \(error.localizedDescription)"
+                )
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name) publishes no output")
+            XCTAssertEqual(Self.convertEntries(in: folder), [], "\(name) leaves no stage beside the output")
         }
+        let temporary = ProjectTempDirectory.tempRoot(for: project).path
+        let staging = ((try? FileManager.default.contentsOfDirectory(atPath: temporary)) ?? [])
+            .filter { $0.hasPrefix("sequence-export-") }
+        XCTAssertEqual(staging, [], "a refused export discards its staging")
     }
 
     // MARK: - Helpers

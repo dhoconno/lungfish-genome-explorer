@@ -104,6 +104,14 @@ struct ConvertCommand: AsyncParsableCommand {
         for path in inputs where !FileManager.default.fileExists(atPath: path) {
             throw CLIError.inputFileNotFound(path: path)
         }
+        // Refuse an input with no sequence before any input is read, in the words of the app's own refusal
+        // "No sequences found in selected files." (2.13 row CONVERT-EMPTY-INPUT), so nothing is published.
+        for path in inputs {
+            let inputURL = URL(fileURLWithPath: path)
+            if try Self.holdsOnlyWhiteSpace(inputURL) {
+                throw CLIError.conversionFailed(reason: "No sequences found in \(inputURL.lastPathComponent).")
+            }
+        }
 
         let inputURLs = inputs.map { URL(fileURLWithPath: $0) }
         let outputURL = URL(fileURLWithPath: outputFile)
@@ -386,6 +394,26 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "Input files changed while conversion was reading them; retry with a stable source.")
         }
         return (ext, sequences, annotations, provenanceInputs)
+    }
+
+    /// The bytes that count as white space in an input: tab, line feed, vertical tab, form feed, carriage
+    /// return and space.
+    private static let whiteSpaceBytes: Set<UInt8> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20]
+
+    /// Whether `url` is a file of no bytes or only white space, which holds no sequence in any format `convert`
+    /// reads. A folder, such as a `.lungfishref` bundle, is not checked here. The read stops at the first byte
+    /// that is not white space, so a file that holds a sequence costs one short read.
+    static func holdsOnlyWhiteSpace(_ url: URL) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return false
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        while let chunk = try handle.read(upToCount: 1 << 16), !chunk.isEmpty {
+            if chunk.contains(where: { !whiteSpaceBytes.contains($0) }) { return false }
+        }
+        return true
     }
 
     /// The extension of the text file the writers fill before it is compressed.
