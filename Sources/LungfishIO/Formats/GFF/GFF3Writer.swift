@@ -457,9 +457,12 @@ public struct GFF3ExportIdentifiers: Sendable {
     public static let trackIDKey = "annotation_db_track_id"
     /// The attribute the import stores on a CDS row to remember the phase of its column 8.
     public static let phaseKey = "lungfish_gff_phase"
+    /// The attribute the GFF3 import stores on a CDS row for the phase of its first stored base in transcription order,
+    /// which a merged or cut CDS cannot take from `phaseKey` (BIO ruling on lane 13.65 R1 and R2).
+    public static let cdsPhaseKey = "lungfish_cds_phase"
     /// Lungfish's own bookkeeping, which no GFF3 file leaves the app with. Both writers read this list, so a key added
     /// later is added here once.
-    public static let internalKeys = [rowIDKey, trackIDKey, phaseKey]
+    public static let internalKeys = [rowIDKey, trackIDKey, phaseKey, cdsPhaseKey]
     /// The start of the ID of a row whose stored attributes hold no `ID`.
     public static let rowKeyPrefix = "lungfish-row-"
 

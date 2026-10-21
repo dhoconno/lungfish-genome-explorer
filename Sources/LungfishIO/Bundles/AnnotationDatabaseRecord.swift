@@ -48,6 +48,23 @@ public struct AnnotationDatabaseRecord: Sendable {
 // MARK: - AnnotationDatabaseRecord → SequenceAnnotation
 
 extension AnnotationDatabaseRecord {
+    /// The phase of a CDS row's first base in transcription order, the one reader of the stored phase (BIO ruling on
+    /// lane 13.65 R3, ARCH 1). In order it is the import's `lungfish_cds_phase`, then for a row of one block its own
+    /// column 8 (`lungfish_gff_phase`), then GenBank's `codon_start` less 1, each only when it gives 0, 1 or 2. A merged
+    /// row of a database built before the key reads nil, since its `lungfish_gff_phase` is the first line's in file
+    /// order and not the 5' one (ARCH 4). Nil for any type but CDS.
+    public var fivePrimePhase: Int? {
+        guard AnnotationType.from(rawString: type) == .cds, let attributes else { return nil }
+        let pairs = AnnotationDatabase.parseAttributes(attributes)
+        func phase(_ key: String, less: Int = 0) -> Int? {
+            guard let value = pairs[key].flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }) else { return nil }
+            return (0...2).contains(value - less) ? value - less : nil
+        }
+        if let stored = phase(GFF3ExportIdentifiers.cdsPhaseKey) { return stored }
+        if (blockCount ?? 1) <= 1, let own = phase(GFF3ExportIdentifiers.phaseKey) { return own }
+        return phase("codon_start", less: 1)
+    }
+
     /// Converts this database record to a `SequenceAnnotation` for rendering.
     ///
     /// Block data (blockCount/blockSizes/blockStarts) is used to create multi-interval
@@ -84,6 +101,15 @@ extension AnnotationDatabaseRecord {
             }
         } else {
             intervals = [AnnotationInterval(start: start, end: end)]
+        }
+
+        // The 5' phase goes on the interval first in transcription order, where `GenBankReader` puts `/codon_start`
+        // and `TranslationEngine` reads it, and every other interval keeps none (BIO ruling on lane 13.65 R3).
+        if let phase = fivePrimePhase,
+           let first = strandValue == .reverse
+               ? intervals.indices.max(by: { intervals[$0].start < intervals[$1].start })
+               : intervals.indices.min(by: { intervals[$0].start < intervals[$1].start }) {
+            intervals[first] = AnnotationInterval(start: intervals[first].start, end: intervals[first].end, phase: phase)
         }
 
         // Parse qualifiers from GFF3-style attributes

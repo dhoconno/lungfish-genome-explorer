@@ -135,6 +135,16 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         return [fields.codingFeature, fields.consequence, fields.aaChange]
     }
 
+    /// Item 1. `chrF:7 C>A` makes codon 2 AGC into AGA, Ser to Arg, residue 2 in the frame of phase 1. Read from frame
+    /// 0, as the base reads it, base 7 opens codon 3, CTG (Leu) into ATG (Met), L3M.
+    func testPhasedCDSFromABundleKeepsItsFrame() async throws {
+        let bundle = try await frameBundle()
+        let row = Self.snp("chrF", 7, "C", "A")
+        let expected = ["f", "f: missense_variant S2R", "S2R"]
+        XCTAssertEqual(try Self.leafCells(bundle, row), expected, "side C reads the CDS in its GFF3 frame")
+        XCTAssertEqual(try Self.viewerCells(bundle, row), expected, "side A reads the CDS in its GFF3 frame")
+    }
+
     /// Item 2. `chrM:6 C>A` makes codon 2 AGC into AGA, which `transl_table=2` reads as a stop, S2*, stop gained. The
     /// standard code, which the base uses, reads Arg, S2R, a missense change.
     func testNonStandardTableCDSUsesItsTranslationTable() async throws {
@@ -153,5 +163,46 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         let expected = ["m", "m: synonymous_variant W3W", "W3W"]
         XCTAssertEqual(try Self.leafCells(bundle, row), expected, "side C translates with table 2")
         XCTAssertEqual(try Self.viewerCells(bundle, row), expected, "side A translates with table 2")
+    }
+
+    /// Item 4. The two `chrR` lines list the 3' segment first. `chrR:12 G>T` is A on the coding strand, the last base
+    /// of codon 2, AGC into AGA, S2R in the frame of the 5' segment's phase 1. Read from frame 0, as the base reads
+    /// it, it opens codon 3, CTG into ATG, L3M. A fix that kept the first line's phase 2 reads codon 2 as GCT into
+    /// GAT, A2D.
+    func testReverseMultiBlockCDSKeepsItsFrame() async throws {
+        let bundle = try await frameBundle()
+        let row = Self.snp("chrR", 12, "G", "T")
+        let expected = ["r", "r: missense_variant S2R", "S2R"]
+        let wrongPhase = "A2D is the first line's phase 2, the 3' segment's, not the 5' one"
+        XCTAssertEqual(try Self.leafCells(bundle, row), expected, "side C, \(wrongPhase)")
+        XCTAssertEqual(try Self.viewerCells(bundle, row), expected, "side A, \(wrongPhase)")
+    }
+
+    /// Item 5 (R2, K3). `chrR` ends at 16 here and the import passes that size, so the build cuts bases 17 and 18, the
+    /// 2 coding bases at the 5' end, and stores the phase of base 16, (1 - 2) mod 3 = 2. The coding sequence read is
+    /// TGAGCT then GGTAA, codon 1 AGC (indices 2 to 4), and `chrR:12 G>T` makes it AGA, S1R, the residue counted from
+    /// the cut. Read from frame 0, as the base reads it, base 12 is the middle of codon 2, GCT into GAT, A2D.
+    func testClippedReverseGFF3CDSKeepsItsFrameAtTheCut() async throws {
+        let root = deepRoot("cds-frame-clip")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let gff = "##gff-version 3\n"
+            + "chrR\t.\tCDS\t3\t7\t.\t-\t2\tID=cds-r;Name=r\n"
+            + "chrR\t.\tCDS\t11\t18\t.\t-\t1\tID=cds-r;Name=r\n"
+        let bundle = try await Self.makeFrameBundle(
+            root, chromosomes: [("chrR", String(Self.chrRBases.prefix(16)))], gff: gff, sizes: [("chrR", 16)]
+        )
+        let database = try AnnotationDatabase(
+            url: root.appendingPathComponent("frame.lungfishref/annotations/cds.db")
+        )
+        let stored = try XCTUnwrap(database.query(limit: 10).first)
+        XCTAssertEqual([stored.start, stored.end, stored.blockCount ?? 0], [2, 16, 2], "the build cut the row at 16")
+        XCTAssertEqual(
+            AnnotationDatabase.parseAttributes(stored.attributes ?? "")["lungfish_cds_phase"], "2",
+            "the stored phase is the phase of the first stored base, \(stored.attributes ?? "")"
+        )
+        let row = Self.snp("chrR", 12, "G", "T")
+        let expected = ["r", "r: missense_variant S1R", "S1R"]
+        XCTAssertEqual(try Self.leafCells(bundle, row), expected, "side C reads the cut CDS in its frame")
+        XCTAssertEqual(try Self.viewerCells(bundle, row), expected, "side A reads the cut CDS in its frame")
     }
 }

@@ -314,7 +314,7 @@ manifest }
 annotations annotations/annotations.db total=5
 annotation annotations/annotations.db ZZ000001.1 0 150 + region ZZ000001.1:1..150 blocks=-/-/- gene=- attributes=Dbxref=taxon:0;ID=ZZ000001.1:1..150;gbkey=Src;isolate=LGE-1;mol_type=genomic RNA
 annotation annotations/annotations.db ZZ000001.1 0 9 + five_prime_UTR id-ZZ000001.1:1..9 blocks=-/-/- gene=- attributes=ID=id-ZZ000001.1:1..9;gbkey=5'UTR
-annotation annotations/annotations.db ZZ000001.1 9 140 + CDS ZZP00001.1 blocks=2/51,81/0,50 gene=orf1 attributes=ID=cds-ZZP00001.1;Name=ZZP00001.1;Parent=gene-orf1;exception=ribosomal slippage;gbkey=CDS;gene=orf1;locus_tag=LGE_001;lungfish_gff_phase=0;product=stand-in polyprotein%3B with a semicolon;protein_id=ZZP00001.1
+annotation annotations/annotations.db ZZ000001.1 9 140 + CDS ZZP00001.1 blocks=2/51,81/0,50 gene=orf1 attributes=ID=cds-ZZP00001.1;Name=ZZP00001.1;Parent=gene-orf1;exception=ribosomal slippage;gbkey=CDS;gene=orf1;locus_tag=LGE_001;lungfish_cds_phase=0;lungfish_gff_phase=0;product=stand-in polyprotein%3B with a semicolon;protein_id=ZZP00001.1
 annotation annotations/annotations.db ZZ000001.1 9 140 + gene orf1 blocks=-/-/- gene=orf1 attributes=ID=gene-orf1;Name=orf1;gbkey=Gene;gene=orf1;gene_biotype=protein_coding;locus_tag=LGE_001
 annotation annotations/annotations.db ZZ000001.1 99 120 - sequence_feature id-ZZ000001.1:100..120 blocks=-/-/- gene=- attributes=ID=id-ZZ000001.1:100..120;Note=stand-in hairpin %3D folded;gbkey=misc_feature
 provenance workflow lungfish fetch genome exit 0

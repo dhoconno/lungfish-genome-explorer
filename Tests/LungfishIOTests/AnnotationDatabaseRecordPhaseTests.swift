@@ -28,4 +28,38 @@ final class AnnotationDatabaseRecordPhaseTests: XCTestCase {
         XCTAssertEqual(annotation.intervals.map(\.end), [7, 18])
         XCTAssertEqual(annotation.intervals.map(\.phase), [nil, nil])
     }
+
+    /// Pin 8 (R1 to R3). The interval first in transcription order carries the row's 5' phase and every other interval
+    /// none. The `chrR` CDS imported through `createFromGFF3` puts phase 1 on [10,18), its 5' segment on the reverse
+    /// strand. A one-line CDS row reads its own `lungfish_gff_phase`, and a two-block row that `createFromBED` stores
+    /// from a GenBank download reads its `codon_start` less 1 on its lowest interval.
+    func testBundleCDSReadCarriesItsFivePrimePhase() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AnnotationDatabaseRecordPhase-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let gff = folder.appendingPathComponent("r.gff3")
+        try ("##gff-version 3\n" + "chrR\t.\tCDS\t3\t7\t.\t-\t2\tID=cds-r;Name=r\n" + "chrR\t.\tCDS\t11\t18\t.\t-\t1\tID=cds-r;Name=r\n")
+            .write(to: gff, atomically: true, encoding: .utf8)
+        let gffDatabase = folder.appendingPathComponent("r.db")
+        _ = try await AnnotationDatabase.createFromGFF3(gffURL: gff, outputURL: gffDatabase)
+        let merged = try XCTUnwrap(try AnnotationDatabase(url: gffDatabase).query(limit: 10).first).toAnnotation()
+        XCTAssertEqual(merged.intervals.map(\.start), [2, 10])
+        XCTAssertEqual(merged.intervals.map(\.phase), [nil, 1], "the 5' segment of the reverse CDS carries phase 1")
+
+        let oneLine = AnnotationDatabaseRecord(
+            rowID: 2, name: "f", type: "CDS", chromosome: "chrF", start: 0, end: 13, strand: "+",
+            attributes: "ID=cds-f;Name=f;lungfish_gff_phase=1"
+        )
+        XCTAssertEqual(oneLine.toAnnotation().intervals.map(\.phase), [1], "a one-line CDS reads its own column 8")
+
+        let bed = folder.appendingPathComponent("b.bed")
+        try "chrB\t9\t140\torf1\t0\t+\t9\t140\t0\t2\t51,80,\t0,51,\tCDS\tcodon_start=2;gene=orf1;product=p\n"
+            .write(to: bed, atomically: true, encoding: .utf8)
+        let bedDatabase = folder.appendingPathComponent("b.db")
+        try AnnotationDatabase.createFromBED(bedURL: bed, outputURL: bedDatabase)
+        let joined = try XCTUnwrap(try AnnotationDatabase(url: bedDatabase).query(limit: 10).first).toAnnotation()
+        XCTAssertEqual(joined.intervals.map(\.start), [9, 60])
+        XCTAssertEqual(joined.intervals.map(\.phase), [1, nil], "codon_start=2 is phase 1 on the 5' interval")
+    }
 }

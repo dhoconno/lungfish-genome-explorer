@@ -545,8 +545,23 @@ extension AnnotationDatabase {
                                 blockStartsStr = nil
                             }
 
-                            // Use attributes from the first occurrence
-                            let attrString = serializeAttributes(feature.attributes)
+                            // Use attributes from the first occurrence, and add the phase of the row's first stored
+                            // base in transcription order: the 5'-most line's phase less the bases the clip cut from
+                            // the 5' end, which only a reverse CDS loses (BIO ruling on lane 13.65 R1 and R2).
+                            var mergedAttributes = feature.attributes
+                            var fivePrime = siblingFeatures[0]
+                            for sibling in siblingFeatures.dropFirst()
+                            where feature.strand == "-" ? sibling.end > fivePrime.end : sibling.start < fivePrime.start {
+                                fivePrime = sibling
+                            }
+                            let lost = feature.strand != "-" ? 0 : sortedIntervals.reduce(0) { total, interval in
+                                total + (interval.end - interval.start)
+                                    - max(0, min(interval.end, mergedEnd) - max(interval.start, mergedStart))
+                            }
+                            if let phase = cdsPhase(fivePrime.attributes, losing: lost) {
+                                mergedAttributes[GFF3ExportIdentifiers.cdsPhaseKey] = String(phase)
+                            }
+                            let attrString = serializeAttributes(mergedAttributes)
 
                             // Deduplicate (using merged coordinates)
                             let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(mergedStart)|\(mergedEnd)"
@@ -563,14 +578,21 @@ extension AnnotationDatabase {
                         }
 
                         // ── Transcript-level features: aggregate child exons into blocks ──
-                        let attrString = serializeAttributes(feature.attributes)
-
                         var chromStart = feature.start - 1
                         var chromEnd = feature.end
                         if let chromSize = chromSizeMap?[feature.seqid] {
                             chromStart = max(0, min(chromStart, Int(chromSize)))
                             chromEnd = max(chromStart, min(chromEnd, Int(chromSize)))
                         }
+
+                        // A reverse CDS line that the clip cut at its 5' end keeps the phase of its first stored base
+                        // (BIO ruling on lane 13.65 R2). A line the clip left whole reads its own column 8.
+                        var lineAttributes = feature.attributes
+                        let lineLost = feature.strand == "-" ? (feature.end - feature.start + 1) - (chromEnd - chromStart) : 0
+                        if lineLost > 0, let phase = cdsPhase(feature.attributes, losing: lineLost) {
+                            lineAttributes[GFF3ExportIdentifiers.cdsPhaseKey] = String(phase)
+                        }
+                        let attrString = serializeAttributes(lineAttributes)
 
                         var blockCount: Int? = nil
                         var blockSizesStr: String? = nil
@@ -643,6 +665,15 @@ extension AnnotationDatabase {
         try publishBuiltAnnotationDatabase(stagingURL: stagingURL, to: outputURL)
         dbLogger.info("Created GFF3 annotation database with \(insertCount) records at \(outputURL.lastPathComponent)")
         return insertCount
+    }
+
+    /// The phase a CDS line's `lungfish_gff_phase` gives its first base once `lost` bases go from its 5' end,
+    /// ((p - lost) mod 3), or nil for a line with no phase of 0, 1 or 2.
+    private static func cdsPhase(_ attributes: [String: String], losing lost: Int) -> Int? {
+        guard let phase = attributes[GFF3ExportIdentifiers.phaseKey].flatMap({ Int($0) }), (0...2).contains(phase) else {
+            return nil
+        }
+        return ((phase - lost) % 3 + 3) % 3
     }
 
     /// Parses GFF3 or GTF-style attributes string into a dictionary.
