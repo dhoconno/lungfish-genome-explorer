@@ -1,0 +1,3 @@
+{"event":"start","message":"Drawing chr1:1101-1300 of figure.lungfishref.","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"The sequence track left out labels (base letters need 8 points a base and 3.94 points a base were drawn, 200 left out).","schemaVersion":2}
+{"event":"complete","message":"Exported fixture.png","output":"\/work\/fixture.png","outputs":["\/work\/fixture.png"],"progress":1,"schemaVersion":2}
