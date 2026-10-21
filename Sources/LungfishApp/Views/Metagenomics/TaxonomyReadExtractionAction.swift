@@ -690,7 +690,7 @@ public final class TaxonomyReadExtractionAction {
             workflowName: "lungfish app classifier read extraction",
             toolName: LungfishAppIdentity.recordedToolName,
             argv: argv,
-            durableReplayArgv: [CLICommandIdentity.executableName] + argv.dropFirst(),
+            durableReplayArgv: readNameAllowlist.isEmpty ? [CLICommandIdentity.executableName] + argv.dropFirst() : nil, // no leaf option carries an allowlist
             explicitOptions: explicitOptions,
             defaults: [
                 "format": .string(CopyFormat.fastq.rawValue),

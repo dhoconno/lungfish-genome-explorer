@@ -86,6 +86,27 @@ final class ClassifierReadExtractionRouteParityTests: XCTestCase {
         XCTAssertEqual(app.stepReproducibleCommand, leafRecord.stepReproducibleCommand, "the step's command agrees with its replay line")
     }
 
+    /// A selection with a read-name allowlist has no `lungfish-cli` command that reproduces its file, since the leaf takes no
+    /// allowlist. Its record keeps the app's argv as its replay, so an exported script names the step without running it.
+    func testFileExtractionWithReadNameAllowlistTakesNoDurableReplayArgv() throws {
+        let output = scratch.appendingPathComponent("allowlist", isDirectory: true).appendingPathComponent("out.fastq")
+        func fileProvenance(allowlist: Set<String>?) throws -> ExtractionFileProvenance {
+            let context = TaxonomyReadExtractionAction.Context(
+                tool: .kraken2, resultPath: URL(fileURLWithPath: "/tmp/kraken2-results/fake"),
+                selections: [ClassifierRowSelector(sampleId: "S1", accessions: [], taxIds: [20], readNameAllowlist: allowlist)],
+                suggestedName: "my-extract", routeContext: nil
+            )
+            return try XCTUnwrap(TaxonomyReadExtractionAction.optionsByRecordingFileProvenanceForTesting(
+                ExtractionOptions(format: .fastq, includeUnmappedMates: false), context: context, destination: .file(output)
+            ).fileProvenance)
+        }
+        let withAllowlist = try fileProvenance(allowlist: ["read-1", "read-2"])
+        XCTAssertEqual(withAllowlist.argv.first, LungfishAppIdentity.recordedToolName)
+        XCTAssertNil(withAllowlist.durableReplayArgv, "a command that cannot carry the allowlist must not be the replay")
+        let plain = try fileProvenance(allowlist: nil)
+        XCTAssertEqual(plain.durableReplayArgv, [CLICommandIdentity.executableName] + plain.argv.dropFirst())
+    }
+
     /// What a record says it replays, with the side's folder (`scratch/a` or `scratch/c`) written `<ROOT>`, so the two sides compare.
     private struct ReplayWords {
         let argv: [String]
