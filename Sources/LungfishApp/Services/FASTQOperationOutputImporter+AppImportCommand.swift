@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension AppFASTQOutputBundleWriter {
-    /// The `Lungfish.app import-fastq-operation-output` form a FASTQ output
+    /// The `Lungfish Genome Explorer import-fastq-operation-output` form a FASTQ output
     /// bundle records in its manifest when its launch is not a FASTQ
     /// derivative.
     ///
@@ -22,7 +23,7 @@ extension AppFASTQOutputBundleWriter {
         inputURL: URL?,
         outputURL: URL
     ) -> String {
-        var arguments = ["Lungfish.app", "import-fastq-operation-output", "--operation", request.operationDisplayTitle]
+        var arguments = [LungfishAppIdentity.recordedToolName, "import-fastq-operation-output", "--operation", request.operationDisplayTitle]
         if let inputURL = inputURL ?? request.inputURLs.first {
             arguments += ["--input", inputURL.path]
         }

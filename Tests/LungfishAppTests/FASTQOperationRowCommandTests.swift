@@ -16,6 +16,7 @@ import ArgumentParser
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishIO
@@ -306,7 +307,7 @@ final class FASTQOperationRowCommandTests: XCTestCase {
             sourceInputURL: source.bundleURL
         )
         let appImportCommand = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: appImport)?.operation.toolCommand)
-        XCTAssertTrue(appImportCommand.hasPrefix("Lungfish.app "), appImportCommand)
+        XCTAssertTrue(appImportCommand.hasPrefix("'\(LungfishAppIdentity.recordedToolName)' "), appImportCommand)
 
         let launch = derivativeLaunch(.lengthFilter(min: 10, max: nil), on: [source])
         for bundle in [noCommand, appImport] {

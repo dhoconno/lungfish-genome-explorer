@@ -211,9 +211,9 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
         let payload = bundleURL.appendingPathComponent(manifest.rootFASTQFilename)
         let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
-        XCTAssertEqual(manifest.operation.toolUsed, "Lungfish.app")
+        XCTAssertEqual(manifest.operation.toolUsed, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(try AdvancedCommandLineOptions.parse(toolCommand), [
-            "Lungfish.app", "import-fastq-operation-output",
+            LungfishAppIdentity.recordedToolName, "import-fastq-operation-output",
             "--operation", launch.operationDisplayTitle,
             "--input", source.bundleURL.path,
             "--output", payload.path,

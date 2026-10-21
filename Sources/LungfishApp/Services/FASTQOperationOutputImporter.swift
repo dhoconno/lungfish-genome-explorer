@@ -365,7 +365,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         guard case .derivative(let derivativeRequest, let inputURLs, _) = request else {
             return FASTQDerivativeOperation(
                 kind: .deduplicate,
-                toolUsed: "Lungfish.app",
+                toolUsed: LungfishAppIdentity.recordedToolName,
                 toolCommand: Self.appImportCommandLine(for: request, inputURL: sourceInputURL, outputURL: outputURL)
             )
         }
