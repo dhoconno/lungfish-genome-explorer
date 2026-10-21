@@ -17,6 +17,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -139,6 +140,59 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         XCTAssertEqual(
             written.provenance.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: appRow)),
             "the row, the record and the leaf print one argv")
+    }
+
+    /// Fix 4 of the 13.43-fix review (QA 1 and 2). Masks M-1 to M-4 had run only on the synthetic text of
+    /// `RouteParityHarnessTests`, and a parity class run falls inside one second, so no capture time differed in it.
+    /// Two exports of one order, run a second apart, hold different capture times in `order.json`, in the workbook cell
+    /// and in the zip entries, and they compare equal under the standard masks. With the order masks taken out, the same
+    /// two folders differ, which shows that the masks have something to hide.
+    func testTwoOrdersASecondApartCompareEqualUnderTheStandardMasks() async throws {
+        let fixture = try makePrimer3Fixture(pairCount: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let pairID = try XCTUnwrap(
+            snapshot.designReview.filter { $0.presentation == .primer3Template }.map(\.id).last)
+        let selection = try PrimerOrderExportService.captureSelection(
+            snapshot: snapshot, scope: .primer3CandidatePairs(includedPairIDs: [pairID]))
+        let draft = PrimerOrderDraft(
+            selection: selection,
+            oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
+            defaultName: "fixture candidate pairs order")
+        let metadata = PrimerOrderMetadata(name: "Pair order", requestedBy: "Bench", notes: "Rush")
+
+        // The app's row for two folders. The first leaf runs, more than a second passes, then the second leaf runs.
+        let first = fixture.root.appendingPathComponent("first")
+        let second = fixture.root.appendingPathComponent("second")
+        let firstRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: first)
+        let secondRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: second)
+        try await RecordedCLICommand.parse(firstRow, as: PrimerAnalysisExportOrderCommand.self).run()
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        try await RecordedCLICommand.parse(secondRow, as: PrimerAnalysisExportOrderCommand.self).run()
+
+        let firstOrder = try PrimerOrderExportService.loadSnapshot(from: first)
+        let secondOrder = try PrimerOrderExportService.loadSnapshot(from: second)
+        XCTAssertGreaterThanOrEqual(
+            secondOrder.document.selection.capturedAt.timeIntervalSince(firstOrder.document.selection.capturedAt), 1,
+            "the second export captured its selection a second after the first")
+
+        XCTAssertEqual(
+            try OutputEquivalence.compare(first, second, kind: .bundle, masks: .standard).differences, [],
+            "M-1 to M-4 hide the clock of the two exports and nothing else")
+
+        let orderMasks: Set<String> = ["primerOrderCaptureClocks", "primerOrderRecordDigests"]
+        var withoutOrderMasks = OutputEquivalence.MaskPolicy.standard
+        withoutOrderMasks.records.removeAll { orderMasks.contains($0.name) }
+        withoutOrderMasks.provenance.removeAll { orderMasks.contains($0.name) }
+        withoutOrderMasks.payloads.removeAll { orderMasks.contains($0.name) }
+        let unmasked = try OutputEquivalence.compare(first, second, kind: .bundle, masks: withoutOrderMasks).differences
+        for file in ["order.json", "workbook-parts/", ".lungfish-provenance.json"] {
+            XCTAssertTrue(
+                unmasked.contains { $0.hasPrefix("differs: \(file)") },
+                "without M-1, M-2 and M-4 the two exports differ in \(file)")
+        }
     }
 
     /// Pins at the base of lane 13.43 (QA 1), before PRIMER-EXPORT-RUN changes the route. The order export as it is
