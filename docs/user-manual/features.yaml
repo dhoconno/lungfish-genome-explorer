@@ -41,13 +41,20 @@ features:
       - Sources/LungfishApp/App/VCFAutoIngestor.swift
       - Sources/LungfishApp/App/AppDelegate+ImportCenterOperationBegin.swift
       - Sources/LungfishCLI/Commands/ImportCommand.swift
+      - Sources/LungfishIO/Bundles/VariantDatabase+INFOExpansion.swift
     module: [LungfishIO, LungfishApp, LungfishCLI]
+    tests:
+      - Tests/LungfishIOTests/VariantStructuredINFOTests.swift
     notes: >-
       Accepts plain text VCF and bgzipped VCF with accompanying tabix index.
       Inference picks a compatible reference by chromosome set, applying
       RefSeq, UCSC, and Ensembl alias mappings so that a VCF carrying
       MT192765.1 or NC_045512.2 or chrCOV19 resolves to the same reference
       when present in the project.
+      At every import profile, SnpEff ANN and VEP CSQ annotations are split
+      into their fields, so the High Impact filter and filters on ANN fields
+      such as ANN_IMPACT find variants. A file imported before this release
+      keeps its old rows until it is imported again.
   viewport.variant-browser:
     title: Variant browser viewport
     entry_points:
@@ -201,6 +208,7 @@ features:
       - Sources/LungfishWorkflow/Mapping/MappingInputResolver.swift
       - Sources/LungfishWorkflow/Mapping/MappingResult.swift
       - Sources/LungfishWorkflow/Mapping/MappingProvenance.swift
+      - Sources/LungfishWorkflow/Mapping/MappingProvenance+TrackRecord.swift
       - Sources/LungfishApp/Services/CLIReadsRunner.swift
       - Sources/LungfishApp/App/AppDelegate+ManagedMapping.swift
       - Sources/LungfishCLI/Commands/MapCommand+Events.swift
@@ -215,9 +223,10 @@ features:
       - lungfish-cli map
       - lungfish-cli bam adopt-mapping
     operation_type: mapping
-    provenance: MappingProvenance (mapping-provenance.json in the mapping output directory)
+    provenance: MappingProvenance (mapping-provenance.json in the mapping output directory, and <bam stem>.mapping-provenance.json beside each BAM that bam adopt-mapping attaches)
     tests:
       - Tests/LungfishWorkflowTests/Mapping/MappingProvenanceTests.swift
+      - Tests/LungfishIntegrationTests/BAMAdoptMappingTrackRecordTests.swift
       - Tests/LungfishWorkflowTests/Mapping/ManagedMappingPipelineTests.swift
       - Tests/LungfishCLITests/MapCommandTests.swift
       - Tests/LungfishAppTests/MappingRouteParityReplayTests.swift
@@ -232,6 +241,14 @@ features:
       Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
       a mapping-result sidecar, and can attach the mapping outputs to a
       reference bundle with `lungfish bam adopt-mapping`.
+      Each track that adopt-mapping attaches keeps its own mapping record,
+      <bam stem>.mapping-provenance.json beside its BAM, so a second adopt no
+      longer overwrites the first, and a bundle made by an earlier release
+      keeps its one shared record. A failed adopt-mapping returns the BAM and
+      its index to the mapping folder and removes only the files that it made.
+      Mapping records list the samtools coverage and samtools view passes that
+      made the summary rows, and an exported script names them in a comment
+      and does not run them.
       Map Reads runs lungfish-cli map, and a Map Reads onto a reference bundle
       in a project spelled under /private publishes the reference viewer. With
       --format json the command prints CLIEvent lines in
@@ -276,7 +293,7 @@ features:
     cli:
       - lungfish-cli variants call
     operation_type: variantCalling
-    provenance: variants/<basename>.lungfish-provenance.json in the reference bundle (BundleVariantTrackAttachmentService)
+    provenance: variants/<basename>.lungfish-provenance.json in the reference bundle (BundleVariantTrackAttachmentService), and variants/gatk/<track id>.gatk-run.lungfish-provenance.json for a GATK call
     tests:
       - Tests/LungfishWorkflowTests/Variants/ViralVariantCallingPipelineTests.swift
       - Tests/LungfishWorkflowTests/Variants/BAMVariantCallingPreflightTests.swift
@@ -293,7 +310,8 @@ features:
       tool stages in provenance.
       The GATK caller (--caller gatk) runs GATK HaplotypeCaller and attaches
       the VCF as a variant track under variants/gatk/ as <track id>.vcf.gz
-      with its .tbi, the track database and a .lungfish-provenance.json. Its
+      with its .tbi, the track database and a
+      <track id>.gatk-run.lungfish-provenance.json. Its
       own options are --emit-ref-confidence, --ploidy, --intervals,
       --pcr-indel-model, --stand-call-conf, --max-alternate-alleles and
       --pair-hmm-threads. Every variants call caller stops on SIGTERM,
@@ -301,7 +319,9 @@ features:
       lungfish-variants-call-<id>.lungfish-provenance.json and exits 125.
       The Call Variants dialog's GATK row runs variants call --caller gatk,
       and its attach record names that command. A later GATK run in a
-      bundle replaces the bundle's GATK execution record.
+      bundle writes the run record of its own track and leaves the records
+      of the other tracks, and a bundle made by an earlier release keeps
+      its one shared record.
   bam.primer-trim:
     title: Primer-trim a BAM with iVar
     entry_points:
@@ -407,7 +427,7 @@ features:
     notes: >-
       Extracting a region to a new bundle from a viewer that shows a reference
       bundle runs lungfish-cli extract sequence --bundle. Its row in the
-      Operations panel records the command, which Copy Command shows, and
+      Operations panel records the command, which Copy CLI Command copies, and
       Cancel stops it before it publishes anything. A viewer that shows a
       document with no reference bundle runs lungfish-cli extract sequence
       <fasta> <region> -o <name>.lungfishref --source-document, so its row
@@ -417,9 +437,10 @@ features:
       FASTA under the project's .tmp folder, or under the system temporary
       folder when no project is in reach, so that its record stays true. A
       failed extraction removes it. A region extracted with only spaces
-      typed as its bundle name is saved as extracted_sequence. Two extractions given the same bundle name at the
-      same time keep both bundles, and with --next-free-name the one that
-      finishes second is saved under the next free name, such as Name_1.
+      typed as its bundle name is saved as extracted_sequence. Two
+      extractions given the same bundle name at the same time keep both
+      bundles, and with --next-free-name the one that finishes second is
+      saved under the next free name, such as Name_1.
       extract sequence --bundle never writes over its input. An -o that is the
       source bundle, lies inside it or holds it is refused with exit status 3,
       and the bundle options (--name, --samples, --no-samples, --feature-name,
@@ -471,7 +492,8 @@ features:
       - Sources/LungfishApp/Services/SequenceExportStaging.swift
       - Sources/LungfishWorkflow/Native/SequenceExportCompressor.swift
       - Sources/LungfishCLI/Commands/ConvertCommand.swift
-    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+      - Sources/LungfishIO/Formats/GenBank/GenBankFeatureLine.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow, LungfishIO]
     cli:
       - lungfish-cli convert
     tests:
@@ -479,6 +501,8 @@ features:
       - Tests/LungfishAppTests/SequenceExportRouteTests.swift
       - Tests/LungfishAppTests/SequenceExportStagingDurabilityTests.swift
       - Tests/LungfishCLITests/ConvertCompressTests.swift
+      - Tests/LungfishCLITests/ConvertEmptyInputTests.swift
+      - Tests/LungfishIOTests/GenBankFeatureLineTests.swift
       - Tests/LungfishWorkflowTests/SequenceExportCompressorTests.swift
     notes: >-
       lungfish-cli convert takes several input files and writes them to one
@@ -491,12 +515,60 @@ features:
       .txt) is copied there as FASTA. convert runs on the copy, and the
       export's record names it. A GenBank file that Lungfish writes holds
       no /_lf_raw_feature_type or /_lf_raw_genbank_location qualifier. A
-      zstd export looks for zstd in /usr/bin,
-      in /usr/local/bin and in the bin folder of the folder that
-      HOMEBREW_PREFIX names, and not on the PATH. When it finds none, it
-      stops with a message that
-      says what to install and where it looked, since macOS does not ship
-      zstd. gzip works on every Mac.
+      GenBank file that Lungfish writes keeps each feature's key and location
+      as the source GenBank file had them, for example CDS, the partial
+      markers < and > and order(), while the feature's type, ranges and strand
+      are unchanged. A feature that was edited, one that did not come from a
+      GenBank file and one of a .lungfishref bundle prints its key in lower
+      case and a location rebuilt from its ranges. convert refuses an input of
+      no bytes or only white space with No sequences found in <file> and
+      writes nothing. A zstd export runs the zstd that Lungfish manages and
+      installs with its Required Setup, and it does not look in Homebrew or on
+      the PATH. When that zstd is not installed, the export stops with a
+      message that points at the Required Setup. gzip works on every Mac.
+  viewer.export-image:
+    title: Export a viewer image
+    entry_points:
+      - "File > Export > Image (PNG)…"
+      - "File > Export > Image (PDF)…"
+      - "CLI: lungfish bundle export-graphic"
+    inputs: [reference-bundle]
+    outputs: [png, pdf]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+ViewerGraphicsExportOperationBegin.swift
+      - Sources/LungfishApp/App/ViewerGraphicsExportOptions.swift
+      - Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift
+      - Sources/LungfishCLI/Commands/BundleExportGraphicSubcommand.swift
+      - Sources/LungfishCLI/Commands/BundleExportGraphicSubcommand+Bulk.swift
+      - Sources/LungfishCLI/Commands/BundleExportGraphicSubcommand+Record.swift
+      - Sources/LungfishWorkflow/ViewerExport/ViewerGraphicExport.swift
+      - Sources/LungfishWorkflow/ViewerExport/ViewerGraphicExport+Figure.swift
+      - Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureRasterizer.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    cli:
+      - lungfish-cli bundle export-graphic
+    operation_type: export
+    tests:
+      - Tests/LungfishCLITests/BundleExportGraphicCommandTests.swift
+      - Tests/LungfishAppTests/ViewerGraphicsExportRowTests.swift
+      - Tests/LungfishAppTests/ViewerGraphicsExportCLIGUIParityReplayTests.swift
+      - Tests/LungfishWorkflowTests/ViewerExport/Graphics/ViewerFigureRasterizerTests.swift
+    notes: >-
+      File > Export > Image (PNG)… and Image (PDF)… run lungfish-cli bundle
+      export-graphic when the viewer shows a genome bundle, and the row of the
+      export in the Operations Panel records that command, so Copy CLI Command
+      copies it. The image shows the region the viewer shows and draws the
+      bundle's sequence, annotation, variant and read tracks from the bundle's
+      files, but it is not a copy of the screen. A PDF image of a bundle holds
+      no creation or modification date, so running its command again on the
+      same Mac and macOS build writes the same file. If a PDF keeps those
+      dates, its record says so. The Export Successful alert no longer
+      appears, and the finished row names the file. When the viewer shows
+      anything else, such as a classifier result, an alignment, a tree or a
+      PDF, the export still captures the whole pane as before, with the one
+      scope Full Viewer Pane, and records no command. A document that is not a
+      bundle also keeps Tracks and Selected Region as captures.
   viewport.sequence-browser:
     title: Sequence browser viewport
     entry_points:
@@ -1405,7 +1477,7 @@ features:
     cli:
       - lungfish-cli taxtriage run
     operation_type: classification
-    provenance: ProvenanceRecorder run saved by TaxTriagePipeline and TaxTriageSerialBatchRunner
+    provenance: ProvenanceRecorder run saved by TaxTriagePipeline
     tests:
       - Tests/LungfishWorkflowTests/TaxTriagePipelineTests.swift
       - Tests/LungfishCLITests/TaxTriageRunOptionsTests.swift
@@ -1745,15 +1817,22 @@ features:
       - Sources/LungfishApp/Services/CLIReadsRunner.swift
       - Sources/LungfishCLI/Commands/AssembleCommand+Events.swift
       - Sources/LungfishCLI/Commands/AssembleCommand+ReferenceBundle.swift
+      - Sources/LungfishApp/Views/Assembly/AssemblyThreadCapNote.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     tests:
       - Tests/LungfishAppTests/ReadsLaunchCommandTests.swift
       - Tests/LungfishAppTests/AssemblyBundleBuilderSigningReplayTests.swift
+      - Tests/LungfishAppTests/AssemblyThreadCapNoteTests.swift
+      - Tests/LungfishWorkflowTests/Assembly/MegahitThreadRulePinTests.swift
     notes: >-
       Assembles reads with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm in
       short-read, long-read, or haplotype-aware modes with a guided wizard.
       Reassemble in the sidebar runs lungfish-cli assemble. Under --format
       json the command prints its events on standard output.
+      On an Apple silicon Mac, a MEGAHIT assembly runs on at most one thread,
+      whatever the Threads setting says. The assembly dialog shows that cap
+      under Threads when MEGAHIT is chosen, and the run record and the bundle
+      metadata name the thread count and the memory the run used.
   viewport.assembly:
     title: Assembly result viewport
     entry_points:
@@ -2480,6 +2559,10 @@ features:
       its copy icon, its context menu and its VoiceOver actions, and Command-C
       copies a focused step. Copy Step copies the step's own block of what Copy
       All Steps copies.
+      A step that ran inside the app, such as a merge of FASTQ bundles, keeps
+      its recorded words in the Command row with the note This step ran inside
+      the app and has no command to run in Terminal. Its Copy Command is off,
+      and Copy Step still copies the step.
   provenance.result-popovers:
     title: Show a result viewer's pipeline information popover
     entry_points:
@@ -2926,7 +3009,16 @@ features:
       - Sources/LungfishWorkflow/PrimerAnalysis/PrimerOrderExportService.swift
       - Sources/LungfishWorkflow/PrimerDesign/PrimerSchemeOrderSheet.swift
       - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
-    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysisExportBegin.swift
+      - Sources/LungfishWorkflow/Bundles/PrimerExportInvocations.swift
+      - Sources/LungfishOperations/PrimerAnalysisExportDestination.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI, LungfishOperations]
+    tests:
+      - Tests/LungfishCLITests/PrimerAnalysisExportOrderCommandTests.swift
+      - Tests/LungfishCLITests/PrimerAnalysisExportSIGTERMTests.swift
+      - Tests/LungfishAppTests/PrimerAnalysisExportRowTests.swift
+      - Tests/LungfishAppTests/PrimerExportCLIGUIParityReplayTests.swift
+      - Tests/LungfishOperationsTests/PrimerAnalysisExportDestinationTests.swift
     notes: >-
       Writes order workbooks, a CSV, and order.json for the selected or all
       reported assays. Chapter: 10-primer-design/05.
@@ -2936,6 +3028,11 @@ features:
       --min-compatibility, so a PrimalScheme order exported from a filtered
       view records a command that carries them. A parse test alone covers
       the compatibility options.
+      The export runs lungfish-cli primers analysis export-order behind an
+      Operations row, so Copy CLI Command replays it, a cancel leaves no
+      folder behind, and the command takes --format json. Copy CLI Command
+      spells each filled field with an equals sign, so a value that starts
+      with a hyphen exports and replays.
   primer-analysis.export-selection:
     title: Save a primer FASTA bundle or extract a reference amplicon
     entry_points:
@@ -2950,12 +3047,18 @@ features:
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysis.swift
       - Sources/LungfishCLI/Commands/PrimerAnalysisExportSelectionCommand.swift
       - Sources/LungfishCLI/Commands/PrimerAnalysisCommand.swift
-    module: [LungfishApp, LungfishCLI]
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+PrimerAnalysisExportBegin.swift
+      - Sources/LungfishWorkflow/Bundles/PrimerExportInvocations.swift
+      - Sources/LungfishOperations/PrimerAnalysisExportDestination.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow, LungfishOperations]
     cli:
       - lungfish-cli primers analysis export-selection
     tests:
       - Tests/LungfishCLITests/PrimerAnalysisExportSelectionCommandTests.swift
+      - Tests/LungfishCLITests/PrimerAnalysisExportSIGTERMTests.swift
       - Tests/LungfishAppTests/PrimerSelectionExportParityTests.swift
+      - Tests/LungfishAppTests/PrimerAnalysisExportRowTests.swift
+      - Tests/LungfishAppTests/PrimerExportCLIGUIParityReplayTests.swift
     notes: >-
       primers analysis export-selection reproduces Save Primer FASTA Bundle
       and Extract Reference Amplicon for a primer, an amplicon, a numbered
@@ -2963,7 +3066,8 @@ features:
       reference-amplicon. The Operations row records the command, and the
       export's provenance argv is that command. The command takes the IDs
       the saved analysis stores, which Copy CLI Command gives on an export
-      made in the app.
+      made in the app. A cancel leaves no folder behind, and the command takes
+      --format json.
   primer-analysis.scheme-from-analysis:
     title: Save a designed scheme as a primer scheme bundle
     entry_points:
