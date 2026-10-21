@@ -189,7 +189,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         let directory = base.appendingPathComponent("generic-fixture")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try writeKraken2Payload(at: directory, marker: "invented index bytes")
-        _ = try await registry.registerExisting(at: directory, name: "Generic Fixture")
+        _ = try await registry.seedRowThroughManifest(at: directory, name: "Generic Fixture")
         await XCTAssertThrowsErrorAsync(try await ConformanceFixtures.installedDatabase(name: "Generic Fixture", registry: registry))
     }
 
@@ -298,7 +298,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         let oldDir = base.appendingPathComponent("kraken2/viral", isDirectory: true)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try writeKraken2Payload(at: oldDir, marker: "old")
-        _ = try await registry.registerExisting(at: oldDir, name: "Viral")
+        _ = try await registry.seedRowThroughManifest(at: oldDir, name: "Viral")
 
         await registry.setArchiveInstallerForTesting { _, destination, _ in
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -347,7 +347,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         let oldDir = base.appendingPathComponent("kraken2/viral", isDirectory: true)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try writeKraken2Payload(at: oldDir, marker: "old")
-        _ = try await registry.registerExisting(at: oldDir, name: "Viral")
+        _ = try await registry.seedRowThroughManifest(at: oldDir, name: "Viral")
 
         await registry.setArchiveInstallerForTesting { _, destination, _ in
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -447,7 +447,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         let oldDir = base.appendingPathComponent("kraken2/viral", isDirectory: true)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try writeKraken2Payload(at: oldDir, marker: "old")
-        _ = try await registry.registerExisting(at: oldDir, name: "Viral")
+        _ = try await registry.seedRowThroughManifest(at: oldDir, name: "Viral")
 
         // Staging lands an incomplete Kraken2 payload (no opts.k2d / taxo.k2d).
         await registry.setArchiveInstallerForTesting { _, destination, _ in
@@ -485,7 +485,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
         let installDir = base.appendingPathComponent("kraken2/special", isDirectory: true)
         try FileManager.default.createDirectory(at: installDir, withIntermediateDirectories: true)
         try writeKraken2Payload(at: installDir, marker: "old")
-        _ = try await registry.registerExisting(at: installDir, name: special.name)
+        _ = try await registry.seedRowThroughManifest(at: installDir, name: special.name)
 
         await XCTAssertThrowsErrorAsync(
             try await registry.updateDatabase(catalogID: catalogID) { _, _ in }

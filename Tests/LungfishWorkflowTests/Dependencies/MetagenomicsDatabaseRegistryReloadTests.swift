@@ -41,7 +41,7 @@ final class MetagenomicsDatabaseRegistryReloadTests: XCTestCase {
 
         // The CLI process saves a row in the same manifest.
         let cli = MetagenomicsDatabaseRegistry(baseDirectory: base)
-        _ = try await cli.registerExisting(at: try makeDatabase(named: "lab-index"), name: "Lab Index")
+        _ = try await cli.seedRowThroughManifest(at: try makeDatabase(named: "lab-index"), name: "Lab Index")
 
         try await app.loadIfNeeded()
         let stale = try await app.database(named: "Lab Index")

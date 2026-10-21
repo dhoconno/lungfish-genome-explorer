@@ -75,7 +75,7 @@ final class DatabaseUpdateReplaceOrderPinTests: XCTestCase {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: base, manifestWriter: manifestWriter)
         try await registry.loadIfNeeded()
         try Self.writePayload(at: installed, marker: "old")
-        let adopted = try await registry.registerExisting(at: installed, name: "Viral")
+        let adopted = try await registry.seedRowThroughManifest(at: installed, name: "Viral")
         // The folder was adopted without a receipt, so its row records no version. The tests below compare the
         // version before and after a failed or cancelled update and rely on a missing version staying missing.
         XCTAssertNil(adopted.version, "an adopted folder records no version")

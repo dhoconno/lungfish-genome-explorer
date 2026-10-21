@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 import LungfishCore
+import LungfishTestSupport
 
 // MARK: - MetagenomicsDatabaseInfoTests
 
@@ -512,7 +513,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let registry = MetagenomicsDatabaseRegistry(storageConfigStore: store)
 
         let legacyDatabase = createMockKraken2Database(name: "legacy-only")
-        try await registry.registerExisting(at: legacyDatabase, name: "LegacyOnly")
+        try await registry.seedRowThroughManifest(at: legacyDatabase, name: "LegacyOnly")
         let legacyEntry = try await registry.database(named: "LegacyOnly")
         XCTAssertNotNil(legacyEntry)
 
@@ -575,7 +576,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         // Create a mock database directory.
         let dbDir = createMockKraken2Database(name: "test-db")
 
-        try await registry1.registerExisting(at: dbDir, name: "TestDB")
+        try await registry1.seedRowThroughManifest(at: dbDir, name: "TestDB")
 
         // Create a second registry reading the same manifest.
         let registry2 = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
@@ -593,8 +594,8 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         // Register two databases.
         let dbDir1 = createMockKraken2Database(name: "db-alpha")
         let dbDir2 = createMockKraken2Database(name: "db-beta")
-        try await registry1.registerExisting(at: dbDir1, name: "Alpha")
-        try await registry1.registerExisting(at: dbDir2, name: "Beta")
+        try await registry1.seedRowThroughManifest(at: dbDir1, name: "Alpha")
+        try await registry1.seedRowThroughManifest(at: dbDir2, name: "Beta")
 
         // Read back with a new registry instance.
         let registry2 = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
@@ -628,112 +629,13 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         XCTAssertNotNil(dict["databases"] as? [[String: Any]])
     }
 
-    // MARK: - Register Existing
-
-    func testRegisterLocalDatabase() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        let dbDir = createMockKraken2Database(name: "my-kraken2-db")
-
-        let registered = try await registry.registerExisting(at: dbDir, name: "MyDB")
-
-        XCTAssertEqual(registered.name, "MyDB")
-        XCTAssertEqual(registered.status, .ready)
-        XCTAssertEqual(registered.path?.path, dbDir.path)
-        XCTAssertTrue(registered.isDownloaded)
-        XCTAssertNotNil(registered.lastUpdated)
-    }
-
-    func testRegisterDuplicateThrows() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        let dbDir = createMockKraken2Database(name: "dup-test")
-
-        try await registry.registerExisting(at: dbDir, name: "DupDB")
-
-        do {
-            try await registry.registerExisting(at: dbDir, name: "DupDB")
-            XCTFail("Should have thrown duplicateDatabase error")
-        } catch let error as MetagenomicsDatabaseRegistryError {
-            if case .duplicateDatabase(let name) = error {
-                XCTAssertEqual(name, "DupDB")
-            } else {
-                XCTFail("Wrong error type: \(error)")
-            }
-        }
-    }
-
-    func testRegisterInvalidDirectoryThrows() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-
-        // Create directory without required files.
-        let emptyDir = tempDir.appendingPathComponent("empty-db")
-        try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
-
-        do {
-            try await registry.registerExisting(at: emptyDir, name: "EmptyDB")
-            XCTFail("Should have thrown invalidDatabaseDirectory error")
-        } catch let error as MetagenomicsDatabaseRegistryError {
-            if case .invalidDatabaseDirectory(_, let missing) = error {
-                XCTAssertTrue(missing.contains("hash.k2d"))
-                XCTAssertTrue(missing.contains("opts.k2d"))
-                XCTAssertTrue(missing.contains("taxo.k2d"))
-            } else {
-                XCTFail("Wrong error type: \(error)")
-            }
-        }
-    }
-
-    func testRegisterExistingUpdatesCatalogEntry() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-
-        // Load catalog first.
-        _ = try await registry.availableDatabases()
-
-        // Register a directory under the "Viral" catalog entry name.
-        let dbDir = createMockKraken2Database(name: "viral")
-        let registered = try await registry.registerExisting(at: dbDir, name: "Viral")
-
-        // Should update the existing catalog entry.
-        XCTAssertEqual(registered.name, "Viral")
-        XCTAssertEqual(registered.status, .ready)
-        XCTAssertEqual(registered.collection, .viral)
-        XCTAssertTrue(registered.isDownloaded)
-    }
-
-    /// BIO 4. A folder adopted under a catalog display name has no install receipt, so nothing checked its
-    /// files against the catalog's build. The row keeps the catalog identity, which an update still needs,
-    /// and records no version and no receipt digest.
-    func testAFolderRegisteredUnderACatalogNameWithNoReceiptRecordsNoVersion() async throws {
-        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        _ = try await registry.availableDatabases()
-        let dbDir = createMockKraken2Database(name: "viral-no-receipt")
-
-        let registered = try await registry.registerExisting(at: dbDir, name: "Viral")
-
-        XCTAssertEqual(registered.catalogID, "kraken2-viral", "the row keeps the catalog identity")
-        XCTAssertNil(registered.version, "the files were never checked, so the row must not repeat the catalog's label")
-        XCTAssertNil(registered.canonicalReceiptSHA256, "no receipt was read, so no digest is recorded")
-        let stored = try await registry.database(named: "Viral")
-        XCTAssertNil(stored?.version)
-        XCTAssertNil(stored?.canonicalReceiptSHA256)
-
-        // An update writes the catalog label, so a row with no version is offered it.
-        let pinned = try XCTUnwrap(MetagenomicsDatabaseInfo.catalogEntry(catalogID: "kraken2-viral")?.version)
-        XCTAssertEqual(registered.availableUpdateVersion, pinned, "an unchecked row is offered the catalog build")
-
-        // Nothing at load writes the label back.
-        let reloaded = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
-        let reloadedRow = try await reloaded.database(named: "Viral")
-        XCTAssertNil(reloadedRow?.version, "a reload does not give the row the catalog's label")
-        XCTAssertEqual(reloadedRow?.catalogID, "kraken2-viral")
-    }
-
     // MARK: - Remove
 
     func testRemoveDatabase() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "removable")
 
-        try await registry.registerExisting(at: dbDir, name: "RemovableDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "RemovableDB")
 
         // Remove it.
         try await registry.removeDatabase(name: "RemovableDB")
@@ -752,7 +654,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
 
         // Register the Viral catalog entry.
         let dbDir = createMockKraken2Database(name: "viral")
-        try await registry.registerExisting(at: dbDir, name: "Viral")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "Viral")
 
         // Remove it.
         try await registry.removeDatabase(name: "Viral")
@@ -774,7 +676,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
                 MetagenomicsDatabaseInfo.catalogEntry(catalogID: catalogID)
             )
             let dbDir = createMockKraken2Database(name: catalogID)
-            let registered = try await registry.registerExisting(at: dbDir, name: catalogEntry.name)
+            let registered = try await registry.seedRowThroughManifest(at: dbDir, name: catalogEntry.name)
             XCTAssertEqual(registered.status, .ready)
             XCTAssertNotNil(registered.path)
 
@@ -831,7 +733,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testVerifyValidDatabase() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "valid-db")
-        try await registry.registerExisting(at: dbDir, name: "ValidDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "ValidDB")
 
         let status = try await registry.verify(name: "ValidDB")
         XCTAssertEqual(status, .ready)
@@ -1137,7 +1039,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testVerifyMissingFilesReturnsCorrupt() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "corrupt-db")
-        try await registry.registerExisting(at: dbDir, name: "CorruptDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "CorruptDB")
 
         // Delete one of the required files.
         try FileManager.default.removeItem(
@@ -1151,7 +1053,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testVerifyMissingDirectoryReturnsMissing() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "vanishing-db")
-        try await registry.registerExisting(at: dbDir, name: "VanishingDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "VanishingDB")
 
         // Delete the entire directory.
         try FileManager.default.removeItem(at: dbDir)
@@ -1190,7 +1092,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testRelocateDatabase() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "relocatable")
-        try await registry.registerExisting(at: dbDir, name: "RelocatableDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "RelocatableDB")
 
         // Create destination with the required files.
         let newDir = createMockKraken2Database(name: "new-location")
@@ -1205,7 +1107,7 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testRelocateToInvalidDirectoryThrows() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let dbDir = createMockKraken2Database(name: "source-db")
-        try await registry.registerExisting(at: dbDir, name: "SourceDB")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "SourceDB")
 
         let emptyDir = tempDir.appendingPathComponent("empty-dest")
         try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
@@ -1390,30 +1292,6 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
 
     // MARK: - Bookmark Support
 
-    func testRegisterExistingExternalDatabaseStoresBookmark() async throws {
-        let dbDir = createMockKraken2Database(name: "external-db")
-        let bookmark = Data([0x4c, 0x46, 0x45])
-        let registry = MetagenomicsDatabaseRegistry(
-            baseDirectory: tempDir,
-            externalVolumeDetector: { url in
-                XCTAssertEqual(url.standardizedFileURL, dbDir.standardizedFileURL)
-                return true
-            },
-            bookmarkCreator: { url in
-                XCTAssertEqual(url.standardizedFileURL, dbDir.standardizedFileURL)
-                return bookmark
-            }
-        )
-
-        let info = try await registry.registerExisting(at: dbDir, name: "External DB")
-
-        XCTAssertTrue(info.isExternal)
-        XCTAssertEqual(info.bookmarkData, bookmark)
-        let stored = try await registry.database(named: "External DB")
-        XCTAssertTrue(try XCTUnwrap(stored).isExternal)
-        XCTAssertEqual(stored?.bookmarkData, bookmark)
-    }
-
     func testResolveBookmarkStartsSecurityScopedAccess() async throws {
         let dbDir = createMockKraken2Database(name: "scoped-db")
         let bookmark = Data([0x73, 0x63, 0x6f, 0x70, 0x65])
@@ -1431,15 +1309,15 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let counter = AccessCounter()
         let registry = MetagenomicsDatabaseRegistry(
             baseDirectory: tempDir,
-            externalVolumeDetector: { _ in true },
-            bookmarkCreator: { _ in bookmark },
             bookmarkResolver: { data in
                 XCTAssertEqual(data, bookmark)
                 return MetagenomicsDatabaseRegistry.BookmarkResolution(url: dbDir, isStale: false)
             },
             securityScopedAccessStarter: counter.start
         )
-        let info = try await registry.registerExisting(at: dbDir, name: "Scoped DB")
+        let info = try await registry.seedRowThroughManifest(
+            at: dbDir, name: "Scoped DB", isExternal: true, bookmarkData: bookmark
+        )
 
         let resolved = await registry.resolveBookmark(for: info)
 
