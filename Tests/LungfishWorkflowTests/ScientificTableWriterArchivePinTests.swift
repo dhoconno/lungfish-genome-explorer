@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// Lane 13.50 (XLSX-FIXED). Pins that passed at the base d3a1fcdd8 and still pass after the fix, which only moves
@@ -9,13 +10,11 @@ final class ScientificTableWriterArchivePinTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScientificTableWriterArchivePinTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "ScientificTableWriterArchivePinTests")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        TestTempDirectory.cleanup(directory)
     }
 
     /// The SHA-256 of each part of the probe's table, measured at the base.

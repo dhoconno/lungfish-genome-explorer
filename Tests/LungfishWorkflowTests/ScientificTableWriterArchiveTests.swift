@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// Lane 13.50 (XLSX-FIXED). One table exported twice gives equal bytes and an equal report (BIO 6, X10), whatever the
@@ -8,13 +9,11 @@ final class ScientificTableWriterArchiveTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ScientificTableWriterArchiveTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "ScientificTableWriterArchiveTests")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        TestTempDirectory.cleanup(directory)
     }
 
     /// The names the archive stores, in byte order.

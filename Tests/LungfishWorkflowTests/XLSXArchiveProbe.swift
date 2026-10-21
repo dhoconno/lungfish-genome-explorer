@@ -57,9 +57,14 @@ enum XLSXArchiveProbe {
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         try process.run()
+        if finished.wait(timeout: .now() + 30) == .timedOut {
+            process.terminate()
+            XCTFail("\(executable) \(arguments) did not exit within 30 seconds")
+        }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0, "\(executable) \(arguments)")
         return data
     }
