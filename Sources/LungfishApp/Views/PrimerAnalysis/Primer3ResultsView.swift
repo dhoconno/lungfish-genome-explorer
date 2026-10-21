@@ -188,7 +188,7 @@ struct Primer3ResultsView: View {
           AnalysesFolder.directoryName, isDirectory: true)
         let url = try await PrimerAnalysisAnnotatedReferenceService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).createReference(
           analysisURL: bundleURL, resultID: result.resultID,
-          outputDirectory: analyses, invocationArgv: CommandLine.arguments)
+          outputDirectory: analyses, invocationArgv: [LungfishAppIdentity.recordedToolName] + CommandLine.arguments.dropFirst())
         // The service resolves symlinks before writing, so confirm the result
         // really landed inside this project rather than trusting the request.
         guard Self.isContained(url, in: projectURL) else {
