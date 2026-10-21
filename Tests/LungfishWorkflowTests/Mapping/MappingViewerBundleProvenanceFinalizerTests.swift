@@ -776,13 +776,13 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
 
         let publicationStep = try XCTUnwrap(envelope.steps.last)
         let expectedArgv = [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "prepare-mapping-viewer-bundle",
             "--mapping-result", fixture.resultDirectory.path,
             "--source-reference-bundle", fixture.sourceBundle.path,
             "--viewer-bundle", fixture.viewerBundle.path,
         ]
-        XCTAssertEqual(publicationStep.toolName, "Lungfish.app")
+        XCTAssertEqual(publicationStep.toolName, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(publicationStep.argv, expectedArgv)
         XCTAssertEqual(publicationStep.durableReplayArgv, expectedArgv)
         XCTAssertEqual(publicationStep.exitStatus, 0)
@@ -912,7 +912,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         )
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.resultDirectory))
-        XCTAssertEqual(envelope.steps.last?.toolName, "Lungfish.app")
+        XCTAssertEqual(envelope.steps.last?.toolName, LungfishAppIdentity.recordedToolName)
         let provenanceDirectory = fixture.resultDirectory.appendingPathComponent(
             ProvenanceWriter.bundleProvenanceDirectoryName,
             isDirectory: true
@@ -1428,7 +1428,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         try ProvenanceWriter(signingProvider: nil).write(
             ProvenanceEnvelope(
                 workflowName: "BAM import",
-                toolName: "Lungfish.app",
+                toolName: LungfishAppIdentity.recordedToolName,
                 argv: ["import-bam", candidateBAM.path],
                 output: descriptor,
                 outputs: [descriptor],
@@ -1629,7 +1629,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         )
         let envelope = ProvenanceEnvelope(
             workflowName: "BAM import",
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             argv: ["import-bam", candidateBAM.path],
             durableReplayArgv: ["import-bam", candidateBAM.path],
             options: ProvenanceOptions(
@@ -1641,7 +1641,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             outputs: [descriptor, databaseDescriptor],
             steps: [
                 ProvenanceStep(
-                    toolName: "Lungfish.app",
+                    toolName: LungfishAppIdentity.recordedToolName,
                     argv: ["import-bam", candidateBAM.path],
                     durableReplayArgv: ["import-bam", candidateBAM.path],
                     resolvedOptions: ["bundle": .file(candidateBundle)],
@@ -1717,7 +1717,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
         ]
         let envelope = ProvenanceEnvelope(
             workflowName: "BAM import",
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             argv: argv,
             durableReplayArgv: argv,
             options: ProvenanceOptions(
@@ -1729,7 +1729,7 @@ final class MappingViewerBundleProvenanceFinalizerTests: XCTestCase {
             outputs: [descriptor],
             steps: [
                 ProvenanceStep(
-                    toolName: "Lungfish.app",
+                    toolName: LungfishAppIdentity.recordedToolName,
                     argv: argv,
                     durableReplayArgv: argv,
                     resolvedOptions: ["bundle": .file(candidateBundle)],

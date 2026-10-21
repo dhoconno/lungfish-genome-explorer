@@ -854,7 +854,7 @@ public enum MappingViewerBundlePublicationService {
         }
 
         let argv = [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "prepare-mapping-viewer-bundle",
             "--mapping-result", resultDirectoryURL.path,
             "--source-reference-bundle", sourceReferenceBundleURL.path,
@@ -879,7 +879,7 @@ public enum MappingViewerBundlePublicationService {
         )
         let publicationCompletedAt = publicationClock.now
         let publicationStep = ProvenanceStep(
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,

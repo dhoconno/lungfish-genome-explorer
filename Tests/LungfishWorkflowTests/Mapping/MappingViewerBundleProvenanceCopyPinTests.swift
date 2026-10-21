@@ -9,6 +9,7 @@
 // the publication and checks what the rewritten record holds.
 
 import XCTest
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -47,6 +48,6 @@ extension MappingViewerBundleProvenanceFinalizerTests {
         )
         XCTAssertEqual(copy.id, source.id, "the publication extends the mapping run's record")
         XCTAssertEqual(copy.steps.count, source.steps.count + 1)
-        XCTAssertEqual(copy.steps.last?.toolName, "Lungfish.app")
+        XCTAssertEqual(copy.steps.last?.toolName, LungfishAppIdentity.recordedToolName)
     }
 }
