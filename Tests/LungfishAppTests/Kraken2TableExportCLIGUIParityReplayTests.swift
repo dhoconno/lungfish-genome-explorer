@@ -182,7 +182,7 @@ final class Kraken2TableExportCLIGUIParityReplayTests: XCTestCase {
         let runs = try await assertParity(parityCase)
         let rows = try Self.content(runs.c.root, parityCase).split(separator: "\n")
             .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
-        XCTAssertEqual(rows.count, 12, "the header, Root, and two samples with five taxa each")
+        XCTAssertEqual(rows.count, 14, "the header, Root, and two samples with five taxa each and an unclassified row each")
         var group = ""
         for row in rows.dropFirst() {
             XCTAssertEqual(row.count, 7, "every row is as long as the header: \(row)")
@@ -450,7 +450,7 @@ extension Kraken2TableExportCLIGUIParityReplayTests {
         to url: URL
     ) throws {
         let runClock = ProvenanceRunClock()
-        let content = frozenBuildDelimitedExport(view: view, tree: tree, separator: separator)
+        let content = try frozenBuildDelimitedExport(view: view, tree: tree, separator: separator)
         let sourceURLs = frozenExportSourceURLs(view: view)
         let fileExtension = url.pathExtension.isEmpty ? "csv" : url.pathExtension
         let separatorName = separator == "\t" ? "tsv" : "csv"
@@ -486,17 +486,28 @@ extension Kraken2TableExportCLIGUIParityReplayTests {
         }
     }
 
-    private static func frozenBuildDelimitedExport(view: TaxonomyViewController, tree: TaxonTree, separator: String) -> String {
+    /// Phase 2.13 lane 13.35, BIO-R1 item 3. The writer takes each picked sample's own tree. A database view fetches
+    /// them from the view's database as `renderBatchSelection` does, and a sidecar view holds the one tree it shows.
+    private static func frozenBuildDelimitedExport(
+        view: TaxonomyViewController, tree: TaxonTree, separator: String
+    ) throws -> String {
         let metadata = view.testTableView.metadataColumns
-        // A merged tree names its samples in the nodes under its Root, and each sample gets its own values.
-        let mergedSampleIds = tree.root.children.filter { $0.taxId < 0 }.map(\.name)
+        let selected = frozenSelectedSampleIds(view: view)
+        let sampleTrees: [(sampleId: String, tree: TaxonTree)]
+        if view.testClassificationResult == nil, let batchURL = view.batchURL {
+            let database = try Kraken2Database(
+                at: batchURL.appendingPathComponent(Kraken2TaxonomyTableExport.databaseFileName)
+            )
+            sampleTrees = try selected.map { (sampleId: $0, tree: try database.fetchTree(sample: $0)) }
+        } else {
+            sampleTrees = selected.map { (sampleId: $0, tree: tree) }
+        }
         return Kraken2TaxonomyTableExport.buildDelimitedExport(
-            tree: tree,
+            sampleTrees: sampleTrees,
             separator: separator,
             metadataHeaders: metadata.exportHeaders,
-            metadataValues: metadata.exportValues,
             metadataValuesBySample: Dictionary(
-                mergedSampleIds.map { ($0, metadata.exportValues(for: $0)) },
+                sampleTrees.map { ($0.sampleId, metadata.exportValues(for: $0.sampleId)) },
                 uniquingKeysWith: { first, _ in first }
             )
         )

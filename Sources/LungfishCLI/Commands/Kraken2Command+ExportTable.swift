@@ -24,10 +24,11 @@ extension Kraken2Command {
     ///
     /// The source is the file the viewer's tree came from (ARCH ruling on 12.33 F1). `kraken2.sqlite` holds every
     /// sample of a batch or an indexed result, and `--sample` picks among them (none is every sample). One sample is
-    /// its own tree and more are the merged tree the viewer draws. `classification-result.json` holds the one sample
-    /// of a run, and the leaf rebuilds its tree from the sidecar, the report and the Bracken file. A folder selects
-    /// by the sidebar's rule. The record names exactly the files the leaf read, each with its digest (BIO 6). The
-    /// app's Export runs this leaf behind its Operations row.
+    /// its own table. More are a Root row and then one block for each sample, which reads as that sample's own table
+    /// with its own unclassified row (BIO-R1 items 1 and 3, Phase 2.13 lane 13.35). `classification-result.json`
+    /// holds the one sample of a run, and the leaf rebuilds its tree from the sidecar, the report and the Bracken
+    /// file. A folder selects by the sidebar's rule. The record names exactly the files the leaf read, each with its
+    /// digest (BIO 6). The app's Export runs this leaf behind its Operations row.
     struct ExportTableSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "table",
@@ -97,10 +98,9 @@ extension Kraken2Command {
                 sampleIds: loaded.selected
             )
             let content = Kraken2TaxonomyTableExport.buildDelimitedExport(
-                tree: loaded.tree,
+                sampleTrees: loaded.trees,
                 separator: format.format.separator,
                 metadataHeaders: metadata.headers,
-                metadataValues: loaded.selected.first.flatMap { metadata.valuesBySample[$0] } ?? [],
                 metadataValuesBySample: metadata.valuesBySample
             )
             let sourceURLs = (loaded.inputs + Kraken2TaxonomyTableExport.metadataInputURLs(
@@ -147,12 +147,16 @@ extension Kraken2Command {
             )
         }
 
-        /// The tree the viewer shows for the source, the sample ids it holds, every sample id the source records
-        /// (which the metadata table is keyed by) and the files the leaf opened for the tree.
+        /// The tree the viewer shows for the source, each picked sample's own tree (which the table is written from),
+        /// the sample ids it holds, every sample id the source records (which the metadata table is keyed by) and the
+        /// files the leaf opened for the tree.
         private func load(
             _ source: Kraken2TaxonomyTableExport.Source,
             samples requested: [String]
-        ) throws -> (tree: TaxonTree, selected: [String], known: [String], inputs: [URL]) {
+        ) throws -> (
+            tree: TaxonTree, trees: [(sampleId: String, tree: TaxonTree)], selected: [String], known: [String],
+            inputs: [URL]
+        ) {
             switch source {
             case .database(let databaseURL):
                 let database: Kraken2Database
@@ -186,7 +190,7 @@ extension Kraken2Command {
                 guard let tree = Kraken2TaxonomyTableExport.displayTree(for: trees) else {
                     throw ViewerExportRefusal("The Kraken2 database at \(databaseURL.path) holds no samples.")
                 }
-                return (tree, selected, known, [databaseURL])
+                return (tree, trees, selected, known, [databaseURL])
             case .sidecar(let sidecarURL):
                 guard requested.isEmpty else {
                     throw ViewerExportRefusal(
@@ -202,7 +206,7 @@ extension Kraken2Command {
                 }
                 let sampleId = Kraken2TaxonomyTableExport.sidecarSampleId(config: result.config)
                 return (
-                    result.tree, [sampleId], [sampleId],
+                    result.tree, [(sampleId: sampleId, tree: result.tree)], [sampleId], [sampleId],
                     Kraken2TaxonomyTableExport.sidecarInputURLs(folder: folder, result: result)
                 )
             }

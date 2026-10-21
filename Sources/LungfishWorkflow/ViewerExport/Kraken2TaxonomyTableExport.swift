@@ -137,95 +137,156 @@ public enum Kraken2TaxonomyTableExport {
 }
 
 extension Kraken2TaxonomyTableExport {
-    /// Builds the delimited text content for export.
+    /// Builds the delimited text of one sample's tree.
     ///
-    /// Writes a header row followed by all nodes in depth-first order.
+    /// Writes a header row, then the rows of the tree in depth-first order, then the sample's unclassified row when it
+    /// has one. Every Clade % and Direct % divides by the tree's `totalReads`, all the reads of that sample with its
+    /// unclassified reads included. The table of several samples comes from
+    /// ``buildDelimitedExport(sampleTrees:separator:metadataHeaders:metadataValuesBySample:)``, which writes each
+    /// sample's rows with the same function (Phase 2.13 lane 13.35, BIO-R1 item 3).
     ///
     /// - Parameters:
-    ///   - tree: The taxonomy tree to export.
+    ///   - tree: One sample's taxonomy tree.
     ///   - separator: Column separator character.
     ///   - metadataHeaders: The visible metadata column headers, appended to the header row.
     ///   - metadataValues: The values of those columns for the sample, appended to every row.
-    ///   - metadataValuesBySample: For a merged tree, the values of those columns for each sample id. A row at or
-    ///     under a sample's node carries that sample's values and the Root row carries empty fields.
     /// - Returns: The complete file content as a string.
     public static func buildDelimitedExport(
         tree: TaxonTree,
         separator: String,
         metadataHeaders: [String],
-        metadataValues: [String],
-        metadataValuesBySample: [String: [String]] = [:]
+        metadataValues: [String]
     ) -> String {
-        var lines: [String] = []
-
-        // Header
-        var headers = ["Name", "Rank", "Reads (Clade)", "Reads (Direct)", "Clade %", "Direct %"]
-        // Append visible metadata column headers
-        headers.append(contentsOf: metadataHeaders)
-        lines.append(headers.joined(separator: separator))
-
-        // Every row is as long as the header (12.33 ARCH ruling on F1, C3). A merged tree is a Root and then one node
-        // with a negative tax id per sample (see `mergedTree`), so a row takes the values of the sample node above it.
-        let emptyValues = Array(repeating: "", count: metadataHeaders.count)
-        func fitted(_ values: [String]) -> [String] {
-            Array((values + emptyValues).prefix(metadataHeaders.count))
-        }
-        let singleValues = fitted(metadataValues)
-        let isMerged = tree.root.children.contains { $0.taxId < 0 }
-        var rowValues = isMerged ? emptyValues : singleValues
-
-        // Depth-first traversal
-        let allNodes = tree.allNodes()
-        for node in allNodes {
-            if isMerged, node.taxId < 0 {
-                rowValues = fitted(metadataValuesBySample[node.name] ?? [])
-            }
-            let cladePercent = tree.totalReads > 0
-                ? String(format: "%.4f", Double(node.readsClade) / Double(tree.totalReads) * 100)
-                : "0.0000"
-            let directPercent = tree.totalReads > 0
-                ? String(format: "%.4f", Double(node.readsDirect) / Double(tree.totalReads) * 100)
-                : "0.0000"
-
-            // Escape fields that may contain the separator (mainly for CSV)
-            let name = escapeField(node.name, separator: separator)
-            let rank = escapeField(node.rank.displayName, separator: separator)
-
-            var row = [
-                name,
-                rank,
-                "\(node.readsClade)",
-                "\(node.readsDirect)",
-                cladePercent,
-                directPercent,
-            ]
-            for value in rowValues {
-                row.append(escapeField(value, separator: separator))
-            }
-            lines.append(row.joined(separator: separator))
-        }
-
-        // Include unclassified node if present
-        if let unclassified = tree.unclassifiedNode {
-            let cladePercent = tree.totalReads > 0
-                ? String(format: "%.4f", Double(unclassified.readsClade) / Double(tree.totalReads) * 100)
-                : "0.0000"
-            var row = [
-                escapeField(unclassified.name, separator: separator),
-                escapeField(unclassified.rank.displayName, separator: separator),
-                "\(unclassified.readsClade)",
-                "\(unclassified.readsDirect)",
-                cladePercent,
-                cladePercent,
-            ]
-            for value in singleValues {
-                row.append(escapeField(value, separator: separator))
-            }
-            lines.append(row.joined(separator: separator))
-        }
-
+        var lines = [headerLine(metadataHeaders: metadataHeaders, separator: separator)]
+        let values = fitted(metadataValues, to: metadataHeaders.count)
+        lines += rows(of: tree, values: values, separator: separator).map { $0.joined(separator: separator) }
         return lines.joined(separator: "\n") + "\n"
     }
+
+    /// Builds the delimited text of the picked samples (Phase 2.13 lane 13.35, BIO-R1 items 1 and 3).
+    ///
+    /// One tree writes what the one-tree form writes. More trees write the header, the Root row of
+    /// ``mergedTree(for:)`` and then each sample's own rows in the order given, with that sample's metadata values. The
+    /// first row of a block stands for the one-sample table's root row and carries the sample id and the synthetic
+    /// rank in place of its Name and Rank. So a block reads as that sample's own table, every percent divides by that
+    /// sample's reads with its unclassified reads included, and a sample with unclassified reads ends its block with
+    /// its own unclassified row. The Root row is the sum of every sample's reads with empty metadata fields.
+    ///
+    /// - Parameters:
+    ///   - sampleTrees: The picked samples in the order the table lists them, each with its own tree.
+    ///   - separator: Column separator character.
+    ///   - metadataHeaders: The visible metadata column headers, appended to the header row.
+    ///   - metadataValuesBySample: The values of those columns for each sample id. A sample with no entry gets empty
+    ///     fields.
+    /// - Returns: The complete file content as a string.
+    public static func buildDelimitedExport(
+        sampleTrees: [(sampleId: String, tree: TaxonTree)],
+        separator: String,
+        metadataHeaders: [String],
+        metadataValuesBySample: [String: [String]]
+    ) -> String {
+        let columnCount = metadataHeaders.count
+        var lines = [headerLine(metadataHeaders: metadataHeaders, separator: separator)]
+        let isMerged = sampleTrees.count > 1
+        if isMerged {
+            let merged = mergedTree(for: sampleTrees)
+            let rootRow = rowFields(
+                of: merged.root, totalReads: merged.totalReads, values: fitted([], to: columnCount), separator: separator
+            )
+            lines.append(rootRow.joined(separator: separator))
+        }
+        for (sampleId, tree) in sampleTrees {
+            let values = fitted(metadataValuesBySample[sampleId] ?? [], to: columnCount)
+            var block = rows(of: tree, values: values, separator: separator)
+            if isMerged, !block.isEmpty {
+                block[0][0] = escapeField(sampleId, separator: separator)
+                block[0][1] = escapeField(sampleNodeRank.displayName, separator: separator)
+            }
+            lines += block.map { $0.joined(separator: separator) }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The header row, the six count columns and then the visible metadata columns.
+    private static func headerLine(metadataHeaders: [String], separator: String) -> String {
+        let counts = ["Name", "Rank", "Reads (Clade)", "Reads (Direct)", "Clade %", "Direct %"]
+        return (counts + metadataHeaders).joined(separator: separator)
+    }
+
+    /// The metadata values cut or padded with empty fields to the number of columns, so every row is as long as the
+    /// header (12.33 ARCH ruling on F1, C3).
+    private static func fitted(_ values: [String], to count: Int) -> [String] {
+        Array((values + Array(repeating: "", count: count)).prefix(count))
+    }
+
+    /// A percent of a sample's reads with four decimals, or zero when the sample has no reads.
+    private static func percent(_ reads: Int, of totalReads: Int) -> String {
+        totalReads > 0 ? String(format: "%.4f", Double(reads) / Double(totalReads) * 100) : "0.0000"
+    }
+
+    /// The fields of one row, which are the name and rank, the four counts and the metadata values, each escaped for
+    /// the separator. The Direct % divides `directPercentReads`.
+    private static func rowFields(
+        name: String,
+        rank: String,
+        readsClade: Int,
+        readsDirect: Int,
+        directPercentReads: Int,
+        totalReads: Int,
+        values: [String],
+        separator: String
+    ) -> [String] {
+        var fields = [
+            escapeField(name, separator: separator),
+            escapeField(rank, separator: separator),
+            "\(readsClade)",
+            "\(readsDirect)",
+            percent(readsClade, of: totalReads),
+            percent(directPercentReads, of: totalReads),
+        ]
+        for value in values {
+            fields.append(escapeField(value, separator: separator))
+        }
+        return fields
+    }
+
+    private static func rowFields(of node: TaxonNode, totalReads: Int, values: [String], separator: String) -> [String] {
+        rowFields(
+            name: node.name,
+            rank: node.rank.displayName,
+            readsClade: node.readsClade,
+            readsDirect: node.readsDirect,
+            directPercentReads: node.readsDirect,
+            totalReads: totalReads,
+            values: values,
+            separator: separator
+        )
+    }
+
+    /// The rows of one sample's tree, which both forms of the builder write with this function, so a block of the
+    /// merged table is the one-sample table by construction. They are the tree's nodes in depth-first order and then
+    /// the unclassified row when the sample has one, which divides its clade reads for both percents as it always has.
+    private static func rows(of tree: TaxonTree, values: [String], separator: String) -> [[String]] {
+        var result = tree.allNodes().map {
+            rowFields(of: $0, totalReads: tree.totalReads, values: values, separator: separator)
+        }
+        if let unclassified = tree.unclassifiedNode {
+            result.append(rowFields(
+                name: unclassified.name,
+                rank: unclassified.rank.displayName,
+                readsClade: unclassified.readsClade,
+                readsDirect: unclassified.readsDirect,
+                directPercentReads: unclassified.readsClade,
+                totalReads: tree.totalReads,
+                values: values,
+                separator: separator
+            ))
+        }
+        return result
+    }
+
+    /// The rank a sample's row carries in the merged table and in the viewer's merged tree.
+    private static var sampleNodeRank: TaxonomicRank { TaxonomicRank(code: "no rank") }
 
     /// Escapes a field value for delimited output.
     ///
@@ -263,17 +324,21 @@ extension Kraken2TaxonomyTableExport {
 
         var syntheticSampleTaxId = -1
         for (sampleId, sampleTree) in sampleTrees {
+            // A sample's node reads as that sample alone (Phase 2.13 lane 13.35, BIO-R1 item 5). It counts the reads
+            // Kraken2 assigned to the sample's root, and its fractions divide by the sample's own reads with the
+            // unclassified reads included, so the viewer's `%` column and the exported table give one number for the row.
             let sampleReads = sampleTree.root.readsClade
-            let sampleFraction = totalReads > 0 ? Double(sampleReads) / Double(totalReads) : 0.0
+            let directReads = sampleTree.root.readsDirect
+            let ownReads = sampleTree.totalReads
             let sampleNode = TaxonNode(
                 taxId: syntheticSampleTaxId,
                 name: sampleId,
-                rank: TaxonomicRank(code: "no rank"),
+                rank: sampleNodeRank,
                 depth: 1,
-                readsDirect: 0,
+                readsDirect: directReads,
                 readsClade: sampleReads,
-                fractionClade: sampleFraction,
-                fractionDirect: 0.0,
+                fractionClade: ownReads > 0 ? Double(sampleReads) / Double(ownReads) : 0.0,
+                fractionDirect: ownReads > 0 ? Double(directReads) / Double(ownReads) : 0.0,
                 parentTaxId: 1
             )
             syntheticSampleTaxId -= 1

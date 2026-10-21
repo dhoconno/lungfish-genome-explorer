@@ -284,6 +284,112 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         assertStaleRefusal(closing: "Its reports are gone, so it cannot be rebuilt or exported.")
     }
 
+    // MARK: - KR-MERGE-PCT (Phase 2.13 lane 13.35, BIO-R1 items 1 to 3)
+
+    /// The two samples of BIO-R1 item 2 in a folder of their own, with the `Group` column. Sample A has 80 reads, a
+    /// root with 70 clade and 30 direct reads, one species of 40 reads and 10 unclassified. Sample B has 60 reads, a
+    /// root with 50 clade and 30 direct reads, one species of 20 reads and 10 unclassified.
+    private func makePercentBatch() throws -> URL {
+        let percentFolder = folder.appendingPathComponent("kraken2-percent", isDirectory: true)
+        let metadata = percentFolder.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
+        var rows: [Kraken2ClassificationRow] = []
+        for (sample, name, taxId, clade, total) in [
+            ("sample-A", "Species A", 40, 70, 80), ("sample-B", "Species B", 20, 50, 60),
+        ] {
+            rows.append(Kraken2ClassificationRow(
+                sample: sample, taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                readsDirect: 30, readsClade: clade, percentage: Double(clade) * 100 / Double(total),
+                parentTaxId: nil, depth: 0
+            ))
+            rows.append(Kraken2ClassificationRow(
+                sample: sample, taxonName: name, taxId: taxId, rank: "S", rankDisplayName: "Species",
+                readsDirect: clade - 30, readsClade: clade - 30, percentage: Double(clade - 30) * 100 / Double(total),
+                parentTaxId: 1, depth: 1
+            ))
+        }
+        try Kraken2Database.create(
+            at: percentFolder.appendingPathComponent("kraken2.sqlite"),
+            rows: rows,
+            metadata: [
+                "total_reads_sample-A": "80", "total_reads_sample-B": "60",
+                "unclassified_reads_sample-A": "10", "unclassified_reads_sample-B": "10",
+            ]
+        )
+        try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
+            .write(to: metadata.appendingPathComponent("sample_metadata.tsv"))
+        return percentFolder
+    }
+
+    /// Item 2, field for field. Each sample's percents divide by its own reads with the unclassified reads included,
+    /// each sample keeps its own unclassified row, the sample's row carries the root's direct reads, and Root stays the
+    /// sum of every sample's reads with no value in `Group`.
+    func testAMergedTableGivesEachSampleItsOwnPercentAndUnclassifiedRow() throws {
+        let batch = try makePercentBatch()
+        let output = folder.appendingPathComponent("percent-merged.tsv")
+        _ = try command(leafArguments(batch, output: output, extra: ["--metadata-column", "Group"])).export()
+        let root = TaxonomicRank.root.displayName
+        let sample = TaxonomicRank(code: "no rank").displayName
+        let species = TaxonomicRank(code: "S").displayName
+        let unclassified = TaxonomicRank.unclassified.displayName
+        let rows = try Self.cells(output)
+        XCTAssertEqual(rows.first, ["Name", "Rank", "Reads (Clade)", "Reads (Direct)", "Clade %", "Direct %", "Group"])
+        XCTAssertEqual(Array(rows.dropFirst()), [
+            ["Root", root, "140", "0", "100.0000", "0.0000", ""],
+            ["sample-A", sample, "70", "30", "87.5000", "37.5000", "case"],
+            ["Species A", species, "40", "40", "50.0000", "50.0000", "case"],
+            ["unclassified", unclassified, "10", "10", "12.5000", "12.5000", "case"],
+            ["sample-B", sample, "50", "30", "83.3333", "50.0000", "control"],
+            ["Species B", species, "20", "20", "33.3333", "33.3333", "control"],
+            ["unclassified", unclassified, "10", "10", "16.6667", "16.6667", "control"],
+        ])
+    }
+
+    /// Item 1. The block of a sample in the merged table is the table of that sample alone, from field 2 on in the
+    /// first row, which stands for the one-sample table's root row, and in full in every other row.
+    func testEachSampleOfAMergedTableReadsAsItsOwnOneSampleTable() throws {
+        let batch = try makePercentBatch()
+        let columns = ["--metadata-column", "Group"]
+        let merged = folder.appendingPathComponent("own-merged.tsv")
+        _ = try command(leafArguments(batch, output: merged, extra: columns)).export()
+        let mergedRows = Array(try Self.cells(merged).dropFirst())
+        XCTAssertEqual(mergedRows.first?.first, "Root")
+        var blockRowCount = 0
+        for sample in ["sample-A", "sample-B"] {
+            let single = folder.appendingPathComponent("own-\(sample).tsv")
+            _ = try command(leafArguments(batch, output: single, extra: columns + ["--sample", sample])).export()
+            let singleRows = Array(try Self.cells(single).dropFirst())
+            blockRowCount += singleRows.count
+            let start = try XCTUnwrap(mergedRows.firstIndex { $0.first == sample }, "no row for \(sample)")
+            let block = Array(mergedRows.dropFirst(start).prefix(singleRows.count))
+            XCTAssertEqual(block.count, singleRows.count, sample)
+            XCTAssertEqual(
+                block.first.map { Array($0.dropFirst(2)) }, singleRows.first.map { Array($0.dropFirst(2)) }, sample
+            )
+            XCTAssertEqual(Array(block.dropFirst()), Array(singleRows.dropFirst()), sample)
+        }
+        XCTAssertEqual(mergedRows.count, 1 + blockRowCount, "Root and then one block for each sample")
+    }
+
+    /// Item 1. The Reads (Direct) of each block add up to the sample's reads, unclassified included, and those of every
+    /// row but Root add up to Root's clade reads.
+    func testTheDirectReadsOfEachMergedSampleAddUpToItsReads() throws {
+        let batch = try makePercentBatch()
+        let output = folder.appendingPathComponent("direct-merged.tsv")
+        _ = try command(leafArguments(batch, output: output)).export()
+        let rows = Array(try Self.cells(output).dropFirst())
+        var directBySample: [String: Int] = [:]
+        var current = ""
+        for row in rows.dropFirst() {
+            if row[0] == "sample-A" || row[0] == "sample-B" { current = row[0] }
+            directBySample[current, default: 0] += Int(row[3]) ?? 0
+        }
+        XCTAssertEqual(directBySample, ["sample-A": 80, "sample-B": 60])
+        let rootClade = try XCTUnwrap(rows.first.flatMap { Int($0[2]) })
+        XCTAssertEqual(rootClade, 140)
+        XCTAssertEqual(directBySample.values.reduce(0, +), rootClade)
+    }
+
     func testKraken2TableLeafRefusesAnOptionItDoesNotTake() {
         let output = folder.appendingPathComponent("refuse.tsv")
         XCTAssertThrowsError(try command(leafArguments(database, output: output, extra: ["--search", "beta"])))
