@@ -104,6 +104,51 @@ final class VariantTableBundleCodingFeaturesTests: XCTestCase {
         }
     }
 
+    /// A bundle of chr1 (100 bases) with the one annotation track `trackID`, built from the BED lines `bed`.
+    private func makeSingleTrackBundle(trackID: String, bed lines: String) throws -> ReferenceBundle {
+        let bundleURL = folder.appendingPathComponent("single-\(trackID).lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("annotations", isDirectory: true), withIntermediateDirectories: true
+        )
+        let bed = folder.appendingPathComponent("\(trackID).bed")
+        try lines.write(to: bed, atomically: true, encoding: .utf8)
+        _ = try AnnotationDatabase.createFromBED(
+            bedURL: bed, outputURL: bundleURL.appendingPathComponent("annotations/\(trackID).db")
+        )
+        let manifest = BundleManifest(
+            name: "single",
+            identifier: "org.lungfish.test.bundle-coding-features-single",
+            source: SourceInfo(organism: "Test", assembly: "single"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 100,
+                chromosomes: [ChromosomeInfo(name: "chr1", length: 100, offset: 6, lineBases: 100, lineWidth: 101)]
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: trackID, name: trackID.uppercased(), path: "annotations/\(trackID).bb",
+                    databasePath: "annotations/\(trackID).db"
+                ),
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return ReferenceBundle(url: bundleURL, manifest: manifest)
+    }
+
+    /// BIO review of 13.38, Fix 1. The database lists a track by start, end and then name under SQLite's NOCASE
+    /// collation (`AnnotationDatabase+Query.swift`), and the viewer, the 2.12 leaf and F11 keep that order. Two CDS with
+    /// one start and end and the names `BB` and `aa` list `aa` first, where a code-point `<` on the names puts `BB` first.
+    func testReadKeepsTheDatabaseNocaseNameOrderForTiedCDS() throws {
+        let bundle = try makeSingleTrackBundle(
+            trackID: "n",
+            bed: "chr1\t0\t30\tBB\t0\t+\t0\t30\t0,0,0\t1\t30\t0\tCDS\tgene=gBB\n"
+                + "chr1\t0\t30\taa\t0\t+\t0\t30\t0,0,0\t1\t30\t0\tCDS\tgene=gaa\n"
+        )
+        let features = try VariantTableBundleCodingFeatures.features(
+            bundle: bundle, trackIDs: ["n"], rows: [Self.row("chr1", 4, "A")], referenceChromosome: { $0 }
+        )
+        XCTAssertEqual(features.map(\.label), ["gaa • aa", "gBB • BB"])
+    }
+
     /// R-QB2 item 1. A read that returns its limit fails with the ruled words, naming the first such read in track
     /// and span order, the track's name or its id when the name is empty, the shown chromosome and the span 1-based.
     func testReadAtTheLimitFailsWithTheRuledWords() throws {

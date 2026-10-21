@@ -155,7 +155,10 @@ package enum VariantTableBundleCodingFeatures {
                 if l.chromosomeRank != r.chromosomeRank { return l.chromosomeRank < r.chromosomeRank }
                 if l.annotation.start != r.annotation.start { return l.annotation.start < r.annotation.start }
                 if l.annotation.end != r.annotation.end { return l.annotation.end < r.annotation.end }
-                if l.annotation.name != r.annotation.name { return l.annotation.name < r.annotation.name }
+                if l.annotation.name != r.annotation.name {
+                    let lk = Self.nocaseKey(l.annotation.name), rk = Self.nocaseKey(r.annotation.name)
+                    if lk != rk { return lk.lexicographicallyPrecedes(rk) }
+                }
                 return left.offset < right.offset
             }.map(\.element.annotation)
         }
@@ -165,6 +168,11 @@ package enum VariantTableBundleCodingFeatures {
             chromosomeName: { bundle.chromosome(named: $0)?.name ?? $0 },
             context: { _ in nil }
         )
+    }
+
+    /// SQLite's NOCASE key, the UTF-8 bytes with ASCII A to Z folded to a to z, compared bytewise.
+    private static func nocaseKey(_ name: String) -> [UInt8] {
+        name.utf8.map { (0x41...0x5A).contains($0) ? $0 + 0x20 : $0 }
     }
 
     /// The resolver the export's derived columns read: the CDS of `features(...)` over `rows`, each with its coding
