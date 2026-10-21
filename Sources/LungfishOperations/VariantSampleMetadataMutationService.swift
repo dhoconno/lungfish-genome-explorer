@@ -5,6 +5,7 @@
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishCore
 
 package struct VariantSampleMetadataMutationResult: Sendable, Equatable {
     let updatedCountsByDatabase: [String: Int]
@@ -192,7 +193,7 @@ package struct VariantSampleMetadataMutationService {
             }
         )
         let step = ProvenanceStep(
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -208,7 +209,7 @@ package struct VariantSampleMetadataMutationService {
         var builder = ProvenanceRunBuilder(
             workflowName: kind.workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
