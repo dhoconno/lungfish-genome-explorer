@@ -267,7 +267,7 @@ extension GenotypeAnnotationStore {
             resolvedDefaults["supportThreshold"] = .string("passedUniqueReads > 0")
         }
         let step = ProvenanceStep(
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: executionArgv,
             durableReplayArgv: durableReplayArgv,
@@ -285,12 +285,12 @@ extension GenotypeAnnotationStore {
             createdAt: startedAt,
             workflowName: "Genotype annotation sidecar edit",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             tool: ProvenanceToolIdentity(
-                name: "Lungfish Genome Explorer",
+                name: LungfishAppIdentity.recordedToolName,
                 version: WorkflowRun.currentAppVersion,
-                kind: "gui"
+                kind: LungfishAppIdentity.recordedToolKind
             ),
             argv: executionArgv,
             durableReplayArgv: durableReplayArgv,
