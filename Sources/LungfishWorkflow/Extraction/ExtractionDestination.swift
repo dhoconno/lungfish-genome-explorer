@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 // MARK: - CopyFormat
 
@@ -41,7 +42,7 @@ public struct ExtractionFileProvenance: Sendable, Hashable {
 
     public init(
         workflowName: String,
-        toolName: String = "Lungfish.app",
+        toolName: String,
         argv: [String],
         explicitOptions: [String: ParameterValue] = [:],
         defaults: [String: ParameterValue] = [:],
