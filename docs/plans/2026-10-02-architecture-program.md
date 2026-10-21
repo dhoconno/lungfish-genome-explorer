@@ -224,6 +224,90 @@ Sub-phases (owner direction of 2026-10-17, subdivision voted by the panel 4 to 1
 | 3.5 | 3a for mapping and reference last, the hide list and optional slots deleted, then 3b over BundleKindRegistry with one read-only fallback and the three prefix tables retired | 3.4 | none |
 | 3.6 | 3c's remaining raw sites and the lint, then 3d with the cli-parity ratchet moved onto specs first, the failure, cancel and progress words on the launcher, and a design ruling on an on-disk bundle lock for CLI runs, then the Phase 3 exit review | 3.5 | none |
 
+## Carry-in from Phase 2.13
+
+Written at the end of Phase 2.13 from its records, at the program head `8190b9000` that Preview 2026.10.22 is published from. The full rows are in `docs/plans/2026-10-20-phase-2-13.md`, which holds the Moved out rows in `## Moved out of 2.13`, the decisions MD1 to MD108 and the owner directions O23 to O26 in `### Decisions` and the publish in `## Release`. The carry-in has four parts, the Moved out rows by field, the held tier 3 lanes, the Known limits that end "This is a Phase 3 candidate" and the standing directions. Two rows name a sub-phase, S-13.14-Q1 and K10-S8, and both say Phase 3d. S-M3-Q2 says a later plan. Every other row says Phase 3 or Phase 3 candidate, and the panel places it at the start of the Phase 3 session.
+
+### Moved out rows by field
+
+The 2.13 plan holds 56 rows, the 51 rows of the fixed `moved-out-213.md` and five tier 3 lanes. The table lists the 51 rows under each field that the row's Where cell names, or that its ruling or review file is named for, so a row with two fields appears twice. A row whose record names no field is listed last. The tier 3 lanes are in the next table.
+
+| Field | Rows |
+|---|---|
+| ARCH (12) | A-13.13-Q2, Q-LEGACY-RESOLVED, U-BAR-GAP, GENBANK-INTERNAL-KEYS, DURABLE-ATOMICALLY, 13.27-R2, 13.27-LABELS, 13.27-REPLAY-ANNOT-ADD, REPLAY-WORKFLOW-OUTDIR, REPLAY-UNMAPPED-OLD-PATH, GATE-CONDA-ROOT, APP-RECORDS-OFF-MAIN |
+| BIO (19) | B-13.12-Q2, Q-SW26-OBS, Q-SW26-K2EXPLICIT, Q-13.09-FAILSTEP, CALLSDB-BOOKMARK-SIDECAR, Q-LEGACY-RESOLVED, TT-FUZZY-NAME, GFF3-MULTIVALUE, GFF3-SIDEBAR-ORDER, GENBANK-INTERNAL-KEYS, VARIANT-IMPACT-KEYS, CDS-CUT-NUMBERING, 13.27-R2, 13.27-REPLAY-ANNOT-ADD, REPLAY-WORKFLOW-OUTDIR, REPLAY-UNMAPPED-OLD-PATH, RECEIPT-ONT-BARCODE-NAME, LOCALE-READSET, FIXTURE-SKIP |
+| QA (16) | Q-LEGACY-RESOLVED, MIGRATE-SUMMARY-SEAM, COPY-CANCEL-SIDECAR, TT-FUZZY-NAME, GFF3-MULTIVALUE, QA6-NONLAYOUT-KEYS, PREFS-ROUTED-SEAM, DOMAIN-CHECK-GATE, B6-PIN-RED, LAYOUT-SPINS, GATE-CONDA-ROOT, LOCALE-READSET, FIXTURE-SKIP, BARE-SKIP-AUDIT, UNIT-TIER-CADENCE, HOOK-STEP-23 |
+| SWIFT (8) | S-M3-Q2, MIGRATE-SUMMARY-SEAM, COPY-CANCEL-SIDECAR, DURABLE-ATOMICALLY, PREFS-ROUTED-SEAM, B6-PIN-RED, PRESENT-VERIFIED-MAIN, APP-RECORDS-OFF-MAIN |
+| UX (6) | U-BAR-GAP, GFF3-SIDEBAR-ORDER, VARIANT-IMPACT-KEYS, ESV-EXPORT-MENU-REACH, LOAD-FAIL-WORDS, EXPORT-NO-SAMPLE-MENUS |
+| None named (11) | GENO-ARTIFACT-MODE, Q-13.36-1, S-13.14-Q1, VIRALRECON-STREAM, K10-S8, TIER1-EXPERIMENTAL-PACKS, HIGH-IMPACT-TIMING, PREFS-LEAKERS-2, PYTEST-ONLY-SCAN, NOTICES-CURRENT, RELEASE-BODY-LIMIT |
+
+UNIT-TIER-CADENCE is a standing direction and not a task (see Standing directions below). GENBANK-INTERNAL-KEYS must be re-read before Phase 3 takes it, as the ARCH inventory asked. Its premise is that the GenBank export of a bundle writes an internal Lungfish key as a qualifier and that `SequenceExportPinConformanceTests` pins it. MD90 says `ae59eec3e` removed the internal keys from exports, and landing 25 recaptured the pin with one removed line, `/annotation_db_row_id="1"`. At `8190b9000` an `rg` for `annotation_db_row_id`, `annotation_db_track_id`, `lungfish_gff_phase` and `lungfish_cds_phase` over the Tests files named `SequenceExportPin*` prints nothing, so the row may already be closed. A row DMG-CREATE-RETRY (retry `hdiutil create` once when the eject is busy) was proposed by the second publish and has no ruling, so it is in no table.
+
+### Held tier 3 lanes
+
+MD83 held these lanes, the owner left the question unanswered in O23, and none of them ran. Each is also a row of `## Moved out of 2.13`.
+
+| Lane | Scope in one line | Written in |
+|---|---|---|
+| 13.57 UNIT-FLAKES M2 | The NSAPP-GUARD milestone (M884), the guard at `AppDelegate.swift:37` (H8). M1 landed in landing 22 | `votes/tally.md` M884 |
+| 13.58 COLLECTION-PERF | M841, a release-build timing of the 10 targets beside the 2.11 base of 16.0 s and the per-taxon write path of the resolver, with every payload byte unchanged. It waited for 13.02, which landed in landing 2 | `votes/tally.md` M841 |
+| 13.59 OLIVAR-REPLAY | M844, the record names the `.olvd` and `.olvr` pickles as outputs that a replay does not regenerate, with that reason as a degraded fact | `votes/tally.md` M844 |
+| 13.60 TRAP-RES | M845, a missing bundled resource throws and nothing traps (`AIHaplotypingPromptRegistry.swift:143` and `:55`), and a CLI leaf that meets it exits 64 | `votes/tally.md` M845 |
+| 13.61 U-INSPECT | H6 (Q-U6), the Inspector sites of `ProvenanceSection.swift` and `ViralReconDocumentSection.swift` show a value whole where it fits and offer Copy Path where it stays truncated. It has no owner check row of its own (MD86) | `votes/tally.md` 13.61 |
+
+### Known limits that end "This is a Phase 3 candidate"
+
+MD84 accepted these 40 Known limits as worded, with no named task, and sent them to this carry-in from `lanes/13.25/known-limit-table.md`. They are Known limit lines of `docs/reports/2026.10.22-technical.md`, and the line numbers are those of that file at `8190b9000`. Each line ends with the sentence "This is a Phase 3 candidate", and the line holds the full limit. The labels below are short.
+
+| Line | Limit |
+|---|---|
+| 139 | A cancelled or failed EsViritu run keeps its working files in its folder under Analyses |
+| 141 | A large sample rich in one virus can take an EsViritu run several hours, and the run has no time limit |
+| 145 | A Viral Recon run keeps an unsigned copy of its record in its results folder on purpose |
+| 151 | After a Kraken2 batch run shows its first sample, the sidebar and the Inspector's Provenance tab stay on the earlier selection |
+| 153 | A download from the Database Browser needs a project and shows the No Project Open sheet without one |
+| 155 | MEGAHIT 1.2.9 can end a run on Apple silicon with a segmentation fault (exit -11) or an abort (exit -6) |
+| 157 | A copy of an open project, such as a Finder Duplicate or a restored backup, still shows the sheet that says the project may already be open |
+| 159 | A database that shows Unverified cannot be checked in place, so Update downloads the whole database again |
+| 161 | When the integration-tier gate kills a class at its time bound, its report names the XCTest case that was running, and the line says what it reports for a Swift Testing function |
+| 163 | A CZ-ID import that is cancelled while it converts the report can leave a half-written bundle |
+| 165 | A killed or out-of-memory VCF import leaves a hidden staging folder in the bundle's `variants` folder that `--resume` cannot use |
+| 167 | A region extracted to a new bundle from a project sequence keeps none of the sequence's annotations, and the record does not say so |
+| 169 | An extraction of a region from a document keeps a FASTA copy of the whole sequence in the project's `.tmp` folder |
+| 171 | Extracting a region from a document whose sequence name holds a space fails with Sequence 'x y' not found |
+| 173 | Each Export Sequences of an open document, or of a file named `.seq` or `.txt`, keeps a copy in the project's `.tmp` folder |
+| 175 | Export Sequences and `lungfish-cli convert` stop with No sequences found only for a file of no bytes or only white space |
+| 177 | A changed feature, a feature from a GFF3 or BED source or a captured selection, and a feature of a `.lungfishref` bundle still print the key in a form the line describes |
+| 179 | Copy CLI Command on Save Primer FASTA Bundle and Extract Reference Amplicon records the folder that the app wrote, and `lungfish-cli primers analysis export-selection` stops |
+| 181 | An AI Haplotyping run that cannot resolve a provider, such as one with no API key, still shows a row with no command |
+| 183 | The record of a 12S BLAST search names no sample, since its sequences are pooled across samples |
+| 185 | Running a taxa collection again after a taxon is removed or renamed leaves the earlier file of that taxon in the extracted folder |
+| 187 | Copy CLI Command on a clipboard extraction replays into a scratch folder of the project and leaves the file there |
+| 189 | A replay of one taxon's file record runs `lungfish-cli extract taxa-collection` for that taxon alone and rewrites the collection's root record |
+| 193 | A replay of the record of a copy between projects needs the source project to be on this Mac |
+| 195 | With an empty Sample Filter in a TaxTriage result, the Export Batch Report item is disabled |
+| 197 | A viewer export keeps its inputs in a hidden `.lungfish-export-inputs` folder beside the export |
+| 199 | If the app stops while a provenance export replaces files in an existing folder, some files can be new and some old |
+| 201 | A replay of an XLSX annotation table export gives back the recorded digest only on the Mac and with the `/usr/bin/zip` build that wrote it |
+| 205 | A few routes that display a reference bundle still build its browser summary in memory on the main thread |
+| 213 | A legitimate archive whose link has an absolute target is refused even when the target lies inside the folder |
+| 217 | The NAO-MGS duplicate marking is one internal step plus five samtools stages, and a failed marking lists all five without saying which ran |
+| 227 | An exported image sets bases in Menlo, feature labels and notes on omitted rows in Helvetica Neue, and its scale, counts and sample names in the system font |
+| 229 | An exported image draws its read track 200 points high with at most 75 rows and its annotation track 60 points high |
+| 235 | A signal track is left out of exported images |
+| 241 | A provenance record with a workflow name directly in the temp, home, Downloads, Desktop or Documents folder is not found for a file in a subfolder |
+| 243 | The first open of a Kraken2 result after its sample metadata table was added or changed stores the table's values inside `kraken2.sqlite` once |
+| 249 | A database imported before this release answers the High Impact filters from its stored INFO rows, so filters can run slower and the chips show no count |
+| 251 | A FASTQ file copied out of its bundle without its metadata, and a derived bundle whose parent is lost, carry no recorded platform |
+| 255 | A Cancel that lands just after an analysis run or an export wrote its file still reads Cancelled by user |
+| 263 | When some selected TaxTriage rows have no accession, the Extract Reads dialog names at most four of the rows it leaves out |
+
+### Standing directions
+
+O26 (2026-10-21 16:07) is a standing direction for every release. Release notes are written for users and the technical record is kept apart. The readable notes `docs/release-notes/<version>.md` are for bench scientists (about 10 to 15K characters, grouped by task, only the limits a person is likely to hit, with the header lines and the Dependency versions kept for the preflight). The full technical record is `docs/reports/<version>-technical.md` and the owner check list is `docs/reports/<version>-owner-checks.md`, both linked by absolute GitHub URLs at the tag. The reason is the first publish of 2026.10.22, whose release body of 132,811 characters passed GitHub's limit of 125,000 (row RELEASE-BODY-LIMIT).
+
+UNIT-TIER-CADENCE. No unit tier ran between 2026-10-20 and the 2.13 candidate, and five stale tests reached it (MD94). `docs/contracts/RUNNING-A-PHASE-SESSION.md` gets the rule that a unit tier runs after about every 10 landings, which the closing monitor of 2.13 writes (`exit/QA.md:156`). MD90 also added a habit for landings, that a landing that changes export text runs the Conformance pins of that export (`rg -l` on the changed literal in Tests) and not only its unit suites.
+
 ## Phase 4, god-object splits and module splits (weeks 8 to 12)
 
 Entry criteria. Phase 3 exit, characterization tests captured per extracted responsibility, byte-identical genotype export fixtures in place.
