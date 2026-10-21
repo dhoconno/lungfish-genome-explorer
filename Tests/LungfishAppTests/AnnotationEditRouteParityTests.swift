@@ -8,8 +8,8 @@
 // copies it to root C. Side A is the app's edit, its begin helper and the call its launch site
 // makes on that row's values. Side C replays the command the row recorded, rebased onto root C,
 // through the leaf in this process. The route parity harness compares the two roots
-// (Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift), and A against C declares
-// nothing. No side launches the CLI, so the class stays in the unit tier and the harness's
+// (Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift), and A against C declares only
+// the identity paths of R2 (MD62). No side launches the CLI, so the class stays in the unit tier and the harness's
 // binary never runs.
 
 import Foundation
@@ -137,9 +137,12 @@ final class AnnotationEditRouteParityTests: XCTestCase {
         return try harness.differences(sideA, sideC)
     }
 
-    /// Fails with every difference of A against C, since the edit declares none (decision C4).
+    /// Fails with every difference of A against C but the identity paths of R2 (MD62), which the cases declare by count.
     private func assertAgree(_ parityCase: Case, _ found: [RouteParityDifference], line: UInt = #line) {
-        let failures = RouteParityHarness.failures(found: [.aAgainstC: found], parityCase: parityCase, declared: [])
+        let failures = RouteParityHarness.failures(
+            found: [.aAgainstC: found], parityCase: parityCase,
+            declared: [RouteParityHarness.appIdentityDifference([Case.addAnnotation: 1])]
+        )
         RouteParityHarness.assertNoFailures(failures, in: parityCase.rawValue, line: line)
     }
 

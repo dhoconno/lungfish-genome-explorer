@@ -222,10 +222,10 @@ final class VariantsEditCommandTests: XCTestCase {
     }
 
     /// The table names the app (`Lungfish Genome Explorer`, `gui`) and the leaf names `lungfish-cli` (`cli`), whoever makes the
-    /// edit (R2 of BIO-Q-A2, lane 13.27). The four identity lines differ by design and every other line must still agree.
+    /// edit (R2 of BIO-Q-A2, lane 13.27). The lines at the identity paths of `CallerIdentityPaths`, the list
+    /// `RouteParityHarness.appIdentityDifference` declares, differ by design (MD62) and every other line must still agree.
     private func withoutCallerIdentity(_ dump: String) -> String {
-        let identity = ["toolName = ", "tool.name = ", "tool.kind = ", "steps[0].toolName = "]
-        return dump.components(separatedBy: "\n").filter { line in !identity.contains { line.hasPrefix($0) } }.joined(separator: "\n")
+        CallerIdentityPaths.removingIdentityLines(from: dump)
     }
 
     // MARK: - Helpers

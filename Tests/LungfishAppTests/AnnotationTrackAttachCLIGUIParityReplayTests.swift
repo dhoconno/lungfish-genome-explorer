@@ -14,7 +14,7 @@
 //   launches the built `lungfish-cli sequence attach-track`. Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// The case declares nothing, so A against C and C against C' are both empty (C4).
+// The case declares only the identity paths of R2 (MD62), so A against C holds only those and C against C' is empty (C4).
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier, where the CLI is built.
@@ -58,7 +58,7 @@ final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
     func testTheAttachRowWritesWhatTheInProcessAttachWrote() async throws {
         let result = try await harness.assertParity(
             Case.attachTrack,
-            declared: [],
+            declared: [RouteParityHarness.appIdentityDifference([Case.attachTrack: 7])],
             in: scratch.appendingPathComponent("attach", isDirectory: true),
             fixture: { root in try self.writeFixture(root) },
             sideA: { root in await self.sideA(root) },

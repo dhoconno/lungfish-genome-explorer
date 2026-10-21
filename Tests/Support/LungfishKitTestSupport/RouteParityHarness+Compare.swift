@@ -12,7 +12,9 @@
 // kind and masked for the file's role with UUIDs and run IDs numbered across each side's tree, so
 // the explanation applies no rule of its own (review fix 4) and a declared difference names one
 // value or one line, never a whole file (panel G5). A JSON text gives one difference for each value
-// path whose value differs or that one side lacks. Any other text, a decompressed gzip or BGZF file,
+// path whose value differs or that one side lacks, and a value at a path that names the caller
+// (`CallerIdentityPaths`, R2 of BIO-Q-A2) gives an `identity:` difference in place of `differs:`,
+// which `appIdentityDifference` declares. Any other text, a decompressed gzip or BGZF file,
 // a database dump and a BAM's header and record hash included, gives one difference for each line
 // one side holds more often than the other, and one more, `line order`, when the lines both sides
 // hold come in another order. A binary file, or one with more than `explainedLimit` differences,
@@ -164,8 +166,11 @@ extension RouteParityHarness {
         var found: [RouteParityDifference] = []
         if let valuesA = Self.jsonValues(file.normalizedA), let valuesB = Self.jsonValues(file.normalizedB) {
             for path in Set(valuesA.keys).union(valuesB.keys).sorted() where valuesA[path] != valuesB[path] {
+                // The caller's name differs by design between the app's route and a leaf (R2, MD62). It is its own class
+                // of difference, which only `appIdentityDifference` declares, and every other path stays `differs:`.
+                let identity = CallerIdentityPaths.isIdentityDifference(path: path, valuesA[path], valuesB[path])
                 found.append(RouteParityDifference(
-                    id: "differs: \(label) at \(Self.maskedID(path))",
+                    id: "\(identity ? "identity" : "differs"): \(label) at \(Self.maskedID(path))",
                     detail: "\(sideA) \(Self.shown(valuesA[path])), \(sideB) \(Self.shown(valuesB[path]))"
                 ))
             }
@@ -194,6 +199,22 @@ extension RouteParityHarness {
             )]
         }
         return found
+    }
+
+    /// The one entry that declares the paths where a record names its caller (R2 of BIO-Q-A2, MD62), such as `toolName` and
+    /// `runtime.app`, which `CallerIdentityPaths` lists. `counts` gives the exact number of such differences in each case,
+    /// so one more or one fewer fails the case. A difference at any other path stays `differs:` and fails, and C against C'
+    /// cannot declare it, since `failures` rejects an entry that is not A against C.
+    public static func appIdentityDifference<Case: Hashable & Sendable>(
+        _ counts: [Case: Int]
+    ) -> RouteParityDeclaredDifference<Case> {
+        RouteParityDeclaredDifference(
+            counts,
+            "identity: <ANY>",
+            reason: "A record names its caller. The app's route names the app (Lungfish Genome Explorer, kind gui) where the "
+                + "leaf's route names lungfish-cli (kind cli), at the paths CallerIdentityPaths lists and at no other (R2, MD62).",
+            closedBy: "13.27 R2, by design"
+        )
     }
 
     /// Every scalar of a JSON object or array under its value path, such as `steps[0].argv[2]`,

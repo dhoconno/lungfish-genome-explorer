@@ -15,6 +15,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class SequenceAnnotationEditCommandTests: XCTestCase {
     private var scratch: URL!
@@ -243,12 +244,10 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
     /// presence and then left out, and with the bundle's path written as `<BUNDLE>`.
     private func comparable(_ entry: [String: Any], bundle: URL) throws -> String {
         var entry = entry
+        for key in ["argv", "recordedAt", "wallTimeSeconds"] { entry[key] = nil }
         // The caller names itself in `toolName` and `runtime.app` (R2 of BIO-Q-A2), so the two routes differ there by design.
-        for key in ["argv", "recordedAt", "wallTimeSeconds", "toolName"] { entry[key] = nil }
-        if var runtime = entry["runtime"] as? [String: Any] {
-            runtime["app"] = nil
-            entry["runtime"] = runtime
-        }
+        // The mask is the list `RouteParityHarness.appIdentityDifference` declares (MD62).
+        entry = (CallerIdentityPaths.removingIdentity(from: entry, at: "entries[0]") as? [String: Any]) ?? entry
         if var annotation = entry["annotation"] as? [String: Any] {
             annotation["id"] = nil
             entry["annotation"] = annotation

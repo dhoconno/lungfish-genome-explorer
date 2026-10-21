@@ -16,7 +16,7 @@
 //
 // The cases are the argument shapes of the callers: no name, a name with durable inputs, the
 // annotated selection, and the rehydrate, and the FASTQ operation wrapper, which builds in a folder
-// as given. A against C and C against C' declare nothing (C4). The wrapper case reads the shared
+// as given. A against C declares only the identity paths of R2 (MD62), where side A passes the argv side C records, and C against C' declares nothing (C4). The wrapper case reads the shared
 // FASTA, because the harness copies a fixture to each root and the operation's record names the
 // folder it was written in, so the rehydrate refuses a copy. `FASTQReferenceWrapperRouteReplayTests`
 // runs the FASTA inside the project, and no byte equality is claimed for that shape.
@@ -93,7 +93,7 @@ final class ReferenceImportParityReplayTests: XCTestCase {
         for parityCase in Case.allCases {
             let result = try await harness.assertParity(
                 parityCase,
-                declared: [],
+                declared: [RouteParityHarness.appIdentityDifference([Case.annotations: 7])],
                 in: scratch.appendingPathComponent(parityCase.rawValue, isDirectory: true),
                 fixture: { root in
                     try FileManager.default.createDirectory(
@@ -208,7 +208,10 @@ final class ReferenceImportParityReplayTests: XCTestCase {
             if let annotations = shape.annotations {
                 let clock = ProvenanceRunClock()
                 let attached = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind)
-                    .attachAnnotationTrack(sourceURL: annotations.bed, bundleURL: result.bundleURL)
+                    .attachAnnotationTrack(
+                        sourceURL: annotations.bed, bundleURL: result.bundleURL,
+                        invocationArgv: [harness.cliBinary.path] + shape.arguments
+                    )
                 try MSAExtractionAnnotationProvenance.write(
                     bundleURL: result.bundleURL,
                     sourceAlignmentBundleURL: annotations.alignment,

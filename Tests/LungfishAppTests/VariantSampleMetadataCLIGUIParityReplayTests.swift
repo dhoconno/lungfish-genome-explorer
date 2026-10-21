@@ -18,7 +18,7 @@
 //   import-sample-metadata`. Its row records the command.
 // - Side C' is the harness's replay of that command.
 //
-// The case declares nothing, so A against C and C against C' are both empty (C4).
+// The case declares only the identity paths of R2 (MD62), so A against C holds only those and C against C' is empty (C4).
 //
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier, where the CLI is built.
@@ -59,7 +59,7 @@ final class VariantSampleMetadataCLIGUIParityReplayTests: XCTestCase {
     func testTheMetadataRowWritesWhatTheInProcessImportWrote() async throws {
         let result = try await harness.assertParity(
             Case.importSampleMetadata,
-            declared: [],
+            declared: [RouteParityHarness.appIdentityDifference([Case.importSampleMetadata: 12])],
             in: scratch.appendingPathComponent("import", isDirectory: true),
             fixture: { root in
                 let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
