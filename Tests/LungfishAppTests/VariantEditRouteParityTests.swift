@@ -128,6 +128,49 @@ final class VariantEditRouteParityTests: XCTestCase {
         XCTAssertEqual(app.stepReproducibleCommand, leaf.stepReproducibleCommand, "the step's command agrees with its replay line")
     }
 
+    /// 2.13 V1-6, the delete-all call. `Delete all variants` takes a durable replay argv at a second site of the drawer, and
+    /// `--all` removes every variant of the bundle, so a wrong replay line costs more here than at the selected-rows site. The
+    /// drawer's call runs on root A and the leaf, from the command the row records, on root C, a copy of root A. The databases
+    /// are byte-equal, the drawer's `argv` names the app, and its durable replay argv and its command are the words the leaf's
+    /// record holds as its own.
+    func testVariantDeleteAllInProcessRunAndLeafWriteEqualBytes() async throws {
+        let caseRoot = scratch.appendingPathComponent("v16-delete-all", isDirectory: true)
+        let rootA = RouteParityHarness.root(of: .a, in: caseRoot)
+        let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        let fixtureA = try VariantEditFixture.make(in: rootA, withTrackManifest: true)
+        try FileManager.default.copyItem(at: rootA, to: rootC)
+        let fixtureC = fixtureA.rebased(onto: rootC)
+        let arguments = VariantDeletionMutationService.deleteAllArguments(bundleURL: fixtureA.bundleURL)
+        let reporter = RecordingOperationReporter()
+        AnnotationTableDrawerView.beginVariantStorageMutationOperation(
+            title: "Delete all variants", bundleURL: fixtureA.bundleURL, command: arguments, routeContext: nil, reporter: reporter
+        ) { _ in }
+        let command = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+        // The call performDeleteAllVariants makes, on the same values.
+        _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
+            bundleURL: fixtureA.bundleURL, targets: [Self.target(of: fixtureA)],
+            invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments,
+            durableReplayArgv: [CLICommandIdentity.executableName] + arguments
+        )
+        try await RecordedCLICommand.runInProcess(try RecordedCLICommand.rebased(command, from: rootA, to: rootC))
+
+        XCTAssertEqual(
+            try Data(contentsOf: fixtureA.databaseURL), try Data(contentsOf: fixtureC.databaseURL),
+            "the drawer's delete all and variants delete --all leave different database bytes"
+        )
+        let app = try Self.replayWords(of: fixtureA.bundleURL, root: rootA)
+        let leaf = try Self.replayWords(of: fixtureC.bundleURL, root: rootC)
+        XCTAssertEqual(leaf.argv.first, CLICommandIdentity.executableName)
+        XCTAssertEqual(app.argv.first, LungfishAppIdentity.recordedToolName, "argv names what ran")
+        XCTAssertEqual(Array(app.argv.dropFirst()), Array(leaf.argv.dropFirst()), "argv keeps the leaf's words after the tool")
+        XCTAssertEqual(app.durableReplayArgv, leaf.argv, "the run's durable replay argv is the leaf's argv")
+        XCTAssertEqual(app.stepDurableReplayArgv, leaf.argv, "the step's durable replay argv is the leaf's argv")
+        XCTAssertEqual(app.reproducibleCommand, leaf.reproducibleCommand, "the run's command agrees with its replay line")
+        XCTAssertEqual(app.stepReproducibleCommand, leaf.stepReproducibleCommand, "the step's command agrees with its replay line")
+    }
+
     /// What a record says it replays, with the root's path written `<ROOT>`, so two roots compare.
     private struct ReplayWords {
         let argv: [String]
