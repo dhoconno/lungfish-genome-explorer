@@ -318,7 +318,7 @@ final class ClassifierCLIRealToolCancelReplayTests: XCTestCase {
         }
         let storage = scratch.appendingPathComponent("storage", isDirectory: true)
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: storage.appendingPathComponent("databases", isDirectory: true))
-        let database = try await registry.registerExisting(at: folder, name: "NotKraken2")
+        let database = try await registry.seedRowThroughManifest(at: folder, name: "NotKraken2")
         setEnvironment("LUNGFISH_CONDA_ROOT", to: ManagedStorageConfigStore().currentCondaRootURL().path)
         setEnvironment("LUNGFISH_STORAGE_ROOT", to: storage.path)
         return database

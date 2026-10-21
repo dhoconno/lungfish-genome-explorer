@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 
 // MARK: - DatabasesTabTests
 
@@ -425,7 +426,7 @@ final class DatabasesTabTests: XCTestCase {
         }
 
         // Register the database
-        try await registry.registerExisting(at: dbDir, name: "Viral")
+        try await registry.seedRowThroughManifest(at: dbDir, name: "Viral")
         let dbBefore = try await registry.database(named: "Viral")
         XCTAssertEqual(dbBefore?.status, .ready)
 

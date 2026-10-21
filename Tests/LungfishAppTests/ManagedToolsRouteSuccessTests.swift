@@ -307,7 +307,7 @@ final class ManagedToolsRouteSuccessTests: XCTestCase {
         }
         try FileManager.default.createDirectory(at: appBase, withIntermediateDirectories: true)
         // The manifest the command saves, made by a registry of its own and copied into place by the stand-in.
-        _ = try await MetagenomicsDatabaseRegistry(baseDirectory: cliBase).registerExisting(at: folder, name: "Lab Index")
+        _ = try await MetagenomicsDatabaseRegistry(baseDirectory: cliBase).seedRowThroughManifest(at: folder, name: "Lab Index")
         let app = MetagenomicsDatabaseRegistry(baseDirectory: appBase)
         try await app.loadIfNeeded()
         let before = try await app.database(named: "Lab Index")

@@ -52,7 +52,7 @@ extension ManagedToolsCLIGUIParityReplayTests {
         for name in databasePayloadFiles {
             try "old".write(to: installed.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
-        _ = try await registry.registerExisting(at: installed, name: "Viral")
+        _ = try await registry.seedRowThroughManifest(at: installed, name: "Viral")
 
         // Set the older version through the manifest and read it again, as a registry that another
         // process changed would.
