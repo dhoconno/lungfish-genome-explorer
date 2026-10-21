@@ -1490,8 +1490,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     ///
     /// Uses `beginSheetModal` (not `runModal`) per macOS 26 rules.
     private func exportDelimited(format: ViewerExportDelimitedFormat, fileTypeName: String) {
-        guard let result = esVirituResult, let window = view.window else {
-            logger.warning("Cannot export: no result or window")
+        guard let result = esVirituResult, let window = view.window, exportDatabaseIsPresent(in: window) else {
+            logger.warning("Cannot export: no result, window or database")
             return
         }
 

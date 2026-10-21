@@ -3409,7 +3409,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
         guard !exportSelectedSampleIds().isEmpty,
-              let format = ViewerExportDelimitedFormat(rawValue: fileExtension) else { return }
+              let format = ViewerExportDelimitedFormat(rawValue: fileExtension),
+              exportDatabaseIsPresent(in: window) else { return }
 
         let baseName: String
         if isBatchGroupMode {

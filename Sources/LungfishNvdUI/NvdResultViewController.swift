@@ -2359,7 +2359,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     public func exportResults() {
         // The leaf reads no --sample as every sample, so an empty picker returns before the panel (12.31 Fix 7).
-        guard !selectedSamples.isEmpty, let window = view.window else { return }
+        guard !selectedSamples.isEmpty, let window = view.window, exportDatabaseIsPresent(in: window) else { return }
         let experiment = manifest?.experiment ?? "nvd"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(

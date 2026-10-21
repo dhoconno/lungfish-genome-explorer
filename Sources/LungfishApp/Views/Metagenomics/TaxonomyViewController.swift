@@ -1573,7 +1573,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             logger.warning("Cannot export: no tree or window")
             return
         }
-        guard taxonomyExportSource() != nil else {
+        guard let source = taxonomyExportSource(), exportDatabaseIsPresent(source.sourceURL, in: window) else {
             logger.warning("Cannot export: no result file to read or no sample picked")
             return
         }
@@ -1638,7 +1638,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         )
     }
 
-    private func presentWarning(title: String, message: String) {
+    func presentWarning(title: String, message: String) {
         if let warningPresenter {
             warningPresenter(title, message)
             return

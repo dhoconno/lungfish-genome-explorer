@@ -2749,7 +2749,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Export
 
     public func exportResults() {
-        guard !displayedRows.isEmpty, let window = view.window else { return }
+        guard !displayedRows.isEmpty, let window = view.window, exportDatabaseIsPresent(in: window) else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
