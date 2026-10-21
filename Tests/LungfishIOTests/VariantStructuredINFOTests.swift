@@ -137,6 +137,25 @@ final class VariantStructuredINFOTests: XCTestCase {
         }
     }
 
+    func testBiologicalHighImpactTokenFindsAHighEntryAmongOthersAtEveryProfile() throws {
+        // `custom_term` is in no consequence clause of the SQL, so only the impact clause can keep a variant. POS 100
+        // lists a HIGH entry beside a MODIFIER one and POS 200 lists a lone MODERATE.
+        let headers = StructuredINFOFixture.threeRecordVCF.split(separator: "\n")
+            .filter { $0.hasPrefix("#") }.map(String.init)
+        let records = [
+            "chr1\t100\t.\tC\tT\t50\tPASS\tDP=40;ANN=T|custom_term|HIGH|geneA,T|upstream_gene_variant|MODIFIER|geneB\tGT\t0/1",
+            "chr1\t200\t.\tA\tG\t50\tPASS\tDP=35;ANN=G|custom_term|MODERATE|geneA\tGT\t0/1",
+        ]
+        let vcf = (headers + records).joined(separator: "\n") + "\n"
+        let biologicalSQL = VariantDatabase.biologicalHighImpactTokenSQL(
+            impactKeys: VariantDatabase.impactInfoKeys, consequenceKeys: VariantDatabase.impactConsequenceInfoKeys)
+        for profile in StructuredINFOFixture.profiles {
+            let dbURL = try StructuredINFOFixture.importDatabase(vcf, profile: profile, in: directory, name: "token")
+            XCTAssertEqual(
+                try StructuredINFOFixture.positions(dbURL, selectingIDs: biologicalSQL), [100], profile.rawValue)
+        }
+    }
+
     func testHighImpactFindsMixedImpactVariantsOfBothAnnotationsAtEveryProfile() throws {
         for profile in StructuredINFOFixture.profiles {
             let dbURL = try StructuredINFOFixture.importDatabase(
