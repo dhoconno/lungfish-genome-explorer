@@ -137,5 +137,21 @@ extension GenotypeWorkbookSnapshotReplayTests {
         XCTAssertEqual((receipt["argv"] as? [String])?.first, CLICommandIdentity.executableName)
         XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
     }
+
+    /// Lane 13.51. The receipt of the `--snapshot` replay names its tool, its kind and its workflow, keeps the
+    /// original request's workflow, and names the durable replay of the same leaf and its own path.
+    func testSnapshotReplayReceiptNamesItsToolKindAndWorkflow() async throws {
+        let invocation = try writeInputs(options: [:])
+        let receipt = try await replay(invocation)
+        XCTAssertEqual(receipt["toolName"] as? String, "lungfish genotype Excel export")
+        XCTAssertNil(receipt["toolKind"])
+        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertNil(receipt["requestWorkflowName"])
+        XCTAssertEqual((receipt["runtimeContext"] as? [String: String])?["originalWorkflowName"],
+                       GenotypeWorkbookExport.requestWorkflowName)
+        let replay = try XCTUnwrap(receipt["durableReplayArgv"] as? [String])
+        XCTAssertEqual(Array(replay.dropFirst().prefix(3)), GenotypeWorkbookExport.commandPath + ["--snapshot"])
+        XCTAssertEqual(receipt["receiptPath"] as? String, invocation.output + ".provenance.json")
+    }
 }
 
