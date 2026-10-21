@@ -500,6 +500,14 @@ class GateBehaviorTests(unittest.TestCase):
                          [[test] for test in SERIAL_TESTS])
         self.assertTrue(evidence["authorized"])
 
+    # Phase 2.13 ruling QA-13.55. The integration budget holds the 2.12 candidate's quiet run of
+    # the tier (step 7, 4680.5 s for 209 classes), one class that runs out its bound, and one phase
+    # of growth at the rate of 2.12 (2.11's 49.8 minutes to 2.12's 78.0, 1692 s).
+    def test_the_integration_budget_holds_a_quiet_run_a_class_bound_and_a_phase_of_growth(self):
+        budget = GATE.DEFAULT_TIER_TIMEOUT_SECONDS["integration"]
+        self.assertEqual(budget, 150 * 60)
+        self.assertGreaterEqual(budget, 4680.5 + GATE.DEFAULT_CLASS_TIMEOUT_SECONDS["integration"] + 1692)
+
     def test_a_hung_serial_class_is_killed_and_named_and_the_next_class_still_runs(self):
         result, evidence, child = self.run_hang_gate("--tier", "integration", "--class-timeout-seconds", "2")
         self.assertIsNotNone(evidence, result.stdout + result.stderr)
