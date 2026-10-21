@@ -273,7 +273,7 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         "file output json <root>/out/selected-region.lungfishfastq/extraction-metadata.json",
         "output <root>/out/selected-region.lungfishfastq/selected-region.fastq",
         "step samtools samtools 1.23.1 /managed/samtools fastq -o <root>/staging-selected-region/selected-region.fastq <root>/staging-selected-region/filtered.bam",
-        "step lungfish alignment extraction publisher <app version> Lungfish.app alignment extract publish --destination <root>/out/selected-region.lungfishfastq",
+        "step lungfish alignment extraction publisher <app version> Lungfish Genome Explorer alignment extract publish --destination <root>/out/selected-region.lungfishfastq",
         "end completed exit 0 stderr tool-note",
     ]
     private static let selectedConfig: [String] = [
@@ -306,7 +306,7 @@ final class AlignmentReadExtractionPublicationPinTests: XCTestCase {
         "file output json <root>/out/S1_virus_selected_2reads.lungfishfastq/extraction-metadata.json",
         "output <root>/out/S1_virus_selected_2reads.lungfishfastq/S1_virus_selected_2reads.fastq",
         "step samtools samtools 1.23.1 /managed/samtools fastq -o <root>/staging-S1_virus_selected_2reads/S1_virus_selected_2reads.fastq <root>/staging-S1_virus_selected_2reads/filtered.bam",
-        "step lungfish alignment extraction publisher <app version> Lungfish.app alignment extract publish --destination <root>/out/S1_virus_selected_2reads.lungfishfastq",
+        "step lungfish alignment extraction publisher <app version> Lungfish Genome Explorer alignment extract publish --destination <root>/out/S1_virus_selected_2reads.lungfishfastq",
         "end completed exit 0 stderr tool-note",
     ]
 }

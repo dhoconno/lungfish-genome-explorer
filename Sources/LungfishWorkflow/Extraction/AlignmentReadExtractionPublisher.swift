@@ -519,11 +519,11 @@ public final class AlignmentReadExtractionPublisher: @unchecked Sendable {
             toolName: "lungfish alignment extraction publisher",
             toolVersion: LungfishAppVersion.short,
             argv: [
-                "Lungfish.app", "alignment", "extract", "publish",
+                LungfishAppIdentity.recordedToolName, "alignment", "extract", "publish",
                 "--destination", destination.path,
             ],
             durableReplayArgv: [
-                "Lungfish.app", "alignment", "extract", "publish",
+                LungfishAppIdentity.recordedToolName, "alignment", "extract", "publish",
                 "--destination", destination.path,
             ],
             visibleOptions: [
