@@ -45,12 +45,16 @@ extension Kraken2Database {
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(statement) }
         var cached: [String: [String: String]] = [:]
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
             guard let sample = sqlite3_column_text(statement, 0),
                   let field = sqlite3_column_text(statement, 1),
                   let value = sqlite3_column_text(statement, 2) else { return nil }
             cached[String(cString: sample), default: [:]][String(cString: field)] = String(cString: value)
+            step = sqlite3_step(statement)
         }
-        return cached
+        // A step that ends on SQLITE_BUSY, SQLITE_IOERR or SQLITE_CORRUPT has not read the whole table, so the rows so
+        // far are not the cache and the table counts as unreadable, which is a difference.
+        return step == SQLITE_DONE ? cached : nil
     }
 }
