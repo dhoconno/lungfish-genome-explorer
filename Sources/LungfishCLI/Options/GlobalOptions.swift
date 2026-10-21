@@ -347,9 +347,9 @@ enum OutputMode {
 
 /// Options for a `fastq` subcommand that writes one plain output file.
 ///
-/// `--compress` still parses but is hidden from the help, so a subcommand without a gzip step refuses it with
-/// `rejectCompress(subcommand:)` in `validate()` and no help line promises gzip. A subcommand that does gzip
-/// its output takes `GzipOutputOptions`.
+/// `--compress` still parses but is private to every help screen, so a subcommand without a gzip step refuses
+/// it with `rejectCompress(subcommand:)` in `validate()` and no help line promises gzip. A subcommand that does
+/// gzip its output takes `GzipOutputOptions`.
 struct OutputOptions: ParsableArguments {
 
     @Option(
@@ -366,7 +366,7 @@ struct OutputOptions: ParsableArguments {
 
     @Flag(
         name: .customLong("compress"),
-        help: ArgumentHelp("Compress output with gzip", visibility: .hidden)
+        help: ArgumentHelp("Refused. These commands write plain output.", visibility: .private)
     )
     var compress: Bool = false
 

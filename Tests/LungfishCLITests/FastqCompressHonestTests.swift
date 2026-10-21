@@ -84,6 +84,12 @@ final class FastqCompressHonestTests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertFalse(
+            C.helpMessage(includeHidden: true).contains("--compress"),
+            "\(name) lists --compress in its extended help",
+            file: file,
+            line: line
+        )
     }
 
     /// A gzip writer. The flag parses and arrives in `output.compress`.
@@ -97,6 +103,7 @@ final class FastqCompressHonestTests: XCTestCase {
         let output = folder.appendingPathComponent("out.fastq").path
         let command = try C.parse(arguments + ["--output", output, "--compress"])
         XCTAssertTrue(command[keyPath: compress], "\(C.self) parses --compress", file: file, line: line)
+        XCTAssertTrue(C.helpMessage().contains("--compress"), "\(C.self) lists --compress in its help", file: file, line: line)
     }
 
     // MARK: The 20 plain writers refuse --compress
