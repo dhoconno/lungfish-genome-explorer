@@ -118,13 +118,26 @@ final class GATKVariantCallingParityLiveConformanceTests: XCTestCase {
 
     /// A difference that any two runs of real GATK show, whatever their routes. Only GATK's log is run to run. It
     /// sits in the execution record's `stderr` and `steps[0].stderr` and holds the clock, and the contract masks it
-    /// nowhere. The `##GATKCommandLine` line is not run to run, since the policy masks its date and numbers its
-    /// track ID (G5 and A50 M3 ruling R2). A new mask needs a reviewed change to the "Same result" table of
-    /// CLI-EQUIVALENCE.md.
+    /// nowhere. The record is the run's own file, `variants/gatk/<track>.gatk-run.lungfish-provenance.json` since
+    /// lane 13.16, and the harness prints it with the track's ID numbered. The pieces of its path come from the
+    /// builder the writer uses. The `##GATKCommandLine` line is not run to run, since the policy masks its date
+    /// and numbers its track ID (G5 and A50 M3 ruling R2). A new mask needs a reviewed change to the "Same result"
+    /// table of CLI-EQUIVALENCE.md.
     nonisolated static func isRunToRun(_ failure: String) -> Bool {
         let line = failure.split(separator: "\n").first.map(String.init) ?? failure
-        return line.hasSuffix("/variants/gatk/.lungfish-provenance.json at stderr")
-            || line.hasSuffix("/variants/gatk/.lungfish-provenance.json at steps[0].stderr")
+        let record = runRecordPathAroundTheTrackID()
+        return [" at stderr", " at steps[0].stderr"].contains { key in
+            line.contains(record.before) && line.hasSuffix(record.after + key)
+        }
+    }
+
+    /// The execution record's path inside a bundle as `GATKPipelineExecutionRequest.bundleRunRecordURL` builds it,
+    /// split around the track's ID. `before` is the folder and `after` is the ending of the file name.
+    nonisolated static func runRecordPathAroundTheTrackID() -> (before: String, after: String) {
+        let bundle = URL(fileURLWithPath: "/bundle", isDirectory: true)
+        let record = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: "TRACKID", inBundle: bundle)
+        let pieces = String(record.path.dropFirst(bundle.path.count)).components(separatedBy: "TRACKID")
+        return (pieces.first ?? "", pieces.last ?? "")
     }
 
     /// The `##GATKCommandLine` line with the bundle's path, the track's ID and the date set aside.
