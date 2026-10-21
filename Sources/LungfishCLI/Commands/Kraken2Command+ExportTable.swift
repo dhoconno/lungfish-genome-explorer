@@ -96,7 +96,9 @@ extension Kraken2Command {
             // R8 (KR-REF-DB, Phase 2.13 lane 13.35). The database form reads the batch manifest and one sidecar for each
             // picked sample to learn each sample's reference database, so the record names those files as inputs
             // beside the database. The reference database itself is never an input, since the leaf never opens it.
-            let references = Kraken2TaxonomyTableExport.referenceDatabases(source: source, sampleIds: loaded.selected)
+            let references = Kraken2TaxonomyTableExport.referenceDatabases(
+                source: source, sampleIds: loaded.selected, knownSampleIds: loaded.known
+            )
             loaded.inputs += references.inputs
             try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: loaded.inputs, force: invocation.force)
             let metadata = try metadataTable(

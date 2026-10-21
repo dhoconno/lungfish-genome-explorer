@@ -46,13 +46,16 @@ extension Kraken2TaxonomyTableExport {
     ///
     /// The sidecar form reads the sidecar the leaf already names as an input, so it adds no file. The database form
     /// reads the batch manifest, which gives each sample's result folder, and one `classification-result.json` for
-    /// each picked sample. With no manifest, a database that holds one sample reads the sidecar beside it. A caller
-    /// keeps only the files that exist. A sample whose result cannot be read keeps the name and version of the batch
-    /// manifest when the folder has one and gets an unknown digest with its reason. Only the configuration of each
-    /// sidecar is decoded, so no report is read.
+    /// each picked sample. With no manifest, a database that holds one sample reads the sidecar beside it. A database
+    /// that holds several samples and has no manifest has no run beside it, so it reads no sidecar, however few of
+    /// its samples are picked. That rule counts `knownSampleIds`, every sample the database holds, and never the
+    /// picked `sampleIds`. A caller keeps only the files that exist. A sample whose result cannot be read keeps the
+    /// name and version of the batch manifest when the folder has one and gets an unknown digest with its reason.
+    /// Only the configuration of each sidecar is decoded, so no report is read.
     public static func referenceDatabases(
         source: Source,
-        sampleIds: [String]
+        sampleIds: [String],
+        knownSampleIds: [String]
     ) -> (entries: [ReferenceDatabase], inputs: [URL]) {
         switch source {
         case .sidecar(let sidecarURL):
@@ -71,9 +74,10 @@ extension Kraken2TaxonomyTableExport {
                         .appendingPathComponent(sidecarFileName)
                     inputs.append(sidecarURL)
                     config = classificationConfig(at: sidecarURL)
-                } else if manifest == nil, sampleIds.count == 1 {
+                } else if manifest == nil, knownSampleIds.count == 1 {
                     // A database built for one run sits beside that run's sidecar, and the viewer reads it there
-                    // (ViewerViewController+Taxonomy.swift:432-438).
+                    // (ViewerViewController+Taxonomy.swift:432-438). A database of several samples sits beside no
+                    // run, so a file of that name there belongs to none of the picked samples.
                     let sidecarURL = folder.appendingPathComponent(sidecarFileName)
                     inputs.append(sidecarURL)
                     config = classificationConfig(at: sidecarURL)

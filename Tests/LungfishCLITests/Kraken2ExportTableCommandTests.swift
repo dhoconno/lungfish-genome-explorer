@@ -547,6 +547,49 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         XCTAssertEqual(Self.inputNames(envelope), ["classification-result.json", "kraken2.sqlite"])
     }
 
+    /// A database that holds several samples and has no batch manifest has no run beside it, so a
+    /// `classification-result.json` in its folder belongs to no picked sample. Picking one sample of such a database
+    /// counts one picked sample but several in the database, and the record must not read that file for it. The
+    /// sample reads unknown with the reason, and the file is not an input.
+    func testAManySampleDatabaseWithNoManifestNeverReadsAStraySidecarForOnePickedSample() throws {
+        let sidecar = try writeSampleResult(
+            "sample-C", in: folder.appendingPathComponent("refs-stray", isDirectory: true),
+            databaseName: "Viral", databaseVersion: "2024-09-04", databaseDigest: "sha256:viral-digest"
+        )
+        let strayFolder = sidecar.deletingLastPathComponent()
+        let rows = ["sample-C", "sample-D"].flatMap { sample in
+            [
+                Kraken2ClassificationRow(
+                    sample: sample, taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                    readsDirect: 30, readsClade: 70, percentage: 87.5, parentTaxId: nil, depth: 0
+                ),
+                Kraken2ClassificationRow(
+                    sample: sample, taxonName: "Species C", taxId: 40, rank: "S", rankDisplayName: "Species",
+                    readsDirect: 40, readsClade: 40, percentage: 50, parentTaxId: 1, depth: 1
+                ),
+            ]
+        }
+        try Kraken2Database.create(
+            at: strayFolder.appendingPathComponent("kraken2.sqlite"),
+            rows: rows,
+            metadata: [
+                "total_reads_sample-C": "80", "unclassified_reads_sample-C": "10",
+                "total_reads_sample-D": "80", "unclassified_reads_sample-D": "10",
+            ]
+        )
+        let output = folder.appendingPathComponent("refs-stray.tsv")
+        _ = try command(leafArguments(strayFolder, output: output, extra: ["--sample", "sample-C"])).export()
+        let envelope = try Self.envelope(of: output)
+        XCTAssertEqual(try Self.referenceDatabases(of: envelope), [
+            [
+                "sample": "sample-C", "name": "unknown", "version": "unknown", "digest": "unknown",
+                "reason": "No readable classification-result.json was found for the sample, "
+                    + "so its database digest is not recorded.",
+            ],
+        ])
+        XCTAssertEqual(Self.inputNames(envelope), ["kraken2.sqlite"])
+    }
+
     /// A sample whose result holds no digest gets `unknown` with the reason, on both forms. So does a sample whose
     /// result is not in the folder, which keeps the name and version the batch manifest gives and has none without a
     /// manifest.
