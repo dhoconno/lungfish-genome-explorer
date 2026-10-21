@@ -43,6 +43,10 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     /// adapter changed and its place in the run. Nil for a step nobody observed, and a record holding an
     /// observation this build cannot read keeps the rest of the step.
     public var observation: ProvenanceStepObservation?
+    /// The record that holds this step whole, written only on a copy whose inputs the record of a BAM or BAM
+    /// index of `build-db esviritu` narrowed to the file's lineage. The copy keeps its `id`. Nil on every other
+    /// step, and a record holding a narrowing this build cannot read keeps the rest of the step.
+    public var narrowedFrom: ProvenanceStepNarrowing?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -72,6 +76,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case managedToolID
         case toolVersionEvidence
         case observation
+        case narrowedFrom
     }
 
     public init(
@@ -96,7 +101,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         parentStepID: UUID? = nil,
         managedToolID: ManagedToolID? = nil,
         toolVersionEvidence: ToolVersionEvidence? = nil,
-        observation: ProvenanceStepObservation? = nil
+        observation: ProvenanceStepObservation? = nil,
+        narrowedFrom: ProvenanceStepNarrowing? = nil
     ) {
         self.id = id
         self.toolName = ProvenanceName.required(toolName)
@@ -120,6 +126,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.managedToolID = managedToolID
         self.toolVersionEvidence = toolVersionEvidence
         self.observation = observation
+        self.narrowedFrom = narrowedFrom
     }
 
     public init(from decoder: Decoder) throws {
@@ -155,6 +162,8 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         toolVersionEvidence = try? container.decodeIfPresent(ToolVersionEvidence.self, forKey: .toolVersionEvidence)
         // So may an observation in a shape this build does not know. It reads as not observed.
         observation = try? container.decodeIfPresent(ProvenanceStepObservation.self, forKey: .observation)
+        // And so may a narrowing. The step reads as one no file's record narrowed.
+        narrowedFrom = try? container.decodeIfPresent(ProvenanceStepNarrowing.self, forKey: .narrowedFrom)
     }
 
     /// Writes each fact under its canonical key only (schema version 2). The decoder keeps reading
@@ -183,6 +192,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(managedToolID, forKey: .managedToolID)
         try container.encodeIfPresent(toolVersionEvidence, forKey: .toolVersionEvidence)
         try container.encodeIfPresent(observation, forKey: .observation)
+        try container.encodeIfPresent(narrowedFrom, forKey: .narrowedFrom)
     }
 
     /// A copy of this step with `change` applied, keeping every field `change` leaves alone, the fields

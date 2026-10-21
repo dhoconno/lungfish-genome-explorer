@@ -134,6 +134,7 @@ func updateUniqueReadsInDB(
     let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) }).sorted()
     events.text("Running markdup on \(uniqueBAMPaths.count) BAM file(s)...")
     var marked = 0
+    var unmarked: Set<String> = []
     for bamFullPath in uniqueBAMPaths {
         let bamURL = URL(fileURLWithPath: bamFullPath)
         guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
@@ -148,6 +149,7 @@ func updateUniqueReadsInDB(
             throw cancelled
         } catch {
             events.textWarning("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)")
+            unmarked.insert(bamFullPath)
         }
     }
     if marked > 0 { events.text("  Marked duplicates in \(marked) BAM file(s)") }
@@ -214,7 +216,9 @@ func updateUniqueReadsInDB(
     var totalCache: [String: Int] = [:]
     for (i, row) in rowsToProcess.enumerated() {
         let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
-        guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
+        // A row keeps the counts it was parsed with when a count fails, and so does each row of a BAM whose
+        // markdup failed, whose 0x404 count would call every mapped read unique (BIO's Q-A3 item 6).
+        guard FileManager.default.fileExists(atPath: bamFullPath), !unmarked.contains(bamFullPath) else { continue }
 
         let cacheKey = "\(bamFullPath)\t\(row.accession)"
         let bamURL = URL(fileURLWithPath: bamFullPath)
@@ -247,7 +251,7 @@ func updateUniqueReadsInDB(
                 )
                 totalCache[cacheKey] = total
             } catch {
-                total = 0
+                continue
             }
         }
 
@@ -265,7 +269,8 @@ func updateUniqueReadsInDB(
         }
     }
     sqlite3_exec(db, "COMMIT", nil, nil, nil)
-    events.text("  Updated read counts for \(updated)/\(rowsToProcess.count) organisms")
+    let uncounted = rowsToProcess.count - updated
+    events.text("  Updated read counts for \(updated)/\(rowsToProcess.count) organisms" + (uncounted > 0 ? ", \(uncounted) left uncounted" : ""))
 }
 
 extension BuildDbCommand {

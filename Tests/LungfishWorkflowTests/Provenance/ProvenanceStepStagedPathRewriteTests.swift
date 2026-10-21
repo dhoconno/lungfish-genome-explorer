@@ -51,7 +51,10 @@ final class ProvenanceStepStagedPathRewriteTests: XCTestCase {
             observation: ProvenanceStepObservation(
                 termination: .exited(code: 0), stop: nil, outputComplete: true, environment: nil,
                 stage: .init(index: 0, count: 1)
-            )
+            ),
+            // Only a `build-db esviritu` sidecar writes it, so no importer record holds one and the rewrite
+            // carries it as it is (2.13 lane 13.15 M2).
+            narrowedFrom: ProvenanceStepNarrowing(recordPath: "/Users/tester/results/.lungfish-provenance.json", inputCount: 2)
         )
     }
 

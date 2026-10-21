@@ -70,7 +70,7 @@ final class BuildDbCoreTests: XCTestCase {
             "Running markdup on 1 BAM file(s)...",
             Self.markdupWarning,
             "Counting reads per organism...",
-            "  Updated read counts for 2/2 organisms",
+            "  Updated read counts for 0/2 organisms, 2 left uncounted",
         ])
         XCTAssertEqual(text.standardError, [])
         XCTAssertNil(json.thrown)

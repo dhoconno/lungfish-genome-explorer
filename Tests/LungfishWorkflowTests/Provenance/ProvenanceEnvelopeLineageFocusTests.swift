@@ -72,7 +72,7 @@ final class ProvenanceEnvelopeLineageFocusTests: XCTestCase {
 
         let bam = record.focusedOnLineage(of: a)
         XCTAssertEqual(Self.names(bam), ["fixmate", "markdup", "run"])
-        XCTAssertEqual(bam.steps.map(\.outputs), [[], [a], [a]])
+        XCTAssertEqual(bam.steps.map(\.outputs), [[], [Self.file(a.path, "a0", role: .output)], [a]], "each step keeps its own descriptor")
         let indexRecord = record.focusedOnLineage(of: index)
         XCTAssertEqual(Self.names(indexRecord), ["fixmate", "index", "run"])
         XCTAssertEqual(indexRecord.steps.map(\.outputs), [[], [index], [index]])
@@ -124,7 +124,7 @@ final class ProvenanceEnvelopeLineageFocusTests: XCTestCase {
 
         let focused = record.focusedOnLineage(of: a)
         XCTAssertEqual(Self.names(focused), ["move", "probe A", "removal of the _temp folders", "run"])
-        XCTAssertEqual(focused.steps.first?.outputs, [a])
+        XCTAssertEqual(focused.steps.first?.outputs, [Self.file("/private\(root)/A/bams/A.bam", "a1", role: .output, origin: tempA.path)])
     }
 
     /// `/private/tmp` and `/private/etc` fold like `/private/var`, and a folder that only starts with one of those
@@ -141,6 +141,118 @@ final class ProvenanceEnvelopeLineageFocusTests: XCTestCase {
         }
     }
 
+    // MARK: - Q-A3 of Phase 2.13
+
+    /// BIO's item 2. A kept step keeps its own descriptor of the file, with the digest and `originPath` it stated,
+    /// in place of the run-level output, while the record's `output` and `outputs` stay the run's.
+    func testANarrowedStepKeepsItsOwnDescriptorWithDigestAndOrigin() {
+        let batch = Self.batch()
+        let focused = batch.record.focusedOnLineage(of: batch.a, wholeRecordPath: Self.wholeRecord)
+
+        let move = focused.steps.first { $0.toolName == "move" }
+        XCTAssertEqual(move?.outputs, [Self.file(batch.a.path, "A1", role: .output, origin: batch.tempA.path)])
+        XCTAssertNotEqual(move?.outputs, [batch.a], "the move stated the bytes it moved, not the run's")
+        XCTAssertEqual(focused.output, batch.a)
+        XCTAssertEqual(focused.outputs, [batch.a])
+    }
+
+    /// BIO's items 1 and 4 with ARCH's hop. A step that names another sample's BAM or its origin keeps only the
+    /// file's lineage among its inputs and names the whole record and its count of inputs. A step that names only
+    /// the file's pair keeps every input.
+    func testABatchWideStepKeepsOnlyTheFileLineageAndNamesTheWholeRecord() {
+        let batch = Self.batch()
+        for (file, temp) in [(batch.a, batch.tempA), (batch.aIndex, batch.tempAIndex)] {
+            let focused = batch.record.focusedOnLineage(of: file, wholeRecordPath: Self.wholeRecord)
+            for name in ["move", "removal of the _temp folders", "run"] {
+                let whole = batch.record.steps.first { $0.toolName == name }
+                let narrowed = focused.steps.first { $0.toolName == name }
+                XCTAssertEqual(narrowed?.id, whole?.id, name)
+                XCTAssertEqual(narrowed?.inputs, [temp], "\(name) in the record of \(file.path)")
+                XCTAssertEqual(
+                    narrowed?.narrowedFrom,
+                    ProvenanceStepNarrowing(recordPath: Self.wholeRecord, inputCount: whole?.inputs.count ?? -1), name
+                )
+            }
+            let replacement = focused.steps.first { $0.toolName == "replacement of A" }
+            XCTAssertEqual(replacement?.inputs.count, 2, "the replacement names only A's pair and keeps every input")
+            XCTAssertNil(replacement?.narrowedFrom)
+            XCTAssertEqual(focused.files.filter { $0.path.contains("/B") }, [], "the record of \(file.path) names nothing of B")
+        }
+    }
+
+    /// BIO's item 4. With no whole record no step narrows its inputs or names a record.
+    func testNothingNarrowsWithoutAWholeRecord() {
+        let batch = Self.batch()
+        let focused = batch.record.focusedOnLineage(of: batch.a, wholeRecordPath: nil)
+
+        XCTAssertEqual(focused.steps.compactMap(\.narrowedFrom), [])
+        XCTAssertEqual(
+            focused.steps.first { $0.toolName == "run" }?.inputs,
+            batch.record.steps.first { $0.toolName == "run" }?.inputs
+        )
+    }
+
+    /// BIO's item 5. A step that names no file stays when a kept step depends on it, directly or through other
+    /// such steps, or when no step depends on it. So a BAM's record keeps its own `fixmate` and `sort` and drops
+    /// the other BAM's, and its index's record, whose index step depends on the markdup, keeps neither.
+    func testAStepWithoutFilesStaysOnlyThroughADependencyOfAKeptStep() {
+        var steps: [ProvenanceStep] = []
+        var outputs: [ProvenanceFileDescriptor] = []
+        for sample in ["A", "B"] {
+            let bam = Self.file("/results/\(sample)/bams/\(sample).bam", "\(sample)2", role: .output)
+            let index = Self.file(bam.path + ".bai", "\(sample)i", role: .index)
+            var previous = Self.step("\(sample) name sort", inputs: [Self.file(bam.path, "\(sample)1")])
+            steps.append(previous)
+            for (name, named) in [("fixmate", [ProvenanceFileDescriptor]()), ("sort", []), ("markdup", [bam]), ("index", [index])] {
+                previous = Self.step(
+                    "\(sample) \(name)", inputs: name == "index" ? [bam.withRole(.input)] : [], outputs: named, dependsOn: [previous.id]
+                )
+                steps.append(previous)
+            }
+            outputs += [bam, index]
+        }
+        let record = Self.record(steps + [Self.step("lone"), Self.step("run", outputs: outputs)])
+
+        XCTAssertEqual(Self.names(record.focusedOnLineage(of: outputs[0], wholeRecordPath: Self.wholeRecord)), [
+            "A name sort", "A fixmate", "A sort", "A markdup", "lone", "run",
+        ])
+        XCTAssertEqual(Self.names(record.focusedOnLineage(of: outputs[1], wholeRecordPath: Self.wholeRecord)), ["A index", "lone", "run"])
+        XCTAssertEqual(Self.names(record.focusedOnOutput(outputs[0])).filter { $0.hasSuffix("fixmate") }, ["A fixmate", "B fixmate"])
+    }
+
+    private static let wholeRecord = "/results/.lungfish-provenance.json"
+
+    /// Two samples as `build-db esviritu` records them: the move of each BAM and index from `_temp/` to `bams/`,
+    /// A's markdup replacement and count, the removal of the `_temp` folders and the run, which reads every table
+    /// and `_temp` file and writes the database and every moved file.
+    private static func batch() -> (
+        record: ProvenanceEnvelope, a: ProvenanceFileDescriptor, aIndex: ProvenanceFileDescriptor,
+        tempA: ProvenanceFileDescriptor, tempAIndex: ProvenanceFileDescriptor
+    ) {
+        var temps: [ProvenanceFileDescriptor] = []
+        var moved: [ProvenanceFileDescriptor] = []
+        var current: [ProvenanceFileDescriptor] = []
+        for sample in ["A", "B"] {
+            for suffix in ["", ".bai"] {
+                let temp = file("/results/\(sample)/\(sample)_temp/\(sample).bam\(suffix)", "\(sample)\(suffix)1")
+                let role: FileRole = suffix.isEmpty ? .output : .index
+                temps.append(temp)
+                moved.append(file("/results/\(sample)/bams/\(sample).bam\(suffix)", "\(sample)\(suffix)1", role: role, origin: temp.path))
+                current.append(file("/results/\(sample)/bams/\(sample).bam\(suffix)", "\(sample)\(suffix)2", role: role))
+            }
+        }
+        let tables = ["A", "B"].map { file("/results/\($0)/\($0).detected_virus.info.tsv", "t\($0)") }
+        let database = file("/results/esviritu.sqlite", "db", role: .output)
+        let record = record([
+            step("move", inputs: temps, outputs: moved),
+            step("replacement of A", inputs: [file(moved[0].path, "A1"), file(moved[1].path, "A.bai1")]),
+            step("count A", inputs: [current[0].withRole(.input)]),
+            step("removal of the _temp folders", inputs: temps),
+            step("run", inputs: tables + temps, outputs: [database] + current),
+        ])
+        return (record, current[0], current[1], temps[0], temps[1])
+    }
+
     // MARK: - Records
 
     private static func file(
@@ -150,9 +262,11 @@ final class ProvenanceEnvelopeLineageFocusTests: XCTestCase {
     }
 
     private static func step(
-        _ name: String, inputs: [ProvenanceFileDescriptor] = [], outputs: [ProvenanceFileDescriptor] = []
+        _ name: String, inputs: [ProvenanceFileDescriptor] = [], outputs: [ProvenanceFileDescriptor] = [], dependsOn: [UUID] = []
     ) -> ProvenanceStep {
-        ProvenanceStep(toolName: name, toolVersion: "1", argv: [name], inputs: inputs, outputs: outputs, exitStatus: 0)
+        ProvenanceStep(
+            toolName: name, toolVersion: "1", argv: [name], inputs: inputs, outputs: outputs, exitStatus: 0, dependsOn: dependsOn
+        )
     }
 
     /// A completed run of `steps` whose outputs are the last step's, as the run's own step of `build-db` names them.

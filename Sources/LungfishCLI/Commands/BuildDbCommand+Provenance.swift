@@ -156,17 +156,25 @@ extension BuildDbCommand {
         let envelope = tool == .taxTriage ? completed.droppingReplacedRunLevelFiles() : completed.droppingRemovedRunLevelFiles()
 
         let writer = ProvenanceWriter()
-        if writesFolderRecord {
-            try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer, events: events)
-        }
+        let wroteFolderRecord = writesFolderRecord
+            ? try writeFolderProvenance(envelope, tool: tool, resultURL: resultURL, writer: writer, events: events)
+            : false
+        // The record that holds every step of this run whole under its id (BIO's Q-A3 item 4): the folder record
+        // this run wrote, or, when the run writes none, the root that the analysis run executor writes in the same
+        // folder from the steps it is handed, each under its own id (`EsVirituCommand+Index.swift`). A folder that
+        // holds another workflow's record has none, so no sidecar narrows a step's inputs.
+        let wholeRecordPath = wroteFolderRecord || !writesFolderRecord
+            ? resultURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+            : nil
         for output in envelope.outputs {
             let outputURL = URL(fileURLWithPath: output.path)
             // A BAM or index of `build-db esviritu` keeps the steps of its own lineage and none of the probes and
-            // counts of the other BAMs, which made each of its sidecars as large as the database's. The database's
+            // counts of the other BAMs, which made each of its sidecars as large as the database's, and a step that
+            // read every sample keeps only the file's own inputs and names the whole record. The database's
             // sidecar keeps today's projection, with every step without outputs and so every read count (ARCH
-            // ruling Q-S2, pre-2.12).
+            // ruling Q-S2, pre-2.12, and Q-A3 of 2.13).
             let focused = tool == .esViritu && isEsVirituBAMFile(outputURL)
-                ? envelope.focusedOnLineage(of: output)
+                ? envelope.focusedOnLineage(of: output, wholeRecordPath: wholeRecordPath)
                 : envelope.focusedOnOutput(output)
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
@@ -206,15 +214,18 @@ extension BuildDbCommand {
     ///   rebuilt from `classification-result.json`.
     /// - Otherwise (a bare or imported folder, a batch root, or a failed
     ///   rebuild): the build-db envelope is written, as before.
+    ///
+    /// - Returns: Whether the folder now holds `envelope`, this run's record, which is false for another
+    ///   workflow's record and for a rebuilt Kraken 2 run record.
     private static func writeFolderProvenance(
         _ envelope: ProvenanceEnvelope,
         tool: BuildDbProvenanceTool,
         resultURL: URL,
         writer: ProvenanceWriter,
         events: BuildDbEventSink
-    ) throws {
+    ) throws -> Bool {
         let existing = ProvenanceRecorder.loadEnvelope(from: resultURL)
-        guard mayReplaceProvenance(existing, tool: tool) else { return }
+        guard mayReplaceProvenance(existing, tool: tool) else { return false }
         if tool == .kraken2,
            FileManager.default.fileExists(
                atPath: resultURL.appendingPathComponent(ClassificationResult.sidecarFilename).path
@@ -222,12 +233,13 @@ extension BuildDbCommand {
             do {
                 let restored = try ClassificationProvenanceReconstructor.reconstructEnvelope(resultDirectory: resultURL)
                 try writer.write(restored, to: resultURL)
-                return
+                return false
             } catch {
                 events.warning("Warning: could not rebuild the Kraken 2 run provenance from classification-result.json: \(error)")
             }
         }
         try writer.write(envelope, to: resultURL)
+        return true
     }
 
     static func recordBuildDbFailureProvenanceIfNeeded(

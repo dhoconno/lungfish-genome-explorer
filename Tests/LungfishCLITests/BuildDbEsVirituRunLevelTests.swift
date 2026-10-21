@@ -160,38 +160,78 @@ final class BuildDbEsVirituRunLevelTests: XCTestCase {
             }
         }
         let run = build.labels(of: build.record)
-        let everySidecar: Set<String> = [
-            "move", "_temp removal", "run", "S1 fixmate", "S1 coordinate sort", "S2 fixmate", "S2 coordinate sort",
-        ]
+        let everySidecar: Set<String> = ["move", "_temp removal", "run"]
+        let folderRecord = try XCTUnwrap(records.first { $0.name == ProvenanceRecorder.provenanceFilename }?.envelope)
+        let wholeRecord = EsVirituRunLevel.resolved(build.result.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path)
         for (sample, other) in [("S1", "S2"), ("S2", "S1")] {
             let stem = "\(sample)/bams/\(sample).third.filt.sorted.bam"
             let bam = try XCTUnwrap(records.first { $0.name == "\(stem).lungfish-provenance.json" }?.envelope)
             let index = try XCTUnwrap(records.first { $0.name == "\(stem).bai.lungfish-provenance.json" }?.envelope)
-            let bamSteps = Set(["probe", "name sort", "markdup", "replacement", "count", "row count"].map { "\(sample) \($0)" })
+            let bamSteps = Set(
+                ["probe", "name sort", "fixmate", "coordinate sort", "markdup", "replacement", "count", "row count"].map { "\(sample) \($0)" }
+            )
             let indexSteps = Set(["index", "replacement"].map { "\(sample) \($0)" })
             XCTAssertEqual(build.labels(of: bam), run.filter { everySidecar.contains($0) || bamSteps.contains($0) }, "\(sample)'s BAM")
             XCTAssertEqual(build.labels(of: index), run.filter { everySidecar.contains($0) || indexSteps.contains($0) }, "\(sample)'s index")
-            let otherBAMs = EsVirituRunLevel.resolved(build.result.appendingPathComponent("\(other)/bams").path) + "/"
+            let otherFolder = EsVirituRunLevel.resolved(build.result.appendingPathComponent(other).path) + "/"
             for (name, envelope) in [("BAM", bam), ("index", index)] {
+                let named = envelope.files + envelope.steps.flatMap { $0.inputs + $0.outputs }
                 XCTAssertEqual(
-                    envelope.steps.first?.inputs, build.record.steps.first?.inputs,
-                    "the move in the sidecar of \(sample)'s \(name) keeps every file it moved"
+                    EsVirituRunLevel.named(named).filter { $0.path.hasPrefix(otherFolder) }, [],
+                    "the sidecar of \(sample)'s \(name) names a file of \(other)"
                 )
-                XCTAssertEqual(
-                    envelope.steps.last?.inputs, build.record.steps.last?.inputs,
-                    "the run's step in the sidecar of \(sample)'s \(name) keeps its inputs whole"
-                )
-                let removal = try XCTUnwrap(build.record.steps.first { $0.toolName == "Lungfish EsViritu BAM Relocation Source Removal" })
-                XCTAssertEqual(
-                    envelope.steps.first { $0.id == removal.id }?.inputs, removal.inputs,
-                    "the removal in the sidecar of \(sample)'s \(name) keeps every path it removed"
-                )
-                XCTAssertEqual(
-                    EsVirituRunLevel.named(envelope.files).filter { $0.path.hasPrefix(otherBAMs) }, [],
-                    "the sidecar of \(sample)'s \(name) names files in \(other)/bams/"
-                )
+                let narrowed = envelope.steps.filter { $0.narrowedFrom != nil }
+                XCTAssertEqual(narrowed.map { build.labels[$0.id] ?? $0.toolName }, ["move", "_temp removal", "run"].filter { run.contains($0) })
+                for step in narrowed {
+                    // ARCH 5. The whole step is the narrowed one with its inputs, outputs and narrowing put back.
+                    let whole = try XCTUnwrap(folderRecord.steps.first { $0.id == step.id }, "the folder record holds \(step.toolName)")
+                    XCTAssertTrue(step.inputs.allSatisfy(whole.inputs.contains), "\(step.toolName) keeps a subset of its inputs")
+                    XCTAssertLessThan(step.inputs.count, whole.inputs.count, step.toolName)
+                    XCTAssertEqual(step.narrowedFrom?.inputCount, whole.inputs.count, step.toolName)
+                    XCTAssertEqual(step.narrowedFrom.map { EsVirituRunLevel.resolved($0.recordPath) }, wholeRecord, step.toolName)
+                    XCTAssertEqual(
+                        folderRecord.steps.first { $0.id == step.id },
+                        step.with { $0.inputs = whole.inputs; $0.outputs = whole.outputs; $0.narrowedFrom = nil },
+                        "\(sample)'s \(name) narrowed only the inputs, the outputs and the one field of \(step.toolName)"
+                    )
+                }
             }
         }
+    }
+
+    /// Q-A3 items 1 and 5. A BAM's sidecar holds its own sample's steps and files, so it holds as many in a batch
+    /// of four samples as in a batch of two.
+    func testABAMSidecarDoesNotGrowWithTheSampleCount() async throws {
+        var sizes: [[Int]] = []
+        for samples in [["S1", "S2"], ["S1", "S2", "S3", "S4"]] {
+            let folder = root.appendingPathComponent("\(samples.count)", isDirectory: true)
+            let build = try await EsVirituRunLevel.markdupBuild(in: folder, samples: samples, rows: 2)
+            let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(
+                fromSidecar: ProvenanceRecorder.fileSidecarURL(for: build.result.appendingPathComponent("S1/bams/S1.third.filt.sorted.bam"))
+            ))
+            sizes.append([sidecar.steps.count, sidecar.files.count, sidecar.steps.map(\.inputs.count).reduce(0, +)])
+        }
+        XCTAssertEqual(sizes.first, sizes.last, "steps, files and step inputs of S1's BAM sidecar in a batch of 2 and of 4")
+    }
+
+    /// Q-A3 item 1. A rerun over BAMs already in `bams/` and not yet marked has no move, and its run step reads
+    /// every BAM. A BAM's sidecar names none of the other sample's BAM or index bytes.
+    func testARerunOverUnmarkedBAMsNamesNoOtherSampleBytes() async throws {
+        let first = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 1)
+        for sample in ["S1", "S2"] {
+            try Data("unmarked BAM of \(sample)\n".utf8).write(to: first.result.appendingPathComponent("\(sample)/bams/\(sample).third.filt.sorted.bam"))
+        }
+        let rerun = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 1, over: first.result)
+
+        let otherBytes = Set(rerun.record.steps.flatMap { $0.inputs + $0.outputs }
+            .filter { $0.path.contains("/S2/") && $0.path.contains(".bam") }.compactMap(\.checksumSHA256))
+        XCTAssertFalse(otherBytes.isEmpty)
+        let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(
+            fromSidecar: ProvenanceRecorder.fileSidecarURL(for: rerun.result.appendingPathComponent("S1/bams/S1.third.filt.sorted.bam"))
+        ))
+        let named = Set((sidecar.files + sidecar.steps.flatMap { $0.inputs + $0.outputs }).compactMap(\.checksumSHA256))
+        XCTAssertEqual(named.intersection(otherBytes), [], "S1's sidecar names bytes of S2")
+        XCTAssertEqual(sidecar.steps.filter { $0.narrowedFrom != nil }.map { rerun.labels[$0.id] }, ["run"])
     }
 
     /// The database's sidecar stays today's projection of the run (`focusedOnOutput`), with every step that has
@@ -326,9 +366,11 @@ enum EsVirituRunLevel {
     /// the fixmate and coordinate sort that name no file, the markdup, its index, the replacement of its old bytes
     /// and two counts. Two counts follow for each of `rows` detections of each sample, the `_temp` folders go and
     /// their removal is a step, and the record of a stand-in database is written.
-    static func markdupBuild(in root: URL, samples: [String], rows: Int) async throws -> MarkdupBuild {
+    /// Over `existing`, a result whose BAMs are already in `bams/`, it builds again with no move and no removal of
+    /// `_temp`, as a rerun does. Each markdup stage after the first depends on the stage before it (Q-A3 item 5).
+    static func markdupBuild(in root: URL, samples: [String], rows: Int, over existing: URL? = nil) async throws -> MarkdupBuild {
         let fileManager = FileManager.default
-        let result = try standInResult(in: root, samples: samples)
+        let result = try existing ?? standInResult(in: root, samples: samples)
         let inputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: result)
         let clock = ProvenanceRunClock()
         var steps: [ProvenanceStep] = []
@@ -338,16 +380,19 @@ enum EsVirituRunLevel {
             labels[step.id] = label
         }
         func samtools(
-            _ arguments: [String], inputs: [ProvenanceFileDescriptor] = [], outputs: [ProvenanceFileDescriptor] = []
+            _ arguments: [String], inputs: [ProvenanceFileDescriptor] = [], outputs: [ProvenanceFileDescriptor] = [],
+            afterTheLastStep: Bool = false
         ) -> ProvenanceStep {
             ProvenanceStep(
                 toolName: "samtools", toolVersion: "stand-in", argv: ["samtools"] + arguments, inputs: inputs, outputs: outputs,
-                exitStatus: 0, wallTimeSeconds: 0, stderr: nil, startedAt: clock.startedAt, completedAt: clock.now
+                exitStatus: 0, wallTimeSeconds: 0, stderr: nil, dependsOn: afterTheLastStep ? steps.suffix(1).map(\.id) : [],
+                startedAt: clock.startedAt, completedAt: clock.now
             )
         }
 
         var moved: [(source: URL, destination: URL)] = []
-        for folder in try fileManager.contentsOfDirectory(at: result, includingPropertiesForKeys: nil).sorted(by: { $0.path < $1.path }) {
+        for folder in try fileManager.contentsOfDirectory(at: result, includingPropertiesForKeys: nil).sorted(by: { $0.path < $1.path })
+        where existing == nil {
             let sample = folder.lastPathComponent
             let bams = folder.appendingPathComponent("bams", isDirectory: true)
             try fileManager.createDirectory(at: bams, withIntermediateDirectories: true)
@@ -357,10 +402,9 @@ enum EsVirituRunLevel {
                 moved.append(move)
             }
         }
-        let move = try XCTUnwrap(BuildDbCommand.EsVirituSubcommand.bamRelocationStep(
-            moved, resultURL: result, recordedInputs: inputs, clock: clock
-        ))
-        add(move, "move")
+        let move = BuildDbCommand.EsVirituSubcommand.bamRelocationStep(moved, resultURL: result, recordedInputs: inputs, clock: clock)
+        XCTAssertEqual(move == nil, existing != nil, "a first build moves the BAMs and a rerun does not")
+        if let move { add(move, "move") }
 
         let bamURLs = samples.sorted().map { (sample: $0, url: result.appendingPathComponent("\($0)/bams/\($0).third.filt.sorted.bam")) }
         for (sample, bam) in bamURLs {
@@ -370,14 +414,14 @@ enum EsVirituRunLevel {
             let scratch = bam.path + ".markdup.tmp"
             add(samtools(["view", "-H", bam.path], inputs: [read]), "\(sample) probe")
             add(samtools(["sort", "-n", "-o", scratch + ".name.bam", bam.path], inputs: [read]), "\(sample) name sort")
-            add(samtools(["fixmate", "-m", scratch + ".name.bam", scratch + ".fixmate.bam"]), "\(sample) fixmate")
-            add(samtools(["sort", "-o", scratch + ".sorted.bam", scratch + ".fixmate.bam"]), "\(sample) coordinate sort")
+            add(samtools(["fixmate", "-m", scratch + ".name.bam", scratch + ".fixmate.bam"], afterTheLastStep: true), "\(sample) fixmate")
+            add(samtools(["sort", "-o", scratch + ".sorted.bam", scratch + ".fixmate.bam"], afterTheLastStep: true), "\(sample) coordinate sort")
             try Data("BAM of \(sample) after markdup\n".utf8).write(to: bam)
             try Data("index of \(sample) after markdup\n".utf8).write(to: index)
             let marked = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .output)
-            add(samtools(["markdup", scratch + ".sorted.bam", scratch], outputs: [marked]), "\(sample) markdup")
+            add(samtools(["markdup", scratch + ".sorted.bam", scratch], outputs: [marked], afterTheLastStep: true), "\(sample) markdup")
             let newIndex = try ProvenanceFileDescriptor.file(url: index, role: .index)
-            add(samtools(["index", bam.path], inputs: [marked], outputs: [newIndex]), "\(sample) index")
+            add(samtools(["index", bam.path], inputs: [marked], outputs: [newIndex], afterTheLastStep: true), "\(sample) index")
             add(try XCTUnwrap(RecordedRemovalStep.step(
                 toolName: "Lungfish Markdup Replacement", api: "FileManager.replaceItemAt(_:withItemAt:)",
                 removing: [read, oldIndex], clock: clock
@@ -395,10 +439,12 @@ enum EsVirituRunLevel {
                 }
             }
         }
-        for sample in samples {
-            try fileManager.removeItem(at: result.appendingPathComponent("\(sample)/\(sample)_temp", isDirectory: true))
+        if let move {
+            for sample in samples {
+                try fileManager.removeItem(at: result.appendingPathComponent("\(sample)/\(sample)_temp", isDirectory: true))
+            }
+            add(try XCTUnwrap(BuildDbCommand.EsVirituSubcommand.relocationSourceRemovalStep([move], clock: clock)), "_temp removal")
         }
-        add(try XCTUnwrap(BuildDbCommand.EsVirituSubcommand.relocationSourceRemovalStep([move], clock: clock)), "_temp removal")
 
         let database = result.appendingPathComponent("esviritu.sqlite")
         try Data("stand-in database\n".utf8).write(to: database)

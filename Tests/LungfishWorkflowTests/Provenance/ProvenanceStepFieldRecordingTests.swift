@@ -119,6 +119,9 @@ final class ProvenanceStepFieldRecordingTests: XCTestCase {
             "resolvedOptions", "runtimeIdentity", "inputs", "outputs", "exitStatus", "wallTimeSeconds", "peakMemoryBytes",
             "stderr", "dependsOn", "startedAt", "completedAt", "parentStepID", "managedToolID", "toolVersionEvidence",
             "observation",
+            // A fact of one file's sidecar view of a `build-db esviritu` step, never of the run, so the run
+            // conversions do not carry it (2.13 lane 13.15 M2, ARCH Q-A3-SHAPE item 7).
+            "narrowedFrom",
         ], "ProvenanceStep gained or lost a field. Carry it through StepExecution, recordStep, ProvenanceStep.init(stepExecution:) and legacyWorkflowRun, then list it here.")
     }
 }

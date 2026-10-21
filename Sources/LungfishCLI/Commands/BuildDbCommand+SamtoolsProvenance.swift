@@ -231,8 +231,12 @@ final class BuildDbSamtoolsProvenanceTracker {
         guard invocation.result.isSuccess else {
             throw MarkdupError.pipelineFailed(stage: "count", stderr: invocation.result.stderr)
         }
+        // Output that is not a count is a failed count, never 0 (BIO's Q-A3 item 6).
         let output = invocation.result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Int(output) ?? 0
+        guard let count = Int(output) else {
+            throw MarkdupError.pipelineFailed(stage: "count", stderr: "samtools view -c printed no count: \(output)")
+        }
+        return count
     }
 
     private func isAlreadyMarkduped(bamURL: URL) async -> Bool {
@@ -293,6 +297,10 @@ final class BuildDbSamtoolsProvenanceTracker {
         pipelineResult: AlignmentMarkdupPipelineResult,
         invocations: [BuildDbSamtoolsInvocation]
     ) throws {
+        // Each stage after the first depends on the stage before it, so the record of the BAM keeps the stages
+        // that name no file, `fixmate` and the coordinate `sort`, through its markdup, and the record of every
+        // other BAM drops them (BIO's Q-A3 item 5).
+        var previous: ProvenanceStep?
         for (index, pair) in zip(pipelineResult.commandHistory, invocations).enumerated() {
             let inputs: [ProvenanceFileDescriptor]
             let outputs: [ProvenanceFileDescriptor]
@@ -310,7 +318,7 @@ final class BuildDbSamtoolsProvenanceTracker {
                 inputs = []
                 outputs = []
             }
-            try appendStep(pair.1, inputs: inputs, outputs: outputs)
+            previous = try appendStep(pair.1, inputs: inputs, outputs: outputs, dependsOn: previous.map { [$0.id] } ?? [])
         }
     }
 
@@ -329,27 +337,31 @@ final class BuildDbSamtoolsProvenanceTracker {
         )
     }
 
+    /// Records the step of `invocation` and returns it.
+    @discardableResult
     private func appendStep(
         _ invocation: BuildDbSamtoolsInvocation,
         inputs: [ProvenanceFileDescriptor],
-        outputs: [ProvenanceFileDescriptor]
-    ) throws {
-        collector.record(
-            ProvenanceStep(
-                toolName: "samtools",
-                toolVersion: samtoolsVersion,
-                argv: invocation.result.arguments,
-                inputs: inputs,
-                outputs: outputs,
-                exitStatus: Int(invocation.result.exitCode),
-                wallTimeSeconds: invocation.wallTimeSeconds,
-                stderr: invocation.result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? nil
-                    : invocation.result.stderr,
-                startedAt: invocation.startedAt,
-                completedAt: invocation.completedAt
-            )
+        outputs: [ProvenanceFileDescriptor],
+        dependsOn: [UUID] = []
+    ) throws -> ProvenanceStep {
+        let step = ProvenanceStep(
+            toolName: "samtools",
+            toolVersion: samtoolsVersion,
+            argv: invocation.result.arguments,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: Int(invocation.result.exitCode),
+            wallTimeSeconds: invocation.wallTimeSeconds,
+            stderr: invocation.result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : invocation.result.stderr,
+            dependsOn: dependsOn,
+            startedAt: invocation.startedAt,
+            completedAt: invocation.completedAt
         )
+        collector.record(step)
+        return step
     }
 
     private func descriptor(

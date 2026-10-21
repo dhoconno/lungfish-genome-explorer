@@ -90,6 +90,9 @@ private struct ProvenancePlaceRelocation {
             copy.outputs = step.outputs.map(relocating)
             copy.stderr = step.stderr.map(relocating)
             copy.observation = step.observation.map(relocating)
+            copy.narrowedFrom = step.narrowedFrom.map {
+                ProvenanceStepNarrowing(recordPath: relocating($0.recordPath), inputCount: $0.inputCount)
+            }
         }
     }
 
