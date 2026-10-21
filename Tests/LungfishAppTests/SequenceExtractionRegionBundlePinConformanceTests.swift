@@ -250,7 +250,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     private static let regionRecord = """
     workflow lungfish gui sequence extraction
     tool lungfish gui sequence extraction
-    argv lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Region 1: HA/1 | --samples | S.1 a,sample 2.b | --output | <root>/extractions/Region_1-_HA-1.lungfishref
+    argv Lungfish Genome Explorer | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Region 1: HA/1 | --samples | S.1 a,sample 2.b | --output | <root>/extractions/Region_1-_HA-1.lungfishref
     steps lungfish gui sequence extraction, bgzip, samtools faidx
     explicit bundle_name=string("Region 1: HA/1")
     explicit concatenate_exons=boolean(false)
@@ -276,7 +276,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     resolved source_bundle_name=string("Source Ref")
     resolved source_name=string("chr1:11-40")
     resolved start=integer(10)
-    step lungfish gui sequence extraction | lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Region 1: HA/1 | --samples | S.1 a,sample 2.b | --output | <root>/extractions/Region_1-_HA-1.lungfishref
+    step lungfish gui sequence extraction | Lungfish Genome Explorer | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Region 1: HA/1 | --samples | S.1 a,sample 2.b | --output | <root>/extractions/Region_1-_HA-1.lungfishref
       input input <root>/source.lungfishref/annotations/genes.db digest=true
       input input <root>/source.lungfishref/genome/sequence.fa.gz digest=true
       input index <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
@@ -335,7 +335,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     private static let plainRecord = """
     workflow lungfish gui sequence extraction
     tool lungfish gui sequence extraction
-    argv lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
+    argv Lungfish Genome Explorer | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
     steps lungfish gui sequence extraction, bgzip, samtools faidx
     explicit bundle_name=string("Plain region")
     explicit concatenate_exons=boolean(false)
@@ -361,7 +361,7 @@ final class SequenceExtractionRegionBundlePinConformanceTests: XCTestCase {
     resolved source_bundle_name=string("Source Ref")
     resolved source_name=string("chr1:11-40")
     resolved start=integer(10)
-    step lungfish gui sequence extraction | lungfish-gui | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
+    step lungfish gui sequence extraction | Lungfish Genome Explorer | sequence | extract-bundle | --source-bundle | <root>/source.lungfishref | --source-name | Source Ref | --chromosome | chr1 | --start | 10 | --end | 40 | --name | Plain region | --output | <root>/extractions/Plain_region.lungfishref
       input input <root>/source.lungfishref/genome/sequence.fa.gz digest=true
       input index <root>/source.lungfishref/genome/sequence.fa.gz.fai digest=true
       input input <root>/source.lungfishref/manifest.json digest=true

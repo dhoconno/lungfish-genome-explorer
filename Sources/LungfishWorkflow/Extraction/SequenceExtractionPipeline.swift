@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 
 /// Builds a `.lungfishref` bundle from the viewer's extracted sequence and records the run as
-/// `lungfish-gui sequence extract-bundle`. It names the bundle and the command, and
+/// `Lungfish Genome Explorer sequence extract-bundle`. It names the bundle and the command, and
 /// ``SequenceExtractionBundleBuilder`` builds it, with the source bundle's annotation and variant
 /// tracks and the sample filter when the run keeps them, and writes its one record (2.11 A48 M1).
 package final class SequenceExtractionPipeline: Sendable {
@@ -107,7 +107,7 @@ package final class SequenceExtractionPipeline: Sendable {
         isConcatenated: Bool
     ) -> [String] {
         var argv = [
-            "lungfish-gui",
+            LungfishAppIdentity.recordedToolName,
             "sequence",
             "extract-bundle",
         ]
