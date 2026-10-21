@@ -2951,9 +2951,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             // Group accessions by sample id since the flat table may have
             // rows from multiple samples selected simultaneously.
             var bySample: [String: [String]] = [:]
+            var rowsLeftOut: [(organism: String, sample: String?)] = []
             for metric in selectedMetrics {
                 let sampleId = metric.sample ?? sampleIds.first ?? "unknown"
                 let metricAccessions = self.accessions(for: metric) ?? []
+                if metricAccessions.isEmpty { rowsLeftOut.append((metric.organism, metric.sample)) }
                 bySample[sampleId, default: []].append(contentsOf: metricAccessions)
             }
             let selectors: [ClassifierRowSelector] = bySample.compactMap { (sampleId, accessions) in
@@ -2964,20 +2966,31 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     taxIds: []
                 )
             }
-            return ExtractReadsPlan(selectors: selectors, selectedRowCount: selectedMetrics.count)
+            return ExtractReadsPlan(
+                selectors: selectors, selectedRowCount: selectedMetrics.count, rowsLeftOut: rowsLeftOut
+            )
         }
 
         // Single-sample organism table fallback.
         let selectedRows = organismTableView.selectedTableRows()
-        let accessions = selectedRows.flatMap { self.accessions(for: $0) ?? [] }
-        guard !accessions.isEmpty else { return ExtractReadsPlan(selectedRowCount: selectedRows.count) }
+        var rowsLeftOut: [(organism: String, sample: String?)] = []
+        var accessions: [String] = []
+        for row in selectedRows {
+            let rowAccessions = self.accessions(for: row) ?? []
+            if rowAccessions.isEmpty { rowsLeftOut.append((row.organism, nil)) }
+            accessions.append(contentsOf: rowAccessions)
+        }
+        guard !accessions.isEmpty else {
+            return ExtractReadsPlan(selectedRowCount: selectedRows.count, rowsLeftOut: rowsLeftOut)
+        }
         return ExtractReadsPlan(
             selectors: [ClassifierRowSelector(
                 sampleId: selectedBatchSampleId ?? sampleIds.first,
                 accessions: accessions,
                 taxIds: []
             )],
-            selectedRowCount: selectedRows.count
+            selectedRowCount: selectedRows.count,
+            rowsLeftOut: rowsLeftOut
         )
     }
 
@@ -2987,6 +3000,46 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         var selectors: [ClassifierRowSelector] = []
         /// Selected table rows, with or without an accession of their own.
         var selectedRowCount = 0
+        /// Selected rows whose own sample holds no reference accession, which Extract Reads leaves out.
+        var rowsLeftOut: [(organism: String, sample: String?)] = []
+    }
+
+    /// What the Extract Reads dialog shows about the current selection besides its selectors.
+    public struct ExtractReadsSelectionSummary: Sendable, Equatable {
+        /// Every selected row, the rows left out included, so the dialog's label counts rows and not selectors.
+        public let rowCount: Int
+        /// A line that names the rows left out, or nil when no selected row is left out.
+        public let leftOutNotice: String?
+
+        public init(rowCount: Int, leftOutNotice: String?) {
+            self.rowCount = rowCount
+            self.leftOutNotice = leftOutNotice
+        }
+    }
+
+    /// The row count and the left-out line of the current selection. The app reads it when it opens the dialog, in the
+    /// same main-actor turn as the selectors, so both come from one selection.
+    public var extractReadsSelectionSummary: ExtractReadsSelectionSummary {
+        let plan = buildTaxTriageSelectors()
+        return ExtractReadsSelectionSummary(
+            rowCount: plan.selectedRowCount, leftOutNotice: Self.leftOutNotice(for: plan.rowsLeftOut)
+        )
+    }
+
+    /// The line under the dialog's selection label, or nil when no row is left out. It names up to three rows and
+    /// counts the rest.
+    nonisolated static func leftOutNotice(for rows: [(organism: String, sample: String?)]) -> String? {
+        guard !rows.isEmpty else { return nil }
+        let names = rows.map { row in row.sample.map { "\(row.organism) in \($0)" } ?? row.organism }
+        let listed: String
+        switch names.count {
+        case 1: listed = names[0]
+        case 2, 3: listed = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        default: listed = names.prefix(3).joined(separator: ", ") + " and \(names.count - 3) more"
+        }
+        return rows.count == 1
+            ? "1 selected row is left out because \(listed) has no reference accession of its own."
+            : "\(rows.count) selected rows are left out because \(listed) have no reference accession of their own."
     }
 
     /// Tells the user why Extract Reads sent nothing. Tests replace it to read the words without driving real

@@ -85,7 +85,12 @@ extension ViewerViewController {
         }
         controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
             guard let controller else { return }
-            controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
+            // The row count and the rows left out come from the selection the selectors were built from.
+            let summary = controller.extractReadsSelectionSummary
+            controller.presentClassifierExtractionDialog(
+                tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName,
+                selectedRowCount: summary.rowCount, leftOutNotice: summary.leftOutNotice
+            )
         }
         ttView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(ttView)

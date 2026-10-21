@@ -19,6 +19,70 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertEqual(m.format, .fastq)
     }
 
+    // MARK: - View model, table rows and the left-out line (lane 13.68)
+
+    private func taxTriageContext(
+        selectors: Int, rows: Int? = nil, notice: String? = nil
+    ) -> TaxonomyReadExtractionAction.Context {
+        var context = TaxonomyReadExtractionAction.Context(
+            tool: .taxtriage,
+            resultPath: URL(fileURLWithPath: "/tmp/taxtriage.sqlite"),
+            selections: (1...selectors).map { ClassifierRowSelector(sampleId: "S\($0)", accessions: ["NC_\($0)"], taxIds: []) },
+            suggestedName: "taxtriage_S1_NC_1"
+        )
+        context.selectedRowCount = rows
+        context.leftOutNotice = notice
+        return context
+    }
+
+    func testModelFromContext_withoutRowCount_countsTheSelectorsAndShowsNoNotice() {
+        let model = ClassifierExtractionDialogViewModel(context: taxTriageContext(selectors: 2))
+        XCTAssertEqual(model.selectionCount, 2)
+        XCTAssertEqual(model.selectedLabel, "Selected: 2 rows")
+        XCTAssertNil(model.leftOutNotice)
+    }
+
+    func testModelFromContext_withRowCountAndNotice_countsRowsAndKeepsTheNotice() {
+        let notice = "1 selected row is left out because Alpha virus in sample-2 has no reference accession of its own."
+        let model = ClassifierExtractionDialogViewModel(context: taxTriageContext(selectors: 1, rows: 3, notice: notice))
+        XCTAssertEqual(model.selectionCount, 3)
+        XCTAssertEqual(model.selectedLabel, "Selected: 3 rows")
+        XCTAssertEqual(model.leftOutNotice, notice)
+        let one = ClassifierExtractionDialogViewModel(tool: .taxtriage, selectionCount: 1, suggestedName: "x")
+        XCTAssertEqual(one.selectedLabel, "Selected: 1 row")
+    }
+
+    func testPresentClassifierExtractionDialog_handsRowCountAndNoticeToTheContext() {
+        let action = TaxonomyReadExtractionAction.shared
+        let priorCaptureOnly = action.testingCaptureOnly
+        let priorCapture = action.testingCapture
+        action.testingCaptureOnly = true
+        action.testingCapture = TaxonomyReadExtractionAction.TestingCapture()
+        defer {
+            action.testingCaptureOnly = priorCaptureOnly
+            action.testingCapture = priorCapture
+        }
+        let host = NSViewController()
+        host.view = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let window = NSWindow(contentViewController: host)
+        defer { withExtendedLifetime(window) {} }
+        let selectors = [ClassifierRowSelector(sampleId: "S1", accessions: ["NC_1"], taxIds: [])]
+        let path = URL(fileURLWithPath: "/tmp/taxtriage.sqlite")
+
+        host.presentClassifierExtractionDialog(tool: .taxtriage, resultPath: path, selectors: selectors, suggestedName: "x")
+        XCTAssertEqual(action.testingCapture.presentCount, 1)
+        XCTAssertNil(action.testingCapture.lastContext?.selectedRowCount)
+        XCTAssertNil(action.testingCapture.lastContext?.leftOutNotice)
+
+        host.presentClassifierExtractionDialog(
+            tool: .taxtriage, resultPath: path, selectors: selectors, suggestedName: "x",
+            selectedRowCount: 3, leftOutNotice: "notice"
+        )
+        XCTAssertEqual(action.testingCapture.presentCount, 2)
+        XCTAssertEqual(action.testingCapture.lastContext?.selectedRowCount, 3)
+        XCTAssertEqual(action.testingCapture.lastContext?.leftOutNotice, "notice")
+    }
+
     func testDialogSourceUsesSharedHelpInventory() throws {
         let source = try String(
             contentsOf: repositoryRoot()

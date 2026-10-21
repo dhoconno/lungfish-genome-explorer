@@ -35,12 +35,19 @@ extension NSViewController {
     ///   - suggestedName: Default bundle name offered to the user in the save
     ///     panel. Callers should produce a short, sanitized, tool-prefixed
     ///     name (e.g. "esviritu_NC_001803").
+    ///   - selectedRowCount: Table rows the selection stands for, when the caller counts rows and
+    ///     there are fewer selectors than rows (TaxTriage keeps one selector for each sample). The
+    ///     dialog's label shows it. Nil counts the selectors.
+    ///   - leftOutNotice: A line the dialog shows under its selection label, such as the rows the
+    ///     extraction leaves out. Nil shows no line.
     @MainActor
     func presentClassifierExtractionDialog(
         tool: ClassifierTool,
         resultPath: URL,
         selectors: [ClassifierRowSelector],
-        suggestedName: String
+        suggestedName: String,
+        selectedRowCount: Int? = nil,
+        leftOutNotice: String? = nil
     ) {
         guard let window = view.window, !selectors.isEmpty else { return }
         let mainController = window.windowController as? MainWindowController
@@ -49,13 +56,15 @@ extension NSViewController {
                 ?? mainController?.mainSplitViewController?.sidebarController.currentProjectURL,
             windowStateScope: mainController?.projectSession.windowStateScope
         )
-        let ctx = TaxonomyReadExtractionAction.Context(
+        var ctx = TaxonomyReadExtractionAction.Context(
             tool: tool,
             resultPath: resultPath,
             selections: selectors,
             suggestedName: suggestedName,
             routeContext: routeContext
         )
+        ctx.selectedRowCount = selectedRowCount
+        ctx.leftOutNotice = leftOutNotice
         TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 }

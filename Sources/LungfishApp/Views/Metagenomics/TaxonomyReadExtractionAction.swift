@@ -41,6 +41,10 @@ public final class TaxonomyReadExtractionAction {
         public let selections: [ClassifierRowSelector]
         public let suggestedName: String
         public let routeContext: OperationRouteContext?
+        /// Table rows the selection stands for. The dialog's label shows it, and `selections.count` stands in when nil.
+        public var selectedRowCount: Int?
+        /// A line under the dialog's selection label, such as the rows left out. Nil shows no line.
+        public var leftOutNotice: String?
 
         public init(
             tool: ClassifierTool,
@@ -99,11 +103,7 @@ public final class TaxonomyReadExtractionAction {
 
         logger.info("present for tool=\(context.tool.rawValue, privacy: .public), \(context.selections.count) selections")
 
-        let model = ClassifierExtractionDialogViewModel(
-            tool: context.tool,
-            selectionCount: context.selections.count,
-            suggestedName: context.suggestedName
-        )
+        let model = ClassifierExtractionDialogViewModel(context: context)
 
         // Create the dialog view — callbacks captured so we can dismiss the sheet.
         let sheetWindow = NSPanel(

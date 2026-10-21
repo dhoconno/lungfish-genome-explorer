@@ -147,10 +147,28 @@ final class ClassifierExtractionDialogViewModel {
 
     // MARK: - Init
 
+    /// A line under the selection label, such as the rows the extraction leaves out. Nil shows no line.
+    var leftOutNotice: String?
+
+    /// The selection label. It counts table rows, or the selectors for a tool that sends no row count.
+    var selectedLabel: String {
+        "Selected: \(selectionCount) row\(selectionCount == 1 ? "" : "s")"
+    }
+
     init(tool: ClassifierTool, selectionCount: Int, suggestedName: String) {
         self.tool = tool
         self.selectionCount = selectionCount
         self.name = suggestedName
+    }
+
+    /// Builds the model from a request, counting the table rows the request carries or else its selectors.
+    convenience init(context: TaxonomyReadExtractionAction.Context) {
+        self.init(
+            tool: context.tool,
+            selectionCount: context.selectedRowCount ?? context.selections.count,
+            suggestedName: context.suggestedName
+        )
+        leftOutNotice = context.leftOutNotice
     }
 }
 
@@ -183,10 +201,15 @@ struct ClassifierExtractionDialog: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 // Selection summary
-                let selectedLabel = "Selected: \(model.selectionCount) row\(model.selectionCount == 1 ? "" : "s")"
-                Text(selectedLabel)
+                Text(model.selectedLabel)
                     .font(.system(size: 12, weight: .medium))
                     .lungfishHelp(LungfishHelpContent.classifierExtractionSummary)
+                if let notice = model.leftOutNotice {
+                    Text(notice)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if model.showsReadEstimate {
                     HStack(spacing: 4) {

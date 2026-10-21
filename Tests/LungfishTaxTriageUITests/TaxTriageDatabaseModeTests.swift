@@ -598,6 +598,34 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         XCTAssertEqual(captured, [ClassifierRowSelector(sampleId: "sample-1", accessions: ["NC_1001"], taxIds: [])])
     }
 
+    /// A mixed selection. Sample-2's Alpha virus row has no accession of its own, so Extract Reads leaves it out. The
+    /// summary counts all three selected rows and names that one, and the other two go out under sample-1.
+    func testExtractReadsSummaryCountsRowsAndNamesTheRowLeftOut() throws {
+        let fixture = try Fixture(writeSidecar: false, sample2AlphaAccession: nil)
+        defer { fixture.cleanUp() }
+        let vc = makeRecordedController(fixture, recorder: RecordingEvidenceViewer())
+        var captured: [ClassifierRowSelector]?
+        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+        let rows = vc.testBatchFlatTableView.displayedRows
+        let picks = [("sample-1", "Alpha virus"), ("sample-1", "Beta virus"), ("sample-2", "Alpha virus")]
+        let indexes = try picks.map { pick in try XCTUnwrap(rows.firstIndex { $0.sample == pick.0 && $0.organism == pick.1 }) }
+        vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet(indexes), byExtendingSelection: false)
+        let deadline = Date().addingTimeInterval(30)
+        while !vc.testActionBar.extractButton.isEnabled, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        let summary = vc.extractReadsSelectionSummary
+        XCTAssertEqual(summary.rowCount, 3)
+        XCTAssertEqual(
+            summary.leftOutNotice,
+            "1 selected row is left out because Alpha virus in sample-2 has no reference accession of its own."
+        )
+        vc.testActionBar.extractButton.performClick(nil)
+        XCTAssertEqual(captured?.count, 1)
+        XCTAssertEqual(captured?.first?.sampleId, "sample-1")
+        XCTAssertEqual(captured?.first?.accessions.sorted(), ["NC_1001", "NC_1002"])
+    }
+
     // MARK: - Fixture
 
     private struct Fixture {
