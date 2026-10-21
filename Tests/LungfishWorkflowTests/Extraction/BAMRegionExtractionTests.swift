@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -89,6 +90,8 @@ final class BAMRegionExtractionTests: XCTestCase {
                 destination: .bundle(finalBundle),
                 provenance: .init(
                     workflowName: "lungfish alignment read extraction",
+                    toolName: CLICommandIdentity.executableName,
+                    toolKind: CLICommandIdentity.recordedToolKind,
                     argv: ["lungfish-cli", "alignment", "extract"],
                     explicitOptions: ["scope": .string("selected-region")],
                     inputURLs: []
@@ -135,7 +138,7 @@ final class BAMRegionExtractionTests: XCTestCase {
         _ = try AlignmentReadExtractionPublisher().publish(.init(
             transaction: transaction,
             destination: .bundle(finalBundle),
-            provenance: .init(workflowName: "lungfish alignment read extraction", argv: ["lungfish-cli", "extract", "reads"], inputURLs: [])
+            provenance: .init(workflowName: "lungfish alignment read extraction", toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind, argv: ["lungfish-cli", "extract", "reads"], inputURLs: [])
         ))
 
         let finalPayload = finalBundle.appendingPathComponent("selected.fastq")
@@ -508,6 +511,8 @@ final class BAMRegionExtractionTests: XCTestCase {
 
         let provenance = AlignmentReadExtractionProvenance(
             workflowName: "fixture",
+            toolName: LungfishAppIdentity.recordedToolName,
+            toolKind: LungfishAppIdentity.recordedToolKind,
             argv: ["fixture"],
             inputURLs: []
         )
@@ -595,7 +600,7 @@ final class BAMRegionExtractionTests: XCTestCase {
                     .init(
                         transaction: transaction,
                         destination: destination,
-                        provenance: .init(workflowName: "fixture", argv: ["fixture"], inputURLs: [])
+                        provenance: .init(workflowName: "fixture", toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, argv: ["fixture"], inputURLs: [])
                     )
                 )
                 XCTFail("Expected incomplete rollback failure", file: file, line: line)
@@ -693,7 +698,7 @@ final class BAMRegionExtractionTests: XCTestCase {
                     .init(
                         transaction: transaction,
                         destination: destination,
-                        provenance: .init(workflowName: "fixture", argv: ["fixture"], inputURLs: [])
+                        provenance: .init(workflowName: "fixture", toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, argv: ["fixture"], inputURLs: [])
                     )
                 )
                 XCTFail("Expected publication validation failure", file: file, line: line)

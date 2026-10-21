@@ -18,6 +18,7 @@
 
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishApp
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -204,7 +205,7 @@ final class AlignmentReadExtractionPublisherSigningReplayTests: XCTestCase {
         return try publisher.publish(.init(
             transaction: transaction,
             destination: .file(destination),
-            provenance: AlignmentReadExtractionProvenance(workflowName: "fixture", argv: ["fixture"], inputURLs: [])
+            provenance: AlignmentReadExtractionProvenance(workflowName: "fixture", toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, argv: ["fixture"], inputURLs: [])
         ))
     }
 
