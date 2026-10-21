@@ -170,6 +170,43 @@ final class SIGTERMCancellationTests: XCTestCase {
         XCTAssertEqual(ended.polls, 0, "the count was whole, so end() had nothing to wait for")
     }
 
+    /// An instance that starts after `end()` starts clean, whatever the one before it met (Phase 2.13 lane 13.18 pin).
+    /// The first instance ends on a post the kernel noted and no thread took. After that end the calling thread's
+    /// signal mask is as it was, no SIGTERM waits on that thread, and the earlier action is back. The next instance
+    /// reads no post, its handler takes a fresh one and cancels, and its own end writes only the earlier action.
+    func testAnInstanceThatStartsAfterEndStartsClean() async {
+        let original = signal(SIGTERM, recordSIGTERMForTest) // stands in for the CLI-wide handler
+        defer { signal(SIGTERM, original) }
+        let maskBefore = signalMaskOfThisThread()
+        let first = SIGTERMCancellation { }
+        signal(SIGTERM, SIG_IGN) // the handler is out of reach: the kernel drops the post and only its note remains
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+        first.end()
+
+        XCTAssertEqual(signalMaskOfThisThread(), maskBefore, "end() left the calling thread's signal mask as it found it")
+        XCTAssertFalse(sigtermIsPendingOnThisThread(), "end() left no SIGTERM waiting on the calling thread")
+        XCTAssertEqual(
+            address(of: signal(SIGTERM, recordSIGTERMForTest)), address(of: recordSIGTERMForTest),
+            "end() put the earlier action back"
+        )
+
+        let task = Task<Bool, Never> {
+            try? await Task.sleep(for: .seconds(30))
+            return Task.isCancelled
+        }
+        defer { task.cancel() }
+        let next = SIGTERMCancellation(cancelling: task)
+        XCTAssertFalse(SIGTERMCancellation.signalCaught, "the next instance starts with no post")
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+        let cancelled = await waitUntil(timeout: .seconds(30)) { task.isCancelled }
+        XCTAssertTrue(cancelled, "the next instance's handler took a fresh post")
+
+        let ended = ending(next)
+
+        XCTAssertEqual(ended.actions, [address(of: recordSIGTERMForTest)], "end() wrote an action other than the earlier one")
+        XCTAssertEqual(ended.polls, 0, "the next instance's count was whole")
+    }
+
     /// The geometry that crashed FX47's run: a post the kernel noted that no thread has run the handler for yet,
     /// while the instance ends. A real thread takes such a post within microseconds, which no test can hold still, so
     /// the test holds it still. The handler is out of reach when the post is sent, so the kernel notes it and drops
@@ -325,8 +362,23 @@ private func countSIGTERMForTest(_ signalNumber: Int32) {
 }
 
 /// The address a SIGTERM action is reported by (0 is SIG_DFL and 1 is SIG_IGN).
-private func address(of action: sig_t) -> UInt {
+private func address(of action: sig_t?) -> UInt {
     unsafeBitCast(action, to: UInt.self)
+}
+
+/// The signals the calling thread blocks.
+private func signalMaskOfThisThread() -> sigset_t {
+    var mask = sigset_t()
+    pthread_sigmask(SIG_SETMASK, nil, &mask)
+    return mask
+}
+
+/// Whether a SIGTERM waits on the calling thread, which can only be one blocked there.
+private func sigtermIsPendingOnThisThread() -> Bool {
+    var pending = sigset_t()
+    sigemptyset(&pending)
+    sigpending(&pending)
+    return sigismember(&pending, SIGTERM) == 1
 }
 
 /// What `SIGTERMCancellation.end()` did, as the seam reports it.
