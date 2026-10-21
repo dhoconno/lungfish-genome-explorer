@@ -3084,6 +3084,7 @@ None.
 - `ProvenanceSigningProvider` protocol, `Sources/LungfishWorkflow/Provenance/ProvenanceSigning.swift:9`
 - `ProvenanceStep` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceStep.swift:13`
 - `ProvenanceStepDeclaration` class, `Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+Observation.swift:32`
+- `ProvenanceStepNarrowing` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceStepNarrowing.swift:11`
 - `ProvenanceStepObservation` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceStepObservation.swift:17`
 - `ProvenanceToolIdentity` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceToolIdentity.swift:10`
 - `ProvenanceToolIdentityText` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceToolIdentityText.swift:127`
