@@ -64,7 +64,8 @@ package struct VariantTableExportResolverSnapshot: Sendable {
     package let features: [CodingFeature]
     let variantChromosomeAliasMap: [String: String]
     let referenceChromosomeAliases: [String: String]
-    let referenceBundle: ReferenceBundle?
+    /// The bundle the viewer shows, which the drawer's bundle-wide CDS read reads (lane 13.38, BIO item 7).
+    package let referenceBundle: ReferenceBundle?
     let cachedSequence: String?
     let cachedSequenceRegion: GenomicRegion?
     /// The annotation tracks of the annotations the viewer cached for its region, sorted, which the table export
@@ -176,7 +177,8 @@ package struct VariantTableExportResolverSnapshot: Sendable {
         }
     }
 
-    private func resolvedReferenceChromosome(_ chromosome: String) -> String {
+    /// The reference's name for a variant chromosome, which `VariantTableBundleCodingFeatures` also reads by.
+    package func resolvedReferenceChromosome(_ chromosome: String) -> String {
         if let canonical = referenceChromosomeAliases[chromosome] {
             return canonical
         }
