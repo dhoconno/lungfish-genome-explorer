@@ -49,7 +49,7 @@ final class ExportItemPinTests: XCTestCase {
         XCTAssertEqual(vc.actionBar.exportButton.toolTip, resultExportHelp)
     }
 
-    func testNvdExportButtonIsEnabledWhileCachedRowsShowAndNoSampleIsPicked() throws {
+    func testNvdExportButtonIsDisabledWhileCachedRowsShow() throws {
         NvdResultViewController.testMetadataUserDefaultsOverride = makeTestDefaultsSuite(prefix: "ExportItemPinTests").defaults
         addTeardownBlock { NvdResultViewController.testMetadataUserDefaultsOverride = nil }
         let vc = NvdResultViewController()
@@ -63,11 +63,12 @@ final class ExportItemPinTests: XCTestCase {
             bundleURL: URL(fileURLWithPath: "/tmp/nvd-export-item-pin-\(UUID().uuidString)", isDirectory: true)
         )
         XCTAssertTrue(vc.selectedSamples.isEmpty)
-        XCTAssertTrue(vc.actionBar.exportButton.isEnabled)
-        XCTAssertEqual(vc.actionBar.exportButton.toolTip, resultExportHelp)
+        XCTAssertFalse(vc.actionBar.exportButton.isEnabled)
+        XCTAssertEqual(vc.actionBar.exportButton.toolTip, ClassifierExportWords.missingDatabaseHelp)
+        XCTAssertEqual(vc.actionBar.exportButton.accessibilityHelp(), ClassifierExportWords.missingDatabaseHelp)
     }
 
-    func testEsVirituExportButtonIsEnabledWithAnEmptyBatchPicker() throws {
+    func testEsVirituExportButtonIsDisabledWithAnEmptyBatchPicker() throws {
         let vc = EsVirituResultViewController()
         _ = vc.view
         vc.isBatchMode = true
@@ -75,8 +76,9 @@ final class ExportItemPinTests: XCTestCase {
         vc.samplePickerState.selectedSamples = []
         vc.applyBatchSampleFilter()
         XCTAssertNil(vc.esVirituResult)
-        XCTAssertTrue(vc.actionBar.exportButton.isEnabled)
-        XCTAssertEqual(vc.actionBar.exportButton.toolTip, resultExportHelp)
+        XCTAssertFalse(vc.actionBar.exportButton.isEnabled)
+        XCTAssertEqual(vc.actionBar.exportButton.toolTip, ClassifierExportWords.pickASample)
+        XCTAssertEqual(vc.actionBar.exportButton.accessibilityHelp(), ClassifierExportWords.pickASample)
     }
 
     /// The alert a refused export shows today is "Export Failed" and the file name with the leaf's CLI words.

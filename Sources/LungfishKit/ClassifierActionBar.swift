@@ -149,6 +149,18 @@ public final class ClassifierActionBar: NSView {
         }
     }
 
+    /// Enable/disable the Export button. A disabled button carries `reason` as its help tag word for word, and
+    /// enabling restores the shared result-export help (Phase 2.13 lane 13.40, UX ruling W3).
+    public func setExportEnabled(_ enabled: Bool, reason: String? = nil) {
+        exportButton.isEnabled = enabled
+        if !enabled, let reason, !reason.isEmpty {
+            exportButton.toolTip = reason
+            exportButton.setAccessibilityHelp(reason)
+        } else {
+            exportButton.applyLungfishHelp(LungfishHelpContent.resultExport)
+        }
+    }
+
     // MARK: - Setup
 
     private func setupUI() {

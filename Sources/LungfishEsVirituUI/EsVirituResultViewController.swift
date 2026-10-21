@@ -181,7 +181,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - Data
 
     /// The EsViritu result driving this view.
-    private(set) var esVirituResult: LungfishIO.EsVirituResult?
+    private(set) var esVirituResult: LungfishIO.EsVirituResult? { didSet { refreshExportItem() } }
 
     /// The EsViritu config used for this run (for re-run and provenance).
     private(set) var esVirituConfig: EsVirituConfig?

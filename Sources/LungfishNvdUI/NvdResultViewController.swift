@@ -120,7 +120,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Data
 
     /// SQLite database for BLAST hits and sample metadata.
-    private var database: NvdDatabase?
+    private(set) var database: NvdDatabase? { didSet { refreshExportItem() } }
 
     /// Bundle manifest metadata.
     private var manifest: NvdManifest?
@@ -139,7 +139,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var manifestSamplesByID: [String: NvdSampleSummary] = [:]
 
     /// Currently selected sample IDs for filtering.
-    private(set) var selectedSamples: Set<String> = []
+    private(set) var selectedSamples: Set<String> = [] { didSet { refreshExportItem() } }
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
@@ -185,7 +185,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var taxonContigs: [String: [NvdBlastHit]] = [:]
 
     /// Cached contig rows from the manifest (used before database is available).
-    private var cachedRows: [NvdContigRow] = []
+    private(set) var cachedRows: [NvdContigRow] = [] { didSet { refreshExportItem() } }
 
     // MARK: - Grouping Mode
 
