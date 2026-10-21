@@ -710,7 +710,7 @@ public final class GenBankReader: Sendable {
             let intervals: [AnnotationInterval]
             let strand: Strand
             do {
-                (intervals, strand) = try parseLocation(locationStr, lineNumber: lineIndex)
+                (intervals, strand) = try Self.parseLocation(locationStr, lineNumber: lineIndex)
             } catch {
                 guard let warningHandler else { throw error }
                 warningHandler(GenBankParseWarning(
@@ -751,7 +751,7 @@ public final class GenBankReader: Sendable {
                 ?? featureType
 
             // Map feature type string to AnnotationType
-            let annotationType = mapFeatureType(featureType)
+            let annotationType = Self.mapFeatureType(featureType)
 
             // Carry `/codon_start` onto the 5'-most interval's phase,
             // so translation honors a partial CDS instead of always assuming
@@ -905,7 +905,7 @@ public final class GenBankReader: Sendable {
         }
     }
 
-    private func parseLocation(_ locationStr: String, lineNumber: Int) throws -> ([AnnotationInterval], Strand) {
+    static func parseLocation(_ locationStr: String, lineNumber: Int) throws -> ([AnnotationInterval], Strand) {
         let location = locationStr.trimmingCharacters(in: .whitespaces)
 
         let parsedLocation = try parseLocationExpression(location, lineNumber: lineNumber, strand: .forward)
@@ -913,7 +913,7 @@ public final class GenBankReader: Sendable {
         return (parsedLocation.intervals, parsedLocation.featureStrand)
     }
 
-    private func parseLocationExpression(_ expr: String, lineNumber: Int, strand: Strand) throws -> LocationParseResult {
+    private static func parseLocationExpression(_ expr: String, lineNumber: Int, strand: Strand) throws -> LocationParseResult {
         var expression = expr.trimmingCharacters(in: .whitespaces)
 
         // Handle complement()
@@ -951,7 +951,7 @@ public final class GenBankReader: Sendable {
         return LocationParseResult(intervals: [interval])
     }
 
-    private func complemented(_ strand: Strand) -> Strand {
+    private static func complemented(_ strand: Strand) -> Strand {
         switch strand {
         case .forward:
             return .reverse
@@ -962,7 +962,7 @@ public final class GenBankReader: Sendable {
         }
     }
 
-    private func splitLocationParts(_ inner: String) -> [String] {
+    private static func splitLocationParts(_ inner: String) -> [String] {
         // Split on commas, but respect nested parentheses
         var parts: [String] = []
         var current = ""
@@ -988,7 +988,7 @@ public final class GenBankReader: Sendable {
         return parts
     }
 
-    private func parseSimpleLocation(_ expr: String, lineNumber: Int, strand: Strand) throws -> AnnotationInterval {
+    private static func parseSimpleLocation(_ expr: String, lineNumber: Int, strand: Strand) throws -> AnnotationInterval {
         var expression = expr
 
         // Handle complement() if still present (nested complement)
@@ -1033,7 +1033,7 @@ public final class GenBankReader: Sendable {
         throw GenBankError.invalidLocation(expression)
     }
 
-    private func parsePosition(_ str: String) -> Int? {
+    private static func parsePosition(_ str: String) -> Int? {
         // Handle positions that might have accession prefix like "NC_000001.11:1000"
         let cleanStr: String
         if let colonIndex = str.lastIndex(of: ":") {
@@ -1064,7 +1064,7 @@ public final class GenBankReader: Sendable {
     /// centralized ``AnnotationType.from(rawString:)`` factory method. This
     /// automatically handles all known types including mat_peptide, sig_peptide,
     /// transit_peptide, regulatory, ncRNA, misc_binding, and protein_bind.
-    private func mapFeatureType(_ typeString: String) -> AnnotationType {
+    static func mapFeatureType(_ typeString: String) -> AnnotationType {
         return AnnotationType.from(rawString: typeString) ?? .misc_feature
     }
 }
