@@ -92,7 +92,12 @@ extension Kraken2Command {
                 force: invocation.force
             )
 
-            let loaded = try load(source, samples: invocation.state.samples)
+            var loaded = try load(source, samples: invocation.state.samples)
+            // R8 (KR-REF-DB, Phase 2.13 lane 13.35). The database form reads the batch manifest and one sidecar for each
+            // picked sample to learn each sample's reference database, so the record names those files as inputs
+            // beside the database. The reference database itself is never an input, since the leaf never opens it.
+            let references = Kraken2TaxonomyTableExport.referenceDatabases(source: source, sampleIds: loaded.selected)
+            loaded.inputs += references.inputs
             try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: loaded.inputs, force: invocation.force)
             let metadata = try metadataTable(
                 resultURL: resultURL,
@@ -136,6 +141,8 @@ extension Kraken2Command {
                 resolved: [
                     "nodeCount": .integer(nodeCount),
                     "outputByteCount": .integer(content.utf8.count),
+                    // R8. One entry for each sample of the table, in the table's order, until ARCH places the key.
+                    "referenceDatabases": .array(references.entries.map(\.parameterValue)),
                     "selectedSamples": .array(loaded.selected.map(ParameterValue.string)),
                 ],
                 runClock: runClock

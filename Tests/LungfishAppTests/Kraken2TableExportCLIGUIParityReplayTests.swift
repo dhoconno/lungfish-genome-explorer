@@ -645,7 +645,7 @@ extension Kraken2TableExportCLIGUIParityReplayTests {
         XCTAssertEqual(c.argv, [CLICommandIdentity.executableName] + rowArguments, "the record's argv is the row's command")
         XCTAssertEqual(c.durableReplayArgv, c.argv)
         XCTAssertEqual(c.workflowName, Kraken2TaxonomyTableExport.workflowName)
-        XCTAssertEqual(Set(c.options.resolvedDefaults.keys), Self.sharedResolvedKeys)
+        XCTAssertEqual(Set(c.options.resolvedDefaults.keys), Self.sharedResolvedKeys.union(["referenceDatabases"]))
         XCTAssertEqual(c.options.explicit.keys.sorted(), parityCase.expectedExplicitKeys)
         XCTAssertEqual(c.options.explicit["outputFormat"]?.stringValue, format)
         XCTAssertTrue(c.options.defaults.isEmpty)

@@ -117,7 +117,7 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         XCTAssertEqual(Self.inputNames(envelope), ["kraken2.sqlite", "sample_metadata.tsv"])
         XCTAssertTrue(envelope.files.filter { $0.role == .input }.allSatisfy { $0.checksumSHA256 != nil })
         let resolved = envelope.options.resolvedDefaults
-        XCTAssertEqual(Set(resolved.keys), ["nodeCount", "outputByteCount", "selectedSamples"])
+        XCTAssertEqual(Set(resolved.keys), ["nodeCount", "outputByteCount", "referenceDatabases", "selectedSamples"])
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-A", "sample-B"])
         XCTAssertEqual(Set(envelope.options.explicit.keys), ["metadataColumns", "outputFormat", "outputPath"])
     }
@@ -388,6 +388,172 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         let rootClade = try XCTUnwrap(rows.first.flatMap { Int($0[2]) })
         XCTAssertEqual(rootClade, 140)
         XCTAssertEqual(directBySample.values.reduce(0, +), rootClade)
+    }
+
+    // MARK: - KR-REF-DB (Phase 2.13 lane 13.35, R8 of BIO-Q-A2)
+
+    /// The sidecar and the report a Kraken2 run writes for one sample, in a folder named for the sample under `parent`,
+    /// classified against the database named. A nil digest stands for a database whose installation recorded none.
+    /// Gives the sidecar's URL.
+    private func writeSampleResult(
+        _ sample: String, in parent: URL, databaseName: String, databaseVersion: String, databaseDigest: String?
+    ) throws -> URL {
+        let sampleFolder = parent.appendingPathComponent(sample, isDirectory: true)
+        try FileManager.default.createDirectory(at: sampleFolder, withIntermediateDirectories: true)
+        let report = sampleFolder.appendingPathComponent("classification.kreport")
+        try "100.00\t10\t0\tR\t1\troot\n 90.00\t9\t9\tS\t562\t    Escherichia coli\n"
+            .write(to: report, atomically: true, encoding: .utf8)
+        let config = ClassificationConfig(
+            inputFiles: [sampleFolder.appendingPathComponent("\(sample).fastq")],
+            isPairedEnd: false,
+            databaseName: databaseName,
+            databaseVersion: databaseVersion,
+            databasePath: folder.appendingPathComponent("db-\(databaseName)", isDirectory: true),
+            databaseDigest: databaseDigest,
+            outputDirectory: sampleFolder
+        )
+        try ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: report),
+            reportURL: report,
+            outputURL: sampleFolder.appendingPathComponent("classification.kraken"),
+            brackenURL: nil,
+            runtime: 1,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        ).save(to: sampleFolder)
+        return sampleFolder.appendingPathComponent("classification-result.json")
+    }
+
+    /// `makePercentBatch()` with a result folder for each of its two samples, each classified against its own database,
+    /// and the batch manifest that names the folders. The manifest names the first sample's database, as a batch run
+    /// names the one database it ran with.
+    private func makeReferenceBatch(standardDigest: String?) throws -> URL {
+        let batch = try makePercentBatch()
+        _ = try writeSampleResult(
+            "sample-A", in: batch, databaseName: "Viral", databaseVersion: "2024-09-04", databaseDigest: "sha256:viral-digest"
+        )
+        _ = try writeSampleResult(
+            "sample-B", in: batch, databaseName: "Standard-8", databaseVersion: "2025-01-12", databaseDigest: standardDigest
+        )
+        try MetagenomicsBatchResultStore.saveClassification(
+            ClassificationBatchResultManifest(
+                header: MetagenomicsBatchManifestHeader(schemaVersion: 2, createdAt: Date(), sampleCount: 2),
+                goal: "classify",
+                databaseName: "Viral",
+                databaseVersion: "2024-09-04",
+                summaryTSV: "summary.tsv",
+                samples: ["sample-A", "sample-B"].map {
+                    MetagenomicsBatchSampleRecord(sampleId: $0, resultDirectory: $0, inputFiles: [], isPairedEnd: false)
+                }
+            ),
+            to: batch
+        )
+        return batch
+    }
+
+    /// The `referenceDatabases` entries of a record, each as the strings the leaf wrote.
+    private static func referenceDatabases(of envelope: ProvenanceEnvelope) throws -> [[String: String]] {
+        let entries = try XCTUnwrap(envelope.options.resolvedDefaults["referenceDatabases"]?.arrayValue)
+        return entries.map { entry -> [String: String] in
+            guard case .dictionary(let fields) = entry else { return [:] }
+            return fields.compactMapValues(\.stringValue)
+        }
+    }
+
+    private static let viralEntry = [
+        "sample": "sample-A", "name": "Viral", "version": "2024-09-04", "digest": "sha256:viral-digest",
+    ]
+    private static let standardEntry = [
+        "sample": "sample-B", "name": "Standard-8", "version": "2025-01-12", "digest": "sha256:standard-digest",
+    ]
+
+    /// The database form. For each sample of the table, in the table's order, the record names the name, version and
+    /// digest that the sample's own classification result gives its database. The leaf read the batch manifest and one
+    /// sidecar for each sample, so those are inputs, and the reference database itself is never one.
+    func testTheDatabaseFormRecordsEachSamplesReferenceDatabase() throws {
+        let batch = try makeReferenceBatch(standardDigest: "sha256:standard-digest")
+        let output = folder.appendingPathComponent("refs-database.tsv")
+        _ = try command(leafArguments(batch, output: output)).export()
+        let envelope = try Self.envelope(of: output)
+        XCTAssertEqual(try Self.referenceDatabases(of: envelope), [Self.viralEntry, Self.standardEntry])
+        XCTAssertEqual(
+            Self.inputNames(envelope),
+            ["classification-batch-result.json", "classification-result.json", "classification-result.json", "kraken2.sqlite"]
+        )
+        XCTAssertTrue(envelope.files.filter { $0.role == .input }.allSatisfy { $0.checksumSHA256 != nil })
+        XCTAssertFalse(envelope.files.contains { $0.path.contains("/db-") }, "the reference database is not an input")
+
+        let one = folder.appendingPathComponent("refs-database-one.tsv")
+        _ = try command(leafArguments(batch, output: one, extra: ["--sample", "sample-B"])).export()
+        let oneEnvelope = try Self.envelope(of: one)
+        XCTAssertEqual(try Self.referenceDatabases(of: oneEnvelope), [Self.standardEntry])
+        XCTAssertEqual(
+            Self.inputNames(oneEnvelope), ["classification-batch-result.json", "classification-result.json", "kraken2.sqlite"]
+        )
+    }
+
+    /// The sidecar form. A run holds one sample, and each of two runs classified against its own database records the
+    /// database its own sidecar gives. The sidecar was already an input, so no file is added.
+    func testTheSidecarFormRecordsItsReferenceDatabase() throws {
+        let runs = folder.appendingPathComponent("refs-runs", isDirectory: true)
+        let sidecars = [
+            try writeSampleResult(
+                "sample-A", in: runs, databaseName: "Viral", databaseVersion: "2024-09-04", databaseDigest: "sha256:viral-digest"
+            ),
+            try writeSampleResult(
+                "sample-B", in: runs, databaseName: "Standard-8", databaseVersion: "2025-01-12",
+                databaseDigest: "sha256:standard-digest"
+            ),
+        ]
+        for (sidecar, expected) in zip(sidecars, [Self.viralEntry, Self.standardEntry]) {
+            let output = folder.appendingPathComponent("refs-run-\(expected["sample"] ?? "").tsv")
+            _ = try command(leafArguments(sidecar, output: output)).export()
+            let envelope = try Self.envelope(of: output)
+            XCTAssertEqual(try Self.referenceDatabases(of: envelope), [expected])
+            XCTAssertEqual(Self.inputNames(envelope), ["classification-result.json", "classification.kreport"])
+        }
+    }
+
+    /// A sample whose result holds no digest gets `unknown` with the reason, on both forms. So does a sample whose
+    /// result is not in the folder, which keeps the name and version the batch manifest gives and has none without a
+    /// manifest.
+    func testAReferenceDatabaseWithNoDigestIsRecordedAsUnknownWithItsReason() throws {
+        let noDigest = "The sample's classification result records no digest for its database."
+        let noResult = "The result folder holds no classification-result.json for the sample, "
+            + "so its database digest is not recorded."
+
+        let batch = try makeReferenceBatch(standardDigest: nil)
+        let batchOutput = folder.appendingPathComponent("refs-nodigest.tsv")
+        _ = try command(leafArguments(batch, output: batchOutput)).export()
+        XCTAssertEqual(try Self.referenceDatabases(of: try Self.envelope(of: batchOutput)), [
+            Self.viralEntry,
+            ["sample": "sample-B", "name": "Standard-8", "version": "2025-01-12", "digest": "unknown", "reason": noDigest],
+        ])
+
+        let sidecar = try writeSampleResult(
+            "sample-C", in: folder.appendingPathComponent("refs-nodigest-run", isDirectory: true),
+            databaseName: "Viral", databaseVersion: "2024-09-04", databaseDigest: nil
+        )
+        let runOutput = folder.appendingPathComponent("refs-nodigest-run.tsv")
+        _ = try command(leafArguments(sidecar, output: runOutput)).export()
+        XCTAssertEqual(try Self.referenceDatabases(of: try Self.envelope(of: runOutput)), [
+            ["sample": "sample-C", "name": "Viral", "version": "2024-09-04", "digest": "unknown", "reason": noDigest],
+        ])
+
+        try FileManager.default.removeItem(at: batch.appendingPathComponent("sample-B", isDirectory: true))
+        let missingOutput = folder.appendingPathComponent("refs-noresult.tsv")
+        _ = try command(leafArguments(batch, output: missingOutput)).export()
+        XCTAssertEqual(try Self.referenceDatabases(of: try Self.envelope(of: missingOutput)), [
+            Self.viralEntry,
+            ["sample": "sample-B", "name": "Viral", "version": "2024-09-04", "digest": "unknown", "reason": noResult],
+        ])
+
+        let bareOutput = folder.appendingPathComponent("refs-bare.tsv")
+        _ = try command(leafArguments(database, output: bareOutput)).export()
+        XCTAssertEqual(try Self.referenceDatabases(of: try Self.envelope(of: bareOutput)), ["sample-A", "sample-B"].map {
+            ["sample": $0, "name": "unknown", "version": "unknown", "digest": "unknown", "reason": noResult]
+        })
     }
 
     func testKraken2TableLeafRefusesAnOptionItDoesNotTake() {
