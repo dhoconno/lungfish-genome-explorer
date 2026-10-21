@@ -135,7 +135,7 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
             }
             checked += 1
         }
-        XCTAssertEqual(checked, 42, "17 tools and 27 pack tools, and two of the pack tools have no conda spec")
+        XCTAssertEqual(checked, 44, "19 tools and 27 pack tools, and two of the pack tools have no conda spec")
     }
 
     /// A native pack tool and a conda-run mapper record the lock's spec whatever their probe printed, so a

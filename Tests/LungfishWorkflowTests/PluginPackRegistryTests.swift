@@ -23,7 +23,7 @@ final class PluginPackRegistryTests: XCTestCase {
             [
                 "nextflow", "snakemake", "bbtools", "fastp", "deacon",
                 "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-                "trim_galore", "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
+                "trim_galore", "vsearch", "pigz", "zstd", "xz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             ]
         )
     }
@@ -51,7 +51,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(environments, [
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-            "trim_galore", "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
+            "trim_galore", "vsearch", "pigz", "zstd", "xz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             "deacon-panhuman", "deacon-ribokmers",
         ])
         XCTAssertEqual(pack.estimatedSizeMB, 2700)
@@ -86,7 +86,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
-        XCTAssertEqual(lock.tools.count, 17)
+        XCTAssertEqual(lock.tools.count, 19)
         XCTAssertEqual(lock.managedData.count, 2)
     }
 

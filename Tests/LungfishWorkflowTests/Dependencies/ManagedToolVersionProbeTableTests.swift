@@ -19,10 +19,10 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
         lock.tools.map(\.id) + lock.packTools.map(\.toolID)
     }
 
-    func testLockHasFortyFourUniqueIDs() throws {
+    func testLockHasFortySixUniqueIDs() throws {
         let lock = try ManagedToolLock.loadFromBundle()
         let ids = lockIDs(lock)
-        XCTAssertEqual(ids.count, 44)
+        XCTAssertEqual(ids.count, 46)
         XCTAssertEqual(Set(ids).count, ids.count, "tools and packTools share no id")
         XCTAssertEqual(lock.entries.count, ids.count)
     }

@@ -55,6 +55,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case clair3
     case whatshap
     case freyja
+    /// zstd and xz, the compressors a sequence export and a reference import run (Phase 2.13 lane 13.17).
+    case zstd
+    case xz
 
     /// The executable name for this tool.
     public var executableName: String {
@@ -90,6 +93,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .clair3: return "run_clair3.sh"
         case .whatshap: return "whatshap"
         case .freyja: return "freyja"
+        case .zstd: return "zstd"
+        case .xz: return "xz"
         }
     }
 
@@ -173,6 +178,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "phasing", executableName: "whatshap")
         case .freyja:
             return .managed(environment: "freyja", executableName: "freyja")
+        case .zstd:
+            return .managed(environment: "zstd", executableName: "zstd")
+        case .xz:
+            return .managed(environment: "xz", executableName: "xz")
         }
     }
 
@@ -238,6 +247,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .clair3: return "clair3"
         case .whatshap: return "whatshap"
         case .freyja: return "freyja"
+        case .zstd: return "zstd"
+        case .xz: return "xz"
         }
     }
 
@@ -295,6 +306,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "MIT License"
         case .freyja:
             return "BSD-2-Clause"
+        case .zstd:
+            return "BSD-3-Clause or GPL-2.0-only (dual)"
+        case .xz:
+            return "0BSD and GPL-2.0-or-later"
         }
     }
 

@@ -296,7 +296,10 @@ public enum ScientificProvenancePolicy {
         "medakaVariant": dataWriting("native.medakaVariant", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "clair3": dataWriting("native.clair3", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "whatshap": dataWriting("native.whatshap", writer: "NativeToolRunner/ProvenanceRunBuilder"),
-        "freyja": dataWriting("native.freyja", writer: "NativeToolRunner/ProvenanceRunBuilder")
+        "freyja": dataWriting("native.freyja", writer: "NativeToolRunner/ProvenanceRunBuilder"),
+        // The two compressors run on ToolProcess from the sites that own their record (2.13 lane 13.17).
+        "zstd": dataWriting("native.zstd", writer: "SequenceExportCompressor"),
+        "xz": dataWriting("native.xz", writer: "ReferenceSourcePreparer")
     ]
 
     private static func dataWriting(

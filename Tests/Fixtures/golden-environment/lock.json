@@ -146,6 +146,20 @@
       "packageSpec": "bioconda::seqkit=2.13.0=hd5f1084_0",
       "packages": 1,
       "sha256": "9f14fbab0d3120c4a17da47ef55ea8131ed7aed7e4761376477f773ff9760a02"
+    },
+    {
+      "explicit": "xz-osx-arm64-explicit.txt",
+      "name": "xz",
+      "packageSpec": "conda-forge::xz=5.8.3=hd0f0c4f_1",
+      "packages": 5,
+      "sha256": "dc771be6803aaa112aab208ad7cd0ee5791b22a266d4036d368efe91a3d9ce6c"
+    },
+    {
+      "explicit": "zstd-osx-arm64-explicit.txt",
+      "name": "zstd",
+      "packageSpec": "conda-forge::zstd=1.5.7=hf451053_7",
+      "packages": 2,
+      "sha256": "6579888097f9ad325a018947de5d2183e278ae40fe661f8bd483b89d21164709"
     }
   ],
   "micromamba": {

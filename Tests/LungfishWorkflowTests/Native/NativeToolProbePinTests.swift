@@ -46,10 +46,12 @@ final class NativeToolProbePinTests: XCTestCase {
         "clair3": Row(executable: "run_clair3.sh", versionArguments: ["--version"], environment: "clair3"),
         "whatshap": Row(executable: "whatshap", versionArguments: ["--version"], environment: "phasing"),
         "freyja": Row(executable: "freyja", versionArguments: ["--version"], environment: "freyja"),
+        "zstd": Row(executable: "zstd", versionArguments: ["--version"], environment: "zstd"),
+        "xz": Row(executable: "xz", versionArguments: ["--version"], environment: "xz"),
     ]
 
     func testTableKeysEqualTheNativeToolCaseSet() {
-        XCTAssertEqual(Self.table.count, 31)
+        XCTAssertEqual(Self.table.count, 33)
         XCTAssertEqual(Set(NativeTool.allCases.map(\.rawValue)), Set(Self.table.keys))
     }
 

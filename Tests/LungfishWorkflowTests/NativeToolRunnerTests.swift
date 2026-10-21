@@ -895,7 +895,7 @@ final class NativeToolRunnerTests: XCTestCase {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers, full-length MHC tools, viral variant callers, phasing, and lineage demixing
         // are all part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 31, "Should include BBTools wrappers, Trim Galore, full-length MHC, variant callers, phasing, and lineage demixing tools")
+        XCTAssertEqual(NativeTool.allCases.count, 33, "Should include BBTools wrappers, Trim Galore, full-length MHC, variant callers, phasing, lineage demixing and compression tools")
     }
 
     // MARK: - Error Tests

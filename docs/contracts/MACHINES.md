@@ -23,7 +23,7 @@ A development Mac needs no release verification root (`~/.lungfish-verify`) and 
 
 ## The golden environment
 
-The golden captures run `lungfish-cli` against a managed storage root at `/Users/Shared/lungfish-golden/storage`. The path is the same on every Mac, so the goldens record the same tool and database paths whoever runs them. The folder holds eight conda environments (minimap2, samtools, seqkit, kraken2, esviritu, bbtools, pysam and openpyxl), one test-only Python environment (ivar-oracle, which runs the viralrecon script that IVarConverterViralReconParityTests compares the Swift iVar converter with) and two databases (the Kraken2 Viral database and the EsViritu Viral DB), about 5 GB in all.
+The golden captures run `lungfish-cli` against a managed storage root at `/Users/Shared/lungfish-golden/storage`. The path is the same on every Mac, so the goldens record the same tool and database paths whoever runs them. The folder holds ten conda environments (minimap2, samtools, seqkit, kraken2, esviritu, bbtools, pysam, openpyxl, xz and zstd), one test-only Python environment (ivar-oracle, which runs the viralrecon script that IVarConverterViralReconParityTests compares the Swift iVar converter with) and two databases (the Kraken2 Viral database and the EsViritu Viral DB), about 5 GB in all.
 
 `Tests/Fixtures/golden-environment/lock.json` pins all of it. Each environment has an explicit conda file that lists every package by URL and MD5, so a rebuild installs the same bytes. Each database has its source archive and the size and SHA-256 of its files. The Kraken2 Viral database also has the payload digest that LGE's installer recorded for it (`payloadDigest`). The folder's own README explains each field.
 

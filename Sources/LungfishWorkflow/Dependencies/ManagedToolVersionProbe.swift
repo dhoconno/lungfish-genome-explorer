@@ -75,6 +75,10 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         entry("trim_galore", "trim_galore", ["--version"]),
         entry("vsearch", "vsearch", ["--version"]),
         entry("pigz", "pigz", ["--version"]),
+        // Prints `*** Zstandard CLI (64-bit) v1.5.7, by Yann Collet ***`.
+        entry("zstd", "zstd", ["--version"]),
+        // Prints `xz (XZ Utils) 5.8.3` and then `liblzma 5.8.3`.
+        entry("xz", "xz", ["--version"]),
         entry("sra-tools", "fasterq-dump", ["--version"]),
         // Rejects --version and prints usage, so there is no argument that reports 482.
         entry("ucsc-bedgraphtobigwig", "bedGraphToBigWig", [], .notSelfReported),

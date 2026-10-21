@@ -34,6 +34,8 @@ extension NativeTool {
         case .clair3: return ManagedToolID(rawValue: "clair3")
         case .whatshap: return ManagedToolID(rawValue: "whatshap")
         case .freyja: return ManagedToolID(rawValue: "freyja")
+        case .zstd: return ManagedToolID(rawValue: "zstd")
+        case .xz: return ManagedToolID(rawValue: "xz")
         }
     }
 }
