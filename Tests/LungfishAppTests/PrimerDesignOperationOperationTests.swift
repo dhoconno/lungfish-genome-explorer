@@ -154,6 +154,43 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         XCTAssertEqual(command.projectPath, "/tmp/p.lungfish")
     }
 
+    /// UX review of lane 13.43 M1 and M2, Fix 3. The command writes the first free name, so the bundle it publishes can
+    /// differ from the destination the dialog chose. The row saves, and the sidebar opens, the bundle the complete event
+    /// names, and the row still records the command with the dialog's `--project` and `--name`.
+    func testTheRowSavesTheBundleTheCompleteEventNamesWhenTheNameWasTaken() async throws {
+        let root = try TestTempDirectory.make(prefix: "primer-renumbered")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let wanted = analyses.appendingPathComponent("Primer3 Test.lungfishprimeranalysis", isDirectory: true)
+        let renumbered = analyses.appendingPathComponent("Primer3 Test 2.lungfishprimeranalysis", isDirectory: true)
+        let complete = #"{"event":"complete","output":"\#(renumbered.path)","outputs":["\#(renumbered.path)"],"message":"Primer analysis written."}"#
+        let stand = try StandInAlignmentCLI.make(in: root, body: [
+            StandInAlignmentCLI.line(#"{"event":"start","message":"Designing primers","progress":0}"#),
+            StandInAlignmentCLI.line(complete),
+        ].joined(separator: "\n"))
+        let argv = [
+            CLICommandIdentity.executableName, "primers", "design", "primer3", "--fasta-record", "/input/a.fasta@0",
+            "--project", project.path, "--name=Primer3 Test",
+        ]
+        var saved: [URL] = []
+        let handle = PrimerDesignOperation.startThroughCLI(
+            title: "Design Primers", destination: wanted, routeContext: nil, argv: argv,
+            runner: CLIPrimerDesignRunner(cliURLOverride: stand.cli), onResultSaved: { saved.append($0) })
+        await handle.task.value
+
+        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == handle.id })
+        XCTAssertEqual(saved.map(\.path), [renumbered.path], "the sidebar opens the bundle the command wrote")
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.detail, "Primer analysis saved.")
+        XCTAssertEqual(item.outputURLs.map(\.path), [renumbered.path])
+        let command = try RecordedCLICommand.parse(
+            try XCTUnwrap(item.cliCommand), as: PrimerDesignCommand.Primer3Subcommand.self)
+        XCTAssertNil(command.outputPath)
+        XCTAssertEqual(command.projectPath, project.path)
+        XCTAssertEqual(command.analysisName, "Primer3 Test")
+    }
+
     // MARK: - dialog words (2.12 lane 12.17, UX ruling)
 
     /// The text of a dialog whose settings have no command (nothing ran) and the alert of a name taken between the check
