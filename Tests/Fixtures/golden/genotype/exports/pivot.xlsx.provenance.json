@@ -125,6 +125,7 @@
     "sha256" : "<SHA256-R10>",
     "sizeBytes" : "<SIZE-R10>"
   },
+  "requestWorkflowName" : "genotype.export.pivot-xlsx",
   "resolvedDefaults" : {
     "annotations" : "bundle annotations.json when present",
     "force" : "false",
@@ -198,8 +199,9 @@
   "startedAt" : "<TIMESTAMP>",
   "status" : "completed",
   "stderr" : "",
-  "toolName" : "lungfish genotype Excel export",
+  "toolKind" : "cli",
+  "toolName" : "lungfish-cli",
   "toolVersion" : "<APP_VERSION>",
   "wallTimeSeconds" : "<DURATION>",
-  "workflowName" : "genotype.export.pivot-xlsx"
+  "workflowName" : "lungfish genotype export-xlsx"
 }

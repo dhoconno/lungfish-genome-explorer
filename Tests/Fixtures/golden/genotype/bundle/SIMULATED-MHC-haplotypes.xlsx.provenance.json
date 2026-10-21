@@ -114,6 +114,7 @@
     "sha256" : "<SHA256-R10>",
     "sizeBytes" : "<SIZE-R10>"
   },
+  "requestWorkflowName" : "genotype.pipeline.excel",
   "resolvedDefaults" : {
     "filter" : "unfiltered",
     "filteredEvidenceRowPolicy" : "positive-displayed-count-in-visible-samples"
@@ -177,8 +178,9 @@
   "startedAt" : "<TIMESTAMP>",
   "status" : "completed",
   "stderr" : "",
-  "toolName" : "lungfish genotype Excel export",
+  "toolKind" : "cli",
+  "toolName" : "lungfish-cli",
   "toolVersion" : "Lungfish <APP_VERSION> (dev)",
   "wallTimeSeconds" : "<DURATION>",
-  "workflowName" : "genotype.pipeline.excel"
+  "workflowName" : "lungfish genotype export-xlsx"
 }
