@@ -50,8 +50,9 @@ public enum AnnotationDatabaseGFFExporter {
     // MARK: - Column 9
 
     /// The stored pairs of `record` that stay in column 9. They are the stored attribute string without the pairs whose
-    /// key is one of `GFF3ExportIdentifiers.internalKeys` (the import's `lungfish_gff_phase`, which `gffPhase(for:)`
-    /// reads for column 8 and which never belongs in a file that other tools read), every other pair byte for byte and
+    /// key is one of `GFF3ExportIdentifiers.internalKeys` (the import's `lungfish_gff_phase` and `lungfish_cds_phase`,
+    /// which `AnnotationDatabaseRecord.fivePrimePhase` reads for column 8 and which never belong in a file that other
+    /// tools read), every other pair byte for byte and
     /// in its stored order, so a record without such a pair keeps its stored string unchanged. Nil when the record has
     /// no attributes, or nothing is left once the internal pairs go.
     private static func keptPairs(of record: AnnotationDatabaseRecord) -> String? {
@@ -68,12 +69,23 @@ public enum AnnotationDatabaseGFFExporter {
     /// see a parseable identifier. `fallbackID` is the record's row-key ID from `claimIdentifiers(of:)`, which no other
     /// ID of the file shares (BIO ruling on lane 13.20 M2).
     static func columnNine(for record: AnnotationDatabaseRecord, fallbackID: String) -> String {
-        keptPairs(of: record) ?? "ID=\(fallbackID);Name=\(GFF3Writer.encodeAttributeValue(record.name))"
+        guard let kept = keptPairs(of: record) else {
+            return "ID=\(fallbackID);Name=\(GFF3Writer.encodeAttributeValue(record.name))"
+        }
+        return sharesRowKeyID(record, kept: kept) ? "ID=\(fallbackID);" + kept : kept
+    }
+
+    /// Whether a record that keeps `kept` writes its row-key ID before them: it writes more than one line and its kept
+    /// pairs hold no `ID`, so its lines would otherwise read as separate features (Q-B3 of the 13.20 ruling, BIO
+    /// ruling on lane 13.65 R7). A one-line record with no `ID` is one feature and keeps its pairs unchanged.
+    private static func sharesRowKeyID(_ record: AnnotationDatabaseRecord, kept: String) -> Bool {
+        guard (AnnotationDatabase.parseAttributes(kept)["ID"] ?? "").isEmpty else { return false }
+        return segmentLines(for: record).count > 1
     }
 
     /// Claims the IDs of `records`, which are in write order. A record that keeps pairs claims the `ID` among them (a
-    /// stored ID is never renamed, and a record whose pairs hold no `ID` claims nothing and writes none), and a record
-    /// that keeps none claims its row-key ID after every stored ID.
+    /// stored ID is never renamed). A record that keeps none, or that writes several lines from pairs with no `ID`,
+    /// claims its row-key ID after every stored ID. A one-line record whose pairs hold no `ID` claims nothing.
     private static func claimIdentifiers(of records: [AnnotationDatabaseRecord]) -> GFF3ExportIdentifiers {
         var identifiers = GFF3ExportIdentifiers()
         identifiers.plan(records.compactMap { record -> GFF3ExportIdentifiers.Row? in
@@ -81,6 +93,7 @@ public enum AnnotationDatabaseGFFExporter {
             guard let kept = keptPairs(of: record) else {
                 return GFF3ExportIdentifiers.Row(rowID: rowID, storedID: nil)
             }
+            if sharesRowKeyID(record, kept: kept) { return GFF3ExportIdentifiers.Row(rowID: rowID, storedID: nil) }
             guard let id = AnnotationDatabase.parseAttributes(kept)["ID"], !id.isEmpty else { return nil }
             return GFF3ExportIdentifiers.Row(rowID: rowID, storedID: id)
         })
@@ -210,14 +223,14 @@ public enum AnnotationDatabaseGFFExporter {
             let blockSizes = record.blockSizes, let blockStarts = record.blockStarts
         else {
             let gffStart = record.start + 1
-            return [(gffStart, record.end, gffPhase(for: record))]
+            return [(gffStart, record.end, String(record.fivePrimePhase ?? 0))]
         }
 
         let sizes = blockSizes.split(separator: ",").compactMap { Int($0) }
         let starts = blockStarts.split(separator: ",").compactMap { Int($0) }
         guard sizes.count >= blockCount, starts.count >= blockCount else {
             let gffStart = record.start + 1
-            return [(gffStart, record.end, gffPhase(for: record))]
+            return [(gffStart, record.end, String(record.fivePrimePhase ?? 0))]
         }
 
         let intervals = (0..<blockCount).map { index in
@@ -226,22 +239,12 @@ public enum AnnotationDatabaseGFFExporter {
                 end: record.start + starts[index] + sizes[index]
             )
         }
-        let phased = CDSSegmentPhases.compute(intervals: intervals, strand: record.strand)
+        // The 5' block keeps the row's stored phase, read by its one reader (BIO ruling on lane 13.65 R3 and R5).
+        let phased = CDSSegmentPhases.compute(
+            intervals: intervals, strand: record.strand, fivePrimePhase: record.fivePrimePhase ?? 0
+        )
         return phased.map { (interval, phase) in
             (interval.start + 1, interval.end, String(phase))
         }
-    }
-
-    private static func gffPhase(for record: AnnotationDatabaseRecord) -> String {
-        guard record.type == "CDS" else {
-            return "."
-        }
-        if let attributes = record.attributes {
-            let parsed = AnnotationDatabase.parseAttributes(attributes)
-            if let phase = parsed["lungfish_gff_phase"], ["0", "1", "2"].contains(phase) {
-                return phase
-            }
-        }
-        return "0"
     }
 }

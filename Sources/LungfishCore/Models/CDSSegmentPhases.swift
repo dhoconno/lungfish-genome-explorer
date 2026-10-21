@@ -43,19 +43,28 @@ public enum CDSSegmentPhases {
     /// transcription order is descending genomic order, so the segment with
     /// the highest start is phase 0.
     ///
-    /// Phase of a segment = `(3 - (cumulativeLengthBeforeSegment % 3)) % 3`,
+    /// Phase of a segment = `((fivePrimePhase - cumulativeLengthBeforeSegment) mod 3)`,
     /// the standard GFF3 definition (bases to skip from the segment's 5' end,
-    /// in transcription direction, before the next codon starts).
-    public static func compute(intervals: [Interval], strand: String) -> [(interval: Interval, phase: Int)] {
+    /// in transcription direction, before the next codon starts). With
+    /// `fivePrimePhase` 0 this is `(3 - (cumulativeLengthBeforeSegment % 3)) % 3`.
+    ///
+    /// - Parameter fivePrimePhase: The phase of the 5' segment, the one the
+    ///   record was read with (a GFF3 column 8 or a GenBank `/codon_start`
+    ///   less 1). A value outside 0 to 2 is taken as 0 (BIO ruling on lane
+    ///   13.65 R5).
+    public static func compute(
+        intervals: [Interval], strand: String, fivePrimePhase: Int = 0
+    ) -> [(interval: Interval, phase: Int)] {
         guard !intervals.isEmpty else { return [] }
 
         let ascending = intervals.sorted { $0.start < $1.start }
         let transcriptionOrder = strand == "-" ? ascending.reversed().map { $0 } : ascending
+        let firstPhase = (0...2).contains(fivePrimePhase) ? fivePrimePhase : 0
 
         var cumulative = 0
         var phaseByStart: [Int: Int] = [:]
         for segment in transcriptionOrder {
-            let phase = (3 - (cumulative % 3)) % 3
+            let phase = ((firstPhase - cumulative) % 3 + 3) % 3
             phaseByStart[segment.start] = phase
             cumulative += segment.length
         }

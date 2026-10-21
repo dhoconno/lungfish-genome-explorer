@@ -334,8 +334,17 @@ public final class GFF3Writer {
             let intervals = annotation.intervals.map {
                 CDSSegmentPhases.Interval(start: $0.start, end: $0.end)
             }
-            let computed = CDSSegmentPhases.compute(intervals: intervals, strand: annotation.strand.rawValue)
-            phaseBySegmentStart = Dictionary(uniqueKeysWithValues: computed.map { ($0.interval.start, $0.phase) })
+            // The 5' segment keeps the phase the record was read with, on the interval first in transcription order
+            // (BIO ruling on lane 13.65 R5). A repeated segment keeps its first phase (F-B65-DUP, MD66).
+            let fivePrime = annotation.strand == .reverse
+                ? annotation.intervals.max { $0.start < $1.start }
+                : annotation.intervals.min { $0.start < $1.start }
+            let computed = CDSSegmentPhases.compute(
+                intervals: intervals, strand: annotation.strand.rawValue, fivePrimePhase: fivePrime?.phase ?? 0
+            )
+            phaseBySegmentStart = Dictionary(
+                computed.map { ($0.interval.start, $0.phase) }, uniquingKeysWith: { first, _ in first }
+            )
         } else {
             phaseBySegmentStart = [:]
         }
