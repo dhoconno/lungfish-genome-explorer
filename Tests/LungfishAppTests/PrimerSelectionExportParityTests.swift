@@ -134,7 +134,7 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertEqual(recorded.targetBundleURL, folder, item.label)
             XCTAssertEqual(
                 try RecordedCLICommand.arguments(of: recorded.cliCommand),
-                ["primers", "analysis", "export-selection"] + MainSplitViewController.primerSelectionExportCLIArguments(
+                ["primers", "analysis", "export-selection"] + PrimerSelectionExport.primerSelectionExportCLIArguments(
                     analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder),
                 item.label)
         }
@@ -372,7 +372,7 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         return try await PrimerAnalysisSelectionExportService().export(
             analysisURL: fixture.bundle, selection: item.selection, kind: item.kind,
             destinationURL: destination,
-            invocationArgv: MainSplitViewController.primerSelectionExportProvenanceArgv(
+            invocationArgv: PrimerSelectionExport.primerSelectionExportProvenanceArgv(
                 analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: destination))
     }
 

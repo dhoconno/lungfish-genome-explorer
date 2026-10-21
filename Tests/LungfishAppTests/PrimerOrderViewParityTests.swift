@@ -60,7 +60,7 @@ final class PrimerOrderViewParityTests: XCTestCase {
         let metadata = PrimerOrderMetadata(name: "Filtered order", requestedBy: "Bench")
 
         let guiDestination = fixture.root.appendingPathComponent("GUI order")
-        let guiArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+        let guiArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: guiDestination)
         let guiOutput = try await PrimerOrderExportService().export(
             selection: selection, metadata: metadata, destinationURL: guiDestination, invocationArgv: guiArgv)

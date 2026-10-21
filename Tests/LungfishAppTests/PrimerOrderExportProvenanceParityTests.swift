@@ -39,7 +39,7 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
 
         // The GUI path, with the argv the viewport now passes.
         let guiDestination = fixture.root.appendingPathComponent("GUI order")
-        let guiArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+        let guiArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: guiDestination
         )
         let guiOutput = try await PrimerOrderExportService().export(
@@ -108,7 +108,7 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
             "candidate-pairs", "--candidate-pair-id", pairID, "--name", "Pair order", "--requested-by", "Bench",
             "--notes", "Rush",
         ])
-        let appArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+        let appArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: appFolder)
         XCTAssertEqual(appArgv, [CLICommandIdentity.executableName] + words)
 
