@@ -8,11 +8,12 @@
 // folder and says so beside the Command row (Phase 2.12 lane 12.25, T4 placed the note there, never in the copied text).
 //
 // The rename is read from the record alone, with no file system call. The record lies inside the folder the rename
-// named, since the rehydrator rewrites the records under that folder. A command names a sibling of that folder, and the
-// record's files name the same path below the new folder while none of them names the old one. That is the trace the
-// rehydrator leaves and nothing else does, apart from a hidden working folder, which the sidebar never renames and
-// which is left alone. Only resolved paths inside the project count, so a placeholder, a path outside the project and
-// a path that climbs out of it with `..` stay as recorded (SWIFT 6).
+// named, since the rehydrator rewrites the records under that folder. A command names a sibling of that folder, or for
+// a Move a folder of the same name anywhere under the project, and the record's files name the same path below the new
+// folder while none of them names the old one. That is the trace the rehydrator leaves and nothing else does, apart
+// from a hidden working folder, which the sidebar never renames and which is left alone. Two old folders for one new
+// folder map nothing. Only resolved paths inside the project count, so a placeholder, a path outside the project and
+// a path that climbs out of it with `..` stay as recorded (SWIFT 6). The replay reads the same relocation (lane 13.45).
 
 import Foundation
 import LungfishCore
@@ -60,20 +61,41 @@ extension ProvenanceCommandPresentation {
         for depth in stride(from: record.count - 1, through: 1, by: -1) {
             let folder = Array(record.prefix(depth))
             guard let name = folder.last, !name.hasPrefix(".") else { continue }
-            for path in commandPaths where path.count >= depth && Array(path.prefix(depth - 1)) == Array(folder.dropLast()) {
-                let oldName = path[depth - 1]
-                guard oldName != name, !oldName.hasPrefix(".") else { continue }
-                let old = Array(path.prefix(depth))
-                let rest = path.dropFirst(depth)
-                let oldPath = project + "/" + old.joined(separator: "/")
-                guard !renames.contains(where: { $0.oldPath == oldPath }),
-                      named.contains((folder + rest).joined(separator: "/")),
-                      !files.contains(where: { Array($0.prefix(depth)) == old })
-                else { continue }
-                renames.append(ProvenanceFolderRename(oldPath: oldPath, newPath: project + "/" + folder.joined(separator: "/")))
+            for path in commandPaths {
+                for old in oldFolders(in: path, for: folder) {
+                    let rest = path.dropFirst(old.count)
+                    let oldPath = project + "/" + old.joined(separator: "/")
+                    guard !renames.contains(where: { $0.oldPath == oldPath }),
+                          named.contains((folder + rest).joined(separator: "/")),
+                          !files.contains(where: { Array($0.prefix(old.count)) == old })
+                    else { continue }
+                    renames.append(ProvenanceFolderRename(oldPath: oldPath, newPath: project + "/" + folder.joined(separator: "/")))
+                }
             }
         }
-        return renames
+        // Two old folders for one new folder: the record cannot say which one moved there, so it maps neither and the
+        // command shows as recorded (lane 13.45, ARCH C1).
+        let newPaths = renames.map(\.newPath)
+        return renames.filter { rename in newPaths.filter { $0 == rename.newPath }.count == 1 }
+    }
+
+    /// The folders that `path` names which `folder` may have been before it moved. A rename keeps the parent and changes
+    /// the name. A Move keeps the name, takes a folder at any depth under the project and changes the parent. A Move
+    /// that also renames is not read (the Known limit), and a hidden folder is never an old folder.
+    private static func oldFolders(in path: [String], for folder: [String]) -> [[String]] {
+        guard let name = folder.last else { return [] }
+        let parent = Array(folder.dropLast())
+        var olds: [[String]] = []
+        if path.count >= folder.count, Array(path.prefix(folder.count - 1)) == parent {
+            let oldName = path[folder.count - 1]
+            if oldName != name, !oldName.hasPrefix(".") { olds.append(Array(path.prefix(folder.count))) }
+        }
+        for (index, component) in path.enumerated() where component == name {
+            let old = Array(path.prefix(index + 1))
+            guard Array(old.dropLast()) != parent, !old.contains(where: { $0.hasPrefix(".") }) else { continue }
+            olds.append(old)
+        }
+        return olds
     }
 
     /// `command` with each path word that a rename moved in its new folder, quoted as one shell word, and each run of

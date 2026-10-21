@@ -52,6 +52,40 @@ struct ProvenanceCommandRenamesTests {
         #expect(renames("fastp -o /Volumes/Lab/Runs.lungfish/Analyses/../../Analyses/trim/out.fq", files: files).isEmpty)
     }
 
+    /// Lane 13.45, ARCH C1. A Move keeps the folder's name and changes its parent, at any depth under the project.
+    @Test func aMoveIntoAnotherFolderIsReadAsTheSameRelocation() {
+        let movedRecord = project.appendingPathComponent("Analyses/Group/trim/.lungfish-provenance.json")
+        let found = ProvenanceCommandPresentation.folderRenames(
+            commands: [command],
+            filePaths: ["/Volumes/Lab/Runs.lungfish/Inputs/r.fq", "/Volumes/Lab/Runs.lungfish/Analyses/Group/trim/out.fq"],
+            recordURL: movedRecord, projectURL: project
+        )
+        #expect(found == [ProvenanceFolderRename(
+            oldPath: "/Volumes/Lab/Runs.lungfish/Analyses/trim", newPath: "/Volumes/Lab/Runs.lungfish/Analyses/Group/trim"
+        )])
+        let toRoot = ProvenanceCommandPresentation.folderRenames(
+            commands: [command], filePaths: ["/Volumes/Lab/Runs.lungfish/trim/out.fq"],
+            recordURL: project.appendingPathComponent("trim/.lungfish-provenance.json"), projectURL: project
+        )
+        #expect(toRoot.map(\.oldPath) == ["/Volumes/Lab/Runs.lungfish/Analyses/trim"])
+    }
+
+    /// Two old folders that could each have moved to the record's folder map neither, and a Move that also renames
+    /// is not read (the Known limit).
+    @Test func twoOldFoldersForOneNewFolderAndAMoveWithARenameMapNothing() {
+        let movedRecord = project.appendingPathComponent("Analyses/Group/trim/.lungfish-provenance.json")
+        let files = ["/Volumes/Lab/Runs.lungfish/Analyses/Group/trim/out.fq"]
+        let both = command + " --also /Volumes/Lab/Runs.lungfish/Other/trim/out.fq"
+        #expect(ProvenanceCommandPresentation.folderRenames(
+            commands: [both], filePaths: files, recordURL: movedRecord, projectURL: project
+        ).isEmpty)
+        let renamedToo = project.appendingPathComponent("Analyses/Group/trim 2/.lungfish-provenance.json")
+        #expect(ProvenanceCommandPresentation.folderRenames(
+            commands: [command], filePaths: ["/Volumes/Lab/Runs.lungfish/Analyses/Group/trim 2/out.fq"],
+            recordURL: renamedToo, projectURL: project
+        ).isEmpty)
+    }
+
     @Test func aSiblingWhoseNameExtendsTheOldFoldersStaysAsRecorded() {
         let found = [ProvenanceFolderRename(
             oldPath: "/Volumes/Lab/Runs.lungfish/Analyses/trim", newPath: "/Volumes/Lab/Runs.lungfish/Analyses/trim renamed"

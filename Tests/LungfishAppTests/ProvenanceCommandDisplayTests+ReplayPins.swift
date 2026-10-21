@@ -19,9 +19,10 @@ extension ProvenanceCommandDisplayTests {
     ]
 
     /// A Move of `Analyses/fastq-trim` into `Analyses/Group` rewrites the record's descriptors as a rename does and keeps
-    /// the argv a replay runs. The Command row finds no rename, because `folderRenames` looks for the moved file directly
-    /// under the record's ancestor, so the row and Copy Command name the folder that is gone (12.25 review, optional 2).
-    func testAMoveKeepsTheArgvAndTheCommandRowFindsNoRename() async throws {
+    /// the argv a replay runs (D1). `folderRenames` reads the Move (ARCH C1, Q2), so the Command row and Copy Command name
+    /// the moved folder, and Copy Command names no fresh folder (ruling 3(b) of 12.25). At the base the row named the
+    /// folder that is gone.
+    func testAMoveKeepsTheArgvAndTheCommandRowShowsTheMovedFolder() async throws {
         let moved = try movedRecord()
         let record = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: moved.recordURL)) as? [String: Any])
         let step = try XCTUnwrap((record["steps"] as? [[String: Any]])?.first)
@@ -33,9 +34,41 @@ extension ProvenanceCommandDisplayTests {
 
         let model = try await loadedModel(folder: moved.newFolder)
         let built = await model.renamedCommands()
-        XCTAssertTrue(built.isEmpty, "a Move is not mapped at the base: \(built)")
         let shown = try XCTUnwrap(model.lineageRuns.last?.steps.first)
-        XCTAssertEqual(shown.displayCommand, "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim/trimmed.fastq")
+        let mapped = try XCTUnwrap(built[shown.id], "a Move is mapped: \(built)")
+        let redact = ProvenanceDisplayRedaction(projectURL: moved.project)
+        XCTAssertEqual(mapped.label, "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/Group/fastq-trim/trimmed.fastq")
+        XCTAssertEqual(
+            redact(mapped.copyCommand),
+            "lungfish-cli fastq trim <project>/Inputs/reads.fastq --output <project>/Analyses/Group/fastq-trim/trimmed.fastq"
+        )
+        XCTAssertEqual(
+            mapped.note,
+            "This command ran in Analyses/fastq-trim. The row and Copy Command name Analyses/Group/fastq-trim, where the record is now."
+        )
+    }
+
+    /// A record whose command names two old folders that could each have moved to the record's folder cannot say which
+    /// one did, so `folderRenames` maps neither and the row shows the command as recorded (ARCH C1, the pin of Q2).
+    func testTwoOldFoldersForOneMovedFolderMapNothing() async throws {
+        let moved = try movedRecord(secondOldFolder: true)
+        let model = try await loadedModel(folder: moved.newFolder)
+        let envelope = try XCTUnwrap(model.resolvedEnvelope)
+        let files = envelope.files + envelope.outputs + envelope.steps.flatMap { $0.inputs + $0.outputs }
+
+        XCTAssertEqual(ProvenanceCommandPresentation.folderRenames(
+            commands: envelope.steps.map(\.reproducibleCommand),
+            filePaths: files.map(\.path),
+            recordURL: moved.recordURL,
+            projectURL: moved.project
+        ), [])
+        let built = await model.renamedCommands()
+        XCTAssertTrue(built.isEmpty, "\(built)")
+        let shown = try XCTUnwrap(model.lineageRuns.last?.steps.first)
+        XCTAssertEqual(
+            shown.displayCommand,
+            "lungfish-cli fastq trim Inputs/reads.fastq --output Analyses/fastq-trim/trimmed.fastq --report Other/fastq-trim/trimmed.fastq"
+        )
     }
 
     /// The Duplicate's copy keeps the argv, which names the source folder that is still there, while its descriptors
@@ -90,8 +123,9 @@ extension ProvenanceCommandDisplayTests {
     }
 
     /// The cancelled `fastq trim` record written into `Analyses/fastq-trim`, with its input and output on disk, and the
-    /// folder moved into `Analyses/Group` as the sidebar's Move to Folder moves it.
-    func movedRecord() throws -> RenamedRecord {
+    /// folder moved into `Analyses/Group` as the sidebar's Move to Folder moves it. With `secondOldFolder` the step's
+    /// command also names `Other/fastq-trim`, a second folder that could have moved there.
+    func movedRecord(secondOldFolder: Bool = false) throws -> RenamedRecord {
         let root = try TestTempDirectory.make(prefix: "provenance-replay-move")
         addTeardownBlock { TestTempDirectory.cleanup(root) }
         let project = root.appendingPathComponent("Commands.lungfish", isDirectory: true)
@@ -107,7 +141,11 @@ extension ProvenanceCommandDisplayTests {
         try FileManager.default.createDirectory(at: project.appendingPathComponent("Inputs"), withIntermediateDirectories: true)
         try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: project.appendingPathComponent("Inputs/reads.fastq"))
         try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: oldFolder.appendingPathComponent("trimmed.fastq"))
-        try Data(template.replacingOccurrences(of: "fastq-trim-cancelled", with: "fastq-trim").utf8)
+        let output = "--output @/Analyses/fastq-trim-cancelled/trimmed.fastq\""
+        let text = secondOldFolder
+            ? template.replacingOccurrences(of: output, with: String(output.dropLast()) + " --report @/Other/fastq-trim/trimmed.fastq\"")
+            : template
+        try Data(text.replacingOccurrences(of: "fastq-trim-cancelled", with: "fastq-trim").utf8)
             .write(to: oldFolder.appendingPathComponent(".lungfish-provenance.json"))
         try FileManager.default.moveItem(at: oldFolder, to: newFolder)
         SidebarViewController().rehydrateScientificProvenance(from: oldFolder, to: newFolder)
