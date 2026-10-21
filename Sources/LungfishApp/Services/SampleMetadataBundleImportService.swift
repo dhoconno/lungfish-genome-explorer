@@ -65,7 +65,7 @@ struct SampleMetadataBundleImportService {
         var builder = ProvenanceRunBuilder(
             workflowName: "Sample metadata import",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv([
