@@ -83,6 +83,75 @@ final class VariantEditRouteParityTests: XCTestCase {
         assertAgree(.deleteAll, found)
     }
 
+    // MARK: - V1-6, the durable replay of the deletion from the table
+
+    /// 2.13 V1-6. The record the drawer writes may name `lungfish-cli variants delete` as its durable replay argv only if that
+    /// leaf writes what the drawer's run in process writes. The drawer's deletion runs on root A and the leaf, from the command
+    /// the row records, on root C, a copy of root A. The databases are byte-equal, the drawer's `argv` names the app, and its
+    /// durable replay argv and its command are the words the leaf's record holds as its own.
+    func testVariantDeletionInProcessRunAndLeafWriteEqualBytes() async throws {
+        let caseRoot = scratch.appendingPathComponent("v16-delete", isDirectory: true)
+        let rootA = RouteParityHarness.root(of: .a, in: caseRoot)
+        let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        let fixtureA = try VariantEditFixture.make(in: rootA, withTrackManifest: true)
+        try FileManager.default.copyItem(at: rootA, to: rootC)
+        let fixtureC = fixtureA.rebased(onto: rootC)
+        let selection = [VariantEditFixture.trackID: [try fixtureA.variantIDs()[1]]]
+        let arguments = VariantDeletionMutationService.deleteSelectedArguments(bundleURL: fixtureA.bundleURL, idsByTrack: selection)
+        let reporter = RecordingOperationReporter()
+        AnnotationTableDrawerView.beginVariantStorageMutationOperation(
+            title: "Variant deletion", bundleURL: fixtureA.bundleURL, command: arguments, routeContext: nil, reporter: reporter
+        ) { _ in }
+        let command = try XCTUnwrap(reporter.items.first?.cliCommand)
+
+        // The call performVariantDeletion makes, on the same values.
+        _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
+            idsByTrack: selection, bundleURL: fixtureA.bundleURL, targets: [Self.target(of: fixtureA)],
+            invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments,
+            durableReplayArgv: [CLICommandIdentity.executableName] + arguments
+        )
+        try await RecordedCLICommand.runInProcess(try RecordedCLICommand.rebased(command, from: rootA, to: rootC))
+
+        XCTAssertEqual(
+            try Data(contentsOf: fixtureA.databaseURL), try Data(contentsOf: fixtureC.databaseURL),
+            "the drawer's deletion and variants delete leave different database bytes"
+        )
+        let app = try Self.replayWords(of: fixtureA.bundleURL, root: rootA)
+        let leaf = try Self.replayWords(of: fixtureC.bundleURL, root: rootC)
+        XCTAssertEqual(leaf.argv.first, CLICommandIdentity.executableName)
+        XCTAssertEqual(app.argv.first, LungfishAppIdentity.recordedToolName, "argv names what ran")
+        XCTAssertEqual(Array(app.argv.dropFirst()), Array(leaf.argv.dropFirst()), "argv keeps the leaf's words after the tool")
+        XCTAssertEqual(app.durableReplayArgv, leaf.argv, "the run's durable replay argv is the leaf's argv")
+        XCTAssertEqual(app.stepDurableReplayArgv, leaf.argv, "the step's durable replay argv is the leaf's argv")
+        XCTAssertEqual(app.reproducibleCommand, leaf.reproducibleCommand, "the run's command agrees with its replay line")
+        XCTAssertEqual(app.stepReproducibleCommand, leaf.stepReproducibleCommand, "the step's command agrees with its replay line")
+    }
+
+    /// What a record says it replays, with the root's path written `<ROOT>`, so two roots compare.
+    private struct ReplayWords {
+        let argv: [String]
+        let durableReplayArgv: [String]
+        let stepDurableReplayArgv: [String]
+        let reproducibleCommand: String
+        let stepReproducibleCommand: String
+    }
+
+    private static func replayWords(of bundleURL: URL, root: URL) throws -> ReplayWords {
+        let record = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+        let step = try XCTUnwrap((json["steps"] as? [[String: Any]])?.first)
+        let spellings = [root.resolvingSymlinksInPath().path, root.standardizedFileURL.path, root.path].sorted { $0.count > $1.count }
+        func masked(_ text: String) -> String { spellings.reduce(text) { $0.replacingOccurrences(of: $1, with: "<ROOT>") } }
+        func words(_ value: Any?) -> [String] { ((value as? [String]) ?? []).map(masked) }
+        return ReplayWords(
+            argv: words(json["argv"]), durableReplayArgv: words(json["durableReplayArgv"]),
+            stepDurableReplayArgv: words(step["durableReplayArgv"]),
+            reproducibleCommand: masked(json["reproducibleCommand"] as? String ?? ""),
+            stepReproducibleCommand: masked(step["reproducibleCommand"] as? String ?? "")
+        )
+    }
+
     // MARK: - The two sides
 
     /// Makes the fixture bundle in root A, copies root A to root C, runs `appRoute` on root A's

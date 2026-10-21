@@ -3128,7 +3128,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         runVariantStorageMutation(title: "Variant deletion", bundleURL: bundleURL, command: arguments, work: {
             try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
                 idsByTrack: idsByTrack, bundleURL: bundleURL, targets: targets,
-                invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments)
+                invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments, durableReplayArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in
             guard let self, result.totalDeleted > 0 else { return }
             self.totalVariantCount = max(0, self.totalVariantCount - result.totalDeleted)
@@ -3157,7 +3157,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         runVariantStorageMutation(title: "Delete all variants", bundleURL: bundleURL, command: arguments, work: {
             try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
                 bundleURL: bundleURL, targets: targets,
-                invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments)
+                invocationArgv: [LungfishAppIdentity.recordedToolName] + arguments, durableReplayArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in
             guard let self, result.totalDeleted > 0 else { return }
             self.totalVariantCount = 0

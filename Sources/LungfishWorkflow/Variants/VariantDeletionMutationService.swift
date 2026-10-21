@@ -105,11 +105,13 @@ package struct VariantDeletionMutationService {
     /// Deletes the variants `rawIDsByTrack` names from their tracks' databases and records the
     /// step, which names every row that went. `invocationArgv` is the command that made the edit,
     /// such as `lungfish-cli variants delete`. With none it starts the argv with the caller's tool name.
+    /// `durableReplayArgv` is the `lungfish-cli` command that a script replays when the caller ran the edit in its own
+    /// process, which the drawer passes (V1-6). With none the record replays `invocationArgv`.
     package func deleteVariants(
         idsByTrack rawIDsByTrack: [String: [Int64]],
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget],
-        invocationArgv: [String]? = nil
+        invocationArgv: [String]? = nil, durableReplayArgv: [String]? = nil
     ) throws -> VariantDeletionMutationResult {
         let idsByTrack = rawIDsByTrack.reduce(into: [String: [Int64]]()) { partialResult, entry in
             let ids = Array(Set(entry.value)).sorted()
@@ -121,7 +123,7 @@ package struct VariantDeletionMutationService {
             kind: .selected(idsByTrack: idsByTrack),
             bundleURL: rawBundleURL,
             targets: targets,
-            invocationArgv: invocationArgv
+            invocationArgv: invocationArgv, durableReplayArgv: durableReplayArgv
         ) { database, target in
             try database.deleteVariants(ids: idsByTrack[target.trackId] ?? [])
         }
@@ -132,13 +134,13 @@ package struct VariantDeletionMutationService {
     package func deleteAllVariants(
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget],
-        invocationArgv: [String]? = nil
+        invocationArgv: [String]? = nil, durableReplayArgv: [String]? = nil
     ) throws -> VariantDeletionMutationResult {
         try performMutation(
             kind: .all,
             bundleURL: rawBundleURL,
             targets: uniqueTargets(rawTargets),
-            invocationArgv: invocationArgv
+            invocationArgv: invocationArgv, durableReplayArgv: durableReplayArgv
         ) { database, _ in
             try database.deleteAllVariants()
         }
@@ -148,7 +150,7 @@ package struct VariantDeletionMutationService {
         kind: DeletionKind,
         bundleURL rawBundleURL: URL,
         targets rawTargets: [VariantDeletionMutationTarget],
-        invocationArgv: [String]?,
+        invocationArgv: [String]?, durableReplayArgv: [String]?,
         mutate: (VariantDatabase, VariantDeletionMutationTarget) throws -> Int
     ) throws -> VariantDeletionMutationResult {
         let bundleURL = rawBundleURL.standardizedFileURL
@@ -194,7 +196,7 @@ package struct VariantDeletionMutationService {
             let completedAt = runClock.now
             let envelope = try provenanceEnvelope(
                 kind: kind,
-                invocationArgv: invocationArgv,
+                invocationArgv: invocationArgv, durableReplayArgv: durableReplayArgv,
                 bundleURL: bundleURL,
                 targets: updatedTargets,
                 contextInputs: contextInputs,
@@ -219,7 +221,7 @@ package struct VariantDeletionMutationService {
 
     private func provenanceEnvelope(
         kind: DeletionKind,
-        invocationArgv: [String]?,
+        invocationArgv: [String]?, durableReplayArgv: [String]?,
         bundleURL: URL,
         targets: [VariantDeletionMutationTarget],
         contextInputs: [ProvenanceFileDescriptor],
@@ -231,6 +233,9 @@ package struct VariantDeletionMutationService {
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
         let argv = invocationArgv ?? kind.argv(toolName: toolName, bundleURL: bundleURL)
+        // What a script replays, and the command the record shows. It is argv unless the caller gives the `lungfish-cli` argv
+        // of a leaf that a test shows writes the same bytes (V1-6). The step then stops being an app step.
+        let replayArgv = durableReplayArgv ?? argv
         let trackOptions = Dictionary(
             uniqueKeysWithValues: targets.map {
                 ($0.trackId, ParameterValue.string($0.trackName ?? $0.trackId))
@@ -250,8 +255,8 @@ package struct VariantDeletionMutationService {
             toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
-            durableReplayArgv: argv,
-            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: replayArgv.map(shellEscape).joined(separator: " "),
             inputs: contextInputs + databaseInputs,
             outputs: databaseOutputs,
             exitStatus: 0,
@@ -268,8 +273,8 @@ package struct VariantDeletionMutationService {
             toolKind: toolKind
         )
         .argv(argv)
-        .durableReplayArgv(argv)
-        .reproducibleCommand(argv.map(shellEscape).joined(separator: " "))
+        .durableReplayArgv(replayArgv)
+        .reproducibleCommand(replayArgv.map(shellEscape).joined(separator: " "))
         .options(
             explicit: kind.explicitOptions(bundleURL: bundleURL).merging([
                 "tracks": .dictionary(trackOptions)
