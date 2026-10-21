@@ -384,7 +384,7 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
     }
 
     #if os(macOS) && arch(arm64)
-    func testBuildsMegahitCommandCapsThreadsToTwoOnAppleSilicon() throws {
+    func testBuildsMegahitCommandCapsThreadsToOneOnAppleSilicon() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("managed-assembly-megahit-threads-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -405,7 +405,7 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         let command = try ManagedAssemblyPipeline.buildCommand(for: request)
 
         let threadIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--num-cpu-threads"))
-        XCTAssertEqual(command.arguments[threadIndex + 1], "2")
+        XCTAssertEqual(command.arguments[threadIndex + 1], "1")
     }
     #endif
 

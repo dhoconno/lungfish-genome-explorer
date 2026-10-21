@@ -41,6 +41,19 @@ public struct AssemblyExecutionHost: Sendable, Equatable {
     public var capsMegahitThreads: Bool {
         operatingSystem == .macOS && architecture == "arm64"
     }
+
+    /// The most threads MEGAHIT gets on a host where ``capsMegahitThreads`` holds. The argv builder, the run record
+    /// and the assembly dialog's Threads note all read this one value.
+    ///
+    /// It is one thread because of what the Phase 2.12 probe (lane 12.29) measured. MEGAHIT 1.2.9 ran the 200 read
+    /// SARS-CoV-2 conformance sample 40 times at one thread and 40 times at two, on an M1 Ultra at a load of 4.5
+    /// to 6.5. At one thread all 40 runs passed and `final.contigs.fa` was byte-identical in every run. At two
+    /// threads 39 of 40 passed (the one failure was a SIGSEGV in `SDBG::ComputeIncomings`) and the 39 files held 16
+    /// different byte sequences and 3 different sets of contigs. One crash in 80 runs is too few to show that
+    /// either count is safer (Fisher's exact test, p = 1.0), so the cap rests on the repeatable output at one
+    /// thread and not on the crash counts. The probe never ran above two threads, so the older claim that MEGAHIT
+    /// crashes reliably above two threads is neither shown nor refuted. Raise the cap only after a new probe.
+    public static let megahitThreadCap = 1
 }
 
 /// Assembler-neutral request passed into the managed assembly pipeline.
@@ -276,16 +289,23 @@ public extension AssemblyRunRequest {
         return max(minContigLength, 1)
     }
 
-    var effectiveMegahitMemoryBytes: Int64? {
+    /// The whole gigabytes MEGAHIT gets, or `nil` when the request names none or the tool is not MEGAHIT. A request
+    /// below 1 GB gets 1 GB, and ``normalizedForExecution(on:)`` stores this value so the record names it.
+    var effectiveMegahitMemoryGB: Int? {
         guard tool == .megahit, let memoryGB else { return nil }
-        return Int64(max(memoryGB, 1)) * 1024 * 1024 * 1024
+        return max(memoryGB, 1)
+    }
+
+    var effectiveMegahitMemoryBytes: Int64? {
+        guard let memoryGB = effectiveMegahitMemoryGB else { return nil }
+        return Int64(memoryGB) * 1024 * 1024 * 1024
     }
 
     func effectiveThreadCount(on host: AssemblyExecutionHost = .current) -> Int {
         let requestedThreads = max(threads, 1)
         if tool == .megahit && host.capsMegahitThreads {
-            // MEGAHIT 1.2.9 arm64 crashes reliably above two threads on Apple Silicon.
-            return min(requestedThreads, 2)
+            // The measurements behind the cap sit with AssemblyExecutionHost.megahitThreadCap.
+            return min(requestedThreads, AssemblyExecutionHost.megahitThreadCap)
         }
         return requestedThreads
     }
@@ -299,7 +319,7 @@ public extension AssemblyRunRequest {
             outputDirectory: outputDirectory,
             pairedEnd: pairedEnd,
             threads: effectiveThreadCount(on: host),
-            memoryGB: memoryGB,
+            memoryGB: effectiveMegahitMemoryGB ?? memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: selectedProfileID ?? (tool == .flye
                 ? FlyeProfileSelector.profileID(forReadType: AssemblyCompatibility.effectiveReadType(tool: tool, readType: readType))

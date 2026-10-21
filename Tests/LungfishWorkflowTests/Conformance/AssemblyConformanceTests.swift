@@ -102,7 +102,7 @@ final class AssemblyConformanceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         // Exercise the same command builder used by the shipped pipeline.
-        // In particular, Apple Silicon execution is capped at two threads
+        // In particular, Apple Silicon execution is capped at one thread
         // and uses MEGAHIT's non-accelerated core. A hand-written invocation
         // without `--no-hw-accel` can select megahit_core_popcnt and abort
         // under CI even though Lungfish never runs that command.
@@ -121,7 +121,7 @@ final class AssemblyConformanceTests: XCTestCase {
         #if os(macOS) && arch(arm64)
         XCTAssertTrue(command.arguments.contains("--no-hw-accel"))
         let threadIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--num-cpu-threads"))
-        XCTAssertEqual(command.arguments[threadIndex + 1], "2")
+        XCTAssertEqual(command.arguments[threadIndex + 1], "1")
         #endif
 
         let res = try ProcessRunner.run(

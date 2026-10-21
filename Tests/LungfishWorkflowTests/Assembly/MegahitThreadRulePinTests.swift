@@ -4,7 +4,8 @@
 //
 // Pins of the thread count, the memory and the argv a MEGAHIT request gets on each host, and of the value the
 // assembly record and the bundle metadata hold for a request of 8 threads (Phase 2.13 lane 13.19 M1, QA 1).
-// The expected numbers are the arm64 cap, so a change of the cap moves exactly these lines.
+// The expected numbers are the arm64 cap of one thread (O8, from the 12.29 probe), so a change of the cap moves
+// exactly these lines.
 
 import XCTest
 @testable import LungfishWorkflow
@@ -69,20 +70,24 @@ private enum MegahitRuleFixtures {
 final class MegahitThreadRulePinTests: XCTestCase {
     private let folder = URL(fileURLWithPath: "/tmp/megahit-rule-pin-never-written/out")
 
-    func testOnlyAppleSiliconCapsMegahitThreads() {
+    func testOnlyAppleSiliconCapsMegahitThreadsAndTheCapIsOne() {
         XCTAssertTrue(MegahitRuleHosts.appleSilicon.capsMegahitThreads)
         XCTAssertFalse(MegahitRuleHosts.intelMac.capsMegahitThreads)
         XCTAssertFalse(MegahitRuleHosts.otherSystem.capsMegahitThreads)
+        XCTAssertEqual(AssemblyExecutionHost.megahitThreadCap, 1)
     }
 
     func testEffectiveThreadCountOfAMegahitRequestOnEachHost() {
         let eight = MegahitRuleFixtures.request(threads: 8, outputDirectory: folder)
-        XCTAssertEqual(eight.effectiveThreadCount(on: MegahitRuleHosts.appleSilicon), 2)
+        XCTAssertEqual(eight.effectiveThreadCount(on: MegahitRuleHosts.appleSilicon), 1)
         XCTAssertEqual(eight.effectiveThreadCount(on: MegahitRuleHosts.intelMac), 8)
         XCTAssertEqual(eight.effectiveThreadCount(on: MegahitRuleHosts.otherSystem), 8)
-        XCTAssertEqual(eight.normalizedForExecution(on: MegahitRuleHosts.appleSilicon).threads, 2)
+        XCTAssertEqual(eight.normalizedForExecution(on: MegahitRuleHosts.appleSilicon).threads, 1)
         XCTAssertEqual(eight.normalizedForExecution(on: MegahitRuleHosts.otherSystem).threads, 8)
 
+        let two = MegahitRuleFixtures.request(threads: 2, outputDirectory: folder)
+        XCTAssertEqual(two.effectiveThreadCount(on: MegahitRuleHosts.appleSilicon), 1)
+        XCTAssertEqual(two.effectiveThreadCount(on: MegahitRuleHosts.otherSystem), 2)
         let one = MegahitRuleFixtures.request(threads: 1, outputDirectory: folder)
         XCTAssertEqual(one.effectiveThreadCount(on: MegahitRuleHosts.appleSilicon), 1)
         let none = MegahitRuleFixtures.request(threads: 0, outputDirectory: folder)
@@ -102,7 +107,7 @@ final class MegahitThreadRulePinTests: XCTestCase {
             threads: 8, memoryGB: 24, outputDirectory: scratch.appendingPathComponent("out"))
 
         let apple = try ManagedAssemblyPipeline.buildCommand(for: request, host: MegahitRuleHosts.appleSilicon).arguments
-        XCTAssertEqual(MegahitRuleFixtures.value(after: "--num-cpu-threads", in: apple), "2")
+        XCTAssertEqual(MegahitRuleFixtures.value(after: "--num-cpu-threads", in: apple), "1")
         XCTAssertEqual(MegahitRuleFixtures.value(after: "--memory", in: apple), "25769803776")
         XCTAssertTrue(apple.contains("--no-hw-accel"))
 
@@ -140,11 +145,11 @@ final class MegahitThreadRulePinTests: XCTestCase {
 
         let ranRecord = ProvenanceBuilder.build(
             request: ran, result: try MegahitRuleFixtures.result(for: ran), inputRecords: [])
-        XCTAssertEqual(ranRecord.parameters.threads, 2, "the CLI hands over the normalized request")
+        XCTAssertEqual(ranRecord.parameters.threads, 1, "the CLI hands over the normalized request")
         XCTAssertEqual(ranRecord.parameters.memoryGB, 24)
     }
 
-    func testRecordOfAZeroGigabyteRequestNamesZeroWhileTheArgvAsksForOne() throws {
+    func testRecordOfAZeroGigabyteRequestNamesTheOneGigabyteTheArgvAsksFor() throws {
         let scratch = try MegahitRuleFixtures.scratch("zero-memory")
         defer { try? FileManager.default.removeItem(at: scratch) }
         let zero = MegahitRuleFixtures.request(
@@ -155,7 +160,7 @@ final class MegahitThreadRulePinTests: XCTestCase {
         XCTAssertEqual(MegahitRuleFixtures.value(after: "--memory", in: arguments), "1073741824")
         let record = ProvenanceBuilder.build(
             request: ran, result: try MegahitRuleFixtures.result(for: ran), inputRecords: [])
-        XCTAssertEqual(record.parameters.memoryGB, 0)
+        XCTAssertEqual(record.parameters.memoryGB, 1)
     }
 }
 
@@ -180,10 +185,10 @@ final class MegahitThreadRuleBundleConformanceTests: XCTestCase {
 
         let manifest = try BundleManifest.load(from: bundleURL)
         let parameters = try XCTUnwrap(manifest.metadata?.first { $0.name == "Assembly Parameters" })
-        XCTAssertEqual(parameters.items.first { $0.label == "Threads" }?.value, "2")
+        XCTAssertEqual(parameters.items.first { $0.label == "Threads" }?.value, "1")
         XCTAssertEqual(parameters.items.first { $0.label == "Memory" }?.value, "24 GB")
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
-        XCTAssertEqual(envelope.options.explicit["threads"], .integer(2))
+        XCTAssertEqual(envelope.options.explicit["threads"], .integer(1))
         XCTAssertEqual(envelope.options.explicit["memoryGB"], .integer(24))
     }
 }
