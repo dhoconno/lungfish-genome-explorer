@@ -221,22 +221,19 @@ extension VariantDatabase {
             let valueParam = paramIndex; paramIndex += 1
             // An equality on a key that holds a comma-joined list matches one member of the list.
             let matchesMember = op == .eq && allKeys.allSatisfy(Self.holdsValueList)
-            let boundValue: String
-            switch op {
-            case .like: boundValue = SQLiteLikePattern.contains(value)
-            case .eq where matchesMember: boundValue = SQLiteLikePattern.listMember(value)
-            default: boundValue = value
-            }
-            bindings.append((valueParam, boundValue))
+            bindings.append((valueParam, op == .like ? SQLiteLikePattern.contains(value) : value))
 
             let cast = "CAST(vi.value AS REAL)"
+            // One member of the list, compared in the case it is written, as `=` compares a whole value. Gene symbols
+            // that differ only by case are different genes.
+            let member = "instr(',' || vi.value || ',', ',' || ? || ',')"
             let cmp: String
             switch op {
             case .gt:   cmp = "\(cast) > CAST(? AS REAL)"
             case .gte:  cmp = "\(cast) >= CAST(? AS REAL)"
             case .lt:   cmp = "\(cast) < CAST(? AS REAL)"
             case .lte:  cmp = "\(cast) <= CAST(? AS REAL)"
-            case .eq:   cmp = matchesMember ? "(',' || vi.value || ',') LIKE ? ESCAPE '\\'" : "vi.value = ?"
+            case .eq:   cmp = matchesMember ? "\(member) > 0" : "vi.value = ?"
             case .neq:  cmp = "vi.value != ?"
             case .like: cmp = "vi.value LIKE ? ESCAPE '\\'"
             }

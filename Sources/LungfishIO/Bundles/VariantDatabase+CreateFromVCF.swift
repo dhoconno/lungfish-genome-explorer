@@ -1202,7 +1202,7 @@ extension VariantDatabase {
                 let keyList = impactKeys.map { "'\($0)'" }.joined(separator: ",")
                 tables.append(TableDef(
                     name: "_high_impact",
-                    sql: "CREATE TABLE IF NOT EXISTS _high_impact AS SELECT DISTINCT variant_id FROM variant_info WHERE key IN (\(keyList)) AND (',' || value || ',') LIKE '%,HIGH,%'",
+                    sql: "CREATE TABLE IF NOT EXISTS _high_impact AS SELECT DISTINCT variant_id FROM variant_info WHERE key IN (\(keyList)) AND instr(',' || value || ',', ',HIGH,') > 0",
                     idColumn: "variant_id",
                     indexSQL: "CREATE INDEX IF NOT EXISTS _idx_hi ON _high_impact(variant_id)"
                 ))

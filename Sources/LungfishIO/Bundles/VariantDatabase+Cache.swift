@@ -48,7 +48,7 @@ extension VariantDatabase {
         return """
         SELECT DISTINCT variant_id FROM (
             SELECT variant_id FROM variant_info
-            WHERE key IN (\(impactKeyList)) AND (',' || value || ',') LIKE '%,HIGH,%'
+            WHERE key IN (\(impactKeyList)) AND instr(',' || value || ',', ',HIGH,') > 0
             UNION
             SELECT variant_id FROM variant_info
             WHERE key IN (\(consequenceKeyList))
@@ -121,7 +121,7 @@ extension VariantDatabase {
         CREATE TABLE IF NOT EXISTS _high_impact AS
         SELECT DISTINCT variant_id FROM variant_info
         WHERE key IN (\(keyList))
-        AND (',' || value || ',') LIKE '%,HIGH,%'
+        AND instr(',' || value || ',', ',HIGH,') > 0
         """
         var err: UnsafeMutablePointer<CChar>?
         let rc = sqlite3_exec(db, sql, nil, nil, &err)

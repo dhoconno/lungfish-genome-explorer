@@ -15,11 +15,6 @@ enum SQLiteLikePattern {
         "%\(escapedLiteral(literal))"
     }
 
-    /// Matches `literal` as one member of a comma-joined list, for `(',' || value || ',') LIKE ? ESCAPE '\'`.
-    static func listMember(_ literal: String) -> String {
-        "%,\(escapedLiteral(literal)),%"
-    }
-
     static func escapedLiteral(_ literal: String) -> String {
         var escaped = ""
         escaped.reserveCapacity(literal.count)
