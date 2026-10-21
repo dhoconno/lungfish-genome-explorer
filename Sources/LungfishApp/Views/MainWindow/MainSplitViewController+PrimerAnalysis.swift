@@ -76,40 +76,13 @@ extension MainSplitViewController {
             ProjectSession.contains(draft.selection.analysisURL, in: projectURL), canWriteProjectOutputs(workflowName: title) else { return }
         do {
             let destination = try PrimerAnalysisExportDestination(projectURL: projectURL, name: metadata.name, kind: .primerOrder)
-            let center = OperationCenter.shared
             let detail = draft.selection.isPrimer3CandidateSelection ? "Verifying \(draft.oligos.count) candidate oligos…"
                 : normalized ? "Verifying \(draft.oligos.count) saved assay oligos…"
                 : "Verifying \(draft.oligos.count) displayed oligos…"
-            Self.beginPrimerOrderExportOperation(title: title, detail: detail, draft: draft, metadata: metadata,
-                destinationURL: destination.url,
-                routeContext: .init(projectURL: projectURL, windowStateScope: windowStateScope)) { id in
-                let task = Task { @MainActor [weak self] in
-                    guard center.items.first(where: { $0.id == id })?.state.isActive == true else { return }
-                    do {
-                        try Task.checkCancellation()
-                        _ = try await PrimerOrderExportService().export(selection: draft.selection, metadata: metadata,
-                            destinationURL: destination.url,
-                            invocationArgv: Self.primerOrderExportProvenanceArgv(draft: draft, metadata: metadata,
-                                destinationURL: destination.url),
-                            progress: { fraction, message in
-                                Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
-                            }, publish: { [weak self] stagedURL, finalURL in
-                                try await MainActor.run {
-                                    try PrimerAnalysisExportPublication.commit(stagedURL: stagedURL, destinationURL: finalURL,
-                                        center: center, operationID: id) {
-                                        guard let self,
-                                            (self.projectSession.projectURL ?? self.sidebarController.currentProjectURL)?.standardizedFileURL == projectURL.standardizedFileURL,
-                                            !self.projectSession.isReadOnlyRecommended else { throw CancellationError() }
-                                        try destination.validateBeforePublication()
-                                    }
-                                    self?.sidebarController.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-                                }
-                            })
-                    } catch is CancellationError { center.acknowledgeCancellation(id: id) }
-                    catch { center.fail(id: id, detail: "Primer order export failed.", errorMessage: error.localizedDescription,
-                        errorDetail: String(reflecting: error)) }
-                }
-                center.setCancelCallback(for: id) { task.cancel() }
+            Self.beginPrimerOrderExportOperation(title: title, detail: detail,
+                invocation: Self.primerOrderExportInvocation(draft: draft, metadata: metadata, destinationURL: destination.url),
+                routeContext: .init(projectURL: projectURL, windowStateScope: windowStateScope)) { [weak self] in
+                self?.sidebarController.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             }
             (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
         } catch {
@@ -173,38 +146,11 @@ extension MainSplitViewController {
             let destination = try PrimerAnalysisExportDestination(projectURL: projectURL,
                 name: analysisURL.deletingPathExtension().lastPathComponent + " " + suffix)
             let route = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
-            let center = OperationCenter.shared
-            Self.beginPrimerAnalysisSelectionExportOperation(title: title, destinationURL: destination.url,
-                cliCommand: Self.primerSelectionExportCLICommand(analysisURL: analysisURL, selection: selection,
+            Self.beginPrimerAnalysisSelectionExportOperation(title: title,
+                invocation: Self.primerSelectionExportInvocation(analysisURL: analysisURL, selection: selection,
                     kind: kind, destinationURL: destination.url),
-                routeContext: route) { id in
-                let task = Task { @MainActor [weak self] in
-                    guard center.items.first(where: { $0.id == id })?.state.isActive == true else { return }
-                    do {
-                        try Task.checkCancellation()
-                        _ = try await PrimerAnalysisSelectionExportService().export(
-                            analysisURL: analysisURL, selection: selection, kind: kind,
-                            destinationURL: destination.url,
-                            invocationArgv: Self.primerSelectionExportProvenanceArgv(analysisURL: analysisURL,
-                                selection: selection, kind: kind, destinationURL: destination.url),
-                            progress: { fraction, message in
-                                Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
-                            }, publish: { [weak self] stagedURL, finalURL in
-                                try await MainActor.run {
-                                    try PrimerAnalysisExportPublication.commit(stagedURL: stagedURL,
-                                        destinationURL: finalURL, center: center, operationID: id) {
-                                        guard let self, (self.projectSession.projectURL ?? self.sidebarController.currentProjectURL)?.standardizedFileURL == projectURL.standardizedFileURL,
-                                            !self.projectSession.isReadOnlyRecommended else { throw CancellationError() }
-                                        try destination.validateBeforePublication()
-                                    }
-                                    self?.sidebarController.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
-                                }
-                            })
-                    } catch is CancellationError { center.acknowledgeCancellation(id: id) }
-                    catch { center.fail(id: id, detail: "Primer export failed.", errorMessage: error.localizedDescription,
-                        errorDetail: String(reflecting: error)) }
-                }
-                center.setCancelCallback(for: id) { task.cancel() }
+                routeContext: route) { [weak self] in
+                self?.sidebarController.requestReloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             }
             (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
         } catch {
