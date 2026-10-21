@@ -110,7 +110,9 @@ Read on 2026-10-21 from chtc.cs.wisc.edu and htcondor.readthedocs.io (CHTC inv s
 | `oconnor-ap4000` answers to the owner's keys with no prompt. It runs HTCondor 26.1.0 and has 32 cores, 250 GB of memory and a 182 TB `/home` | `ssh -o BatchMode=yes oconnor-ap4000`, `condor_version`, `nproc`, `free -g`, `df -h` |
 | The pool reports 17,339 `x86_64-v3` slots, 1,226 `x86_64-v4` slots and 7 undefined | `condor_status -af Microarch` |
 | `/staging/groups/oconnor_group/32748` holds only `nvd-results` (9.2 GB). No `C079876*` file sits within four levels of the group folder | `ls`, `du -sh`, `find -maxdepth 4` |
-| The 2026-10-20 import read `/Volumes/sandbox/32748/C079876_S1_R1_001.fastq.gz` and its R2, a volume not mounted now | last night's session transcript |
+| The 2026-10-20 import read `/Volumes/sandbox/32748/C079876_S1_R1_001.fastq.gz` (30,574,724,682 bytes, SHA-256 `41c8f375…13b47`) and its R2 (30,985,730,296 bytes, `e8bffe53…de1df`) from the owner's external SSD | last night's session transcript, `shasum -a 256` |
+| The C0 test slice is the first 1,000,000 pairs of C079876_S1 (279,439,307 bases, every mate name matched), written by pinned pigz 2.8 at level 6 with no name or time in the header. Its decompressed content equals the slice that `f276c7ed0` and `f1ac4f6b2` benchmarked. Copies with `C079876_S1_1M.provenance.json` and the two scripts that made and checked it sit in `/Users/dho/Documents/lungfish-chtc-testing/32748/` and `/staging/groups/oconnor_group/32748/lge-chtc-test/input/`, checked by SHA-256 on arrival | `make_1m_slice.sh`, `verify_slice.py` |
+| `transfer.chtc.wisc.edu` timed out on port 22 from the owner's network, so the slice went up through `oconnor-ap4000`, the access point the owner named | `ssh -o BatchMode=yes` |
 | `origin/main` is 1,229 commits past local `main`. Since `ab548cd87`, 2.13 changed 60 files (2,329 lines in, 684 out) under Recipes, Ingestion, the import commands, IO FASTQ and Compression, the tool lock, Provenance and Core Process | `git diff --stat ab548cd87 origin/main` at `934305361` |
 | The account's weekly quota read 82% on 2026-10-21 at 16:58 CDT and resets on 2026-10-25. 2.13 starts no new row past 87% (2.13 O19) | `get_usage` |
 
@@ -137,8 +139,9 @@ take 2.13's share, which is the manager's call under 2.13 O19.
 | Q4 | Should VSP2 imports bin qualities as the recipe says, or keep the CLI's `none`? (Q-B3) |
 | Q5 | For CHTC staff. May LGE submit over a reused SSH session, does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? (Q-C3, Q-C10, Q-C5) |
 | Q6 | Where did the excessive provenance reads after statistics show up? No commit or branch names them |
-| Q7 | Where do the C079876 reads of 32748 sit on CHTC, or should C0 copy them up from the sandbox volume? |
+
+The owner settled Q7 on 2026-10-21 ("Sure I plugged in the SSD so you can copy the 1m reads to the internal SSD for testing"). The slice row above records where it went. The full sample stays on the external SSD for M1.
 
 ## Next step
 
-C0 after the quota reset. The manager already took the node census.
+C0 after the quota reset. The manager already took the node census and staged the test slice.
