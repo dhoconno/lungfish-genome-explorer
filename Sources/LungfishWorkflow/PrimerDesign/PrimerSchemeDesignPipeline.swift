@@ -81,7 +81,7 @@ public struct PrimerSchemeDesignPipeline: Sendable {
     private func runOffMain(
         request: PrimerSchemeDesignRequest, progress: Progress?
     ) async throws -> URL {
-        try preflight(request)
+        let destinationURL = try preflight(request)
         try request.options.validate()
         try Task.checkCancellation()
 
@@ -95,7 +95,7 @@ public struct PrimerSchemeDesignPipeline: Sendable {
         try Task.checkCancellation()
 
         let python = try executable(request: request, lease: lease)
-        let parent = request.destinationURL.deletingLastPathComponent()
+        let parent = destinationURL.deletingLastPathComponent()
         let failure = parent.appendingPathComponent(
             ".primer-scheme-failure-\(request.runID.uuidString)", isDirectory: true)
         guard !FileManager.default.fileExists(atPath: failure.path) else {
@@ -244,7 +244,7 @@ public struct PrimerSchemeDesignPipeline: Sendable {
                     analysisID: request.analysisID, runID: request.runID,
                     grouping: request.options.grouping, inputs: inputManifest,
                     results: resultManifest, artifacts: artifacts,
-                    destinationURL: request.destinationURL, invocation: augmented))
+                    destinationURL: destinationURL, invocation: augmented))
                 progress?(1, "Primer analysis published")
                 return bundle.url
             } catch {
@@ -330,7 +330,10 @@ public struct PrimerSchemeDesignPipeline: Sendable {
                                     isDirectory: true)
     }
 
-    private func preflight(_ request: PrimerSchemeDesignRequest) throws {
+    /// Validates the request and returns the physical destination. The parent the user chose is resolved here once with
+    /// `realpath(3)`, as Primer3 and PrimalScheme3 do, so private storage, failure evidence and every source file are
+    /// physical and the bundle writer's no-follow walks meet only real folders. A link swapped in later is refused.
+    private func preflight(_ request: PrimerSchemeDesignRequest) throws -> URL {
         guard !request.inputURLs.isEmpty,
               request.destinationURL.isFileURL,
               request.destinationURL.pathExtension == "lungfishprimeranalysis",
@@ -341,13 +344,23 @@ public struct PrimerSchemeDesignPipeline: Sendable {
             throw PrimerSchemeDesignError.invalidRequest(
                 "Distinct inputs, IDs, exact invocation argv, and a new .lungfishprimeranalysis destination are required.")
         }
-        let parent = request.destinationURL.deletingLastPathComponent()
+        guard !request.destinationURL.pathComponents.contains("..") else {
+            throw PrimerSchemeDesignError.invalidRequest("The destination path must not contain .. components.")
+        }
+        let parentMessage = "The destination parent must be an existing directory and the destination must not exist."
+        guard let resolved = realpath(request.destinationURL.deletingLastPathComponent().path, nil) else {
+            throw PrimerSchemeDesignError.invalidRequest(parentMessage)
+        }
+        defer { free(resolved) }
+        let destination = URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+            .appendingPathComponent(request.destinationURL.lastPathComponent)
+        let parent = destination.deletingLastPathComponent()
         let values = try parent.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard values.isDirectory == true, values.isSymbolicLink != true,
-              !FileManager.default.fileExists(atPath: request.destinationURL.path) else {
-            throw PrimerSchemeDesignError.invalidRequest(
-                "The destination parent must be an existing non-symlink directory and the destination must not exist.")
+              !FileManager.default.fileExists(atPath: destination.path) else {
+            throw PrimerSchemeDesignError.invalidRequest(parentMessage)
         }
+        return destination
     }
 
     private func executable(

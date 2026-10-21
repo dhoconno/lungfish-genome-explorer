@@ -13,9 +13,9 @@ import XCTest
 
 final class PrimerSchemeAdapterSymlinkedRootTests: XCTestCase {
     /// A design whose project is spelled through a symlink passes the launched-argv check. At the base it failed there
-    /// with the check's message. The bundle writer then refuses the symlinked destination parent
-    /// (`PrimerAnalysisBundleWriter.openSafeExistingDirectory`, "destination parent traversal is unsafe"), a separate
-    /// item outside this grant, so the run is not asserted to save.
+    /// with the check's message. The design now saves at the physical path too (lane 13.49 resolves the destination
+    /// parent once in the pipeline), which `PrimerDesignSpelledDestinationTests` asserts, so this test asserts the
+    /// check only.
     func testADesignUnderASymlinkedRootPassesTheLaunchedArgvCheck() async throws {
         let fixture = try PrimerSchemePipelineFixture()
         defer { fixture.remove() }
@@ -79,7 +79,7 @@ final class PrimerSchemeAdapterSymlinkedRootTests: XCTestCase {
 
     /// The fixture's tiled request with its input and its `Analyses` folder in a project spelled through `/var`, the
     /// symlink macOS keeps for `/private/var`, as a project under `/tmp`, `/var` or a linked folder is spelled. The
-    /// destination's parent is a real folder, as the pipeline's preflight requires.
+    /// destination's parent is a real folder.
     private static func linkedRequest(
         _ fixture: PrimerSchemePipelineFixture
     ) throws -> (URL, PrimerSchemeDesignRequest) {

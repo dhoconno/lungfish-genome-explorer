@@ -2,35 +2,114 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.49 M1 (moved-out row M852, PARENT-NOFOLLOW). These are pins of today's behaviour, each passing at
-// the base. `/tmp` and `/var` are links into `/private`, and `PrimerAnalysisBundleWriter` opens every component of the
-// destination parent from `/` with `O_NOFOLLOW`. Primer3 and PrimalScheme3 spell the parent physically with
-// `realpath(3)` before the writer (`Primer3DesignPipeline.physicalDestination`, `PrimalScheme3DesignPipeline.physicalParent`)
-// and save. `PrimerSchemeDesignPipeline`, which runs Olivar and varVAMP, hands the writer the destination as the caller
-// spelled it, and the writer refuses it with "destination parent traversal is unsafe". M2 turns the four Olivar and
-// varVAMP pins into saves.
+// Phase 2.13 lane 13.49 (moved-out row M852, PARENT-NOFOLLOW). `/tmp` and `/var` are links into `/private`, and
+// `PrimerAnalysisBundleWriter` opens every component of the destination parent from `/` with `O_NOFOLLOW`, so every
+// engine must hand it a physical parent. Primer3 and PrimalScheme3 resolve the parent with `realpath(3)` in their own
+// pipelines (`Primer3DesignPipeline.physicalDestination`, `PrimalScheme3DesignPipeline.physicalParent`).
+// `PrimerSchemeDesignPipeline`, which runs Olivar and varVAMP, resolves it once the same way in `preflight` (M2), so its
+// private storage and every source file are physical too. The writer keeps its strict contract, which the last tests
+// pin, and refuses a parent or a bundle name that is a link by the time it walks.
 
 import Foundation
 import XCTest
 @testable import LungfishWorkflow
 
 final class PrimerDesignSpelledDestinationTests: XCTestCase {
-    // MARK: - Olivar and varVAMP hand the writer the spelled destination, which it refuses
+    // MARK: - Olivar and varVAMP resolve the parent once in preflight, so they save at the physical path
 
-    func testOlivarUnderASpelledTmpParentIsRefusedAtTheDestinationWalk() async throws {
-        assertSchemeEngineRefused(try await SpelledDestinationHarness.olivar(.tmp))
+    func testOlivarUnderASpelledTmpParentSavesAtThePhysicalPath() async throws {
+        assertEngineSavedAtThePhysicalPath(try await SpelledDestinationHarness.olivar(.tmp))
     }
 
-    func testOlivarUnderASpelledVarFoldersParentIsRefusedAtTheDestinationWalk() async throws {
-        assertSchemeEngineRefused(try await SpelledDestinationHarness.olivar(.varFolders))
+    func testOlivarUnderASpelledVarFoldersParentSavesAtThePhysicalPath() async throws {
+        assertEngineSavedAtThePhysicalPath(try await SpelledDestinationHarness.olivar(.varFolders))
     }
 
-    func testVarVAMPUnderASpelledTmpParentIsRefusedAtTheDestinationWalk() async throws {
-        assertSchemeEngineRefused(try await SpelledDestinationHarness.varvamp(.tmp))
+    func testVarVAMPUnderASpelledTmpParentSavesAtThePhysicalPath() async throws {
+        assertEngineSavedAtThePhysicalPath(try await SpelledDestinationHarness.varvamp(.tmp))
     }
 
-    func testVarVAMPUnderASpelledVarFoldersParentIsRefusedAtTheDestinationWalk() async throws {
-        assertSchemeEngineRefused(try await SpelledDestinationHarness.varvamp(.varFolders))
+    func testVarVAMPUnderASpelledVarFoldersParentSavesAtThePhysicalPath() async throws {
+        assertEngineSavedAtThePhysicalPath(try await SpelledDestinationHarness.varvamp(.varFolders))
+    }
+
+    // MARK: - A link the user chose is followed once, a link that appears later is refused
+
+    /// The user's `Analyses` folder is a link to `Analyses-real`. The run works in the folder the link named when it
+    /// began, the user's link stays, and the record names the physical path while the argv keeps the typed one.
+    func testOlivarUnderAnAnalysesFolderTheUserLinkedSavesAtThePhysicalPath() async throws {
+        let run = try await SpelledDestinationHarness.olivar(.tmp) { project in
+            let real = project.physical.appendingPathComponent("Analyses-real", isDirectory: true)
+            try FileManager.default.moveItem(at: project.analyses, to: real)
+            try FileManager.default.createSymbolicLink(at: project.analyses, withDestinationURL: real)
+        }
+        defer { run.project.remove() }
+        let real = run.project.physical.appendingPathComponent("Analyses-real", isDirectory: true)
+        let destination = real.appendingPathComponent("result.lungfishprimeranalysis")
+        assertSpelledThroughALink(run)
+        let bundle = assertSpelledRunSaved(run, at: destination)
+        XCTAssertTrue(
+            run.runnerPath?.hasPrefix(real.path + "/") == true, "\(run.runnerPath ?? "no runner path") is in \(real.path)")
+        XCTAssertTrue(isSymbolicLink(run.project.analyses), "the user's link is still a link")
+        guard let bundle else { return }
+        XCTAssertEqual(bundle.manifest.publishedRootPath, destination.path)
+        let envelope = try ProvenanceEnvelopeReader.load(
+            fromSidecar: bundle.artifactURL(forRelativePath: "provenance/wrapper.json"))
+        XCTAssertEqual(envelope?.argv.last, run.project.spelledDestination.path, "the argv keeps the typed path")
+        XCTAssertEqual(envelope?.outputs.isEmpty, false)
+        XCTAssertTrue(
+            envelope?.outputs.allSatisfy { $0.path.hasPrefix(destination.path + "/") } == true,
+            "every recorded output is under the physical bundle")
+    }
+
+    /// A dangling link planted at the bundle's own name is not part of the parent. The writer refuses it, and nothing
+    /// is written through it.
+    func testASchemeDesignRefusesALinkPlantedAtTheBundleName() async throws {
+        let run = try await SpelledDestinationHarness.olivar(.tmp) { project in
+            let elsewhere = project.physical.appendingPathComponent("elsewhere", isDirectory: true)
+            try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(
+                at: project.physicalDestination,
+                withDestinationURL: elsewhere.appendingPathComponent("planted.lungfishprimeranalysis"))
+        }
+        defer { run.project.remove() }
+        let elsewhere = run.project.physical.appendingPathComponent("elsewhere", isDirectory: true)
+        let target = elsewhere.appendingPathComponent("planted.lungfishprimeranalysis")
+        guard let text = failureText(run) else { return }
+        XCTAssertTrue(text.contains("Primer analysis destination already exists"), text)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [], "nothing went through the link")
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: run.project.physicalDestination.path), target.path)
+        let names = try FileManager.default.contentsOfDirectory(atPath: run.project.analyses.path)
+        XCTAssertTrue(names.contains("result.lungfishprimeranalysis"), "\(names)")
+        XCTAssertTrue(
+            names.allSatisfy { $0 == "result.lungfishprimeranalysis" || $0.hasPrefix(".primer-scheme-failure-") },
+            "\(names)")
+    }
+
+    /// The stand-in runner swaps the resolved parent for a link to another folder after it wrote its output. The run is
+    /// refused, and nothing is published or staged in the folder the link names. A step before the writer refuses it
+    /// first, the adapter output inventory check (`PrimerSchemeAdapterResultLoader.loadVerified`,
+    /// `PrimerSchemeAdapterRunner.swift:411-415`), which reads the output tree through the link. The writer's own walk
+    /// of a linked parent is pinned by `PrimerAnalysisBundleWriterSpelledPathTests`.
+    func testASchemeDesignRefusesItsResolvedParentSwappedForALinkDuringTheRun() async throws {
+        let run = try await SpelledDestinationHarness.olivar(.tmp, afterRunner: { project in
+            let moved = project.physical.appendingPathComponent("Analyses-moved", isDirectory: true)
+            try FileManager.default.moveItem(at: project.analyses, to: moved)
+            try FileManager.default.createSymbolicLink(at: project.analyses, withDestinationURL: moved)
+        })
+        defer { run.project.remove() }
+        assertSpelledThroughALink(run)
+        assertRunnerPath(run, isSpelled: false)
+        guard let text = failureText(run) else { return }
+        XCTAssertTrue(
+            text.contains("Adapter artifact inventory does not exactly cover every published native file"), text)
+        XCTAssertTrue(isSymbolicLink(run.project.analyses), "the swapped link is still there")
+        let moved = run.project.physical.appendingPathComponent("Analyses-moved", isDirectory: true)
+        let names = try FileManager.default.contentsOfDirectory(atPath: moved.path)
+        XCTAssertFalse(names.contains { $0.hasSuffix(".lungfishprimeranalysis") }, "nothing was published: \(names)")
+        XCTAssertFalse(names.contains { $0.contains(".staging-") }, "nothing was staged: \(names)")
+        XCTAssertTrue(names.allSatisfy { $0.hasPrefix(".primer-scheme-failure-") }, "\(names)")
     }
 
     // MARK: - Primer3 and PrimalScheme3 spell the parent physically first, so they save
@@ -53,13 +132,10 @@ final class PrimerDesignSpelledDestinationTests: XCTestCase {
 
     // MARK: - Assertions
 
-    /// The writer refused the destination parent walk, and the pipeline's private storage, where the writer's source
-    /// files sit, is spelled through the same link.
-    private func assertSchemeEngineRefused(_ run: SpelledRun, file: StaticString = #filePath, line: UInt = #line) {
-        defer { run.project.remove() }
-        assertSpelledThroughALink(run, file: file, line: line)
-        assertSpelledRunRefusedAtTheDestinationParent(run, file: file, line: line)
-        assertRunnerPath(run, isSpelled: true, file: file, line: line)
+    /// `lstat` says the path is a link, which a read that follows links would not.
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink
     }
 
     /// The design saved at the physical path and its private storage was spelled physically.

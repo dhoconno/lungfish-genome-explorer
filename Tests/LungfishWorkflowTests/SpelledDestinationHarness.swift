@@ -115,37 +115,38 @@ func assertRunnerPath(
         file: file, line: line)
 }
 
-/// The design saved a loadable bundle at the physical destination.
-func assertSpelledRunSaved(_ run: SpelledRun, file: StaticString = #filePath, line: UInt = #line) {
+/// The design saved a loadable bundle at the physical destination, or at `destination` when a test names another
+/// physical path (a folder the user linked). Returns the bundle so a test can read its record.
+@discardableResult
+func assertSpelledRunSaved(
+    _ run: SpelledRun, at destination: URL? = nil, file: StaticString = #filePath, line: UInt = #line
+) -> PrimerAnalysisBundle? {
     switch run.result {
     case .failure(let error):
         XCTFail(
             "The design did not save under a \(run.project.spelling) spelling: \(error) \(error.localizedDescription)",
             file: file, line: line)
+        return nil
     case .success(let url):
         XCTAssertEqual(
-            url.path, run.project.physicalDestination.path, "the bundle is published at the physical path",
+            url.path, (destination ?? run.project.physicalDestination).path, "the bundle is published at the physical path",
             file: file, line: line)
-        XCTAssertNoThrow(try PrimerAnalysisBundle.load(from: url), file: file, line: line)
+        do {
+            return try PrimerAnalysisBundle.load(from: url)
+        } catch {
+            XCTFail("The saved bundle did not load: \(error)", file: file, line: line)
+            return nil
+        }
     }
 }
 
-/// The writer refused the destination parent (not a source file) and nothing was published or left in staging.
-func assertSpelledRunRefusedAtTheDestinationParent(
-    _ run: SpelledRun, file: StaticString = #filePath, line: UInt = #line
-) {
+/// The design failed, and the failure text (the error and its description) is returned.
+func failureText(_ run: SpelledRun, file: StaticString = #filePath, line: UInt = #line) -> String? {
     guard case .failure(let error) = run.result else {
-        XCTFail("The design saved under a \(run.project.spelling) spelling, which the writer refuses today.", file: file, line: line)
-        return
+        XCTFail("The design saved, which this test says it must not.", file: file, line: line)
+        return nil
     }
-    let text = "\(error) \(error.localizedDescription)"
-    XCTAssertTrue(text.contains("destination parent traversal is unsafe"), text, file: file, line: line)
-    XCTAssertFalse(text.contains("not a safely traversed regular file"), text, file: file, line: line)
-    XCTAssertFalse(
-        FileManager.default.fileExists(atPath: run.project.physicalDestination.path), file: file, line: line)
-    let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: run.project.analyses.path)) ?? []
-    XCTAssertTrue(
-        leftovers.allSatisfy { $0.hasPrefix(".primer-scheme-failure-") }, "\(leftovers)", file: file, line: line)
+    return "\(error) \(error.localizedDescription)"
 }
 
 enum SpelledDestinationHarness {
@@ -159,39 +160,56 @@ enum SpelledDestinationHarness {
         }
     }
 
-    static func olivar(_ spelling: SpelledProject.Spelling) async throws -> SpelledRun {
+    /// `prepare` runs once the project and its `Analyses` folder exist and before the design starts, and `afterRunner`
+    /// runs inside the stand-in runner right after it wrote its output. Both default to nothing.
+    static func olivar(
+        _ spelling: SpelledProject.Spelling,
+        prepare: @escaping @Sendable (SpelledProject) throws -> Void = { _ in },
+        afterRunner: @escaping @Sendable (SpelledProject) throws -> Void = { _ in }
+    ) async throws -> SpelledRun {
         let fixture = try PrimerSchemePipelineFixture()
         defer { fixture.remove() }
         let options = PrimerSchemeDesignOptions(
             engine: .olivar, mode: .tiled, grouping: .independent, nominalAmpliconLength: 150,
             minimumAmpliconLength: 120, maximumAmpliconLength: 190, workers: 1, olivar: .init())
-        return try await scheme(spelling, fixture: fixture, options: options, bases: OlivarAdapterStandIn.referenceLength) {
-            command in try OlivarAdapterStandIn.writeSuccess(command: command, fixture: fixture)
-        }
+        return try await scheme(
+            spelling, fixture: fixture, options: options, bases: OlivarAdapterStandIn.referenceLength,
+            prepare: prepare, afterRunner: afterRunner
+        ) { command in try OlivarAdapterStandIn.writeSuccess(command: command, fixture: fixture) }
     }
 
     private static func scheme(
         _ spelling: SpelledProject.Spelling, fixture: PrimerSchemePipelineFixture, options: PrimerSchemeDesignOptions,
-        bases: Int, writeOutput: @escaping @Sendable (PrimerSchemeAdapterCommand) throws -> Void
+        bases: Int, prepare: @escaping @Sendable (SpelledProject) throws -> Void = { _ in },
+        afterRunner: @escaping @Sendable (SpelledProject) throws -> Void = { _ in },
+        writeOutput: @escaping @Sendable (PrimerSchemeAdapterCommand) throws -> Void
     ) async throws -> SpelledRun {
         let project = try SpelledProject(spelling)
         try project.makeAnalysesFolder()
         let content = Data((">row-a\n" + String(repeating: "ACGT", count: bases / 4) + "\n").utf8)
         try content.write(to: project.physical.appendingPathComponent("input.fasta"))
         let input = project.spelled.appendingPathComponent("input.fasta")
+        do {
+            try prepare(project)
+        } catch {
+            project.remove()
+            throw error
+        }
         let seen = OSAllocatedUnfairLock<String?>(initialState: nil)
         let pipeline = fixture.pipeline { command in
             seen.withLock { $0 = command.outputDirectoryURL.path }
             // The adapter records `run.py` by `Path.resolve()`, which keeps `/private`, as 12.16 c3 measured.
             let recorded = recording(command, runPy: physicalPath(command.arguments[0]))
             try writeOutput(recorded)
+            try afterRunner(project)
             return fixture.execution(for: command)
         }
         let request = PrimerSchemeDesignRequest(
             analysisID: fixture.analysisID, runID: fixture.runID, resultID: fixture.resultID,
             inputURLs: [input], destinationURL: project.spelledDestination, options: options,
             invocation: .init(
-                argv: ["lungfish", "primer", "design", options.engine.rawValue], callerVersion: "test",
+                argv: ["lungfish", "primer", "design", options.engine.rawValue, "--output", project.spelledDestination.path],
+                callerVersion: "test",
                 explicitOptions: options.provenanceOptions, runtimeIdentity: fixture.runtime),
             expectedInputChecksums: [input: try Primer3InputLoader.fingerprint(input)],
             executableURL: fixture.executableURL, inputIDs: [input: fixture.inputID])

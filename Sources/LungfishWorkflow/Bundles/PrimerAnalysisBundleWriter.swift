@@ -87,6 +87,9 @@ public struct PrimerAnalysisBundleWriter: Sendable {
     self.provenanceWriter = provenanceWriter
   }
 
+  /// The caller hands a physical destination parent, resolved once with `realpath(3)` where the user chose it.
+  /// Every component of it and of each source is opened with `O_NOFOLLOW`, so a parent or a source reached
+  /// through a link is refused.
   public func write(_ request: PrimerAnalysisBundleWriteRequest) throws -> PrimerAnalysisBundle {
     try validate(request)
     let runClock = ProvenanceRunClock()
