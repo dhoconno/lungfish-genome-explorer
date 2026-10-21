@@ -151,3 +151,29 @@ final class ReferenceSourceDecompressPinTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the cancel ended the child at once")
     }
 }
+
+/// The real xz and zstd that Lungfish manages decompress a reference the import can read. The stand-in tests above
+/// pin the call and this one pins the tool, so it runs where Lungfish has installed both (review 13.17, SWIFT Fix 3).
+final class ReferenceSourceDecompressConformanceTests: XCTestCase {
+    func testTheManagedXzAndZstdDecompressAReferenceTheImportCanRead() async throws {
+        let xz = try await ToolAvailability.require("xz", environment: "xz")
+        let zstd = try await ToolAvailability.require("zstd", environment: "zstd")
+        for (tool, suffix) in [(xz, ".xz"), (zstd, ".zst")] {
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ReferenceSourceReal-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let plain = folder.appendingPathComponent("reference.fa")
+            try ">chr1\nACGTACGTAC\n>chr2\nTTGGCCAATT\n".write(to: plain, atomically: true, encoding: .utf8)
+            let packed = try ProcessRunner.run(tool, ["-kf", plain.path])
+            XCTAssertEqual(packed.status, 0, "the real \(tool.lastPathComponent) compresses the reference")
+
+            let names = try await ReferenceSourcePreparer().prepare(
+                sourceURL: folder.appendingPathComponent("reference.fa" + suffix),
+                bundleName: "Real",
+                tempDirectory: folder.appendingPathComponent("working", isDirectory: true)
+            ).sequenceNames
+            XCTAssertEqual(names, ["chr1", "chr2"], "a real \(suffix) reference reads back")
+        }
+    }
+}
