@@ -171,8 +171,13 @@ private func makeTaxTriageDatabasePageSnapshot(
 @MainActor
 public final class TaxTriageResultViewController: NSViewController, NSSplitViewDelegate, SampleMetadataPresentationConsumer {
 
-    /// Persistence used by this controller for layout reads; set before loading its view.
-    var layoutDefaults: UserDefaults = .standard
+    /// Persistence for this controller's layout reads and its tables' column layouts; set before loading its view.
+    var layoutDefaults: UserDefaults = .standard {
+        didSet {
+            organismTableView.metadataColumns.userDefaults = layoutDefaults
+            batchFlatTableView.metadataColumns.userDefaults = layoutDefaults
+        }
+    }
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.

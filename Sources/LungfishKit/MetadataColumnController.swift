@@ -137,7 +137,7 @@ public final class MetadataColumnController {
 
     /// The table view (NSTableView or NSOutlineView) this controller manages columns on.
     private weak var tableView: NSTableView?
-    private let userDefaults: UserDefaults
+    public var userDefaults: UserDefaults // Where layouts persist. A test sets a suite before the first persistenceKey.
     private var persistedLayout: PersistedLayout?
     private var defaultStandardColumnOrder: [String] = []
 

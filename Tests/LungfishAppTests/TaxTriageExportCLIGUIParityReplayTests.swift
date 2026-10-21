@@ -240,7 +240,7 @@ final class TaxTriageExportCLIGUIParityReplayTests: XCTestCase {
     func testTheViewPassesOnlyItsFirstSortDescriptor() async throws {
         let root = scratch.appendingPathComponent("first-sort-descriptor", isDirectory: true)
         try Self.makeResult(root)
-        let view = try await Self.configuredView(root)
+        let view = try await Self.configuredView(root, defaults: layoutDefaults())
         view.testBatchFlatTableView.tableView.sortDescriptors = [
             NSSortDescriptor(key: "tt_reads", ascending: false),
             NSSortDescriptor(key: "tt_organism", ascending: true),

@@ -107,6 +107,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     /// a main-actor job, where spinning the run loop would never run those tasks.
     static func configuredView(
         _ root: URL,
+        defaults: UserDefaults,
         segment: Int = 0,
         search: String? = nil,
         searchRows: Int = 0,
@@ -118,11 +119,11 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let resultURL = root.appendingPathComponent(resultFolderName, isDirectory: true)
         let database = try TaxTriageDatabase(at: resultURL.appendingPathComponent(TaxTriageExportLoader.databaseFileName))
         let view = TaxTriageResultViewController()
+        // The view keeps the column layouts of its tables in the case's suite, so a throwaway result writes nothing to
+        // the test host's own domain (`com.apple.dt.xctest.tool`), which outlives the run.
+        view.layoutDefaults = defaults
         _ = view.view
         view.configureFromDatabase(database, resultURL: resultURL)
-        // The configure keyed the metadata controllers of the organism table and the batch table by this throwaway
-        // result, so clear both keys before any layout event can save under them.
-        let throwawayPaths = clearMetadataPersistence(of: view, resultURL: resultURL)
         await waitForRows(view) { $0.count == 5 }
         if segment > 0 {
             let control = view.testSampleFilterControl
@@ -140,7 +141,6 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         if showsGroup {
             let store = try XCTUnwrap(SampleMetadataStore.load(from: resultURL, knownSampleIds: Set(sampleIds)))
             let columns = view.testBatchFlatTableView.metadataColumns
-            XCTAssertNil(columns.persistenceKey, "the clear above left the batch table unkeyed")
             columns.visibleColumns = ["Group"]
             columns.update(store: store, sampleId: nil)
         }
@@ -151,42 +151,13 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             view.testBatchFlatTableView.setColumnFilter(filter, for: filter.columnId)
         }
         await waitForContaminationKeys(view)
-        XCTAssertEqual(defaultsKeys(endingWith: throwawayPaths), [], "the view saved a layout under a throwaway key")
         return view
     }
 
-    /// Clears the persistence keys of the organism table's and the batch table's metadata controllers, removes the
-    /// defaults entries that name this throwaway result and returns the folders it matched them by. A keyed
-    /// controller writes its column layout to `UserDefaults.standard`, which in the test host is the domain
-    /// `com.apple.dt.xctest.tool` that outlives the run, and every case builds its view on a throwaway folder, so
-    /// each entry would stay there for good. A nil key stops every later write, but two writes happen before it can.
-    /// Clearing a key makes the controller save its layout under the key it held. And side C opens a copy of side
-    /// A's folder, whose sidecar still names side A's folder as the output folder, so `configureFromDatabase` keys
-    /// the organism table by that folder first and by the opened one second, which saves a layout under side A's
-    /// key (`taxtriage.organisms:` plus side A's folder). This removes the entries of both folders and checks that
-    /// none is left. The Sources fix that avoids the writes, a defaults suite for the controller, is 2.13 row
-    /// TAXTRIAGE-DEFAULTS-SUITE.
-    static func clearMetadataPersistence(of view: TaxTriageResultViewController, resultURL: URL) -> [String] {
-        for controller in [view.testOrganismTableView.metadataColumns, view.testBatchFlatTableView.metadataColumns] {
-            controller.persistenceKey = nil
-            XCTAssertNil(controller.persistenceKey)
-        }
-        let throwawayPaths = [resultURL, view.taxTriageConfig?.outputDirectory].compactMap {
-            $0?.standardizedFileURL.path
-        }
-        for key in defaultsKeys(endingWith: throwawayPaths) {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        XCTAssertEqual(defaultsKeys(endingWith: throwawayPaths), [], "no defaults key names the throwaway result")
-        return throwawayPaths
-    }
-
-    /// The keys of `UserDefaults.standard` that end with one of the folders. The controller names each key by the
-    /// folder it was given, so a key that ends with one of them names the throwaway result.
-    private static func defaultsKeys(endingWith folders: [String]) -> [String] {
-        UserDefaults.standard.dictionaryRepresentation().keys
-            .filter { key in folders.contains { key.hasSuffix($0) } }
-            .sorted()
+    /// The defaults a case keeps the column layouts of its views in. `makeTestDefaultsSuite(prefix:)` empties and
+    /// removes the suite when the test ends, so no layout of a throwaway result outlives the case.
+    func layoutDefaults() -> UserDefaults {
+        makeTestDefaultsSuite(prefix: "TaxTriageExportCLIGUIParityReplayTests").defaults
     }
 
     /// The view flags the organisms the negative control holds on a task of the main actor, so a wait yields it.
@@ -225,7 +196,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     /// Side A. The in-app writer the view's Export ran before the leaf, frozen below.
     func sideA(_ root: URL, scenario: Scenario) async throws -> RouteParitySideOutcome {
         let view = try await Self.configuredView(
-            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
+            root, defaults: layoutDefaults(), segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
             sortKey: scenario.sortKey, sortAscending: scenario.sortAscending, filter: scenario.filter,
             showsGroup: scenario.showsGroup
         )
@@ -454,7 +425,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     /// Side C. The view's invocation and begin helper, which run the built CLI behind the row.
     func sideC(_ root: URL, scenario: Scenario) async throws -> RouteParitySideOutcome {
         let view = try await Self.configuredView(
-            root, segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
+            root, defaults: layoutDefaults(), segment: scenario.segment, search: scenario.search, searchRows: scenario.searchRows,
             sortKey: scenario.sortKey, sortAscending: scenario.sortAscending, filter: scenario.filter,
             showsGroup: scenario.showsGroup
         )
@@ -495,7 +466,7 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let output = Self.outputURL(export, in: root)
         let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
         let hold = root.appendingPathComponent("held")
-        let view = try await Self.configuredView(root)
+        let view = try await Self.configuredView(root, defaults: layoutDefaults())
 
         let failures = TaxTriageExportFailureCalls()
         let begun = try XCTUnwrap(Self.begin(

@@ -178,7 +178,9 @@ final class TaxTriageExportRowTests: XCTestCase {
         let scratch = try TestTempDirectory.make(prefix: "taxtriage-export-row")
         defer { TestTempDirectory.cleanup(scratch) }
         try TaxTriageExportCLIGUIParityReplayTests.makeResult(scratch)
-        let view = try await TaxTriageExportCLIGUIParityReplayTests.configuredView(scratch)
+        let view = try await TaxTriageExportCLIGUIParityReplayTests.configuredView(
+            scratch, defaults: makeTestDefaultsSuite(prefix: "TaxTriageExportRowTests").defaults
+        )
         let window = NSWindow(contentViewController: view)
         window.isReleasedWhenClosed = false
         XCTAssertEqual(view.selectedDatabaseSampleIds, ["sample-1", "sample-2"])
