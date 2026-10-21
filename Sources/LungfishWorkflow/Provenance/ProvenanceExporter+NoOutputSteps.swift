@@ -16,8 +16,8 @@ extension ProvenanceExporter {
     func noOutputStepNote(_ plan: ProvenanceExportPlan, prefix: String) -> String {
         plan.noOutputSteps.map { step in
             let argv = plan.commandLine(for: step, spell: Self.noOutputStepSpelling, escape: Self.oneLine)
-            return "\(prefix)Step \(stepNumbers(step)) (\(step.identity.displayLabel)) wrote no file, "
-                + "since LGE read its output in the app, so this script does not run it. It ran \(argv)\n"
+            return "\(prefix)Step \(stepNumbers(step)) (\(step.identity.displayLabel)) is not replayed because LGE read "
+                + "its output in the app and kept no file of it. The recorded command was \(argv)\n"
         }.joined()
     }
 

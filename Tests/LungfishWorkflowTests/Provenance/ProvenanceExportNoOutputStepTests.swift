@@ -63,9 +63,9 @@ extension ProvenanceExportPlanSpecTests {
             let note = script.split(separator: "\n").first { $0.hasPrefix("#") && $0.contains("samtools view") }
             XCTAssertNotNil(note, "\(format) names the view pass in a comment: \(script)")
             XCTAssertTrue(note?.contains("sorted.bam") == true, "\(format): \(script)")
-            XCTAssertTrue(note?.contains("wrote no file, since LGE read its output in the app") == true, "\(format): \(script)")
+            XCTAssertTrue(note?.contains("is not replayed because LGE read its output in the app and kept no file of it") == true, "\(format): \(script)")
         }
-        XCTAssertTrue(scripts[0].1.contains("It ran samtools view results/sorted.bam"), scripts[0].1)
+        XCTAssertTrue(scripts[0].1.contains("The recorded command was samtools view results/sorted.bam"), scripts[0].1)
     }
 
     // MARK: - Fixtures
