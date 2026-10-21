@@ -134,7 +134,6 @@ features:
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+FileRecords.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder+SidecarLookup.swift
       - Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift
-      - Sources/LungfishApp/Views/DatabaseBrowser/SRAWindowImportProvenance+Window.swift
       - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+SRARowDownload.swift
       - Sources/LungfishCLI/Commands/SRADownloadBundle.swift
       - Sources/LungfishCLI/Commands/SRADownloadReporter.swift
@@ -224,7 +223,7 @@ features:
       - Tests/LungfishAppTests/MappingRouteParityReplayTests.swift
       - Tests/LungfishAppTests/MappingRouteSigningReplayTests.swift
       - Tests/LungfishAppTests/MappingRoutePrivateProjectReplayTests.swift
-      - Tests/LungfishAppTests/ReadsLaunchRouteTests.swift
+      - Tests/LungfishAppTests/ReadsLaunchCommandTests.swift
       - Tests/LungfishWorkflowTests/Mapping/MappingResultTests.swift
       - Tests/LungfishAppViewTests/MappingReferenceCountTextTests.swift
       - Tests/LungfishAppTests/MappingDocumentStateBuilderTests.swift
@@ -974,7 +973,7 @@ features:
       - lungfish-cli fetch genome
     tests:
       - Tests/LungfishAppTests/DatabaseBrowserGenomeRowParityReplayTests.swift
-      - Tests/LungfishAppTests/DatabaseBrowserGenomeRowRouteTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserGenomeRowLaunchTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserGenomeRowSigningReplayTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
     notes: >-
@@ -1006,7 +1005,7 @@ features:
       - lungfish-cli fetch pathoplexus
     tests:
       - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowParityReplayTests.swift
-      - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowRouteTests.swift
+      - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowLaunchTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserPathoplexusRowSigningReplayTests.swift
       - Tests/LungfishAppTests/DatabaseBrowserNoProjectDownloadRefusalTests.swift
     notes: >-
@@ -1748,7 +1747,7 @@ features:
       - Sources/LungfishCLI/Commands/AssembleCommand+ReferenceBundle.swift
     module: [LungfishApp, LungfishCLI, LungfishWorkflow]
     tests:
-      - Tests/LungfishAppTests/ReadsLaunchRouteTests.swift
+      - Tests/LungfishAppTests/ReadsLaunchCommandTests.swift
       - Tests/LungfishAppTests/AssemblyBundleBuilderSigningReplayTests.swift
     notes: >-
       Assembles reads with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm in
