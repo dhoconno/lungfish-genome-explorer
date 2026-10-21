@@ -22,6 +22,11 @@ final class VariantSampleMetadataMutationServiceTests: XCTestCase {
 
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: fixture.bundleURL))
         XCTAssertEqual(envelope.workflowName, "Variant sample metadata edit")
+        XCTAssertEqual(envelope.toolName, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(envelope.tool.name, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(envelope.tool.kind, LungfishAppIdentity.recordedToolKind)
+        XCTAssertEqual(envelope.argv.first, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(envelope.steps.first?.argv.first, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(envelope.options.explicit["sampleName"]?.stringValue, "SAMPLE_A")
         // Inputs now go through `VariantMutationPublication`, which
         // records the database's SQLite *snapshot* path as `.path` and the

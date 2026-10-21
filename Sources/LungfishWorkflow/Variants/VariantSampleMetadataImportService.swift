@@ -73,7 +73,7 @@ package struct VariantSampleMetadataImportService {
 
     /// Imports the sample metadata of `metadataURL` into every target database and records the
     /// step. `invocationArgv` is the command that made the edit, such as `lungfish-cli variants
-    /// import-sample-metadata`. With none it records the `lungfish-gui` form, as it always has.
+    /// import-sample-metadata`. With none it starts the argv with the caller's tool name.
     ///
     /// `shouldCancel` is asked after the publication is built, before each chunk of the copy's
     /// hash, before each target's import and before the record is written. A true answer throws
@@ -173,7 +173,7 @@ package struct VariantSampleMetadataImportService {
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
         let argv = invocationArgv ?? [
-            "lungfish-gui",
+            toolName,
             "variant-sample-metadata",
             "import",
             "--metadata", metadataURL.path,

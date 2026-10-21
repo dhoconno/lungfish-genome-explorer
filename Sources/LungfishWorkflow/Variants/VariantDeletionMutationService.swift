@@ -104,8 +104,7 @@ package struct VariantDeletionMutationService {
 
     /// Deletes the variants `rawIDsByTrack` names from their tracks' databases and records the
     /// step, which names every row that went. `invocationArgv` is the command that made the edit,
-    /// such as `lungfish-cli variants delete`. With none it records the `lungfish-gui` form, as it
-    /// always has.
+    /// such as `lungfish-cli variants delete`. With none it starts the argv with the caller's tool name.
     package func deleteVariants(
         idsByTrack rawIDsByTrack: [String: [Int64]],
         bundleURL rawBundleURL: URL,
@@ -231,7 +230,7 @@ package struct VariantDeletionMutationService {
         startedAt: Date,
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
-        let argv = invocationArgv ?? kind.argv(bundleURL: bundleURL)
+        let argv = invocationArgv ?? kind.argv(toolName: toolName, bundleURL: bundleURL)
         let trackOptions = Dictionary(
             uniqueKeysWithValues: targets.map {
                 ($0.trackId, ParameterValue.string($0.trackName ?? $0.trackId))
@@ -350,9 +349,9 @@ private enum DeletionKind {
         "Variant deletion"
     }
 
-    func argv(bundleURL: URL) -> [String] {
+    func argv(toolName: String, bundleURL: URL) -> [String] {
         var argv = [
-            "lungfish-gui",
+            toolName,
             "variant",
             "delete",
             "--bundle", bundleURL.path,

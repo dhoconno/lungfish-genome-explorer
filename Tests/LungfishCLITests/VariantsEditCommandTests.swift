@@ -175,14 +175,14 @@ final class VariantsEditCommandTests: XCTestCase {
         try assertRecordNames("lungfish-cli", kind: "cli", argv0: "lungfish-cli", in: fixture)
     }
 
-    /// The table builds the service with the recorded name and kind `gui`. With no argv from its caller the writer still starts
-    /// the argv with its own `lungfish-gui`, which 13.27-c2 moves to the caller's name (MD58 (2)).
+    /// The table builds the service with the recorded name and kind `gui`. With no argv from its caller the writer starts
+    /// the argv with the caller's name (13.27-c4, P-ARGV0-1).
     func testDeletionAppRecordNamesTheApp() throws {
         let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
         _ = try VariantDeletionMutationService(
             toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind
         ).deleteAllVariants(bundleURL: fixture.bundleURL, targets: [tableTarget(fixture)])
-        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "lungfish-gui", in: fixture)
+        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "Lungfish Genome Explorer", in: fixture)
     }
 
     func testMetadataImportLeafRecordNamesTheCLI() async throws {
@@ -204,7 +204,7 @@ final class VariantsEditCommandTests: XCTestCase {
             from: metadata, format: .tsv, bundleURL: fixture.bundleURL,
             targets: [VariantSampleMetadataImportTarget(databaseURL: fixture.databaseURL, trackName: VariantEditFixture.trackID)]
         )
-        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "lungfish-gui", in: fixture)
+        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "Lungfish Genome Explorer", in: fixture)
     }
 
     /// The record's `toolName`, `tool.name`, `tool.kind`, first step's `toolName` and argv[0] as written.

@@ -176,7 +176,7 @@ enum FASTAOperationCatalog {
         ]
         let version = WorkflowRun.currentAppVersion
         let step = ProvenanceStep(
-            toolName: "Lungfish.app in-process FASTA selection",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: version,
             argv: argv,
             durableReplayArgv: durableReplayArgv,
@@ -193,7 +193,7 @@ enum FASTAOperationCatalog {
             createdAt: startedAt,
             workflowName: "lungfish app selected fasta materialization",
             workflowVersion: version,
-            toolName: "Lungfish.app in-process FASTA selection",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: version,
             tool: ProvenanceToolIdentity(name: LungfishAppIdentity.recordedToolName, version: version, kind: LungfishAppIdentity.recordedToolKind),
             argv: argv,

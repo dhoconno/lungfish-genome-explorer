@@ -210,7 +210,8 @@ package struct VariantSampleMetadataMutationService {
             workflowName: kind.workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: LungfishAppIdentity.recordedToolName,
-            toolVersion: WorkflowRun.currentAppVersion
+            toolVersion: WorkflowRun.currentAppVersion,
+            toolKind: LungfishAppIdentity.recordedToolKind
         )
         .argv(argv)
         .durableReplayArgv(argv)
@@ -324,7 +325,7 @@ private enum MutationKind {
         switch self {
         case .editSample(let sampleName, let sourceFile, _):
             var argv = [
-                "lungfish-gui",
+                LungfishAppIdentity.recordedToolName,
                 "variant-sample-metadata",
                 "edit",
                 "--bundle", bundleURL.path,
@@ -336,7 +337,7 @@ private enum MutationKind {
             return argv
         case .deleteField(let fieldName, _):
             return [
-                "lungfish-gui",
+                LungfishAppIdentity.recordedToolName,
                 "variant-sample-metadata",
                 "delete-field",
                 "--bundle", bundleURL.path,

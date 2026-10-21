@@ -17,7 +17,7 @@ provenance/bundle.lungfish-provenance.json
 provenance/variants.db.lungfish-provenance.json
 variants.db
 record
-argv[0] = lungfish-gui
+argv[0] = Lungfish Genome Explorer
 argv[1] = variant
 argv[2] = delete
 argv[3] = --bundle
@@ -62,10 +62,10 @@ output.role = output
 outputs[0].format = unknown
 outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 outputs[0].role = output
-reproducibleCommand = lungfish-gui variant delete --bundle <ROOT>/reference.lungfishref --scope all
+reproducibleCommand = 'Lungfish Genome Explorer' variant delete --bundle <ROOT>/reference.lungfishref --scope all
 schemaVersion = 2
 status = completed
-steps[0].argv[0] = lungfish-gui
+steps[0].argv[0] = Lungfish Genome Explorer
 steps[0].argv[1] = variant
 steps[0].argv[2] = delete
 steps[0].argv[3] = --bundle
@@ -84,7 +84,7 @@ steps[0].inputs[1].role = input
 steps[0].outputs[0].format = unknown
 steps[0].outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 steps[0].outputs[0].role = output
-steps[0].reproducibleCommand = lungfish-gui variant delete --bundle <ROOT>/reference.lungfishref --scope all
+steps[0].reproducibleCommand = 'Lungfish Genome Explorer' variant delete --bundle <ROOT>/reference.lungfishref --scope all
 steps[0].toolName = Lungfish Genome Explorer
 steps[0].toolVersion = Lungfish <version>
 tool.kind = gui
@@ -145,7 +145,7 @@ provenance/bundle.lungfish-provenance.json
 provenance/variants.db.lungfish-provenance.json
 variants.db
 record
-argv[0] = lungfish-gui
+argv[0] = Lungfish Genome Explorer
 argv[1] = variant-sample-metadata
 argv[2] = import
 argv[3] = --metadata
@@ -195,10 +195,10 @@ output.role = output
 outputs[0].format = unknown
 outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 outputs[0].role = output
-reproducibleCommand = lungfish-gui variant-sample-metadata import --metadata <ROOT>/metadata.tsv --bundle <ROOT>/reference.lungfishref --format tsv
+reproducibleCommand = 'Lungfish Genome Explorer' variant-sample-metadata import --metadata <ROOT>/metadata.tsv --bundle <ROOT>/reference.lungfishref --format tsv
 schemaVersion = 2
 status = completed
-steps[0].argv[0] = lungfish-gui
+steps[0].argv[0] = Lungfish Genome Explorer
 steps[0].argv[1] = variant-sample-metadata
 steps[0].argv[2] = import
 steps[0].argv[3] = --metadata
@@ -223,7 +223,7 @@ steps[0].inputs[2].role = input
 steps[0].outputs[0].format = unknown
 steps[0].outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 steps[0].outputs[0].role = output
-steps[0].reproducibleCommand = lungfish-gui variant-sample-metadata import --metadata <ROOT>/metadata.tsv --bundle <ROOT>/reference.lungfishref --format tsv
+steps[0].reproducibleCommand = 'Lungfish Genome Explorer' variant-sample-metadata import --metadata <ROOT>/metadata.tsv --bundle <ROOT>/reference.lungfishref --format tsv
 steps[0].toolName = Lungfish Genome Explorer
 steps[0].toolVersion = Lungfish <version>
 tool.kind = gui
@@ -293,7 +293,7 @@ provenance/bundle.lungfish-provenance.json
 provenance/variants.db.lungfish-provenance.json
 variants.db
 record
-argv[0] = lungfish-gui
+argv[0] = Lungfish Genome Explorer
 argv[10] = 2
 argv[1] = variant
 argv[2] = delete
@@ -346,10 +346,10 @@ output.role = output
 outputs[0].format = unknown
 outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 outputs[0].role = output
-reproducibleCommand = lungfish-gui variant delete --bundle <ROOT>/reference.lungfishref --scope selected --track-id trackA --variant-ids 2
+reproducibleCommand = 'Lungfish Genome Explorer' variant delete --bundle <ROOT>/reference.lungfishref --scope selected --track-id trackA --variant-ids 2
 schemaVersion = 2
 status = completed
-steps[0].argv[0] = lungfish-gui
+steps[0].argv[0] = Lungfish Genome Explorer
 steps[0].argv[10] = 2
 steps[0].argv[1] = variant
 steps[0].argv[2] = delete
@@ -372,7 +372,7 @@ steps[0].inputs[1].role = input
 steps[0].outputs[0].format = unknown
 steps[0].outputs[0].path = <ROOT>/reference.lungfishref/variants.db
 steps[0].outputs[0].role = output
-steps[0].reproducibleCommand = lungfish-gui variant delete --bundle <ROOT>/reference.lungfishref --scope selected --track-id trackA --variant-ids 2
+steps[0].reproducibleCommand = 'Lungfish Genome Explorer' variant delete --bundle <ROOT>/reference.lungfishref --scope selected --track-id trackA --variant-ids 2
 steps[0].toolName = Lungfish Genome Explorer
 steps[0].toolVersion = Lungfish <version>
 tool.kind = gui

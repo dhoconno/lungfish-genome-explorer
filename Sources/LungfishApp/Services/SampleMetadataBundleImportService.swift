@@ -66,17 +66,18 @@ struct SampleMetadataBundleImportService {
             workflowName: "Sample metadata import",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: LungfishAppIdentity.recordedToolName,
-            toolVersion: WorkflowRun.currentAppVersion
+            toolVersion: WorkflowRun.currentAppVersion,
+            toolKind: LungfishAppIdentity.recordedToolKind
         )
         .argv([
-            "lungfish-gui",
+            LungfishAppIdentity.recordedToolName,
             "import-sample-metadata",
             "--metadata", sourceURL.path,
             "--bundle", bundleURL.path,
             "--sample-column-index", "\(sampleColumnIndex)",
         ])
         .durableReplayArgv([
-            "lungfish-gui",
+            LungfishAppIdentity.recordedToolName,
             "import-sample-metadata",
             "--metadata", sourceURL.path,
             "--bundle", bundleURL.path,
@@ -321,7 +322,7 @@ struct SampleMetadataEditPersistenceService {
             )
             let completedAt = editClock.now
             let argv = [
-                "lungfish-gui", "edit-sample-metadata",
+                LungfishAppIdentity.recordedToolName, "edit-sample-metadata",
                 "--bundle", bundleURL.path,
                 "--sample", edit.sampleId,
                 "--column", edit.columnName,
