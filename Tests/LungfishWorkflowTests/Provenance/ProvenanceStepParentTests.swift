@@ -152,6 +152,8 @@ final class ProvenanceStepParentTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = bin.path + ":/usr/bin:/bin"
         environment["LUNGFISH_PROJECT"] = directory.appendingPathComponent("Project.lungfish").path
+        // An exported script needs a new folder for its outputs (lane 13.45, ARCH-13.45 Q1).
+        environment["OUTDIR"] = directory.appendingPathComponent("replay-outputs").path
         process.environment = environment
         let errors = Pipe()
         process.standardError = errors

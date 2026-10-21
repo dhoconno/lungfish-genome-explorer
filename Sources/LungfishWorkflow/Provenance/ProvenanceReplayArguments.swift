@@ -120,6 +120,76 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
         path.hasPrefix("/") ? URL(fileURLWithPath: path).standardizedFileURL.path : path
     }
 
+    // MARK: - The input check (C3)
+
+    /// The shell lines that stop the replay of `steps` before its output folder is made when an input it reads is
+    /// missing or holds another SHA-256 than the record's. An input with no recorded digest gets a comment instead.
+    func shellInputCheck(_ steps: [StepExecution]) -> String {
+        let inputs = checkedInputs(steps.flatMap { $0.durableReplayArgv ?? $0.command })
+        guard !inputs.isEmpty else { return "" }
+        var s = "# Each input is checked against the SHA-256 the record holds before any tool runs.\n"
+        s += "lge_check_input() {\n"
+        s += "  [ -f \"$1\" ] || { printf 'Input %s is missing. The record holds SHA-256 %s.\\n' \"$1\" \"$2\" >&2; exit 1; }\n"
+        s += "  actual=\"$(shasum -a 256 < \"$1\" | cut -d ' ' -f 1)\"\n"
+        s += "  [ \"$actual\" = \"$2\" ] || { printf 'Input %s has SHA-256 %s. The record holds %s.\\n' \"$1\" \"$actual\" \"$2\" >&2; exit 1; }\n"
+        s += "}\n"
+        for input in inputs {
+            s += input.sha256.map { "lge_check_input \(shellWord(input.path)) \($0)\n" }
+                ?? "# \(Self.commentSafe(input.path)) was not checked. The record holds no SHA-256 for it.\n"
+        }
+        return s
+    }
+
+    /// `path` as one shell word that expands nothing but `$PROJECT`, as `"$PROJECT/tail"` below the project (or
+    /// `"$PROJECT"/'tail'` when the tail needs quoting) and quoted as needed outside it.
+    private func shellWord(_ path: String) -> String {
+        guard let project, path.hasPrefix(project + "/") else { return shellEscape(path) }
+        let tail = String(path.dropFirst(project.count + 1))
+        let quoted = shellEscape(tail)
+        return quoted == tail ? "\"$PROJECT/\(tail)\"" : "\"$PROJECT\"/" + quoted
+    }
+
+    /// `value` with its line breaks spelt out, so it stays inside one comment line.
+    private static func commentSafe(_ value: String) -> String {
+        value.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    /// `value` as a Python string literal in double quotes.
+    private static func pythonLiteral(_ value: String) -> String {
+        "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t") + "\""
+    }
+
+    /// The Python lines of ``shellInputCheck(_:)``.
+    func pythonInputCheck(_ steps: [StepExecution]) -> String {
+        let inputs = checkedInputs(steps.flatMap { $0.durableReplayArgv ?? $0.command })
+        guard !inputs.isEmpty else { return "" }
+        var s = "# Each input is checked against the SHA-256 the record holds before any tool runs.\nimport hashlib\n"
+        for input in inputs {
+            let relative = spelled(input.path, root: "")
+            let quoted = Self.pythonLiteral(relative)
+            let path = relative.hasPrefix("/") ? "Path(\(quoted))" : "PROJECT / \(quoted)"
+            guard let sha = input.sha256 else {
+                s += "# \(quoted) was not checked. The record holds no SHA-256 for it.\n"
+                continue
+            }
+            s += "if not (\(path)).is_file():\n"
+            s += "    sys.exit(\"Input \" + str(\(path)) + \" is missing. The record holds SHA-256 \(sha).\")\n"
+            s += "if hashlib.sha256((\(path)).read_bytes()).hexdigest() != \"\(sha)\":\n"
+            s += "    sys.exit(\"Input \" + str(\(path)) + \" has SHA-256 \" + hashlib.sha256((\(path)).read_bytes()).hexdigest()"
+            s += " + \". The record holds \(sha).\")\n"
+        }
+        return s
+    }
+
+    /// `path` below the project as `root/tail`, or as it is outside the project.
+    private func spelled(_ path: String, root: String) -> String {
+        guard let project, path.hasPrefix(project + "/") else { return path }
+        let tail = String(path.dropFirst(project.count + 1))
+        return root.isEmpty ? tail : root + "/" + tail
+    }
+
     /// A whole path word, or the path after the first `=` of an option such as `--out=/path`.
     private static func pathPart(of word: String) -> (prefix: String, path: String)? {
         if word.hasPrefix("/") || word.hasPrefix(PortablePath.projectPrefix) { return ("", word) }

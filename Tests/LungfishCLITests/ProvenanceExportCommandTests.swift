@@ -1230,7 +1230,8 @@ final class ProvenanceExportCommandTests: XCTestCase {
             let executable = try (format == .shell ? URL(fileURLWithPath: "/bin/bash") : requireExecutable(named: "python3"))
             // The default timeout leaves room for python3 to start under the
             // parallel unit tier.
-            let result = try runExternalCommand(executable, arguments: [bundle.primaryArtifactURL.path], workingDirectory: directory)
+            let result = try runExternalCommand(executable, arguments: [bundle.primaryArtifactURL.path], workingDirectory: directory,
+                environment: ["OUTDIR": directory.appendingPathComponent("outputs-\(format.cliToken)").path])
             XCTAssertEqual(result.exitStatus, 0, result.diagnostics)
             XCTAssertEqual(try? Data(contentsOf: destination), expected)
         }

@@ -376,6 +376,9 @@ final class ImportFastqE2ETests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = shims.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
         environment["LUNGFISH_PROJECT"] = target.path
+        // An exported script needs a new folder for its outputs (lane 13.45, ARCH-13.45 Q1).
+        let outputs = work.appendingPathComponent("replay-outputs", isDirectory: true)
+        environment["OUTDIR"] = outputs.path
         bash.environment = environment
         let errors = Pipe()
         bash.standardError = errors
@@ -389,6 +392,9 @@ final class ImportFastqE2ETests: XCTestCase {
             .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         XCTAssertEqual(calls.count, 1, "the script ran \(calls)")
         XCTAssertTrue(calls.first?.hasPrefix("lungfish-cli import fastq") == true, "\(calls)")
+        // The import names its output only through `--project`, the project word, which the replay rule keeps as
+        // recorded (ARCH-13.45 C4), so the replay imports into the project LUNGFISH_PROJECT names and OUTDIR stays
+        // empty. Lane 13.45 c2 found this against the MD78 premise and reports it.
         let rebuilt = try XCTUnwrap(try bundles(in: target).first, "the script imported the reads into the second project")
         XCTAssertEqual(rebuilt.lastPathComponent, bundle.lastPathComponent)
         XCTAssertEqual(
@@ -396,5 +402,6 @@ final class ImportFastqE2ETests: XCTestCase {
             try FASTQPairInterleaver.countRecords(in: try bundleFASTQ(bundle)),
             "the second import holds the same reads"
         )
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outputs.path), [], "\(calls)")
     }
 }

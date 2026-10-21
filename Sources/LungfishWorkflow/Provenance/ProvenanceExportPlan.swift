@@ -624,6 +624,10 @@ struct ProvenanceExportPlan {
 
         func map(_ path: String) -> MappedPath {
             if path.hasPrefix("pipe:") || path.isEmpty { return .verbatim(path) }
+            // A replay's output (lane 13.45, C2), spelt as each renderer spells its output root.
+            if path.hasPrefix(ProvenanceReplayArguments.freshFolder) {
+                return .result("results" + path.dropFirst(ProvenanceReplayArguments.freshFolder.count))
+            }
             // A relative recorded path is left as the tool wrote it.
             if !path.hasPrefix("/") && !path.hasPrefix("<") && !path.hasPrefix(PortablePath.projectPrefix) {
                 return .verbatim(path)
@@ -649,6 +653,9 @@ struct ProvenanceExportPlan {
         func rewrite(token: String, spell: (MappedPath) -> String) -> String {
             if token.hasPrefix("/") || token.hasPrefix("<") || token.hasPrefix("@/") {
                 return spell(map(token))
+            }
+            if let fresh = token.range(of: ProvenanceReplayArguments.freshFolder) {
+                return String(token[..<fresh.lowerBound]) + spell(map(String(token[fresh.lowerBound...])))
             }
             guard token.contains("/") else { return token }
             var result = token

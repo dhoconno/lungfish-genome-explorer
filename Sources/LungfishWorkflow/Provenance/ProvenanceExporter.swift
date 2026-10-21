@@ -102,6 +102,7 @@ public struct ProvenanceExportBundle: Sendable, Equatable {
 /// tools installed (or via containers).
 public struct ProvenanceExporter: Sendable {
     private let signingProvider: (any ProvenanceSigningProvider)?
+    private var replay: ProvenanceReplayArguments?
 
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
@@ -125,21 +126,23 @@ public struct ProvenanceExporter: Sendable {
 
         let (chainExpansion, run) = scriptSource(envelope, sourceSidecarURL: sourceSidecarURL, sourceRootURL: sourceRootURL)
         let expandedEnvelope = chainExpansion.envelope
-        let (plan, pins) = planAndPins(run, allowUnpinned: allowUnpinned && format.isPinGated)
+        var exporter = self // The record's replay rule, which the one replay selection applies (lane 13.45, C5).
+        exporter.replay = ProvenanceReplayArguments(envelope: expandedEnvelope, recordURL: sourceSidecarURL)
+        let (plan, pins) = exporter.planAndPins(run, allowUnpinned: allowUnpinned && format.isPinGated)
         let primaryArtifactURL: URL
         var generatedArtifactURLs: [URL] = []
         switch format {
         case .shell:
             primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
-            try exportShell(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exporter.exportShell(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             try makeExecutable(primaryArtifactURL)
         case .python:
             primaryArtifactURL = outputDirectory.appendingPathComponent("reproduce.py")
-            try exportPython(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exporter.exportPython(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             try makeExecutable(primaryArtifactURL)
         case .nextflow:
             primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
-            try exportNextflow(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exporter.exportNextflow(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let nextflowConfigURL = outputDirectory.appendingPathComponent("nextflow.config")
             try exportNextflowConfig(run).write(to: nextflowConfigURL, atomically: true, encoding: .utf8)
             let containersDirectory = outputDirectory.appendingPathComponent("containers", isDirectory: true)
@@ -149,14 +152,14 @@ public struct ProvenanceExporter: Sendable {
             generatedArtifactURLs.append(contentsOf: [nextflowConfigURL, containerManifestURL])
         case .snakemake:
             primaryArtifactURL = outputDirectory.appendingPathComponent("Snakefile")
-            try exportSnakemake(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exporter.exportSnakemake(run, allowUnpinned: pins.allowUnpinned).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             let configURL = outputDirectory.appendingPathComponent("config.yaml")
             try exportSnakemakeConfig(run).write(to: configURL, atomically: true, encoding: .utf8)
             generatedArtifactURLs.append(configURL)
             generatedArtifactURLs.append(contentsOf: try writeEnvironmentFiles(plan, in: outputDirectory))
         case .methods:
             primaryArtifactURL = outputDirectory.appendingPathComponent("methods.md")
-            try exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exporter.exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
         case .json:
             primaryArtifactURL = outputDirectory.appendingPathComponent("provenance.json")
             let data = try ProvenanceWriter.exportedRecordBytes(expandedEnvelope)
@@ -720,11 +723,11 @@ public struct ProvenanceExporter: Sendable {
         s += "# This script reproduces the analysis performed in Lungfish. Paths are\n"
         s += "# relative to the .lungfish project; run it from inside the project or\n"
         s += "# set LUNGFISH_PROJECT to the project's location.\n"
-        s += "#\n"
+        s += "# Set OUTDIR to a folder that does not exist yet. Every output is written there.\n#\n"
         s += "set -euo pipefail\n\n"
         s += "PROJECT=\"${LUNGFISH_PROJECT:-.}\"\n"
-        s += "OUTDIR=\"${OUTDIR:-results}\"\n"
-        s += "mkdir -p \"$OUTDIR\"\n\n"
+        s += "OUTDIR=\"${OUTDIR:?Set OUTDIR to a new folder for the outputs of this replay. The script makes it and stops if it exists.}\"\n"
+        s += (replay?.shellInputCheck(plan.replayableSteps.flatMap(\.sourceSteps)) ?? "") + "mkdir -- \"$OUTDIR\"\n\n"
 
         let inputs = plan.primaryInputs
         if !inputs.isEmpty {
@@ -822,8 +825,8 @@ public struct ProvenanceExporter: Sendable {
         s += "import sys\n"
         s += "from pathlib import Path\n\n"
         s += "PROJECT = Path(os.environ.get(\"LUNGFISH_PROJECT\", \".\"))\n"
-        s += "OUTDIR = Path(os.environ.get(\"OUTDIR\", \"results\"))\n"
-        s += "OUTDIR.mkdir(parents=True, exist_ok=True)\n\n"
+        s += "OUTDIR = Path(os.environ.get(\"OUTDIR\") or sys.exit(\"Set OUTDIR to a new folder for the outputs of this replay. The script makes it and stops if it exists.\"))\n"
+        s += (replay?.pythonInputCheck(plan.replayableSteps.flatMap(\.sourceSteps)) ?? "") + "OUTDIR.mkdir(parents=False, exist_ok=False)\n\n"
 
         let inputs = plan.primaryInputs
         if !inputs.isEmpty {
@@ -1499,7 +1502,8 @@ public struct ProvenanceExporter: Sendable {
 
     /// Audit command fields remain unchanged. Renderers share this replay selection.
     private func replayArguments(_ step: StepExecution) -> [String]? {
-        let args = step.durableReplayArgv ?? step.command
+        let recorded = step.durableReplayArgv ?? step.command
+        let args = isRetainedSelectionReplay(step) ? recorded : replay?.arguments(recorded) ?? recorded
         guard let executable = args.first, !executable.isEmpty else { return nil }
         return ProvenanceAppStep.isAppStep(args) ? nil : args
     }
