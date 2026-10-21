@@ -219,8 +219,9 @@ extension VariantDatabase {
                 paramIndex += 1
             }
             let valueParam = paramIndex; paramIndex += 1
-            // An equality on a key that holds a comma-joined list matches one member of the list.
-            let matchesMember = op == .eq && allKeys.allSatisfy(Self.holdsValueList)
+            // An equality or an inequality on a key that holds a comma-joined list tests the members of the list, so
+            // `!=` keeps the variants that `=` drops.
+            let matchesMember = (op == .eq || op == .neq) && allKeys.allSatisfy(Self.holdsValueList)
             bindings.append((valueParam, op == .like ? SQLiteLikePattern.contains(value) : value))
 
             let cast = "CAST(vi.value AS REAL)"
@@ -234,7 +235,7 @@ extension VariantDatabase {
             case .lt:   cmp = "\(cast) < CAST(? AS REAL)"
             case .lte:  cmp = "\(cast) <= CAST(? AS REAL)"
             case .eq:   cmp = matchesMember ? "\(member) > 0" : "vi.value = ?"
-            case .neq:  cmp = "vi.value != ?"
+            case .neq:  cmp = matchesMember ? "\(member) = 0" : "vi.value != ?"
             case .like: cmp = "vi.value LIKE ? ESCAPE '\\'"
             }
 
