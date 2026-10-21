@@ -157,6 +157,38 @@ After O11 and O12 the two recipes run the same steps with the same parameters (f
 
 Dedup lowers the counts of the most abundant organisms in a wastewater sample, where identical pairs arise by chance at high depth, so relative abundance shifts against the no-dedup run of today. The switch stays so that abundance work can turn it off. The panel votes on R1 in C2 with the owner's answer to Q8.
 
+## C0 results (2026-10-21)
+
+The owner said on 2026-10-21 "Go ahead and start the agent work. Use the expert team to determine the most general
+appropriate quality preset." The C0 records are in `~/lungfish-phase-records/chtc-program/c0/` on the owner's laptop
+(briefs, lane reports `lanes/C0-DET/` and `lanes/C0-SLICE0/`, the ruling `rulings/BIO-preset.md`, its reviews
+`reviews/BIO-preset-UX.md` and `reviews/BIO-preset-QA.md`, the scripts `fastq_levels.py` and `compare_platforms.py`,
+and `platform-compare.md`).
+
+| Result | Evidence |
+|---|---|
+| At one thread, every tool step from S1 to S5 (fastp dedup and trim, both deacon filters, fastp merge, the length filter) writes the same bytes, gzip included, on the Mac (arm64), on CHTC `x86_64-v3` (AMD EPYC 7763) and on CHTC `x86_64-v4` (Intel Xeon Gold 5218R and Silver 4114), in both modes. The deacon check passes, so the program goes on | `platform-compare.md` |
+| At eight threads the platforms differ only where the Mac differs from itself. fastp dedup keeps 3 to 5 more pairs than at one thread and varies run to run, and deacon reorders its records (E3) | `lanes/C0-DET/determinism.md` |
+| The clumpify storage step agrees across platforms at E2 only, because the CHTC chain passed `quantize=0,8,13,22,27,32,37` (the recipe's `illumina4`) and the Mac chain passed none (the CLI default). CHTC v3 and v4 agree at E4. This is open question Q4, an argv difference and not a platform one | the two lanes' S6 argv |
+| clumpify rewrites the quality of N bases from `#` to `!` on both platforms, so its records differ from its input's | `lanes/C0-DET/determinism.md` |
+| On this sample the rRNA filter (`-a 1 -r 0`) removed 78% of the pairs left after the human scrub (816,119 to 182,696) | the S2 and S3 counts |
+| The linux-64 lock holds 87 packages with the Mac's versions, openjdk 25.0.2 included. The Apptainer image `lge-c0-tools-c42530259944.sif` (SHA-256 `c4253025…7c`) sits in `/staging/groups/oconnor_group/32748/lge-chtc-test/images/`. A batch build job cannot build from a definition file, so the image was built through a sandbox from the same pinned base and lock | `lanes/C0-SLICE0/C0-SLICE0.md` |
+| Each job started 40 s after submit, and 3.4 GB of inputs and index arrived by `file:///` in about 40 s. Jobs see every host core and all host memory, and only `$_CONDOR_MACHINE_AD` names the slot. HTCondor's measured memory (35 to 74 MB) misses deacon's mapped 3.3 GB index. All four `x86_64-v4` jobs ran on the group's own `oconnor2001` to `oconnor2004` | the same |
+| SIGTERM through Apptainer (check CHTC 5) is still untested, since no job was evicted | the same |
+
+## Quality preset decisions (2026-10-21)
+
+BIO ruled and UX and QA reviewed, so each row is BIO's ruling with the two reviews counted as votes.
+
+| Id | Decision | Vote |
+|---|---|---|
+| P1 | The merged recipe's trim is fastp `--detect_adapter_for_pe -g --poly_g_min_len 10 -q 15 -u 40 -n 5 -l 15 -W 5 --cut_tail -M 20`, every value written out, with `--dedup --dup_calc_accuracy 3` when duplicates are removed. Tail cutting keeps 869,933 pairs on the slice against 834,778 for `--cut_right` | 3 to 0. QA agreed with changes, which were to freeze exact one-thread values and to time the exact argv |
+| P2 | rRNA removal is off by default, since removed reads come back only by a reimport and the filter took 78% of this sample's pairs. The wastewater preset turns it on | 3 to 0. UX agreed with changes, which were to show the switch states in the sheet and correct the wastewater description |
+| P3 | One recipe file at `formatVersion` 2 with `removeDuplicates` (default on) and `removeRibosomalRNA` (default off) switches, and presets `vsp2-target-enrichment` and `wastewater-metagenomics`. A build refuses a version it does not know. Records hold the name passed, the preset, the recipe digest, each switch's value and source, and a step result for each step a switch turned off | 3 to 0. UX and QA agreed with changes on words, display and tests |
+| P4 | Open. fastp with adapter and quality work took about 23 s on the slice against 1.6 s for today's call. M1 fits the time on three slice sizes to tell a fixed startup cost from a per-read one before C2 lands P1 | Timing in M1 |
+
+Q8 is settled by P2 and Q9 by P1. Q4 stays open, with the manager's note that the sample's qualities already hold four values (Q2, Q9, Q24 and Q41), so `illumina4` binning saves little here and still rewrites them.
+
 ## Next step
 
-C0 after the quota reset. The manager already took the node census and staged the test slice.
+M1, the full-sample timing on an idle Mac, then the C0 close and C1.
