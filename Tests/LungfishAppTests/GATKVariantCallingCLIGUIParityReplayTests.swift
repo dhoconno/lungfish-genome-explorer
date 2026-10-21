@@ -121,6 +121,14 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         root.appendingPathComponent("Sample.lungfishref", isDirectory: true)
     }
 
+    /// The track ID a first run's record is named for, shared by the cancel case's fixture and its assertion.
+    nonisolated static let firstRunTrackID = "vc-first-run"
+
+    /// The execution record a first run left in `variants/gatk`, named as a call into a bundle names its record.
+    nonisolated static func firstRunRecordURL(in bundle: URL) -> URL {
+        GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: firstRunTrackID, inBundle: bundle)
+    }
+
     /// One bundle with the fixture's reference and BAM, or with the files of the same names in `inputs` and
     /// their sequence dictionary `genome.dict` (the live class's). The cancel case adds the record a first run
     /// left in `variants/gatk` (review A50 amendment 6).
@@ -160,7 +168,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
             ]
         ).save(to: bundle)
         if let firstRunRecord {
-            try firstRunRecord.write(to: bundle.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)"))
+            try firstRunRecord.write(to: Self.firstRunRecordURL(in: bundle))
         }
     }
 
@@ -244,7 +252,9 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         let bundleC = Self.bundleURL(in: runs.c.root)
         let track = try XCTUnwrap(BundleManifest.load(from: bundleC).variants.first)
         XCTAssertEqual(track.version, Self.standInVersion)
-        let executionURL = bundleC.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")
+        // The run's own record, named by the builder the CLI and the attach service use (lane 13.16). The runs of
+        // a bundle no longer share `variants/gatk/.lungfish-provenance.json`.
+        let executionURL = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: track.id, inBundle: bundleC)
         let execution = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: executionURL)).legacyWorkflowRun()
         XCTAssertEqual(execution.steps.first?.toolVersion, Self.standInVersion)
         let databasePath = try XCTUnwrap(track.databasePath)
@@ -269,36 +279,49 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
         }
     }
 
-    /// The limit of review A50 R1 and Notes 1, declared and pinned. Every GATK run in a bundle writes
-    /// `variants/gatk/.lungfish-provenance.json`, so a second run replaces the execution record the first
-    /// track's attach record names as an input. The first track's VCF and index keep the digests its attach
-    /// record holds and the execution record does not, so `provenance verify` of the first track finds one
-    /// changed input. ARCH objection 5 of 2.10 keeps the layout in 2.11. A per-run record name (2.12, after a
-    /// BIO and ARCH ruling) turns the last assertion around, and the test then pins the fix.
-    func testASecondRunReplacesTheExecutionRecordTheFirstTrackNames() async throws {
+    /// The limit of review A50 R1 and Notes 1 was declared and pinned here, and lane 13.16 closed it. Every GATK
+    /// run in a bundle used to write `variants/gatk/.lungfish-provenance.json`, so a second run replaced the
+    /// execution record the first track's attach record names as an input, and `provenance verify` of the first
+    /// track found one changed input. Each run now writes `variants/gatk/<track>.gatk-run.lungfish-provenance.json`
+    /// (`GATKPipelineExecutionRequest.bundleRunRecordURL`), which turns the last assertion around. A second run
+    /// writes a record of its own name, the first track keeps its record byte for byte, and every input digest
+    /// its attach record holds still matches.
+    func testASecondRunLeavesTheExecutionRecordTheFirstTrackNamesAsItWas() async throws {
         let wrapper = try wrappedCLI(try standInEnvironment(.writes), name: "lungfish-cli-twice")
         let root = scratch.appendingPathComponent("twice", isDirectory: true)
         try Self.writeFixture(root)
-        for run in 1...2 {
-            let outcome = await Self.sideC(root, cli: wrapper)
-            XCTAssertEqual(outcome.end, .completed, "run \(run): \(outcome.detail)")
-        }
         let bundle = Self.bundleURL(in: root)
+        let firstOutcome = await Self.sideC(root, cli: wrapper)
+        XCTAssertEqual(firstOutcome.end, .completed, "run 1: \(firstOutcome.detail)")
+        let firstTrack = try XCTUnwrap(BundleManifest.load(from: bundle).variants.first, "the first run's track")
+        let firstRecordURL = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: firstTrack.id, inBundle: bundle)
+        let firstRecord = try Data(contentsOf: firstRecordURL)
+        let secondOutcome = await Self.sideC(root, cli: wrapper)
+        XCTAssertEqual(secondOutcome.end, .completed, "run 2: \(secondOutcome.detail)")
         let tracks = try BundleManifest.load(from: bundle).variants
         XCTAssertEqual(tracks.count, 2, "each run attaches its own track")
-        let databasePath = try XCTUnwrap(tracks.first { $0.name == Self.trackName }?.databasePath, "the first run's track")
+        let secondTrack = try XCTUnwrap(tracks.first { $0.id != firstTrack.id }, "the second run's track")
+        let secondRecordURL = GATKPipelineExecutionRequest.bundleRunRecordURL(forTrackID: secondTrack.id, inBundle: bundle)
+        XCTAssertNotEqual(secondRecordURL, firstRecordURL, "each run names a record of its own")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: secondRecordURL.path), "the second run wrote its own execution record")
+        XCTAssertEqual(try Data(contentsOf: firstRecordURL), firstRecord, "the first track's execution record is as run 1 left it")
+        let databasePath = try XCTUnwrap(firstTrack.databasePath, "the first run's track database")
         let attachURL = bundle.appendingPathComponent(
             databasePath.replacingOccurrences(of: ".db", with: ProvenanceRecorder.provenanceFilename)
         )
         let attach = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: attachURL)).legacyWorkflowRun()
         let inputs = try XCTUnwrap(attach.steps.first).inputs
         XCTAssertEqual(inputs.count, 3, "the VCF, its index and the execution record")
+        XCTAssertTrue(
+            inputs.contains { URL(fileURLWithPath: $0.path).lastPathComponent == firstRecordURL.lastPathComponent },
+            "the first track's attach record names the first run's own execution record"
+        )
         let changed = try inputs.filter { input in
             let digest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: input.path)))
                 .map { String(format: "%02x", $0) }.joined()
             return digest != input.sha256
         }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
-        XCTAssertEqual(changed, [ProvenanceRecorder.provenanceFilename], "only the shared execution record changed under the first track")
+        XCTAssertEqual(changed, [], "no input of the first track's attach record changed under the second run")
     }
 
     /// SWIFT 3 and SC4, review A50 R3 and amendment 6. The row's Cancel reaches the leaf through the
@@ -354,7 +377,7 @@ final class GATKVariantCallingCLIGUIParityReplayTests: XCTestCase {
                 let bundle = Self.bundleURL(in: run.root)
                 XCTAssertEqual(try BundleManifest.load(from: bundle).variants.count, 0, "run \(repetition), side \(run.side) attaches no track")
                 XCTAssertEqual(
-                    try Data(contentsOf: bundle.appendingPathComponent("variants/gatk/\(ProvenanceRecorder.provenanceFilename)")), firstRun,
+                    try Data(contentsOf: Self.firstRunRecordURL(in: bundle)), firstRun,
                     "run \(repetition), side \(run.side): the first run's execution record is as it was"
                 )
             }
