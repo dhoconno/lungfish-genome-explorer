@@ -31,6 +31,11 @@ final class WorkflowOperationExecutionServiceONTGenotypingBeginTests: XCTestCase
         let outputDirectory: URL
     }
 
+    /// The path of a fixture URL as the request keeps it, since the request standardizes every URL it holds.
+    private static func path(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
     /// Every input sits in a scratch folder the test removes. The output bundle
     /// path is absent, as it is when the dialog starts a run, so the site creates
     /// the bundle together with its run record.
@@ -147,7 +152,33 @@ final class WorkflowOperationExecutionServiceONTGenotypingBeginTests: XCTestCase
         let run = try await runSite(request)
 
         try assertCleanRun(run, bundle: request.outputDirectory)
-        XCTAssertEqual(Array(try RecordedCLICommand.arguments(of: run.command).prefix(2)), ["fastq", "genotype-cohort"])
+        // The exact argv, in the order the site launched it, with the fixture's paths. Every word is pinned,
+        // so a flag the site adds or drops fails here (M874, H2).
+        let expected: [String] = [
+            "fastq", "genotype-cohort", Self.path(fixture.reads[0]), Self.path(fixture.reads[1]),
+            "--mode", "ont-sample-bundles",
+            "--read-type", "ont",
+            "--output-dir", Self.path(fixture.outputDirectory),
+            "--output-name", "reads-ont",
+            "--threads", "4",
+            "--sort-threads", "2",
+            "--min-support", "3",
+            "--analysis-name", "ONT08",
+            "--reference", Self.path(fixture.reference),
+            "--haplotype-min-sample-percent", "5",
+            "--haplotype-min-locus-percent", "10",
+            "--haplotype-min-locus-percent-override", "MHC-DQ=25",
+            "--haplotype-assay", "MHC-exon2-miSeq",
+            "--haplotype-species", "MCM",
+            "--haplotype-definition-scope", "project",
+            "--haplotype-definition", "mcm-haplotypes-v1",
+            "--project", Self.path(fixture.root),
+            "--keep-intermediates",
+            "--extra-args", "-k 15",
+        ]
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: run.command), expected, run.command)
+        // The request names no demux manifest, so the command does not either.
+        XCTAssertFalse(try RecordedCLICommand.arguments(of: run.command).contains("--demux-manifest"), run.command)
         let cli = try RecordedCLICommand.parse(run.command, as: FastqGenotypingCohortSubcommand.self)
         XCTAssertEqual(cli.inputs, request.inputFASTQURLs.map(\.path), run.command)
         XCTAssertEqual(cli.mode, "ont-sample-bundles", run.command)
@@ -195,7 +226,20 @@ final class WorkflowOperationExecutionServiceONTGenotypingBeginTests: XCTestCase
         let run = try await runSite(request)
 
         try assertCleanRun(run, bundle: request.outputDirectory)
-        XCTAssertEqual(Array(try RecordedCLICommand.arguments(of: run.command).prefix(2)), ["fastq", "genotype"])
+        let expected: [String] = [
+            "fastq", "genotype", Self.path(fixture.reads[0]),
+            "--mode", "illumina-paired",
+            "--read-type", "illumina",
+            "--output-dir", Self.path(fixture.outputDirectory),
+            "--output-name", "miseq-run",
+            "--threads", "8",
+            "--sort-threads", "4",
+            "--min-support", "1",
+            "--analysis-name", "LF2823",
+            "--preset", "mcm-mhc-miseq",
+            "--genotype-only",
+        ]
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: run.command), expected, run.command)
         let cli = try RecordedCLICommand.parse(run.command, as: FastqGenotypingSubcommand.self)
         XCTAssertEqual(cli.inputs, request.inputFASTQURLs.map(\.path), run.command)
         XCTAssertEqual(cli.mode, "illumina-paired", run.command)
@@ -241,6 +285,21 @@ final class WorkflowOperationExecutionServiceONTGenotypingBeginTests: XCTestCase
         let run = try await runSite(request)
 
         try assertCleanRun(run, bundle: nextFree)
+        // The whole argv, with the next free name in the output folder, the output name and the analysis name.
+        let expected: [String] = [
+            "fastq", "genotype-cohort", Self.path(fixture.reads[0]),
+            "--mode", "ont-sample-bundles",
+            "--read-type", "ont",
+            "--output-dir", nextFree.standardizedFileURL.path,
+            "--output-name", "reads-ont_1",
+            "--threads", "2",
+            "--sort-threads", "4",
+            "--min-support", "1",
+            "--analysis-name", "ONT08_1",
+            "--reference", Self.path(fixture.reference),
+            "--genotype-only",
+        ]
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: run.command), expected, run.command)
         let cli = try RecordedCLICommand.parse(run.command, as: FastqGenotypingCohortSubcommand.self)
         XCTAssertEqual(cli.outputDir, nextFree.standardizedFileURL.path, run.command)
         XCTAssertEqual(cli.outputName, "reads-ont_1", run.command)
