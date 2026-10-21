@@ -684,7 +684,7 @@ extension VariantDatabase {
             throw VariantDatabaseError.createFailed("Failed to prepare INSERT for materialization")
         }
         defer { sqlite3_finalize(insertInfoStmt) }
-
+        let structuredNames = StructuredINFOFieldNames.stored(in: db) // the VCF header's Format names
         var totalEAVRows = 0
         var distinctKeys = Set<String>()
         var infoValueSamples: [String: [String]] = [:]
@@ -749,7 +749,7 @@ extension VariantDatabase {
                 guard let infoCStr = sqlite3_column_text(selectStmt, 1) else { continue }
                 let infoString = String(cString: infoCStr)
 
-                let parsed = parseRawINFOString(infoString)
+                let parsed = parseRawINFOString(infoString, names: structuredNames)
                 for (key, value) in parsed {
                     sqlite3_reset(insertInfoStmt)
                     sqlite3_bind_int64(insertInfoStmt, 1, variantId)

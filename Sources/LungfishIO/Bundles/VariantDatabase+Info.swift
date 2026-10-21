@@ -97,6 +97,7 @@ extension VariantDatabase {
         ]
 
         var allKeys: [String: (values: [String], count: Int)] = [:]
+        let names = StructuredINFOFieldNames.stored(in: db)
 
         for (lo, hi) in boundaries {
             let sql = "SELECT info FROM variants WHERE id > ? AND id <= ? AND info IS NOT NULL AND info != '' AND info != '.' LIMIT ?"
@@ -110,7 +111,7 @@ extension VariantDatabase {
             while sqlite3_step(stmt!) == SQLITE_ROW {
                 guard let cStr = sqlite3_column_text(stmt!, 0) else { continue }
                 let infoStr = String(cString: cStr)
-                for (key, value) in Self.parseRawINFOString(infoStr) {
+                for (key, value) in Self.parseRawINFOString(infoStr, names: names) {
                     var entry = allKeys[key] ?? (values: [], count: 0)
                     entry.count += 1
                     if entry.values.count < 5 { entry.values.append(value) }
@@ -214,7 +215,7 @@ extension VariantDatabase {
             sqlite3_bind_int64(stmt, 1, variantId)
             guard sqlite3_step(stmt) == SQLITE_ROW,
                   let cStr = sqlite3_column_text(stmt, 0) else { return [:] }
-            return Self.parseRawINFOString(String(cString: cStr))
+            return Self.parseRawINFOString(String(cString: cStr), names: StructuredINFOFieldNames.stored(in: db))
         }
 
         let sql = "SELECT key, value FROM variant_info WHERE variant_id = ?"
@@ -227,8 +228,8 @@ extension VariantDatabase {
             let key = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
             let value = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
             result[key] = value
-            Self.expandStructuredINFOFieldIfNeeded(key: key, value: value, into: &result)
         }
+        Self.expandLegacyStructuredINFO(&result)
         return result
     }
 
@@ -244,6 +245,7 @@ extension VariantDatabase {
 
         if variantInfoSkipped {
             // Parse raw INFO from the variants table.
+            let names = StructuredINFOFieldNames.stored(in: db)
             for chunkStart in stride(from: 0, to: uniqueIds.count, by: chunkSize) {
                 let chunkEnd = min(chunkStart + chunkSize, uniqueIds.count)
                 let chunk = Array(uniqueIds[chunkStart..<chunkEnd])
@@ -258,7 +260,7 @@ extension VariantDatabase {
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let variantId = sqlite3_column_int64(stmt, 0)
                     if let cStr = sqlite3_column_text(stmt, 1) {
-                        result[variantId] = Self.parseRawINFOString(String(cString: cStr))
+                        result[variantId] = Self.parseRawINFOString(String(cString: cStr), names: names)
                     }
                 }
             }
@@ -281,10 +283,10 @@ extension VariantDatabase {
                 let key = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
                 let value = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
                 result[variantId, default: [:]][key] = value
-                var expanded = result[variantId, default: [:]]
-                Self.expandStructuredINFOFieldIfNeeded(key: key, value: value, into: &expanded)
-                result[variantId] = expanded
             }
+        }
+        for variantId in Array(result.keys) {
+            Self.expandLegacyStructuredINFO(&result[variantId, default: [:]])
         }
         return result
     }
@@ -296,6 +298,7 @@ extension VariantDatabase {
         let uniqueIds = Array(Set(variantIds))
         guard !uniqueIds.isEmpty else { return [:] }
         var result: [Int64: [String: String]] = [:]
+        let names = StructuredINFOFieldNames.stored(in: db)
         for chunkStart in stride(from: 0, to: uniqueIds.count, by: 500) {
             let chunk = Array(uniqueIds[chunkStart..<min(chunkStart + 500, uniqueIds.count)])
             let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
@@ -318,16 +321,18 @@ extension VariantDatabase {
                 let variantID = sqlite3_column_int64(statement, 0)
                 if variantInfoSkipped {
                     if let raw = sqlite3_column_text(statement, 1) {
-                        result[variantID] = Self.parseRawINFOString(String(cString: raw))
+                        result[variantID] = Self.parseRawINFOString(String(cString: raw), names: names)
                     }
                 } else {
                     let key = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
                     let value = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
                     result[variantID, default: [:]][key] = value
-                    var expanded = result[variantID, default: [:]]
-                    Self.expandStructuredINFOFieldIfNeeded(key: key, value: value, into: &expanded)
-                    result[variantID] = expanded
                 }
+            }
+        }
+        if !variantInfoSkipped {
+            for variantID in Array(result.keys) {
+                Self.expandLegacyStructuredINFO(&result[variantID, default: [:]])
             }
         }
         return result
