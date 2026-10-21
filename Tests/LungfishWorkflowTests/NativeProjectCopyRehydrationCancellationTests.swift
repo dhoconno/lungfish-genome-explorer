@@ -90,6 +90,35 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
         XCTAssertEqual(residue(beside: destination), [], "no .native-copy- folder is left")
     }
 
+    /// Measured, not counted from the code: the hash of the source, the hash of the copy, the check against the record
+    /// and three rewrites. With the forward of the check removed from the rewrite's hash the same count reads 3.
+    private static let passesOverTheFile = 6
+
+    func testTheRewriteOfTheRecordHashesTheCopyWithTheCheckToo() throws {
+        // A larger sparse file adds one check per chunk to every pass over it, so the difference counts the passes.
+        let small = try countChecks(ofACopyWithASparseFileOf: 2, in: "Small")
+        let large = try countChecks(ofACopyWithASparseFileOf: 6, in: "Large")
+        XCTAssertEqual((large - small) % (6 - 2), 0, "whole passes only")
+        XCTAssertEqual(
+            (large - small) / (6 - 2), Self.passesOverTheFile,
+            "the hash of the source, the hash of the copy, the check against the record and the three rewrites check the cancel"
+        )
+    }
+
+    private func countChecks(ofACopyWithASparseFileOf chunks: Int, in folder: String) throws -> Int {
+        let bundle = root.appendingPathComponent("\(folder)/Source/Big.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let sparse = bundle.appendingPathComponent("padding.bin")
+        try makeSparseFile(at: sparse, chunks: chunks)
+        try ProvenanceWriter(signingProvider: nil).write(try record(naming: sparse), to: bundle)
+        var total = 0
+        _ = try NativeProjectCopyImportService.copy(
+            from: bundle, to: root.appendingPathComponent("\(folder)/Target/Big.lungfishref", isDirectory: true),
+            checkCancellation: { total += 1 }
+        )
+        return total
+    }
+
     // MARK: - Fixture
 
     /// A reference bundle whose record names one sparse file of `chunks` hash chunks. The bundle sits outside a
@@ -116,10 +145,10 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
         return sparse
     }
 
-    private func makeSparseFile(at url: URL) throws {
+    private func makeSparseFile(at url: URL, chunks: Int = NativeProjectCopyRehydrationCancellationTests.chunks) throws {
         XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
         let handle = try FileHandle(forWritingTo: url)
-        try handle.truncate(atOffset: UInt64(Self.chunks * FileDigest.defaultChunkSize))
+        try handle.truncate(atOffset: UInt64(chunks * FileDigest.defaultChunkSize))
         try handle.close()
     }
 
