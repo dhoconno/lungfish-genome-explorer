@@ -131,11 +131,6 @@ struct ReadSetSource: Sendable, Equatable {
 
 extension ReadSetResolver {
 
-    /// Whether reads from `platform` are long reads, which are never paired.
-    static func isLongRead(_ platform: SequencingPlatform?) -> Bool {
-        platform == .oxfordNanopore || platform == .pacbio
-    }
-
     /// Every file of a long-read sample as single reads.
     static func longReadSource(_ files: [URL], platform: SequencingPlatform?) -> ReadSetSource {
         ReadSetSource(
@@ -147,37 +142,12 @@ extension ReadSetResolver {
         )
     }
 
-    /// The sequencing platform a bundle records, from its primary file's
-    /// sidecar, its own sidecar, or the bundle it derives from.
-    public static func recordedPlatform(of bundleURL: URL) -> SequencingPlatform? {
-        for candidate in [bundleURL] + ancestors(of: bundleURL) {
-            if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: candidate),
-               let platform = FASTQMetadataStore.load(for: fastqURL)?.sequencingPlatform {
-                return platform
-            }
-            if let platform = FASTQMetadataStore.load(for: candidate)?.sequencingPlatform {
-                return platform
-            }
-        }
-        return nil
-    }
-
-    /// The bundles a derivative derives from, nearest first, through each
-    /// manifest's parent.
-    static func ancestors(of bundleURL: URL, limit: Int = 32) -> [URL] {
-        var result: [URL] = []
-        var seen: Set<String> = [bundleURL.standardizedFileURL.path]
-        var current = bundleURL.standardizedFileURL
-        while result.count < limit, let manifest = FASTQBundle.loadDerivedManifest(in: current) {
-            let parent = FASTQBundle.resolveBundle(relativePath: manifest.parentBundleRelativePath, from: current)
-                .standardizedFileURL
-            guard !seen.contains(parent.path), FASTQBundle.isBundleURL(parent),
-                  FileManager.default.fileExists(atPath: parent.path) else { break }
-            seen.insert(parent.path)
-            result.append(parent)
-            current = parent
-        }
-        return result
+    /// The bundles a derivative derives from, nearest first. The walk is
+    /// `FASTQLongReadRule.ancestors(of:limit:)` in LungfishIO, the one the
+    /// platform lookup reads. This name stays for the Kraken2 and samplesheet
+    /// planners, which are outside lane 13.42's files.
+    static func ancestors(of bundleURL: URL) -> [URL] {
+        FASTQLongReadRule.ancestors(of: bundleURL)
     }
 
     /// Merge or orphan evidence from a virtual derivative's own manifest and
@@ -194,7 +164,7 @@ extension ReadSetResolver {
             evidence.append("\(label): \(classification.compositionLabel)")
             if found == nil { found = classification }
         }
-        for candidate in [bundleURL] + ancestors(of: bundleURL) {
+        for candidate in [bundleURL] + FASTQLongReadRule.ancestors(of: bundleURL) {
             let name = candidate.lastPathComponent
             if let manifest = FASTQBundle.loadDerivedManifest(in: candidate) {
                 if case .fullMixed(let classification) = manifest.payload {

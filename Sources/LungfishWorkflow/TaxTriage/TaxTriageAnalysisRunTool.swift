@@ -262,10 +262,10 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
     }
 
     /// The TaxTriage platform a bundle records, from its reads' sidecar, its own or the bundle it derives
-    /// from (`ReadSetResolver.recordedPlatform(of:)`). Nil when it records none, or a platform TaxTriage
+    /// from (`FASTQLongReadRule.recordedPlatform(of:)`). Nil when it records none, or a platform TaxTriage
     /// has no mode for, as Element, Ultima and MGI reads are, which then run on `--platform`.
     static func recordedPlatform(of bundle: URL) -> TaxTriageConfig.Platform? {
-        switch ReadSetResolver.recordedPlatform(of: bundle) {
+        switch FASTQLongReadRule.recordedPlatform(of: bundle) {
         case .illumina?: return .illumina
         case .oxfordNanopore?: return .oxford
         case .pacbio?: return .pacbio

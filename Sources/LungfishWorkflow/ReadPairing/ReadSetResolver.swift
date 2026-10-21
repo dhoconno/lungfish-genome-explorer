@@ -134,7 +134,7 @@ public struct ReadSetResolver: Sendable {
         guard let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL) else {
             return try inspectFile(inputURL, platform: nil, hints: nil, roleEvidence: nil, wasMaterialized: false)
         }
-        let platform = Self.recordedPlatform(of: bundleURL)
+        let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL)
         let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL)
         switch manifest?.payload {
         case .fullFASTA:
@@ -147,7 +147,7 @@ public struct ReadSetResolver: Sendable {
                 throw ReadSetResolverError.noReads(path: bundleURL.path)
             }
             try Self.requireFiles([pair.r1, pair.r2], in: bundleURL)
-            if Self.isLongRead(platform) {
+            if FASTQLongReadRule.isLongRead(platform) {
                 return Self.longReadSource([pair.r1, pair.r2], platform: platform)
             }
             return ReadSetSource(
@@ -189,7 +189,7 @@ public struct ReadSetResolver: Sendable {
             files = Self.physicalFASTQFiles(in: bundleURL)
         }
         guard !files.isEmpty else { throw ReadSetResolverError.noReads(path: bundleURL.path) }
-        if Self.isLongRead(platform) {
+        if FASTQLongReadRule.isLongRead(platform) {
             return Self.longReadSource(files, platform: platform)
         }
         // A chunked root pairs by file name only when a short-read platform
@@ -262,7 +262,7 @@ public struct ReadSetResolver: Sendable {
                 readCount: entry.readCount
             )))
         }
-        if Self.isLongRead(platform) {
+        if FASTQLongReadRule.isLongRead(platform) {
             return Self.longReadSource(parts.flatMap(\.urls), platform: platform)
         }
         let holdsPairs = !r1Entries.isEmpty
@@ -348,7 +348,7 @@ public struct ReadSetResolver: Sendable {
         // once. A truncated or unreadable file stops the plan, and the
         // by-name counts are exact.
         let materializedCounts = wasMaterialized ? try FASTQPairInterleaver.countMixed(interleaved: file) : nil
-        if Self.isLongRead(platform) {
+        if FASTQLongReadRule.isLongRead(platform) {
             var source = Self.longReadSource([file], platform: platform)
             source.wasMaterialized = wasMaterialized
             return source

@@ -213,7 +213,7 @@ extension TwelveSAmpliconMatchingWorkflow {
         platform: SequencingPlatform?
     ) -> TwelveSFragment {
         let onReverseStrand = role != .merged
-            && !ReadSetResolver.isLongRead(platform)
+            && !FASTQLongReadRule.isLongRead(platform)
             && marksMateTwo(record.identifier)
         return .single(
             sequence: onReverseStrand ? reverseComplement(record.sequence) : normalized(record.sequence),

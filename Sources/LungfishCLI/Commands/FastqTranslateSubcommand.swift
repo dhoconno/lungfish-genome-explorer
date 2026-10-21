@@ -168,8 +168,9 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
     /// Whether the input, or a bundle it derives from, records a long-read platform, read by the read set
     /// resolver's own lookup. Such reads are never paired (`docs/contracts/READ-PAIRING.md`).
     private static func recordsLongReads(_ input: FASTQSubcommandInput) -> Bool {
-        let platform = ReadSetResolver.recordedPlatform(of: (input.bundleURL ?? input.originalURL).standardizedFileURL)
-        return platform == .oxfordNanopore || platform == .pacbio
+        FASTQLongReadRule.isLongRead(
+            FASTQLongReadRule.recordedPlatform(of: (input.bundleURL ?? input.originalURL).standardizedFileURL)
+        )
     }
 
     /// Two adjacent records are the mates of one fragment when their identifiers are byte-equal and the

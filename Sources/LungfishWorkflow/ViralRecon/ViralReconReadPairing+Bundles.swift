@@ -116,7 +116,7 @@ extension ViralReconReadPairing {
                 ? (.mixedMergedAndPairs, "The derivative records read pairs and single reads by role.")
                 : (holdsPairs ? .pairedFiles : .singleEnd, "The derivative records its files by role.")
         case nil:
-            let platform = ReadSetResolver.recordedPlatform(of: bundleURL)
+            let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL)
             let files = FASTQBundle.resolveAllFASTQURLs(for: bundleURL) ?? []
             expected = ReadSetResolver.isKnownShortRead(platform)
                 && MatePairFileNaming.matePair(in: files, sequencingPlatform: platform) != nil

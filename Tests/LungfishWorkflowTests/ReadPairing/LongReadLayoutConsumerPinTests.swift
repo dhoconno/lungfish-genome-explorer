@@ -6,7 +6,7 @@
 // `FASTQInputLayoutResolver` and of the long-read rule gives three bundles. An Oxford Nanopore root
 // whose reads repeat ids, so the record scan reads them as mates by identical names, a PacBio root
 // whose reads repeat ids the same way, and a derived child whose platform sits only on its Oxford
-// Nanopore parent (the ancestor walk of `ReadSetResolver.recordedPlatform(of:)`). Each platform is
+// Nanopore parent (the ancestor walk of `FASTQLongReadRule.recordedPlatform(of:)`). Each platform is
 // recorded through `FASTQMetadataStore`. A consumer in LungfishApp, LungfishCLI or LungfishOperations,
 // which this target does not link, is pinned through the resolver call it makes, with its arguments.
 // `SCR/lanes/13.42/callers.md` gives one row for each. M2 flips only the pins the BIO ruling lists.
@@ -206,9 +206,9 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
                 expected: Array(repeating: "single_end_file", count: 3)) { f in
                 try await resolver.plan(for: f.bundle, capability: .bothInOneRunAsSeparateFiles).sourceLayout.rawValue
             },
-            Row(consumer: "ReadSetResolver.recordedPlatform(of:), ReadSetResolver+Sources.swift:152, read by FastqTranslateSubcommand.swift:171",
+            Row(consumer: "FASTQLongReadRule.recordedPlatform(of:) (LungfishIO, moved from ReadSetResolver+Sources.swift:152 in M2)",
                 expected: ["oxfordNanopore", "pacbio", "oxfordNanopore"]) { f in
-                ReadSetResolver.recordedPlatform(of: f.bundle)?.rawValue ?? "nil"
+                FASTQLongReadRule.recordedPlatform(of: f.bundle)?.rawValue ?? "nil"
             },
             Row(consumer: "TaxTriageAnalysisRunTool.recordedPlatform(of:), TaxTriageAnalysisRunTool.swift:90 and :258",
                 expected: ["oxford", "pacbio", "oxford"]) { f in

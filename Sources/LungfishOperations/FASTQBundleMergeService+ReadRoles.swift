@@ -47,7 +47,7 @@ extension FASTQBundleMergeService {
     ) throws {
         var metadata = metadata
         let platform = metadata.sequencingPlatform
-        if platform != .oxfordNanopore, platform != .pacbio {
+        if !FASTQLongReadRule.isLongRead(platform) {
             let sources = zip(inputFiles, sourceBundleURLs).map { files, bundleURL in
                 FASTQMixedLayoutHint.JoinedSource(files: files, recordedRoles: recordedRoles(of: files, in: bundleURL))
             }
