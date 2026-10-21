@@ -83,7 +83,7 @@ package enum MSAExtractionAnnotationProvenance {
         let annotationBEDChecksum = ProvenanceRecorder.sha256(of: sourceAnnotationURL)
         let annotationBEDSize = (try? sourceAnnotationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         let argv = [
-            "lungfish-gui",
+            LungfishAppIdentity.recordedToolName,
             "msa",
             "extract-annotated-bundle",
         ]
