@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 import XCTest
 
 /// Pins of the three genotype workbook receipts the goldens hold (Phase 2.13 lane 13.51 M0). The workbook and pivot
@@ -43,12 +44,42 @@ final class GenotypeWorkbookReceiptIdentityTests: XCTestCase {
     func testGoldenReceiptsNameTheirToolKindAndWorkflow() throws {
         for pin in Self.pins {
             let receipt = try receipt(pin)
-            XCTAssertEqual(receipt["toolName"] as? String, "lungfish genotype Excel export", pin.path)
-            XCTAssertNil(receipt["toolKind"], pin.path)
-            XCTAssertEqual(receipt["workflowName"] as? String, pin.requestWorkflow, pin.path)
-            XCTAssertNil(receipt["requestWorkflowName"], pin.path)
+            XCTAssertEqual(receipt["toolName"] as? String, CLICommandIdentity.executableName, pin.path)
+            XCTAssertEqual(receipt["toolKind"] as? String, "cli", pin.path)
+            XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-xlsx", pin.path)
+            XCTAssertEqual(receipt["requestWorkflowName"] as? String, pin.requestWorkflow, pin.path)
             XCTAssertEqual(receipt["schemaVersion"] as? Int, 1, pin.path)
             XCTAssertEqual(receipt["status"] as? String, "completed", pin.path)
+            XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt(receipt), pin.path)
+            for value in ["Lungfish", "Lungfish.app", "lungfish-app", GenotypeExcelExportService.legacyReceiptToolName] {
+                XCTAssertFalse(Self.strings(in: receipt).contains(value), "\(pin.path) names \(value)")
+            }
+        }
+    }
+
+    /// A receipt written before lane 13.51 still reads as a workbook receipt, and a record that only shares the new
+    /// tool name does not.
+    func testReceiptRecognitionAcceptsTheOlderShapeAndNoOtherCLIRecord() {
+        XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish genotype Excel export", "workflowName": "genotype.export.xlsx",
+        ]))
+        XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-xlsx",
+        ]))
+        XCTAssertFalse(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-manual-definitions",
+        ]))
+        XCTAssertFalse(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "workflowName": "lungfish genotype export-xlsx",
+        ]))
+    }
+
+    private static func strings(in value: Any) -> [String] {
+        switch value {
+        case let text as String: return [text]
+        case let array as [Any]: return array.flatMap { strings(in: $0) }
+        case let object as [String: Any]: return object.values.flatMap { strings(in: $0) }
+        default: return []
         }
     }
 

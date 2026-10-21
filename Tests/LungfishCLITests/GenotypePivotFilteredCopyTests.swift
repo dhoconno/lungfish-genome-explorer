@@ -113,7 +113,8 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, output.path)
         XCTAssertEqual(receipt["receiptPath"] as? String, receiptURL.path)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
-        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.pivot-xlsx")
+        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.pivot-xlsx")
         XCTAssertFalse((receipt["durableReplayArgv"] as? [String] ?? []).isEmpty)
         XCTAssertFalse((receipt["inputs"] as? [[String: Any]] ?? []).isEmpty)
     }

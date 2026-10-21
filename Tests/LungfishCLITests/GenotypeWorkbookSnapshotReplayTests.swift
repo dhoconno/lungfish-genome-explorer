@@ -135,7 +135,7 @@ extension GenotypeWorkbookSnapshotReplayTests {
         let receipt = try await replay(invocation)
         XCTAssertEqual(receipt["argv"] as? [String], invocation.canonicalArgv())
         XCTAssertEqual((receipt["argv"] as? [String])?.first, CLICommandIdentity.executableName)
-        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.excel.replay")
     }
 
     /// Lane 13.51. The receipt of the `--snapshot` replay names its tool, its kind and its workflow, keeps the
@@ -143,15 +143,29 @@ extension GenotypeWorkbookSnapshotReplayTests {
     func testSnapshotReplayReceiptNamesItsToolKindAndWorkflow() async throws {
         let invocation = try writeInputs(options: [:])
         let receipt = try await replay(invocation)
-        XCTAssertEqual(receipt["toolName"] as? String, "lungfish genotype Excel export")
-        XCTAssertNil(receipt["toolKind"])
-        XCTAssertEqual(receipt["workflowName"] as? String, "genotype.export.excel.replay")
-        XCTAssertNil(receipt["requestWorkflowName"])
+        XCTAssertEqual(receipt["toolName"] as? String, CLICommandIdentity.executableName)
+        XCTAssertEqual(receipt["toolKind"] as? String, "cli")
+        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-xlsx")
+        XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt(receipt))
+        for value in ["Lungfish", "Lungfish.app", "lungfish-app", GenotypeExcelExportService.legacyReceiptToolName] {
+            XCTAssertFalse(Self.strings(in: receipt).contains(value), "no value names \(value) as a tool")
+        }
         XCTAssertEqual((receipt["runtimeContext"] as? [String: String])?["originalWorkflowName"],
                        GenotypeWorkbookExport.requestWorkflowName)
         let replay = try XCTUnwrap(receipt["durableReplayArgv"] as? [String])
         XCTAssertEqual(Array(replay.dropFirst().prefix(3)), GenotypeWorkbookExport.commandPath + ["--snapshot"])
         XCTAssertEqual(receipt["receiptPath"] as? String, invocation.output + ".provenance.json")
+    }
+
+    /// Every string value of a decoded JSON value, keys left out.
+    static func strings(in value: Any) -> [String] {
+        switch value {
+        case let text as String: return [text]
+        case let array as [Any]: return array.flatMap { strings(in: $0) }
+        case let object as [String: Any]: return object.values.flatMap { strings(in: $0) }
+        default: return []
+        }
     }
 }
 

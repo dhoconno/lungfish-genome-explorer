@@ -45,7 +45,7 @@ extension GenotypeExcelExportService {
                 throw ExportError.invalidInput("unsafe report receipt")
             }
             guard var receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: receiptURL)) as? [String: Any],
-                  receipt["toolName"] as? String == "lungfish genotype Excel export",
+                  isWorkbookReceipt(receipt),
                   receipt["schemaVersion"] as? Int == 1 else { continue }
             // Validate all published descriptors before changing any bytes.
             for key in ["output", "snapshot", "script", "replayScript", "request"] {

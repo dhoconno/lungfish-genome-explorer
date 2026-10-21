@@ -369,7 +369,7 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         let snapshotC = try XCTUnwrap(c["snapshot"] as? [String: Any])
         XCTAssertEqual(snapshotA["sha256"] as? String, snapshotC["sha256"] as? String, "snapshot sha256")
         XCTAssertEqual(snapshotA["sizeBytes"] as? Int, snapshotC["sizeBytes"] as? Int, "snapshot size")
-        for key in ["generatedAt", "toolName", "toolVersion", "status"] {
+        for key in ["generatedAt", "toolName", "toolKind", "workflowName", "toolVersion", "status"] {
             XCTAssertEqual(a[key] as? String, c[key] as? String, key)
         }
         XCTAssertEqual(a["replacingExisting"] as? Bool, false)
@@ -391,14 +391,17 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         let generatedAt = try XCTUnwrap(a["generatedAt"] as? String)
         XCTAssertEqual(a["argv"] as? [String], ["Lungfish", "genotype.export.excel", "--captured-at", generatedAt,
             "--output", Self.outputURL(in: runs.a.root).standardizedFileURL.path])
-        XCTAssertEqual(a["workflowName"] as? String, GenotypeWorkbookExport.requestWorkflowName)
+        XCTAssertEqual(a["requestWorkflowName"] as? String, GenotypeWorkbookExport.requestWorkflowName)
         XCTAssertEqual((a["inputs"] as? [Any])?.count, 0, "the in-app writer named no input")
 
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
         XCTAssertEqual(Array(rowArguments.prefix(2)), GenotypeWorkbookExport.commandPath)
         XCTAssertFalse(rowArguments.contains("--format"), "a result row runs without events")
         XCTAssertEqual(c["argv"] as? [String], [CLICommandIdentity.executableName] + rowArguments, "the receipt's argv is the row's command")
-        XCTAssertEqual(c["workflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertEqual(c["requestWorkflowName"] as? String, "genotype.export.excel.replay")
+        XCTAssertEqual(c["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(c["toolName"] as? String, CLICommandIdentity.executableName)
+        XCTAssertEqual(c["toolKind"] as? String, "cli")
         let context = try XCTUnwrap(c["runtimeContext"] as? [String: String])
         XCTAssertEqual(context["originalWorkflowName"], GenotypeWorkbookExport.requestWorkflowName)
         XCTAssertEqual(context["captureMode"], "durable-scientific-snapshot")

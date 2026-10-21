@@ -326,7 +326,10 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         XCTAssertEqual(columns, ["S1"])
         let receiptURL = output.appendingPathExtension("provenance.json")
         let receipt = try jsonObject(receiptURL)
-        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export")
+        // Lane 13.51. The receipt names the leaf whose durable replay it carries and keeps the request's workflow.
+        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-xlsx")
+        XCTAssertEqual(receipt["requestWorkflowName"] as? String, "lungfish genotype export")
+        XCTAssertEqual(receipt["toolName"] as? String, "lungfish-cli")
         XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, output.path)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
         let snapshotDescriptor = try XCTUnwrap(receipt["snapshot"] as? [String: Any])

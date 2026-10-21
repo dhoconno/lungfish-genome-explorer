@@ -111,7 +111,7 @@ enum PrimitiveProvenanceEnvelopeAdapter {
     /// typed record, so a record written before keeps the Older record format and its display.
     static func typedRecordStatus(_ json: [String: Any]) -> RunStatus? {
         guard let status = (json["status"] as? String).flatMap(RunStatus.init(rawValue:)) else { return nil }
-        if string(json, keys: ["toolName"]) == "lungfish genotype Excel export" { return status }
+        if GenotypeExcelExportService.isWorkbookReceipt(json) { return status }
         let workflowName = string(json, keys: ["workflowName"]) ?? ""
         let nativePrefixes = ["multiple-sequence-alignment-", "phylogenetic-tree-"]
         if nativePrefixes.contains(where: workflowName.hasPrefix) || looksLikeTreeProvenance(json) {

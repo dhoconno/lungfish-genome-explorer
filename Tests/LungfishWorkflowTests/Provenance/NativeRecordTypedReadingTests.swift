@@ -62,6 +62,11 @@ final class NativeRecordTypedReadingTests: XCTestCase {
                 "workflowName": "genotype.export.xlsx", "toolName": "lungfish genotype Excel export",
                 "argv": ["lungfish-cli", "genotype", "export-xlsx"], "exitStatus": 0, "status": "completed",
             ],
+            "workbook receipt since lane 13.51": [
+                "workflowName": "lungfish genotype export-xlsx", "requestWorkflowName": "genotype.export.xlsx",
+                "toolName": "lungfish-cli", "toolKind": "cli",
+                "argv": ["lungfish-cli", "genotype", "export-xlsx"], "exitStatus": 0, "status": "completed",
+            ],
         ]
         for (name, record) in typed {
             let reading = try ProvenanceEnvelopeReader.read(Self.data(record))
