@@ -126,6 +126,26 @@ final class VariantDatabaseBookmarkReadOnlyTests: XCTestCase {
         XCTAssertTrue(reader.isBookmarked(variantId: 1))
     }
 
+    /// A `CREATE` that another handle's read lock turns away must not be remembered as a created table. The toggle
+    /// stores nothing and returns false, and the next toggle asks again and creates the table.
+    func testAToggleThatCannotCreateTheTableReturnsFalseAndTheNextToggleRetries() throws {
+        let url = try makeCallsDatabase()
+        let writer = try VariantDatabase(url: url, readWrite: true)
+
+        var raw: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(url.path, &raw, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { sqlite3_close(raw) }
+        XCTAssertEqual(sqlite3_exec(raw, "BEGIN", nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(raw, "SELECT count(*) FROM variants", nil, nil, nil), SQLITE_OK, "The reader holds its shared lock.")
+
+        XCTAssertFalse(writer.toggleBookmark(variantId: 1), "A toggle whose CREATE the reader's lock refuses stores nothing.")
+        XCTAssertFalse(try Self.tableNames(in: url).contains("variant_bookmarks"), "The refused CREATE left no table.")
+
+        XCTAssertEqual(sqlite3_exec(raw, "COMMIT", nil, nil, nil), SQLITE_OK)
+        XCTAssertTrue(writer.toggleBookmark(variantId: 1), "The next toggle retries the CREATE.")
+        XCTAssertEqual(try VariantDatabase(url: url).bookmarkedVariantIds(), [1])
+    }
+
     // MARK: - Helpers
 
     /// A calls database made by the importer from two variants and two samples.

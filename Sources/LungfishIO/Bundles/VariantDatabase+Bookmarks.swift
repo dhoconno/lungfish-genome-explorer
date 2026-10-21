@@ -36,7 +36,7 @@ extension VariantDatabase {
                 created_at TEXT DEFAULT (datetime('now'))
             )
             """
-        sqlite3_exec(db, sql, nil, nil, nil)
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { return }
         hasBookmarkTable = true
     }
 
