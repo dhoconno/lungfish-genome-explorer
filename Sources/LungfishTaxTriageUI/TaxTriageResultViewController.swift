@@ -2942,11 +2942,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// single-result mode), reads selected rows from `batchFlatTableView` and
     /// groups accessions per sample. Otherwise falls back to the organism table
     /// which represents one sample at a time.
-    private func buildTaxTriageSelectors() -> [ClassifierRowSelector] {
+    private func buildTaxTriageSelectors() -> ExtractReadsPlan {
         // Batch flat table is the primary table in batch/multi-sample modes.
         if !batchFlatTableView.isHidden {
             let selectedMetrics = batchFlatTableView.selectedMetrics()
-            guard !selectedMetrics.isEmpty else { return [] }
+            guard !selectedMetrics.isEmpty else { return ExtractReadsPlan() }
 
             // Group accessions by sample id since the flat table may have
             // rows from multiple samples selected simultaneously.
@@ -2956,7 +2956,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 let metricAccessions = self.accessions(for: metric) ?? []
                 bySample[sampleId, default: []].append(contentsOf: metricAccessions)
             }
-            return bySample.compactMap { (sampleId, accessions) in
+            let selectors: [ClassifierRowSelector] = bySample.compactMap { (sampleId, accessions) in
                 guard !accessions.isEmpty else { return nil }
                 return ClassifierRowSelector(
                     sampleId: sampleId,
@@ -2964,26 +2964,64 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     taxIds: []
                 )
             }
+            return ExtractReadsPlan(selectors: selectors, selectedRowCount: selectedMetrics.count)
         }
 
         // Single-sample organism table fallback.
-        let accessions = organismTableView.selectedTableRows().flatMap { self.accessions(for: $0) ?? [] }
-        guard !accessions.isEmpty else { return [] }
-        return [ClassifierRowSelector(
-            sampleId: selectedBatchSampleId ?? sampleIds.first,
-            accessions: accessions,
-            taxIds: []
-        )]
+        let selectedRows = organismTableView.selectedTableRows()
+        let accessions = selectedRows.flatMap { self.accessions(for: $0) ?? [] }
+        guard !accessions.isEmpty else { return ExtractReadsPlan(selectedRowCount: selectedRows.count) }
+        return ExtractReadsPlan(
+            selectors: [ClassifierRowSelector(
+                sampleId: selectedBatchSampleId ?? sampleIds.first,
+                accessions: accessions,
+                taxIds: []
+            )],
+            selectedRowCount: selectedRows.count
+        )
     }
+
+    /// What the current table selection stands for in an Extract Reads request.
+    private struct ExtractReadsPlan {
+        /// One selector for each sample that holds a reference accession for a selected row.
+        var selectors: [ClassifierRowSelector] = []
+        /// Selected table rows, with or without an accession of their own.
+        var selectedRowCount = 0
+    }
+
+    /// Tells the user why Extract Reads sent nothing. Tests replace it to read the words without driving real
+    /// `NSAlert` UI, as `exportFailurePresenter` does for export failures.
+    var extractNoticePresenter: (@MainActor (_ title: String, _ message: String, _ window: NSWindow?) -> Void)?
 
     /// Presents the unified classifier extraction dialog for the current selection.
     private func presentUnifiedExtractionDialog() {
         guard let resultPath = taxTriageDatabase?.databaseURL ?? taxTriageConfig?.outputDirectory else { return }
-        let selectors = buildTaxTriageSelectors()
-        guard !selectors.isEmpty else { return }
+        let plan = buildTaxTriageSelectors()
+        let selectors = plan.selectors
+        guard !selectors.isEmpty else {
+            if plan.selectedRowCount > 0 { presentNothingToExtractNotice() }
+            return
+        }
         let firstAccession = selectors.first?.accessions.first ?? "extract"
         let sid = selectors.first?.sampleId ?? "sample"
         onExtractReadsRequested?(.taxtriage, resultPath, selectors, "taxtriage_\(sid)_\(firstAccession)")
+    }
+
+    /// Rows are selected and every one lacks a reference accession in its own sample, so nothing can be extracted.
+    private func presentNothingToExtractNotice() {
+        let title = "Nothing to extract"
+        let message = "None of the selected rows has a reference accession in its own sample, so Lungfish cannot tell which reads belong to them."
+        if let extractNoticePresenter {
+            extractNoticePresenter(title, message, view.window)
+            return
+        }
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     // MARK: - Negative Control Helpers

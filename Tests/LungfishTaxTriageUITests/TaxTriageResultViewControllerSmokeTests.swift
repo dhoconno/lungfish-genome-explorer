@@ -705,9 +705,17 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         vc.testBatchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(0)
 
         XCTAssertTrue(vc.testActionBar.extractButton.isEnabled)
+        // 13.68: the click still sends nothing, and now says why. Every selected row lacks an accession in its own sample.
+        var notices: [(title: String, message: String)] = []
+        vc.extractNoticePresenter = { title, message, _ in notices.append((title, message)) }
         vc.testActionBar.extractButton.performClick(nil)
 
         XCTAssertEqual(extractionRequestCount, 0, "Extract Reads must not dispatch when there are no accessions to extract")
+        XCTAssertEqual(notices.map { $0.title }, ["Nothing to extract"])
+        XCTAssertEqual(
+            notices.map { $0.message },
+            ["None of the selected rows has a reference accession in its own sample, so Lungfish cannot tell which reads belong to them."]
+        )
     }
 
     @MainActor func testDatabaseRowsLoadAsynchronouslyAfterInitialConfigure() throws {
