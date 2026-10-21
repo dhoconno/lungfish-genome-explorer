@@ -60,6 +60,11 @@ package enum AnnotationTableExportRowReader {
         guard let scope = AnnotationTableExportScope(rawValue: table.scope) else {
             throw Refusal(message: "The selection file names the scope \(table.scope), which this build does not read.")
         }
+        // V1-1 item 2. A derived column reads one source, so a file naming both is not one the app wrote.
+        if table.codingFeatureRegion != nil, table.bundleCodingFeatureTrackIDs != nil {
+            throw Refusal(message: "The selection file names both a coding feature region and the bundle's coding "
+                + "feature tracks, which no export of the app writes. Export the table again from the app.")
+        }
         var seen = Set<String>()
         if let repeated = selection.identities.first(where: { !seen.insert($0).inserted }) {
             throw Refusal(message: "The selection file names the row \(repeated) twice. Export the table again from the app.")
@@ -150,6 +155,17 @@ package enum AnnotationTableExportRowReader {
                 referenceBundle: bundle
             ).preparingForBackgroundExport(shouldCancel: { Task.isCancelled })
             let featureTracks = annotationTracks(bundle).filter { region.trackIDs.contains($0.id) }
+            let genome = try bundle.manifest.genome.map { try bundle.memberURL(for: $0.path, field: "genome.path") }
+            urls = featureTracks.map(\.url) + urls + (genome.map { [$0] } ?? [])
+        } else if let trackIDs = table.bundleCodingFeatureTrackIDs {
+            // BIO ruling on M854 items 6 to 8 and V1-1 item 4. The CDS of the named tracks across the bundle, over the
+            // exported rows, through the read the drawer makes. A named track the bundle lacks and a read at its limit
+            // fail with 64 before anything is written, and the record states no feature count.
+            resolver = try VariantTableBundleCodingFeatures.resolver(
+                bundle: bundle, trackIDs: trackIDs, rows: rows,
+                variantChromosomeAliasMap: table.variantChromosomeAliases, shouldCancel: { Task.isCancelled }
+            )
+            let featureTracks = annotationTracks(bundle).filter { trackIDs.contains($0.id) }
             let genome = try bundle.manifest.genome.map { try bundle.memberURL(for: $0.path, field: "genome.path") }
             urls = featureTracks.map(\.url) + urls + (genome.map { [$0] } ?? [])
         }
