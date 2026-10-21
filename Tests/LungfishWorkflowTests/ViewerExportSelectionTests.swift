@@ -229,17 +229,43 @@ final class ViewerExportSelectionTests: XCTestCase {
         XCTAssertEqual(object["schemaVersion"] as? Int, 2)
     }
 
-    /// ARCH ruling on 12.39 R2. A file newer than schema 2 is refused.
-    func testSchemaThreeIsRefused() throws {
+    /// ARCH ruling on 12.39 R2, moved by V1-1 of Phase 2.13. A file newer than schema 3 is refused.
+    func testSchemaFourIsRefused() throws {
         var object = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Self.selection.encoded()) as? [String: Any]
         )
-        object["schemaVersion"] = 3
+        object["schemaVersion"] = 4
         let url = folder.appendingPathComponent("selection.json")
         try JSONSerialization.data(withJSONObject: object).write(to: url)
         XCTAssertThrowsError(try ViewerExportSelection.read(from: url)) { error in
-            XCTAssertEqual(error as? ViewerExportSelection.ReadError, .unsupportedSchema(3))
+            XCTAssertEqual(error as? ViewerExportSelection.ReadError, .unsupportedSchema(4))
         }
+    }
+
+    /// V1-1 of Phase 2.13 (lane 13.38 M2). A selection naming the bundle-wide CDS tracks writes schema 3 with the ids
+    /// sorted, and reads back equal. A field set after the init writes 3 too.
+    func testBundleCodingFeatureSelectionWritesSchemaThree() throws {
+        let table = AnnotationTableExportSelection(
+            scope: "selected", columns: [ScientificTableColumn(id: "aa_change", title: "AA Change")],
+            bundleCodingFeatureTrackIDs: ["cds2", "cds"]
+        )
+        let selection = ViewerExportSelection(identities: ["ivar:5"], annotationTable: table)
+        XCTAssertEqual(selection.schemaVersion, 3)
+        let url = try selection.write(besideOutput: folder.appendingPathComponent("out.tsv"))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(object["schemaVersion"] as? Int, 3)
+        let written = try XCTUnwrap(object["annotationTable"] as? [String: Any])
+        XCTAssertEqual(written["bundleCodingFeatureTrackIDs"] as? [String], ["cds", "cds2"])
+        XCTAssertNil(written["codingFeatureRegion"], "a new selection names no region")
+        XCTAssertEqual(try ViewerExportSelection.read(from: url), selection)
+
+        var late = ViewerExportSelection(
+            identities: ["ivar:5"], annotationTable: AnnotationTableExportSelection(scope: "selected", columns: [])
+        )
+        XCTAssertEqual(late.schemaVersion, 2)
+        late.annotationTable?.bundleCodingFeatureTrackIDs = []
+        let lateObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: late.encoded()) as? [String: Any])
+        XCTAssertEqual(lateObject["schemaVersion"] as? Int, 3, "an empty list is valid and still writes 3")
     }
 
     func testAFailedWriteLeavesNoInputsFolder() throws {

@@ -25,6 +25,12 @@ public struct AnnotationTableExportSelection: Codable, Sendable, Equatable {
     public var variantChromosomeAliases: [String: String]
     /// The region whose coding features the derived variant columns came from, nil when no derived column is shown.
     public var codingFeatureRegion: AnnotationTableFeatureRegion?
+    /// The annotation tracks whose CDS the leaf reads across the bundle, over the exported rows, sorted. Nil for a
+    /// region selection and when no derived column is shown.
+    ///
+    /// When a derived column is written, exactly one of this and `codingFeatureRegion` is set, and the app sets only
+    /// this one (Phase 2.13 lane 13.38, V1-1). A selection that sets it writes schema 3.
+    public var bundleCodingFeatureTrackIDs: [String]?
 
     public init(
         scope: String,
@@ -33,7 +39,8 @@ public struct AnnotationTableExportSelection: Codable, Sendable, Equatable {
         integerColumnIDs: [String] = [],
         query: [String: String] = [:],
         variantChromosomeAliases: [String: String] = [:],
-        codingFeatureRegion: AnnotationTableFeatureRegion? = nil
+        codingFeatureRegion: AnnotationTableFeatureRegion? = nil,
+        bundleCodingFeatureTrackIDs: [String]? = nil
     ) {
         self.scope = scope
         self.columns = columns
@@ -42,6 +49,7 @@ public struct AnnotationTableExportSelection: Codable, Sendable, Equatable {
         self.query = query
         self.variantChromosomeAliases = variantChromosomeAliases
         self.codingFeatureRegion = codingFeatureRegion
+        self.bundleCodingFeatureTrackIDs = bundleCodingFeatureTrackIDs?.sorted()
     }
 }
 

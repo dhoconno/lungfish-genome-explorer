@@ -16,9 +16,11 @@ public struct ViewerExportSelection: Codable, Sendable, Equatable {
     public static let fileName = "selection.json"
     /// The folder beside the output that holds one `<UUID>` folder per export.
     public static let inputsFolderName = ".lungfish-export-inputs"
-    /// The newest schema this type reads. It writes 2 for a selection with a family field and 1 for one with none,
-    /// so a selection with neither keeps its schema 1 bytes and digest (ARCH ruling on 12.39 R2).
-    public static let currentSchemaVersion = 2
+    /// The newest schema this type reads. It writes 3 for a selection whose annotation table names
+    /// `bundleCodingFeatureTrackIDs` (Phase 2.13 lane 13.38, V1-1), 2 for one with another family field and 1 for one
+    /// with none, so a region selection keeps its schema 2 bytes and a selection with no family field its schema 1
+    /// bytes and digest (ARCH ruling on 12.39 R2). An older build refuses schema 3 instead of misreading it.
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     /// Row identities the view holds selected, spelled as the result records them.
@@ -48,9 +50,11 @@ public struct ViewerExportSelection: Codable, Sendable, Equatable {
         self.schemaVersion = writtenSchemaVersion
     }
 
-    /// 2 when a family field is set, else 1, and never below a schema set by hand.
+    /// 3 when the annotation table names `bundleCodingFeatureTrackIDs`, else 2 when a family field is set, else 1, and
+    /// never below a schema set by hand.
     var writtenSchemaVersion: Int {
-        max(schemaVersion, annotationTable == nil && documentAnnotations == nil ? 1 : 2)
+        if annotationTable?.bundleCodingFeatureTrackIDs != nil { return max(schemaVersion, 3) }
+        return max(schemaVersion, annotationTable == nil && documentAnnotations == nil ? 1 : 2)
     }
 
     /// The bytes of the file, JSON with sorted keys so that one selection always writes one digest. A nil family
