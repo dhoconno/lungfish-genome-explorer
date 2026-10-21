@@ -634,7 +634,7 @@ extension AppDelegate {
             _ = operationCenter.fail(
                 id: operationID,
                 detail: reason,
-                errorMessage: "Viral Recon could not start",
+                errorMessage: ViralReconWorkflowExecutionService.launchFailureTitle(for: error),
                 errorDetail: reason
             )
         }.startedID

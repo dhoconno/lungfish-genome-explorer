@@ -223,6 +223,8 @@ struct RunSubcommand: AsyncParsableCommand {
                 // 3), not a failed workflow (64); the help text says so.
                 throw CLIError.validationFailed(errors: [Self.timeoutUnsupportedForViralRecon])
             }
+            // A results folder an earlier run used is an input error too (Phase 2.13 lane 13.21, UX words W1).
+            try requireUnusedViralReconResultsFolder()
             if let cpus {
                 workflowParams["max_cpus"] = String(cpus)
             }
