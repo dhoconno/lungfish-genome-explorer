@@ -38,6 +38,18 @@ enum StructuredINFOFixture {
 
     """
 
+    /// One ANN record whose header Description lists its own parts after `Format: `, as a VEP run with
+    /// `--vcf_info_field ANN` writes it, so the parts are not the SnpEff template.
+    static let vepANNVCF = """
+    ##fileformat=VCFv4.2
+    ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+    ##INFO=<ID=ANN,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL">
+    ##contig=<ID=chr1,length=1000>
+    #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+    chr1\t300\t.\tC\tA\t50\tPASS\tDP=30;ANN=A|stop_gained|HIGH|geneC
+
+    """
+
     /// The 15 SnpEff template parts that the two entries at POS 100 fill.
     static let annPartsAt100 = [
         "Allele", "Annotation", "Annotation_Impact", "Gene_Name", "Gene_ID", "Feature_Type", "Feature_ID",

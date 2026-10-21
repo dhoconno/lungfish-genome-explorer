@@ -6,9 +6,10 @@ import Foundation
 
 /// The part names of the structured INFO fields of one VCF, built once from its `##INFO` header lines.
 ///
-/// `ANN` splits by the SnpEff template, `CSQ` by the names after `Format: ` in its header Description or else by the
-/// VEP template, and any other key only when its Description lists two or more `Format: ` names. The import stores
-/// the declared names in `db_metadata`, so the materializer of an `ultra-low-memory` import splits by the same names.
+/// `ANN` and `CSQ` split by the names after `Format: ` in their header Description when it lists them (a VEP run with
+/// `--vcf_info_field ANN` does) and else by the SnpEff template for `ANN` and the VEP template for `CSQ`. Any other key
+/// splits only when its Description lists two or more `Format: ` names. The import stores the declared names in
+/// `db_metadata`, so the materializer of an `ultra-low-memory` import splits by the same names.
 struct StructuredINFOFieldNames: Sendable, Equatable {
 
     /// The `db_metadata` key that holds `metadataValue`.
@@ -52,7 +53,7 @@ struct StructuredINFOFieldNames: Sendable, Equatable {
     /// The part names `key` splits into, or nil when its value is one scalar.
     func partNames(forKey key: String) -> [String]? {
         switch key {
-        case "ANN": VariantDatabase.annSubFieldTemplate
+        case "ANN": declared["ANN"] ?? VariantDatabase.annSubFieldTemplate
         case "CSQ": declared["CSQ"] ?? VariantDatabase.csqSubFieldTemplate
         default: declared[key]
         }

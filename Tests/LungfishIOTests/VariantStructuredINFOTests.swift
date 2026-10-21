@@ -59,6 +59,25 @@ final class VariantStructuredINFOTests: XCTestCase {
         }
     }
 
+    func testANNPartsFollowTheHeaderFormatOrderWhenTheHeaderListsOne() throws {
+        var keysByProfile: [VCFImportProfile: [Int: [String]]] = [:]
+        for profile in StructuredINFOFixture.profiles {
+            let dbURL = try StructuredINFOFixture.importDatabase(
+                StructuredINFOFixture.vepANNVCF, profile: profile, in: directory, name: "vepann")
+            keysByProfile[profile] = try StructuredINFOFixture.keysByPosition(dbURL)
+            for (key, value) in [("ANN_IMPACT", "HIGH"), ("ANN_SYMBOL", "geneC"), ("ANN_Consequence", "stop_gained")] {
+                XCTAssertEqual(
+                    try StructuredINFOFixture.storedValue(dbURL, position: 300, key: key), value, "\(profile) \(key)")
+            }
+            // A VEP list holds no SnpEff `Annotation` part, so the SnpEff names must not leak in.
+            XCTAssertNil(
+                try StructuredINFOFixture.storedValue(dbURL, position: 300, key: "ANN_Annotation"), profile.rawValue)
+        }
+        let fast = try XCTUnwrap(keysByProfile[.fast])
+        XCTAssertEqual(keysByProfile[.lowMemory], fast, "low-memory against fast")
+        XCTAssertEqual(keysByProfile[.ultraLowMemory], fast, "ultra-low-memory against fast")
+    }
+
     func testHighImpactAndANNConsequenceFiltersFindTheirVariantsAtEveryProfile() throws {
         for profile in StructuredINFOFixture.profiles {
             let dbURL = try StructuredINFOFixture.importDatabase(
