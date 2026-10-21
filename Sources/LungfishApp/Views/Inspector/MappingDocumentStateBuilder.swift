@@ -16,25 +16,28 @@ enum MappingDocumentStateBuilder {
     /// Each step's command as its Run Settings row shows it, by the recorded command: each project path relative to
     /// the project and a tool under `toolRoot` by its name, through the mapper the Provenance tab's Command row uses
     /// (Phase 2.12 lane 12.25, PF6 Q-U7). Copy Command, Copy Step, the tooltip and VoiceOver keep the recorded command.
-    /// The mapper asks `fileExists` about each path argument, so this runs off the main actor.
+    /// The mapper asks `fileExists` about each path argument, so this runs off the main actor. Each command first moves
+    /// through `renames`, the relocation the Inspector's Command row reads (lane 13.45, ARCH C6).
     nonisolated static func shownCommands(
         of steps: [MappingDocumentStep],
         projectURL: URL?,
         fileExists: (String) -> Bool,
-        toolRoot: URL?
+        toolRoot: URL?,
+        renames: [ProvenanceFolderRename] = []
     ) -> [String: String] {
         var shown: [String: String] = [:]
         for step in steps where shown[step.command] == nil {
+            let moved = ProvenanceCommandPresentation.movingRenamedPaths(step.command, renames: renames, projectURL: projectURL)
             shown[step.command] = ProvenanceCommandPresentation.display(
-                step.command, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot
+                renames.isEmpty ? step.command : moved, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot
             )
         }
         return shown
     }
 
-    /// The shown commands of `state`, built in a detached task, so neither a stat nor the read of the storage
-    /// configuration that names the tool root runs on the main actor. The mapping Document section's task awaits it
-    /// once for each record it shows.
+    /// The shown commands of `state`, built in a detached task, so neither a stat, the read of the canonical record
+    /// beside the result nor the read of the storage configuration that names the tool root runs on the main actor.
+    /// The mapping Document section's task awaits it once for each record it shows.
     static func shownCommands(
         for state: MappingDocumentState,
         fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
@@ -42,8 +45,16 @@ enum MappingDocumentStateBuilder {
     ) async -> [String: String] {
         let steps = state.steps
         let projectURL = state.projectURL
+        // `build` makes the Sorted BAM row first, from the BAM in the result's folder, where the canonical record lies.
+        let folder = state.artifactRows.first { $0.label == "Sorted BAM" }?.fileURL?.deletingLastPathComponent()
         return await Task.detached(priority: .userInitiated) {
-            shownCommands(of: steps, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot())
+            let recordURL = folder?.appendingPathComponent(".lungfish-provenance.json")
+            let renames = recordURL.flatMap { url in
+                (try? ProvenanceEnvelopeReader.loadCanonical(fromSidecar: url)).map {
+                    ProvenanceCommandPresentation.folderRenames(of: $0, recordURL: url)
+                }
+            } ?? []
+            return shownCommands(of: steps, projectURL: projectURL, fileExists: fileExists, toolRoot: toolRoot(), renames: renames)
         }.value
     }
 

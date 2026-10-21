@@ -38,11 +38,13 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
 
     /// The sidebar renames the folder that holds a mapping result. The pin records what the Document tab's Run Settings
     /// command shows and copies, whether the rename rewrote `mapping-provenance.json`, the record the tab reads, and
-    /// what the Sorted BAM row names. At the base the row drew the step's command as recorded, and since Q-U7 it shows
-    /// it project-relative. Both name the folder that is gone, because the rename leaves `mapping-provenance.json` as it
-    /// was, which is the rehydrator's coverage and the 2.13 row SW2 R-REPLAY (UX ruling on 12.25, test 6).
-    func testARenamedMappingResultsDocumentCommandAtTheBase() throws {
-        let saved = try savedResult()
+    /// what the Sorted BAM row names. The rename moves the record's output descriptor and keeps its commands as they
+    /// ran (C6). The row shows the command moved through the relocation of the canonical record
+    /// beside it, as the Inspector's Command row does, and Copy Command keeps the recorded command (lane 13.45, ARCH C6).
+    /// At the base the row showed the folder that is gone (UX ruling on 12.25, test 6).
+    func testARenamedMappingResultsDocumentTabShowsTheCommandMappedByTheRelocation() async throws {
+        // The sorted BAM's descriptor, as `ManagedMappingPipeline` records it, is what C1 reads the rename from.
+        let saved = try savedResult(outputFiles: { [FileRecord(path: $0.path, role: .output)] })
         let recordBytes = try Data(contentsOf: saved.folder.appendingPathComponent(MappingProvenance.filename))
         let renamed = saved.folder.deletingLastPathComponent().appendingPathComponent("minimap2-run renamed", isDirectory: true)
         try FileManager.default.moveItem(at: saved.folder, to: renamed)
@@ -55,10 +57,9 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
         let window = hostSection(state)
         XCTAssertTrue(AccessibilityTreeProbe.performCustomAction(named: "Copy Command", on: try element("mapping-step-1", in: window)))
 
+        let shown = await MappingDocumentStateBuilder.shownCommands(for: state, toolRoot: { nil })
         let facts: [String: String] = [
-            "shown": MappingDocumentStateBuilder.shownCommands(
-                of: state.steps, projectURL: state.projectURL, fileExists: { FileManager.default.fileExists(atPath: $0) }, toolRoot: nil
-            )[state.steps[0].command] ?? "nil",
+            "shown": shown[state.steps[0].command] ?? "nil",
             "copied": pasteboard.string(forType: .string).map { redact($0) } ?? "nil",
             "mappingRecordUnchanged": String(
                 try Data(contentsOf: renamed.appendingPathComponent(MappingProvenance.filename)) == recordBytes
@@ -68,9 +69,9 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
         let mapper = "minimap2 -a -x sr -t 4 -o <project>/Analyses/minimap2-run/sample.raw.sam "
             + "<project>/References/ref.fa <project>/Analyses/m/reads.fastq"
         XCTAssertEqual(facts, [
-            "shown": "minimap2 -a -x sr -t 4 -o Analyses/minimap2-run/sample.raw.sam References/ref.fa Analyses/m/reads.fastq",
+            "shown": "minimap2 -a -x sr -t 4 -o 'Analyses/minimap2-run renamed/sample.raw.sam' References/ref.fa Analyses/m/reads.fastq",
             "copied": mapper,
-            "mappingRecordUnchanged": "true",
+            "mappingRecordUnchanged": "false",
             "sortedBAMRow": "<project>/Analyses/minimap2-run renamed/sample.sorted.bam",
         ])
         XCTAssertFalse(FileManager.default.fileExists(atPath: saved.folder.path), "the folder the command names is gone")
@@ -167,7 +168,7 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
     }
 
     /// A minimap2 run and two samtools steps, saved as `ManagedMappingPipeline` saves them, with every file on disk.
-    func savedResult() throws -> SavedResult {
+    func savedResult(outputFiles: (URL) -> [FileRecord] = { _ in [] }) throws -> SavedResult {
         let root = try TestTempDirectory.make(prefix: "mapping-document-command")
         addTeardownBlock { TestTempDirectory.cleanup(root) }
         let project = root.appendingPathComponent("Commands.lungfish", isDirectory: true)
@@ -216,7 +217,8 @@ final class MappingDocumentCommandDisplayTests: XCTestCase {
                 MappingCommandInvocation(label: "samtools index", argv: ["samtools", "index", sortedBAM.path]),
             ],
             mapperVersion: "2.31",
-            samtoolsVersion: "1.24"
+            samtoolsVersion: "1.24",
+            outputFiles: outputFiles(sortedBAM)
         )
         try result.save(to: folder)
         try provenance.save(to: folder)

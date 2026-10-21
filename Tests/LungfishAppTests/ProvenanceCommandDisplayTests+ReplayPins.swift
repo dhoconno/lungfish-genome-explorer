@@ -11,7 +11,8 @@ import XCTest
 
 /// Phase 2.13 lane 13.45 (SW2 R-REPLAY), milestone M0. Each pin records the base. A Move of a result folder, the
 /// Duplicate's copy, a provenance export of a renamed record and `--repeat-from` on a renamed analysis folder. The
-/// renamed mapping result is pinned by `MappingDocumentCommandDisplayTests.testARenamedMappingResultsDocumentCommandAtTheBase`.
+/// renamed mapping result is pinned by
+/// `MappingDocumentCommandDisplayTests.testARenamedMappingResultsDocumentTabShowsTheCommandMappedByTheRelocation`.
 extension ProvenanceCommandDisplayTests {
 
     static let recordedArgv = [

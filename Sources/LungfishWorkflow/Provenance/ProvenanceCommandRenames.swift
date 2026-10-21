@@ -79,6 +79,20 @@ extension ProvenanceCommandPresentation {
         return renames.filter { rename in newPaths.filter { $0 == rename.newPath }.count == 1 }
     }
 
+    /// The folders a rename or a Move took `envelope` from, read at `recordURL` from its steps' commands and every file
+    /// descriptor it holds. The Command row, Copy Command, the mapping Document tab and the replay read this one
+    /// relocation (lane 13.45, ARCH C1 and C6).
+    public static func folderRenames(of envelope: ProvenanceEnvelope, recordURL: URL) -> [ProvenanceFolderRename] {
+        let files = envelope.files + envelope.outputs + [envelope.output].compactMap { $0 }
+            + envelope.steps.flatMap { $0.inputs + $0.outputs }
+        return folderRenames(
+            commands: envelope.steps.map(\.reproducibleCommand),
+            filePaths: files.map(\.path),
+            recordURL: recordURL,
+            projectURL: PortablePath.anchors(for: recordURL).project
+        )
+    }
+
     /// The folders that `path` names which `folder` may have been before it moved. A rename keeps the parent and changes
     /// the name. A Move keeps the name, takes a folder at any depth under the project and changes the parent. A Move
     /// that also renames is not read (the Known limit), and a hidden folder is never an old folder.

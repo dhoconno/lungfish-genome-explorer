@@ -75,14 +75,7 @@ extension ProvenanceInspectorViewModel {
         recordURL: URL
     ) -> [UUID: ProvenanceRenamedCommand] {
         let projectURL = PortablePath.anchors(for: recordURL).project
-        let files = envelope.files + envelope.outputs + [envelope.output].compactMap { $0 }
-            + envelope.steps.flatMap { $0.inputs + $0.outputs }
-        let renames = ProvenanceCommandPresentation.folderRenames(
-            commands: envelope.steps.map(\.reproducibleCommand),
-            filePaths: files.map(\.path),
-            recordURL: recordURL,
-            projectURL: projectURL
-        )
+        let renames = ProvenanceCommandPresentation.folderRenames(of: envelope, recordURL: recordURL)
         guard let note = ProvenanceCommandPresentation.renameNote(renames, projectURL: projectURL) else { return [:] }
         // Read once for every step, here off the main actor (M875 TOOLROOT-ONCE).
         let toolRoot = PortablePath.defaultManagedRoots.toolRoot
