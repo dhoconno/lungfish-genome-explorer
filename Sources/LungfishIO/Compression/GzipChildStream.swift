@@ -75,7 +75,7 @@ final class GzipChildStream {
             throw GzipTool.launchFailure(error)
         }
         if started.pid == nil {
-            // The spawn failed, which `Process.run()` reported here and ToolProcess reports at the first wait.
+            // The spawn failed. A raw Process threw here, and ToolProcess reports it at the first wait.
             do throws(ToolProcessError) {
                 _ = try started.waitBlocking()
             } catch {
