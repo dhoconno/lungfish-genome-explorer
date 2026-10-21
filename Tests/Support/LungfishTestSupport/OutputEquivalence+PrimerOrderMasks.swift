@@ -37,7 +37,9 @@ extension OutputEquivalence.Masks {
     }
 
     /// M-5. A bundle manifest's `source.source_url`, the folder a copy was made from, becomes `<workspace>/` and the
-    /// folder's own name. The value names the side's own root, which is right and differs by side. A parity class still
+    /// folder's own name, where the value is a local path or a `file://` URL whose last component ends in
+    /// `.lungfishprimeranalysis`. The value names the side's own root, which is right and differs by side. Any other
+    /// `source_url`, such as a remote URL or the path of an imported file, is compared as written. A parity class still
     /// fails a side that names another side's root, which `RouteParityHarness` checks on the unmasked tree.
     public static let primerExportSourceURL = OutputEquivalence.Mask(name: "primerExportSourceURL") { text, _ in
         rewritingJSON(text) { value, changed in maskSourceURL(in: value, changed: &changed) }
@@ -93,9 +95,11 @@ extension OutputEquivalence.Masks {
     static func maskSourceURL(in value: Any, changed: inout Bool) -> Any {
         guard var manifest = value as? [String: Any],
               var source = manifest["source"] as? [String: Any],
-              let url = source["source_url"] as? String
+              let url = source["source_url"] as? String,
+              !url.contains("://") || url.hasPrefix("file://"),
+              let name = url.split(separator: "/").last.map(String.init)?.removingPercentEncoding,
+              name.hasSuffix(".lungfishprimeranalysis")
         else { return value }
-        let name = url.split(separator: "/").last.map(String.init)?.removingPercentEncoding ?? ""
         source["source_url"] = "<workspace>/" + name
         manifest["source"] = source
         changed = true

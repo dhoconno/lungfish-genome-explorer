@@ -52,6 +52,9 @@ final class RouteParityHarnessTests: XCTestCase {
         func manifest(_ folder: String, name: String = "source") -> String {
             #"{"name":"pool","source":{"source_url":"file:///tmp/case/\#(folder)/\#(name).lungfishprimeranalysis/"}}"#
         }
+        func sourced(_ url: String) -> String {
+            #"{"name":"pool","source":{"source_url":"\#(url)"}}"#
+        }
 
         XCTAssertEqual(payload(order(814269159.3)), payload(order(814269160.8)), "M-1 hides the capture time")
         XCTAssertNotEqual(
@@ -76,6 +79,12 @@ final class RouteParityHarnessTests: XCTestCase {
         XCTAssertEqual(record(manifest("A-route")), record(manifest("C-route")), "M-5 hides a side's own root")
         XCTAssertNotEqual(
             record(manifest("A-route")), record(manifest("A-route", name: "other")), "M-5 keeps the source folder's name")
+        XCTAssertNotEqual(
+            record(sourced("https://example.org/a/ref.fa")), record(sourced("https://example.net/b/ref.fa")),
+            "M-5 keeps a remote source_url")
+        XCTAssertNotEqual(
+            record(sourced("/Users/lab/a/ref.fa")), record(sourced("/Users/lab/b/ref.fa")),
+            "M-5 keeps a local path that is not a primer analysis folder")
     }
 
     /// M-3. The order workbook is compared through its parts and not by its own bytes, and a changed part still differs.
