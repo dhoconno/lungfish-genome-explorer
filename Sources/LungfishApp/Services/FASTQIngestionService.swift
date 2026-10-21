@@ -609,7 +609,7 @@ public enum FASTQIngestionService {
         metadataURL: URL
     ) -> [String] {
         var command = [
-            "lungfish-app",
+            LungfishAppIdentity.recordedToolName,
             "fastq",
             "sample-sheet-metadata",
             "--bundle", bundleURL.path,
