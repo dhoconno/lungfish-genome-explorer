@@ -125,8 +125,8 @@ take 2.13's share, which is the manager's call under 2.13 O19.
 | Sub-phase | Scope | Ends with |
 |---|---|---|
 | C0 measure | The Mac determinism table on 1,000,000 pairs of C079876 at threads 1 and 8, two runs each. M1 timing of the tools and the tail on the full sample. Slice 0 on one `x86_64-v3` and one `x86_64-v4` node with linux-64 builds, the deacon check included. No product code | Go or stop on the deacon check, and the measured tail cost |
-| C1 Mac fixes | Carry in last night's four commits. Copy import checks payload digests. True recorded defaults. Recipe and database digests in records. Deacon index digests in the lock. Host choices pinned and recorded. The provenance reads after statistics. VSP2 adapter trimming if the owner says fix | Targeted tests and the golden compare on the program branch |
-| C2 recipe options | An opt-in dedup step for the wastewater recipe. Trim Galore storage with the clumpify split and join | The same |
+| C1 Mac fixes | Carry in last night's four commits. Copy import checks payload digests. True recorded defaults. Recipe and database digests in records. Deacon index digests in the lock. Host choices pinned and recorded. A measured check of the provenance reads after statistics (O10) | Targeted tests and the golden compare on the program branch |
+| C2 recipes | The VSP2 adapter fix (O11), wastewater dedup on by default (O12) and, if the panel and owner agree, the merged recipe of R1. Trim Galore storage with the clumpify split and join | The same, with every moved golden key predicted |
 | C3 portable kernel | The shared portable target, a Linux `ToolProcess` subset, a static musl `lungfish-htc`, the linux-64 lock and a Linux build tier in a container on a Mac | The executor replays a VSP2 plan on the Mac and matches the in-process import |
 | C4 CHTC runner and adopt | Plan template and fill, the Apptainer image pinned by digest, the submit file and DAG, status from the job event log, the run record, and the adopt mode of `import fastq` | One C079876 sample run on CHTC and adopted, equal at E0 to E3 |
 | C5 batch and lab | A batch of 32748, then a wastewater batch, the lab's documented commands, plain FASTQ with `samples.tsv` for Linux users | The owner check list for the merge after 2.13 |
@@ -135,12 +135,27 @@ take 2.13's share, which is the manager's call under 2.13 O19.
 
 | Id | Question |
 |---|---|
-| Q3 | Fix VSP2 adapter trimming before CHTC work, or reproduce today's output? (V9, Q-B1) |
 | Q4 | Should VSP2 imports bin qualities as the recipe says, or keep the CLI's `none`? (Q-B3) |
 | Q5 | For CHTC staff. May LGE submit over a reused SSH session, does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? (Q-C3, Q-C10, Q-C5) |
-| Q6 | Where did the excessive provenance reads after statistics show up? No commit or branch names them |
+| Q8 | In the merged recipe of R1, is rRNA removal on or off by default? |
+| Q9 | Did the recipes' `quality: 15` mean fastp's read filter (`-q`, as it does today) or the trim threshold of `--cut_right` (`-M`, which stays at its default of 20)? (BIO memo V9) |
 
 The owner settled Q7 on 2026-10-21 ("Sure I plugged in the SSD so you can copy the 1m reads to the internal SSD for testing"). The slice row above records where it went. The full sample stays on the external SSD for M1.
+
+## Owner answers of 2026-10-21, third round
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O10 | Q6, where the excessive provenance reads showed up | "Excessive provenance records were last night after statistics were computed and before the bundles became availbal ein LGE." | The records stage of the import, after statistics and before the publish rename (`FASTQBatchImporter.swift:1154-1292` and `:838-849` at `ab548cd87`). 2.13 lane 13.34 PROV-SIDECAR-WALK (landing 7, module map `dc1f05c25`) bounded the provenance lookup that walked the folders above an input outside the project, which MD31 of the 2.13 plan found every sampled CLI sitting in (`ProvenanceRecorder.findProvenanceEnvelope`). The 2026-10-20 inputs sat outside the project in `/Volumes/sandbox/32748/`. C1 samples a slice import from such an input on the program branch and fixes only what remains, counting the hashing passes of SWIFT 5 as well |
+| O11 | Q3, the VSP2 adapters | "Yes, VSP2 should trim adapters." | The fused fastp call keeps `--dedup` and drops the dedup step's `-A -G -Q -L`. Adapter trimming, polyG trimming, the Q15 read filter and the length-15 filter then all turn on for VSP2, so its output changes in four ways, each predicted key by key (BIO 7) |
+| O12 | Wastewater dedup | "I think we should also change the wastewater recipe default to also deduplicate." | Amends O7. Dedup is on by default in the wastewater recipe and can be turned off |
+| O13 | The two recipes | "Maybe these two recipes should collapse into one, with the option to retain or discard rRNA reads?" | Proposal R1 below |
+
+## Proposal R1, one recipe for VSP2 and wastewater
+
+After O11 and O12 the two recipes run the same steps with the same parameters (fastp dedup and trim with adapter detection, quality 15, window 5 and `--cut_right`, the deacon `deacon-panhuman` scrub, the fastp merge with a 15-base overlap, the 50-base length filter, `illumina4` binning, paired input). The only difference is the deacon `deacon-ribokmers` rRNA filter (`vsp2.recipe.json:12-16`, `wastewater-metagenomics.recipe.json` steps at `ab548cd87`). The manager recommends one recipe with two switches, remove duplicates (on by default) and remove rRNA (default Q8). The ids `vsp2-target-enrichment` and `wastewater-metagenomics` stay readable as names for that recipe with the rRNA switch set, so older records, the Inspector and scripts that pass `--recipe vsp2` keep working (ARCH 4, UX 5). Every record names the recipe digest and both switch values.
+
+Dedup lowers the counts of the most abundant organisms in a wastewater sample, where identical pairs arise by chance at high depth, so relative abundance shifts against the no-dedup run of today. The switch stays so that abundance work can turn it off. The panel votes on R1 in C2 with the owner's answer to Q8.
 
 ## Next step
 
