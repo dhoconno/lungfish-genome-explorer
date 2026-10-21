@@ -8,12 +8,18 @@ import LungfishWorkflow
 
 extension NaoMgsResultViewController {
     /// Sets the Export button from the viewer's state (Phase 2.13 lane 13.40, UX ruling W3). A result opens from its
-    /// cached rows when its database is missing, and the export needs that database, so the button is disabled with
-    /// the reason until `configure(database:manifest:bundleURL:)` replaces the cached rows with the database view.
-    /// `database` calls this when it is set, which covers `configureWithCachedRows`, which sets it to nil.
+    /// cached rows before its database opens, or when the database is missing, and the export needs that database,
+    /// so the button is disabled with the reason until `configure(database:manifest:bundleURL:)` replaces the cached
+    /// rows with the database view. The reason is the opening words while the database file is in the result folder
+    /// and the missing words otherwise. `database` and `bundleURL` call this when they are set, which covers
+    /// `configureWithCachedRows`, which sets `database` to nil and then the folder.
     func refreshExportItem() {
         if database == nil {
-            actionBar.setExportEnabled(false, reason: ClassifierExportWords.missingDatabaseHelp)
+            let isThere = bundleURL.map {
+                FileManager.default.fileExists(atPath: $0.appendingPathComponent(NaoMgsSummaryExport.databaseFileName).path)
+            } ?? false
+            actionBar.setExportEnabled(false, reason: isThere
+                ? ClassifierExportWords.databaseOpeningHelp : ClassifierExportWords.missingDatabaseHelp)
         } else {
             actionBar.setExportEnabled(true)
         }

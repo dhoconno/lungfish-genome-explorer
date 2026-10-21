@@ -61,4 +61,46 @@ final class NaoMgsExportItemStateTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
+
+    func testCachedRowsWithTheDatabaseFilePresentReadTheOpeningWords() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naomgs-export-opening-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        root = folder
+        // The result's database file is in its folder and the viewer still shows the cached rows while it opens.
+        try Data().write(to: folder.appendingPathComponent("hits.sqlite"))
+        let hit = NaoMgsVirusHit(
+            sample: "sample-A", seqId: "sample-A-1000-1", taxId: 1000,
+            bestAlignmentScore: 120, cigar: "100M", queryStart: 0, queryEnd: 100, refStart: 100,
+            refEnd: 200, readSequence: String(repeating: "A", count: 100),
+            readQuality: String(repeating: "I", count: 100), subjectSeqId: "NC_1000", subjectTitle: "Taxon 1000",
+            bitScore: 210, eValue: 1e-40, percentIdentity: 99, editDistance: 1, fragmentLength: 100,
+            isReverseComplement: false, pairStatus: "CP", queryLength: 100
+        )
+        let database = try NaoMgsDatabase.create(at: folder.appendingPathComponent("opened.sqlite"), hits: [hit])
+        let manifest = NaoMgsManifest(
+            sampleName: "sample-A", sourceFilePath: "/tmp/naomgs.tsv", hitCount: 1, taxonCount: 1,
+            topTaxon: "Taxon 1000", topTaxonId: 1000
+        )
+        let vc = NaoMgsResultViewController()
+        vc.testDisableMiniBAMLoading = true
+        vc.loadViewIfNeeded()
+
+        vc.configureWithCachedRows([], manifest: manifest, bundleURL: folder)
+        let opening = "Export is ready once this result finishes opening."
+        XCTAssertFalse(vc.actionBar.exportButton.isEnabled)
+        XCTAssertEqual(vc.actionBar.exportButton.toolTip, opening)
+        XCTAssertEqual(vc.actionBar.exportButton.accessibilityHelp(), opening)
+
+        // The database view replaces them, and the item is enabled with the shared help.
+        vc.configure(database: database, manifest: manifest, bundleURL: folder)
+        let shared = LungfishHelpContent.resultExport
+        XCTAssertTrue(vc.actionBar.exportButton.isEnabled)
+        XCTAssertEqual(vc.actionBar.exportButton.toolTip, shared.summary)
+        XCTAssertEqual(vc.actionBar.exportButton.accessibilityHelp(), shared.detail ?? shared.summary)
+
+        for _ in 0..<100 where vc.testDisplayedTaxonOrder.count != 1 {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
 }

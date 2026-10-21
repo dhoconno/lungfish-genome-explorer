@@ -63,7 +63,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var naoMgsTotalHits: Int = 0
 
     /// URL of the NAO-MGS bundle directory, which the BLAST action names as the lineage of a search.
-    public private(set) var bundleURL: URL?
+    public private(set) var bundleURL: URL? { didSet { refreshExportItem() } }
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.

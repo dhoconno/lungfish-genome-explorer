@@ -57,6 +57,7 @@ final class ExportItemStateTests: XCTestCase {
             "Its database is missing from the result folder. Import the result again, then export."
         )
         XCTAssertEqual(ClassifierExportWords.missingDatabaseTitle(tool: "NAO-MGS"), "The NAO-MGS result could not be exported")
+        XCTAssertEqual(ClassifierExportWords.databaseOpeningHelp, "Export is ready once this result finishes opening.")
     }
 
     func testSetExportEnabledDisablesWithTheReasonAndRestoresTheSharedHelp() {
@@ -156,6 +157,51 @@ final class ExportItemStateTests: XCTestCase {
 
         vc.samplePickerState.selectedSamples = ["sample1"]
         vc.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
+        assertEnabledWithSharedHelp(vc.actionBar)
+    }
+
+    func testCachedRowsWithTheDatabaseFilePresentReadTheOpeningWords() throws {
+        NvdResultViewController.testMetadataUserDefaultsOverride = makeTestDefaultsSuite(prefix: "ExportItemStateTests").defaults
+        addTeardownBlock { NvdResultViewController.testMetadataUserDefaultsOverride = nil }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nvd-export-opening-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        root = folder
+        // The result's database file is in its folder and the viewer still shows the cached rows while it opens.
+        try Data().write(to: folder.appendingPathComponent("hits.sqlite"))
+        let database = try NvdDatabase.create(
+            at: folder.appendingPathComponent("opened.sqlite"),
+            hits: [],
+            samples: [NvdSampleMetadata(
+                sampleId: "sample1", bamPath: "sample1.bam", fastaPath: "sample1.fasta",
+                totalReads: 1000, contigCount: 0, hitCount: 0
+            )]
+        )
+        let manifest = NvdManifest(
+            experiment: "exp-1", sampleCount: 1, contigCount: 0, hitCount: 0, blastDbVersion: "db",
+            snakemakeRunId: "run-1", sourceDirectoryPath: folder.path,
+            samples: [NvdSampleSummary(
+                sampleId: "sample1", contigCount: 0, hitCount: 0, totalReads: 1000,
+                bamRelativePath: "sample1.bam", bamIndexRelativePath: "sample1.bam.bai",
+                fastaRelativePath: "sample1.fasta"
+            )],
+            cachedTopContigs: nil
+        )
+        let vc = NvdResultViewController()
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 520),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        host.isReleasedWhenClosed = false
+        host.contentViewController = vc
+        window = host
+        _ = vc.view
+
+        vc.configureWithCachedRows([], manifest: manifest, bundleURL: folder)
+        assertDisabled(vc.actionBar, with: "Export is ready once this result finishes opening.")
+
+        // The database view replaces them, and the item is enabled with the shared help.
+        vc.configure(database: database, manifest: manifest, bundleURL: folder)
         assertEnabledWithSharedHelp(vc.actionBar)
     }
 }

@@ -15,6 +15,10 @@ public enum ClassifierExportWords {
     public static let missingDatabaseHelp =
         "Export needs this result's database, which is missing. Import the result again to export it."
 
+    /// Help tag of a disabled Export item while the viewer shows cached rows, the result's database file is
+    /// there, and the database is still opening (UX ruling on the first-open moment, lane 13.40 review).
+    public static let databaseOpeningHelp = "Export is ready once this result finishes opening."
+
     /// Text of the alert an export shows when it finds the database gone from the result folder.
     public static let missingDatabaseText =
         "Its database is missing from the result folder. Import the result again, then export."
