@@ -251,6 +251,7 @@ final class ClassifierExtractionMenuWiringTests: XCTestCase {
         )
 
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         _ = controller.view
         controller.configure(database: db, manifest: manifest, bundleURL: workspace)
         controller.testTaxonomyTableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)

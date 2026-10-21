@@ -82,6 +82,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         let recorder = EsVirituRecordingEvidenceViewer()
         var factoryInvocationCount = 0
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.classifierAlignmentViewerFactory = {
             factoryInvocationCount += 1
             return recorder
@@ -186,6 +187,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testViewControllerInstantiates() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         XCTAssertNotNil(vc.view)
     }
 
@@ -753,6 +755,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         })
 
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.view.frame = NSRect(x: 0, y: 0, width: 260, height: 500)
         let controllerWindow = NSWindow(
             contentRect: controller.view.frame,
@@ -784,6 +787,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
             let table = ViralDetectionTableView()
             let pane = EsVirituDetailPane()
             let controller = EsVirituResultViewController()
+            isolateLayouts(controller)
             _ = controller.view
             weakTable = table
             weakPane = pane
@@ -903,6 +907,7 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(initialManifest, to: root)
 
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.batchURL = root
 

@@ -285,6 +285,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let recorder = TaxTriageRecordingEvidenceViewer()
         var factoryInvocationCount = 0
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.classifierAlignmentViewerFactory = {
             factoryInvocationCount += 1
             return recorder
@@ -577,6 +578,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         var capturedOrganism: TaxTriageOrganism?
@@ -681,6 +683,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         var extractionRequestCount = 0
@@ -770,6 +773,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 
@@ -791,6 +795,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 

@@ -229,6 +229,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testConfigureWithResult() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view  // trigger loadView
 
         let result = makeTestResult()
@@ -254,6 +255,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         // Verifies the warningPresenter test seam used by the export
         // write-failure path actually fires when invoked.
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         var warning: (title: String, message: String)?
@@ -379,6 +381,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSelectionSyncSunburstToTable() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -400,6 +403,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSelectionSyncTableToSunburst() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -419,6 +423,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testActionBarUpdatesOnSelection() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let result = makeTestResult()
@@ -457,6 +462,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testContextMenuItems() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -487,6 +493,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testContextMenuZoomOutEnabled() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -510,6 +517,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testLayoutStructure() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         // Summary bar is present
@@ -533,6 +541,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSunburstViewIsInSplitViewLeftPane() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let splitView = vc.testSplitView
@@ -557,6 +566,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSplitViewContainersUseFrameBasedLayout() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let splitView = vc.testSplitView
@@ -573,6 +583,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSunburstViewUsesAutoresizingMask() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         // The sunburst view should use autoresizing mask to fill its container
@@ -600,6 +611,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testSunburstTreeIsSetOnConfigure() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         // Before configuration, sunburst tree should be nil
@@ -618,6 +630,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testExtractSequencesCallback() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -646,6 +659,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testBlastResultsAreNotOverwrittenByLateLoadingUpdate() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configure(result: makeTestResult())
 
@@ -668,6 +682,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testBlastResultFromOlderRunDoesNotReplaceCurrentRun() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let classification = makeTestResult()
         vc.configure(result: classification)
@@ -712,6 +727,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
         // A reopened result: a fresh controller with no BLAST state.
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let classification = makeTestResult()
         vc.configure(result: classification)
@@ -748,6 +764,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         )
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let classification = makeTestResult()
         vc.configure(result: classification)
@@ -783,6 +800,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         )
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let classification = makeTestResult()
         vc.configure(result: classification)
@@ -811,6 +829,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         )
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let classification = makeTestResult()
         vc.configure(result: classification)
@@ -831,6 +850,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
     func testBreadcrumbUpdatesOnSunburstZoom() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -1229,6 +1249,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
     func testBlastContextMenuItemExists() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -1249,6 +1270,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
     func testBlastPopoverConfiguration() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
@@ -1279,6 +1301,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
         let db = try makeSingleSampleKrakenDatabase(in: resultDir)
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let host = NSWindow(
@@ -1327,6 +1350,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
         let db = try makeSingleSampleKrakenDatabase(in: resultDir)
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let host = NSWindow(
@@ -1371,6 +1395,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
         let db = try makeMultiSampleKrakenDatabase(in: resultDir)
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let host = NSWindow(
@@ -1577,6 +1602,7 @@ final class TaxonomyLayoutPreferenceTests: XCTestCase {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         XCTAssertFalse(vc.testSplitView.isVertical)

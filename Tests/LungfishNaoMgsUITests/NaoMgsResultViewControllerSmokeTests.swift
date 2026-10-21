@@ -17,6 +17,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testSearchFieldFiltersDisplayedRowsByTaxonNameOrSample() throws {
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configureWithCachedRows(
             [
@@ -43,6 +44,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testSearchFieldHasAccessibilityIdentifierAndLabel() throws {
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         let field = controller.testTaxonomySearchField
         XCTAssertEqual(field.accessibilityIdentifier(), "naomgs-search-field")
@@ -51,6 +53,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testImportedMetadataImmediatelyUpdatesActualTaxonomyTableChooserAndCells() throws {
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configureWithCachedRows(
             [
@@ -76,12 +79,14 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
     }
     @MainActor func testViewControllerInstantiates() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         XCTAssertNotNil(vc.view)
     }
 
     /// The summary table replaces a tab inside a name, on the builder `nao-mgs export table` calls.
     @MainActor func testSummaryTableReplacesTabsInNames() throws {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [
@@ -149,6 +154,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         )
 
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configure(result: result)
 
@@ -195,6 +201,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             topTaxonId: rows.first?.taxId
         )
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.view.frame = NSRect(x: 0, y: 0, width: 720, height: 520)
         let window = NSWindow(
             contentRect: controller.view.frame,
@@ -389,6 +396,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         settings.contentTextSizePreference = .system
         let provider = MutableNaoMgsPreferredFonts(bodyPointSize: 13)
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.testingSetContentPreferredFontProvider(provider)
         controller.loadViewIfNeeded()
         controller.configureWithCachedRows(
@@ -594,6 +602,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             )
         }
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.testingSetContentPreferredFontProvider(provider)
         controller.view.frame = NSRect(x: 0, y: 0, width: 720, height: 420)
         let window = NSWindow(
@@ -714,6 +723,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
             topTaxonId: 12_345
         )
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.testingSetContentPreferredFontProvider(provider)
         controller.testDisableMiniBAMLoading = true
         controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 440)
@@ -915,6 +925,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         )
 
         let controller = NaoMgsResultViewController()
+        isolateLayouts(controller)
         controller.view.frame = NSRect(x: 0, y: 0, width: 720, height: 520)
         let window = NSWindow(
             contentRect: controller.view.frame,
@@ -1045,6 +1056,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         weak var weakController: NaoMgsResultViewController?
         autoreleasepool {
             let controller = NaoMgsResultViewController()
+            isolateLayouts(controller)
             _ = controller.view
             weakController = controller
         }
@@ -1151,6 +1163,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testExtractButtonDisabledWhenOnlyCachedRowsAreLoaded() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [Self.makeCachedRow()],
@@ -1166,6 +1179,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testExtractButtonDisabledForMultiSelectionWithoutDatabase() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [Self.makeCachedRow(taxId: 1), Self.makeCachedRow(taxId: 2)],
@@ -1182,6 +1196,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testViewAccessionOnNCBIDoesNotCrashForMalformedAccession() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         var opened: [URL] = []
         vc.onOpenURLRequested = { opened.append($0) }
@@ -1201,6 +1216,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testViewAccessionOnNCBIOpensExactURLForWellFormedAccession() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         var opened: [URL] = []
         vc.onOpenURLRequested = { opened.append($0) }
@@ -1216,6 +1232,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor func testSearchPubMedOpensExactURLForTaxonName() {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [Self.makeCachedRow(name: "SARS-CoV-2")],

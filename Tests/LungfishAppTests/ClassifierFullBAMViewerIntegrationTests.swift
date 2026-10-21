@@ -26,6 +26,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         split.loadViewIfNeeded()
         let provider = split.makeClassifierAlignmentEvidenceViewport()
         let consumer = EsVirituResultViewController()
+        isolateLayouts(consumer)
         let entry = EsVirituResultViewController.EsVirituSampleEntry(
             id: "S1", displayName: "S1", detectedVirusCount: 1
         )

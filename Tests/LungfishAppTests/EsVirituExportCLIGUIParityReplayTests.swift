@@ -189,6 +189,9 @@ extension EsVirituExportCLIGUIParityReplayTests {
         let resultURL = root.appendingPathComponent(resultFolderName, isDirectory: true)
         let database = try EsVirituDatabase(at: resultURL.appendingPathComponent(EsVirituDetectionExport.databaseFileName))
         let view = EsVirituResultViewController()
+        let layouts = TestDefaultsSuite(prefix: "EsVirituExportCLIGUIParityReplayTests")
+        view.testDetectionTableView.metadataColumns.userDefaults = layouts.defaults
+        view.testBatchTableView.metadataColumns.userDefaults = layouts.defaults
         _ = view.view
         view.configureFromDatabase(database, resultURL: resultURL)
         let sampleIds = try database.fetchSamples().map(\.sample)

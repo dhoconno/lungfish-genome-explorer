@@ -714,6 +714,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         @MainActor
         func makeController() -> TaxTriageResultViewController {
             let vc = TaxTriageResultViewController()
+            vc.layoutDefaults = TestDefaultsSuite(prefix: "TaxTriageDatabaseModeTests").defaults
             vc.classifierAlignmentViewerFactory = { RecordingEvidenceViewer() }
             _ = vc.view
             vc.configureFromDatabase(database, resultURL: root)

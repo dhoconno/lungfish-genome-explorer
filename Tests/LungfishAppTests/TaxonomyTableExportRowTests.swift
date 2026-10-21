@@ -217,6 +217,7 @@ final class TaxonomyTableExportRowTests: XCTestCase {
         try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
             .write(to: metadata.appendingPathComponent("sample_metadata.tsv"))
         let view = TaxonomyViewController()
+        isolateLayouts(view)
         _ = view.view
         view.configureFromDatabase(database)
         view.applySampleMetadata(SampleMetadataStore.load(from: folder, knownSampleIds: ["sample-A", "sample-B"]))

@@ -41,6 +41,7 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
             taxonCount: taxonCount, topTaxon: "Taxon 0", topTaxonId: 1_000
         )
         vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.pasteboard = pasteboard
         vc.testDisableMiniBAMLoading = true
         vc.onBlastVerification = { _, _, _ in }

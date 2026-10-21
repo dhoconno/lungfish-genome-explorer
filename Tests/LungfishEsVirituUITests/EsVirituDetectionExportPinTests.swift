@@ -9,6 +9,7 @@
 // writer's record facts are side A of `EsVirituExportCLIGUIParityReplayTests`, which freezes that writer, and the
 // leaf's record is pinned by `EsVirituExportDetectionsCommandTests`.
 
+import LungfishTestSupport
 import XCTest
 import AppKit
 @testable import LungfishEsVirituUI
@@ -115,6 +116,9 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
 
     @MainActor private static func configuredController() throws -> EsVirituResultViewController {
         let vc = EsVirituResultViewController()
+        let layouts = TestDefaultsSuite(prefix: "EsVirituDetectionExportPinTests")
+        vc.testDetectionTableView.metadataColumns.userDefaults = layouts.defaults
+        vc.testBatchTableView.metadataColumns.userDefaults = layouts.defaults
         _ = vc.view
         vc.isBatchMode = true
         vc.samplePickerState = ClassifierSamplePickerState(allSamples: Set(["sample-A", "sample-B"]))

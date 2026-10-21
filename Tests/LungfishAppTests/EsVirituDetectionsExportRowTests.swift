@@ -61,6 +61,7 @@ final class EsVirituDetectionsExportRowTests: XCTestCase {
     /// clears the result, and the Export action returns before the save panel.
     func testAnEmptySampleSelectionBeginsNoRow() {
         let view = EsVirituResultViewController()
+        isolateLayouts(view)
         let window = NSWindow(contentViewController: view)
         window.isReleasedWhenClosed = false
         view.isBatchMode = true

@@ -84,6 +84,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
             Self.verification(rid: "RID-ARCHIVE", taxId: 562, at: Self.earlier), request: nil, in: result, toolName: "lungfish-cli", toolKind: "cli"
         )
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         controller.blastVerificationDirectoryResolver = { _ in result }
         let node = TaxonNode(
             taxId: 562, name: "taxon 562", rank: .species, depth: 7,
@@ -121,6 +122,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
         from directory: URL
     ) -> (tab: BlastResultsDrawerTab, controller: TaxonomyViewController) {
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         controller.taxaCollectionsDrawerView = drawer
         controller.blastVerificationDirectoryResolver = { _ in directory }
@@ -135,6 +137,7 @@ final class Kraken2BlastRestoreTests: XCTestCase {
     /// A reopened result, a fresh controller with no BLAST state, and the taxon selected.
     private func restore(taxId: Int, from directory: URL) -> (result: BlastVerificationResult?, controller: TaxonomyViewController) {
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         controller.blastVerificationDirectoryResolver = { _ in directory }
         let node = TaxonNode(
             taxId: taxId, name: "taxon \(taxId)", rank: .species, depth: 7,

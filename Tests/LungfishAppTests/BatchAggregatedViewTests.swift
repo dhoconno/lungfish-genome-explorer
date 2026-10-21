@@ -598,6 +598,7 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
 
     func testEsVirituSelectorsPreserveSampleAccessionPairsForDuplicateAccessions() {
         let viewController = EsVirituResultViewController()
+        isolateLayouts(viewController)
         _ = viewController.view
         viewController.isBatchMode = true
 
@@ -660,6 +661,7 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
 
     func testEsVirituMiniBAMStatsDoNotOverwriteStaticUniqueReadCounts() {
         let viewController = EsVirituResultViewController()
+        isolateLayouts(viewController)
         _ = viewController.view
 
         let table = viewController.testDetectionTableView
@@ -1062,12 +1064,14 @@ final class TaxonomyViewControllerBatchModeTests: XCTestCase {
     /// `isBatchMode` is false before any configuration.
     func testIsBatchModeDefaultsFalse() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         XCTAssertFalse(vc.isBatchMode)
     }
 
     /// `batchTableView` is hidden after `loadView()`.
     func testBatchTableViewHiddenByDefault() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         XCTAssertTrue(vc.testBatchTableView.isHidden, "batchTableView should be hidden by default")
     }
@@ -1075,6 +1079,7 @@ final class TaxonomyViewControllerBatchModeTests: XCTestCase {
     /// `splitView` is visible after `loadView()` (not in batch mode).
     func testSplitViewVisibleByDefault() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         XCTAssertFalse(vc.splitView.isHidden, "splitView should be visible by default")
     }
@@ -1203,12 +1208,14 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
     /// `isBatchMode` is false before any configuration.
     func testIsBatchModeDefaultsFalse() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         XCTAssertFalse(vc.isBatchMode)
     }
 
     /// `batchTableView` is hidden after `loadView()`.
     func testBatchTableViewHiddenByDefault() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         XCTAssertTrue(vc.testBatchTableView.isHidden, "batchTableView should be hidden by default")
     }
@@ -1216,6 +1223,7 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
     /// `splitView` is visible after `loadView()` (not in batch mode).
     func testSplitViewVisibleByDefault() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         XCTAssertFalse(vc.splitView.isHidden, "splitView should be visible by default")
     }
@@ -1229,6 +1237,7 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
         }
 
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
 
         XCTAssertFalse(vc.splitView.isVertical)
@@ -1286,12 +1295,14 @@ final class TaxTriageViewControllerBatchGroupModeTests: XCTestCase {
     /// `isBatchGroupMode` is false before any configuration.
     func testIsBatchGroupModeDefaultsFalse() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         XCTAssertFalse(vc.isBatchGroupMode)
     }
 
     /// `batchFlatTableView` is hidden after `loadView()`.
     func testBatchFlatTableViewHiddenByDefault() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         XCTAssertTrue(vc.testBatchFlatTableView.isHidden,
                       "batchFlatTableView should be hidden by default")
@@ -1302,6 +1313,7 @@ final class TaxTriageViewControllerBatchGroupModeTests: XCTestCase {
     /// When NOT in batch group mode, `selectedSampleIndex` stays at its default (0).
     func testSelectedSampleIndexUnaffectedWhenNotInBatchGroupMode() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         // No configureFromDatabase call — selectedSampleIndex should remain at its default.
         XCTAssertEqual(vc.selectedSampleIndex, 0,
@@ -1808,6 +1820,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// `updateBatch` can be called without crashing.
     func testTaxonomySummaryBarUpdateBatchDoesNotCrash() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 3, totalRows: 120, databaseName: "standard")
@@ -1817,6 +1830,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected sample count.
     func testTaxonomySummaryBarUpdateBatchShowsSampleCount() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 5, totalRows: 200, databaseName: "standard")
@@ -1828,6 +1842,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected taxa count.
     func testTaxonomySummaryBarUpdateBatchShowsTaxaCount() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 2, totalRows: 450, databaseName: "standard")
@@ -1839,6 +1854,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the database name appears in the cards.
     func testTaxonomySummaryBarUpdateBatchShowsDatabaseName() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 1, totalRows: 10, databaseName: "PlusPF")
@@ -1850,6 +1866,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch` with an empty database name, the Database card shows an em-dash.
     func testTaxonomySummaryBarUpdateBatchEmptyDatabaseShowsEmDash() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 1, totalRows: 5, databaseName: "")
@@ -1860,6 +1877,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, a 'Batch' label card is present with value "Kraken2".
     func testTaxonomySummaryBarUpdateBatchHasBatchLabelCard() {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 2, totalRows: 80, databaseName: "standard")
@@ -1873,6 +1891,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// `updateBatch` can be called without crashing.
     func testEsVirituSummaryBarUpdateBatchDoesNotCrash() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 4, totalDetections: 12)
@@ -1882,6 +1901,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected sample count.
     func testEsVirituSummaryBarUpdateBatchShowsSampleCount() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 7, totalDetections: 33)
@@ -1893,6 +1913,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected detections count.
     func testEsVirituSummaryBarUpdateBatchShowsDetectionsCount() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 3, totalDetections: 27)
@@ -1904,6 +1925,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, a 'Batch' label card is present with value "EsViritu".
     func testEsVirituSummaryBarUpdateBatchHasBatchLabelCard() {
         let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 2, totalDetections: 8)
@@ -1917,6 +1939,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// `updateBatch` can be called without crashing.
     func testTaxTriageSummaryBarUpdateBatchDoesNotCrash() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 6, totalOrganisms: 18)
@@ -1926,6 +1949,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected sample count.
     func testTaxTriageSummaryBarUpdateBatchShowsSampleCount() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 9, totalOrganisms: 45)
@@ -1937,6 +1961,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, the cards contain the expected organisms count.
     func testTaxTriageSummaryBarUpdateBatchShowsOrganismsCount() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 4, totalOrganisms: 22)
@@ -1948,6 +1973,7 @@ final class SummaryBarBatchTests: XCTestCase {
     /// After `updateBatch`, a 'Batch' label card is present with value "TaxTriage".
     func testTaxTriageSummaryBarUpdateBatchHasBatchLabelCard() {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bar = vc.testSummaryBar
         bar.updateBatch(sampleCount: 3, totalOrganisms: 15)
@@ -2061,6 +2087,7 @@ final class TaxTriageBatchRegressionTests: XCTestCase {
         )
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.testParseBamReferenceLengths(bamURL: bamURL, indexURL: externalIndexURL)
 

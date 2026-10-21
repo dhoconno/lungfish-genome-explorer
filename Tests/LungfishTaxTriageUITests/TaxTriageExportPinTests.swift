@@ -301,6 +301,7 @@ final class TaxTriageExportPinTests: XCTestCase {
 
     private func makeController(_ fixture: Fixture) -> TaxTriageResultViewController {
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configureFromDatabase(fixture.database, resultURL: fixture.root)
         waitForRows(vc) { $0.count == fixture.rowCount }

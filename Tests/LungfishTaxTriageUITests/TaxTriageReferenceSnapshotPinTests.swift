@@ -196,6 +196,7 @@ final class TaxTriageReferenceSnapshotPinTests: XCTestCase {
             XCTAssertFalse(fm.fileExists(atPath: bamURL.path + ".bai"), "Precondition failed: an adjacent index exists")
         }
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.testParseBamReferenceLengths(bamURL: bamURL, indexURL: indexURL)
         return vc.testAccessionLengths

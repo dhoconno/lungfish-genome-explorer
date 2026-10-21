@@ -83,6 +83,7 @@ final class TaxonomyWindowGeometryTests: XCTestCase {
         let startFrame = window.frame
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         let taxView = vc.view
         vc.configure(result: makeLongNameResult())
         taxView.translatesAutoresizingMaskIntoConstraints = false
@@ -104,6 +105,7 @@ final class TaxonomyWindowGeometryTests: XCTestCase {
         let window = makeWindow()
         defer { window.orderOut(nil); window.contentViewController = nil }
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         window.contentViewController = vc
         window.setContentSize(NSSize(width: 1800, height: 1129))
         window.layoutIfNeeded()

@@ -47,6 +47,7 @@ final class NaoMgsSummaryExportPinTests: XCTestCase {
 
     @MainActor private func configuredController() throws -> NaoMgsResultViewController {
         let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [

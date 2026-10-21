@@ -61,6 +61,7 @@ final class NvdRowAccessibilityTests: XCTestCase {
         )
 
         vc = NvdResultViewController()
+        isolateLayouts(vc)
         vc.pasteboard = pasteboard
         vc.onBlastVerification = { _, _ in }
         vc.onExportFASTARequested = { _ in }

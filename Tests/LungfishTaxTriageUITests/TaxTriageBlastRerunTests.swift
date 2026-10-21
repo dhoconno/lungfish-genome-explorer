@@ -7,6 +7,7 @@
 // another sample's reads, or none, since the view holds no BAM until a sample is picked. The view keeps the BAM of
 // the last request, and the re-run sends it.
 
+import LungfishTestSupport
 import XCTest
 import AppKit
 import LungfishCore
@@ -23,7 +24,7 @@ final class TaxTriageBlastFixture {
     static let samples = ["sample-1", "sample-2"]
 
     let root: URL
-    let controller = TaxTriageResultViewController()
+    lazy var controller: TaxTriageResultViewController = { let view = TaxTriageResultViewController(); view.layoutDefaults = TestDefaultsSuite(prefix: "TaxTriageBlastRerunTests").defaults; return view }()
     private(set) var forwarded: [Forwarded] = []
     private var runPopover: ((Int) -> Void)?
 

@@ -243,8 +243,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private let searchField = NSSearchField()
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let tableContainer = NSView()
-    private let targetTable = TwelveSTargetTableView()
-    private let unresolvedTable = TwelveSUnresolvedTableView()
+    let targetTable = TwelveSTargetTableView()
+    let unresolvedTable = TwelveSUnresolvedTableView()
     private let actionBar = ClassifierActionBar()
     private var headerControlsHeightConstraint: NSLayoutConstraint?
     private var preferredFontProvider: any ContentPreferredFontProviding =

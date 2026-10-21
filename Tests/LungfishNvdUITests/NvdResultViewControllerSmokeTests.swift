@@ -10,6 +10,7 @@ final class NvdResultViewControllerSmokeTests: XCTestCase {
     @MainActor
     func testViewControllerInstantiates() {
         let vc = NvdResultViewController()
+        isolateLayouts(vc)
         XCTAssertNotNil(vc.view)
     }
 
@@ -22,6 +23,7 @@ final class NvdResultViewControllerSmokeTests: XCTestCase {
 
     @MainActor private func makeControllerWithOneRow(accession: String) -> NvdResultViewController {
         let vc = NvdResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
             [NvdContigRow(

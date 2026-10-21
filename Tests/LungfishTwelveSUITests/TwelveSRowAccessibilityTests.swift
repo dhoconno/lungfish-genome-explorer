@@ -32,6 +32,7 @@ final class TwelveSRowAccessibilityTests: XCTestCase {
         _ = NSApplication.shared
         spy = SpyPasteboard()
         vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 560)
         vc.testingSetPasteboard(spy)
         window = NSWindow(contentRect: vc.view.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -254,6 +255,7 @@ final class TwelveSRowAccessibilityTests: XCTestCase {
 
     func testExportMenuItemIsDisabledWithoutAResult() {
         let empty = TwelveSAmpliconResultViewController()
+        isolateLayouts(empty)
         let item = NSMenuItem(
             title: "12S Result\u{2026}", action: #selector(TwelveSResultMenuActions.exportTwelveSResult(_:)), keyEquivalent: ""
         )

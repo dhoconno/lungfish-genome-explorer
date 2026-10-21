@@ -61,6 +61,7 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
 
     func testControllerSummaryShowsTheLeftOutPairs() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
 
         controller.configure(result: TwelveSFixtures.twoSampleResult(
@@ -104,6 +105,7 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
 
     func testControllerNamesFragmentsInItsColumnsAndDetailWhenTheRunReadPairs() throws {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         var emitted: TwelveSDetailPayload?
         controller.onSelectedRowDetailChanged = { emitted = $0 }
@@ -125,6 +127,7 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
 
     func testControllerKeepsReadsForAMergedOnlyResult() throws {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         var emitted: TwelveSDetailPayload?
         controller.onSelectedRowDetailChanged = { emitted = $0 }
@@ -144,6 +147,7 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
     func testCopiedRowsOfAPairedResultNameFragmentsAndAMergedOnlyResultReads() throws {
         func copiedHeaders(_ result: TwelveSAmpliconResultBundleData) -> [String?] {
             let controller = TwelveSAmpliconResultViewController()
+            isolateLayouts(controller)
             controller.loadViewIfNeeded()
             let pasteboard = RecordingPasteboard()
             controller.testingSetPasteboard(pasteboard)
@@ -173,6 +177,7 @@ final class TwelveSReadFateSummaryTests: XCTestCase {
     /// must already name fragments.
     func testLaterFilterPassesKeepTheFragmentsTitle() throws {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: TwelveSFixtures.twoSampleResult(pairedFragments: 4))
         let exact = try XCTUnwrap(controller.testingActiveTableView.tableColumn(withIdentifier: .init("totalExactReads")))

@@ -29,6 +29,7 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
 
         let split = MainSplitViewController()
         let firstViewer = EsVirituResultViewController()
+        isolateLayouts(firstViewer)
         let entry = EsVirituResultViewController.EsVirituSampleEntry(
             id: "sample-a", displayName: "sample-a", detectedVirusCount: 1
         )
@@ -51,6 +52,7 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
         )
 
         let replacementViewer = EsVirituResultViewController()
+        isolateLayouts(replacementViewer)
         split.installClassifierMetadataPresentation(
             resultURL: replacementRoot,
             pickerState: ClassifierSamplePickerState(allSamples: ["sample-a"]),
@@ -85,6 +87,7 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
             metadata: [:]
         )
         let viewer = TaxonomyViewController()
+        isolateLayouts(viewer)
         _ = viewer.view
         viewer.configureFromDatabase(database)
         let store = try SampleMetadataStore(
@@ -152,6 +155,7 @@ final class ClassifierSampleMetadataImportTests: XCTestCase {
             metadata: [:]
         )
         let viewer = EsVirituResultViewController()
+        isolateLayouts(viewer)
         _ = viewer.view
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),

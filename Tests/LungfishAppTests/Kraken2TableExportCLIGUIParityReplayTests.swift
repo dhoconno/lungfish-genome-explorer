@@ -398,6 +398,9 @@ extension Kraken2TableExportCLIGUIParityReplayTests {
     static func configuredView(_ root: URL, _ parityCase: Case) throws -> TaxonomyViewController {
         let folder = folderURL(in: root, parityCase)
         let view = TaxonomyViewController()
+        let layouts = TestDefaultsSuite(prefix: "Kraken2TableExportCLIGUIParityReplayTests")
+        view.testTableView.metadataColumns.userDefaults = layouts.defaults
+        view.testBatchTableView.metadataColumns.userDefaults = layouts.defaults
         _ = view.view
         if parityCase.isSidecar {
             view.configure(result: try ClassificationResult.load(from: folder))

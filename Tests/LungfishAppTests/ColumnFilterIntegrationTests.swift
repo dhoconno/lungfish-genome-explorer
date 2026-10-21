@@ -597,6 +597,7 @@ struct NaoMgsMetadataRegressionTests {
         )
 
         let controller = NaoMgsResultViewController()
+        controller.metadataColumnController.userDefaults = TestDefaultsSuite(prefix: "ColumnFilterIntegrationTests").defaults
         _ = controller.view
         controller.sampleMetadataStore = store
 

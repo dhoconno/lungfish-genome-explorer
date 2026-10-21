@@ -106,6 +106,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testCSVExportHeader() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -122,6 +123,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testCSVExportContainsAllNodes() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -142,6 +144,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testCSVExportReadCounts() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -157,6 +160,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testCSVExportPercentages() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -174,6 +178,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testTSVExportUsesTabSeparator() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -188,6 +193,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testTSVExportMatchesCSVNodeCount() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -221,6 +227,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testExportMenuHasExpectedItems() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -236,6 +243,7 @@ final class TaxonomyExportTests: XCTestCase {
 
     func testExportMenuSeparatorCount() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         let result = makeExportTestResult()
         vc.configure(result: result)
@@ -265,6 +273,7 @@ final class TaxonomyProvenanceTests: XCTestCase {
 
     func testClassificationResultAccessor() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         // Before configuration, result should be nil
@@ -316,6 +325,7 @@ final class SunburstRightClickTests: XCTestCase {
 
     func testViewControllerWiresEmptySpaceCallback() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let tree = makeExportTestTree()

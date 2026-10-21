@@ -124,6 +124,7 @@ final class TaxonomySunburstKreportHarnessTests: XCTestCase {
         // Path 1: fresh result (kreport parse) through the controller.
         let result = try ClassificationResult.load(from: resultDir)
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         vc.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 760)
         vc.view.appearance = NSAppearance(named: .aqua)
         vc.configure(result: result)
@@ -133,6 +134,7 @@ final class TaxonomySunburstKreportHarnessTests: XCTestCase {
         // Path 2: reopened result (sqlite) through the controller.
         let db = try Kraken2Database(at: resultDir.appendingPathComponent("kraken2.sqlite"))
         let vc2 = TaxonomyViewController()
+        isolateLayouts(vc2)
         vc2.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 760)
         vc2.view.appearance = NSAppearance(named: .aqua)
         vc2.batchURL = resultDir

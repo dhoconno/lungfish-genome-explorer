@@ -101,6 +101,7 @@ final class MetagenomicsSampleSelectionScopeTests: XCTestCase {
     func testNvdViewportReloadsOnlyForTheWindowWhoseScopeThePostCarries() {
         assertAPostReachesOnlyTheViewportInItsWindow { window in
             let viewport = NvdResultViewController()
+            isolateLayouts(viewport)
             window.host(viewport.view)
             XCTAssertEqual(ScopedEventFilter.hostingWindowScope(of: viewport.view), window.windowStateScope)
             viewport.configureWithCachedRows(
@@ -120,6 +121,7 @@ final class MetagenomicsSampleSelectionScopeTests: XCTestCase {
     func testNaoMgsViewportReloadsOnlyForTheWindowWhoseScopeThePostCarries() {
         assertAPostReachesOnlyTheViewportInItsWindow { window in
             let viewport = NaoMgsResultViewController()
+            isolateLayouts(viewport)
             window.host(viewport.view)
             XCTAssertEqual(ScopedEventFilter.hostingWindowScope(of: viewport.view), window.windowStateScope)
             viewport.configureWithCachedRows(
@@ -146,6 +148,7 @@ final class MetagenomicsSampleSelectionScopeTests: XCTestCase {
                 metadata: ["tool": "taxtriage"]
             )
             let viewport = TaxTriageResultViewController()
+            isolateLayouts(viewport)
             window.host(viewport.view)
             XCTAssertEqual(ScopedEventFilter.hostingWindowScope(of: viewport.view), window.windowStateScope)
             viewport.configureFromDatabase(database, resultURL: root)
@@ -171,6 +174,7 @@ final class MetagenomicsSampleSelectionScopeTests: XCTestCase {
                 metadata: [:]
             )
             let viewport = EsVirituResultViewController()
+            isolateLayouts(viewport)
             window.host(viewport.view)
             XCTAssertEqual(ScopedEventFilter.hostingWindowScope(of: viewport.view), window.windowStateScope)
             viewport.configureFromDatabase(database, resultURL: root)
@@ -195,6 +199,7 @@ final class MetagenomicsSampleSelectionScopeTests: XCTestCase {
                 metadata: [:]
             )
             let viewport = TaxonomyViewController()
+            isolateLayouts(viewport)
             window.host(viewport.view)
             XCTAssertEqual(ScopedEventFilter.hostingWindowScope(of: viewport.view), window.windowStateScope)
             viewport.configureFromDatabase(database)

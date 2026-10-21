@@ -15,6 +15,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
             settings.save()
             let provider = MutableTwelveSFontProvider(pointSize: 13)
             let controller = TwelveSAmpliconResultViewController()
+            isolateLayouts(controller)
             controller.view.frame = NSRect(x: 0, y: 0, width: 860, height: 640)
             controller.testingSetContentPreferredFontProvider(provider)
             controller.configure(result: makeResult())
@@ -135,6 +136,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
             settings.contentTextSizePreference = .custom(100)
             settings.save()
             let controller = TwelveSAmpliconResultViewController()
+            isolateLayouts(controller)
             controller.view.frame = NSRect(x: 0, y: 0, width: 460, height: 640)
             controller.configure(result: makeResult())
 
@@ -185,6 +187,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         weak var released: TwelveSAmpliconResultViewController?
         autoreleasepool {
             let controller = TwelveSAmpliconResultViewController()
+            isolateLayouts(controller)
             _ = controller.view
             released = controller
         }
@@ -193,6 +196,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testTargetTableUsesFixedColumnsAndSampleEvidenceDetailPane() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
 
         controller.configure(result: makeResult())
@@ -233,6 +237,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testTargetTableShowsOneRowPerSampleWithSpeciesReads() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -250,6 +255,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testDoesNotCreatePerSampleColumnsForLargeCohorts() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
 
         controller.configure(result: makeResult(sampleCount: 120))
@@ -260,6 +266,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testAppliesInspectorMinimumExactReadFilter() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -271,6 +278,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testAppliesInspectorTextFilterAcrossScientificNameAndPotentialMatches() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -282,6 +290,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testInspectorTextFilterMatchesSampleNamesAfterProjection() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -295,6 +304,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testLargeSparseTargetFilterStaysInteractive() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeLargeSparseResult(targetCount: 90_000, sampleCount: 19, nonZeroTargetCount: 4_000))
 
@@ -324,6 +334,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         let loadElapsed = CFAbsoluteTimeGetCurrent() - loadStart
 
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         let configureStart = CFAbsoluteTimeGetCurrent()
         controller.configure(result: result)
@@ -341,6 +352,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testViewportHeaderSearchFieldFiltersTargetRows() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -357,6 +369,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testViewportSearchFieldMirrorsProgrammaticDisplayState() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -368,6 +381,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testUnresolvedModeShowsUnresolvedSequences() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         var summaries: [TwelveSResultDisplaySummary] = []
         controller.onDisplaySummaryChanged = { summaries.append($0) }
@@ -387,6 +401,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testActionBarExportMenuOffersAllCLIBackedFormats() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
 
         XCTAssertEqual(
@@ -398,6 +413,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testHeaderIsPinnedBelowWindowSafeArea() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
 
         let titleLabel = findTextField(withString: "12S Amplicon Matches", in: controller.view)
@@ -420,6 +436,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testInspectorTaxonAndHumanFiltersApplyToTargets() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -434,6 +451,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testInspectorTaxonFiltersUseInferredGroupsWhenReferenceMetadataIsAbsent() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult(includeTaxonGroups: false))
 
@@ -449,6 +467,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testUnresolvedFilterAndBlastRequestUseVisibleClusters() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
         var request: TwelveSUnresolvedBlastRequest?
@@ -465,6 +484,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testBlastLoadingCreatesBottomDrawerHost() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -475,6 +495,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testActiveTableHostsRowsAndSwitchesWithMode() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 
@@ -488,6 +509,7 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
 
     func testDefaultTargetSortIsExactReadsDescending() {
         let controller = TwelveSAmpliconResultViewController()
+        isolateLayouts(controller)
         controller.loadViewIfNeeded()
         controller.configure(result: makeResult())
 

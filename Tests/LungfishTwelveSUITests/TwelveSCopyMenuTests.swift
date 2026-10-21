@@ -110,6 +110,7 @@ final class TwelveSCopyMenuTests: XCTestCase {
 
     func testViewControllerCopyNameWritesPasteboard() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let spy = SpyPasteboard()
         vc.testingSetPasteboard(spy)

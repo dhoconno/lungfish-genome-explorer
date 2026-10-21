@@ -501,6 +501,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             settings.contentTextSizePreference = .custom(100)
             let provider = MutableTaxTriagePreferredFonts(bodyPointSize: 13)
             let controller = TaxTriageResultViewController()
+            isolateLayouts(controller)
             controller.testingSetContentPreferredFontProvider(provider)
             controller.view.frame = NSRect(x: 0, y: 0, width: 360, height: 300)
             let window = host(controller.view, size: controller.view.frame.size)
@@ -568,6 +569,7 @@ final class TaxTriageContentTypographyTests: XCTestCase {
             let strongOverview = TaxTriageBatchOverviewView()
             let strongStrain = StrainComparisonView()
             let strongController = TaxTriageResultViewController()
+            isolateLayouts(strongController)
             _ = strongController.view
             organism = strongOrganism
             overview = strongOverview

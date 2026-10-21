@@ -382,6 +382,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testSelectingSampleSubsetReaggregatesTargetRows() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
@@ -410,6 +411,7 @@ final class TwelveSTableViewTests: XCTestCase {
         try ">human\nACGTACGTAC\n>chicken\nTTTTGGGGCC\n".write(to: refURL, atomically: true, encoding: .utf8)
 
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult(referenceURL: refURL)
 
@@ -429,6 +431,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testReadColumnsAreFixedSampleRowsNotWideMatrix() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
@@ -445,6 +448,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testApplyMetadataStoreAddsRowScopedMetadataColumns() throws {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
@@ -464,6 +468,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testImportMetadataAffordanceFiresCallback() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         var fired = false
         vc.onMetadataImportRequested = { fired = true }
@@ -473,6 +478,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testDefaultSortAlwaysReadsDescendingOnConfigure() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configure(result: TwelveSFixtures.twoSampleResult())
         vc.testingSetTargetSort(key: "scientificName", ascending: true)
@@ -484,6 +490,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testRowsWithZeroReadsInShownSamplesAreHidden() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)
@@ -521,6 +528,7 @@ final class TwelveSTableViewTests: XCTestCase {
             ])
 
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         vc.configure(result: bundle)
 
@@ -530,6 +538,7 @@ final class TwelveSTableViewTests: XCTestCase {
 
     func testSingleSampleBundleHidesSampleFilterButton() {
         let vc = TwelveSAmpliconResultViewController()
+        isolateLayouts(vc)
         vc.loadViewIfNeeded()
         let bundle = TwelveSFixtures.twoSampleResult()
         vc.configure(result: bundle)

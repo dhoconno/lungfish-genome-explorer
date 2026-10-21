@@ -18,6 +18,7 @@ import LungfishKit
 final class EsVirituActionBarSpacingTests: XCTestCase {
     func testInfoTextStaysWhereTheDeletedRecomputeButtonPutIt() throws {
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 300),

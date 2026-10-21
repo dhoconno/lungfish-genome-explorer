@@ -243,6 +243,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
 
     func testDrawerToggle() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view  // trigger loadView
 
         let result = makeDrawerTestResult()
@@ -288,6 +289,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
 
     func testActionBarCallbackWired() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let result = makeDrawerTestResult()
@@ -354,6 +356,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
 
     func testBatchExtractCallback() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
 
         let result = makeDrawerTestResult()
@@ -477,6 +480,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
 
     func testControllerExtractFiresOncePerDrawerRequest() throws {
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configure(result: makeDrawerTestResult())
 

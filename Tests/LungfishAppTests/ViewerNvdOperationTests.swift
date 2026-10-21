@@ -124,6 +124,7 @@ final class ViewerNvdOperationTests: XCTestCase {
         let result = project.appendingPathComponent("Analyses/nvd-run", isDirectory: true)
         try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
         let controller = NvdResultViewController()
+        isolateLayouts(controller)
         _ = controller.view
         controller.configureWithCachedRows([], manifest: Self.manifest(), bundleURL: result)
         XCTAssertEqual(controller.bundleURL, result, "the controller holds the folder it was configured with")

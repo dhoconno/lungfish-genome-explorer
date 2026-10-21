@@ -62,6 +62,7 @@ final class TaxonomyReopenBrackenTests: XCTestCase {
         XCTAssertEqual(imported.bundleURL.lastPathComponent, "Sample-CZ-001.lungfishtax")
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configure(result: try ClassificationResult.load(from: imported.bundleURL))
 
@@ -73,6 +74,7 @@ final class TaxonomyReopenBrackenTests: XCTestCase {
         let db = try buildDatabase(in: resultDir)
 
         let vc = TaxonomyViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.batchURL = resultDir
         vc.configureFromDatabase(db)

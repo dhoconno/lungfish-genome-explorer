@@ -42,6 +42,7 @@ final class TaxTriageKeyEquivalentDispatchTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        isolateLayouts(vc)
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 

@@ -28,6 +28,7 @@
 // segment ticks only that sample. View > Next/Previous Sample step the
 // picker the same way.
 
+import LungfishTestSupport
 import XCTest
 import AppKit
 @testable import LungfishTaxTriageUI
@@ -134,6 +135,7 @@ final class TaxTriageSampleScopeTests: XCTestCase {
         let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: ["tool": "taxtriage"])
 
         let vc = TaxTriageResultViewController()
+        vc.layoutDefaults = TestDefaultsSuite(prefix: "TaxTriageSampleScopeTests").defaults
         _ = vc.view
         vc.configureFromDatabase(db, resultURL: tempDir)
 

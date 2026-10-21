@@ -69,6 +69,7 @@ final class TaxonomyViewControllerMissingSourceTests: XCTestCase {
 
     func testMissingReadsShowNoticeAndDisableReadLevelActionsWithReason() throws {
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         _ = controller.view
         controller.configure(result: try makeResult())
         XCTAssertTrue(controller.missingSourceNotice.isHidden)
@@ -91,6 +92,7 @@ final class TaxonomyViewControllerMissingSourceTests: XCTestCase {
 
     func testMissingDatabaseKeepsReadLevelActionsButShowsNotice() throws {
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         _ = controller.view
         controller.configure(result: try makeResult())
 
@@ -103,6 +105,7 @@ final class TaxonomyViewControllerMissingSourceTests: XCTestCase {
 
     func testNoRecordLeavesViewportUnchanged() throws {
         let controller = TaxonomyViewController()
+        isolateLayouts(controller)
         _ = controller.view
         controller.configure(result: try makeResult())
 

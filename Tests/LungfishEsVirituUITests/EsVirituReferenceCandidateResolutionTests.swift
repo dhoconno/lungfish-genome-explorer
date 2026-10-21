@@ -38,6 +38,7 @@ final class EsVirituReferenceCandidateResolutionTests: XCTestCase {
 
         let recorder = RecordingEvidenceViewer()
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.classifierAlignmentViewerFactory = { recorder }
         var observedArguments: [(sampleID: String, contig: String, length: Int)] = []
         controller.onResolveReferenceCandidate = { sampleID, contig, length in
@@ -71,6 +72,7 @@ final class EsVirituReferenceCandidateResolutionTests: XCTestCase {
 
         let recorder = RecordingEvidenceViewer()
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.classifierAlignmentViewerFactory = { recorder }
         var resolverCallCount = 0
         controller.onResolveReferenceCandidate = { _, _, _ in
@@ -94,6 +96,7 @@ final class EsVirituReferenceCandidateResolutionTests: XCTestCase {
 
         let recorder = RecordingEvidenceViewer()
         let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
         controller.classifierAlignmentViewerFactory = { recorder }
         _ = controller.view
         controller.configureFromDatabase(fixture.database, resultURL: fixture.root)
