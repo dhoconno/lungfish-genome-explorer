@@ -88,7 +88,7 @@ extension ONTFluidigmAmpliconMaterializationRequest {
         let usesTheCommandsPrimers = forwardPrimer == ONTFluidigmAmpliconMaterializer.defaultForwardPrimer
             && reversePrimer == ONTFluidigmAmpliconMaterializer.defaultReversePrimer
         guard usesTheCommandsPrimers else {
-            return ["Lungfish.app"] + subcommandArguments
+            return [LungfishAppIdentity.recordedToolName] + subcommandArguments
                 + ["--forward-primer", forwardPrimer, "--reverse-primer", reversePrimer]
         }
         return [CLICommandIdentity.executableName, "fastq"] + subcommandArguments
@@ -111,7 +111,7 @@ extension ONTFluidigmSampleMaterializationRequest {
     /// CS2 insert, where this materializer keeps whole reads.
     public var recordedCommandArguments: [String] {
         var arguments = [
-            "Lungfish.app", "ont-fluidigm-whole-read-samples",
+            LungfishAppIdentity.recordedToolName, "ont-fluidigm-whole-read-samples",
             inputURL.path,
             "--barcodes", barcodeDefinitionsURL.path,
             "--output", outputDirectory.path,

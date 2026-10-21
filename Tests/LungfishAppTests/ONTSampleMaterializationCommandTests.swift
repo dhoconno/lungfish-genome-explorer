@@ -10,7 +10,7 @@
 // (R3, R8). These tests run each materializer on a small fixture, parse the
 // recorded command with the real CLI parser, run it again into the same folder
 // and compare the sample bundles. The materializer no lungfish-cli command
-// runs records a `Lungfish.app` form, a pinned CLI parity gap. The last test
+// runs records a `Lungfish Genome Explorer` form, a pinned CLI parity gap. The last test
 // runs the ONT Fluidigm Sample Split launch through
 // FASTQOperationExecutionService, as the FASTQ operations dialog and the
 // import sheet do.
@@ -165,7 +165,7 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
         )
 
         let words = request.recordedCommandArguments
-        XCTAssertEqual(Array(words.prefix(2)), ["Lungfish.app", "ont-fluidigm-samples"])
+        XCTAssertEqual(Array(words.prefix(2)), [LungfishAppIdentity.recordedToolName, "ont-fluidigm-samples"])
         let forward = try XCTUnwrap(words.firstIndex(of: "--forward-primer"))
         XCTAssertEqual(words[forward + 1], "ACGTACGTACGTACGTACGTAC")
         let reverse = try XCTUnwrap(words.firstIndex(of: "--reverse-primer"))
@@ -261,9 +261,9 @@ final class ONTSampleMaterializationCommandTests: XCTestCase {
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: try XCTUnwrap(result.outputBundleURLs.first)))
         let toolCommand = try XCTUnwrap(manifest.operation.toolCommand)
         XCTAssertEqual(toolCommand, request.recordedCommandLine)
-        XCTAssertEqual(manifest.operation.toolUsed, "Lungfish.app")
+        XCTAssertEqual(manifest.operation.toolUsed, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(try AdvancedCommandLineOptions.parse(toolCommand), [
-            "Lungfish.app", "ont-fluidigm-whole-read-samples", input.path,
+            LungfishAppIdentity.recordedToolName, "ont-fluidigm-whole-read-samples", input.path,
             "--barcodes", sheet.path,
             "--output", request.outputDirectory.path,
             "--forward-primer", ONTFluidigmAmpliconMaterializer.defaultForwardPrimer,
