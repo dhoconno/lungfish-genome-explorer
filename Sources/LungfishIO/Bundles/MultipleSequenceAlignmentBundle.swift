@@ -637,7 +637,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         editDescription: String,
         argv: [String],
         workflowName: String = "multiple-sequence-alignment-annotation-edit",
-        toolName: String = "lungfish-gui msa annotation edit"
+        toolName: String
     ) throws -> MultipleSequenceAlignmentBundle {
         guard !newAnnotations.isEmpty else { return self }
         var store = try loadAnnotationStore()
@@ -676,7 +676,7 @@ public struct MultipleSequenceAlignmentBundle: Sendable {
         editDescription: String,
         argv: [String],
         workflowName: String = "multiple-sequence-alignment-annotation-edit",
-        toolName: String = "lungfish-gui msa annotation edit"
+        toolName: String
     ) throws -> MultipleSequenceAlignmentBundle {
         let runClock = ProvenanceRunClock()
         let annotationsURL = url.appendingPathComponent("metadata/annotations.json")

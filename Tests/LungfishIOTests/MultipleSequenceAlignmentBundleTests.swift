@@ -458,7 +458,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         let authored = try bundle.appendingAnnotations(
             [manual],
             editDescription: "Add annotation from MSA selection",
-            argv: ["lungfish-gui", "msa", "add-annotation"]
+            argv: ["lungfish-gui", "msa", "add-annotation"], toolName: "lungfish-gui msa annotation edit"
         )
 
         let targetMap = try XCTUnwrap(authored.loadCoordinateMaps().first { $0.rowName == "seqB" })
@@ -470,7 +470,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         let updated = try authored.appendingAnnotations(
             [projected],
             editDescription: "Apply MSA annotation to selected rows",
-            argv: ["lungfish-gui", "msa", "apply-annotation"]
+            argv: ["lungfish-gui", "msa", "apply-annotation"], toolName: "lungfish-gui msa annotation edit"
         )
 
         let store = try updated.loadAnnotationStore()
@@ -537,7 +537,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         let authored = try bundle.appendingAnnotations(
             [firstManual],
             editDescription: "Add first annotation",
-            argv: ["lungfish-gui", "msa", "add-annotation"]
+            argv: ["lungfish-gui", "msa", "add-annotation"], toolName: "lungfish-gui msa annotation edit"
         )
 
         let annotationJSONURL = bundleURL.appendingPathComponent("metadata/annotations.json")
@@ -563,7 +563,7 @@ final class MultipleSequenceAlignmentBundleTests: XCTestCase {
         XCTAssertThrowsError(try authored.appendingAnnotations(
             [secondManual],
             editDescription: "Add second annotation",
-            argv: ["lungfish-gui", "msa", "add-annotation"]
+            argv: ["lungfish-gui", "msa", "add-annotation"], toolName: "lungfish-gui msa annotation edit"
         ))
         XCTAssertEqual(try Data(contentsOf: annotationJSONURL), originalAnnotationJSON)
         XCTAssertEqual(try Data(contentsOf: annotationSQLiteURL), originalAnnotationSQLite)
