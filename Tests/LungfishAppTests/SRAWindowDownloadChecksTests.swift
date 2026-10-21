@@ -230,6 +230,7 @@ final class SRAWindowDownloadChecksTests: XCTestCase {
             enaDownloadSteps: [],
             toolkitDownloadTraces: traces,
             cliArguments: ["import", "fastq"],
+            cliCommandLine: CLIImportRunner.commandLine(arguments: ["import", "fastq"]),
             cliStartedAt: Date(timeIntervalSince1970: 2),
             cliCompletedAt: Date(timeIntervalSince1970: 3),
             stagedFASTQFiles: [],

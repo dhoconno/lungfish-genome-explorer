@@ -288,6 +288,7 @@ final class SRADownloadSurfaceParityTests: XCTestCase {
             enaDownloadSteps: staged.download.enaSteps,
             toolkitDownloadTraces: traces.steps,
             cliArguments: arguments,
+            cliCommandLine: CLIImportRunner.commandLine(arguments: arguments),
             cliStartedAt: started,
             cliCompletedAt: Date(),
             stagedFASTQFiles: staged.reads.files,

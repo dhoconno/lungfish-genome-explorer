@@ -127,6 +127,7 @@ final class SRAImportProvenanceSourceTests: XCTestCase {
             enaDownloadSteps: [],
             toolkitDownloadTraces: [],
             cliArguments: ["import", "fastq"],
+            cliCommandLine: CLIImportRunner.commandLine(arguments: ["import", "fastq"]),
             cliStartedAt: Date(timeIntervalSince1970: 0),
             cliCompletedAt: Date(timeIntervalSince1970: 1),
             stagedFASTQFiles: [],

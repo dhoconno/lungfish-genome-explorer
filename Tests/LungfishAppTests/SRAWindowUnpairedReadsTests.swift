@@ -304,9 +304,9 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
         XCTAssertEqual(imported.result.skipped, 0, file: file, line: line)
     }
 
-    /// The record the window writes for the run, through the function the
-    /// window calls. This helper repeated the window's call, so reverting the
-    /// window's line left every test passing (re-review N2).
+    /// The record the writer makes for the staged run, from the values the run
+    /// holds. The window's own call went with its in-process route (K3), so
+    /// this helper is the one call these tests reach.
     private func recordWindowProvenance(
         _ accession: String,
         _ staged: SRAWindowStagedRun,
@@ -315,13 +315,21 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
         metadata: PersistedFASTQMetadata,
         arguments: [String]
     ) throws -> WorkflowRun {
-        try staged.writeImportProvenance(
+        try writeGUISRAFASTQImportProvenance(
             accession: accession,
+            readRecord: staged.download.enaRecord,
+            downloadSource: staged.download.source.rawValue,
+            preferredSource: staged.download.preference,
+            layoutWarning: staged.layoutWarning,
+            fallbackMessage: staged.download.fallbackMessage,
+            enaDownloadSteps: staged.download.enaSteps,
             toolkitDownloadTraces: [],
             cliArguments: arguments,
+            cliCommandLine: CLIImportRunner.commandLine(arguments: arguments),
             cliStartedAt: Date(timeIntervalSince1970: 0),
             cliCompletedAt: Date(timeIntervalSince1970: 1),
-            metadata: metadata,
+            stagedFASTQFiles: FASTQBatchImporter.inputFilesKept(of: staged.reads.files, by: metadata.ingestion),
+            stagedReadCounts: staged.reads.readCounts(in: metadata.readClassification),
             finalFASTQURL: fastq,
             bundleURL: bundle,
             platform: "illumina",

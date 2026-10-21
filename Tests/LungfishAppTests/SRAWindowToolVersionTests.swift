@@ -45,6 +45,7 @@ final class SRAWindowToolVersionTests: XCTestCase {
             enaDownloadSteps: [],
             toolkitDownloadTraces: [trace("prefetch", at: 0), trace("fasterq-dump", at: 5)],
             cliArguments: ["import", "fastq"],
+            cliCommandLine: CLIImportRunner.commandLine(arguments: ["import", "fastq"]),
             cliStartedAt: Date(timeIntervalSince1970: 2_000),
             cliCompletedAt: Date(timeIntervalSince1970: 2_001),
             stagedFASTQFiles: [],
