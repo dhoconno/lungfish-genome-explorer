@@ -141,7 +141,7 @@ final class AnnotationEditRouteParityTests: XCTestCase {
     private func assertAgree(_ parityCase: Case, _ found: [RouteParityDifference], line: UInt = #line) {
         let failures = RouteParityHarness.failures(
             found: [.aAgainstC: found], parityCase: parityCase,
-            declared: [RouteParityHarness.appIdentityDifference([Case.addAnnotation: 1])]
+            declared: [RouteParityHarness.appIdentityDifference([Case.addAnnotation: 2])]
         )
         RouteParityHarness.assertNoFailures(failures, in: parityCase.rawValue, line: line)
     }

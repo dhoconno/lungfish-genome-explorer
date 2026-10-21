@@ -243,7 +243,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         }
     }
 
-    /// Side C. The begin helper both sites call, then the built CLI on the argv it hands the launch. It returns the
+    /// Side C. The begin helper both sites call, then the built CLI on the words after the app name in the argv it hands the launch. It returns the
     /// row's command, which side C' replays.
     private func sideC(_ root: URL, cli: URL) async -> RouteParitySideOutcome {
         let reporter = RecordingOperationReporter()
@@ -252,9 +252,9 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
             annotation: Self.annotation("-35 box"), chromosome: "chr1", bundleURL: Self.bundle(in: root),
             routeContext: nil, reporter: reporter
         ) { _, argv in launched = argv }
-        guard let launched, launched.first == CLICommandIdentity.executableName,
+        guard let launched, launched.first == LungfishAppIdentity.recordedToolName,
               let command = reporter.items.first?.cliCommand else {
-            return RouteParitySideOutcome(end: .failed, detail: "the row did not start or built no lungfish-cli argv")
+            return RouteParitySideOutcome(end: .failed, detail: "the row did not start or built no argv that starts with the app name")
         }
         let run = await RouteParityHarness.runCLI(cli, arguments: Array(launched.dropFirst()), timeout: .seconds(60))
         return RouteParitySideOutcome(end: run.end, detail: run.detail, recordedCommand: command)

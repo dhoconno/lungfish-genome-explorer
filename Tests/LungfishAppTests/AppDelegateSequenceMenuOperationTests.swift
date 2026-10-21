@@ -174,6 +174,6 @@ final class AppDelegateSequenceMenuOperationTests: XCTestCase {
         XCTAssertEqual(command.type, "primer")
         XCTAssertEqual(command.strand, "-")
         // The write's record names the same command the row shows.
-        XCTAssertEqual(launched?.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
+        XCTAssertEqual(launched?.argv, [LungfishAppIdentity.recordedToolName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
     }
 }

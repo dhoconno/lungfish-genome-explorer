@@ -58,7 +58,7 @@ extension AppDelegate {
         )
         switch result {
         case .started(let operationID):
-            await launch(operationID, [CLICommandIdentity.executableName] + arguments)
+            await launch(operationID, [LungfishAppIdentity.recordedToolName] + arguments)
         case .refused:
             break // The panel already shows the refused row. Nothing was launched.
         }
