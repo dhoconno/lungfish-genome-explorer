@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.40 M1 (QA 1). At the base the Export button of NAO-MGS and NVD is enabled while a result shows
-// its cached rows, the Export button of NVD is enabled with no sample picked, and the Export button of EsViritu is
-// enabled with an empty batch picker. Each press then ends silently or in a refusal alert that carries the leaf's
-// CLI words. M2 of the lane moves the button state (the four tests below flip to disabled) and M3 moves the alert.
+// Phase 2.13 lane 13.40 M1 (QA 1) pinned the base. The Export button of NAO-MGS and NVD was enabled while a result
+// showed its cached rows, and the Export button of NVD and of EsViritu was enabled with no sample picked. M2 flipped
+// those three pins to disabled with the help tags of UX ruling W3, as predicted. The last test still pins the
+// words of a refused export for the other callers of `ResultExportCoordinator.reportFailure`.
 
 import AppKit
 import XCTest
@@ -33,9 +33,7 @@ private struct LeafRefusalStub: LocalizedError {
 
 @MainActor
 final class ExportItemPinTests: XCTestCase {
-    private let resultExportHelp = LungfishHelpContent.resultExport.summary
-
-    func testNaoMgsExportButtonIsEnabledWhileCachedRowsShow() throws {
+    func testNaoMgsExportButtonIsDisabledWhileCachedRowsShow() throws {
         let vc = NaoMgsResultViewController()
         vc.loadViewIfNeeded()
         vc.configureWithCachedRows(
@@ -45,8 +43,9 @@ final class ExportItemPinTests: XCTestCase {
                 topTaxon: nil, topTaxonId: nil
             )
         )
-        XCTAssertTrue(vc.actionBar.exportButton.isEnabled)
-        XCTAssertEqual(vc.actionBar.exportButton.toolTip, resultExportHelp)
+        XCTAssertFalse(vc.actionBar.exportButton.isEnabled)
+        XCTAssertEqual(vc.actionBar.exportButton.toolTip, ClassifierExportWords.missingDatabaseHelp)
+        XCTAssertEqual(vc.actionBar.exportButton.accessibilityHelp(), ClassifierExportWords.missingDatabaseHelp)
     }
 
     func testNvdExportButtonIsDisabledWhileCachedRowsShow() throws {

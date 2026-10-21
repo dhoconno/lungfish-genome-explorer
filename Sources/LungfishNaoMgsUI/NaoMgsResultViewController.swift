@@ -54,7 +54,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Data (Database-backed)
 
     /// SQLite database for virus hits and taxon summaries.
-    private var database: NaoMgsDatabase?
+    private(set) var database: NaoMgsDatabase? { didSet { refreshExportItem() } }
 
     /// Bundle manifest metadata.
     private var manifest: NaoMgsManifest?
