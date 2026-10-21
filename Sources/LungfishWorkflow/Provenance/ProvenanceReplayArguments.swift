@@ -166,6 +166,7 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
         let inputs = checkedInputs(steps.flatMap { $0.durableReplayArgv ?? $0.command })
         guard !inputs.isEmpty else { return "" }
         var s = "# Each input is checked against the SHA-256 the record holds before any tool runs.\nimport hashlib\n"
+        s += "def lge_sha256(path):\n    digest = hashlib.sha256()\n    with open(path, \"rb\") as handle:\n        for chunk in iter(lambda: handle.read(1 << 20), b\"\"):\n            digest.update(chunk)\n    return digest.hexdigest()\n"
         for input in inputs {
             let relative = spelled(input.path, root: "")
             let quoted = Self.pythonLiteral(relative)
@@ -176,9 +177,9 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
             }
             s += "if not (\(path)).is_file():\n"
             s += "    sys.exit(\"Input \" + str(\(path)) + \" is missing. The record holds SHA-256 \(sha).\")\n"
-            s += "if hashlib.sha256((\(path)).read_bytes()).hexdigest() != \"\(sha)\":\n"
-            s += "    sys.exit(\"Input \" + str(\(path)) + \" has SHA-256 \" + hashlib.sha256((\(path)).read_bytes()).hexdigest()"
-            s += " + \". The record holds \(sha).\")\n"
+            s += "lge_actual = lge_sha256(\(path))\n"
+            s += "if lge_actual != \"\(sha)\":\n"
+            s += "    sys.exit(\"Input \" + str(\(path)) + \" has SHA-256 \" + lge_actual + \". The record holds \(sha).\")\n"
         }
         return s
     }

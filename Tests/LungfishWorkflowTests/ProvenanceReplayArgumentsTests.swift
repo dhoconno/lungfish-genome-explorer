@@ -81,4 +81,16 @@ struct ProvenanceReplayArgumentsTests {
         #expect(replay.arguments(["tool", "\(p)/Inputs/r.fq", "\(p)/Analyses/copy/out.fq", "\(p)/Reports/sum.txt"])
             == ["tool", "\(p)/Inputs/r.fq", "\(token)/out.fq", "\(token)/Reports/sum.txt"])
     }
+
+    /// Review 13.45-M2 Fix 1 (SWIFT 5, C3). The Python input check hashes an input in 1 MiB chunks and once, so a replay of
+    /// a large run is not read whole into memory before its first tool, and a mismatch names the digest it computed.
+    @Test func thePythonInputCheckStreamsEachInputInChunksAndHashesItOnce() {
+        let replay = rule(to: "Analyses/trim", inputs: ["Inputs/r.fq": "abc"], outputs: [])
+        let step = StepExecution(toolName: "fastp", toolVersion: "1", command: ["fastp", "\(p)/Inputs/r.fq"], inputs: [])
+        let check = replay.pythonInputCheck([step])
+        #expect(!check.contains("read_bytes"), Comment(rawValue: check))
+        #expect(check.contains("for chunk in iter(lambda: handle.read(1 << 20), b\"\"):"), Comment(rawValue: check))
+        #expect(check.components(separatedBy: "lge_sha256(").count - 1 == 2, Comment(rawValue: check))
+        #expect(check.contains("if lge_actual != \"abc\":"), Comment(rawValue: check))
+    }
 }
