@@ -381,4 +381,12 @@ struct OutputOptions: ParsableArguments {
             throw ValidationError("Output directory does not exist: \(parentDir.path)")
         }
     }
+
+    /// Refuses `--compress` for a subcommand that writes plain output. A subcommand calls it from `validate()`,
+    /// so the refusal comes before any file or record is written and the exit status is 64. The words are the
+    /// refusal the UX ruling of lane 13.39 sets for every `fastq` subcommand that has no gzip step.
+    func rejectCompress(subcommand: String) throws {
+        guard compress else { return }
+        throw ValidationError("--compress is not supported by fastq \(subcommand). Remove it to write plain output.")
+    }
 }

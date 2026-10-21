@@ -149,10 +149,6 @@ final class FastqCompressHonestTests: XCTestCase {
         try assertAcceptsCompress(FastqSubsampleSubcommand.self, ["in.fastq"], \.output.compress)
     }
 
-    func testTranslateAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqTranslateSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
     func testTrimAcceptsCompress() throws {
         try assertAcceptsCompress(FastqTrimSubcommand.self, ["in.fastq"], \.output.compress)
     }

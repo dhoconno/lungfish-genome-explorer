@@ -37,6 +37,11 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// The writer is plain FASTA with no gzip step, so `--compress` is refused before anything is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "translate")
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "translate", output: output)
         defer { resolvedInput.cleanup() }
@@ -107,9 +112,6 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
         if output.force {
             cliArguments.append("--force")
         }
-        if output.compress {
-            cliArguments.append("--compress")
-        }
         try await recordFASTQSwiftToolProvenance(
             workflowName: "lungfish fastq translate",
             cliArguments: cliArguments,
@@ -120,14 +122,12 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
                 "output": .file(outputURL),
                 "frame": .integer(frame),
                 "table": .integer(table),
-                "force": .boolean(output.force),
-                "compress": .boolean(output.compress)
+                "force": .boolean(output.force)
             ],
             defaults: [
                 "frame": .integer(1),
                 "table": .integer(1),
-                "force": .boolean(false),
-                "compress": .boolean(false)
+                "force": .boolean(false)
             ],
             inputRecords: try resolvedInput.inputRecords(),
             extraSteps: try resolvedInput.materializationSteps(),

@@ -13,6 +13,7 @@
 // The proteins below come from a six-frame table worked out apart from the engine (standard code, the
 // reverse frames read on the reverse complement from the last base), not from `TranslationEngine`.
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -284,22 +285,40 @@ final class FastqTranslateInputPinTests: XCTestCase {
 
     // MARK: --compress
 
-    /// The flag is recorded in the envelope, but the writer is a plain FileHandle, so the output is the same
-    /// plain FASTA at the same path, whatever the help says about gzip.
-    func testCompressFlagWritesTheSamePlainFASTAAtTheSamePath() async throws {
+    /// Lane 13.39 moved this pin. At the base `--compress` was accepted, the writer was a plain FileHandle, the
+    /// bytes were the same plain FASTA at the same path and the record said `compress` was true. The writer
+    /// still has no gzip step, so the command now refuses the flag when it parses its arguments (exit 64),
+    /// before the output file or its record exist.
+    func testCompressFlagIsRefusedBeforeAnyFileOrRecordIsWritten() throws {
         let input = try writeFASTQ(TranslateFramePinFixture.fastq, named: "compress.fastq")
-        let plainOutput = folder.appendingPathComponent("plain.fa")
-        let compressedOutput = folder.appendingPathComponent("compressed.fa")
+        let output = folder.appendingPathComponent("refused.fa")
 
-        let plain = try await runFastqTranslatePin(input, frame: 1, output: plainOutput)
-        let compressed = try await runFastqTranslatePin(input, frame: 1, output: compressedOutput, extra: ["--compress"])
+        XCTAssertThrowsError(
+            try FastqTranslateSubcommand.parse([input.path, "--frame", "1", "-o", output.path, "--compress"])
+        ) { error in
+            XCTAssertEqual(
+                FastqTranslateSubcommand.message(for: error),
+                "--compress is not supported by fastq translate. Remove it to write plain output."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+    }
 
-        XCTAssertEqual(compressed, plain)
-        XCTAssertEqual(String(decoding: compressed, as: UTF8.self), TranslateFramePinFixture.frames[0].text)
-        XCTAssertNotEqual(Array(compressed.prefix(2)), [0x1f, 0x8b], "gzip magic")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: compressedOutput.path + ".gz"))
-        let sidecar = ProvenanceRecorder.fileSidecarURL(for: compressedOutput)
+    /// Without the flag the run writes the same plain FASTA, and its record names `compress` nowhere, neither
+    /// in the argv nor in the options.
+    func testPlainRunRecordNamesNoCompress() async throws {
+        let input = try writeFASTQ(TranslateFramePinFixture.fastq, named: "plain.fastq")
+        let output = folder.appendingPathComponent("plain.fa")
+
+        let plain = try await runFastqTranslatePin(input, frame: 1, output: output)
+
+        XCTAssertEqual(String(decoding: plain, as: UTF8.self), TranslateFramePinFixture.frames[0].text)
+        XCTAssertNotEqual(Array(plain.prefix(2)), [0x1f, 0x8b], "gzip magic")
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: output)
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar))
-        XCTAssertTrue(envelope.argv.contains("--compress"))
+        XCTAssertFalse(envelope.argv.contains("--compress"))
+        XCTAssertNil(envelope.options.explicit["compress"])
+        XCTAssertNil(envelope.options.resolvedDefaults["compress"])
     }
 }
