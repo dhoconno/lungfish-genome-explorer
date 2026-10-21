@@ -37,6 +37,18 @@ final class TaxTriageExtractLeftOutNoticeTests: XCTestCase {
         )
     }
 
+    /// Four rows are all named. "and 1 more" would hide the fourth name to save a few characters.
+    func testFourRowsLeftOutAreAllNamed() {
+        let four: [(organism: String, sample: String?)] = [
+            ("Alpha virus", "sample-2"), ("Beta virus", "sample-3"), ("Gamma virus", "sample-4"),
+            ("Delta virus", "sample-5"),
+        ]
+        XCTAssertEqual(
+            TaxTriageResultViewController.leftOutNotice(for: four),
+            "4 selected rows are left out because Alpha virus in sample-2, Beta virus in sample-3, Gamma virus in sample-4 and Delta virus in sample-5 have no reference accession of their own."
+        )
+    }
+
     func testMoreThanThreeRowsLeftOutListThreeAndCountTheRest() {
         let five: [(organism: String, sample: String?)] = [
             ("Alpha virus", "sample-2"), ("Beta virus", "sample-3"), ("Gamma virus", "sample-4"),

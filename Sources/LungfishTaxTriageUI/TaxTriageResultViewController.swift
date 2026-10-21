@@ -3026,15 +3026,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         )
     }
 
-    /// The line under the dialog's selection label, or nil when no row is left out. It names up to three rows and
-    /// counts the rest.
+    /// The line under the dialog's selection label, or nil when no row is left out. It names up to four rows, and
+    /// from five rows it names three and counts the rest.
     nonisolated static func leftOutNotice(for rows: [(organism: String, sample: String?)]) -> String? {
         guard !rows.isEmpty else { return nil }
         let names = rows.map { row in row.sample.map { "\(row.organism) in \($0)" } ?? row.organism }
         let listed: String
         switch names.count {
         case 1: listed = names[0]
-        case 2, 3: listed = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+        case 2, 3, 4: listed = names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
         default: listed = names.prefix(3).joined(separator: ", ") + " and \(names.count - 3) more"
         }
         return rows.count == 1
