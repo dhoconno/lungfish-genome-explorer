@@ -156,7 +156,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
         var metadata = PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore)
         metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd, pairingSource: .detected)
         let bundle = try writeBundle(text, named: "ont", metadata: metadata)
-        // The resolver alone reads repeated ids as mates, so it is the platform that keeps these bytes.
+        // The resolver reads the recorded platform, so the layout is single reads and translate's bytes stay the same.
         XCTAssertEqual(resolvedLayoutPin(bundle), .singleEnd)
 
         let frame1 = try await translated(bundle, to: "ont.fa")
@@ -175,7 +175,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
         var metadata = PersistedFASTQMetadata(sequencingPlatform: .pacbio)
         metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd, pairingSource: .detected)
         let bundle = try writeBundle(text, named: "pacbio", metadata: metadata)
-        // The resolver alone reads repeated ids as mates, so it is the platform that keeps these bytes.
+        // The resolver reads the recorded platform, so the layout is single reads and translate's bytes stay the same.
         XCTAssertEqual(resolvedLayoutPin(bundle), .singleEnd)
 
         let frame1 = try await translated(bundle, to: "pacbio.fa")
@@ -187,7 +187,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
     }
 
     /// A derived bundle whose own sidecar records no platform keeps its bytes when the bundle it derives from
-    /// records Oxford Nanopore. This reaches the ancestor walk of `ReadSetResolver.recordedPlatform(of:)`, which
+    /// records Oxford Nanopore. This reaches the ancestor walk of `FASTQLongReadRule.recordedPlatform(of:)`, which
     /// the bundle test above does not (UX ruling 3, BIO answer 3).
     func testLongReadDerivativeWithRepeatedIdsKeepsItsBytes() async throws {
         let id = "8f2e0c7a-0001-4f7a-9d1a-0123456789ab"
