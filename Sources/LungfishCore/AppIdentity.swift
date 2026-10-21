@@ -34,6 +34,18 @@ public struct LungfishAppIdentity: Equatable, Sendable {
         releaseChannel: .stable
     )
 
+    /// The one name a record of work gives the app, for work the app does in its own process. A record uses it as its
+    /// `toolName`, its `tool.name`, any runtime `app:` and the first word of its argv (BIO-Q-A2 R1).
+    ///
+    /// It is the stable channel's name for every channel and does not follow `current`. A Preview or Debug name such
+    /// as `Lungfish Genome Explorer Preview` is not in the reader list of `ProvenanceAppStep`, so a record that named
+    /// it would turn the app step of a Preview run into a replay line (F2, F3). Records written before 2.13 keep the
+    /// spelling they were written with (`Lungfish.app`, `lungfish-app`), which the reader list still accepts.
+    public static let recordedToolName = stable.fullName
+
+    /// The kind such a record gives its tool. It does not follow the channel either (BIO-Q-A2 F2, F3).
+    public static let recordedToolKind = "gui"
+
     public let fullName: String
     public let shortName: String
     public let bundleIdentifier: String

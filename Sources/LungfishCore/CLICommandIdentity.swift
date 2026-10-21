@@ -7,6 +7,10 @@ public enum CLICommandIdentity {
     /// SwiftPM and app bundles install the command-line executable with this name.
     public static let executableName = "lungfish-cli"
 
+    /// The kind a record gives its tool when a `lungfish-cli` process wrote the record (BIO-Q-A2 R1). The app's own
+    /// kind is `LungfishAppIdentity.recordedToolKind`.
+    public static let recordedToolKind = "cli"
+
     /// Pre-release provenance records used this older executable spelling.
     ///
     /// Keep accepting it only when reading or rehydrating existing provenance;
