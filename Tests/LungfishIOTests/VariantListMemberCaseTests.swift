@@ -58,4 +58,41 @@ final class VariantListMemberCaseTests: XCTestCase {
             XCTAssertEqual(hits("ANN_IMPACT", "high"), [], "high \(profile)")
         }
     }
+
+    /// The headers of `threeRecordVCF` over two records, apart from `listMemberVCF` so the negation test does not move.
+    /// POS 100 lists the impacts HIGH,MODERATE and the genes a_c,x. POS 200 lists the impacts HIGH,MODERATE,MODIFIER
+    /// and the genes abc,x,x.
+    static let commaAndWildcardVCF: String = {
+        let headers = StructuredINFOFixture.threeRecordVCF.split(separator: "\n")
+            .filter { $0.hasPrefix("#") }.map(String.init)
+        let records = [
+            "chr1\t100\t.\tC\tT\t50\tPASS\tDP=40;ANN=T|stop_gained|HIGH|a_c,T|missense_variant|MODERATE|x\tGT\t0/1",
+            "chr1\t200\t.\tA\tG\t50\tPASS\tDP=35;ANN=G|stop_gained|HIGH|abc,G|missense_variant|MODERATE|x,"
+                + "G|upstream_gene_variant|MODIFIER|x\tGT\t0/1",
+        ]
+        return (headers + records).joined(separator: "\n") + "\n"
+    }()
+
+    /// A value that holds a comma is a whole joined list, as the value picker offers it, so `=` and `!=` compare the
+    /// whole value and a run of members is no member. A member compares as written, so `_` and `%` are no wildcards.
+    func testAValueWithACommaOrAWildcardIsMatchedAsWritten() throws {
+        for profile in StructuredINFOFixture.profiles {
+            let dbURL = try StructuredINFOFixture.importDatabase(
+                Self.commaAndWildcardVCF, profile: profile, in: directory, name: "comma")
+            let database = try VariantDatabase(url: dbURL)
+            func hits(_ key: String, _ op: VariantDatabase.InfoFilter.ComparisonOp, _ value: String) -> [Int] {
+                let filter = VariantDatabase.InfoFilter(key: key, op: op, value: value)
+                return database.queryForTable(infoFilters: [filter]).map { $0.position + 1 }.sorted()
+            }
+            XCTAssertEqual(hits("ANN_IMPACT", .eq, "HIGH,MODERATE"), [100], "= HIGH,MODERATE \(profile)")
+            XCTAssertEqual(hits("ANN_IMPACT", .neq, "HIGH,MODERATE"), [200], "!= HIGH,MODERATE \(profile)")
+            XCTAssertEqual(hits("ANN_IMPACT", .eq, "MODERATE,MODIFIER"), [], "= MODERATE,MODIFIER \(profile)")
+            XCTAssertEqual(hits("ANN_Gene", .eq, "a_c"), [100], "a_c \(profile)")
+            XCTAssertEqual(hits("ANN_Gene", .eq, "abc"), [200], "abc \(profile)")
+            XCTAssertEqual(hits("ANN_Gene", .eq, "x"), [100, 200], "x \(profile)")
+            for pattern in ["_", "a%", "%"] {
+                XCTAssertEqual(hits("ANN_Gene", .eq, pattern), [], "\(pattern) \(profile)")
+            }
+        }
+    }
 }

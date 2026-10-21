@@ -220,8 +220,9 @@ extension VariantDatabase {
             }
             let valueParam = paramIndex; paramIndex += 1
             // An equality or an inequality on a key that holds a comma-joined list tests the members of the list, so
-            // `!=` keeps the variants that `=` drops.
-            let matchesMember = (op == .eq || op == .neq) && allKeys.allSatisfy(Self.holdsValueList)
+            // `!=` keeps the variants that `=` drops. A value that holds a comma is a whole joined list, as the value
+            // picker offers, and keeps the whole-value comparison.
+            let matchesMember = (op == .eq || op == .neq) && !value.contains(",") && allKeys.allSatisfy(Self.holdsValueList)
             bindings.append((valueParam, op == .like ? SQLiteLikePattern.contains(value) : value))
 
             let cast = "CAST(vi.value AS REAL)"
