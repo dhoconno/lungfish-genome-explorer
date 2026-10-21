@@ -520,6 +520,31 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         XCTAssertEqual(controller.testingTargetText(row: 1, column: "scientificName"), "Canis lupus familiaris")
     }
 
+    /// 13.52-QA Fix 3 and 4 (lane 13.69). The view's own `configure(result:)` opens both tables on their identity, and
+    /// moving a table to another identity saves the layout of the one it leaves. With a suite set on both tables the
+    /// layout lands in the suite, and the standard defaults keep the layout they held before the test.
+    func testOpeningAResultKeepsTheTableLayoutsInTheSuite() throws {
+        let layouts = makeTestDefaultsSuite(prefix: "TwelveSAmpliconResultViewControllerTests")
+        let prefix = "org.lungfish.metadata-column-layout."
+        let controller = TwelveSAmpliconResultViewController()
+        controller.targetTable.metadataColumns.userDefaults = layouts.defaults
+        controller.unresolvedTable.metadataColumns.userDefaults = layouts.defaults
+        controller.view.frame = NSRect(x: 0, y: 0, width: 860, height: 640)
+        let result = makeResult()
+        let identity = result.manifest.outputName
+        let targetKey = "\(prefix)LungfishTwelveSUI.TwelveSTargetTableView:\(identity)"
+        let standardBefore = UserDefaults.standard.data(forKey: targetKey)
+        controller.configure(result: result)
+        XCTAssertEqual(controller.targetTable.metadataColumns.persistenceKey,
+                       "LungfishTwelveSUI.TwelveSTargetTableView:\(identity)")
+        controller.targetTable.resultIdentity = identity + "-moved"
+        controller.unresolvedTable.resultIdentity = identity + "-moved"
+        let saved = layouts.defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
+        XCTAssertTrue(saved.contains(targetKey), "the target table saved its layout in the suite, found \(saved)")
+        XCTAssertEqual(UserDefaults.standard.data(forKey: targetKey), standardBefore,
+                       "the standard defaults hold the layout they held before the test")
+    }
+
     private func makeResult(
         sampleCount: Int = 2,
         includeTaxonGroups: Bool = true

@@ -88,7 +88,6 @@ final class TaxTriageExportPinTests: XCTestCase {
         let minimap = root.appendingPathComponent("S1/minimap2", isDirectory: true)
         try fm.createDirectory(at: minimap, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
-        defer { for key in UserDefaults.standard.dictionaryRepresentation().keys where key.contains(root.lastPathComponent) { UserDefaults.standard.removeObject(forKey: key) } }
         try fm.copyItem(at: Self.sarsCoV2BAM, to: minimap.appendingPathComponent("S1.bam"))
         try fm.copyItem(
             at: URL(fileURLWithPath: Self.sarsCoV2BAM.path + ".bai"),
