@@ -52,3 +52,26 @@ public enum FASTQLongReadRule {
         return result
     }
 }
+
+extension FASTQInputLayoutResolver {
+
+    /// The long-read step of the resolver's order of evidence, after a layout
+    /// the caller states, two files it binds, pooled files and a non-FASTQ
+    /// input, and before the explicit single-end step and the scan. The
+    /// platform is read from the hint's enclosing bundle, else the hint, when
+    /// a hint is given, and otherwise from the input's enclosing bundle, else
+    /// the input file's own sidecar. Nil unless it records long reads.
+    static func longReadResolution(for inputURL: URL, metadataFrom hintURL: URL?) -> FASTQInputLayoutResolution? {
+        let evidenceURL = hintURL ?? inputURL
+        let bundleURL = FASTQReadLayoutClassifier.bundleURL(holding: evidenceURL)
+        guard let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL ?? evidenceURL),
+              FASTQLongReadRule.isLongRead(platform) else { return nil }
+        return FASTQInputLayoutResolution(
+            layout: .singleEnd,
+            source: .bundleMetadata,
+            reason: bundleURL == nil
+                ? "The file's metadata records \(platform.displayName) reads, which are never paired."
+                : "The bundle records \(platform.displayName) reads, which are never paired."
+        )
+    }
+}

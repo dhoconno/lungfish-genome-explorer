@@ -21,9 +21,6 @@ extension FASTQBundleMergeService {
     static func readSetResolverReadsOnlySingleReads(in fastqURL: URL) -> Bool {
         let metadata = FASTQMetadataStore.load(for: fastqURL)
         guard metadata?.readClassification == nil else { return false }
-        if let platform = metadata?.sequencingPlatform, platform == .oxfordNanopore || platform == .pacbio {
-            return true
-        }
         return FASTQInputLayoutResolver.resolve(inputURLs: [fastqURL]).layout == .singleEnd
     }
 

@@ -156,21 +156,12 @@ struct FastqTranslateSubcommand: AsyncParsableCommand {
     private static func numbersMates(of input: FASTQSubcommandInput) -> Bool {
         let hints = FASTQReadLayoutClassifier.metadataHints(for: input.originalURL)
         if hints.pairingMode == .singleEnd, hints.hasMergedOrUnpairedReads { return false }
-        if recordsLongReads(input) { return false }
         let resolution = FASTQInputLayoutResolver.resolve(
             fastqURL: input.executionURL,
             metadataFrom: input.bundleURL == nil ? nil : input.originalURL,
             recordLimit: Int.max
         )
         return resolution.layout == .strictlyInterleaved || resolution.layout == .mixedMergedAndPairs
-    }
-
-    /// Whether the input, or a bundle it derives from, records a long-read platform, read by the read set
-    /// resolver's own lookup. Such reads are never paired (`docs/contracts/READ-PAIRING.md`).
-    private static func recordsLongReads(_ input: FASTQSubcommandInput) -> Bool {
-        FASTQLongReadRule.isLongRead(
-            FASTQLongReadRule.recordedPlatform(of: (input.bundleURL ?? input.originalURL).standardizedFileURL)
-        )
     }
 
     /// Two adjacent records are the mates of one fragment when their identifiers are byte-equal and the

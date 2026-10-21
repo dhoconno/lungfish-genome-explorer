@@ -165,13 +165,18 @@ public struct FASTQInputLayoutResolution: Codable, Sendable, Equatable {
 ///
 /// 1. an explicit layout the caller already knows (a `--read-layout` flag),
 /// 2. two files bound as R1/R2 by the caller,
-/// 3. the enclosing bundle's metadata: a `singleEnd` pairing the user chose
+/// 3. a recorded long-read platform (``FASTQLongReadRule``): the platform of
+///    the hint's enclosing bundle, else the hint, when a hint is given, and
+///    otherwise of the input's enclosing bundle, else the input file's own
+///    sidecar. Oxford Nanopore and PacBio reads are single reads, however
+///    their ids repeat (`docs/contracts/READ-PAIRING.md`),
+/// 4. the enclosing bundle's metadata: a `singleEnd` pairing the user chose
 ///    explicitly (`ingestion.pairingSource == explicit`) with no merge
 ///    evidence settles the question without reading the file. A `singleEnd`
 ///    that was defaulted, detected, or recorded before `pairingSource` existed
 ///    does not: imports with no pairing choice recorded `single_end` for files
 ///    whose records alternate mates, so those are scanned,
-/// 4. a bounded scan of the records (``FASTQReadLayoutClassifier``), with the
+/// 5. a bounded scan of the records (``FASTQReadLayoutClassifier``), with the
 ///    bundle metadata as hints that can demote strict to mixed (a VSP2 merge
 ///    recipe in the lineage, a read classification with merged reads). A scan
 ///    that read the whole of a file holding every read of its input counts
@@ -228,6 +233,9 @@ public enum FASTQInputLayoutResolver {
                 reason: "The input is \(format.rawValue.uppercased()), not FASTQ reads."
             )
         }
+        if let longReads = longReadResolution(for: standardized, metadataFrom: nil) {
+            return longReads
+        }
 
         let hints = FASTQReadLayoutClassifier.metadataHints(for: standardized)
         if hints.recordsExplicitSingleEnd, !hints.hasMergedOrUnpairedReads {
@@ -271,6 +279,9 @@ public enum FASTQInputLayoutResolver {
                 source: .notFASTQ,
                 reason: "The input is \(format.rawValue.uppercased()), not FASTQ reads."
             )
+        }
+        if let longReads = longReadResolution(for: standardized, metadataFrom: hintURL.standardizedFileURL) {
+            return longReads
         }
         let evidence = FASTQReadLayoutClassifier.metadataEvidence(for: hintURL.standardizedFileURL)
         let hints = evidence.hints

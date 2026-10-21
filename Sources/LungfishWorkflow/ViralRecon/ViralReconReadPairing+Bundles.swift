@@ -105,8 +105,13 @@ extension ViralReconReadPairing {
     /// plan the run makes replaces it.
     static func expectedDecision(forBundle bundleURL: URL, sampleName: String) -> ViralReconReadPairingDecision {
         let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL)
+        let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL)
         let expected: (layout: FASTQInputLayout, reason: String)
         switch manifest?.payload {
+        case _ where FASTQLongReadRule.isLongRead(platform):
+            // A long-read bundle, or any derivative of one, is read as single
+            // reads, as the run's plan reads it (BIO ruling 13.42, Q7).
+            expected = (.singleEnd, "The bundle records \(platform?.displayName ?? "long-read") reads, which are never paired.")
         case .fullPaired?:
             expected = (.pairedFiles, "The paired derivative names its R1 and R2 files.")
         case .fullMixed(let roles)?:
@@ -116,7 +121,6 @@ extension ViralReconReadPairing {
                 ? (.mixedMergedAndPairs, "The derivative records read pairs and single reads by role.")
                 : (holdsPairs ? .pairedFiles : .singleEnd, "The derivative records its files by role.")
         case nil:
-            let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL)
             let files = FASTQBundle.resolveAllFASTQURLs(for: bundleURL) ?? []
             expected = ReadSetResolver.isKnownShortRead(platform)
                 && MatePairFileNaming.matePair(in: files, sequencingPlatform: platform) != nil

@@ -157,7 +157,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
         metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd, pairingSource: .detected)
         let bundle = try writeBundle(text, named: "ont", metadata: metadata)
         // The resolver alone reads repeated ids as mates, so it is the platform that keeps these bytes.
-        XCTAssertEqual(resolvedLayoutPin(bundle), .strictlyInterleaved)
+        XCTAssertEqual(resolvedLayoutPin(bundle), .singleEnd)
 
         let frame1 = try await translated(bundle, to: "ont.fa")
 
@@ -176,7 +176,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
         metadata.ingestion = IngestionMetadata(pairingMode: .singleEnd, pairingSource: .detected)
         let bundle = try writeBundle(text, named: "pacbio", metadata: metadata)
         // The resolver alone reads repeated ids as mates, so it is the platform that keeps these bytes.
-        XCTAssertEqual(resolvedLayoutPin(bundle), .strictlyInterleaved)
+        XCTAssertEqual(resolvedLayoutPin(bundle), .singleEnd)
 
         let frame1 = try await translated(bundle, to: "pacbio.fa")
 
@@ -221,8 +221,8 @@ final class FastqTranslateMateIdTests: XCTestCase {
             in: child
         )
         XCTAssertNil(FASTQMetadataStore.load(for: child.appendingPathComponent("reads.fastq")))
-        // The resolver alone reads repeated ids as mates, so only the parent's platform keeps these bytes.
-        XCTAssertEqual(resolvedLayoutPin(child), .strictlyInterleaved)
+        // The resolver reads the parent's recorded platform, so the layout is single reads; translate's bytes stay the same.
+        XCTAssertEqual(resolvedLayoutPin(child), .singleEnd)
 
         let frame1 = try await translated(child, to: "ont-derived.fa")
 

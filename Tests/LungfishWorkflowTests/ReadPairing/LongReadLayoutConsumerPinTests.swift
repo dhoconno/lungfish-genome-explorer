@@ -9,7 +9,9 @@
 // Nanopore parent (the ancestor walk of `FASTQLongReadRule.recordedPlatform(of:)`). Each platform is
 // recorded through `FASTQMetadataStore`. A consumer in LungfishApp, LungfishCLI or LungfishOperations,
 // which this target does not link, is pinned through the resolver call it makes, with its arguments.
-// `SCR/lanes/13.42/callers.md` gives one row for each. M2 flips only the pins the BIO ruling lists.
+// `SCR/lanes/13.42/callers.md` gives one row for each. M2 flips only the pins the BIO ruling lists, the
+// 17 of its section 3a, to single reads, once `FASTQInputLayoutResolver` reads the recorded platform. The
+// copy outside every bundle with no hint keeps the scan's answer, a Known limit (Q5).
 
 import XCTest
 import LungfishIO
@@ -131,55 +133,56 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
     }
 
     private static let strict = Array(repeating: "strictlyInterleaved", count: 3)
+    private static let single = Array(repeating: "singleEnd", count: 3)
 
     private func resolverRows() -> [Row] {
         [
             Row(consumer: "FASTQOperationCLIInvocationBuilder.swift:156 (LungfishApp), resolve(fastqURL: file, metadataFrom: bundle)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(fastqURL: f.reads, metadataFrom: f.bundle).layout)
             },
             Row(consumer: "FASTQOperationOutputImporter.swift:227 (LungfishApp), resolve(fastqURL: output copy, metadataFrom: bundle)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(fastqURL: try self.scratchCopy(of: f), metadataFrom: f.bundle).layout)
             },
             Row(consumer: "FastqDeinterleaveSubcommand.swift:61 (LungfishCLI), resolve(fastqURL: file, metadataFrom: bundle)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(fastqURL: f.reads, metadataFrom: f.bundle).layout)
             },
             Row(consumer: "FastqMergeSubcommand.swift:53 (LungfishCLI), resolve(fastqURL: file, metadataFrom: bundle)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(fastqURL: f.reads, metadataFrom: f.bundle).layout)
             },
             Row(consumer: "FastqTranslateSubcommand.swift:160 (LungfishCLI), whole-file scan, reached only past the :171 gate",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(fastqURL: f.reads, metadataFrom: f.bundle, recordLimit: Int.max).layout)
             },
             Row(consumer: "FASTQBundleMergeService+ReadRoles.swift:27 (LungfishOperations), resolve(inputURLs: [file]) past its own sidecar check",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads]).layout)
             },
             Row(consumer: "FASTQDerivativeService+Helpers.swift:25 (LungfishOperations), resolve(inputURLs: [bundle])",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.bundle]).layout)
             },
             Row(consumer: "ManagedMappingPipeline.swift:470, resolve(inputURLs: [staged file], pairedFiles: false)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads], pairedFiles: false).layout)
             },
             Row(consumer: "MappingInputResolver.swift:169, resolve(inputURLs: [execution file], pairedFiles: false, explicit: nil)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads], pairedFiles: false, explicit: nil).layout)
             },
             Row(consumer: "IlluminaAmpliconPairMerger.swift:213, resolve(inputURLs: [file])",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads]).layout)
             },
             Row(consumer: "ONTBarcodeDemuxGenotypingPipeline.swift:1882, resolve(inputURLs: [file])",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads]).layout)
             },
             Row(consumer: "RecipeEngine.swift:662, resolve(inputURLs: [file])",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(FASTQInputLayoutResolver.resolve(inputURLs: [f.reads]).layout)
             },
             Row(consumer: "Any consumer handed a copy outside every bundle with no hint, resolve(inputURLs: [copy])",
@@ -219,15 +222,15 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
                 viralRecon(f, [f.bundle])
             },
             Row(consumer: "ViralReconReadPairing.decision(for:) naming its file, ViralReconReadPairing.swift:186",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 viralRecon(f, [f.reads])
             },
             Row(consumer: "TaxTriagePipeline.resolvedReadLayout(for:), TaxTriagePipeline+ReadLayout.swift:53",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(TaxTriagePipeline.resolvedReadLayout(for: TaxTriageSample(sampleId: f.name, fastq1: f.reads)))
             },
             Row(consumer: "ClassificationPipeline.reconcileInterleavedRequest(_:), ClassificationPipeline+ReadSets.swift:77",
-                expected: Array(repeating: "strictlyInterleaved interleaved=true", count: 3)) { f in
+                expected: Array(repeating: "singleEnd interleaved=false", count: 3)) { f in
                 let config = ClassificationConfig(
                     inputFiles: [f.reads],
                     isPairedEnd: false,
@@ -240,7 +243,7 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
                 return "\(Self.name(reconciled.resolution?.layout)) interleaved=\(reconciled.config.interleavedInput)"
             },
             Row(consumer: "AssemblyRunRequest.resolveInputLayout, AssemblyRunRequest.swift:249 (SPAdes, short reads)",
-                expected: Self.strict) { f in
+                expected: Self.single) { f in
                 Self.name(AssemblyRunRequest.resolveInputLayout(
                     tool: .spades,
                     readType: .illuminaShortReads,
@@ -251,7 +254,7 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
                 )?.layout)
             },
             Row(consumer: "FASTQPairingModeResolver.resolvePairing(inputURL:metadataFrom:), FASTQPairingModeResolver.swift:108",
-                expected: Array(repeating: "strictlyInterleaved pairAware=true", count: 3)) { f in
+                expected: Array(repeating: "singleEnd pairAware=false", count: 3)) { f in
                 let decision = FASTQPairingModeResolver.resolvePairing(inputURL: try self.scratchCopy(of: f), metadataFrom: f.bundle)
                 return "\(Self.name(decision.resolution.layout)) pairAware=\(decision.pairAware)"
             },
