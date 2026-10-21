@@ -113,6 +113,57 @@ final class AnnotationEditRouteParityTests: XCTestCase {
         assertAgree(.deleteAnnotation, found)
     }
 
+    // MARK: - V1-6, the durable replay of Add Annotation
+
+    /// 2.13 V1-6, the finding for Add Annotation. The menu's Add Annotation runs on root A and the `sequence add-annotation` leaf, from the
+    /// command the row records, on root C, a copy of root A. The annotation databases are not byte-equal. A row's attributes hold
+    /// `ID=<annotation id>`, the app mints the id when the annotation is drawn, the leaf mints its own and has no option that passes
+    /// one. The databases are equal once the ids are masked. So the log entry keeps the app's name, holds no `durableReplayArgv`
+    /// and the exported script names the step without running it. A leaf option for the id would make the bytes equal, and this test
+    /// would then take the form `testAnnotationAddInProcessRunAndLeafWriteEqualBytes`.
+    func testAnnotationAddInProcessRunAndLeafDifferOnlyInTheAnnotationID() async throws {
+        let caseRoot = scratch.appendingPathComponent("v16-add", isDirectory: true)
+        let rootA = RouteParityHarness.root(of: .a, in: caseRoot)
+        let rootC = RouteParityHarness.root(of: .c, in: caseRoot)
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        let bundleA = try Self.makeBundle(in: rootA, inputs: scratch)
+        try FileManager.default.copyItem(at: rootA, to: rootC)
+        let bundleC = rootC.appendingPathComponent(bundleA.lastPathComponent, isDirectory: true)
+        let annotation = SequenceAnnotation(
+            type: .primer, name: "-35 box", chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 4, end: 20)], strand: .reverse
+        )
+        let reporter = RecordingOperationReporter()
+        var invocationArgv: [String]?
+        await AppDelegate.beginManualReferenceAnnotationOperation(
+            annotation: annotation, chromosome: "chr1", bundleURL: bundleA, routeContext: nil, reporter: reporter
+        ) { _, argv in invocationArgv = argv }
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
+            annotation, toBundleAt: bundleA, invocationArgv: try XCTUnwrap(invocationArgv)
+        )
+        let command = try XCTUnwrap(reporter.items.first?.cliCommand)
+        try await RecordedCLICommand.runInProcess(try RecordedCLICommand.rebased(command, from: rootA, to: rootC))
+
+        let database = "annotations/manual_annotations.db"
+        let dataA = try Data(contentsOf: bundleA.appendingPathComponent(database))
+        let dataC = try Data(contentsOf: bundleC.appendingPathComponent(database))
+        XCTAssertNotEqual(dataA, dataC, "the routes now write equal bytes, so Add Annotation can take a durable replay argv (V1-6)")
+        XCTAssertEqual(
+            Self.maskingAnnotationIDs(dataA), Self.maskingAnnotationIDs(dataC),
+            "the annotation databases differ at more than the annotation id"
+        )
+    }
+
+    /// `data` with each `ID=<annotation id>` value written as zeros of the same length, so the offsets hold.
+    private static func maskingAnnotationIDs(_ data: Data) -> Data {
+        let text = String(data: data, encoding: .isoLatin1) ?? ""
+        let masked = text.replacingOccurrences(
+            of: "ID=[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+            with: "ID=00000000-0000-0000-0000-000000000000", options: .regularExpression
+        )
+        return masked.data(using: .isoLatin1) ?? Data()
+    }
+
     // MARK: - The two sides
 
     /// Makes the fixture bundle in root A, copies root A to root C, runs `appRoute` on root A's
