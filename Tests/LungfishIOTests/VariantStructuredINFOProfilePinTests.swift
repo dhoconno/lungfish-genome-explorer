@@ -23,12 +23,13 @@ final class VariantStructuredINFOProfilePinTests: XCTestCase {
 
     // MARK: - Expectations
 
-    /// The keys the inline import of `fast` and `low-memory` writes. A SnpEff ANN, whose header holds no `Format: `,
-    /// stays one row, and a split CSQ loses its raw row.
+    /// The keys the inline import of `fast` and `low-memory` writes. Since lane 13.37 a SnpEff ANN, whose header holds
+    /// no `Format: `, gains its template parts, `ANN_entries` and the three aliases, and a split CSQ keeps its raw row,
+    /// so these equal the materializer's keys.
     private static let inlineKeys: [Int: [String]] = [
-        100: ["ANN", "DP"],
-        200: ["ANN", "DP"],
-        300: ["DP"] + StructuredINFOFixture.csqPartsAt300,
+        100: ["ANN", "DP"] + ["ANN_entries"] + StructuredINFOFixture.annPartsAt100 + StructuredINFOFixture.annAliases,
+        200: ["ANN", "DP"] + StructuredINFOFixture.annPartsAt200 + StructuredINFOFixture.annAliases,
+        300: ["DP"] + ["CSQ"] + StructuredINFOFixture.csqPartsAt300,
     ]
 
     /// The keys the materializer of `ultra-low-memory` writes.
@@ -42,12 +43,14 @@ final class VariantStructuredINFOProfilePinTests: XCTestCase {
         .fast: inlineKeys, .lowMemory: inlineKeys, .ultraLowMemory: materializedKeys,
     ]
 
-    private static let expectedRowCounts: [VCFImportProfile: Int] = [.fast: 23, .lowMemory: 23, .ultraLowMemory: 60]
+    private static let expectedRowCounts: [VCFImportProfile: Int] = [.fast: 60, .lowMemory: 60, .ultraLowMemory: 60]
 
     /// The 1-based positions each annotation filter finds.
     private static let expectedFilterHits: [VCFImportProfile: [String: [Int]]] = [
-        .fast: ["CSQ_IMPACT = HIGH": [300], "ANN_Consequence LIKE missense": [], "biological high impact": [300]],
-        .lowMemory: ["CSQ_IMPACT = HIGH": [300], "ANN_Consequence LIKE missense": [], "biological high impact": [300]],
+        .fast: ["CSQ_IMPACT = HIGH": [300], "ANN_Consequence LIKE missense": [100], "biological high impact": [300]],
+        .lowMemory: [
+            "CSQ_IMPACT = HIGH": [300], "ANN_Consequence LIKE missense": [100], "biological high impact": [300],
+        ],
         .ultraLowMemory: [
             "CSQ_IMPACT = HIGH": [300], "ANN_Consequence LIKE missense": [100], "biological high impact": [300],
         ],
@@ -55,14 +58,16 @@ final class VariantStructuredINFOProfilePinTests: XCTestCase {
 
     /// The values the ANN_IMPACT column filter offers.
     private static let expectedImpactPicker: [VCFImportProfile: [String]] = [
-        .fast: [], .lowMemory: [], .ultraLowMemory: ["LOW", "MODERATE,MODIFIER"],
+        .fast: ["LOW", "MODERATE,MODIFIER"], .lowMemory: ["LOW", "MODERATE,MODIFIER"],
+        .ultraLowMemory: ["LOW", "MODERATE,MODIFIER"],
     ]
 
     /// For the CSQ header `IMPACT|Allele|Consequence`, the keys, the stored `CSQ_IMPACT` and the `CSQ_IMPACT` that
-    /// `infoValues` returns. The materializer names the parts from the fixed template.
+    /// `infoValues` returns. Since lane 13.37 the materializer names the parts from the header's `Format: ` list, as
+    /// the inline import does, and `fast` keeps the raw CSQ row.
     private static let expectedCustomOrder: [VCFImportProfile: (keys: [String], stored: String?, read: String?)] = [
-        .fast: (["CSQ_Allele", "CSQ_Consequence", "CSQ_IMPACT", "DP"], "HIGH", "HIGH"),
-        .ultraLowMemory: (["CSQ", "CSQ_Allele", "CSQ_Consequence", "CSQ_IMPACT", "DP"], "stop_gained", "stop_gained"),
+        .fast: (["CSQ", "CSQ_Allele", "CSQ_Consequence", "CSQ_IMPACT", "DP"], "HIGH", "HIGH"),
+        .ultraLowMemory: (["CSQ", "CSQ_Allele", "CSQ_Consequence", "CSQ_IMPACT", "DP"], "HIGH", "HIGH"),
     ]
 
     // MARK: - Pins
