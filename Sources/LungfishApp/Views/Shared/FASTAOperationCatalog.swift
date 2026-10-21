@@ -148,7 +148,7 @@ enum FASTAOperationCatalog {
             : exportedIdentifiers
         // The GUI writes this short-lived selection in process. Record that
         // truthfully, while retaining a real CLI command for durable replay.
-        let argv = ["Lungfish Genome Explorer", "fasta-selection-materialization"]
+        let argv = [LungfishAppIdentity.recordedToolName, "fasta-selection-materialization"]
             + durableSourceURLs.flatMap { ["--source", $0.standardizedFileURL.path] }
             + zip(originalIdentifiers, exportedIdentifiers).flatMap {
                 ["--sequence-id", $0.0, "--exported-sequence-id", $0.1]
@@ -195,7 +195,7 @@ enum FASTAOperationCatalog {
             workflowVersion: version,
             toolName: "Lungfish.app in-process FASTA selection",
             toolVersion: version,
-            tool: ProvenanceToolIdentity(name: "Lungfish.app", version: version, kind: "gui"),
+            tool: ProvenanceToolIdentity(name: LungfishAppIdentity.recordedToolName, version: version, kind: LungfishAppIdentity.recordedToolKind),
             argv: argv,
             durableReplayArgv: durableReplayArgv,
             options: ProvenanceOptions(
