@@ -53,7 +53,10 @@ extension AnnotationDatabaseRecord {
     /// Block data (blockCount/blockSizes/blockStarts) is used to create multi-interval
     /// annotations for discontinuous features (e.g., mRNA with exons). When block data
     /// is absent (v2 schema or single-interval features), a single interval is created.
-    public func toAnnotation() -> SequenceAnnotation {
+    ///
+    /// - Parameter trackID: The id of the manifest track whose database holds the record. When given it is set as the
+    ///   `annotation_db_track_id` qualifier, which names the database of a row (the GFF3 export reads it).
+    public func toAnnotation(trackID: String? = nil) -> SequenceAnnotation {
         let annotationType = AnnotationType.from(rawString: type) ?? .gene
 
         let strandValue: Strand
@@ -96,7 +99,10 @@ extension AnnotationDatabaseRecord {
             }
         }
         if let rowID {
-            qualifiers["annotation_db_row_id"] = AnnotationQualifier(String(rowID))
+            qualifiers[GFF3ExportIdentifiers.rowIDKey] = AnnotationQualifier(String(rowID))
+        }
+        if let trackID {
+            qualifiers[GFF3ExportIdentifiers.trackIDKey] = AnnotationQualifier(trackID)
         }
         if let geneName, qualifiers["gene_name"] == nil {
             qualifiers["gene_name"] = AnnotationQualifier(geneName)

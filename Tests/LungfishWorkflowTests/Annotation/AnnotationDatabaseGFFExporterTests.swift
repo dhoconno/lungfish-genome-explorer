@@ -405,7 +405,7 @@ struct AnnotationDatabaseGFFExporterTests {
             ["gene", "100", ".", "ID=gene-N;Name=N;gene=N"],
             ["CDS", "100", "0", "ID=cds-N;Name=N;Parent=gene-N;gene=N;product=nucleocapsid phosphoprotein%3B test"],
             ["CDS", "1000", "2", "ID=cds-X"],
-            ["CDS", "1500", "1", "ID=CDS"],
+            ["CDS", "1500", "1", "ID=lungfish-row-4;Name=CDS"],
         ])
     }
 
@@ -417,19 +417,56 @@ struct AnnotationDatabaseGFFExporterTests {
             )
         }
         let cases: [(stored: String?, column9: String)] = [
-            (nil, "ID=cds-N"),
+            (nil, "ID=lungfish-row-9;Name=cds-N"),
             ("ID=cds-N;Name=N", "ID=cds-N;Name=N"),
             ("lungfish_gff_phase=1;ID=cds-N;Name=N", "ID=cds-N;Name=N"),
             ("ID=cds-N;lungfish_gff_phase=1;Name=N", "ID=cds-N;Name=N"),
             ("ID=cds-N;Name=N;lungfish_gff_phase=1", "ID=cds-N;Name=N"),
             ("ID=cds-N;note=a%3Bb%2Cc%3Dd;lungfish_gff_phase=2;product=p q", "ID=cds-N;note=a%3Bb%2Cc%3Dd;product=p q"),
-            ("lungfish_gff_phase=0", "ID=cds-N"),
-            ("lungfish_gff_phase=0;", "ID=cds-N"),
+            ("lungfish_gff_phase=0", "ID=lungfish-row-9;Name=cds-N"),
+            ("lungfish_gff_phase=0;", "ID=lungfish-row-9;Name=cds-N"),
             ("x_lungfish_gff_phase=0;lungfish_gff_phase_x=1;ID=cds-N", "x_lungfish_gff_phase=0;lungfish_gff_phase_x=1;ID=cds-N"),
             ("gene_id \"G\"; lungfish_gff_phase \"1\"; transcript_id \"T\"", "gene_id \"G\"; transcript_id \"T\""),
         ]
         for (stored, column9) in cases {
-            #expect(AnnotationDatabaseGFFExporter.columnNine(for: record(stored)) == column9, "stored \(stored ?? "nil")")
+            #expect(AnnotationDatabaseGFFExporter.columnNine(for: record(stored), fallbackID: "lungfish-row-9") == column9, "stored \(stored ?? "nil")")
         }
+    }
+
+    @Test("a fallback ID comes from the row key, claimed after every stored ID, and the name is encoded (lane 13.20 M2)")
+    func fallbackIDsComeFromTheRowKey() throws {
+        let dbURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try makeEmptyDatabase(at: dbURL)
+        // Rows 1 and 2 have no attributes and one name, row 3 a name that needs encoding, rows 4 and 5 are CDS whose only
+        // pair is the internal phase key, and row 6 stores the ID that row 2's key would take.
+        let rows: [(name: String, type: String, attributes: String?)] = [
+            ("S", "gene", nil), ("S", "gene", nil), ("a;b", "gene", nil),
+            ("CDS", "CDS", "lungfish_gff_phase=0"), ("CDS", "CDS", "lungfish_gff_phase=1"),
+            ("kept", "gene", "ID=lungfish-row-2"),
+        ]
+        for (index, row) in rows.enumerated() {
+            try db.insertAnnotation(
+                name: row.name, type: row.type, chromosome: "chr1", start: index * 100, end: index * 100 + 30,
+                strand: "+", attributes: row.attributes, geneName: nil
+            )
+        }
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).gff3")
+        defer { try? FileManager.default.removeItem(at: outURL) }
+        try AnnotationDatabaseGFFExporter.export(database: db, to: outURL)
+        let column9 = try String(contentsOf: outURL, encoding: .utf8).split(separator: "\n")
+            .filter { !$0.hasPrefix("#") }
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false)[8] }
+            .map(String.init)
+        #expect(column9 == [
+            "ID=lungfish-row-1;Name=S",
+            "ID=lungfish-row-2-2;Name=S",
+            "ID=lungfish-row-3;Name=a%3Bb",
+            "ID=lungfish-row-4;Name=CDS",
+            "ID=lungfish-row-5;Name=CDS",
+            "ID=lungfish-row-2",
+        ])
+        let ids = column9.compactMap { AnnotationDatabase.parseAttributes($0)["ID"] }
+        #expect(ids.count == rows.count && Set(ids).count == ids.count, "every ID of the file is distinct: \(ids)")
     }
 }

@@ -43,23 +43,16 @@ final class BundleExportGFF3CommandTests: XCTestCase {
         return try Data(contentsOf: url)
     }
 
-    /// The GFF3 text with each `ID=<UUID>` value replaced by `ID=<id>`.
-    private static func maskingIDs(_ data: Data) -> String {
-        String(decoding: data, as: UTF8.self)
-            .replacingOccurrences(of: "ID=[0-9A-Fa-f-]{36}", with: "ID=<id>", options: .regularExpression)
-    }
-
     func testBundleFormWritesTheBuilderBytesAndNamesTheFilesItRead() async throws {
         let output = folder.appendingPathComponent("fixture.gff3")
         let arguments = ["bundle", "export-gff3", bundle.path, "-o", output.path]
         _ = try await command(arguments).export()
 
-        // Each load of a database gives its records new UUIDs, and the writer prints them as `ID=`, so two loads of
-        // one bundle differ there and only there, at the base as in the leaf. The lane report asks for a ruling (R5).
+        // A database row exports its stored ID, or `lungfish-row-<rowID>` with none (lane 13.20 M2), so the leaf's file
+        // and a second load of the bundle through the builder are the same bytes.
         let loaded = try AnnotationGFF3Export.loadBundleAnnotations(bundleURL: bundle)
         let expected = try await Self.builderBytes(loaded.annotations, in: folder)
-        XCTAssertEqual(Self.maskingIDs(try Data(contentsOf: output)), Self.maskingIDs(expected))
-        XCTAssertNotEqual(try Data(contentsOf: output), expected, "the IDs are per load")
+        XCTAssertEqual(try Data(contentsOf: output), expected, "the leaf writes the builder's bytes")
         let envelope = try Self.envelope(of: output)
         XCTAssertEqual(envelope.toolName, "lungfish-cli")
         XCTAssertEqual(envelope.tool.kind, "cli")

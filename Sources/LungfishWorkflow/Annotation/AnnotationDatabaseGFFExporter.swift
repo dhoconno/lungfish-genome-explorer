@@ -18,9 +18,9 @@ public enum AnnotationDatabaseGFFExporter {
     /// type, start, end, score, strand, phase, attributes. `source` and
     /// `score` are emitted as `.` since the database does not preserve them.
     /// Column 9 is the record's stored attributes without the import's internal
-    /// `lungfish_gff_phase` key (see `columnNine(for:)`). When a record has no
-    /// attributes we fall back to `ID=<name>` so downstream tools (iVar's `-g`)
-    /// still see a parseable identifier.
+    /// keys (see `columnNine(for:fallbackID:)`). When a record has no attributes
+    /// we fall back to `ID=<its row-key ID>;Name=<name>` so downstream tools
+    /// (iVar's `-g`) still see a parseable identifier that no other record shares.
     ///
     /// A CDS record that spans multiple BED12 blocks (a spliced CDS, or a
     /// ribosomal-frameshift CDS such as SARS-CoV-2 ORF1ab) is expanded into
@@ -35,9 +35,11 @@ public enum AnnotationDatabaseGFFExporter {
     /// child before its parent whenever the child's name sorted first (SARS-CoV-2's S CDS is named
     /// `QHD43416.1`, gene `S`), and SnpEff 5.0e then built the gene from the CDS.
     public static func export(database: AnnotationDatabase, to url: URL) throws {
+        let records = parentFirst(database.query(limit: Int.max))
+        let identifiers = claimIdentifiers(of: records)
         var buffer = "##gff-version 3\n"
-        for record in parentFirst(database.query(limit: Int.max)) {
-            let attributes = columnNine(for: record)
+        for record in records {
+            let attributes = columnNine(for: record, fallbackID: identifiers.rowKeyID(rowID: record.rowID ?? 0))
             for (gffStart, gffEnd, phase) in segmentLines(for: record) {
                 buffer += "\(record.chromosome)\t.\t\(record.type)\t\(gffStart)\t\(gffEnd)\t.\t\(record.strand)\t\(phase)\t\(attributes)\n"
             }
@@ -47,24 +49,42 @@ public enum AnnotationDatabaseGFFExporter {
 
     // MARK: - Column 9
 
-    /// The attribute the import stores on a CDS record to remember the phase of its column 8
-    /// (`AnnotationDatabase+Building.swift`). It is the database's own bookkeeping, `gffPhase(for:)` reads it for
-    /// column 8, and it never belongs in a file that other tools read.
-    private static let internalPhaseKey = "lungfish_gff_phase"
-
-    /// Column 9 of every line `record` writes. It is the stored attribute string without the `lungfish_gff_phase`
-    /// pair, every other pair byte for byte and in its stored order, so a record without the pair writes its stored
-    /// string unchanged. A record with no attributes, or whose only attribute was the internal key, writes
-    /// `ID=<name>`, so downstream tools (iVar's `-g`) still see a parseable identifier.
-    static func columnNine(for record: AnnotationDatabaseRecord) -> String {
-        guard let stored = record.attributes else { return "ID=\(record.name)" }
+    /// The stored pairs of `record` that stay in column 9. They are the stored attribute string without the pairs whose
+    /// key is one of `GFF3ExportIdentifiers.internalKeys` (the import's `lungfish_gff_phase`, which `gffPhase(for:)`
+    /// reads for column 8 and which never belongs in a file that other tools read), every other pair byte for byte and
+    /// in its stored order, so a record without such a pair keeps its stored string unchanged. Nil when the record has
+    /// no attributes, or nothing is left once the internal pairs go.
+    private static func keptPairs(of record: AnnotationDatabaseRecord) -> String? {
+        guard let stored = record.attributes else { return nil }
         let pairs = stored.split(separator: ";", omittingEmptySubsequences: false)
-        let kept = pairs.filter { attributeKey(of: $0) != internalPhaseKey }
+        let kept = pairs.filter { !GFF3ExportIdentifiers.internalKeys.contains(attributeKey(of: $0) ?? "") }
         guard kept.count < pairs.count else { return stored }
-        guard kept.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
-            return "ID=\(record.name)"
-        }
+        guard kept.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
         return kept.joined(separator: ";")
+    }
+
+    /// Column 9 of every line `record` writes. It is the kept pairs, or for a record that keeps none
+    /// `ID=<fallbackID>;Name=<its name, encoded as GFF3Writer encodes a value>`, so downstream tools (iVar's `-g`) still
+    /// see a parseable identifier. `fallbackID` is the record's row-key ID from `claimIdentifiers(of:)`, which no other
+    /// ID of the file shares (BIO ruling on lane 13.20 M2).
+    static func columnNine(for record: AnnotationDatabaseRecord, fallbackID: String) -> String {
+        keptPairs(of: record) ?? "ID=\(fallbackID);Name=\(GFF3Writer.encodeAttributeValue(record.name))"
+    }
+
+    /// Claims the IDs of `records`, which are in write order. A record that keeps pairs claims the `ID` among them (a
+    /// stored ID is never renamed, and a record whose pairs hold no `ID` claims nothing and writes none), and a record
+    /// that keeps none claims its row-key ID after every stored ID.
+    private static func claimIdentifiers(of records: [AnnotationDatabaseRecord]) -> GFF3ExportIdentifiers {
+        var identifiers = GFF3ExportIdentifiers()
+        identifiers.plan(records.compactMap { record -> GFF3ExportIdentifiers.Row? in
+            let rowID = record.rowID ?? 0
+            guard let kept = keptPairs(of: record) else {
+                return GFF3ExportIdentifiers.Row(rowID: rowID, storedID: nil)
+            }
+            guard let id = AnnotationDatabase.parseAttributes(kept)["ID"], !id.isEmpty else { return nil }
+            return GFF3ExportIdentifiers.Row(rowID: rowID, storedID: id)
+        })
+        return identifiers
     }
 
     /// The key of one attribute pair, found as `AnnotationDatabase.parseAttributes` finds it: the text before the
@@ -130,13 +150,14 @@ public enum AnnotationDatabaseGFFExporter {
 
     /// For each record, the indices of the other records on its chromosome that define the `Parent` IDs it
     /// names. A `Parent` can list several IDs, and an `ID` can belong to several records (a discontinuous
-    /// feature), so a record can have any number. Both come from the attributes the exported line carries.
+    /// feature), so a record can have any number. Both come from the stored pairs the exported line carries. A record
+    /// with no pairs defines the ID of its name here, as it did before row-key IDs, so the order is the base's.
     private static func parentIndices(of records: [AnnotationDatabaseRecord]) -> [[Int]] {
         var definitions: [IdentifierKey: [Int]] = [:]
         var parentIDs: [[String]] = []
         parentIDs.reserveCapacity(records.count)
         for (index, record) in records.enumerated() {
-            let attributes = AnnotationDatabase.parseAttributes(columnNine(for: record))
+            let attributes = AnnotationDatabase.parseAttributes(keptPairs(of: record) ?? "ID=\(record.name)")
             if let id = attributes["ID"] {
                 definitions[IdentifierKey(chromosome: record.chromosome, id: id), default: []].append(index)
             }

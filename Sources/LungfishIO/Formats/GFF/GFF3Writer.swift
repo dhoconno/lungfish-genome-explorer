@@ -112,9 +112,14 @@ public final class GFF3Writer {
             try writeHeader(to: handle)
         }
 
+        // Plan the IDs of the whole batch before a line is written, so a child written before its parent still names it.
+        // A file's database rows go in one call, since the plan is per call.
+        var identifiers = GFF3ExportIdentifiers()
+        identifiers.plan(annotations.compactMap(GFF3ExportIdentifiers.Row.init(annotation:)))
+
         // Convert and write each annotation
         for annotation in annotations {
-            let features = annotationToFeatures(annotation)
+            let features = annotationToFeatures(annotation, identifiers: identifiers)
             for feature in features {
                 let line = formatFeature(feature)
                 try handle.write(contentsOf: Data(line.utf8))
@@ -263,14 +268,16 @@ public final class GFF3Writer {
 
         let pairs = sortedKeys.compactMap { key -> String? in
             guard let value = attributes[key] else { return nil }
-            let encodedValue = urlEncode(value)
+            let encodedValue = Self.encodeAttributeValue(value)
             return "\(key)=\(encodedValue)"
         }
 
         return pairs.joined(separator: ";")
     }
 
-    private func urlEncode(_ value: String) -> String {
+    /// Encodes an attribute value for column 9. The leaf (`AnnotationDatabaseGFFExporter`) encodes the `Name=` it
+    /// writes for a row with no attributes through this function, so both writers encode a value the same way.
+    public static func encodeAttributeValue(_ value: String) -> String {
         // Encode special characters that have meaning in GFF3 attributes
         // Order matters: encode % first to avoid double-encoding
         value
@@ -283,12 +290,14 @@ public final class GFF3Writer {
             .replacingOccurrences(of: "\n", with: "%0A")
     }
 
-    private func annotationToFeatures(_ annotation: SequenceAnnotation) -> [GFF3Feature] {
+    private func annotationToFeatures(_ annotation: SequenceAnnotation, identifiers: GFF3ExportIdentifiers) -> [GFF3Feature] {
         var features: [GFF3Feature] = []
 
-        // Build base attributes
+        // Build base attributes. A database row (it carries `annotation_db_row_id`) takes the ID its batch planned, so
+        // two exports of one bundle are one file, and an open document's annotation keeps its UUID.
+        let row = GFF3ExportIdentifiers.Row(annotation: annotation)
         var attributes: [String: String] = [:]
-        attributes["ID"] = annotation.id.uuidString
+        attributes["ID"] = row.map { identifiers.exportedID(of: $0) } ?? annotation.id.uuidString
         attributes["Name"] = annotation.name
 
         // Add note if present
@@ -298,11 +307,15 @@ public final class GFF3Writer {
 
         // Add qualifiers
         for (key, qualifier) in annotation.qualifiers {
-            // Skip if already set by standard fields
-            if key == "ID" || key == "Name" || key == "Note" {
+            // Skip if already set by standard fields, and Lungfish's own keys, which no file leaves the app with
+            if key == "ID" || key == "Name" || key == "Note" || GFF3ExportIdentifiers.internalKeys.contains(key) {
                 continue
             }
-            attributes[key] = qualifier.values.joined(separator: ",")
+            var value = qualifier.values.joined(separator: ",")
+            if key == "Parent", let row {
+                value = identifiers.parentValue(value, trackID: row.trackID)
+            }
+            attributes[key] = value
         }
 
         // Map annotation type to GFF3 type string
@@ -421,6 +434,127 @@ public final class GFF3Writer {
         case .orientMarker: return "orient_marker"
         case .umiRegion: return "umi_region"
         case .contaminantMatch: return "contaminant_match"
+        }
+    }
+}
+
+// MARK: - GFF3ExportIdentifiers
+
+/// The IDs a GFF3 export of annotation database rows writes (BIO ruling on Phase 2.13 lane 13.20, M848 GFF3-STABLE-ID).
+///
+/// The exported ID of a database row is its stored GFF3 `ID`, written as the import kept it, and a row whose stored
+/// attributes hold none gets `lungfish-row-<rowID>` from its row key. Both are stable, so two exports of one bundle
+/// are one file. The export claims IDs in two passes over its rows in write order, the stored IDs first and the
+/// row-key IDs second, so a row-key ID never takes an ID that a source stored. Rows of one database (its track id,
+/// empty for a row without one) that share a stored ID are one feature and share one exported ID. A candidate that
+/// another database already claimed, or a row-key ID that another row claimed, becomes the first unclaimed of
+/// `<trackID>:<id>`, `<trackID>:<id>-2`, `<trackID>:<id>-3` and so on, or with no track id the first unclaimed of
+/// `<id>-2`, `<id>-3` and so on. A `Parent` part is mapped through the claims of its own database.
+public struct GFF3ExportIdentifiers: Sendable {
+    /// The qualifier that carries a database row's key (`AnnotationDatabaseRecord.toAnnotation` sets it).
+    public static let rowIDKey = "annotation_db_row_id"
+    /// The qualifier that carries the id of the manifest track whose database holds the row.
+    public static let trackIDKey = "annotation_db_track_id"
+    /// The attribute the import stores on a CDS row to remember the phase of its column 8.
+    public static let phaseKey = "lungfish_gff_phase"
+    /// Lungfish's own bookkeeping, which no GFF3 file leaves the app with. Both writers read this list, so a key added
+    /// later is added here once.
+    public static let internalKeys = [rowIDKey, trackIDKey, phaseKey]
+    /// The start of the ID of a row whose stored attributes hold no `ID`.
+    public static let rowKeyPrefix = "lungfish-row-"
+
+    /// One database row as the export meets it, in write order.
+    public struct Row: Sendable, Equatable {
+        /// The id of the row's database, empty for a row without one.
+        public var trackID: String
+        public var rowID: Int64
+        /// The row's stored `ID`, nil when its stored attributes hold none.
+        public var storedID: String?
+
+        public init(trackID: String = "", rowID: Int64, storedID: String?) {
+            self.trackID = trackID
+            self.rowID = rowID
+            self.storedID = storedID
+        }
+
+        /// The row an annotation stands for, nil for an annotation without `annotation_db_row_id` (an open document's).
+        /// A row's database is its `annotation_db_track_id`.
+        public init?(annotation: SequenceAnnotation) {
+            guard let rowID = annotation.qualifiers[GFF3ExportIdentifiers.rowIDKey]?.values.first.flatMap({ Int64($0) }) else {
+                return nil
+            }
+            let stored = annotation.qualifiers["ID"]?.values.first
+            self.init(
+                trackID: annotation.qualifiers[GFF3ExportIdentifiers.trackIDKey]?.values.first ?? "",
+                rowID: rowID,
+                storedID: stored.flatMap { $0.isEmpty ? nil : $0 }
+            )
+        }
+    }
+
+    private struct StoredKey: Hashable {
+        let trackID: String
+        let id: String
+    }
+
+    private struct RowKey: Hashable {
+        let trackID: String
+        let rowID: Int64
+    }
+
+    private var claimed: Set<String> = []
+    private var storedClaims: [StoredKey: String] = [:]
+    private var rowKeyClaims: [RowKey: String] = [:]
+
+    public init() {}
+
+    /// Claims the IDs of `rows`, which are in write order, in two passes.
+    public mutating func plan(_ rows: [Row]) {
+        for row in rows {
+            guard let stored = row.storedID else { continue }
+            let key = StoredKey(trackID: row.trackID, id: stored)
+            if storedClaims[key] == nil {
+                storedClaims[key] = claim(stored, trackID: row.trackID)
+            }
+        }
+        for row in rows where row.storedID == nil {
+            let key = RowKey(trackID: row.trackID, rowID: row.rowID)
+            if rowKeyClaims[key] == nil {
+                rowKeyClaims[key] = claim("\(Self.rowKeyPrefix)\(row.rowID)", trackID: row.trackID)
+            }
+        }
+    }
+
+    /// The ID `row` exports. A row `plan(_:)` never saw exports its unclaimed candidate.
+    public func exportedID(of row: Row) -> String {
+        if let stored = row.storedID {
+            return storedClaims[StoredKey(trackID: row.trackID, id: stored)] ?? stored
+        }
+        return rowKeyID(trackID: row.trackID, rowID: row.rowID)
+    }
+
+    /// The row-key ID of a row of database `trackID` (empty for a row without one).
+    public func rowKeyID(trackID: String = "", rowID: Int64) -> String {
+        rowKeyClaims[RowKey(trackID: trackID, rowID: rowID)] ?? "\(Self.rowKeyPrefix)\(rowID)"
+    }
+
+    /// A `Parent` value of a row of database `trackID` with each part, split on commas as the import and the leaf read
+    /// it, mapped through the claims of that database. A part whose ID was renamed names the new form and every other
+    /// part stays as recorded.
+    public func parentValue(_ value: String, trackID: String) -> String {
+        value.split(separator: ",", omittingEmptySubsequences: false)
+            .map { storedClaims[StoredKey(trackID: trackID, id: String($0))] ?? String($0) }
+            .joined(separator: ",")
+    }
+
+    private mutating func claim(_ candidate: String, trackID: String) -> String {
+        if claimed.insert(candidate).inserted { return candidate }
+        let base = trackID.isEmpty ? candidate : "\(trackID):\(candidate)"
+        var suffix = trackID.isEmpty ? 2 : 1
+        while true {
+            let next = suffix == 1 ? base : "\(base)-\(suffix)"
+            if claimed.insert(next).inserted { return next }
+            suffix += 1
         }
     }
 }

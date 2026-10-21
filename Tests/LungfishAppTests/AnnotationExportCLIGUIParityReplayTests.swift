@@ -80,8 +80,8 @@ final class AnnotationExportCLIGUIParityReplayTests: XCTestCase {
         let text = try String(contentsOf: Self.outputURL(in: runs.c.root), encoding: .utf8)
         let features = text.split(separator: "\n").filter { !$0.hasPrefix("#") }
         XCTAssertEqual(features.count, 3, "the gene and the transcript's two blocks\n\(text)")
-        let masked = AnnotationGFF3RelationalIDMask.masked(text)
-        XCTAssertEqual(masked.components(separatedBy: "ID=<ID-2>").count - 1, 2, "the transcript's two lines share one ID\n\(masked)")
+        XCTAssertTrue(text.contains("\tID=lungfish-row-1;"), "the gene exports its row-key ID\n\(text)")
+        XCTAssertEqual(text.components(separatedBy: "\tID=lungfish-row-2;").count - 1, 2, "the transcript's two lines share its row-key ID\n\(text)")
         let record = try Self.envelope(in: runs.c.root)
         XCTAssertEqual(record.options.resolvedDefaults["annotationCount"]?.integerValue, 2)
         XCTAssertEqual(record.argv.dropFirst().prefix(2), ["bundle", "export-gff3"])
@@ -355,7 +355,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
         }
         let cAgainstCPrime = (found[.cAgainstCPrime] ?? []).filter { !Self.followsTheIDs($0, parityCase) }
         XCTAssertEqual(cAgainstCPrime.map(\.description), [], "C against C' differs in nothing outside R5's mask")
-        try assertSameOutput(runs.c, runs.cPrime, parityCase, "C against C'")
+        try assertSameOutput(runs.c, runs.cPrime, "C against C'")
         XCTAssertEqual(
             Self.inputs(of: try Self.envelope(in: runs.c.root), under: runs.c.root),
             Self.inputs(of: try Self.envelope(in: runs.cPrime.root), under: runs.cPrime.root),
@@ -379,9 +379,9 @@ extension AnnotationExportCLIGUIParityReplayTests {
         return difference.id.contains(output.lastPathComponent)
     }
 
-    /// The payload and the record's output facts of two sides. A sidebar bundle's payload is equal under R5's mask
-    /// and in size, and an open document's byte for byte with its digest.
-    private func assertSameOutput(_ first: RouteParitySideRun, _ second: RouteParitySideRun, _ parityCase: Case, _ label: String) throws {
+    /// The payload and the record's output facts of two sides. Both cases compare the payload byte for byte, with its
+    /// digest and size (lane 13.20 M2, since a database row exports a stable ID).
+    private func assertSameOutput(_ first: RouteParitySideRun, _ second: RouteParitySideRun, _ label: String) throws {
         let payloadFirst = try Data(contentsOf: Self.outputURL(in: first.root))
         let payloadSecond = try Data(contentsOf: Self.outputURL(in: second.root))
         let outputFirst = try XCTUnwrap(try Self.envelope(in: first.root).output)
@@ -389,17 +389,8 @@ extension AnnotationExportCLIGUIParityReplayTests {
         XCTAssertEqual(outputFirst.fileSize, UInt64(payloadFirst.count), label)
         XCTAssertEqual(outputFirst.fileSize, outputSecond.fileSize, "\(label), the output size")
         XCTAssertNotNil(outputFirst.checksumSHA256)
-        switch parityCase {
-        case .sidebarBundle:
-            XCTAssertEqual(
-                AnnotationGFF3RelationalIDMask.masked(String(decoding: payloadFirst, as: UTF8.self)),
-                AnnotationGFF3RelationalIDMask.masked(String(decoding: payloadSecond, as: UTF8.self)),
-                "\(label), the payload under R5's mask"
-            )
-        case .openDocument:
-            XCTAssertEqual(payloadFirst, payloadSecond, "\(label), the payload byte for byte")
-            XCTAssertEqual(outputFirst.checksumSHA256, outputSecond.checksumSHA256, "\(label), the output digest")
-        }
+        XCTAssertEqual(payloadFirst, payloadSecond, "\(label), the payload byte for byte")
+        XCTAssertEqual(outputFirst.checksumSHA256, outputSecond.checksumSHA256, "\(label), the output digest")
     }
 
     /// A against C on the facts of 1.7, each record path read relative to its side root. No file but the record, the
@@ -410,7 +401,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
             !$0.id.contains(sidecarName) && !$0.id.contains(".lungfish-export-inputs") && !Self.followsTheIDs($0, parityCase)
         }
         XCTAssertEqual(others.map(\.description), [], "only the record and the retained folder may differ between A and C")
-        try assertSameOutput(runs.a, runs.c, parityCase, "A against C")
+        try assertSameOutput(runs.a, runs.c, "A against C")
 
         let a = try Self.envelope(in: runs.a.root)
         let c = try Self.envelope(in: runs.c.root)

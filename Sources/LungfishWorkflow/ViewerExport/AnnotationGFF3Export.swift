@@ -29,6 +29,12 @@ public enum AnnotationGFF3Export {
     /// The annotation databases of a bundle's tracks that exist, in the manifest's track order. A track with no
     /// database, or with a database path that leaves the bundle, is skipped, as the app's loader always skipped it.
     public static func annotationDatabaseURLs(bundleURL: URL, manifest: BundleManifest) -> [URL] {
+        annotationDatabases(bundleURL: bundleURL, manifest: manifest).map(\.url)
+    }
+
+    /// The same databases, each beside the id of the manifest track that holds it. A row's `annotation_db_track_id`
+    /// carries that id, which the GFF3 export reads to tell the databases of a bundle apart.
+    public static func annotationDatabases(bundleURL: URL, manifest: BundleManifest) -> [(trackID: String, url: URL)] {
         manifest.annotations.compactMap { track in
             guard let dbPath = track.databasePath,
                   let dbURL = try? BundleManifest.validatedBundleMemberURL(
@@ -37,7 +43,7 @@ public enum AnnotationGFF3Export {
                       field: "annotations[\(track.id)].databasePath"
                   ),
                   FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
-            return dbURL
+            return (trackID: track.id, url: dbURL)
         }
     }
 
@@ -55,16 +61,16 @@ public enum AnnotationGFF3Export {
     }
 
     public static func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> BundleAnnotations {
-        let databaseURLs = annotationDatabaseURLs(bundleURL: bundleURL, manifest: manifest)
+        let databases = annotationDatabases(bundleURL: bundleURL, manifest: manifest)
         var annotations: [SequenceAnnotation] = []
-        for dbURL in databaseURLs {
-            let db = try AnnotationDatabase(url: dbURL)
+        for database in databases {
+            let db = try AnnotationDatabase(url: database.url)
             let records = db.query(limit: Int.max)
-            annotations.append(contentsOf: records.map { $0.toAnnotation() })
+            annotations.append(contentsOf: records.map { $0.toAnnotation(trackID: database.trackID) })
         }
         return BundleAnnotations(
             annotations: annotations,
-            inputURLs: [bundleURL.appendingPathComponent("manifest.json")] + databaseURLs
+            inputURLs: [bundleURL.appendingPathComponent("manifest.json")] + databases.map(\.url)
         )
     }
 }

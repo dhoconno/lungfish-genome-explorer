@@ -495,7 +495,7 @@ struct ConvertCommand: AsyncParsableCommand {
             let dbURL = bundleURL.appendingPathComponent(dbPath)
             guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
             let db = try AnnotationDatabase(url: dbURL)
-            annotations.append(contentsOf: db.query(limit: Int.max).map { $0.toAnnotation() })
+            annotations.append(contentsOf: db.query(limit: Int.max).map { $0.toAnnotation(trackID: track.id) })
         }
 
         return (sequences, annotations)
