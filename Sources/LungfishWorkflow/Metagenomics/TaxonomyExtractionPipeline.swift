@@ -2,6 +2,7 @@
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Compression
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -229,7 +230,8 @@ public actor TaxonomyExtractionPipeline {
     /// Parses the Kraken2 per-read output to find read IDs matching target taxa.
     ///
     /// Uses line-by-line buffered reading to avoid loading the entire file into
-    /// memory for large datasets.
+    /// memory for large datasets. A gzip file is inflated in this process one
+    /// chunk at a time (`InProcessGzipReader`), so no child process runs.
     ///
     /// - Parameters:
     ///   - classificationURL: Path to the Kraken2 per-read output file.
@@ -265,29 +267,6 @@ public actor TaxonomyExtractionPipeline {
         }
 
         let isGzipped = ["gz", "gzip"].contains(classificationURL.pathExtension.lowercased())
-        let fileHandle: FileHandle
-        let gzipProcess: Process?
-        if isGzipped {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-            process.arguments = ["-dc", classificationURL.path]
-            let stdout = Pipe()
-            process.standardOutput = stdout
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-            } catch {
-                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
-            }
-            fileHandle = stdout.fileHandleForReading
-            gzipProcess = process
-        } else {
-            guard let handle = FileHandle(forReadingAtPath: classificationURL.path) else {
-                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
-            }
-            fileHandle = handle
-            gzipProcess = nil
-        }
 
         // Get file size for progress estimation
         let fileSize = (try? FileManager.default.attributesOfItem(
@@ -299,9 +278,8 @@ public actor TaxonomyExtractionPipeline {
         var residual = Data()
         let bufferSize = 1_048_576 // 1 MB read chunks
 
-        while true {
-            let chunk = fileHandle.readData(ofLength: bufferSize)
-            if chunk.isEmpty { break }
+        /// Scans one chunk of the text, plain or inflated, with the lines the chunk before left unfinished.
+        func consume(_ chunk: Data) {
             bytesRead += Int64(chunk.count)
 
             // Combine residual from previous chunk with current chunk
@@ -315,9 +293,9 @@ public actor TaxonomyExtractionPipeline {
                     data = data[...lastNewline]
                 }
             } else if !chunk.isEmpty {
-                // No newline found -- accumulate and continue
+                // No newline found -- accumulate and wait for the next chunk
                 residual = data
-                continue
+                return
             }
 
             // Process lines
@@ -337,6 +315,26 @@ public actor TaxonomyExtractionPipeline {
             }
         }
 
+        if isGzipped {
+            // Inflated in this process, so no child runs. A file that is not gzip, ends early or fails its CRC-32
+            // ends in the error that a nonzero exit status of `gzip -dc` gave.
+            do {
+                try InProcessGzipReader.forEachChunk(of: classificationURL, chunkSize: bufferSize, consume)
+            } catch {
+                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
+            }
+        } else {
+            guard let handle = FileHandle(forReadingAtPath: classificationURL.path) else {
+                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
+            }
+            while true {
+                let chunk = handle.readData(ofLength: bufferSize)
+                if chunk.isEmpty { break }
+                consume(chunk)
+            }
+            handle.closeFile()
+        }
+
         // Process remaining residual
         if !residual.isEmpty, let text = String(data: residual, encoding: .utf8) {
             collectMatchingReadIds(
@@ -345,14 +343,6 @@ public actor TaxonomyExtractionPipeline {
                 keepReadPairs: keepReadPairs,
                 into: &matchingReadIds
             )
-        }
-
-        fileHandle.closeFile()
-        if let gzipProcess {
-            gzipProcess.waitUntilExit()
-            guard gzipProcess.terminationStatus == 0 else {
-                throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
-            }
         }
 
         return matchingReadIds
@@ -494,5 +484,211 @@ public actor TaxonomyExtractionPipeline {
             parameters["taxonomyReport"] = .string(taxonomyReport.path)
         }
         return parameters
+    }
+}
+
+// MARK: - InProcessGzipReader
+
+/// Inflates a gzip file in this process, as `gzip -dc` did for the pipeline, with no child process.
+///
+/// Every member is read in order, so a BGZF file or files joined with `cat` give one text. The CRC-32 and the
+/// length of each member are checked. A file that is not gzip, data that ends early, a trailer that does not match
+/// and bytes after the last member all throw, as each nonzero exit status of `gzip -dc` did. Apple Compression
+/// inflates the raw DEFLATE data of a member one chunk at a time, so memory holds a few chunks however long the
+/// text is.
+///
+/// Apple Compression reports every input byte as consumed when a DEFLATE stream ends, so it does not say where
+/// the 8-byte trailer (the CRC-32, then the length modulo 2^32, both little-endian) starts. The trailer is the
+/// place in the last bytes handed over where the CRC-32 and the length of the decoded member stand and the next
+/// member or the end of the file follows. `GzipPrefixDecoder` in LungfishIO finds a member boundary by the length
+/// alone.
+private final class InProcessGzipReader {
+
+    private enum Failure: Error {
+        case notGzip, truncated, corrupt
+    }
+
+    /// The input handed to the decoder in one call, which bounds the bytes searched for a trailer.
+    private static let feedSize = 65_536
+
+    private static let crcTable: [UInt32] = (0..<256).map { index in
+        (0..<8).reduce(UInt32(index)) { value, _ in value & 1 == 1 ? 0xEDB8_8320 ^ (value >> 1) : value >> 1 }
+    }
+
+    private let handle: FileHandle
+    private let chunkSize: Int
+    /// Compressed bytes read and not yet dropped. `position` is the next one to take.
+    private var buffer: [UInt8] = []
+    private var position = 0
+    private var fileEnded = false
+
+    private init(handle: FileHandle, chunkSize: Int) {
+        self.handle = handle
+        self.chunkSize = chunkSize
+    }
+
+    /// Hands the decoded text of the file at `url` to `body` in chunks of at most `chunkSize` bytes.
+    static func forEachChunk(of url: URL, chunkSize: Int, _ body: (Data) -> Void) throws {
+        let reader = InProcessGzipReader(handle: try FileHandle(forReadingFrom: url), chunkSize: chunkSize)
+        defer { try? reader.handle.close() }
+        var members = 0
+        while true {
+            reader.compact()
+            if reader.position == reader.buffer.count {
+                guard try reader.readMore() else {
+                    // The end of the file after a member ends the text. A file with no member at all is empty.
+                    if members > 0 { return }
+                    throw Failure.truncated
+                }
+            }
+            try reader.decodeMember(body)
+            members += 1
+        }
+    }
+
+    /// Drops the bytes before `position`.
+    private func compact() {
+        guard position > 0 else { return }
+        buffer.removeSubrange(0..<position)
+        position = 0
+    }
+
+    /// Appends the next piece of the file. False at the end of the file.
+    private func readMore() throws -> Bool {
+        guard !fileEnded else { return false }
+        guard let piece = try handle.read(upToCount: chunkSize), !piece.isEmpty else {
+            fileEnded = true
+            return false
+        }
+        buffer.append(contentsOf: piece)
+        return true
+    }
+
+    /// Makes `count` bytes available from `position`.
+    private func need(_ count: Int) throws {
+        while buffer.count - position < count {
+            guard try readMore() else { throw Failure.truncated }
+        }
+    }
+
+    /// Whether a gzip member starts at `index`, or the file ends there.
+    private func startsMember(at index: Int) -> Bool {
+        if index == buffer.count { return fileEnded }
+        return index + 3 <= buffer.count && buffer[index] == 0x1F && buffer[index + 1] == 0x8B && buffer[index + 2] == 8
+    }
+
+    /// Decodes the member that starts at `position` and leaves `position` at the byte after its trailer.
+    private func decodeMember(_ body: (Data) -> Void) throws {
+        try need(10)
+        guard buffer[position] == 0x1F, buffer[position + 1] == 0x8B, buffer[position + 2] == 8 else {
+            throw Failure.notGzip
+        }
+        let flags = buffer[position + 3]
+        position += 10
+        if flags & 0x04 != 0 {
+            try need(2)
+            let extraLength = Int(buffer[position]) | Int(buffer[position + 1]) << 8
+            position += 2
+            try need(extraLength)
+            position += extraLength
+        }
+        for flag: UInt8 in [0x08, 0x10] where flags & flag != 0 {
+            repeat {
+                try need(1)
+                position += 1
+            } while buffer[position - 1] != 0
+        }
+        if flags & 0x02 != 0 {
+            try need(2)
+            position += 2
+        }
+
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { stream.deallocate() }
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw Failure.corrupt
+        }
+        defer { compression_stream_destroy(stream) }
+        let output = UnsafeMutablePointer<UInt8>.allocate(capacity: chunkSize)
+        defer { output.deallocate() }
+
+        var crc: UInt32 = 0xFFFF_FFFF
+        var decodedLength = 0
+        var feedStart = position
+        var feedEnd = position
+        var ended = false
+        while !ended {
+            if position == buffer.count {
+                // Everything handed over so far is inflated, and none of it can hold the trailer.
+                buffer.removeAll(keepingCapacity: true)
+                position = 0
+                guard try readMore() else { throw Failure.truncated }
+            }
+            feedStart = position
+            feedEnd = min(buffer.count, position + Self.feedSize)
+            try buffer.withUnsafeBufferPointer { source in
+                stream.pointee.src_ptr = source.baseAddress! + feedStart
+                stream.pointee.src_size = feedEnd - feedStart
+                while true {
+                    stream.pointee.dst_ptr = output
+                    stream.pointee.dst_size = chunkSize
+                    let status = compression_stream_process(stream, 0)
+                    let produced = chunkSize - stream.pointee.dst_size
+                    if produced > 0 {
+                        crc = Self.update(crc, with: output, count: produced)
+                        decodedLength += produced
+                        body(Data(bytes: output, count: produced))
+                    }
+                    if status == COMPRESSION_STATUS_END {
+                        ended = true
+                        return
+                    }
+                    guard status == COMPRESSION_STATUS_OK else { throw Failure.corrupt }
+                    // The decoder keeps input of its own, so it gives output on a later call even when the output
+                    // buffer was not full, and it reports the end of the stream on such a call. It wants more input
+                    // only when a call gives nothing.
+                    if produced == 0 {
+                        if stream.pointee.src_size == 0 { return }
+                        throw Failure.corrupt
+                    }
+                }
+            }
+            position = feedEnd
+        }
+
+        // The trailer starts in the last bytes handed over or right after them. Read far enough past them to see
+        // the 8 bytes of a trailer and the start of what follows.
+        while buffer.count < feedEnd + 11 {
+            guard try readMore() else { break }
+        }
+        let expectedCRC = ~crc
+        let expectedLength = UInt32(truncatingIfNeeded: decodedLength)
+        let lastStart = min(feedEnd, buffer.count - 8)
+        var start = feedStart
+        while start <= lastStart {
+            if Self.littleEndian32(buffer, at: start) == expectedCRC,
+               Self.littleEndian32(buffer, at: start + 4) == expectedLength,
+               startsMember(at: start + 8) {
+                position = start + 8
+                return
+            }
+            start += 1
+        }
+        throw Failure.corrupt
+    }
+
+    private static func littleEndian32(_ bytes: [UInt8], at index: Int) -> UInt32 {
+        UInt32(bytes[index]) | UInt32(bytes[index + 1]) << 8 | UInt32(bytes[index + 2]) << 16 | UInt32(bytes[index + 3]) << 24
+    }
+
+    /// The running CRC-32 (not yet inverted) after `count` more bytes.
+    private static func update(_ crc: UInt32, with bytes: UnsafePointer<UInt8>, count: Int) -> UInt32 {
+        var value = crc
+        crcTable.withUnsafeBufferPointer { table in
+            for index in 0..<count {
+                value = table[Int((value ^ UInt32(bytes[index])) & 0xFF)] ^ (value >> 8)
+            }
+        }
+        return value
     }
 }
