@@ -189,7 +189,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         window.contentViewController = vc
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        waitForSplitPlacement(vc.testSplitView, minimumExtent: 120)
 
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.height, 120)
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.height, 120)
@@ -209,7 +209,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         window.contentViewController = vc
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        waitForSplitPlacement(vc.testSplitView, minimumExtent: 180)
 
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
@@ -318,7 +318,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         window.contentViewController = vc
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        waitForSplitPlacement(vc.testSplitView, minimumExtent: 180)
 
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
         XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
@@ -338,7 +338,7 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         window.contentViewController = vc
         window.layoutIfNeeded()
         vc.view.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        waitForSplitPlacement(vc.testSplitView, minimumExtent: 180)
 
         let initialWidth = vc.testSplitView.arrangedSubviews[0].frame.width
         let minimumLeadingWidth: CGFloat = 320

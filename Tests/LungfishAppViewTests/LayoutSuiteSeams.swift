@@ -45,3 +45,41 @@ extension XCTestCase {
         view.metadataColumnController.userDefaults = makeTestDefaultsSuite(prefix: "NvdLayoutSeam").defaults
     }
 }
+
+/// The first divider of a two-pane result view is placed by a main-queue block that `viewDidLayout` schedules, so
+/// after a forced layout one pane still holds the whole extent until that block has run. It ran 17 to 75 ms later
+/// in the Phase 2.13 LAYOUT-LIVE probe and 9 s later for the first window of a loaded process, which a fixed 50 ms
+/// spin cannot cover (review 13.69 Ruling 6, manager decision MD70).
+extension XCTestCase {
+    /// Spins the main run loop in 5 ms slices until both panes of `split` are larger than `minimumExtent` along the
+    /// divider axis (the width for a vertical divider, the height for a horizontal one), and returns at once when
+    /// they already are. When `timeout` passes first it fails with the extents it observed. The assertions after
+    /// the call keep their own thresholds.
+    @nonobjc @MainActor
+    func waitForSplitPlacement(
+        _ split: NSSplitView,
+        minimumExtent: CGFloat,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        func extents() -> [CGFloat] {
+            split.arrangedSubviews.map { split.isVertical ? $0.frame.width : $0.frame.height }
+        }
+        func placed() -> Bool {
+            let sizes = extents()
+            return sizes.count == 2 && sizes.allSatisfy { $0 > minimumExtent }
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while !placed(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+        }
+        if !placed() {
+            XCTFail(
+                "Split view panes not placed after \(timeout) s: extents \(extents()) along the divider axis, each needs more than \(minimumExtent)",
+                file: file,
+                line: line
+            )
+        }
+    }
+}
