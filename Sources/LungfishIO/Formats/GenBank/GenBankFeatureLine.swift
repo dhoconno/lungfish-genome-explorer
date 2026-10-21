@@ -11,12 +11,13 @@ import LungfishCore
 /// write. A feature whose type, ranges or strand changed after the read, and one the reader never read, print the
 /// type's name in lower case and a location rebuilt from the ranges, as before.
 extension GenBankWriter {
-    /// The key the reader read, when the reader's own type map gives `annotation`'s type back, else the type's
-    /// name in lower case.
+    /// The key the reader read, when the reader's own type map gives `annotation`'s type back and the key fits the
+    /// 15 characters of the key column, else the type's name in lower case.
     static func featureKey(of annotation: SequenceAnnotation) -> String {
         if let raw = annotation.qualifier(GenBankReader.rawFeatureTypeQualifierKey)?
             .trimmingCharacters(in: .whitespaces),
            !raw.isEmpty,
+           raw.count <= 15,
            GenBankReader.mapFeatureType(raw) == annotation.type {
             return raw
         }

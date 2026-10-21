@@ -88,6 +88,15 @@ final class GenBankFeatureLineTests: XCTestCase {
         XCTAssertEqual(try featureLines(of: records), [Self.line("cds", "join(1..30,50..80)")])
     }
 
+    /// A source key longer than the 15 characters of the key column maps to `misc_feature` and the reader keeps it
+    /// whole, but the key column would cut it to a key the source never had, so the writer prints the key of the
+    /// type, as it did before the rule.
+    func testAKeyLongerThanFifteenCharactersPrintsTheKeyOfTheType() throws {
+        let records = try read(["     unknown_long_feature_key 1..10"])
+        let type = try XCTUnwrap(records.first?.annotations.first).type
+        XCTAssertEqual(try featureLines(of: records), [Self.line(type.rawValue.lowercased(), "1..10")])
+    }
+
     /// A written file reads back to the same types, ranges, range strands and feature strands as the first read.
     func testAWrittenFileReadsBackToTheSameRangesAndStrands() throws {
         let records = try read([
