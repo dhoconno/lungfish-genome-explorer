@@ -47,7 +47,7 @@
 #   2   tier 2 found golden drift (diff_goldens.py exit 2)
 #   3   tier 2 has no committed goldens for this dependency set yet
 #   64  bad arguments
-#   65  the dependency plan was not empty after provisioning
+#   65  the dependency plan was not empty, or the Viral row was not checked, after provisioning
 #
 # NEVER point --root at a real managed storage root: provisioning reinstalls
 # environments to match the manifest, which would rewrite the developer's root.
@@ -83,6 +83,15 @@ conformance_packs=(
     full-length-mhc-genotyping
     variant-calling
     pcr-primer-design
+)
+
+# The packs of the tools the golden tool cases run: gatk-core (GATK), phasing
+# (WhatsHap) and wastewater-surveillance (Freyja). The CI job installs none of
+# them, so they stay out of conformance_packs, which the CI sync test compares.
+golden_tool_packs=(
+    gatk-core
+    phasing
+    wastewater-surveillance
 )
 
 # The golden environment (docs/contracts/MACHINES.md). Its cache holds the demo
@@ -380,6 +389,14 @@ for pack in "${conformance_packs[@]}"; do
     "${cli}" conda install --pack "${pack}"
 done
 
+# The tools the golden tool cases run (GATK, Freyja and WhatsHap) sit in packs that
+# the CI job does not install. A pack run installs what is missing, and the full
+# apply below then reconciles each of these environments to the manifest pin.
+for pack in "${golden_tool_packs[@]}"; do
+    echo "==> conda install --pack ${pack}"
+    "${cli}" conda install --pack "${pack}"
+done
+
 # Reconcile the pack tools too. The two steps above each leave a gap that only
 # shows up on a seeded root:
 #
@@ -393,10 +410,93 @@ done
 echo "==> Reconciling pack tools against the manifest"
 "${cli}" tools update --apply --yes
 
+# Print why the Viral row is not checked, or nothing when it is (mode check). A
+# checked row is the one MetagenomicsDatabaseIdentity.verify accepts: a ready
+# status, a path, a canonicalReceiptSHA256 and a payloadDigest. Without one the
+# classifier suites throw unbound("Viral"). `conda db download Viral` leaves an
+# installed row alone, so a row that an older build wrote stays unchecked until
+# `conda db update kraken2-viral --yes` replaces its payload and writes both.
+#
+# Mode link adds the folder the golden tool cases ask for. LGE installs the catalog
+# database as databases/kraken2/kraken2-viral, which tier 3 reads, while the goldens
+# were captured with databases/kraken2/viral. A root that already holds a viral
+# folder (cloned from the golden storage) keeps it.
+viral_database_state() {
+    VIRAL_ROOT="${storage_root}" python3 - "$1" <<'PYTHON'
+import json
+import os
+import sys
+import urllib.parse
+
+mode = sys.argv[1]
+root = os.environ["VIRAL_ROOT"]
+kraken2 = os.path.join(root, "databases", "kraken2")
+registry = os.path.join(root, "databases", "metagenomics-db-registry.json")
+
+problems = []
+folder = None
+try:
+    with open(registry, encoding="utf-8") as handle:
+        rows = json.load(handle).get("databases", [])
+except (OSError, ValueError) as error:
+    rows = []
+    problems.append(f"the registry cannot be read ({error})")
+row = next((entry for entry in rows if entry.get("name") == "Viral"), None)
+if row is None:
+    problems.append("the registry has no row named Viral")
+else:
+    if row.get("status") != "ready":
+        problems.append(f"its status is {row.get('status')}")
+    url = row.get("path")
+    if url:
+        folder = urllib.parse.unquote(urllib.parse.urlparse(url).path).rstrip("/")
+        if not os.path.isdir(folder):
+            problems.append(f"{folder} is not a folder")
+    else:
+        problems.append("it has no path")
+    for key in ("canonicalReceiptSHA256", "payloadDigest"):
+        if not row.get(key):
+            problems.append(f"it has no {key}")
+
+if mode == "check":
+    print("; ".join(problems))
+elif not problems:
+    alias = os.path.join(kraken2, "viral")
+    if os.path.lexists(alias):
+        print(f"verify: {alias} is already there")
+    else:
+        same_parent = os.path.realpath(os.path.dirname(folder)) == os.path.realpath(kraken2)
+        target = os.path.basename(folder) if same_parent else folder
+        os.symlink(target, alias)
+        print(f"verify: {alias} -> {target}")
+PYTHON
+}
+
+# The Viral database is not best effort: the classifier suites and the golden tool
+# cases of tier 1 need a checked row, and a run that goes on without one fails
+# after half an hour on the same reds (R1 and R3 of the 2.12 run).
+provision_viral_database() {
+    local problems
+    "${cli}" conda db download Viral || echo "warn: conda db download Viral failed" >&2
+    problems="$(viral_database_state check)" || problems="the registry check failed"
+    if [[ -n "${problems}" ]]; then
+        echo "==> The Viral row is not checked (${problems}), updating it"
+        "${cli}" conda db update kraken2-viral --yes || echo "warn: conda db update kraken2-viral failed" >&2
+        problems="$(viral_database_state check)" || problems="the registry check failed"
+    fi
+    if [[ -n "${problems}" ]]; then
+        echo "error: the Viral database row is not checked after provisioning: ${problems}" >&2
+        echo "       The classifier suites throw unbound(\"Viral\") without a checked row." >&2
+        exit 65
+    fi
+    viral_database_state link
+}
+
+provision_viral_database
+
 # These databases are best effort: a database that is already present is a no-op, and
 # a download failure is reported by the tier that actually needs the database
 # rather than aborting provisioning for the tiers that do not.
-"${cli}" conda db download Viral || echo "warn: conda db download Viral failed" >&2
 "${cli}" conda db install-managed deacon-panhuman || echo "warn: conda db install-managed deacon-panhuman failed" >&2
 "${cli}" esviritu download-db --no-progress || echo "warn: esviritu download-db failed" >&2
 

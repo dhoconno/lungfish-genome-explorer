@@ -389,12 +389,12 @@ class Tier1FailurePropagationTests(unittest.TestCase):
             write_command("xcrun", f"printf '%s\\n' {shlex.quote(str(sdk_path))}\n")
             cli = swiftbuild_bin / "lungfish-cli"
             cli.parent.mkdir(parents=True)
+            # The registry-aware stand-in, since provisioning now stops when the
+            # Viral row is not checked, which is before the step this test aims at.
             cli.write_text(
-                "#!/bin/bash\n"
-                "if [[ \"$*\" == *\"--plan --json\"* ]]; then\n"
-                "  printf '%s\\n' '{\"installEnvironments\":[],\"reinstallEnvironments\":[],\"removeEnvironments\":[],\"databaseUpdates\":[],\"bootstrapUpdate\":null}'\n"
-                "fi\n"
-                "exit 0\n",
+                Tier1Harness.CLI_STUB.replace("@PYTHON@", sys.executable)
+                .replace("@CALLS@", repr(str(root / "cli-calls.txt")))
+                .replace("@PLAN@", repr(Tier1Harness.EMPTY_PLAN)),
                 encoding="utf-8",
             )
             cli.chmod(0o755)
@@ -644,6 +644,42 @@ class Tier1Harness:
         "bootstrapUpdate": None,
     }
 
+    # A stand-in for lungfish-cli. It records each call and answers the plan
+    # check with an empty plan. It keeps one registry row for the Viral
+    # database the way the real CLI does: `conda db download Viral` installs a
+    # checked row when the registry has none and leaves an installed row alone,
+    # and `conda db update kraken2-viral` checks the installed row unless
+    # STUB_UPDATE_FAILS is set.
+    CLI_STUB = """#!@PYTHON@
+import json, os, sys
+args = sys.argv[1:]
+with open(@CALLS@, 'a') as calls:
+    calls.write(' '.join(args) + '\\n')
+if '--plan' in args and '--json' in args:
+    print(json.dumps(@PLAN@))
+    sys.exit(0)
+root = os.environ.get('LUNGFISH_STORAGE_ROOT', '')
+registry = os.path.join(root, 'databases', 'metagenomics-db-registry.json')
+folder = os.path.join(root, 'databases', 'kraken2', 'kraken2-viral')
+
+def write_checked_row():
+    os.makedirs(folder, exist_ok=True)
+    row = {'name': 'Viral', 'catalogID': 'kraken2-viral', 'status': 'ready',
+           'path': 'file://' + folder + '/', 'payloadDigest': 'd' * 64,
+           'canonicalReceiptSHA256': 'r' * 64}
+    with open(registry, 'w') as handle:
+        json.dump({'version': 1, 'databases': [row]}, handle)
+
+if args[:3] == ['conda', 'db', 'download'] and not os.path.exists(registry):
+    os.makedirs(os.path.dirname(registry), exist_ok=True)
+    write_checked_row()
+if args[:3] == ['conda', 'db', 'update']:
+    if os.environ.get('STUB_UPDATE_FAILS') == '1':
+        sys.exit(1)
+    if os.path.exists(registry):
+        write_checked_row()
+"""
+
     def __init__(self, temporary):
         # Resolved up front, because the script resolves --root and the macOS
         # temporary folder is reached through a symlink.
@@ -696,12 +732,9 @@ class Tier1Harness:
         )
         self._stub(
             "lungfish-cli",
-            f"#!{sys.executable}\n"
-            "import json, sys\n"
-            f"with open({str(self.record / 'cli-calls.txt')!r}, 'a') as calls:\n"
-            "    calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
-            "if '--plan' in sys.argv and '--json' in sys.argv:\n"
-            f"    print(json.dumps({self.EMPTY_PLAN!r}))\n",
+            self.CLI_STUB.replace("@PYTHON@", sys.executable)
+            .replace("@CALLS@", repr(str(self.record / "cli-calls.txt")))
+            .replace("@PLAN@", repr(self.EMPTY_PLAN)),
             self.build_bin,
         )
         # The venv python of the parity oracle accepts every call.
@@ -899,6 +932,113 @@ class Tier1GateInputTests(unittest.TestCase):
         for name in self.CALLER_VALUES:
             with self.subTest(name=name):
                 self.assertIn(f"{name}=", tier1.group(1))
+
+
+class Tier1ProvisioningTests(unittest.TestCase):
+    """What provisioning leaves behind for reds R1 to R3 of the 2.12 verify run.
+
+    R1 was unbound("Viral"). The verify root held a Viral row that an older
+    build wrote (a payloadDigest and no canonicalReceiptSHA256), and
+    `conda db download Viral` leaves an installed row alone. R3 was the golden
+    tool cases asking for databases/kraken2/viral, while the catalog installs
+    the folder as databases/kraken2/kraken2-viral (which tier 3 also reads).
+    R2 was gatk-core, freyja and whatshap, which no pack of the CI job installs.
+    """
+
+    VIRAL_CALL = "conda db download Viral"
+    UPDATE_CALL = "conda db update kraken2-viral --yes"
+
+    def write_viral_registry(self, harness, checked):
+        folder = harness.storage / "databases" / "kraken2" / "kraken2-viral"
+        folder.mkdir(parents=True)
+        row = {
+            "name": "Viral",
+            "catalogID": "kraken2-viral",
+            "status": "ready",
+            "path": f"file://{folder}/",
+            "payloadDigest": "d" * 64,
+        }
+        if checked:
+            row["canonicalReceiptSHA256"] = "r" * 64
+        registry = harness.storage / "databases" / "metagenomics-db-registry.json"
+        registry.write_text(json.dumps({"version": 1, "databases": [row]}), encoding="utf-8")
+        return folder
+
+    def viral_row(self, harness):
+        registry = harness.storage / "databases" / "metagenomics-db-registry.json"
+        rows = json.loads(registry.read_text(encoding="utf-8"))["databases"]
+        return next(row for row in rows if row["name"] == "Viral")
+
+    def assert_checked_row_at_the_golden_path(self, harness):
+        row = self.viral_row(harness)
+        self.assertEqual(row["status"], "ready")
+        self.assertTrue(row.get("payloadDigest"), row)
+        self.assertTrue(row.get("canonicalReceiptSHA256"), row)
+        kraken2 = harness.storage / "databases" / "kraken2"
+        self.assertTrue((kraken2 / "viral").is_dir(), "the goldens read databases/kraken2/viral")
+        self.assertTrue((kraken2 / "viral").samefile(kraken2 / "kraken2-viral"))
+        self.assertTrue((kraken2 / "kraken2-viral").is_dir(), "tier 3 reads kraken2-viral")
+
+    def test_a_new_root_ends_with_a_checked_viral_row_at_both_folder_names(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assert_checked_row_at_the_golden_path(harness)
+            self.assertNotIn(self.UPDATE_CALL, harness.cli_calls())
+
+    def test_a_row_without_a_receipt_digest_is_replaced_through_the_update_route(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.write_viral_registry(harness, checked=False)
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = harness.cli_calls()
+            self.assertIn(self.UPDATE_CALL, calls)
+            self.assertLess(calls.index(self.VIRAL_CALL), calls.index(self.UPDATE_CALL))
+            self.assert_checked_row_at_the_golden_path(harness)
+
+    def test_a_viral_row_that_stays_unchecked_stops_provisioning_before_the_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.write_viral_registry(harness, checked=False)
+            result = harness.run({"STUB_UPDATE_FAILS": "1"})
+            self.assertEqual(result.returncode, 65, result.stdout + result.stderr)
+            self.assertIn("Viral", result.stderr)
+            self.assertIsNone(harness.gate_env(), "the gate ran against an unchecked Viral row")
+
+    def test_a_second_run_does_not_update_a_checked_row_again(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.write_viral_registry(harness, checked=False)
+            harness.run()
+            updates = harness.cli_calls().count(self.UPDATE_CALL)
+            harness.run()
+            self.assertEqual(updates, 1)
+            self.assertEqual(harness.cli_calls().count(self.UPDATE_CALL), updates)
+
+    def test_a_real_viral_folder_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.write_viral_registry(harness, checked=True)
+            real = harness.storage / "databases" / "kraken2" / "viral"
+            real.mkdir()
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(real.is_dir() and not real.is_symlink())
+
+    def test_the_tools_of_the_goldens_are_installed_by_pack_before_the_reconcile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            result = harness.run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = harness.cli_calls()
+            reconcile = calls.index("tools update --apply --yes")
+            for pack in ("gatk-core", "phasing", "wastewater-surveillance"):
+                with self.subTest(pack=pack):
+                    line = f"conda install --pack {pack}"
+                    self.assertIn(line, calls)
+                    self.assertLess(calls.index(line), reconcile)
 
 
 if __name__ == "__main__":
