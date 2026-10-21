@@ -27,6 +27,20 @@
 #   2   regenerate the golden outputs and diff them against the committed set
 #   3   the manual end-to-end pipeline runner (network and database heavy)
 #
+# Tier 1 inputs. The gate command is handed these, on that command only, and a
+# value you export wins. The tier allows no skip, so a live class that lacks its
+# input fails the run:
+#   LUNGFISH_CLI_PATH          the lungfish-cli this script built
+#   LUNGFISH_DEMO_ARCHIVE_DIR  the golden cache's demo-archives folder, when it
+#                              holds lge-demo-pathogen-detection-2026.9.70.zip
+#   LUNGFISH_PARITY_EVIDENCE   a new folder, <root>/parity-evidence/run-<time>-<pid>
+#   LUNGFISH_PARITY_BASELINE   the newest folder of <root>/parity-evidence that
+#                              holds X1/payload-hashes.tsv (an earlier real pass)
+#   LUNGFISH_LIVE_NCBI         1, the database browser rows fetch from NCBI
+#   LUNGFISH_LIVE_PATHOPLEXUS  1, and from Pathoplexus
+# LUNGFISH_GOLDEN_HOME moves the golden environment (default
+# /Users/Shared/lungfish-golden).
+#
 # Exit codes:
 #   0   the requested tier(s) passed
 #   1   a tier failed
@@ -71,8 +85,14 @@ conformance_packs=(
     pcr-primer-design
 )
 
+# The golden environment (docs/contracts/MACHINES.md). Its cache holds the demo
+# archives that the tier 1 live classes unpack. LUNGFISH_GOLDEN_HOME moves it so
+# that a test can stand in for the Mac that holds it.
+golden_home="${LUNGFISH_GOLDEN_HOME:-/Users/Shared/lungfish-golden}"
+demo_archive_name="lge-demo-pathogen-detection-2026.9.70.zip"
+
 usage() {
-    sed -n '3,37p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,51p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Reject a value-taking flag that was given no value. Without this, `shift 2`
@@ -219,6 +239,7 @@ export LUNGFISH_STORAGE_ROOT="${storage_root}"
 # of their stub and fail with "unknown command short-output".
 conda_root_for_goldens="${storage_root}/conda"
 parity_python_root="${storage_root}/parity-python"
+parity_evidence_root="${storage_root}/parity-evidence"
 
 # Seed the isolated root from an existing one. On APFS `cp -Rc` clones blocks
 # rather than copying them, so a 21 GB conda root is seeded in seconds and
@@ -460,10 +481,83 @@ provision_parity_python() {
     "${parity_python_root}/bin/python" -c 'import numpy, Bio, scipy, pandas; print("parity deps OK")' || return $?
 }
 
+# The newest earlier folder of parity evidence that holds the hashes a baseline is
+# read from (TaxTriageParityEvidence.baselineFolder reads X1/payload-hashes.tsv).
+# A pass that stopped early leaves a folder without them, and it is passed over.
+newest_parity_baseline() {
+    local candidate
+    while IFS= read -r candidate; do
+        if [[ -f "${candidate%/}/X1/payload-hashes.tsv" ]]; then
+            printf '%s\n' "${candidate%/}"
+            return 0
+        fi
+    done < <(ls -1dt "${parity_evidence_root}"/*/ 2>/dev/null || true)
+    return 0
+}
+
+# Decide the inputs the tier 1 live classes read, and say where each came from, so
+# the log shows what the run used. A value the caller exported is left alone.
+# The 2.12 run failed six groups and skipped four tests for want of these.
+resolve_tier1_inputs() {
+    local golden_demo_dir="${golden_home}/cache/demo-archives"
+    tier1_demo_archive_dir=""
+    tier1_parity_baseline=""
+    # The live pass refuses an evidence folder that already holds its case, so
+    # every run names a new one.
+    tier1_parity_evidence="${parity_evidence_root}/run-$(date +%Y%m%d-%H%M%S)-$$"
+
+    if [[ -n "${LUNGFISH_DEMO_ARCHIVE_DIR:-}" ]]; then
+        echo "verify: LUNGFISH_DEMO_ARCHIVE_DIR=${LUNGFISH_DEMO_ARCHIVE_DIR} (from the caller)"
+    elif [[ -f "${golden_demo_dir}/${demo_archive_name}" ]]; then
+        tier1_demo_archive_dir="${golden_demo_dir}"
+        echo "verify: LUNGFISH_DEMO_ARCHIVE_DIR=${tier1_demo_archive_dir} (the golden cache)"
+    else
+        echo "warn: LUNGFISH_DEMO_ARCHIVE_DIR is not set and ${golden_demo_dir} holds no ${demo_archive_name}, so the demo archive tests will fail" >&2
+    fi
+
+    if [[ -n "${LUNGFISH_PARITY_EVIDENCE:-}" ]]; then
+        echo "verify: LUNGFISH_PARITY_EVIDENCE=${LUNGFISH_PARITY_EVIDENCE} (from the caller)"
+    else
+        echo "verify: LUNGFISH_PARITY_EVIDENCE=${tier1_parity_evidence} (new)"
+    fi
+
+    if [[ -n "${LUNGFISH_PARITY_BASELINE:-}" ]]; then
+        echo "verify: LUNGFISH_PARITY_BASELINE=${LUNGFISH_PARITY_BASELINE} (from the caller)"
+    else
+        tier1_parity_baseline="$(newest_parity_baseline)"
+        if [[ -n "${tier1_parity_baseline}" ]]; then
+            echo "verify: LUNGFISH_PARITY_BASELINE=${tier1_parity_baseline} (the newest earlier pass)"
+        else
+            echo "warn: LUNGFISH_PARITY_BASELINE is not set and ${parity_evidence_root} holds no earlier pass with X1/payload-hashes.tsv, so the baseline digest test will skip. Copy the evidence folder of an earlier real pass there, or export the variable" >&2
+        fi
+    fi
+}
+
 run_tier1() {
     echo "==> Tier 1: conformance suites (no skips allowed)"
     provision_parity_python || return $?
+    resolve_tier1_inputs
+
+    # Set on the gate command alone, as PATH is: exported, they would reach tiers 2
+    # and 3. An input with no value is left out, never passed empty. The CLI path
+    # is the one this script built, so no live class looks one up (the lookup runs
+    # `swift build --show-bin-path`, which waits on the build lock `swift test`
+    # holds).
+    local gate_inputs=(
+        "LUNGFISH_CLI_PATH=${LUNGFISH_CLI_PATH:-${cli}}"
+        "LUNGFISH_PARITY_EVIDENCE=${LUNGFISH_PARITY_EVIDENCE:-${tier1_parity_evidence}}"
+        "LUNGFISH_LIVE_NCBI=${LUNGFISH_LIVE_NCBI:-1}"
+        "LUNGFISH_LIVE_PATHOPLEXUS=${LUNGFISH_LIVE_PATHOPLEXUS:-1}"
+    )
+    if [[ -n "${tier1_demo_archive_dir}" ]]; then
+        gate_inputs+=("LUNGFISH_DEMO_ARCHIVE_DIR=${tier1_demo_archive_dir}")
+    fi
+    if [[ -n "${tier1_parity_baseline}" ]]; then
+        gate_inputs+=("LUNGFISH_PARITY_BASELINE=${tier1_parity_baseline}")
+    fi
+
     PATH="${parity_python_root}/bin:${PATH}" \
+        env "${gate_inputs[@]}" \
         bash scripts/full-suite-gate.sh --require-tools --filter "${filter:-${default_tier1_filter}}" || return $?
 }
 

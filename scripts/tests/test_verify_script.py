@@ -15,9 +15,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT =pathlib.Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "scripts" / "deps" / "verify.sh"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MANIFEST = ROOT / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
@@ -623,6 +624,281 @@ class PlanGateTests(unittest.TestCase):
             script,
             r"plan_status\}\s*-eq 10 \]\];\s*then\n\s*echo \"verify: plan not empty",
         )
+
+
+class Tier1Harness:
+    """A temporary copy of verify.sh with every expensive command stubbed.
+
+    The stubs record what the script asked of them. cli-calls.txt holds the
+    argument list of each lungfish-cli call. The suite gate (a stub bash) writes
+    the environment it received to gate-env.txt and its arguments to
+    gate-args.txt. Nothing builds, installs or downloads, and the golden
+    environment is a folder of the test's own (LUNGFISH_GOLDEN_HOME).
+    """
+
+    EMPTY_PLAN = {
+        "installEnvironments": [],
+        "reinstallEnvironments": [],
+        "removeEnvironments": [],
+        "databaseUpdates": [],
+        "bootstrapUpdate": None,
+    }
+
+    def __init__(self, temporary):
+        # Resolved up front, because the script resolves --root and the macOS
+        # temporary folder is reached through a symlink.
+        self.root = pathlib.Path(temporary).resolve()
+        self.repo = self.root / "repo"
+        self.home = self.root / "home"
+        self.storage = self.root / "storage"
+        self.golden_home = self.root / "golden"
+        self.record = self.root / "record"
+        self.bin = self.root / "bin"
+        self.build_bin = self.root / "swiftbuild-bin"
+        self.developer_dir = self.root / "Xcode.app" / "Contents" / "Developer"
+        self.verify = self.repo / "scripts" / "deps" / "verify.sh"
+        self._install()
+
+    def _stub(self, name, body, directory=None):
+        path = (directory or self.bin) / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def _install(self):
+        release = self.repo / "scripts" / "release"
+        self.verify.parent.mkdir(parents=True)
+        release.mkdir(parents=True)
+        shutil.copy2(VERIFY, self.verify)
+        for name in ("release_xcode.py", "swiftpm_build.py"):
+            shutil.copy2(ROOT / "scripts" / "release" / name, release / name)
+        manifest = (
+            self.repo / "Sources" / "LungfishWorkflow" / "Resources" / "ManagedTools"
+            / "third-party-tools-lock.json"
+        )
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"dependencySet":"test"}\n', encoding="utf-8")
+        for folder in (self.home, self.record, self.bin, self.build_bin):
+            folder.mkdir(parents=True)
+        xcodebuild = self.developer_dir / "usr" / "bin" / "xcodebuild"
+        xcodebuild.parent.mkdir(parents=True)
+        self._stub("xcodebuild", "#!/bin/sh\nexit 0\n", xcodebuild.parent)
+        sdk = self.root / "MacOSX27.0.sdk"
+        sdk.mkdir()
+        self._stub("xcrun", f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(str(sdk))}\n")
+        self._stub(
+            "swift",
+            "#!/bin/bash\n"
+            "if [[ \" $* \" == *\" --show-bin-path \"* ]]; then\n"
+            f"  printf '%s\\n' {shlex.quote(str(self.build_bin))}\n"
+            "fi\n"
+            "exit 0\n",
+        )
+        self._stub(
+            "lungfish-cli",
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"with open({str(self.record / 'cli-calls.txt')!r}, 'a') as calls:\n"
+            "    calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "if '--plan' in sys.argv and '--json' in sys.argv:\n"
+            f"    print(json.dumps({self.EMPTY_PLAN!r}))\n",
+            self.build_bin,
+        )
+        # The venv python of the parity oracle accepts every call.
+        self._stub(
+            "python3",
+            "#!/bin/bash\nset -eu\n"
+            "if [[ \"${1:-}\" == \"-m\" && \"${2:-}\" == \"venv\" ]]; then\n"
+            "  mkdir -p \"$3/bin\"\n"
+            "  printf '%s\\n' '#!/bin/sh' 'exit 0' > \"$3/bin/python\"\n"
+            "  chmod +x \"$3/bin/python\"\n"
+            "  exit 0\n"
+            "fi\n"
+            f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+        )
+        # The suite gate records what it was handed and passes.
+        self._stub(
+            "bash",
+            "#!/bin/bash\nset -eu\n"
+            "if [[ \"${1:-}\" == \"scripts/full-suite-gate.sh\" ]]; then\n"
+            f"  env > {shlex.quote(str(self.record / 'gate-env.txt'))}\n"
+            f"  printf '%s\\n' \"$@\" > {shlex.quote(str(self.record / 'gate-args.txt'))}\n"
+            "  if [[ -n \"${LUNGFISH_PARITY_EVIDENCE:-}\" && -e \"${LUNGFISH_PARITY_EVIDENCE}\" ]]; then\n"
+            f"    touch {shlex.quote(str(self.record / 'evidence-existed'))}\n"
+            "  fi\n"
+            "  exit 0\n"
+            "fi\n"
+            "exec /bin/bash \"$@\"\n",
+        )
+
+    def run(self, extra_env=None, args=("--tier", "1")):
+        environment = {k: v for k, v in os.environ.items() if not k.startswith("LUNGFISH_")}
+        environment.update(
+            {
+                "HOME": str(self.home),
+                "DEVELOPER_DIR": str(self.developer_dir),
+                "PATH": f"{self.bin}{os.pathsep}{environment['PATH']}",
+                "LUNGFISH_GOLDEN_HOME": str(self.golden_home),
+            }
+        )
+        environment.update(extra_env or {})
+        return subprocess.run(
+            ["/bin/bash", str(self.verify), *args, "--root", str(self.storage)],
+            cwd=str(self.repo),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=60,
+            env=environment,
+        )
+
+    def gate_env(self):
+        path = self.record / "gate-env.txt"
+        if not path.exists():
+            return None
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return dict(line.split("=", 1) for line in lines if "=" in line)
+
+    def cli_calls(self):
+        path = self.record / "cli-calls.txt"
+        return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+
+class Tier1GateInputTests(unittest.TestCase):
+    """The variables the tier 1 live classes read, handed to the suite gate.
+
+    The 2.12 verify run ended red on groups R4 (LUNGFISH_DEMO_ARCHIVE_DIR
+    unset), R5 (LUNGFISH_PARITY_EVIDENCE unset) and R6 (a stall, then no
+    lungfish-cli, because LUNGFISH_CLI_PATH was unset), and skipped four tests
+    for want of LUNGFISH_PARITY_BASELINE, LUNGFISH_LIVE_NCBI and
+    LUNGFISH_LIVE_PATHOPLEXUS. Each test runs the script against stubs and reads
+    the environment the stub gate received.
+    """
+
+    DEMO_ARCHIVE = "lge-demo-pathogen-detection-2026.9.70.zip"
+    CALLER_VALUES = {
+        "LUNGFISH_CLI_PATH": "/caller/lungfish-cli",
+        "LUNGFISH_DEMO_ARCHIVE_DIR": "/caller/demo-archives",
+        "LUNGFISH_PARITY_EVIDENCE": "/caller/evidence",
+        "LUNGFISH_PARITY_BASELINE": "/caller/baseline",
+        "LUNGFISH_LIVE_NCBI": "0",
+        "LUNGFISH_LIVE_PATHOPLEXUS": "0",
+    }
+
+    def run_tier1(self, harness, extra_env=None):
+        result = harness.run(extra_env)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        gate = harness.gate_env()
+        self.assertIsNotNone(gate, "the suite gate was not launched\n" + output)
+        return result, gate
+
+    def add_demo_archive(self, harness):
+        demos = harness.golden_home / "cache" / "demo-archives"
+        demos.mkdir(parents=True)
+        (demos / self.DEMO_ARCHIVE).write_bytes(b"")
+        return demos
+
+    def add_evidence(self, harness, name, days_old, with_hashes=True):
+        folder = harness.storage / "parity-evidence" / name
+        (folder / "X1").mkdir(parents=True)
+        if with_hashes:
+            (folder / "X1" / "payload-hashes.tsv").write_text("side\tsample\n", encoding="utf-8")
+        stamp = time.time() - days_old * 86400
+        os.utime(folder, (stamp, stamp))
+        return folder
+
+    def test_gate_gets_the_cli_the_script_built(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            _, gate = self.run_tier1(harness)
+            self.assertEqual(
+                gate.get("LUNGFISH_CLI_PATH"), str(harness.build_bin / "lungfish-cli")
+            )
+
+    def test_gate_gets_the_golden_demo_folder_when_it_holds_the_demo_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            demos = self.add_demo_archive(harness)
+            _, gate = self.run_tier1(harness)
+            self.assertEqual(gate.get("LUNGFISH_DEMO_ARCHIVE_DIR"), str(demos))
+
+    def test_gate_gets_no_demo_folder_and_a_warning_when_the_golden_cache_lacks_the_demo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            demos = harness.golden_home / "cache" / "demo-archives"
+            demos.mkdir(parents=True)
+            (demos / "lge-demo-primer-design-2026.9.58.zip").write_bytes(b"")
+            result, gate = self.run_tier1(harness)
+            self.assertFalse(gate.get("LUNGFISH_DEMO_ARCHIVE_DIR"))
+            self.assertIn("LUNGFISH_DEMO_ARCHIVE_DIR", result.stderr)
+
+    def test_gate_gets_a_new_evidence_folder_under_the_verify_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            _, gate = self.run_tier1(harness)
+            evidence = pathlib.Path(gate.get("LUNGFISH_PARITY_EVIDENCE", ""))
+            self.assertTrue(evidence.is_absolute(), f"evidence folder: {evidence}")
+            self.assertEqual(evidence.parent, harness.storage / "parity-evidence")
+            self.assertFalse(
+                (harness.record / "evidence-existed").exists(),
+                "the live pass refuses an evidence folder that already exists",
+            )
+
+    def test_every_run_gets_its_own_evidence_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            _, first = self.run_tier1(harness)
+            _, second = self.run_tier1(harness)
+            self.assertTrue(first.get("LUNGFISH_PARITY_EVIDENCE"))
+            self.assertNotEqual(
+                first.get("LUNGFISH_PARITY_EVIDENCE"), second.get("LUNGFISH_PARITY_EVIDENCE")
+            )
+
+    def test_baseline_is_the_newest_earlier_evidence_that_holds_the_x1_hashes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.add_evidence(harness, "older", days_old=3)
+            newer = self.add_evidence(harness, "newer", days_old=1)
+            self.add_evidence(harness, "stopped-early", days_old=0, with_hashes=False)
+            _, gate = self.run_tier1(harness)
+            self.assertEqual(gate.get("LUNGFISH_PARITY_BASELINE"), str(newer))
+
+    def test_gate_gets_no_baseline_and_a_warning_when_no_earlier_pass_left_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            result, gate = self.run_tier1(harness)
+            self.assertFalse(gate.get("LUNGFISH_PARITY_BASELINE"))
+            self.assertIn("LUNGFISH_PARITY_BASELINE", result.stderr)
+
+    def test_live_switches_of_the_database_browser_rows_default_to_on(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            _, gate = self.run_tier1(harness)
+            self.assertEqual(gate.get("LUNGFISH_LIVE_NCBI"), "1")
+            self.assertEqual(gate.get("LUNGFISH_LIVE_PATHOPLEXUS"), "1")
+
+    def test_a_value_the_caller_exported_wins(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            harness = Tier1Harness(temporary)
+            self.add_demo_archive(harness)
+            self.add_evidence(harness, "earlier", days_old=1)
+            _, gate = self.run_tier1(harness, self.CALLER_VALUES)
+            for name, value in self.CALLER_VALUES.items():
+                with self.subTest(name=name):
+                    self.assertEqual(gate.get(name), value)
+
+    def test_the_inputs_are_set_on_the_gate_command_only(self):
+        script = VERIFY.read_text(encoding="utf-8")
+        self.assertNotRegex(
+            script, r"(?m)^\s*export LUNGFISH_(CLI_PATH|DEMO_ARCHIVE_DIR|PARITY_|LIVE_)"
+        )
+        tier1 = re.search(r"^run_tier1\(\) \{\n(.*?)\n\}", script, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(tier1, "run_tier1 function not found")
+        for name in self.CALLER_VALUES:
+            with self.subTest(name=name):
+                self.assertIn(f"{name}=", tier1.group(1))
 
 
 if __name__ == "__main__":
