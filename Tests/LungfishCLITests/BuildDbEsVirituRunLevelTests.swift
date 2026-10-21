@@ -234,6 +234,78 @@ final class BuildDbEsVirituRunLevelTests: XCTestCase {
         XCTAssertEqual(sidecar.steps.filter { $0.narrowedFrom != nil }.map { rerun.labels[$0.id] }, ["run"])
     }
 
+    /// The sidecar beside `sample`'s BAM in `result`, or beside its index.
+    private func sidecarEnvelope(of sample: String, index: Bool = false, in result: URL) throws -> ProvenanceEnvelope {
+        let file = result.appendingPathComponent("\(sample)/bams/\(sample).third.filt.sorted.bam\(index ? ".bai" : "")")
+        return try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: file)), file.path)
+    }
+
+    /// Q-A3 item 4, the CLI route (review of lane 13.15 M2, BIO fix 2). A result folder that holds another
+    /// workflow's record keeps it, since build-db never replaces a classifier run's record. No record of this run
+    /// then holds its steps whole, so no sidecar narrows a step and each keeps every input.
+    func testAFolderWithAnotherWorkflowsRecordKeepsEveryStepWhole() async throws {
+        let build = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 2, foreignRecordOf: "EsViritu")
+        XCTAssertEqual(ProvenanceRecorder.loadEnvelope(from: build.result)?.workflowName, "EsViritu", "the folder keeps the record it held")
+        for sample in ["S1", "S2"] {
+            for index in [false, true] {
+                let sidecar = try sidecarEnvelope(of: sample, index: index, in: build.result)
+                XCTAssertEqual(sidecar.steps.compactMap(\.narrowedFrom), [], "\(sample)'s sidecar (index \(index)) names a whole record")
+            }
+        }
+        let move = try XCTUnwrap(build.record.steps.first { build.labels[$0.id] == "move" })
+        let bam = try sidecarEnvelope(of: "S1", in: build.result)
+        let keptMove = try XCTUnwrap(bam.steps.first { $0.id == move.id }, "the BAM sidecar holds the move")
+        XCTAssertEqual(keptMove.inputs, move.inputs, "the move in S1's BAM sidecar keeps every file it moved")
+    }
+
+    /// Q-A3 item 4, the executor route (review of lane 13.15 M2, BIO fix 2). The analysis run executor runs
+    /// `build-db esviritu` with no folder record of its own and writes the root record in the same folder from the
+    /// steps it is handed, each under its own id. So a narrowed step names the root that will stand there, and the
+    /// step is among the steps the executor is handed (`EsVirituCommand+Index.swift` returns `built.record.steps`).
+    func testTheExecutorRouteNamesTheRootItWillWrite() async throws {
+        let build = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 2, writesFolderRecord: false)
+        let rootRecord = build.result.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rootRecord.path), "the run writes no folder record, the executor writes the root")
+        let sidecar = try sidecarEnvelope(of: "S1", in: build.result)
+        let narrowed = sidecar.steps.filter { $0.narrowedFrom != nil }
+        XCTAssertEqual(narrowed.map { build.labels[$0.id] }, ["move", "_temp removal", "run"], "the steps that read every sample are narrowed")
+        for step in narrowed {
+            let whole = try XCTUnwrap(build.record.steps.first { $0.id == step.id }, "the executor hands the root \(step.toolName) under its id")
+            XCTAssertEqual(step.narrowedFrom.map { EsVirituRunLevel.resolved($0.recordPath) }, EsVirituRunLevel.resolved(rootRecord.path), step.toolName)
+            XCTAssertEqual(step.narrowedFrom?.inputCount, whole.inputs.count, step.toolName)
+        }
+    }
+
+    /// Q-A3 item 4 and ARCH B5 (review of lane 13.15 M2, ARCH fix 3). In a folder that holds another workflow's
+    /// record no record of this run holds a step whole, so no sidecar narrows one and the sidecar of each BAM and
+    /// each index, of both samples, keeps today's whole steps. The move keeps every file it moved, the removal
+    /// every path it removed and the run's step its inputs. A sidecar still holds none of the other sample's
+    /// `fixmate` and coordinate `sort`, since items 2 and 5 need no whole record.
+    func testAFolderThatHoldsAnotherWorkflowsRecordKeepsEverySidecarStepWhole() async throws {
+        let build = try await EsVirituRunLevel.markdupBuild(in: root, samples: ["S1", "S2"], rows: 2, foreignRecordOf: "EsViritu")
+        XCTAssertEqual(ProvenanceRecorder.loadEnvelope(from: build.result)?.workflowName, "EsViritu", "the folder keeps the record it held")
+        var wholeSteps: [(label: String, step: ProvenanceStep)] = []
+        for label in ["move", "_temp removal", "run"] {
+            let step = try XCTUnwrap(build.record.steps.first { build.labels[$0.id] == label }, label)
+            wholeSteps.append((label: label, step: step))
+        }
+        for (sample, other) in [("S1", "S2"), ("S2", "S1")] {
+            for index in [false, true] {
+                let kind = index ? "index" : "BAM"
+                let sidecar = try sidecarEnvelope(of: sample, index: index, in: build.result)
+                XCTAssertEqual(sidecar.steps.compactMap(\.narrowedFrom), [], "\(sample)'s \(kind) sidecar narrows no step")
+                for (label, whole) in wholeSteps {
+                    let kept = try XCTUnwrap(sidecar.steps.first { $0.id == whole.id }, "\(sample)'s \(kind) sidecar holds the \(label)")
+                    XCTAssertEqual(kept.inputs, whole.inputs, "the \(label) in \(sample)'s \(kind) sidecar keeps every input")
+                }
+                XCTAssertEqual(
+                    build.labels(of: sidecar).filter { $0 == "\(other) fixmate" || $0 == "\(other) coordinate sort" }, [],
+                    "\(sample)'s \(kind) sidecar holds a stage of \(other)'s duplicate marking"
+                )
+            }
+        }
+    }
+
     /// The database's sidecar stays today's projection of the run (`focusedOnOutput`), with every step that has
     /// no outputs, among them the counts behind `read_count` and `unique_reads`, so it stays the one complete
     /// record of the run (Q-S2, ARCH 7). A pin that passes at the base and after.
@@ -368,7 +440,12 @@ enum EsVirituRunLevel {
     /// their removal is a step, and the record of a stand-in database is written.
     /// Over `existing`, a result whose BAMs are already in `bams/`, it builds again with no move and no removal of
     /// `_temp`, as a rerun does. Each markdup stage after the first depends on the stage before it (Q-A3 item 5).
-    static func markdupBuild(in root: URL, samples: [String], rows: Int, over existing: URL? = nil) async throws -> MarkdupBuild {
+    /// With `foreignRecordOf` the folder already holds a record of that workflow, as a classifier run leaves it, and
+    /// with `writesFolderRecord` false the run writes no folder record, as on the executor route (Q-A3 item 4).
+    static func markdupBuild(
+        in root: URL, samples: [String], rows: Int, over existing: URL? = nil,
+        foreignRecordOf workflow: String? = nil, writesFolderRecord: Bool = true
+    ) async throws -> MarkdupBuild {
         let fileManager = FileManager.default
         let result = try existing ?? standInResult(in: root, samples: samples)
         let inputs = BuildDbCommand.buildDbInputRecords(tool: .esViritu, resultURL: result)
@@ -448,9 +525,27 @@ enum EsVirituRunLevel {
 
         let database = result.appendingPathComponent("esviritu.sqlite")
         try Data("stand-in database\n".utf8).write(to: database)
+        if let workflow {
+            // A folder that holds another workflow's record, as a classifier run leaves it (Q-A3 item 4).
+            let table = result.appendingPathComponent("\(samples[0])/\(samples[0]).detected_virus.info.tsv")
+            let written = try ProvenanceFileDescriptor.file(url: table, role: .output)
+            let foreign = try ProvenanceRunBuilder(
+                workflowName: workflow, workflowVersion: "test", toolName: "stand-in", toolVersion: "stand-in"
+            )
+            .argv(["lungfish-cli", "stand-in", result.path])
+            .runtime(ProvenanceRuntimeIdentity())
+            .output(table, role: .output)
+            .step(ProvenanceStep(
+                toolName: "stand-in", toolVersion: "stand-in", argv: ["stand-in"], outputs: [written],
+                exitStatus: 0, wallTimeSeconds: 0
+            ))
+            .complete(exitStatus: 0, startedAt: Date(), endedAt: Date())
+            try ProvenanceWriter().write(foreign, to: result)
+        }
         let record = try await BuildDbCommand.recordBuildDbProvenance(
             tool: .esViritu, resultURL: result, dbURL: database, force: true, noCleanup: false,
             globalOptions: try GlobalOptions.parse([]), runClock: clock, inputRecords: inputs, additionalSteps: steps,
+            writesFolderRecord: writesFolderRecord,
             events: BuildDbEventSink(progress: { _, _ in }, text: { _ in }, textWarning: { _ in }, warning: { _ in })
         )
         if let runStep = record.steps.last {
