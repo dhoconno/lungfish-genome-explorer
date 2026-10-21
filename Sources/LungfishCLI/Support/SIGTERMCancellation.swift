@@ -160,6 +160,15 @@ private enum SIGTERMPipe {
 /// is how the drain sees that its own is gone. The drain asks that no other code writes SIGTERM's action while `end()`
 /// runs, as the one-instance rule of ``SIGTERMCancellation`` already does, since an ignore written between its check
 /// and its `sigwait` would drop its own post and leave it waiting.
+///
+/// Known limits. The drain rests on kernel behaviour measured on macOS 26 (Darwin 25.6.0) and on no older release.
+/// First, `sigwait` takes a post off the oldest thread that holds one. `testEndDropsAPostThatIsStillPending` pins that
+/// for a post parked on the calling thread, and no test pins it for another thread, because a test may not hold a post
+/// on another thread. If it failed, a post would reach the action put back. Second, an ignored SIGTERM drops the
+/// drain's own post, so the drain stops before its first `sigwait`. The tests that end an instance under an ignore run
+/// through it, and a kernel that kept the post would only make the drain take it at once. Third, the kqueue filter
+/// does not note a signal raised at one thread, which `testEndDropsAPostThatIsStillPending` pins through
+/// ``SIGTERMCancellation/signalCaught``.
 private enum SIGTERMPendingPosts {
     /// Takes them on a thread made for the drain. Should no thread be made, it takes the posts parked on the calling
     /// thread, which `sigwait` returns at once.
@@ -325,9 +334,11 @@ final class SIGTERMCancellation {
     ///
     /// The kernel delivers a signal in two steps. A thread finds the signal pending, and a moment later it reads
     /// the action to call. An action changed in between is the one called, and SIG_IGN read there is a call to
-    /// address 1, which ends the process by SIGBUS (FX47 (a2)). So `end()` never writes SIG_IGN (Phase 2.13 lane
-    /// 13.18, SW22). The one action it writes is the one it puts back, a handler or the default action, and a
-    /// delivery that reads it calls that.
+    /// address 1, which ends the process by SIGBUS (FX47 (a2)). So `end()` writes no SIG_IGN to drop a post
+    /// (Phase 2.13 lane 13.18, SW22). The one action it writes is the one it puts back. In the CLI that is a handler,
+    /// since `CLITerminationSignals` sets one before any command runs, and a delivery that reads it calls that. A
+    /// process that ignored SIGTERM before the instance began, as the unit tests do around their runs, gets SIG_IGN
+    /// back, so a test of that kind waits for the handler to run before it ends the instance.
     ///
     /// A post that is still pending when the instance ends must not reach the action put back either. In the CLI
     /// that action is the one of `CLITerminationSignals`, which ends the process by signal 15, so the command
