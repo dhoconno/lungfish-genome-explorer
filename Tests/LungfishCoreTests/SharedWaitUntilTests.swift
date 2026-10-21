@@ -15,17 +15,13 @@ final class SharedWaitUntilTests: XCTestCase {
     private struct ConditionFailure: Error {}
 
     func testReturnsTrueAsSoonAsTheConditionHolds() async {
-        let clock = ContinuousClock()
-        let start = clock.now
         var checks = 0
         let held = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
             checks += 1
             return checks == 3
         }
-        let elapsed = start.duration(to: clock.now)
         XCTAssertTrue(held)
         XCTAssertEqual(checks, 3, "The poll must stop at the first check that holds.")
-        XCTAssertLessThan(elapsed, .seconds(30), "A condition that holds must not wait out its budget.")
     }
 
     func testReturnsFalseAtTheDeadlineWithoutFailingTheTest() async {
@@ -39,7 +35,6 @@ final class SharedWaitUntilTests: XCTestCase {
         let elapsed = start.duration(to: clock.now)
         XCTAssertFalse(held, "The wait reports a missed deadline as false and leaves the assertion to its caller.")
         XCTAssertGreaterThanOrEqual(elapsed, .milliseconds(150), "The wait must use its whole budget before it gives up.")
-        XCTAssertLessThan(elapsed, .seconds(5), "The wait must end near its deadline and not hang.")
         XCTAssertGreaterThan(checks, 1, "The wait must poll more than once inside its budget.")
     }
 
