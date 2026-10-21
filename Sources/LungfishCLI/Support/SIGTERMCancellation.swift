@@ -32,6 +32,11 @@ private let sigtermPosts = SIGTERMPostLatch()
 /// ended its instance. The kernel merges posts that wait for one thread into a single delivery, so the count can
 /// stay above the number of times the handler ran. A queue that cannot be made leaves the handler's count as the
 /// only source.
+///
+/// So ``SIGTERMCancellation/end()`` waits on the count for a bounded time only. A count still short after it, which
+/// cannot tell a merged post from one a thread has yet to take, sends `end()` to take every post still pending with
+/// ``SIGTERMPendingPosts``, which changes no action (Phase 2.13 lane 13.18, SW22). The SIGTERM that drain posts at its
+/// own thread is not one the filter notes.
 private final class SIGTERMPostLatch: Sendable {
     private struct State {
         var queue: Int32 = -1
@@ -135,6 +140,78 @@ private enum SIGTERMPipe {
     static func drain(_ readEnd: Int32) {
         var buffer = [UInt8](repeating: 0, count: 64)
         while read(readEnd, &buffer, buffer.count) > 0 {}
+    }
+}
+
+/// Takes every SIGTERM still pending on a thread of this process and changes no action, for
+/// ``SIGTERMCancellation/end()`` (Phase 2.13 lane 13.18, SW22). Writing SIG_IGN drops them too, but a thread that
+/// found a post pending just before reads the action a moment later and calls address 1 (FX47 (a2)).
+///
+/// The kernel keeps each pending signal on one thread, and `sigwait` takes one off whichever thread holds it. It takes
+/// it under the lock that a delivering thread holds from the moment it finds the signal pending until it has read the
+/// action. So each post is taken here before any thread found it, or its thread has already read the action in place,
+/// which is still the ending instance's handler, and that handler only counts it.
+///
+/// `sigwait` waits while nothing is pending, so the drain first posts one SIGTERM at its own thread and stops once that
+/// one is gone. The kernel's `sigwait` looks at the threads in the order they were made and takes the first post it
+/// finds. The drain runs on a thread made for it, the newest, so it takes every post that waits on an older thread
+/// before its own, and every thread that can hold a post sent before `end()` is older. A post sent while the drain runs
+/// is a fresh one, and it may reach the action put back. `sigpending` shows only the calling thread's own posts, which
+/// is how the drain sees that its own is gone. The drain asks that no other code writes SIGTERM's action while `end()`
+/// runs, as the one-instance rule of ``SIGTERMCancellation`` already does, since an ignore written between its check
+/// and its `sigwait` would drop its own post and leave it waiting.
+private enum SIGTERMPendingPosts {
+    /// Takes them on a thread made for the drain. Should no thread be made, it takes the posts parked on the calling
+    /// thread, which `sigwait` returns at once.
+    static func takeAll() {
+        var thread: pthread_t?
+        let made = pthread_create(&thread, nil, { _ in
+            SIGTERMPendingPosts.takeFromTheNewestThread()
+            return nil
+        }, nil)
+        guard made == 0, let thread else {
+            takeThosePendingOnThisThread()
+            return
+        }
+        pthread_join(thread, nil)
+    }
+
+    /// Runs on the drain's own thread. It blocks SIGTERM here, posts one at this thread and takes posts until that one
+    /// is gone, at most 256 times so that a flood of fresh SIGTERMs cannot hold `end()`. It calls `sigwait` only while
+    /// its own post waits, so the call returns at once. While SIGTERM is ignored the kernel drops that post as it drops
+    /// every other, and nothing can be pending anywhere, so the drain stops before its first `sigwait`.
+    private static func takeFromTheNewestThread() {
+        var sigterm = sigtermOnly()
+        pthread_sigmask(SIG_BLOCK, &sigterm, nil)
+        guard pthread_kill(pthread_self(), SIGTERM) == 0,
+              SIGTERMCancellation.sigtermIsPendingOnThisThread() else { return }
+        for _ in 0..<256 {
+            var taken: Int32 = 0
+            _ = sigwait(&sigterm, &taken)
+            if !SIGTERMCancellation.sigtermIsPendingOnThisThread() { return }
+        }
+    }
+
+    /// Takes the posts parked on the calling thread, at most 256 times. A post waits there only while the thread
+    /// blocks SIGTERM, and `sigwait` asks for that, so a thread that does not block it is left alone.
+    private static func takeThosePendingOnThisThread() {
+        var sigterm = sigtermOnly()
+        var mask = sigset_t()
+        pthread_sigmask(SIG_SETMASK, nil, &mask)
+        guard sigismember(&mask, SIGTERM) == 1 else { return }
+        var takes = 0
+        while takes < 256, SIGTERMCancellation.sigtermIsPendingOnThisThread() {
+            var taken: Int32 = 0
+            _ = sigwait(&sigterm, &taken)
+            takes += 1
+        }
+    }
+
+    private static func sigtermOnly() -> sigset_t {
+        var set = sigset_t()
+        sigemptyset(&set)
+        sigaddset(&set, SIGTERM)
+        return set
     }
 }
 
@@ -248,20 +325,21 @@ final class SIGTERMCancellation {
     ///
     /// The kernel delivers a signal in two steps. A thread finds the signal pending, and a moment later it reads
     /// the action to call. An action changed in between is the one called, and SIG_IGN read there is a call to
-    /// address 1, which ends the process by SIGBUS (FX47 (a2)). So `end()` never writes SIG_IGN while a thread
-    /// may be taking a post.
+    /// address 1, which ends the process by SIGBUS (FX47 (a2)). So `end()` never writes SIG_IGN (Phase 2.13 lane
+    /// 13.18, SW22). The one action it writes is the one it puts back, a handler or the default action, and a
+    /// delivery that reads it calls that.
     ///
     /// A post that is still pending when the instance ends must not reach the action put back either. In the CLI
     /// that action is the one of `CLITerminationSignals`, which ends the process by signal 15, so the command
     /// would die on a SIGTERM it had already answered. So `end()` first lets every post the kernel noted run this
     /// handler, polling each millisecond for at most 250 ms. A handler that has run proves that its delivery is
-    /// over. The usual cancel, one post that the handler took long before the end, finds the count whole and
-    /// writes no SIG_IGN at all. Only a post that no thread takes in that time is dropped, by ignoring SIGTERM for
-    /// the moment between the two writes. That is a post the kernel merged with another, one sent while SIGTERM was
-    /// ignored, one blocked on a thread, or one whose thread did not run for the whole bound on a busy machine. A
-    /// post parked on the calling thread is dropped the same way, since the kernel's note does not cover a signal
-    /// raised at a thread. A delivery that begins in that moment can still meet the race, of a fresh SIGTERM or of
-    /// the untaken post when its thread runs at last, and only after a post went untaken for the whole bound. A post
+    /// over. The usual cancel, one post that the handler took long before the end, finds the count whole and puts
+    /// the earlier action back at once. When a noted post went untaken for the whole bound, or one is parked on the
+    /// calling thread, `end()` first takes every SIGTERM still pending in the process off its thread with
+    /// ``SIGTERMPendingPosts``, which changes no action, and this handler stays in place until it is done. An
+    /// untaken post is one the kernel merged with another, one sent while SIGTERM was ignored, one blocked on a
+    /// thread, or one whose thread did not run for the whole bound on a busy machine. The kernel's note does not
+    /// cover a post parked on the calling thread, since it was raised at a thread, so `end()` asks the thread. A post
     /// the kernel noted is kept by ``signalCaught``.
     func end() {
         guard !ended else { return }
@@ -272,7 +350,7 @@ final class SIGTERMCancellation {
         secondSIGTERMEndsProcess.store(false, ordering: .sequentiallyConsistent)
         let everyPostRanTheHandler = Self.waitForEveryPostToRunTheHandler()
         if !everyPostRanTheHandler || Self.sigtermIsPendingOnThisThread() {
-            Self.setAction(SIG_IGN)
+            SIGTERMPendingPosts.takeAll()
         }
         Self.setAction(previousHandler ?? SIG_DFL)
         sigtermPosts.finish()
@@ -295,7 +373,7 @@ final class SIGTERMCancellation {
     }
 
     /// Whether a SIGTERM is pending on this thread, which can only be one that is blocked here.
-    private static func sigtermIsPendingOnThisThread() -> Bool {
+    fileprivate static func sigtermIsPendingOnThisThread() -> Bool {
         var pending = sigset_t()
         sigemptyset(&pending)
         guard sigpending(&pending) == 0 else { return false }

@@ -121,9 +121,9 @@ final class SIGTERMCancellationTests: XCTestCase {
     /// action `end()` puts back, which in the CLI is the handler of `CLITerminationSignals`, and that ends the
     /// process by signal 15. SIGTERM is blocked on this thread and raised at this thread, so the post stays
     /// pending here whichever thread would otherwise take it, and a counting handler stands in for the CLI-wide
-    /// one. The kernel drops a pending post when the action becomes SIG_IGN, which `end()` sets when it finds a
-    /// post parked on its own thread. The kernel's note of a post does not cover this one, since a kqueue signal
-    /// filter notes a signal sent to the process and not one raised at a thread (FXS2).
+    /// one. `end()` finds the post parked on its own thread and takes it off with `sigwait` before it puts the earlier
+    /// action back, and writes no SIG_IGN (SW22). The kernel's note of a post does not cover this one, since a kqueue
+    /// signal filter notes a signal sent to the process and not one raised at a thread (FXS2).
     func testEndDropsAPostThatIsStillPending() {
         sigtermsCountedForTest.store(0, ordering: .sequentiallyConsistent)
         let original = signal(SIGTERM, countSIGTERMForTest)
@@ -236,9 +236,49 @@ final class SIGTERMCancellationTests: XCTestCase {
         )
     }
 
+    /// SW22 (Phase 2.13 lane 13.18), the window. While a post the kernel noted is untaken, a thread may find it pending
+    /// at any moment and read the action a moment later, and SIG_IGN read there is a call to address 1 (FX47 (a2)). The
+    /// test holds two posts in flight through the whole of `end()`. The first is sent with the handler out of reach, so
+    /// the kernel notes it and no thread ever runs the handler for it, and `end()` waits its whole bound. At the first
+    /// poll the test puts the handler back in reach and raises a second at the waiting thread, where SIGTERM is blocked,
+    /// so it stays pending there until `end()` has returned. No action `end()` writes while they are open may be
+    /// SIG_IGN, and the post held on the thread must not reach the action `end()` puts back, a counting handler that
+    /// stands in for the CLI-wide one.
+    func testEndWritesNoIgnoreWhileANotedPostMayStillBeTaken() {
+        sigtermsCountedForTest.store(0, ordering: .sequentiallyConsistent)
+        let original = signal(SIGTERM, countSIGTERMForTest)
+        defer { signal(SIGTERM, original) }
+        let termination = SIGTERMCancellation { }
+        let handler = signal(SIGTERM, SIG_IGN) // the instance's handler, out of reach while the first post is sent
+        XCTAssertEqual(kill(getpid(), SIGTERM), 0)
+        var blocked = sigset_t()
+        sigemptyset(&blocked)
+        sigaddset(&blocked, SIGTERM)
+        var unblocked = sigset_t()
+        XCTAssertEqual(pthread_sigmask(SIG_BLOCK, &blocked, &unblocked), 0)
+
+        let ended = ending(termination) { poll in
+            guard poll == 1 else { return }
+            signal(SIGTERM, handler) // the handler is back in reach
+            raise(SIGTERM) // and the second post waits on this thread
+        }
+
+        XCTAssertEqual(pthread_sigmask(SIG_SETMASK, &unblocked, nil), 0) // a post that survived `end()` runs here
+        XCTAssertFalse(
+            ended.actions.contains(address(of: SIG_IGN)),
+            "end() wrote SIG_IGN while a noted post was untaken: \(ended.actions)"
+        )
+        XCTAssertEqual(ended.actions, [address(of: countSIGTERMForTest)], "end() wrote an action other than the earlier one")
+        XCTAssertGreaterThanOrEqual(ended.polls, 1, "end() met the noted post untaken and waited for it")
+        XCTAssertEqual(
+            sigtermsCountedForTest.load(ordering: .sequentiallyConsistent), 0,
+            "a post held through `end()` reached the action it put back"
+        )
+    }
+
     /// A post the kernel noted and no thread takes, such as one sent while SIGTERM was ignored. `end()` waits for it up
-    /// to its bound. Then it ignores SIGTERM for the moment between its two writes, to drop whatever may still be
-    /// pending, since no thread is taking the post. The wait is bounded by time, not by a count of polls.
+    /// to its bound. Then it takes whatever may still be pending with `sigwait` and puts the earlier action back, with
+    /// no SIG_IGN between (SW22). The wait is bounded by time, not by a count of polls.
     func testEndWaitsAtMostItsBoundForAPostNoThreadTakes() {
         let original = signal(SIGTERM, recordSIGTERMForTest)
         defer { signal(SIGTERM, original) }
@@ -250,7 +290,7 @@ final class SIGTERMCancellationTests: XCTestCase {
         let ended = ending(termination)
         let waited = started.duration(to: .now)
 
-        XCTAssertEqual(ended.actions, [address(of: SIG_IGN), address(of: recordSIGTERMForTest)])
+        XCTAssertEqual(ended.actions, [address(of: recordSIGTERMForTest)], "end() wrote an action other than the earlier one")
         XCTAssertGreaterThanOrEqual(waited, .milliseconds(200), "end() gave the noted post time to run the handler")
         // The bound is 250 ms. The margin is wide because a sleep can run long when every core is busy.
         XCTAssertLessThan(waited, .seconds(5), "end() waits at most its bound")
@@ -278,8 +318,8 @@ final class SIGTERMCancellationTests: XCTestCase {
         let ended = ending(termination)
         let waited = started.duration(to: .now)
 
-        XCTAssertEqual(ended.actions, [address(of: SIG_IGN), address(of: recordSIGTERMForTest)], "two posts, one run of the handler")
-        XCTAssertGreaterThanOrEqual(waited, .milliseconds(200), "end() waited for the second post")
+        XCTAssertEqual(ended.actions, [address(of: recordSIGTERMForTest)], "end() wrote an action other than the earlier one")
+        XCTAssertGreaterThanOrEqual(waited, .milliseconds(200), "two posts and one run of the handler, so end() waited for the second")
     }
 
     // MARK: - The leaves' read of the flag (`runCancellingOnSIGTERM`)
@@ -293,8 +333,8 @@ final class SIGTERMCancellationTests: XCTestCase {
         // The post below is aimed at the process, and the kernel hands it to a thread that can take it later than
         // the pool thread that sent it. SIGTERM is ignored around the run so that no case can end this process
         // (review A54 fix 2), and `end()` drops a post that is still pending. SIGTERM is ignored again inside
-        // the work, so the kernel drops the post and only its note remains, since a post another thread is
-        // still taking when end() switches the action can call the address of SIG_IGN (FX47 (a2)).
+        // the work, so the kernel drops the post and only its note remains, as when the tool's death reaches the
+        // leaf before any thread has run the handler.
         let previous = signal(SIGTERM, SIG_IGN)
         defer { signal(SIGTERM, previous) }
         let ran = await runCancellingOnSIGTERM { () async throws -> Int in
