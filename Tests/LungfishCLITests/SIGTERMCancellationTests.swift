@@ -137,6 +137,10 @@ final class SIGTERMCancellationTests: XCTestCase {
         XCTAssertEqual(raise(SIGTERM), 0)
 
         termination.end()
+        XCTAssertFalse(
+            SIGTERMCancellation.signalCaught,
+            "the SIGTERM the drain raises at its own thread is not a post the kernel notes, so it must not read as a cancel"
+        )
 
         XCTAssertEqual(pthread_sigmask(SIG_SETMASK, &unblocked, nil), 0) // a post that survived `end()` runs here
         XCTAssertEqual(
