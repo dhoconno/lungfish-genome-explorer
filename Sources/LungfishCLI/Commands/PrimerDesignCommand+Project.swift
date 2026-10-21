@@ -26,7 +26,7 @@ extension PrimerDesignCommand {
         "Project to write a new Analyses/<name>.lungfishprimeranalysis bundle in, as the app does. A second run writes another new bundle. Give --output or --project.")
     /// The help of `--name`.
     static let nameHelp = ArgumentHelp(
-        "Name of the bundle --project writes, without the extension (default: \(defaultProjectBundleName)). A name in use becomes <name> 2, <name> 3 and so on.")
+        "Name of the new bundle that --project writes, without the extension. The default is \(defaultProjectBundleName). If the name is in use, the first free of <name> 2, <name> 3 and so on is used, and the command reports the path it wrote.")
 
     /// Checks `--output`, `--project` and `--name` together, before any input is read or folder made. A leaf calls it from
     /// `validate()`.
