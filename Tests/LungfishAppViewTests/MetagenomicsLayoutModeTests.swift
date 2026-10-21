@@ -408,7 +408,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         _ = vc.view
 
         XCTAssertFalse(vc.testSplitView.isVertical)
@@ -420,7 +419,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -440,7 +438,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -461,7 +458,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -507,7 +503,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -550,7 +545,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
             styleMask: [.titled, .resizable, .closable],
@@ -590,7 +584,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let evidenceViewer = ClassifierAlignmentEvidenceViewportController()
         vc.classifierAlignmentViewerFactory = { evidenceViewer }
         let window = NSWindow(
@@ -1054,7 +1047,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         _ = vc.view
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -1083,7 +1075,6 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
         let vc = TaxTriageResultViewController()
-        isolateLayouts(vc)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
             styleMask: [.titled, .resizable, .closable],
