@@ -342,7 +342,7 @@ public actor GATKBundleVariantAttachmentService {
         }
 
         let command = request.invocationArgv ?? [
-            "lungfish-app",
+            LungfishAppIdentity.recordedToolName,
             "gatk-attach",
             "--bundle", request.bundleURL.path,
             "--alignment-track", request.alignmentTrackID,

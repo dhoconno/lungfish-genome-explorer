@@ -1,6 +1,6 @@
 {
   "argv" : [
-    "lungfish-app",
+    "Lungfish Genome Explorer",
     "gatk-attach",
     "--bundle",
     "<project>/Reference Sequences/sample.lungfishref",
@@ -20,7 +20,7 @@
   "canonicalRunSteps" : [
     {
       "command" : [
-        "lungfish-app",
+        "Lungfish Genome Explorer",
         "gatk-attach",
         "--bundle",
         "<project>/Reference Sequences/sample.lungfishref",
@@ -337,7 +337,7 @@
   "legacyRunSteps" : [
     {
       "command" : [
-        "lungfish-app",
+        "Lungfish Genome Explorer",
         "gatk-attach",
         "--bundle",
         "<project>/Reference Sequences/sample.lungfishref",
@@ -404,7 +404,7 @@
   "recorded" : {
 
   },
-  "reproducibleCommand" : "lungfish-app gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
+  "reproducibleCommand" : "'Lungfish Genome Explorer' gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
   "resolvedDefaultOptions" : {
 
   },
@@ -412,7 +412,7 @@
   "steps" : [
     {
       "argv" : [
-        "lungfish-app",
+        "Lungfish Genome Explorer",
         "gatk-attach",
         "--bundle",
         "<project>/Reference Sequences/sample.lungfishref",
@@ -485,7 +485,7 @@
       "recorded" : {
 
       },
-      "reproducibleCommand" : "lungfish-app gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
+      "reproducibleCommand" : "'Lungfish Genome Explorer' gatk-attach --bundle '<project>/Reference Sequences/sample.lungfishref' --alignment-track aln-1 --vcf '<project>/Reference Sequences/sample.lungfishref/variants/gatk/gatk-track.vcf' --output-track gatk-track --name 'Sample GATK' --import-semantics standard --import-profile fast",
       "resolvedOptions" : {
 
       },
