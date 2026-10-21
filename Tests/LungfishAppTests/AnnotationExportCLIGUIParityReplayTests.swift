@@ -21,10 +21,8 @@
 // retained inputs are prediction rows of the lane report (BIO 7), pinned by `assertPredictedRecordChanges`. Nothing
 // is declared, so the old writer goes with no key (R-A1, C4).
 //
-// R5. Every load of a database gives its records new UUIDs, which the writer prints as `ID=`, so a sidebar bundle's
-// payload is compared under `AnnotationGFF3RelationalIDMask` (A against C and C against C'), and its output digest,
-// which follows the IDs, is left out of both compares. The open document keeps its UUIDs in the selection and is
-// compared unmasked, digest included.
+// R5. A database row exports its stored GFF3 ID, or `lungfish-row-<rowID>` with none (lane 13.20 M2), so both cases
+// compare the payload and its output digest unmasked.
 //
 // The cancel runs through the real transport, as the EsViritu class runs it (ARCH ruling 1.6, X14).
 //
@@ -353,8 +351,8 @@ extension AnnotationExportCLIGUIParityReplayTests {
         for side in RouteParitySide.allCases {
             XCTAssertEqual(found[.side(side)]?.map(\.description) ?? [], [], "side \(side) names no other side's root")
         }
-        let cAgainstCPrime = (found[.cAgainstCPrime] ?? []).filter { !Self.followsTheIDs($0, parityCase) }
-        XCTAssertEqual(cAgainstCPrime.map(\.description), [], "C against C' differs in nothing outside R5's mask")
+        let cAgainstCPrime = found[.cAgainstCPrime] ?? []
+        XCTAssertEqual(cAgainstCPrime.map(\.description), [], "C against C' differs in nothing")
         try assertSameOutput(runs.c, runs.cPrime, "C against C'")
         XCTAssertEqual(
             Self.inputs(of: try Self.envelope(in: runs.c.root), under: runs.c.root),
@@ -364,19 +362,6 @@ extension AnnotationExportCLIGUIParityReplayTests {
         try assertAEqualsC(runs, parityCase)
         try assertPredictedRecordChanges(runs, parityCase)
         return runs
-    }
-
-    /// R5. The differences a sidebar bundle's export shows because each load gives new UUIDs, a payload line whose
-    /// `ID=` differs and the record's digest of the payload. The payload is compared under the mask instead, and the
-    /// record's input digests on their own.
-    private static func followsTheIDs(_ difference: RouteParityDifference, _ parityCase: Case) -> Bool {
-        guard parityCase == .sidebarBundle else { return false }
-        let output = outputURL(in: URL(fileURLWithPath: "/"))
-        let sidecarName = ProvenanceRecorder.fileSidecarURL(for: output).lastPathComponent
-        if difference.id.contains(sidecarName) {
-            return difference.id.hasSuffix("checksumSHA256")
-        }
-        return difference.id.contains(output.lastPathComponent)
     }
 
     /// The payload and the record's output facts of two sides. Both cases compare the payload byte for byte, with its
@@ -393,12 +378,12 @@ extension AnnotationExportCLIGUIParityReplayTests {
         XCTAssertEqual(outputFirst.checksumSHA256, outputSecond.checksumSHA256, "\(label), the output digest")
     }
 
-    /// A against C on the facts of 1.7, each record path read relative to its side root. No file but the record, the
-    /// retained folder and, for a sidebar bundle, the IDs differs.
+    /// A against C on the facts of 1.7, each record path read relative to its side root. No file but the record and
+    /// the retained folder differs.
     private func assertAEqualsC(_ runs: RouteParityRuns, _ parityCase: Case) throws {
         let sidecarName = ProvenanceRecorder.fileSidecarURL(for: Self.outputURL(in: runs.a.root)).lastPathComponent
         let others = try harness.differences(runs.a, runs.c).filter {
-            !$0.id.contains(sidecarName) && !$0.id.contains(".lungfish-export-inputs") && !Self.followsTheIDs($0, parityCase)
+            !$0.id.contains(sidecarName) && !$0.id.contains(".lungfish-export-inputs")
         }
         XCTAssertEqual(others.map(\.description), [], "only the record and the retained folder may differ between A and C")
         try assertSameOutput(runs.a, runs.c, "A against C")
