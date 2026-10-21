@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 
 package struct BundleMergeProvenanceSidecarWriter: Sendable {
     let write: @Sendable (ProvenanceEnvelope, URL) throws -> Void
@@ -121,7 +122,7 @@ package enum BundleMergeProvenance {
             tool: ProvenanceToolIdentity(
                 name: request.toolName,
                 version: WorkflowRun.currentAppVersion,
-                kind: request.commandArguments == nil ? "app" : "cli"
+                kind: request.commandArguments == nil ? LungfishAppIdentity.recordedToolKind : "cli"
             ),
             argv: argv,
             durableReplayArgv: argv,

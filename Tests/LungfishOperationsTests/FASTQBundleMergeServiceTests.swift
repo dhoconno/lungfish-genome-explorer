@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishOperations
 @testable import LungfishIO
 import LungfishTestSupport
@@ -69,7 +70,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
         assertMergeProvenance(
             provenance,
-            expectedWorkflowName: "lungfish fastq merge",
+            expectedWorkflowName: "FASTQ bundle merge",
             expectedBundleName: "Merged Reads",
             expectedOutputBundle: mergedURL,
             expectedOutputFilenames: [
@@ -126,7 +127,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
         assertMergeProvenance(
             provenance,
-            expectedWorkflowName: "lungfish fastq merge",
+            expectedWorkflowName: "FASTQ bundle merge",
             expectedBundleName: "Merged Interleaved",
             expectedOutputBundle: mergedURL,
             expectedOutputFilenames: [
@@ -193,7 +194,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         }
 
         let mergeStep = try XCTUnwrap(
-            provenance.steps.first { $0.toolName == "lungfish fastq merge" }
+            provenance.steps.first { $0.toolName == "FASTQ bundle merge" }
         )
         XCTAssertTrue(provenance.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
         XCTAssertTrue(mergeStep.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
@@ -462,7 +463,13 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertEqual(provenance.workflowName, expectedWorkflowName, file: file, line: line)
-        XCTAssertEqual(provenance.toolName, "lungfish-app", file: file, line: line)
+        XCTAssertEqual(provenance.toolName, LungfishAppIdentity.recordedToolName, file: file, line: line)
+        XCTAssertEqual(provenance.tool.name, LungfishAppIdentity.recordedToolName, file: file, line: line)
+        XCTAssertEqual(provenance.tool.kind, LungfishAppIdentity.recordedToolKind, file: file, line: line)
+        XCTAssertNotEqual(provenance.workflowName, "lungfish fastq merge", file: file, line: line)
+        XCTAssertEqual(Array(provenance.argv.prefix(2)), [LungfishAppIdentity.recordedToolName, expectedWorkflowName], file: file, line: line)
+        XCTAssertTrue(provenance.argv.contains("--source-bundle"), file: file, line: line)
+        XCTAssertTrue(ProvenanceAppStep.isAppStep(provenance.argv), file: file, line: line)
         XCTAssertFalse(provenance.toolVersion.isEmpty, file: file, line: line)
         XCTAssertEqual(provenance.exitStatus, 0, file: file, line: line)
         XCTAssertNotNil(provenance.wallTimeSeconds, file: file, line: line)

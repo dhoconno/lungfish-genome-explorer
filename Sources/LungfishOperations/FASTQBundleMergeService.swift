@@ -1,4 +1,5 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -624,11 +625,11 @@ package enum FASTQBundleMergeService {
         }
         try BundleMergeProvenance.write(
             request: BundleMergeProvenance.Request(
-                workflowName: "lungfish fastq merge",
-                // The FASTQ bundle merge runs in the app and has no command line, so it names the app
-                // itself, as its record always did. `BundleMergeProvenance.Request` has no default tool
-                // name since lane 12.14. Lane 13.27 (REC-TOOL, ruling Q-A2) decides this identity.
-                toolName: "lungfish-app",
+                workflowName: "FASTQ bundle merge",
+                // The FASTQ bundle merge runs in the app and has no command line, so it names the app (R1, R4 of lane
+                // 13.27). `lungfish fastq merge` is the CLI pair merge, a different operation, so the name is not shared.
+                // The workflow name and argv[1] hold the operation words.
+                toolName: LungfishAppIdentity.recordedToolName,
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: inputPayloadURLs,
                 outputBundleURL: bundleURL,
