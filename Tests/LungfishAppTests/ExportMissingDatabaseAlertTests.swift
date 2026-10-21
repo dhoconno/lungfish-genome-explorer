@@ -13,12 +13,13 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishEsVirituUI
 import LungfishCore
-import LungfishIO
+@testable import LungfishIO
 import LungfishKit
 @testable import LungfishNaoMgsUI
 @testable import LungfishNvdUI
 @testable import LungfishTaxTriageUI
 import LungfishTestSupport
+@testable import LungfishWorkflow
 
 private final class WarningRecorder {
     var alerts: [(title: String, message: String)] = []
@@ -242,6 +243,47 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
 
         assertOneAlert(recorder.alerts, tool: "Kraken2")
         assertNothingStarted(nil, rowsBefore: OperationCenter.shared.items.count, folder: folder)
+    }
+
+    func testTaxTriageTableExportStopsWithOneAlertWhenTheDatabaseIsGone() throws {
+        let (vc, window, presenter, folder) = try makeTaxTriageViewWithoutItsDatabase("taxtriage-table-gone")
+        let rowsBefore = OperationCenter.shared.items.count
+
+        _ = vc.perform(NSSelectorFromString("exportCSVAction:"), with: vc)
+
+        assertOneAlert(presenter.alerts, tool: "TaxTriage")
+        assertNothingStarted(window, rowsBefore: rowsBefore, folder: folder)
+    }
+
+    func testKraken2TableExportStopsWithOneAlertWhenTheSourceFileIsGone() throws {
+        let folder = try makeFolder("kraken2-table-gone")
+        let root = TaxonNode(
+            taxId: 1, name: "root", rank: .species, depth: 0, readsDirect: 10, readsClade: 10,
+            fractionClade: 1.0, fractionDirect: 1.0, parentTaxId: nil
+        )
+        let config = ClassificationConfig(
+            inputFiles: [folder.appendingPathComponent("reads.fastq")], isPairedEnd: false,
+            databaseName: "test-db", databasePath: folder.appendingPathComponent("db"), outputDirectory: folder
+        )
+        let result = ClassificationResult(
+            config: config, tree: TaxonTree(root: root, unclassifiedNode: nil, totalReads: 10),
+            reportURL: folder.appendingPathComponent("classification.kreport"),
+            outputURL: folder.appendingPathComponent("classification.kraken"), brackenURL: nil,
+            runtime: 1, toolVersion: "2.1.3", provenanceId: nil
+        )
+        let vc = TaxonomyViewController()
+        let window = host(vc)
+        let recorder = WarningRecorder()
+        vc.warningPresenter = { title, message in recorder.alerts.append((title, message)) }
+        vc.configure(result: result)
+        XCTAssertNotNil(vc.tree, "a tree is shown, so only the sidecar file is missing")
+        let item = try XCTUnwrap(vc.buildExportMenu().items.first { $0.action == NSSelectorFromString("exportCSVAction:") })
+        let rowsBefore = OperationCenter.shared.items.count
+
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+
+        assertOneAlert(recorder.alerts, tool: "Kraken2")
+        assertNothingStarted(window, rowsBefore: rowsBefore, folder: folder)
     }
 
     func testTheChecksPassWithoutAnAlertWhenTheDatabaseIsThere() throws {
