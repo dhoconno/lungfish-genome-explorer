@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fail a test tier that leaves UUID-named plists behind in ~/Library/Preferences.
+"""Fail a test tier that leaves UUID-named plists behind in ~/Library/Preferences or adds
+org.lungfish. keys to the preferences domain of the xctest tool.
 
 Phase 2.9 lane Q10, decision H1. A test that builds UserDefaults(suiteName: "<prefix>-<UUID>")
 makes the system write ~/Library/Preferences/<prefix>-<UUID>.plist, and removePersistentDomain
@@ -7,8 +8,9 @@ only empties that file, so thousands piled up. The preferences daemon writes the
 again seconds after a test removes it, so cleaning up by hand does not last. The shared helper
 TestDefaultsSuite (Tests/Support/LungfishTestSupport) names its suite by a path in the temporary
 directory, which keeps the plist out of the folder. This script is the check around it.
-scripts/release/gate_evidence.py runs `snapshot` before the tests of every Swift gate (a tier or a
-profile) and `check` after their processes exit, and records a failure as an error in gate.result.json.
+scripts/release/gate_evidence.py runs `snapshot` and `domain-snapshot` before the tests of every Swift
+gate (a tier or a profile) and `check` and `domain-check` after their processes exit, and records a
+failure as an error in gate.result.json.
 
   snapshot --output FILE   list the UUID-named plists now and write the list to FILE
   check --before FILE      wait for the system to settle, list them again, and fail on a new one
@@ -17,6 +19,12 @@ profile) and `check` after their processes exit, and records a failure as an err
   lint                     fail when the allowed list names a file that no longer builds its prefix,
                            or a test file that calls UserDefaults(suiteName:) has no row
   prefixes                 print each prefix a file under Tests builds, and which file
+  domain-snapshot --output FILE
+                           write the names of the org.lungfish. keys of the domain
+                           com.apple.dt.xctest.tool to FILE (`defaults export com.apple.dt.xctest.tool -`)
+  domain-check --before FILE
+                           read the domain again and fail on a key that begins org.lungfish. and is
+                           not in FILE (Phase 2.13 lane 13.52, PREFS-XCTEST-DOMAIN)
 
 Only names are compared. A new plist whose prefix no file under Tests builds belongs to another
 app (com.openai.chat.RemoteFeatureFlags-<UUID>.plist) and is counted but never fails the tier.
@@ -32,21 +40,33 @@ whose file no longer builds that prefix by hand (it moved onto TestDefaultsSuite
 row) and on a test file that calls UserDefaults(suiteName:) and has no row, and a row is never
 added: give the new test the helper.
 
+A test host's UserDefaults.standard is the domain com.apple.dt.xctest.tool, which the plist check
+cannot see, since its file keeps one name for ever. A table of a result view saves its column layout
+there under org.lungfish.metadata-column-layout.<kind>:<result path> unless the test gives the
+table's MetadataColumnController a suite. The domain commands compare key names only, as
+`defaults export` reads them, and the gate runs them on a Mac where no other agent runs tests.
+
 Exit status: 0 clean, 1 a leak, 3 the allowed list is stale or malformed, 4 unusable input.
 LUNGFISH_PREFERENCES_DIR names another folder to list and LUNGFISH_PREFERENCES_SETTLE_SECONDS
-the settle, both for this script's own tests.
+the settle, both for this script's own tests. LUNGFISH_PREFERENCES_DOMAIN_EXPORT (or
+--domain-export) names a plist file that stands in for `defaults export`. A run that sets
+LUNGFISH_PREFERENCES_DIR and not that file reads com.apple.dt.xctest.tool.plist from the folder
+(an absent file is an empty domain), so a test of the gate never reads the machine's own domain.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import plistlib
 import pwd
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import NamedTuple
+from xml.parsers.expat import ExpatError
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TESTS = HERE.parents[1] / "Tests"
@@ -56,6 +76,12 @@ SKIPPED_DIRECTORIES = {".build", "Fixtures", "Resources"}
 HELPER = "Tests/Support/LungfishTestSupport/TestDefaultsSuite.swift"
 
 EXIT_CLEAN, EXIT_LEAK, EXIT_LIST, EXIT_INPUT = 0, 1, 3, 4
+
+DOMAIN = "com.apple.dt.xctest.tool"
+DOMAIN_KEY_PREFIX = "org.lungfish."
+DEFAULTS = "/usr/bin/defaults"
+DEFAULTS_TIMEOUT_SECONDS = 120
+DOMAIN_KEYS_SHOWN = 20
 
 UUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
 # <prefix>[-.]<UUID>[anything].plist
@@ -257,12 +283,14 @@ def verdict(directory, before, first, after, built: Built, allowed: set[str]) ->
     return EXIT_LEAK, lines
 
 
-def emit(lines: list[str], report: Path | None, failed: bool) -> None:
-    """Print the verdict, and keep a failing one in `report` for a run whose output is discarded."""
+def emit(lines: list[str], report: Path | None, failed: bool, append: bool = False) -> None:
+    """Print the verdict, and keep a failing one in `report` for a run whose output is discarded.
+    The domain check appends, since the plist check of the same run may already have written there."""
     print("\n".join(lines), file=sys.stderr if failed else sys.stdout)
     if failed and report is not None:
         report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with report.open("a" if append else "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
 
 
 def allowed_problems(args) -> tuple[list[Row], list[str]]:
@@ -293,6 +321,88 @@ def command_check(args, sleep) -> int:
     status, lines = verdict(directory, before, first, after, scan_tests(args.tests_root), allowed)
     emit(lines, args.report, status != EXIT_CLEAN)
     return status
+
+
+def domain_export_file(option: Path | None) -> tuple[Path | None, bool]:
+    """The plist file that stands in for `defaults export`, and whether a missing file is an empty
+    domain. The option wins, then LUNGFISH_PREFERENCES_DOMAIN_EXPORT. A run that lists a fixture
+    folder (LUNGFISH_PREFERENCES_DIR) reads the domain's plist from it, so a test of the gate never
+    reads the machine's own domain. None means the real domain."""
+    if option is not None:
+        return option, False
+    if os.environ.get("LUNGFISH_PREFERENCES_DOMAIN_EXPORT"):
+        return Path(os.environ["LUNGFISH_PREFERENCES_DOMAIN_EXPORT"]), False
+    if os.environ.get("LUNGFISH_PREFERENCES_DIR"):
+        return Path(os.environ["LUNGFISH_PREFERENCES_DIR"]) / f"{DOMAIN}.plist", True
+    return None, False
+
+
+def read_domain(option: Path | None) -> dict:
+    """The keys of the xctest tool's domain, from `defaults export com.apple.dt.xctest.tool -`."""
+    source, empty_if_missing = domain_export_file(option)
+    if source is None:
+        try:
+            done = subprocess.run([DEFAULTS, "export", DOMAIN, "-"], capture_output=True, check=False,
+                                  timeout=DEFAULTS_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError(f"defaults export {DOMAIN} did not end in {DEFAULTS_TIMEOUT_SECONDS} s") from error
+        if done.returncode != 0:
+            detail = done.stderr.decode("utf-8", "replace").strip()
+            raise ValueError(f"defaults export {DOMAIN} exited {done.returncode}: {detail}")
+        data = done.stdout
+    elif empty_if_missing and not source.exists():
+        return {}
+    else:
+        data = source.read_bytes()
+    try:
+        domain = plistlib.loads(data)
+    except (ValueError, ExpatError) as error:
+        raise ValueError(f"cannot read the export of {DOMAIN}: {error}") from error
+    if not isinstance(domain, dict):
+        raise ValueError(f"the export of {DOMAIN} is not a dictionary")
+    return domain
+
+
+def domain_names(domain: dict) -> list[str]:
+    return sorted(key for key in domain if isinstance(key, str) and key.startswith(DOMAIN_KEY_PREFIX))
+
+
+def read_domain_snapshot(path: Path) -> set[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        names, listed = set(data["names"]), data["domain"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"cannot read the domain snapshot {path}: {error}") from error
+    if listed != DOMAIN:
+        raise ValueError(f"the domain snapshot {path} lists {listed}, not {DOMAIN}")
+    return names
+
+
+def command_domain_snapshot(args, sleep) -> int:
+    names = domain_names(read_domain(args.domain_export))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps({"schema": 1, "domain": DOMAIN, "names": names}) + "\n")
+    print(f"preferences-leaks: {len(names)} {DOMAIN_KEY_PREFIX} keys in {DOMAIN} before the tier")
+    return EXIT_CLEAN
+
+
+def command_domain_check(args, sleep) -> int:
+    before = read_domain_snapshot(args.before)
+    after = domain_names(read_domain(args.domain_export))
+    new = [name for name in after if name not in before]
+    if not new:
+        emit([f"preferences-leaks: PASS - 0 new {DOMAIN_KEY_PREFIX} keys in {DOMAIN} "
+              f"({len(after)} now, {len(before)} before)"], args.report, False)
+        return EXIT_CLEAN
+    lines = [f"preferences-leaks: FAIL - {len(new)} new {DOMAIN_KEY_PREFIX} keys in {DOMAIN}, "
+             "from tests that write UserDefaults.standard"]
+    lines += [f"  {name}" for name in new[:DOMAIN_KEYS_SHOWN]]
+    if len(new) > DOMAIN_KEYS_SHOWN:
+        lines.append(f"  and {len(new) - DOMAIN_KEYS_SHOWN} more")
+    lines.append("A test that opens a result view gives its tables a suite from TestDefaultsSuite "
+                 "(MetadataColumnController.userDefaults), so no layout reaches this domain.")
+    emit(lines, args.report, True, append=True)
+    return EXIT_LEAK
 
 
 def command_lint(args, sleep) -> int:
@@ -327,12 +437,23 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--before", type=Path, required=True)
     check.add_argument("--settle", type=float, default=float(os.environ.get("LUNGFISH_PREFERENCES_SETTLE_SECONDS", "3")))
     check.add_argument("--report", type=Path, help="also write the verdict to this file")
+    domain = argparse.ArgumentParser(add_help=False)
+    domain.add_argument("--domain-export", type=Path,
+                        help="a plist file to read in place of `defaults export com.apple.dt.xctest.tool -`")
+    domain.add_argument("--report", type=Path, help="also write a failing verdict to this file")
+    domain_snapshot = commands.add_parser("domain-snapshot", parents=[domain])
+    domain_snapshot.add_argument("--output", type=Path, required=True)
+    domain_check = commands.add_parser("domain-check", parents=[domain])
+    domain_check.add_argument("--before", type=Path, required=True)
     commands.add_parser("lint", parents=[common])
     commands.add_parser("prefixes", parents=[common])
     return parser
 
 
-COMMANDS = {"snapshot": command_snapshot, "check": command_check, "lint": command_lint, "prefixes": command_prefixes}
+COMMANDS = {
+    "snapshot": command_snapshot, "check": command_check, "lint": command_lint, "prefixes": command_prefixes,
+    "domain-snapshot": command_domain_snapshot, "domain-check": command_domain_check,
+}
 
 
 def main(argv: list[str] | None = None, sleep=time.sleep) -> int:

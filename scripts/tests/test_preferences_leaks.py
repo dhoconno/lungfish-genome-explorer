@@ -14,12 +14,14 @@ import importlib.util
 import io
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/testing/preferences-leaks.py"
@@ -467,6 +469,128 @@ def mock_environment_without(name):
     finally:
         if saved is not None:
             os.environ[name] = saved
+
+
+class DomainTests(WorkspaceCase):
+    """The xctest tool's domain, read from a fixture export in place of `defaults export` (Phase 2.13
+    lane 13.52, PREFS-XCTEST-DOMAIN)."""
+
+    OLD = "org.lungfish.metadata-column-layout.old:/tmp/a"
+    ADDED = "org.lungfish.metadata-column-layout.x:/tmp/y"
+
+    def setUp(self):
+        super().setUp()
+        self.before = self.tmp / "domain-before.json"
+
+    def export(self, *keys, name="domain.plist"):
+        """A fixture export holding `keys` and a key another program owns."""
+        path = self.tmp / name
+        path.write_bytes(plistlib.dumps({"NSNavLastRootDirectory": "~", **{key: {"columns": []} for key in keys}}))
+        return path
+
+    def domain(self, command, *more, export=None):
+        argv = [command, *more, "--report", str(self.report)]
+        if export is not None:
+            argv += ["--domain-export", str(export)]
+        return self.run_script(*argv)
+
+    def take(self, export):
+        status, out, err = self.domain("domain-snapshot", "--output", str(self.before), export=export)
+        self.assertEqual(status, 0, out + err)
+        return out
+
+    def check_domain(self, export):
+        return self.domain("domain-check", "--before", str(self.before), export=export)
+
+    def test_domain_check_fails_on_a_new_layout_key(self):
+        self.take(self.export(self.OLD))
+        status, out, err = self.check_domain(self.export(self.OLD, self.ADDED, name="after.plist"))
+        self.assertEqual(status, 1, out + err)
+        self.assertIn(self.ADDED, err)
+        self.assertNotIn(self.OLD, err)
+        self.assertIn(self.ADDED, self.report.read_text())
+
+    def test_domain_check_passes_when_no_key_is_added(self):
+        self.take(self.export(self.OLD))
+        status, out, err = self.check_domain(self.export(self.OLD, name="after.plist"))
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("PASS - 0 new org.lungfish. keys", out)
+        self.assertFalse(self.report.exists())
+
+    def test_a_key_that_went_away_or_belongs_to_another_program_is_not_a_leak(self):
+        self.take(self.export(self.OLD))
+        after = self.tmp / "after.plist"
+        after.write_bytes(plistlib.dumps({"NSNavLastRootDirectory": "~", "com.example.other": 1}))
+        status, out, err = self.check_domain(after)
+        self.assertEqual(status, 0, out + err)
+        self.assertIn("0 now, 1 before", out)
+
+    def test_the_snapshot_lists_only_the_org_lungfish_names_sorted(self):
+        out = self.take(self.export(self.ADDED, self.OLD))
+        self.assertEqual(json.loads(self.before.read_text()),
+                         {"schema": 1, "domain": "com.apple.dt.xctest.tool", "names": sorted([self.OLD, self.ADDED])})
+        self.assertIn("2 org.lungfish. keys", out)
+
+    def test_a_long_list_of_new_keys_is_cut_and_counted(self):
+        self.take(self.export())
+        added = [f"org.lungfish.metadata-column-layout.k:/tmp/{number:03d}" for number in range(25)]
+        status, out, err = self.check_domain(self.export(*added, name="after.plist"))
+        self.assertEqual(status, 1, out + err)
+        self.assertIn("25 new", err)
+        self.assertIn("and 5 more", err)
+        self.assertIn(added[19], err)
+        self.assertNotIn(added[20], err)
+
+    def test_a_missing_snapshot_and_an_unreadable_export_are_input_errors(self):
+        status, out, err = self.check_domain(self.export())
+        self.assertEqual(status, 4, out + err)
+        self.assertIn("cannot read the domain snapshot", err)
+        self.take(self.export())
+        broken = self.tmp / "broken.plist"
+        broken.write_text("not a plist")
+        status, out, err = self.check_domain(broken)
+        self.assertEqual(status, 4, out + err)
+        self.assertIn("cannot read the export", err)
+
+    def test_the_real_domain_is_read_through_defaults_with_an_argv(self):
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout=plistlib.dumps({self.ADDED: 1}), stderr=b"")
+
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LUNGFISH_PREFERENCES_DIR", None)
+            os.environ.pop("LUNGFISH_PREFERENCES_DOMAIN_EXPORT", None)
+            with mock.patch.object(leaks.subprocess, "run", fake_run):
+                status, out, err = self.run_script("domain-snapshot", "--output", str(self.before))
+        self.assertEqual(status, 0, out + err)
+        self.assertEqual(calls, [["/usr/bin/defaults", "export", "com.apple.dt.xctest.tool", "-"]])
+        self.assertEqual(json.loads(self.before.read_text())["names"], [self.ADDED])
+
+    def test_the_script_runs_as_a_program_and_reads_the_export_from_the_environment(self):
+        env = {**os.environ, "LUNGFISH_PREFERENCES_DOMAIN_EXPORT": str(self.export(self.OLD))}
+        first = subprocess.run([sys.executable, str(SCRIPT), "domain-snapshot", "--output", str(self.before)],
+                               env=env, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        env["LUNGFISH_PREFERENCES_DOMAIN_EXPORT"] = str(self.export(self.OLD, self.ADDED, name="after.plist"))
+        second = subprocess.run([sys.executable, str(SCRIPT), "domain-check", "--before", str(self.before)],
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(second.returncode, 1, second.stdout + second.stderr)
+        self.assertIn(self.ADDED, second.stderr)
+
+    def test_a_run_that_lists_a_fixture_folder_reads_the_domain_from_that_folder_too(self):
+        env = {key: value for key, value in os.environ.items() if key != "LUNGFISH_PREFERENCES_DOMAIN_EXPORT"}
+        env["LUNGFISH_PREFERENCES_DIR"] = str(self.preferences)
+        first = subprocess.run([sys.executable, str(SCRIPT), "domain-snapshot", "--output", str(self.before)],
+                               env=env, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertEqual(json.loads(self.before.read_text())["names"], [], "no plist in the folder is an empty domain")
+        (self.preferences / "com.apple.dt.xctest.tool.plist").write_bytes(plistlib.dumps({self.ADDED: 1}))
+        second = subprocess.run([sys.executable, str(SCRIPT), "domain-check", "--before", str(self.before)],
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(second.returncode, 1, second.stdout + second.stderr)
+        self.assertIn(self.ADDED, second.stderr)
 
 
 class ShippedAllowedListTests(unittest.TestCase):
