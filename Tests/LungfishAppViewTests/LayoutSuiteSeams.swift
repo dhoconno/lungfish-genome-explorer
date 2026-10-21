@@ -52,14 +52,16 @@ extension XCTestCase {
 /// spin cannot cover (review 13.69 Ruling 6, manager decision MD70).
 extension XCTestCase {
     /// Spins the main run loop in 5 ms slices until both panes of `split` are larger than `minimumExtent` along the
-    /// divider axis (the width for a vertical divider, the height for a horizontal one), and returns at once when
-    /// they already are. When `timeout` passes first it fails with the extents it observed. The assertions after
-    /// the call keep their own thresholds.
+    /// divider axis (the width for a vertical divider, the height for a horizontal one), and returns once they still
+    /// are 50 ms later, the settle the fixed spin it replaced gave before the read. When `timeout` passes first, or
+    /// the panes do not hold, it fails with the extents it observed. The assertions after the call keep their own
+    /// thresholds. The 30 s ceiling covers the first window of a loaded process, which placed 9 s late in the probe,
+    /// and a layout that is already placed returns after the 50 ms settle.
     @nonobjc @MainActor
     func waitForSplitPlacement(
         _ split: NSSplitView,
         minimumExtent: CGFloat,
-        timeout: TimeInterval = 5,
+        timeout: TimeInterval = 30,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -74,9 +76,13 @@ extension XCTestCase {
         while !placed(), Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.005))
         }
+        if placed() {
+            // The fixed spin this replaced read the panes 50 ms after the layout. Keep that settle, so a pass that undoes the placement still fails.
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
         if !placed() {
             XCTFail(
-                "Split view panes not placed after \(timeout) s: extents \(extents()) along the divider axis, each needs more than \(minimumExtent)",
+                "Split view panes not placed, or not held for 50 ms after placement, within \(timeout) s: extents \(extents()) along the divider axis, each needs more than \(minimumExtent)",
                 file: file,
                 line: line
             )
