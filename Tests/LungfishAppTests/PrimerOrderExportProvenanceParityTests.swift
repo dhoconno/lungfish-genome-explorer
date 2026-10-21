@@ -99,8 +99,9 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
             notes: "-80 C freezer")
 
         // The invocation, and the row the begin helper records for it, one field at a time so a failure names the
-        // field. The parser reads a hyphen-led token as options when it holds a short option letter (`-t` is the
-        // global `--threads`), so `-Study` and `-80 C freezer, tube 2` need the `=` and `-Bench` happens to pass.
+        // field. At the base all six values fail to parse from the recorded command. The parser reads a token that
+        // starts with a hyphen as an option and reports a missing value, and a short option letter such as the t of
+        // -t makes -Study an unknown composite option. The = form makes each one a value.
         let fields: [(option: String, metadata: PrimerOrderMetadata, read: (PrimerAnalysisExportOrderCommand) -> String?)] = [
             ("--name", PrimerOrderMetadata(name: "-Pair order"), { $0.name }),
             ("--requested-by", PrimerOrderMetadata(requestedBy: "-Bench"), { $0.requestedBy }),
