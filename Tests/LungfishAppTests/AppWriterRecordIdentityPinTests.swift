@@ -201,6 +201,7 @@ final class AppWriterRecordIdentityPinTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: viewerBundleURL))
         XCTAssertEqual(envelope.toolName, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(envelope.tool.name, LungfishAppIdentity.recordedToolName)
+        XCTAssertNil(envelope.tool.kind)
         XCTAssertEqual(
             Array(envelope.argv.prefix(3)),
             [LungfishAppIdentity.recordedToolName, "workflow-operations", "prepare-ont-bam-viewer"]
@@ -309,6 +310,7 @@ final class AppWriterRecordIdentityPinTests: XCTestCase {
         )
         XCTAssertEqual(envelope.toolName, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(envelope.tool.name, LungfishAppIdentity.recordedToolName)
+        XCTAssertNil(envelope.tool.kind)
         XCTAssertEqual(envelope.argv, callerWords)
         XCTAssertEqual(
             envelope.steps.map(\.toolName),
