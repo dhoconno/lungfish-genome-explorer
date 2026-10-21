@@ -36,4 +36,31 @@ final class FastqTranslateLooseLongReadTests: XCTestCase {
             ">\(id)_frame+1 [Standard] [5 aa]", "MKPGF",
         ].joined(separator: "\n") + "\n")
     }
+
+    /// A file two levels inside an Oxford Nanopore bundle has no sidecar of its own, and the bundle records the platform.
+    /// The base asked the enclosing bundle at any depth, so the ids stay as sequenced, the bytes the bundle's top-level
+    /// file gives (13.42 BIO review fix 1).
+    func testFileTwoLevelsInsideLongReadBundleKeepsItsIds() async throws {
+        let id = "8f2e0c7a-0001-4f7a-9d1a-0123456789ab"
+        let text = "@\(id) runid=abc\nATGGCTAGCAAAGGAGAA\n+\nIIIIIIIIIIIIIIIIII\n"
+            + "@\(id) runid=abc\nATGAAACCCGGGTTT\n+\nIIIIIIIIIIIIIII\n"
+        let bundle = folder.appendingPathComponent("ont.lungfishfastq", isDirectory: true)
+        let chunks = bundle.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunks, withIntermediateDirectories: true)
+        let topLevel = bundle.appendingPathComponent("reads.fastq")
+        let nested = chunks.appendingPathComponent("reads.fastq")
+        try Data(text.utf8).write(to: topLevel)
+        try Data(text.utf8).write(to: nested)
+        FASTQMetadataStore.save(PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore), for: topLevel)
+        XCTAssertNil(FASTQMetadataStore.load(for: nested))
+
+        let expected = try await runFastqTranslatePin(topLevel, frame: 1, output: folder.appendingPathComponent("top.fa"))
+        let written = try await runFastqTranslatePin(nested, frame: 1, output: folder.appendingPathComponent("nested.fa"))
+
+        XCTAssertEqual(String(decoding: expected, as: UTF8.self), [
+            ">\(id)_frame+1 [Standard] [6 aa]", "MASKGE",
+            ">\(id)_frame+1 [Standard] [5 aa]", "MKPGF",
+        ].joined(separator: "\n") + "\n")
+        XCTAssertEqual(written, expected)
+    }
 }

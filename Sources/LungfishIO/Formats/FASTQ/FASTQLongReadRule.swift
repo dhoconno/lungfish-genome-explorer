@@ -64,6 +64,7 @@ extension FASTQInputLayoutResolver {
     static func longReadResolution(for inputURL: URL, metadataFrom hintURL: URL?) -> FASTQInputLayoutResolution? {
         let evidenceURL = hintURL ?? inputURL
         let bundleURL = FASTQReadLayoutClassifier.bundleURL(holding: evidenceURL)
+            ?? SequenceInputResolver.enclosingFASTQBundleURL(for: evidenceURL).flatMap { FASTQBundle.isBundleURL($0) ? $0 : nil }
         guard let platform = FASTQLongReadRule.recordedPlatform(of: bundleURL ?? evidenceURL),
               FASTQLongReadRule.isLongRead(platform) else { return nil }
         return FASTQInputLayoutResolution(

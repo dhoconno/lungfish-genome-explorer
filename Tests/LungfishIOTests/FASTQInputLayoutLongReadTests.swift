@@ -83,6 +83,21 @@ final class FASTQInputLayoutLongReadTests: XCTestCase {
         return copy
     }
 
+    /// A multi-file root as the ONT importer writes it. Its reads sit in `chunks/reads.fastq`, which `source-files.json`
+    /// lists, and the platform sits on the bundle's sidecar and on no chunk, so only the bundle can say it.
+    private func makeChunkedRoot(_ name: String, _ text: String, platform: SequencingPlatform) throws -> (bundle: URL, nested: URL) {
+        let bundle = imports.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        let chunks = bundle.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunks, withIntermediateDirectories: true)
+        let nested = chunks.appendingPathComponent("reads.fastq")
+        try Data(text.utf8).write(to: nested)
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/reads.fastq", originalPath: "/orig/reads.fastq", sizeBytes: 1, isSymlink: false),
+        ]).save(to: bundle)
+        FASTQMetadataStore.save(PersistedFASTQMetadata(sequencingPlatform: platform), for: bundle)
+        return (bundle, nested)
+    }
+
     // MARK: - T3 and T5
 
     func testLongReadRootsAreSingleReadsAtEveryEntry() throws {
@@ -126,6 +141,26 @@ final class FASTQInputLayoutLongReadTests: XCTestCase {
         XCTAssertEqual(resolution.layout, .singleEnd)
         XCTAssertEqual(resolution.source, .bundleMetadata)
         XCTAssertEqual(resolution.reason, "The bundle records Oxford Nanopore reads, which are never paired.")
+    }
+
+    /// A file two levels inside a bundle, a member of a multi-file root, has no sidecar of its own and no bundle one
+    /// level above it. The base asked the enclosing bundle at any depth, so the rule does too (13.42 BIO review fix 1).
+    func testFileTwoLevelsInsideLongReadBundleReadsTheBundlePlatform() throws {
+        let nested = try makeChunkedRoot("ont", Self.ontText, platform: .oxfordNanopore).nested
+        XCTAssertNil(FASTQMetadataStore.load(for: nested))
+        // The scan alone reads the same bytes outside every bundle as pairs, so only the bundle makes these single reads.
+        let copy = try scratchCopy(of: nested, named: "ont-nested")
+        XCTAssertEqual(FASTQInputLayoutResolver.resolve(inputURLs: [copy]).layout, .strictlyInterleaved)
+
+        let resolutions: [(label: String, resolution: FASTQInputLayoutResolution)] = [
+            ("hinted by itself", FASTQInputLayoutResolver.resolve(fastqURL: nested, metadataFrom: nested)),
+            ("named alone", FASTQInputLayoutResolver.resolve(inputURLs: [nested])),
+        ]
+        for (label, resolution) in resolutions {
+            XCTAssertEqual(resolution.layout, .singleEnd, label)
+            XCTAssertEqual(resolution.source, .bundleMetadata, label)
+            XCTAssertEqual(resolution.reason, "The bundle records Oxford Nanopore reads, which are never paired.", label)
+        }
     }
 
     // MARK: - Guards, the same answer at the base and after
