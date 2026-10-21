@@ -199,4 +199,31 @@ final class WorkflowOperationExecutionServiceCancelTests: XCTestCase {
             try await service.runTwelveSReferenceBundleBuild(configuration)
         }
     }
+
+    /// `runTwelveSAmpliconMatching` is private and reached through `run(_:)`. The site makes the output folder and
+    /// the CLI makes the bundle inside it, so a cancelled run leaves the folder and no bundle.
+    func testCancelOfTheTwelveSAmpliconMatchingEndsTheRowAndLeavesNoProcessWithEveryCoreBusy() async throws {
+        let site = try makeSite()
+        let root = site.standIn.root
+        let reads = root.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
+        let reference = root.appendingPathComponent("amplicons_12s.fa")
+        try FileManager.default.createDirectory(at: reads, withIntermediateDirectories: true)
+        try Data(">target\nACGT\n".utf8).write(to: reference)
+        let configuration = TwelveSAmpliconMatchingConfiguration(
+            inputFASTQs: [reads],
+            referenceFASTA: reference,
+            outputDirectory: root.appendingPathComponent("Analyses/12S amplicon results", isDirectory: true),
+            outputName: "hilo-12s",
+            threads: 1
+        )
+        let bundle = configuration.outputDirectory
+            .appendingPathComponent("\(configuration.outputName).lungfish12s", isDirectory: true)
+        let service = site.service
+
+        try await assertCancelEndsTheRowAndLeavesNoProcess(
+            site, rowTitle: "12S Amplicon Matching", absent: [bundle]
+        ) {
+            try await service.run(.twelveSAmpliconMatching(configuration))
+        }
+    }
 }
