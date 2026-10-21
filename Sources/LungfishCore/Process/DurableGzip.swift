@@ -67,7 +67,7 @@ public enum DurableGzip {
 
     /// The same with another executable that follows gzip's command line, for a test that needs a gzip which
     /// logs, fails or hangs.
-    static func compress(
+    package static func compress(
         source: URL,
         to destination: URL,
         using executable: URL,
