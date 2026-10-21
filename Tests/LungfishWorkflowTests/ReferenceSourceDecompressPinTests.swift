@@ -139,7 +139,19 @@ final class ReferenceSourceDecompressPinTests: XCTestCase {
         let working = root.appendingPathComponent("working-cancel", isDirectory: true)
         let started = Date()
         let task = Task { try await preparer.prepare(sourceURL: source, bundleName: "Pin", tempDirectory: working) }
-        try await Task.sleep(nanoseconds: 1_000_000_000)
+        // The stand-in writes its pid beside the source once it runs, so the cancel comes after the child exists
+        // and the test can show that no process is left (review 13.17, SWIFT Fix 5).
+        let pidFile = URL(fileURLWithPath: source.path + ".pid")
+        var childPID: pid_t?
+        for _ in 0..<600 {
+            if let text = try? String(contentsOf: pidFile, encoding: .utf8),
+               let value = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                childPID = value
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let pid = try XCTUnwrap(childPID, "the stand-in wrote its pid within 30 s")
         task.cancel()
         do {
             _ = try await task.value
@@ -148,6 +160,11 @@ final class ReferenceSourceDecompressPinTests: XCTestCase {
         } catch {
             XCTFail("expected a cancel, got \(error)")
         }
+        // `ToolProcess.run` reaps the child before it returns, so the pid is gone at once.
+        let signalResult = kill(pid, 0)
+        let signalError = errno
+        XCTAssertEqual(signalResult, -1, "no process is left at pid \(pid)")
+        XCTAssertEqual(signalError, ESRCH, "the pid is gone")
         XCTAssertLessThan(Date().timeIntervalSince(started), 30, "the cancel ended the child at once")
     }
 }

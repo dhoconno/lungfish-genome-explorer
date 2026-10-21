@@ -65,10 +65,12 @@ public struct ManagedTestStandIn {
     esac
     """
 
-    /// A stand-in that never finishes, for a test of a cancel. `exec` makes the shell the sleeping process, so
-    /// ending it ends the whole child.
+    /// A stand-in that never finishes, for a test of a cancel. It writes its pid to `<file>.pid`, where `<file>` is
+    /// the second argument, so a test can wait until the child runs and later show that it is gone. `exec` makes
+    /// the shell the sleeping process with the same pid, so ending it ends the whole child.
     public static let sleepingScript = """
     #!/bin/sh
+    /bin/echo $$ > "$2.pid"
     exec /bin/sleep 120
     """
 }
