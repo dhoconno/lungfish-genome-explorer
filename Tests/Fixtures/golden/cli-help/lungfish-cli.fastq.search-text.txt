@@ -1,6 +1,6 @@
 OVERVIEW: Search FASTQ reads by ID or description field
 
-USAGE: lungfish-cli fastq search-text <input> --output <output> [--force] [--compress] --query <query> [--field <field>] [--regex] [--pairing <pairing>]
+USAGE: lungfish-cli fastq search-text <input> --output <output> [--force] --query <query> [--field <field>] [--regex] [--pairing <pairing>]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -8,7 +8,6 @@ ARGUMENTS:
 OPTIONS:
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --query <query>         Search query string
   --field <field>         Field to search: "id" or "description" (default: id)
   --regex                 Treat query as a regular expression

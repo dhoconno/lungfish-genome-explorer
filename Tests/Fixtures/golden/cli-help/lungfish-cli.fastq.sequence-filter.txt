@@ -1,6 +1,6 @@
 OVERVIEW: Filter reads by sequence presence (adapter/barcode matching)
 
-USAGE: lungfish-cli fastq sequence-filter <input> --output <output> [--force] [--compress] [--sequence <sequence>] [--fasta-path <fasta-path>] [--search-end <search-end>] [--min-overlap <min-overlap>] [--error-rate <error-rate>] [--keep-matched] [--search-rc] [--pairing <pairing>]
+USAGE: lungfish-cli fastq sequence-filter <input> --output <output> [--force] [--sequence <sequence>] [--fasta-path <fasta-path>] [--search-end <search-end>] [--min-overlap <min-overlap>] [--error-rate <error-rate>] [--keep-matched] [--search-rc] [--pairing <pairing>]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -8,7 +8,6 @@ ARGUMENTS:
 OPTIONS:
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --sequence <sequence>   Literal sequence to match against reads
   --fasta-path <fasta-path>
                           Path to FASTA file containing sequences to match

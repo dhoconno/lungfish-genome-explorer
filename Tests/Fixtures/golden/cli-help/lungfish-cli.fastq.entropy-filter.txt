@@ -7,7 +7,7 @@ apparent mapping depth.
 
 It runs 4 bbduk threads unless the global --threads option sets another count.
 
-USAGE: lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--pairing <pairing>] --output <output> [--force] [--compress]
+USAGE: lungfish-cli fastq entropy-filter <input> [--entropy <entropy>] [--window <window>] [--kmer <kmer>] [--pairing <pairing>] --output <output> [--force]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -25,7 +25,6 @@ OPTIONS:
         suffixes, or Casava descriptions are all recognised.
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --version               Show the version.
   -h, --help              Show help information.
 

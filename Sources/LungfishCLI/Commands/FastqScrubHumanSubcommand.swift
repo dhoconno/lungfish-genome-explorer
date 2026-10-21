@@ -35,7 +35,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @OptionGroup var output: OutputOptions
+    @OptionGroup var output: GzipOutputOptions
 
     @Option(name: .customLong("database-id"), help: "Human read removal database identifier")
     var databaseID: String

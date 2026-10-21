@@ -26,7 +26,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
     @Argument(help: "Input .lungfishfastq bundle path")
     var input: String
 
-    @OptionGroup var output: OutputOptions
+    @OptionGroup var output: GzipOutputOptions
 
     @Option(name: .customLong("temp-dir"), help: "Temporary directory for intermediate files")
     var tempDir: String?

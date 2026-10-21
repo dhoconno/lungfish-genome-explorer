@@ -28,7 +28,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("count-duplicates"), help: "Collapse identical output sequences after merge and encode support as size=N")
     var countDuplicates: Bool = false
 
-    @OptionGroup var output: OutputOptions
+    @OptionGroup var output: GzipOutputOptions
 
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "merge", output: output)

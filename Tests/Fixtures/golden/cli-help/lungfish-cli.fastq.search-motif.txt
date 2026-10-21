@@ -1,6 +1,6 @@
 OVERVIEW: Search FASTQ reads by sequence motif
 
-USAGE: lungfish-cli fastq search-motif <input> --output <output> [--force] [--compress] --pattern <pattern> [--regex] [--pairing <pairing>]
+USAGE: lungfish-cli fastq search-motif <input> --output <output> [--force] --pattern <pattern> [--regex] [--pairing <pairing>]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -8,7 +8,6 @@ ARGUMENTS:
 OPTIONS:
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --pattern <pattern>     Sequence motif pattern to search for
   --regex                 Treat pattern as a regular expression
   --pairing <pairing>     How to treat the input's records: interleaved

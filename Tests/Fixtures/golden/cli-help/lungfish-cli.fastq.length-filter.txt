@@ -1,6 +1,6 @@
 OVERVIEW: Filter reads by length
 
-USAGE: lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] [--pairing <pairing>] --output <output> [--force] [--compress]
+USAGE: lungfish-cli fastq length-filter <input> [--min <min>] [--max <max>] [--pairing <pairing>] --output <output> [--force]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -17,7 +17,6 @@ OPTIONS:
         suffixes, or Casava descriptions are all recognised.
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --version               Show the version.
   -h, --help              Show help information.
 

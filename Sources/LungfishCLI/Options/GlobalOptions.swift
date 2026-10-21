@@ -345,8 +345,64 @@ enum OutputMode {
 
 // MARK: - Output Options (for commands that write files)
 
-/// Options for commands that produce output files
+/// Options for a `fastq` subcommand that writes one plain output file.
+///
+/// `--compress` still parses but is hidden from the help, so a subcommand without a gzip step refuses it with
+/// `rejectCompress(subcommand:)` in `validate()` and no help line promises gzip. A subcommand that does gzip
+/// its output takes `GzipOutputOptions`.
 struct OutputOptions: ParsableArguments {
+
+    @Option(
+        name: [.customLong("output"), .customShort("o")],
+        help: "Output file path (required)"
+    )
+    var output: String
+
+    @Flag(
+        name: .customLong("force"),
+        help: "Overwrite existing output file"
+    )
+    var force: Bool = false
+
+    @Flag(
+        name: .customLong("compress"),
+        help: ArgumentHelp("Compress output with gzip", visibility: .hidden)
+    )
+    var compress: Bool = false
+
+    /// Validate that output can be written
+    func validateOutput() throws {
+        try Self.validateOutputPath(output, force: force)
+    }
+
+    /// The checks of `validateOutput()`, which `GzipOutputOptions` shares.
+    static func validateOutputPath(_ output: String, force: Bool) throws {
+        let url = URL(fileURLWithPath: output)
+
+        // Check if file exists
+        if FileManager.default.fileExists(atPath: output) && !force {
+            throw ValidationError("Output file already exists: \(output). Use --force to overwrite.")
+        }
+
+        // Check if parent directory exists
+        let parentDir = url.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: parentDir.path) {
+            throw ValidationError("Output directory does not exist: \(parentDir.path)")
+        }
+    }
+
+    /// Refuses `--compress` for a subcommand that writes plain output. A subcommand calls it from `validate()`,
+    /// so the refusal comes before any file or record is written and the exit status is 64. The words are the
+    /// refusal the UX ruling of lane 13.39 sets for every `fastq` subcommand that has no gzip step.
+    func rejectCompress(subcommand: String) throws {
+        guard compress else { return }
+        throw ValidationError("--compress is not supported by fastq \(subcommand). Remove it to write plain output.")
+    }
+}
+
+/// Options for a `fastq` subcommand that gzips its output when `--compress` is set, which is `merge`,
+/// `materialize` and `scrub-human`. The flag is real here, so its help line is true.
+struct GzipOutputOptions: ParsableArguments {
 
     @Option(
         name: [.customLong("output"), .customShort("o")],
@@ -368,25 +424,19 @@ struct OutputOptions: ParsableArguments {
 
     /// Validate that output can be written
     func validateOutput() throws {
-        let url = URL(fileURLWithPath: output)
-
-        // Check if file exists
-        if FileManager.default.fileExists(atPath: output) && !force {
-            throw ValidationError("Output file already exists: \(output). Use --force to overwrite.")
-        }
-
-        // Check if parent directory exists
-        let parentDir = url.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: parentDir.path) {
-            throw ValidationError("Output directory does not exist: \(parentDir.path)")
-        }
+        try OutputOptions.validateOutputPath(output, force: force)
     }
+}
 
-    /// Refuses `--compress` for a subcommand that writes plain output. A subcommand calls it from `validate()`,
-    /// so the refusal comes before any file or record is written and the exit status is 64. The words are the
-    /// refusal the UX ruling of lane 13.39 sets for every `fastq` subcommand that has no gzip step.
-    func rejectCompress(subcommand: String) throws {
-        guard compress else { return }
-        throw ValidationError("--compress is not supported by fastq \(subcommand). Remove it to write plain output.")
+extension FASTQSubcommandInput {
+    /// The prologue of a single-input subcommand that takes `GzipOutputOptions`, the same as the one for
+    /// `OutputOptions` in `FASTQSubcommandInput.swift`.
+    static func resolve(
+        _ path: String,
+        operationName: String,
+        output: GzipOutputOptions
+    ) async throws -> FASTQSubcommandInput {
+        try output.validateOutput()
+        return try await resolve(path, operationName: operationName, contextURL: URL(fileURLWithPath: output.output))
     }
 }

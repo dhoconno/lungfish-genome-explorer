@@ -1,6 +1,6 @@
 OVERVIEW: Trim low-quality bases using fastp
 
-USAGE: lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force] [--compress]
+USAGE: lungfish-cli fastq quality-trim <input> [--threshold <threshold>] [--window <window>] [--mode <mode>] [--extra-args <extra-args>] [--pairing <pairing>] --output <output> [--force]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -21,7 +21,6 @@ OPTIONS:
         suffixes, or Casava descriptions are all recognised.
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --version               Show the version.
   -h, --help              Show help information.
 

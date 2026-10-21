@@ -7,7 +7,7 @@ including single-end reads, mates already named apart such as A1/1 and A1/2,
 Nanopore and PacBio reads, and the pairs in a bundle that also holds merged or
 unpaired reads.
 
-USAGE: lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force] [--compress]
+USAGE: lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -19,7 +19,6 @@ OPTIONS:
   --table <table>         Genetic code table ID (default: 1)
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
-  --compress              Compress output with gzip
   --version               Show the version.
   -h, --help              Show help information.
 
