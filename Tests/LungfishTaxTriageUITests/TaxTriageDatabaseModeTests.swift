@@ -574,6 +574,30 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         XCTAssertEqual(request.accessions ?? [], [], "no other sample's accession goes to BLAST")
     }
 
+    /// A pin, green at the base. The third caller of the lookup is the Extract Reads selectors. With the Alpha virus rows
+    /// of both samples selected and sample-2's row holding no accession of its own, only sample-1's NC_1001 is sent,
+    /// under sample-1, and no selector for sample-2 carries it.
+    func testExtractReadsOfRowsAcrossSamplesSendsEachSamplesOwnAccessionsOnly() throws {
+        let fixture = try Fixture(writeSidecar: false, sample2AlphaAccession: nil)
+        defer { fixture.cleanUp() }
+        let vc = makeRecordedController(fixture, recorder: RecordingEvidenceViewer())
+        var captured: [ClassifierRowSelector]?
+        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+
+        let rows = vc.testBatchFlatTableView.displayedRows
+        let first = try XCTUnwrap(rows.firstIndex { $0.sample == "sample-1" && $0.organism == "Alpha virus" })
+        let second = try XCTUnwrap(rows.firstIndex { $0.sample == "sample-2" && $0.organism == "Alpha virus" })
+        vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet([first, second]), byExtendingSelection: false)
+        let deadline = Date().addingTimeInterval(30)
+        while !vc.testActionBar.extractButton.isEnabled, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(vc.testActionBar.extractButton.isEnabled)
+        vc.testActionBar.extractButton.performClick(nil)
+
+        XCTAssertEqual(captured, [ClassifierRowSelector(sampleId: "sample-1", accessions: ["NC_1001"], taxIds: [])])
+    }
+
     // MARK: - Fixture
 
     private struct Fixture {
