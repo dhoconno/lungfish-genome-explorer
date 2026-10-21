@@ -193,6 +193,50 @@ final class VariantStructuredINFOTests: XCTestCase {
         }
     }
 
+    func testAHighImpactTableWithoutTheStampIsIgnoredThenRebuilt() throws {
+        let dbURL = try StructuredINFOFixture.importDatabase(
+            StructuredINFOFixture.mixedImpactVCF, profile: .fast, in: directory, name: "stamp")
+        // The shape of a database imported before the list-member match. `_high_impact` is built over the four impact
+        // keys with `value = 'HIGH'`, which keeps no variant of this fixture, and the stamp row does not exist.
+        let keyList = VariantDatabase.impactInfoKeys.map { "'\($0)'" }.joined(separator: ",")
+        try StructuredINFOFixture.execute(dbURL, "DROP TABLE IF EXISTS _high_impact")
+        try StructuredINFOFixture.execute(
+            dbURL,
+            "CREATE TABLE _high_impact AS SELECT DISTINCT variant_id FROM variant_info "
+                + "WHERE key IN (\(keyList)) AND value = 'HIGH'")
+        try StructuredINFOFixture.execute(dbURL, "DELETE FROM db_metadata WHERE key = 'high_impact_match'")
+        let stampQuery = "SELECT value FROM db_metadata WHERE key = 'high_impact_match'"
+        let tablePositions = "SELECT variant_id FROM _high_impact"
+        func hits(_ database: VariantDatabase, _ keys: [String]) -> [Int] {
+            let filter = VariantDatabase.InfoFilter(
+                key: keys[0], op: .eq, value: "HIGH", alsoKeys: Array(keys.dropFirst()))
+            return database.queryForTable(infoFilters: [filter]).map { $0.position + 1 }.sorted()
+        }
+        func assertEveryFilter(_ database: VariantDatabase, _ label: String) {
+            XCTAssertEqual(hits(database, ["ANN_IMPACT"]), [100], "ANN \(label)")
+            XCTAssertEqual(hits(database, ["CSQ_IMPACT"]), [200], "CSQ \(label)")
+            XCTAssertEqual(hits(database, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "union \(label)")
+        }
+
+        // A read-only handle ignores the table, answers from `variant_info` and writes nothing.
+        let readOnly = try VariantDatabase(url: dbURL)
+        readOnly.loadTokenCacheState()
+        XCTAssertFalse(readOnly.highImpactCacheReady, "read-only ready")
+        XCTAssertNil(readOnly.tokenCacheState["highImpactBiological"], "read-only token")
+        assertEveryFilter(readOnly, "read-only")
+        XCTAssertFalse(readOnly.warmHighImpactCache(), "read-only warm")
+        assertEveryFilter(readOnly, "read-only after warm")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [], "read-only wrote the stamp")
+        XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [], "read-only table")
+
+        // A writable handle drops the table, rebuilds it with the member match and writes the stamp.
+        let writable = try VariantDatabase(url: dbURL, readWrite: true)
+        XCTAssertTrue(writable.warmHighImpactCache(), "read-write warm")
+        assertEveryFilter(writable, "read-write")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [["member"]], "read-write stamp")
+        XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [100, 200], "table")
+    }
+
     func testHeaderPartNamesRoundTripThroughMetadata() throws {
         var names = StructuredINFOFieldNames()
         let lof = "Predicted loss of function effects for this variant. Format: 'Gene_Name | Gene_ID | "

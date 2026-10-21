@@ -1234,7 +1234,7 @@ extension VariantDatabase {
                 variantDBLogger.warning("createSmartTokenTables: \(table.name) failed: \(msg)")
                 continue
             }
-            sqlite3_exec(db, table.indexSQL, nil, nil, nil)
+            sqlite3_exec(db, Self.stampedIndexSQL(table.indexSQL, table: table.name), nil, nil, nil)
             variantDBLogger.info("createSmartTokenTables: created \(table.name)")
         }
     }

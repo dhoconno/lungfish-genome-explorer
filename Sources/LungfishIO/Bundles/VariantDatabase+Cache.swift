@@ -79,6 +79,45 @@ extension VariantDatabase {
         """
     }
 
+    /// The `db_metadata` row that marks `_high_impact` and `_tok_bio_hi` as built with the list-member match. A database
+    /// imported before the stamp holds both tables built with `value = 'HIGH'` and has no row.
+    static let highImpactMatchKey = "high_impact_match"
+    static let highImpactMatchStamp = "member"
+    static let highImpactTableNames: Set<String> = ["_high_impact", "_tok_bio_hi"]
+    static let highImpactMatchStampSQL =
+        "INSERT OR REPLACE INTO db_metadata VALUES ('\(highImpactMatchKey)', '\(highImpactMatchStamp)')"
+
+    /// `indexSQL` and, for a High Impact table, the statement that writes the stamp right after the index.
+    static func stampedIndexSQL(_ indexSQL: String, table: String) -> String {
+        highImpactTableNames.contains(table) ? "\(indexSQL); \(highImpactMatchStampSQL)" : indexSQL
+    }
+
+    /// Whether the High Impact tables of this database were built with the list-member match.
+    var highImpactTablesAreStamped: Bool {
+        guard let db else { return false }
+        return Self.readMetadataValue(db, key: Self.highImpactMatchKey) == Self.highImpactMatchStamp
+    }
+
+    /// Writes the stamp after a High Impact table was built on a writable handle.
+    func stampHighImpactMatch() {
+        guard let db, !isReadOnly else { return }
+        Self.insertMetadataRow(db, key: Self.highImpactMatchKey, value: Self.highImpactMatchStamp, replace: true)
+    }
+
+    /// Drops both High Impact tables and marks them unready. Returns false when a drop fails, so that no builder stamps
+    /// a table an earlier release built.
+    @discardableResult
+    func dropHighImpactTables() -> Bool {
+        guard let db else { return false }
+        let dropped = Self.highImpactTableNames.sorted().allSatisfy {
+            sqlite3_exec(db, "DROP TABLE IF EXISTS \($0)", nil, nil, nil) == SQLITE_OK
+        }
+        cacheLock.withLock { _highImpactCacheReady = false }
+        _tokenCacheState["highImpact"] = nil
+        _tokenCacheState["highImpactBiological"] = nil
+        return dropped
+    }
+
     /// Creates a temp table of variant IDs with IMPACT=HIGH for instant filtering.
     /// Runs once per connection; protected by the progress handler timeout.
     /// Returns true if the cache was created successfully.
@@ -86,6 +125,12 @@ extension VariantDatabase {
     public func warmHighImpactCache(timeoutSeconds: TimeInterval = 30) -> Bool {
         let alreadyReady = cacheLock.withLock { _highImpactCacheReady }
         guard let db, !alreadyReady else { return alreadyReady }
+
+        // An earlier release built these tables with `value = 'HIGH'` and wrote no stamp. A writable handle replaces them
+        // and a read-only handle never writes, so its filters stay on `variant_info`.
+        if !highImpactTablesAreStamped {
+            guard !isReadOnly, dropHighImpactTables() else { return false }
+        }
 
         // Install a timeout so the initial scan doesn't block forever.
         let ctx = QueryProgressContext(timeoutSeconds: timeoutSeconds)
@@ -137,6 +182,7 @@ extension VariantDatabase {
         }
         // Create index on the temp table for fast JOINs.
         sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS _idx_hi ON _high_impact(variant_id)", nil, nil, nil)
+        stampHighImpactMatch()
         cacheLock.withLock { _highImpactCacheReady = true }
 
         var countStmt: OpaquePointer?
@@ -288,10 +334,14 @@ extension VariantDatabase {
         guard let db else { return _tokenCacheState }
 
         let defs = tokenDefinitions(availableInfoKeys: availableInfoKeys)
+        // Tables an earlier release built carry no stamp and hold the strict match, so a writable handle replaces both
+        // before any is built. When the replacement fails, `_tok_bio_hi` is neither built nor stamped.
+        let highImpactTablesAreCurrent = isReadOnly || highImpactTablesAreStamped || dropHighImpactTables()
 
         for def in defs {
             // Skip if already cached (e.g. loaded from persistent table)
             if _tokenCacheState[def.name]?.ready == true { continue }
+            if def.tableName == "_tok_bio_hi", !highImpactTablesAreCurrent { continue }
 
             // Install per-token timeout
             let ctx = QueryProgressContext(timeoutSeconds: timeoutPerToken)
@@ -339,7 +389,7 @@ extension VariantDatabase {
 
             // Create index on the persistent table
             let indexSQL = "CREATE INDEX IF NOT EXISTS _idx_\(def.tableName) ON \(def.tableName)(\(def.idColumn))"
-            sqlite3_exec(db, indexSQL, nil, nil, nil)
+            sqlite3_exec(db, Self.stampedIndexSQL(indexSQL, table: def.tableName), nil, nil, nil)
 
             // Count rows
             var count = 0
@@ -395,7 +445,11 @@ extension VariantDatabase {
             ("highImpact", "_high_impact"),
         ]
 
+        // Tables built before the stamp hold the strict `value = 'HIGH'` rows, so a database without the stamp keeps both
+        // unready and its filters read `variant_info`.
+        let highImpactStamped = highImpactTablesAreStamped
         for (name, tableName) in knownTables {
+            if Self.highImpactTableNames.contains(tableName), !highImpactStamped { continue }
             // Check if the table exists.
             var checkStmt: OpaquePointer?
             let checkSQL = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
