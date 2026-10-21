@@ -1,4 +1,4 @@
-// WorkflowOperationExecutionServiceCancelTests.swift - A cancel of a begin site's row ends the row and leaves no process
+// WorkflowOperationExecutionServiceCancelReplayTests.swift - A cancel of a begin site's row ends the row and leaves no process
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -17,7 +17,7 @@ import XCTest
 /// Operations panel's Cancel button does. It then asserts the end the site's own code sets for a cancelled row,
 /// that the site left no output bundle, and that neither process of the stand-in outlives the cancel.
 @MainActor
-final class WorkflowOperationExecutionServiceCancelTests: XCTestCase {
+final class WorkflowOperationExecutionServiceCancelReplayTests: XCTestCase {
 
     // MARK: - The stand-in lungfish-cli
 
@@ -141,7 +141,7 @@ final class WorkflowOperationExecutionServiceCancelTests: XCTestCase {
         }
         if !returned {
             XCTFail("the site did not return within \(CLISIGTERMHarness.processWait) of the cancel", file: file, line: line)
-            for process in processes { kill(process, SIGKILL) }
+            for process in processes where process > 1 { kill(process, SIGKILL) }
         }
         _ = await run.result
 
