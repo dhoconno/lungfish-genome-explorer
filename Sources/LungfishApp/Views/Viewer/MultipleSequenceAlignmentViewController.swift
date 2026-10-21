@@ -2134,7 +2134,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         let updatedBundle = try bundle.appendingAnnotations(
             [annotation],
             editDescription: "Add annotation from MSA selection",
-            argv: ["lungfish-gui", "msa", "add-annotation", bundle.url.path, "--row", rowID, "--columns", "\(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"]
+            argv: [LungfishAppIdentity.recordedToolName, "msa", "add-annotation", bundle.url.path, "--row", rowID, "--columns", "\(columnRange.lowerBound + 1)-\(columnRange.upperBound + 1)"]
         )
         self.bundle = updatedBundle
         annotationStore = try updatedBundle.loadAnnotationStore()
@@ -2195,7 +2195,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         let updatedBundle = try bundle.appendingAnnotations(
             projected,
             editDescription: "Apply MSA annotation to selected rows",
-            argv: ["lungfish-gui", "msa", "apply-annotation", bundle.url.path]
+            argv: [LungfishAppIdentity.recordedToolName, "msa", "apply-annotation", bundle.url.path]
         )
         self.bundle = updatedBundle
         annotationStore = try updatedBundle.loadAnnotationStore()
