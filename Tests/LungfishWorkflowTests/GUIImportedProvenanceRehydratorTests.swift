@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class GUIImportedProvenanceRehydratorTests: XCTestCase {
@@ -69,7 +70,7 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         XCTAssertEqual(rehydrated.workflowName, "CLI FASTQ Download")
         XCTAssertEqual(rehydrated.output?.path, finalFASTQ.path)
         XCTAssertEqual(rehydrated.outputs.map(\.path), [finalFASTQ.path])
-        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["fastp", "lungfish-app"])
+        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["fastp", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(rehydrated.steps[0].outputs.map(\.path), [finalFASTQ.path])
         XCTAssertEqual(rehydrated.steps[0].outputs.first?.originPath, stagedFASTQ.path)
         XCTAssertEqual(rehydrated.steps[0].outputs.first?.sourceProvenancePath, sourceSidecarURL.path)
@@ -88,11 +89,13 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         )
         XCTAssertEqual(rehydrated.steps[0].peakMemoryBytes, 4242)
         XCTAssertTrue(rehydrated.steps[1].argv.contains("gui-import"))
+        XCTAssertEqual(rehydrated.steps[1].argv.first, LungfishAppIdentity.recordedToolName)
+        XCTAssertTrue(ProvenanceAppStep.isAppStep(rehydrated.steps[1].argv))
         XCTAssertEqual(rehydrated.steps[1].outputs.map(\.path), [finalFASTQ.path])
         XCTAssertFalse(rehydrated.files.contains { $0.role == .output && $0.path == stagedFASTQ.path })
 
         let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
-        XCTAssertEqual(stored.steps.map(\.toolName), ["fastp", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["fastp", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(stored.output?.path, finalFASTQ.path)
         XCTAssertEqual(stored.steps[0].resolvedOptions["recipeInput"]?.fileValue?.path, finalFASTQ.path)
         XCTAssertEqual(stored.steps[0].runtimeIdentity?.condaEnvironment, "fastp")
@@ -142,7 +145,7 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
             to: destinationBundle
         )
 
-        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(rehydrated.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(rehydrated.output?.path, destinationPayload.path)
         XCTAssertEqual(rehydrated.outputs.map(\.path), [destinationPayload.path])
         XCTAssertEqual(rehydrated.steps[0].outputs.map(\.path), [destinationPayload.path])
@@ -152,7 +155,7 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
 
         let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: destinationBundle))
         XCTAssertEqual(stored.output?.path, destinationPayload.path)
-        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
     }
 
     func testImportedSinglePayloadFromMultiOutputSidecarDoesNotRequireSiblingOutputsToBeCopied() throws {
@@ -214,7 +217,7 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
 
         let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
         XCTAssertEqual(stored.outputs.map(\.path), [copiedDestination.path])
-        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
     }
 
     func testImportedFileSidecarPreservesCLIProvenanceWithoutOverwritingBundleRoot() throws {
@@ -282,7 +285,7 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         XCTAssertEqual(stored.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: attachedFASTQ))
         XCTAssertEqual(stored.outputs.map(\.path), [attachedFASTQ.path])
         XCTAssertEqual(stored.steps[0].outputs.map(\.path), [attachedFASTQ.path])
-        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(stored.steps[0].durableReplayArgv?.last, attachedFASTQ.path)
         XCTAssertFalse(stored.files.contains { $0.role == .output && $0.path == siblingFASTQ.path })
         XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), Data("{\"root\":true}\n".utf8))

@@ -81,7 +81,7 @@ final class AttachmentImportProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.output?.originPath, sourceURL.path)
         XCTAssertEqual(envelope.output?.sourceProvenancePath, sourceSidecarURL.path)
         XCTAssertEqual(envelope.output?.checksumSHA256, try ProvenanceFileHasher.sha256(of: attachedURL))
-        XCTAssertEqual(envelope.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(envelope.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(try Data(contentsOf: rootProvenanceURL), Data("{\"root\":true}\n".utf8))
         XCTAssertEqual(store.attachments.map(\.filename), ["reads.fastq"])
     }

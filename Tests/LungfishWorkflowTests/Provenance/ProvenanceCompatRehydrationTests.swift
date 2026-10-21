@@ -223,8 +223,8 @@ struct ProvenanceCompatRehydrationTests {
         )
 
         let importStep = try #require(rehydrated.steps.last)
-        #expect(importStep.toolName == "lungfish-app")
-        #expect(Array(importStep.argv.prefix(2)) == ["lungfish-app", "gui-import"])
+        #expect(importStep.toolName == LungfishAppIdentity.recordedToolName)
+        #expect(Array(importStep.argv.prefix(2)) == [LungfishAppIdentity.recordedToolName, "gui-import"])
         #expect(rehydrated.toolName == sourceEnvelope.toolName)
         #expect(rehydrated.toolVersion == sourceEnvelope.toolVersion)
         #expect(rehydrated.exitStatus == sourceEnvelope.exitStatus)

@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishApp
 import LungfishIO
 import LungfishWorkflow
@@ -155,7 +156,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         SidebarViewController().rehydrateScientificProvenance(from: sourceBundle, to: destinationBundle)
 
         let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: destinationBundle))
-        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", LungfishAppIdentity.recordedToolName])
         XCTAssertEqual(stored.output?.path, destinationPayload.path)
         XCTAssertEqual(stored.steps[0].outputs.map(\.path), [destinationPayload.path])
         XCTAssertEqual(stored.steps[0].argv.last, sourceBundle.path)

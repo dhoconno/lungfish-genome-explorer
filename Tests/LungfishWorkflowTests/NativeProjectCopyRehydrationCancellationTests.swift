@@ -41,7 +41,7 @@ final class NativeProjectCopyRehydrationCancellationTests: XCTestCase {
         ))
         XCTAssertEqual(record.output?.path, published.appendingPathComponent("padding.bin").path, "the record names the copy")
         XCTAssertEqual(record.argv.first, "source-tool", "the copy keeps the command of the source run. \(record.argv)")
-        XCTAssertTrue(record.steps.contains { $0.toolName == "lungfish-app" }, "the rehydrator added the import step")
+        XCTAssertTrue(record.steps.contains { $0.toolName == LungfishAppIdentity.recordedToolName }, "the copy added the import step")
     }
 
     func testACheckThatThrowsOnceTheBundleIsPublishedStopsTheRehydrationAndRollsTheCopyBack() throws {

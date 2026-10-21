@@ -123,7 +123,7 @@ final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {
                 ProvenanceWriter.bundleOutputSidecarURL(for: copy, inBundle: project), "\(relativePath) has a place in the project's records"
             )
             let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecar), "\(relativePath) was rehydrated by the schema-aware path")
-            XCTAssertEqual(record.steps.last?.toolName, "lungfish-app", "\(relativePath) ends in the import step")
+            XCTAssertEqual(record.steps.last?.toolName, LungfishAppIdentity.recordedToolName, "\(relativePath) ends in the import step")
             let named = record.outputs.first { BuiltResultRecordChecks.resolved($0.path) == BuiltResultRecordChecks.resolved(copy.path) }
             XCTAssertNotNil(named, "\(relativePath) names its copy")
             XCTAssertEqual(named?.checksumSHA256, ProvenanceRecorder.sha256(of: copy), "\(relativePath) names its copy with the digest the copy has")
