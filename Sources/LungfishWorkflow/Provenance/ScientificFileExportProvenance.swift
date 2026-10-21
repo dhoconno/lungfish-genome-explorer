@@ -315,7 +315,7 @@ public enum ScientificFileExportProvenance {
         let envelope = envelope(
             for: request.completedNow(), inputDescriptors: inputDescriptors, outputDescriptors: outputDescriptors
         )
-        try ProvenanceWriter(signingProvider: nil)
+        try ProvenanceWriter()
             .write(envelope, toSidecar: stagedURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
         _ = try PortableRename.exclusive(stagedURL, to: folderURL)
         return folderURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)

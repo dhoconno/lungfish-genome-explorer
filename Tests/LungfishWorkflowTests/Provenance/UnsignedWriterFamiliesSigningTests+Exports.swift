@@ -10,6 +10,7 @@
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -64,6 +65,28 @@ extension UnsignedWriterFamiliesSigningTests {
 
         XCTAssertEqual(result.provenanceURL, ProvenanceRecorder.fileSidecarURL(for: outputURL))
         try assertSignedOnce(result.provenanceURL, "a 12S result export")
+    }
+
+    /// The bulk form of `bundle export-graphic` (lane 13.30) writes its one record into a staged folder and renames the
+    /// folder whole, as the primer order export does, so the pair made in the stage verifies after the rename.
+    func testBulkFigureExportFolderRecordIsSignedAndVerifiesAfterTheFolderIsRenamedWhole() throws {
+        let restoreKey = try useThrowawayKey()
+        defer { restoreKey() }
+
+        let folder = root.appendingPathComponent("figures", isDirectory: true)
+        let request = ScientificFileExportProvenance.Request.cliLeaf(
+            workflowName: "lungfish bundle export-graphic", sourceURLs: [], outputURL: folder,
+            outputFormat: FileFormat(rawValue: "png"), argv: ["lungfish-cli", "bundle", "export-graphic"],
+            resolved: [:], runClock: ProvenanceRunClock()
+        )
+
+        let record = try ScientificFileExportProvenance.writeFolderAtomically(request) { staged in
+            try Data("figure".utf8).write(to: staged.appendingPathComponent("a.png"))
+            return ["a.png"]
+        }
+
+        XCTAssertEqual(record.deletingLastPathComponent().standardizedFileURL, folder.standardizedFileURL)
+        try assertSignedOnce(record, "a bulk figure export")
     }
 
     /// A synthetic saved Primer3 analysis on one FASTA template, written by the real bundle writer, as
