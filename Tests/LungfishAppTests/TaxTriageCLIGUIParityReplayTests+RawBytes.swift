@@ -313,12 +313,15 @@ enum TaxTriageParityRawBytes {
 
     /// Each case's record SHA-256 after `maskedRecordText` by the record's key, the same on C and C', taken at 0da983f38
     /// on the stand-in, whose records BIO found equal to those of 8aa9193e9 under the same masks.
+    /// X1 and X3 moved by lane 13.17 A49-ZSTD (efc9ff3da, 65cc1d641, landing 13). In every moved record the only
+    /// changed field is `managedToolLockSHA256`, the SHA-256 of third-party-tools-lock.json, 7e812c49 at 2d459d065 and
+    /// ad8a24e9 since the lock names zstd and xz.
     static let pinnedRecords: [TaxTriageParityCase: [String: String]] = [
         .x1: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "8f1e952a93ea40058258d7623be572b29020dbb9a0a3ff78ea7e0faeacf6a984",
+                "e0d550813431c3096bb31e100299971a1203e51f2e246c181cfe6875577accb3",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "907417217c22370e18018b86b711a712e263ff6d1de117cb1b1a292712021fd9",
+                "d30bc9c459ec5db39a44a725c86841fdc770d5b9df667abdd478f6de8460bc1e",
             "Project.lungfish/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq/analyses-manifest.json":
                 "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
         ],
@@ -332,13 +335,13 @@ enum TaxTriageParityRawBytes {
         ],
         .x3: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "c6fb402b57b3d36587946d99120141ae0cceaa90442f04d8f02a65a5038e54e7",
+                "4a9f4c98afb6631f0d1532ead10a3252ceadc67d8a032518013d9ccd46c7e27c",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "1e129d7f36d9c348cfa08d89c6a905dd5b9f2d5d72fd5531730fe3281aa36338",
+                "7fe1dfbdc35a53ee4e8f7fb4478a31344ca6bbec661cab7c883298d5512cdfec",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "ad13d8bd7b6132068081d4ab6be234b5aa60fb0229eabefde0311ea098551fad",
+                "ce944526147992408574d26b955e5aa4369a53bd1a32b09da742695000de9185",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "ae1981ae19b15cc5e50652befcc37fc9425d3c4c1f959e399b36208e76f3b9b1",
+                "8c0141f9355e808b46f16c1e5605ef2d7a6d928cfde48c42d4331fc855fcee12",
             "Project.lungfish/Imports/two-samples/negative-control.lungfishfastq/analyses-manifest.json":
                 "138736c54fc2ddfa447d5cb959990857df0d5954edbe87e342955c3109968d15",
             "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
