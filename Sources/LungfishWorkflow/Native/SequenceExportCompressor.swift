@@ -76,34 +76,6 @@ package enum SequenceExportCompressor {
         }
     }
 
-    /// Where zstd is looked for, in this order. macOS ships none in /usr/bin, which is the only place the export
-    /// looked before this lane, so the places Homebrew installs it follow. `/usr/local/bin` is Homebrew's folder on
-    /// an Intel Mac. The folder of a Homebrew on Apple silicon comes from the `HOMEBREW_PREFIX` variable when the
-    /// environment carries it (`brew shellenv` sets it), because no source file names that prefix
-    /// (ReleaseBuildConfigurationTests polices it). A zstd that only the PATH holds is not found. This is a
-    /// stopgap until zstd is a managed tool.
-    package static var zstdCandidates: [String] {
-        zstdSearchList(homebrewPrefix: getenv("HOMEBREW_PREFIX").map { String(cString: $0) })
-    }
-
-    /// The places ``zstdCandidates`` lists for a given value of `HOMEBREW_PREFIX`, with the environment left out so
-    /// a test can drive it. A value that is not an absolute path is ignored.
-    package static func zstdSearchList(homebrewPrefix: String?) -> [String] {
-        var paths = ["/usr/bin/zstd"]
-        if var prefix = homebrewPrefix, prefix.hasPrefix("/") {
-            while prefix.count > 1, prefix.hasSuffix("/") { prefix.removeLast() }
-            paths.append(prefix == "/" ? "/bin/zstd" : prefix + "/bin/zstd")
-        }
-        paths.append("/usr/local/bin/zstd")
-        var seen = Set<String>()
-        return paths.filter { seen.insert($0).inserted }
-    }
-
-    /// The first zstd in `candidates` that can run, or nil.
-    package static func zstdExecutable(candidates: [String] = zstdCandidates) -> URL? {
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0) }.map { URL(fileURLWithPath: $0) }
-    }
-
     /// Writes `source` compressed as `destination`, swapping out a regular file the name holds. `source` stays.
     /// A cancel of the calling task stops the compressor and throws `CancellationError`.
     ///
