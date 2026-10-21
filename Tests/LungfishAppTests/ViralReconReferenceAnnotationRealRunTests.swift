@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
@@ -30,13 +31,24 @@ import XCTest
 /// shell sets `CLAUDECODE`, which made Nextflow print an agent log with no
 /// banner and no `Launching` line (V3-BIO 2.4), so a green run from such a
 /// shell also shows that the launch drops that switch.
+///
+/// Every precondition goes through `ToolAvailability` (Phase 2.13, lane 13.20). A Mac without the two variables, the
+/// managed Nextflow or a Docker that answers `docker info` skips, and `LUNGFISH_REQUIRE_TOOLS=1` turns each of those
+/// skips into a failure, so a regression cannot hide behind a bare skip. The probe never starts Docker Desktop.
 @MainActor
 final class ViralReconReferenceAnnotationRealRunTests: XCTestCase {
     func testAppLaunchPathCompletesOnAReferenceBundleThatCarriesGFF3() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let projectPath = environment["LUNGFISH_VIRALRECON_REAL_RUN_PROJECT"],
               environment["LUNGFISH_CLI_PATH"] != nil else {
-            throw XCTSkip("Set LUNGFISH_VIRALRECON_REAL_RUN_PROJECT and LUNGFISH_CLI_PATH to run Viral Recon for real")
+            try ToolAvailability.skipOrFail("Set LUNGFISH_VIRALRECON_REAL_RUN_PROJECT and LUNGFISH_CLI_PATH to run Viral Recon for real")
+        }
+        _ = try await ToolAvailability.require("nextflow", environment: "nextflow")
+        guard let dockerExecutable = LiveNextflowDocker.locateExecutable() else {
+            try ToolAvailability.skipOrFail("docker is not installed on this Mac.")
+        }
+        if let problem = LiveNextflowDocker.system(executable: dockerExecutable).probe().problem {
+            try ToolAvailability.skipOrFail(problem)
         }
         let project = URL(fileURLWithPath: projectPath, isDirectory: true).standardizedFileURL
         let referenceBundle = ViralReconReferenceCatalog.bundleURL(inProject: project)

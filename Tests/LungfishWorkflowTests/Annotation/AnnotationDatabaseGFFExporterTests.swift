@@ -278,11 +278,11 @@ struct AnnotationDatabaseGFFExporterTests {
             // source, is `.` in the export and `Genbank` in the fixture, and neither tool reads it.
             #expect([a[0]] + Array(a[2...7]) == [e[0]] + Array(e[2...7]), "line \(index + 1)")
 
-            // Column 9 is NCBI's attributes plus the exporter's own `lungfish_gff_phase`, which repeats column 8 on
-            // CDS lines and appears nowhere else.
-            var attributes = AnnotationDatabase.parseAttributes(a[8])
-            let internalPhase = attributes.removeValue(forKey: "lungfish_gff_phase")
-            #expect(internalPhase == (a[2] == "CDS" ? a[7] : nil), "line \(index + 1)")
+            // Column 9 is NCBI's attributes and nothing else. The import's internal `lungfish_gff_phase` key stays in
+            // the database and never reaches the file (lane 13.20 M1).
+            let attributes = AnnotationDatabase.parseAttributes(a[8])
+            #expect(attributes["lungfish_gff_phase"] == nil, "line \(index + 1)")
+            #expect(!a[8].contains("lungfish_gff_phase"), "line \(index + 1)")
             #expect(attributes == AnnotationDatabase.parseAttributes(e[8]), "line \(index + 1)")
         }
 
@@ -384,7 +384,7 @@ struct AnnotationDatabaseGFFExporterTests {
         #expect(Set(features.compactMap(\.id)) == ["cycle-a", "cycle-b", "self-parent"])
     }
 
-    @Test("pins column 9 of a CDS imported with a phase, with the internal phase key present (lane 13.20 M0)")
+    @Test("pins column 9 of a CDS imported with a phase, without the internal phase key and with column 8 as before (lane 13.20 M0, flipped by M1)")
     func pinsColumnNineOfACDSImportedWithAPhase() async throws {
         let exported = try await exportedGFF3(
             ofGFF3: """
@@ -403,9 +403,33 @@ struct AnnotationDatabaseGFFExporterTests {
         }
         #expect(lines == [
             ["gene", "100", ".", "ID=gene-N;Name=N;gene=N"],
-            ["CDS", "100", "0", "ID=cds-N;Name=N;Parent=gene-N;gene=N;lungfish_gff_phase=0;product=nucleocapsid phosphoprotein%3B test"],
-            ["CDS", "1000", "2", "ID=cds-X;lungfish_gff_phase=2"],
-            ["CDS", "1500", "1", "lungfish_gff_phase=1"],
+            ["CDS", "100", "0", "ID=cds-N;Name=N;Parent=gene-N;gene=N;product=nucleocapsid phosphoprotein%3B test"],
+            ["CDS", "1000", "2", "ID=cds-X"],
+            ["CDS", "1500", "1", "ID=CDS"],
         ])
+    }
+
+    @Test("column 9 drops only the internal phase pair, wherever it sits, and keeps every other pair byte for byte (lane 13.20 M1)")
+    func columnNineDropsOnlyTheInternalPhasePair() {
+        func record(_ attributes: String?) -> AnnotationDatabaseRecord {
+            AnnotationDatabaseRecord(
+                name: "cds-N", type: "CDS", chromosome: "chr1", start: 0, end: 30, strand: "+", attributes: attributes
+            )
+        }
+        let cases: [(stored: String?, column9: String)] = [
+            (nil, "ID=cds-N"),
+            ("ID=cds-N;Name=N", "ID=cds-N;Name=N"),
+            ("lungfish_gff_phase=1;ID=cds-N;Name=N", "ID=cds-N;Name=N"),
+            ("ID=cds-N;lungfish_gff_phase=1;Name=N", "ID=cds-N;Name=N"),
+            ("ID=cds-N;Name=N;lungfish_gff_phase=1", "ID=cds-N;Name=N"),
+            ("ID=cds-N;note=a%3Bb%2Cc%3Dd;lungfish_gff_phase=2;product=p q", "ID=cds-N;note=a%3Bb%2Cc%3Dd;product=p q"),
+            ("lungfish_gff_phase=0", "ID=cds-N"),
+            ("lungfish_gff_phase=0;", "ID=cds-N"),
+            ("x_lungfish_gff_phase=0;lungfish_gff_phase_x=1;ID=cds-N", "x_lungfish_gff_phase=0;lungfish_gff_phase_x=1;ID=cds-N"),
+            ("gene_id \"G\"; lungfish_gff_phase \"1\"; transcript_id \"T\"", "gene_id \"G\"; transcript_id \"T\""),
+        ]
+        for (stored, column9) in cases {
+            #expect(AnnotationDatabaseGFFExporter.columnNine(for: record(stored)) == column9, "stored \(stored ?? "nil")")
+        }
     }
 }
