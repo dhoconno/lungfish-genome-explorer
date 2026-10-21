@@ -32,7 +32,10 @@ extension Kraken2Command {
     struct ExportTableSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "table",
-            abstract: "Write the taxonomy table of a Kraken2 result as TSV or CSV with provenance"
+            abstract: "Write the taxonomy table of a Kraken2 result as TSV or CSV with provenance",
+            discussion: "Clade % and Direct % give each row's reads as a percent of all reads of its sample, "
+                + "unclassified reads included. With more than one sample, each sample's row is followed by its taxa "
+                + "and then its own unclassified row."
         )
 
         @Argument(help: "The Kraken2 result the app shows. Pass kraken2.sqlite, classification-result.json or the result folder")

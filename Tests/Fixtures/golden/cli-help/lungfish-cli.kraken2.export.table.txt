@@ -1,6 +1,10 @@
 OVERVIEW: Write the taxonomy table of a Kraken2 result as TSV or CSV with
 provenance
 
+Clade % and Direct % give each row's reads as a percent of all reads of its
+sample, unclassified reads included. With more than one sample, each sample's
+row is followed by its taxa and then its own unclassified row.
+
 USAGE: lungfish-cli kraken2 export table [<options>] <source-path> --output-format <output-format> --output <output>
 
 ARGUMENTS:
