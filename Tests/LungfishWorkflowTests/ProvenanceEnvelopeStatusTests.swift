@@ -572,7 +572,7 @@ struct ProvenanceEnvelopeStatusTests {
             to: attachedFASTQ
         )
         #expect(imported.status == .cancelled, "imported file sidecar")
-        #expect(imported.steps.map(\.toolName) == ["lungfish-cli", "lungfish-app"], "the import step was appended")
+        #expect(imported.steps.map(\.toolName) == ["lungfish-cli", LungfishAppIdentity.recordedToolName], "the import step was appended")
         let importedStored = try #require(try ProvenanceEnvelopeReader.load(
             fromSidecar: ProvenanceRecorder.fileSidecarURL(for: attachedFASTQ)
         ))

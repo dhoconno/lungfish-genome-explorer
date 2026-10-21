@@ -167,7 +167,7 @@ final class ProvenanceStepCopySitesTests: XCTestCase {
         ])
         XCTAssertEqual(copiedStep.durableReplayArgv?.last, destination.path)
         XCTAssertEqual(Facts.filePath(of: "input", in: copiedStep), destination.path, "the option follows the replay command")
-        XCTAssertEqual(copy.steps.last?.toolName, "lungfish-app", "the import step follows")
+        XCTAssertEqual(copy.steps.last?.toolName, LungfishAppIdentity.recordedToolName, "the import step follows")
         Self.assertKeepsTheRecord(copy, of: source, nestedFileNow: destination)
     }
 
