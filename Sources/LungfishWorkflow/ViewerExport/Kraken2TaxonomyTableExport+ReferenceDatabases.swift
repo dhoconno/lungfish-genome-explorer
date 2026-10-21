@@ -46,9 +46,10 @@ extension Kraken2TaxonomyTableExport {
     ///
     /// The sidecar form reads the sidecar the leaf already names as an input, so it adds no file. The database form
     /// reads the batch manifest, which gives each sample's result folder, and one `classification-result.json` for
-    /// each picked sample. A caller keeps only the files that exist. A sample whose result cannot be read keeps the
-    /// name and version of the batch manifest when the folder has one and gets an unknown digest with its reason. Only
-    /// the configuration of each sidecar is decoded, so no report is read.
+    /// each picked sample. With no manifest, a database that holds one sample reads the sidecar beside it. A caller
+    /// keeps only the files that exist. A sample whose result cannot be read keeps the name and version of the batch
+    /// manifest when the folder has one and gets an unknown digest with its reason. Only the configuration of each
+    /// sidecar is decoded, so no report is read.
     public static func referenceDatabases(
         source: Source,
         sampleIds: [String]
@@ -68,6 +69,12 @@ extension Kraken2TaxonomyTableExport {
                     let sidecarURL = folder
                         .appendingPathComponent(record.resultDirectory, isDirectory: true)
                         .appendingPathComponent(sidecarFileName)
+                    inputs.append(sidecarURL)
+                    config = classificationConfig(at: sidecarURL)
+                } else if manifest == nil, sampleIds.count == 1 {
+                    // A database built for one run sits beside that run's sidecar, and the viewer reads it there
+                    // (ViewerViewController+Taxonomy.swift:432-438).
+                    let sidecarURL = folder.appendingPathComponent(sidecarFileName)
                     inputs.append(sidecarURL)
                     config = classificationConfig(at: sidecarURL)
                 }

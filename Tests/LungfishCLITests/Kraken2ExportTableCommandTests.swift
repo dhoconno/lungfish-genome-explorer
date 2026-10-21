@@ -515,6 +515,38 @@ final class Kraken2ExportTableCommandTests: XCTestCase {
         }
     }
 
+    /// A database built for one run sits in that run's folder beside the run's `classification-result.json`, with no
+    /// batch manifest. The record reads the name, version and digest from the sidecar beside the database, and lists
+    /// that sidecar among the inputs.
+    func testADatabaseBuiltForOneRunRecordsTheSidecarBesideIt() throws {
+        let sidecar = try writeSampleResult(
+            "sample-C", in: folder.appendingPathComponent("refs-single", isDirectory: true),
+            databaseName: "Viral", databaseVersion: "2024-09-04", databaseDigest: "sha256:viral-digest"
+        )
+        let singleRun = sidecar.deletingLastPathComponent()
+        try Kraken2Database.create(
+            at: singleRun.appendingPathComponent("kraken2.sqlite"),
+            rows: [
+                Kraken2ClassificationRow(
+                    sample: "sample-C", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root",
+                    readsDirect: 30, readsClade: 70, percentage: 87.5, parentTaxId: nil, depth: 0
+                ),
+                Kraken2ClassificationRow(
+                    sample: "sample-C", taxonName: "Species C", taxId: 40, rank: "S", rankDisplayName: "Species",
+                    readsDirect: 40, readsClade: 40, percentage: 50, parentTaxId: 1, depth: 1
+                ),
+            ],
+            metadata: ["total_reads_sample-C": "80", "unclassified_reads_sample-C": "10"]
+        )
+        let output = folder.appendingPathComponent("refs-single.tsv")
+        _ = try command(leafArguments(singleRun, output: output)).export()
+        let envelope = try Self.envelope(of: output)
+        XCTAssertEqual(try Self.referenceDatabases(of: envelope), [
+            ["sample": "sample-C", "name": "Viral", "version": "2024-09-04", "digest": "sha256:viral-digest"],
+        ])
+        XCTAssertEqual(Self.inputNames(envelope), ["classification-result.json", "kraken2.sqlite"])
+    }
+
     /// A sample whose result holds no digest gets `unknown` with the reason, on both forms. So does a sample whose
     /// result is not in the folder, which keeps the name and version the batch manifest gives and has none without a
     /// manifest.
