@@ -89,7 +89,7 @@ extension MainSplitViewController {
                         try Task.checkCancellation()
                         _ = try await PrimerOrderExportService().export(selection: draft.selection, metadata: metadata,
                             destinationURL: destination.url,
-                            invocationArgv: PrimerOrderExport.primerOrderExportProvenanceArgv(draft: draft, metadata: metadata,
+                            invocationArgv: Self.primerOrderExportProvenanceArgv(draft: draft, metadata: metadata,
                                 destinationURL: destination.url),
                             progress: { fraction, message in
                                 Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
@@ -185,7 +185,7 @@ extension MainSplitViewController {
                         _ = try await PrimerAnalysisSelectionExportService().export(
                             analysisURL: analysisURL, selection: selection, kind: kind,
                             destinationURL: destination.url,
-                            invocationArgv: PrimerSelectionExport.primerSelectionExportProvenanceArgv(analysisURL: analysisURL,
+                            invocationArgv: Self.primerSelectionExportProvenanceArgv(analysisURL: analysisURL,
                                 selection: selection, kind: kind, destinationURL: destination.url),
                             progress: { fraction, message in
                                 Task { @MainActor in center.updateWithLog(id: id, progress: fraction, detail: message) }
@@ -262,10 +262,34 @@ extension MainSplitViewController {
         metadata: PrimerOrderMetadata,
         destinationURL: URL
     ) -> String {
-        OperationCenter.buildCLICommand(
+        let invocation = primerOrderExportInvocation(draft: draft, metadata: metadata, destinationURL: destinationURL)
+        return OperationCenter.buildCLICommand(
             subcommand: "primers analysis export-order",
-            args: PrimerOrderExport.primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL)
+            args: Array(invocation.arguments().dropFirst(invocation.commandPath.count))
         )
+    }
+
+    /// The leaf's invocation for a draft. It is the one builder of the row's command, the argv the runner runs and the
+    /// argv the leaf records (Phase 2.13 lane 13.43, `PrimerOrderExport.invocation`).
+    static func primerOrderExportInvocation(
+        draft: PrimerOrderDraft,
+        metadata: PrimerOrderMetadata,
+        destinationURL: URL
+    ) -> ViewerExportInvocation {
+        PrimerOrderExport.invocation(
+            analysisURL: draft.selection.analysisURL, selection: draft.selection, metadata: metadata,
+            outputURL: destinationURL
+        )
+    }
+
+    /// The argv the order's provenance records. It is the `lungfish-cli primers analysis export-order` command the row
+    /// records, as words, for every order including one from a filtered PrimalScheme view.
+    static func primerOrderExportProvenanceArgv(
+        draft: PrimerOrderDraft,
+        metadata: PrimerOrderMetadata,
+        destinationURL: URL
+    ) -> [String] {
+        primerOrderExportInvocation(draft: draft, metadata: metadata, destinationURL: destinationURL).canonicalArgv()
     }
 
     /// The arguments after `lungfish-cli primers scheme-from-analysis` that
@@ -339,10 +363,49 @@ extension MainSplitViewController {
     ) -> String {
         OperationCenter.buildCLICommand(
             subcommand: "primers analysis export-selection",
-            args: PrimerSelectionExport.primerSelectionExportCLIArguments(
+            args: primerSelectionExportCLIArguments(
                 analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
             )
         )
+    }
+
+    /// The leaf's invocation for one saved selection, the one builder of the row's command, the argv the runner runs
+    /// and the argv the leaf records (Phase 2.13 lane 13.43, `PrimerSelectionExport.invocation`).
+    static func primerSelectionExportInvocation(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> ViewerExportInvocation {
+        PrimerSelectionExport.invocation(
+            analysisURL: analysisURL, selection: selection, kind: kind, outputURL: destinationURL
+        )
+    }
+
+    /// The arguments after `lungfish-cli primers analysis export-selection`.
+    static func primerSelectionExportCLIArguments(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> [String] {
+        let invocation = primerSelectionExportInvocation(
+            analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+        )
+        return Array(invocation.arguments().dropFirst(invocation.commandPath.count))
+    }
+
+    /// The argv the provenance of a primer FASTA bundle or reference amplicon export records, which is the command the
+    /// row records, as words.
+    static func primerSelectionExportProvenanceArgv(
+        analysisURL: URL,
+        selection: PrimerAnalysisExportSelection,
+        kind: PrimerAnalysisExportKind,
+        destinationURL: URL
+    ) -> [String] {
+        primerSelectionExportInvocation(
+            analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
+        ).canonicalArgv()
     }
 
     /// Registers the primer selection export row ("Save Primer FASTA Bundle" or "Extract Reference

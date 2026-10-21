@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishCLI
 @testable import LungfishWorkflow
@@ -81,6 +82,7 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
     let amplicon = try XCTUnwrap(target.intervals.first)
 
     let pool = fixture.root.appendingPathComponent("pool-one.lungfishref")
+    let expectedPool = pool.standardizedFileURL.path
     let poolCommand = try PrimerAnalysisExportSelectionCommand.parse([fixture.bundle.path, "--kind", "primer-fasta",
       "--source-result-id", target.sourceResultID, "--pool", "1", "--output", pool.path])
     try await poolCommand.run()
@@ -91,7 +93,11 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
     XCTAssertEqual(prepared.records.count, 3)
     let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: pool))
     XCTAssertEqual(envelope.workflowName, "lungfish.primer-analysis.selection-export")
-    XCTAssertEqual(envelope.argv, CommandLine.arguments)
+    XCTAssertEqual(envelope.argv, [
+      CLICommandIdentity.executableName, "primers", "analysis", "export-selection", fixture.bundle.standardizedFileURL.path,
+      "--kind", "primer-fasta", "--source-result-id=\(target.sourceResultID)", "--pool", "1",
+      "--output", expectedPool,
+    ], "the record names the command with absolute paths")
     XCTAssertEqual(envelope.exitStatus, 0)
     XCTAssertEqual(envelope.options.resolvedDefaults["pool"], .integer(1))
 
@@ -116,7 +122,7 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
 
     let taken = try PrimerAnalysisExportSelectionCommand.parse([fixture.bundle.path, "--kind", "primer-fasta",
       "--source-result-id", target.sourceResultID, "--pool", "1", "--output", output.path])
-    do { try await taken.run(); XCTFail("An existing output must be refused") } catch {
+    do { _ = try await taken.export(); XCTFail("An existing output must be refused") } catch {
       XCTAssertTrue(String(describing: error).contains("already exists"), "\(error)")
     }
     XCTAssertEqual(try Data(contentsOf: sentinel), Data("preserve".utf8))
@@ -129,7 +135,7 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
     let missing = fixture.root.appendingPathComponent("unknown.lungfishref")
     let unknown = try PrimerAnalysisExportSelectionCommand.parse([fixture.bundle.path, "--kind", "primer-fasta",
       "--target-id", target.id, "--primer-id", "invented", "--output", missing.path])
-    do { try await unknown.run(); XCTFail("An unknown primer must be refused") } catch {
+    do { _ = try await unknown.export(); XCTFail("An unknown primer must be refused") } catch {
       XCTAssertTrue(error.localizedDescription.contains("no longer present"), error.localizedDescription)
     }
     XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
@@ -147,7 +153,7 @@ final class PrimerAnalysisExportSelectionCommandTests: XCTestCase {
     let inside = fixture.bundle.appendingPathComponent("inside.lungfishref")
     let command = try PrimerAnalysisExportSelectionCommand.parse([fixture.bundle.path, "--kind", "primer-fasta",
       "--source-result-id", target.sourceResultID, "--pool", "1", "--output", inside.path])
-    do { try await command.run(); XCTFail("An output inside the saved analysis must be refused") } catch {
+    do { _ = try await command.export(); XCTFail("An output inside the saved analysis must be refused") } catch {
       XCTAssertTrue(String(describing: error).contains("inside the saved analysis"), "\(error)")
     }
     XCTAssertEqual(try relativeEntries(of: fixture.bundle), before,

@@ -65,6 +65,7 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
     var nativePool: String?
     @Option(name: .customLong("output"), help: "New .lungfishref bundle to write. It must not exist, and its parent folder must.")
     var outputPath: String
+    @OptionGroup var globalOptions: GlobalOptions
 
     /// The selection the options name. Exactly one of the four forms must be present.
     func selection() throws -> PrimerAnalysisExportSelection {
@@ -105,17 +106,40 @@ struct PrimerAnalysisExportSelectionCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let command = self
+        try await ViewerExportLeaf.run(globalOptions: globalOptions, startMessage: "Exporting the primer selection.") { events in
+            try await command.export(events: events)
+        }
+    }
+
+    /// The export, which refuses before it writes. The service stages the folder, its files and its record together
+    /// beside the output and publishes them by one exclusive rename, so a cancel leaves neither the folder nor its hidden
+    /// staging folder. The record's argv is the canonical argv of the row's command, with absolute paths. A test passes
+    /// no emitter.
+    func export(
+        events: CLIEventEmitter = CLIEventEmitter(enabled: false, emit: { _ in })
+    ) async throws -> ViewerExportLeafOutcome {
         let analysisURL = try PrimerAnalysisExportOrderCommand.realURL(bundlePath, label: "The analysis bundle")
         let destination = try PrimerAnalysisExportOrderCommand.resolvedDestination(outputPath)
         // Both paths come from realpath, so a plain prefix test is exact. standardizedFileURL would turn
         // /private/var back into /var and the test would miss an output under the analysis.
         let analysisPath = analysisURL.path
         guard destination.path != analysisPath, !destination.path.hasPrefix(analysisPath + "/") else {
-            throw ValidationError("--output must not be inside the saved analysis. Choose a folder outside \(analysisPath).")
+            throw ViewerExportRefusal("--output must not be inside the saved analysis. Choose a folder outside \(analysisPath).")
         }
+        let chosen = try selection()
+        let invocation = PrimerSelectionExport.invocation(
+            analysisURL: URL(fileURLWithPath: bundlePath), selection: chosen, kind: kind.exportKind,
+            outputURL: URL(fileURLWithPath: outputPath), emitsEvents: globalOptions.outputFormat == .json)
         let output = try await PrimerAnalysisSelectionExportService().export(
-            analysisURL: analysisURL, selection: try selection(), kind: kind.exportKind,
-            destinationURL: destination, invocationArgv: CommandLine.arguments)
-        print("\(kind.outputTitle) written to \(output.path)")
+            analysisURL: analysisURL, selection: chosen, kind: kind.exportKind,
+            destinationURL: destination, invocationArgv: invocation.canonicalArgv(),
+            progress: { fraction, message in events.emitProgress(fraction, message: message) },
+            publish: { staged, target in
+                try ViewerExportLeaf.checkpointAfterStaging()
+                try PrimerAnalysisSelectionExportService.publishExclusively(stagedURL: staged, destinationURL: target)
+            })
+        return ViewerExportLeafOutcome(
+            outputURL: URL(fileURLWithPath: outputPath), message: "\(kind.outputTitle) written to \(output.lastPathComponent)")
     }
 }

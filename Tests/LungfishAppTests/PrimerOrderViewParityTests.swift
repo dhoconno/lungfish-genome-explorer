@@ -60,12 +60,13 @@ final class PrimerOrderViewParityTests: XCTestCase {
         let metadata = PrimerOrderMetadata(name: "Filtered order", requestedBy: "Bench")
 
         let guiDestination = fixture.root.appendingPathComponent("GUI order")
-        let guiArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
+        let guiArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+            draft: draft, metadata: metadata, destinationURL: guiDestination)
+        // The row is built before the export, as the app does, so its standardized path spells the folder as the argv does.
+        let guiRow = MainSplitViewController.primerOrderExportCLICommand(
             draft: draft, metadata: metadata, destinationURL: guiDestination)
         let guiOutput = try await PrimerOrderExportService().export(
             selection: selection, metadata: metadata, destinationURL: guiDestination, invocationArgv: guiArgv)
-        let guiRow = MainSplitViewController.primerOrderExportCLICommand(
-            draft: draft, metadata: metadata, destinationURL: guiDestination)
         let gui = try PrimerOrderExportService.loadSnapshot(from: guiOutput)
         XCTAssertEqual(gui.provenance.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: guiRow)))
 

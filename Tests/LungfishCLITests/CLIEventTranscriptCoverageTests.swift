@@ -390,7 +390,7 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     /// which gives each run a scratch folder of its own and returns the standard output already rewritten to `/work`.
     private static func importCaptures() -> [Capture] {
         (ImportStreamCapture.cases() + BuildDbStreamCapture.cases() + AlignmentActionStreamCapture.cases()
-            + CzIdImportStreamCapture.cases() + ViewerExportStreamCapture.cases() + FastqExportStreamCapture.cases()
+            + CzIdImportStreamCapture.cases() + ViewerExportStreamCapture.cases() + PrimerExportStreamCapture.cases() + FastqExportStreamCapture.cases()
             + AnnotationGFF3ExportStreamCapture.cases() + AnnotationTableExportStreamCapture.cases()
             + FastqExportReadsStreamCapture.cases() + BundleExportGraphicStreamCapture.cases()).map { testCase in
             Capture(leaf: testCase.leaf, name: testCase.name) { _ in

@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import XCTest
+import LungfishCore
 import LungfishIO
 @testable import LungfishCLI
 @testable import LungfishWorkflow
@@ -45,6 +46,7 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
     let second = try XCTUnwrap(snapshot.designReview.filter { $0.presentation == .primer3Template }.last).id
     let output = fixture.root.appendingPathComponent("Pair order")
+    let expectedOutput = output.standardizedFileURL.path
     let command = try PrimerAnalysisExportOrderCommand.parse([fixture.bundle.path, "--output", output.path,
       "--candidate-pair-id", second.lowercased(), "--requested-by", "Bench"])
     try await command.run()
@@ -58,6 +60,11 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
       $0.poolName.hasSuffix("_P2") && $0.name.hasPrefix($0.poolName + "_")
     })
     XCTAssertEqual(loaded.provenance.workflowName, "Export Primer3 candidate pairs")
+    XCTAssertEqual(loaded.provenance.argv, [
+      CLICommandIdentity.executableName, "primers", "analysis", "export-order", fixture.bundle.standardizedFileURL.path,
+      "--scope", "candidate-pairs", "--candidate-pair-id", second, "--name", "fixture candidate pairs order",
+      "--requested-by", "Bench", "--output", expectedOutput,
+    ], "the record names the command with its effective options and absolute paths")
     let files = Set(try FileManager.default.contentsOfDirectory(atPath: output.path))
     XCTAssertTrue(files.isSuperset(of: ["order.json", "ordering.csv", "primer-order.xlsx", "template.xlsx"]))
     XCTAssertFalse(files.contains("IDT-oPools.xlsx"), "Alternative pairs have no pools to upload")
@@ -79,7 +86,7 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     let command = try PrimerAnalysisExportOrderCommand.parse([fixture.bundle.path, "--output", output.path,
       "--scope", "selected-assays"])
     do {
-      try await command.run()
+      _ = try await command.export()
       XCTFail("selected-assays must be refused for a Primer3 analysis")
     } catch {
       XCTAssertTrue(error.localizedDescription.contains("Olivar or varVAMP"), error.localizedDescription)
@@ -100,7 +107,7 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     let command = try PrimerAnalysisExportOrderCommand.parse([fixture.bundle.path, "--output", output.path,
       "--scope", "displayed"])
     do {
-      try await command.run()
+      _ = try await command.export()
       XCTFail("displayed must be refused for a Primer3 analysis")
     } catch {
       XCTAssertTrue(error.localizedDescription.contains("PrimalScheme"), error.localizedDescription)

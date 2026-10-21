@@ -1,0 +1,6 @@
+{"event":"start","message":"Exporting the primer order.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Verifying the captured primer selection…","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Creating the order workbook and detailed CSV…","progress":0.35,"schemaVersion":2}
+{"event":"progress","message":"Saving the order in this project…","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Primer order saved.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Primer order written to order","output":"\/work\/order","outputs":["\/work\/order"],"progress":1,"schemaVersion":2}

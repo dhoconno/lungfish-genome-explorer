@@ -39,15 +39,17 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
 
         // The GUI path, with the argv the viewport now passes.
         let guiDestination = fixture.root.appendingPathComponent("GUI order")
-        let guiArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
+        let guiArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: guiDestination
         )
-        let guiOutput = try await PrimerOrderExportService().export(
-            selection: draft.selection, metadata: metadata, destinationURL: guiDestination, invocationArgv: guiArgv
-        )
+        // The app builds the row and the argv before the export, while the folder does not exist. A standardized path
+        // drops a leading `/private` only for a path that exists, so the row is built before the export here too.
         let guiRow = try XCTUnwrap(MainSplitViewController.primerOrderExportCLICommand(
             draft: draft, metadata: metadata, destinationURL: guiDestination
         ))
+        let guiOutput = try await PrimerOrderExportService().export(
+            selection: draft.selection, metadata: metadata, destinationURL: guiDestination, invocationArgv: guiArgv
+        )
         let gui = try PrimerOrderExportService.loadSnapshot(from: guiOutput)
         XCTAssertEqual(
             gui.provenance.argv,
@@ -68,6 +70,9 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         XCTAssertEqual(cli.document.oligos, gui.document.oligos)
         XCTAssertEqual(cli.document.metadata, gui.document.metadata)
         XCTAssertEqual(cli.document.selection.selectedAssayIDs, gui.document.selection.selectedAssayIDs)
+        XCTAssertEqual(
+            cli.provenance.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: cliRow)),
+            "the row, the record and the leaf print one argv")
         XCTAssertEqual(cli.provenance.workflowName, gui.provenance.workflowName)
     }
 
@@ -103,12 +108,14 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         XCTAssertEqual(row.targetBundleURL, appFolder)
         XCTAssertEqual(row.additionalLockedBundleURLs, [])
         let words = try RecordedCLICommand.arguments(of: row.cliCommand)
+        // The command is built by ViewerExportInvocation (lane 13.43 M3), so `--output` comes after the leaf's own words
+        // and `--format json` ends it, with standardized absolute paths.
         XCTAssertEqual(words, [
-            "primers", "analysis", "export-order", fixture.bundle.path, "--output", appFolder.path, "--scope",
+            "primers", "analysis", "export-order", fixture.bundle.standardizedFileURL.path, "--scope",
             "candidate-pairs", "--candidate-pair-id", pairID, "--name", "Pair order", "--requested-by", "Bench",
-            "--notes", "Rush",
+            "--notes", "Rush", "--output", appFolder.standardizedFileURL.path, "--format", "json",
         ])
-        let appArgv = PrimerOrderExport.primerOrderExportProvenanceArgv(
+        let appArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: appFolder)
         XCTAssertEqual(appArgv, [CLICommandIdentity.executableName] + words)
 
@@ -156,7 +163,9 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         let appRecord = try PrimerOrderExportService.loadSnapshot(from: appFolder).provenance
         XCTAssertEqual(appRecord.argv, appArgv)
         let leafRecord = try PrimerOrderExportService.loadSnapshot(from: leafFolder).provenance
-        XCTAssertEqual(leafRecord.argv, CommandLine.arguments, "the leaf in the test process records its own arguments")
+        XCTAssertEqual(
+            leafRecord.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: leafRow)),
+            "the leaf records the canonical argv of the command it ran, which is the row's")
     }
 
     /// A saved Primer3 analysis with `pairCount` candidate pairs, the fixture

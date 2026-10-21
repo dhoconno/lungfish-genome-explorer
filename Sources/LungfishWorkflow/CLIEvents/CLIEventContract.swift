@@ -149,6 +149,8 @@ package enum CLIEventContractTable {
         "msa mask columns": .events(flag: formatJSON, channel: .standardOutput),
         "msa trim columns": .events(flag: formatJSON, channel: .standardOutput),
         // Events since 2.12 lane 12.17 M2, the three engines the PCR Primer Design dialog runs. Text only before.
+        "primers analysis export-order": .events(flag: formatJSON, channel: .standardOutput),
+        "primers analysis export-selection": .events(flag: formatJSON, channel: .standardOutput),
         "primers design primalscheme3": .events(flag: formatJSON, channel: .standardOutput),
         "primers design primer3": .events(flag: formatJSON, channel: .standardOutput),
         "primers design varvamp": .events(flag: formatJSON, channel: .standardOutput),
@@ -349,8 +351,6 @@ package enum CLIEventContractTable {
         "orient": .text(reason: humanTextOnly),
         "primers analysis annotated-reference": .text(reason: humanTextOnly),
         "primers analysis audit": .text(reason: humanTextOnly),
-        "primers analysis export-order": .text(reason: humanTextOnly),
-        "primers analysis export-selection": .text(reason: humanTextOnly),
         "primers analysis history": .text(reason: humanTextOnly),
         "primers design olivar": .text(reason: humanTextOnly),
         "primers import": .text(reason: humanTextOnly),

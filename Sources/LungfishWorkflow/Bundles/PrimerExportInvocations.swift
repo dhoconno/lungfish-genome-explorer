@@ -23,28 +23,24 @@ public enum PrimerSelectionExport {
 }
 
 extension PrimerOrderExport {
-    /// The arguments after `lungfish-cli primers analysis export-order` for a
-    /// primer order export. The row command and the provenance argv are both
-    /// built from this list.
-    public static func primerOrderExportCLIArguments(
-        draft: PrimerOrderDraft,
+    /// The leaf's invocation for a captured selection and the order fields the user filled in, with absolute
+    /// standardized paths. The begin helper passes its `arguments()` to the runner and to the row's command, and the leaf
+    /// records its `canonicalArgv()`, so the row, the record and the command a user pastes in Terminal are one command.
+    /// `--name` is always passed because the CLI's default name differs from the app's.
+    public static func invocation(
+        analysisURL: URL,
+        selection: PrimerOrderSelection,
         metadata: PrimerOrderMetadata,
-        destinationURL: URL
-    ) -> [String] {
-        [draft.selection.analysisURL.path, "--output", destinationURL.path]
-            + primerOrderExportScopeArguments(draft.selection) + primerOrderMetadataArguments(metadata)
-    }
-
-    /// The argv the order's provenance records (findings R3 and R8). It is the
-    /// `lungfish-cli primers analysis export-order` command the row records,
-    /// as words, for every order including one from a filtered PrimalScheme view.
-    public static func primerOrderExportProvenanceArgv(
-        draft: PrimerOrderDraft,
-        metadata: PrimerOrderMetadata,
-        destinationURL: URL
-    ) -> [String] {
-        [CLICommandIdentity.executableName, "primers", "analysis", "export-order"]
-            + primerOrderExportCLIArguments(draft: draft, metadata: metadata, destinationURL: destinationURL)
+        outputURL: URL,
+        emitsEvents: Bool = true
+    ) -> ViewerExportInvocation {
+        ViewerExportInvocation(
+            commandPath: commandPath,
+            input: analysisURL.standardizedFileURL.path,
+            leafArguments: primerOrderExportScopeArguments(selection) + primerOrderMetadataArguments(metadata),
+            output: outputURL.standardizedFileURL.path,
+            emitsEvents: emitsEvents
+        )
     }
 
     /// The `--scope` arguments for the captured selection, and for a PrimalScheme
@@ -96,16 +92,17 @@ extension PrimerOrderExport {
 }
 
 extension PrimerSelectionExport {
-    /// The arguments after `lungfish-cli primers analysis export-selection` for a primer FASTA bundle or a
-    /// reference amplicon export. The row command and the provenance argv are both built from this list.
-    /// The values the saved analysis supplies (the IDs and a native pool name) join their option with `=`,
-    /// so the parser reads one that starts with a hyphen as a value.
-    public static func primerSelectionExportCLIArguments(
+    /// The leaf's invocation for one saved selection, with absolute standardized paths. The begin helper passes its
+    /// `arguments()` to the runner and to the row's command, and the leaf records its `canonicalArgv()`. The values the
+    /// saved analysis supplies (the IDs and a native pool name) join their option with `=`, so the parser reads one that
+    /// starts with a hyphen as a value.
+    public static func invocation(
         analysisURL: URL,
         selection: PrimerAnalysisExportSelection,
         kind: PrimerAnalysisExportKind,
-        destinationURL: URL
-    ) -> [String] {
+        outputURL: URL,
+        emitsEvents: Bool = true
+    ) -> ViewerExportInvocation {
         let selectionArguments: [String]
         switch selection {
         case .primer(let targetID, let primerID):
@@ -122,21 +119,12 @@ extension PrimerSelectionExport {
         case .primerFASTA: kindName = "primer-fasta"
         case .referenceAmplicon: kindName = "reference-amplicon"
         }
-        return [analysisURL.path, "--kind", kindName] + selectionArguments + ["--output", destinationURL.path]
-    }
-
-    /// The argv the provenance of a primer FASTA bundle or reference amplicon export records (findings R3
-    /// and R8). It is the `lungfish-cli primers analysis export-selection` command the row records, as
-    /// words. It used to name `Lungfish.app export-primer-selection`, a command that no binary has.
-    public static func primerSelectionExportProvenanceArgv(
-        analysisURL: URL,
-        selection: PrimerAnalysisExportSelection,
-        kind: PrimerAnalysisExportKind,
-        destinationURL: URL
-    ) -> [String] {
-        [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"]
-            + primerSelectionExportCLIArguments(
-                analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: destinationURL
-            )
+        return ViewerExportInvocation(
+            commandPath: commandPath,
+            input: analysisURL.standardizedFileURL.path,
+            leafArguments: ["--kind", kindName] + selectionArguments,
+            output: outputURL.standardizedFileURL.path,
+            emitsEvents: emitsEvents
+        )
     }
 }

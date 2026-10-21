@@ -94,15 +94,45 @@ final class PrimerSelectionExportParityTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
         for item in try cases(snapshot) {
+            let row = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind,
+                destinationURL: try appDestination(fixture, item))
             let folder = try await exportAsTheAppDoes(fixture, item)
             let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder), item.label)
-            let row = MainSplitViewController.primerSelectionExportCLICommand(
-                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder)
             XCTAssertEqual(
                 envelope.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row)), item.label)
             XCTAssertEqual(
                 Array(envelope.argv.prefix(4)),
                 [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"], item.label)
+        }
+    }
+
+    /// Lane 13.43 M3 item 1. The row, the record and the leaf print one argv. For each selection form, the app's row
+    /// command, the record the in-process writer leaves and the record the leaf leaves when it runs the row's command
+    /// are one command.
+    func testTheRowTheRecordAndTheLeafPrintOneArgv() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let leafParent = fixture.root.appendingPathComponent("one-argv", isDirectory: true)
+        try FileManager.default.createDirectory(at: leafParent, withIntermediateDirectories: true)
+        for item in try cases(snapshot) {
+            let appRow = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind,
+                destinationURL: try appDestination(fixture, item))
+            let appFolder = try await exportAsTheAppDoes(fixture, item)
+            let appRecord = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: appFolder), item.label)
+            XCTAssertEqual(
+                appRecord.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: appRow)), item.label)
+
+            let leafFolder = leafParent.appendingPathComponent(
+                item.label.replacingOccurrences(of: " ", with: "-") + ".lungfishref", isDirectory: true)
+            let leafRow = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: leafFolder)
+            try await RecordedCLICommand.parse(leafRow, as: PrimerAnalysisExportSelectionCommand.self).run()
+            let leafRecord = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: leafFolder), item.label)
+            XCTAssertEqual(
+                leafRecord.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: leafRow)), item.label)
         }
     }
 
@@ -134,7 +164,7 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertEqual(recorded.targetBundleURL, folder, item.label)
             XCTAssertEqual(
                 try RecordedCLICommand.arguments(of: recorded.cliCommand),
-                ["primers", "analysis", "export-selection"] + PrimerSelectionExport.primerSelectionExportCLIArguments(
+                ["primers", "analysis", "export-selection"] + MainSplitViewController.primerSelectionExportCLIArguments(
                     analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder),
                 item.label)
         }
@@ -193,10 +223,10 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             XCTAssertFalse(app.inputs.isEmpty, item.label)
             XCTAssertEqual(cli.inputs, app.inputs, item.label)
             XCTAssertEqual(cli.inputOrigins, app.inputOrigins, item.label)
-            // The provenance argv is a prediction row of the lane report (ARCH export-shape ruling X-5), not a
-            // Masks-row mask. This class runs the leaf in the test process, so it cannot show the argv of the
-            // shipped binary.
-            XCTAssertEqual(cli.envelope.argv, CommandLine.arguments, item.label)
+            // The leaf records the canonical argv of the command it ran, which is the row's (lane 13.43 M3, ARCH
+            // export-shape ruling X-5). The row was built before the folder existed, as the leaf builds its own.
+            XCTAssertEqual(
+                cli.envelope.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row)), item.label)
         }
     }
 
@@ -362,17 +392,24 @@ final class PrimerSelectionExportParityTests: XCTestCase {
             outputPaths: paths, outputChecksums: checksums, inputs: inputs, inputOrigins: inputOrigins)
     }
 
+    /// The folder `exportAsTheAppDoes` writes for a case, which does not exist yet. A test that compares the row with the
+    /// record builds the row from this URL before the export, as the app does, since `standardizedFileURL` drops a
+    /// leading `/private` only for a path that exists.
+    private func appDestination(_ fixture: Fixture, _ item: Case) throws -> URL {
+        let parent = fixture.root.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        return parent.appendingPathComponent(
+            item.label.replacingOccurrences(of: " ", with: "-") + ".lungfishref", isDirectory: true)
+    }
+
     /// The service call `exportPrimerAnalysisSelection` makes, with the argv the app builds for it. The
     /// app's publish step ends in `PrimerAnalysisSelectionExportService.publishExclusively`, the default.
     private func exportAsTheAppDoes(_ fixture: Fixture, _ item: Case) async throws -> URL {
-        let parent = fixture.root.appendingPathComponent("app", isDirectory: true)
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        let destination = parent.appendingPathComponent(
-            item.label.replacingOccurrences(of: " ", with: "-") + ".lungfishref", isDirectory: true)
+        let destination = try appDestination(fixture, item)
         return try await PrimerAnalysisSelectionExportService().export(
             analysisURL: fixture.bundle, selection: item.selection, kind: item.kind,
             destinationURL: destination,
-            invocationArgv: PrimerSelectionExport.primerSelectionExportProvenanceArgv(
+            invocationArgv: MainSplitViewController.primerSelectionExportProvenanceArgv(
                 analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: destination))
     }
 

@@ -335,7 +335,7 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         ]
         for draft in drafts {
             let item = try recordedOrder(draft: draft)
-            let argv = PrimerOrderExport.primerOrderExportProvenanceArgv(
+            let argv = MainSplitViewController.primerOrderExportProvenanceArgv(
                 draft: draft, metadata: orderMetadata(), destinationURL: destinationURL
             )
             XCTAssertEqual(argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: item.cliCommand)))
@@ -347,7 +347,7 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
         let draft = makeDraft(settings: PrimerAnalysisDisplaySettings(hiddenPrimerIDs: ["primer-3"], showForward: false))
         let item = try recordedOrder(draft: draft)
 
-        let argv = PrimerOrderExport.primerOrderExportProvenanceArgv(
+        let argv = MainSplitViewController.primerOrderExportProvenanceArgv(
             draft: draft, metadata: orderMetadata(), destinationURL: destinationURL
         )
 
@@ -363,7 +363,7 @@ final class MainSplitPrimerAnalysisOperationTests: XCTestCase {
     func testSelectionExportProvenanceArgvIsTheExportSelectionCommandTheRowRecords() throws {
         // The export used to record `Lungfish.app export-primer-selection`, which no binary has.
         for (selection, kind) in selectionExports {
-            let argv = PrimerSelectionExport.primerSelectionExportProvenanceArgv(
+            let argv = MainSplitViewController.primerSelectionExportProvenanceArgv(
                 analysisURL: analysisURL, selection: selection, kind: kind, destinationURL: selectionDestinationURL
             )
             XCTAssertEqual(

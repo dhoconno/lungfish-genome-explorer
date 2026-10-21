@@ -342,6 +342,7 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
     var filterByCompatibility = false
     @Option(name: .customLong("min-compatibility"), help: "PrimalScheme view option. Minimum MSA match percentage, 0 to 100 (default 0).")
     var minimumCompatibilityPercent: Double?
+    @OptionGroup var globalOptions: GlobalOptions
 
     /// The view the options name. The default view when none is given.
     func displaySettings() -> PrimerAnalysisDisplaySettings {
@@ -368,13 +369,26 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let command = self
+        try await ViewerExportLeaf.run(globalOptions: globalOptions, startMessage: "Exporting the primer order.") { events in
+            try await command.export(events: events)
+        }
+    }
+
+    /// The export, which refuses before it writes. The service stages the order folder, its files and its record together
+    /// beside the output and publishes them by one exclusive rename, so a cancel leaves neither the folder nor its hidden
+    /// staging folder. The record's argv is the canonical argv of the row's command, with absolute paths. A test passes
+    /// no emitter.
+    func export(
+        events: CLIEventEmitter = CLIEventEmitter(enabled: false, emit: { _ in })
+    ) async throws -> ViewerExportLeafOutcome {
         let analysisURL = try Self.realURL(bundlePath, label: "The analysis bundle")
         let destination = try Self.resolvedDestination(outputPath)
         let snapshot = try PrimerAnalysisViewerSnapshot.load(from: analysisURL)
         let resolvedScope = try orderScope(for: snapshot)
         let settings = displaySettings()
         if settings != PrimerAnalysisDisplaySettings(), resolvedScope != .displayed {
-            throw ValidationError("The view options (--hide-primer, --hide-pool, --hide-forward, --hide-reverse, --hide-amplicons, --hide-identity-dots, --hide-unassessed, --filter-compatibility, --min-compatibility) apply only to --scope displayed.")
+            throw ViewerExportRefusal("The view options (--hide-primer, --hide-pool, --hide-forward, --hide-reverse, --hide-amplicons, --hide-identity-dots, --hide-unassessed, --filter-compatibility, --min-compatibility) apply only to --scope displayed.")
         }
         // The Inspector compares each primer with the alignment it was designed on before it filters.
         let summaries = settings.filterByCompatibility
@@ -385,11 +399,19 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
         let metadata = PrimerOrderMetadata(
             name: name ?? PrimerOrderExportService.defaultOrderName(analysisURL: snapshot.bundle.url, scope: resolvedScope),
             requestedBy: requestedBy, project: project, orderReference: orderReference, notes: notes)
-        let output = try await PrimerOrderExportService().export(selection: selection, metadata: metadata,
-            destinationURL: destination, invocationArgv: CommandLine.arguments)
-        print("Primer order written to \(output.path)")
-        let entries = try FileManager.default.contentsOfDirectory(atPath: output.path).sorted()
-        for entry in entries { print("  \(entry)") }
+        let invocation = PrimerOrderExport.invocation(
+            analysisURL: URL(fileURLWithPath: bundlePath), selection: selection, metadata: metadata,
+            outputURL: URL(fileURLWithPath: outputPath), emitsEvents: globalOptions.outputFormat == .json)
+        let output = try await PrimerOrderExportService().export(
+            selection: selection, metadata: metadata, destinationURL: destination,
+            invocationArgv: invocation.canonicalArgv(),
+            progress: { fraction, message in events.emitProgress(fraction, message: message) },
+            publish: { staged, target in
+                try ViewerExportLeaf.checkpointAfterStaging()
+                try PrimerAnalysisSelectionExportService.publishExclusively(stagedURL: staged, destinationURL: target)
+            })
+        return ViewerExportLeafOutcome(
+            outputURL: URL(fileURLWithPath: outputPath), message: "Primer order written to \(output.lastPathComponent)")
     }
 
     func orderScope(for snapshot: PrimerAnalysisViewerSnapshot) throws -> PrimerOrderScope {
@@ -411,12 +433,12 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
         let parent = try realURL(requested.deletingLastPathComponent().path, label: "The parent directory of --output")
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw ValidationError("The parent directory of --output is not a directory: \(parent.path)")
+            throw ViewerExportRefusal("The parent directory of --output is not a directory: \(parent.path)")
         }
         let destination = parent.appendingPathComponent(requested.lastPathComponent, isDirectory: true)
         guard (try? destination.checkResourceIsReachable()) != true,
               (try? FileManager.default.attributesOfItem(atPath: destination.path)) == nil else {
-            throw ValidationError("--output already exists: \(destination.path)")
+            throw ViewerExportRefusal("--output already exists: \(destination.path). Give --output a new path.")
         }
         return destination
     }
@@ -425,7 +447,7 @@ struct PrimerAnalysisExportOrderCommand: AsyncParsableCommand {
     /// path the user typed (for example /tmp or /var) to its physical location once.
     static func realURL(_ path: String, label: String) throws -> URL {
         guard let resolved = realpath(URL(fileURLWithPath: path).path, nil) else {
-            throw ValidationError("\(label) does not exist: \(path)")
+            throw ViewerExportRefusal("\(label) does not exist: \(path)")
         }
         defer { free(resolved) }
         return URL(fileURLWithPath: String(cString: resolved))

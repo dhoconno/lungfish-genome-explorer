@@ -1,0 +1,17 @@
+{"event":"start","message":"Exporting the primer selection.","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Verifying saved primer analysis…","progress":0.02,"schemaVersion":2}
+{"event":"progress","message":"Validating input files","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Validating input files","progress":0.18,"schemaVersion":2}
+{"event":"progress","message":"Checking native tools...","progress":0.18,"schemaVersion":2}
+{"event":"progress","message":"Creating bundle structure","progress":0.18,"schemaVersion":2}
+{"event":"progress","message":"Creating bundle structure","progress":0.21,"schemaVersion":2}
+{"event":"progress","message":"Creating FASTA index with samtools...","progress":0.36,"schemaVersion":2}
+{"event":"progress","message":"FASTA indexing complete","progress":0.44999999999999996,"schemaVersion":2}
+{"event":"progress","message":"Generating manifest","progress":0.66,"schemaVersion":2}
+{"event":"progress","message":"Generating manifest","progress":0.6900000000000001,"schemaVersion":2}
+{"event":"progress","message":"Validating bundle integrity","progress":0.6900000000000001,"schemaVersion":2}
+{"event":"progress","message":"Validating bundle integrity","progress":0.7200000000000001,"schemaVersion":2}
+{"event":"progress","message":"Bundle created successfully","progress":0.75,"schemaVersion":2}
+{"event":"progress","message":"Publishing selected primer analysis data…","progress":0.95,"schemaVersion":2}
+{"event":"progress","message":"Selection saved in the project.","progress":1,"schemaVersion":2}
+{"event":"complete","message":"Primer FASTA bundle written to pool.lungfishref","output":"\/work\/pool.lungfishref","outputs":["\/work\/pool.lungfishref"],"progress":1,"schemaVersion":2}
