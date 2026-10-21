@@ -4,6 +4,8 @@ Every test builds a throwaway repo layout in a temporary folder and copies the s
 into it, so nothing mutates the real repository. Three tests read the real checkout and run the
 script against it, as test_tool_identity_ratchet.py does.
 """
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +16,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 SCRIPT = SCRIPTS / "ratchets" / "durable-writes.sh"
 BASELINE = SCRIPTS / "ratchets" / "durable-writes.baseline"
+INSTALLER = SCRIPTS / "install-git-hooks.sh"
 
 WRITE = "try data.write(to: url, options: [.atomic])"
 
@@ -204,6 +207,55 @@ class RealCheckoutTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertRegex(lines[-1], r"^TOTAL durable-writes \d+$")
         self.assertEqual(int(lines[-1].rpartition(" ")[2]), len(lines) - 1)
+
+
+class HookWiringTests(unittest.TestCase):
+    """The generated pre-push hook runs the ratchet the way it runs its neighbours."""
+
+    @classmethod
+    def setUpClass(cls):
+        directory = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(directory.cleanup)
+        root = Path(directory.name).resolve()
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+        environment["GIT_CONFIG_NOSYSTEM"] = "1"
+        subprocess.run(["git", "init", "-q", str(root)], check=True, env=environment)
+        (root / "scripts").mkdir()
+        shutil.copy(INSTALLER, root / "scripts" / INSTALLER.name)
+        installed = subprocess.run(
+            ["/bin/bash", str(root / "scripts" / INSTALLER.name)],
+            cwd=root, env=environment, capture_output=True, text=True,
+        )
+        assert installed.returncode == 0, installed.stderr
+        cls.hook = (root / ".git" / "hooks" / "pre-push").read_text(encoding="utf-8")
+        cls.output = installed.stdout
+
+    def test_the_hook_runs_the_ratchet_once_after_concurrency_hatches_and_before_the_gate(self):
+        calls = re.findall(r'python3 "\$REPO_ROOT/scripts/ratchets/([^"]+)"', self.hook)
+        self.assertEqual(calls.count("durable-writes.sh"), 1, calls)
+        self.assertLess(calls.index("concurrency-hatches.sh"), calls.index("durable-writes.sh"))
+        call = self.hook.index('python3 "$REPO_ROOT/scripts/ratchets/durable-writes.sh"')
+        self.assertLess(call, self.hook.index('python3 "$REPO_ROOT/scripts/release/gate_evidence.py"'))
+        self.assertLess(call, self.hook.index('"$REPO_ROOT/scripts/full-suite-gate.sh"'))
+
+    def test_the_block_has_the_message_style_of_its_neighbours_and_names_the_fix(self):
+        block = (
+            r'echo "pre-push: checking the durable-writes ratchet \(use --no-verify to skip\)\.\.\."\n'
+            r'if ! python3 "\$REPO_ROOT/scripts/ratchets/durable-writes\.sh"; then\n'
+            r'    echo "pre-push: durable-writes ratchet FAILED \(([^"]+)\) — push aborted\. '
+            r'Use --no-verify to bypass\." >&2\n'
+            r"    exit 1\n"
+            r"fi\n"
+        )
+        match = re.search(block, self.hook)
+        self.assertIsNotNone(match, "the block does not follow the style of the other ratchet blocks")
+        self.assertIn("DurableReplace", match.group(1))
+        self.assertIn("PortableRename", match.group(1))
+
+    def test_the_closing_summary_names_the_ratchet(self):
+        summary = next(line for line in self.output.splitlines() if line.startswith("It runs the "))
+        self.assertIn(", durable-writes, ", summary)
 
 
 if __name__ == "__main__":

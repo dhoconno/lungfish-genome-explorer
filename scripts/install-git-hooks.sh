@@ -12,7 +12,7 @@
 #     every bundled Python resource script under Sources/*/Resources
 #     (scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
-#     concurrency-hatches, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn,
+#     concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn,
 #     provenance-writers, path-helpers, tool-identity, native-tool-runner-in-app, doc-path-references,
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
@@ -161,6 +161,12 @@ if ! python3 "$REPO_ROOT/scripts/ratchets/concurrency-hatches.sh"; then
     exit 1
 fi
 
+echo "pre-push: checking the durable-writes ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/durable-writes.sh"; then
+    echo "pre-push: durable-writes ratchet FAILED (a new .atomic file write; write it with DurableReplace or PortableRename, see docs/contracts/EXTERNAL-VOLUMES.md) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
 echo "pre-push: checking the volume-portability ratchet (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/ratchets/volume-portability.sh"; then
     echo "pre-push: volume-portability ratchet FAILED (a new call that fails with ENOTSUP on ExFAT; see docs/contracts/EXTERNAL-VOLUMES.md) — push aborted. Use --no-verify to bypass." >&2
@@ -295,7 +301,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
