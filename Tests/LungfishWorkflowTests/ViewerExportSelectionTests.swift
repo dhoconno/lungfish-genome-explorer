@@ -112,6 +112,87 @@ final class ViewerExportSelectionTests: XCTestCase {
     }
     """
 
+    /// V1-1 of Phase 2.13 (lane 13.38 M2). A region selection writes schema 2 and the bytes it wrote before the
+    /// bundle-wide field arrived, with no `bundleCodingFeatureTrackIDs` key, so a record made by 2.12 or by 2.13 before
+    /// M2 keeps its selection digest (BIO ruling on M854 item 8).
+    func testRegionSelectionKeepsItsSchemaTwoBytes() throws {
+        let selection = ViewerExportSelection(
+            identities: ["ivar:5"],
+            annotationTable: AnnotationTableExportSelection(
+                scope: "selected",
+                columns: [ScientificTableColumn(id: "aa_change", title: "AA Change")],
+                query: ["sort": "position:descending"],
+                codingFeatureRegion: AnnotationTableFeatureRegion(chromosome: "chr1", start: 0, end: 120, trackIDs: ["cds2", "cds"])
+            )
+        )
+        XCTAssertEqual(selection.schemaVersion, 2)
+        let text = String(decoding: try selection.encoded(), as: UTF8.self)
+        XCTAssertFalse(text.contains("bundleCodingFeatureTrackIDs"), text)
+        XCTAssertEqual(text, Self.schemaTwoRegionLiteral)
+    }
+
+    private static let schemaTwoRegionLiteral = """
+    {
+      "annotationTable" : {
+        "codingFeatureRegion" : {
+          "chromosome" : "chr1",
+          "end" : 120,
+          "start" : 0,
+          "trackIDs" : [
+            "cds",
+            "cds2"
+          ]
+        },
+        "columns" : [
+          {
+            "id" : "aa_change",
+            "title" : "AA Change"
+          }
+        ],
+        "integerColumnIDs" : [
+
+        ],
+        "numericColumnIDs" : [
+
+        ],
+        "query" : {
+          "sort" : "position:descending"
+        },
+        "scope" : "selected",
+        "variantChromosomeAliases" : {
+
+        }
+      },
+      "editedValues" : {
+
+      },
+      "identities" : [
+        "ivar:5"
+      ],
+      "schemaVersion" : 2,
+      "state" : {
+        "columns" : [
+
+        ],
+        "filters" : {
+          "composition" : "all",
+          "filters" : [
+
+          ]
+        },
+        "metadataColumns" : [
+
+        ],
+        "samples" : [
+
+        ],
+        "sortKeys" : [
+
+        ]
+      }
+    }
+    """
+
     /// ARCH ruling on 12.39 R2. Each family field alone writes schema 2 and reads back equal, a field set after the
     /// init writes 2 too, and a nil field writes no key.
     func testFamilyFieldWritesSchemaTwoAndRoundTrips() throws {
