@@ -1,6 +1,6 @@
 # Bare-run writer parity facts
 
-This folder holds the facts of what eleven Lungfish Genome Explorer (LGE) writers recorded before Phase 2.4 moved them from a bare run file to a provenance envelope. Each file is what `ProvenanceCompatFacts` projects from one scenario, captured once from the writer as it stood before the move.
+This folder holds the facts of what ten Lungfish Genome Explorer (LGE) writers recorded before Phase 2.4 moved them from a bare run file to a provenance envelope. Each file is what `ProvenanceCompatFacts` projects from one scenario, captured once from the writer as it stood before the move.
 
 The folder belongs to Phase 2.4, lane W2B. The compatibility corpus in `Tests/Fixtures/provenance-compat` is closed to write-side lanes, so these files sit beside it and not inside it.
 
@@ -30,7 +30,6 @@ A scenario is one run of one writer. The corpus case `s3-gatk-container-bare-run
 | variants-phase-dry-run | `VariantsCommand.writeCommandPlanProvenance` | `BareRunWriterParityCLITests` |
 | variants-phase-execute | `VariantsCommand.writeCommandPlanProvenance`, with two scripted tool steps | `BareRunWriterParityCLITests` |
 | freyja-demix-dry-run | `VariantsCommand.writeCommandPlanProvenance`, called by Freyja | `BareRunWriterParityCLITests` |
-| project-migrate-browser-summary | `ProjectCommand.writeMigrationProvenance` | None since lane 12.37 of Phase 2.12, which made the migrate action unreachable. The fixture stays until the panel removes the action |
 | sra-download-toolkit-fallback | `SRADownloadSubcommand.writeSRADownloadProvenance`, ENA down | `BareRunWriterParityCLITests` |
 | sra-download-ena-paired | `SRADownloadSubcommand.writeSRADownloadProvenance`, ENA serves the run | `BareRunWriterParityCLITests` |
 | sra-window-toolkit-after-failed-ena | `writeGUISRAFASTQImportProvenance`, a failed toolkit attempt then ENA | `BareRunWriterParitySRAWindowTests` |

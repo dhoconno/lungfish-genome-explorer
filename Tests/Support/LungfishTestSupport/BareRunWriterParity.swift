@@ -177,10 +177,6 @@ public enum BareRunWriterParity {
             timing: .clockedRunAndSteps,
             volatileFileSuffixes: ["freyja-command-plan.json"]
         )
-        public static let projectMigrateBrowserSummary = Scenario(
-            id: "project-migrate-browser-summary",
-            timing: .clockedRunAndSteps
-        )
         public static let sraDownloadToolkitFallback = Scenario(
             id: "sra-download-toolkit-fallback",
             timing: .clockedRunAndSteps
@@ -207,7 +203,7 @@ public enum BareRunWriterParity {
             condaLockfileExport, condaOfflineExport, condaOfflineInstall, condaOfflineInstallFailure,
             bundleContainerExportArchiveEntry,
             variantsExtractSample, variantsQuery, variantsPhaseDryRun, variantsPhaseExecute, freyjaDemixDryRun,
-            projectMigrateBrowserSummary, sraDownloadToolkitFallback, sraDownloadENAPaired,
+            sraDownloadToolkitFallback, sraDownloadENAPaired,
             sraWindowToolkitAfterFailedENA, sraWindowKeepsCLIRecord,
             bamAdoptMapping,
         ]

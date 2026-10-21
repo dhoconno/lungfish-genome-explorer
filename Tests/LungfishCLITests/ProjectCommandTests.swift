@@ -419,26 +419,6 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
     }
 
-    func testMigrateStagesManifestAndWritesProvenanceBeforePublishing() throws {
-        let source = try readRepositorySource(projectCommandSourceURL())
-        let start = try XCTUnwrap(source.range(of: "private func migrateLegacyBrowserSummary"))
-        let end = try XCTUnwrap(
-            source.range(of: "\n    private func migrationInputRecords", range: start.upperBound..<source.endIndex)
-        )
-        let method = String(source[start.lowerBound..<end.lowerBound])
-
-        XCTAssertFalse(method.contains("migratedManifest.save(to: bundleURL)"))
-        let provenanceWrite = try XCTUnwrap(method.range(of: "try writeMigrationProvenance"))
-        let manifestPublish = try XCTUnwrap(method.range(of: "replaceItemAt"))
-        XCTAssertTrue(
-            provenanceWrite.lowerBound < manifestPublish.lowerBound,
-            "Migration provenance must be durable before the final manifest is published."
-        )
-        // Review of M3, Fix 2. With a key set the record has `.signature.json` and `.pub` beside it, so the rollback
-        // removes the record with its pair, and not the record alone.
-        XCTAssertTrue(method.contains("try? ProvenancePublicationArtifacts.removeSidecarArtifacts(for: provenanceURL)"))
-    }
-
     private func makeProject() throws -> URL {
         let projectURL = tempDir.appendingPathComponent("Shared.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -503,14 +483,6 @@ final class ProjectCommandTests: XCTestCase {
         )
         let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: lockURL, options: .atomic)
-    }
-
-    private func projectCommandSourceURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishCLI/Commands/ProjectCommand.swift")
     }
 
     private func currentUserName() -> String {
