@@ -563,11 +563,9 @@ struct AssemblyWizardSheet: View {
 
             labeledRow("Threads") {
                 InlineNumericSliderField(
-                    accessibilityTitle: "Threads",
-                    value: $threads,
-                    in: 1...Double(max(1, availableCores))
-                )
+                    accessibilityTitle: "Threads", value: $threads, in: 1...Double(max(1, availableCores)))
             }
+            AssemblyThreadCapNote(tool: selectedTool)
             optionSummary("threads")
 
             if supportsMemoryLimit {

@@ -124,16 +124,34 @@ final class AssemblyConformanceTests: XCTestCase {
         XCTAssertEqual(command.arguments[threadIndex + 1], "1")
         #endif
 
-        let res = try ProcessRunner.run(
-            megahit,
-            command.arguments,
-            cwd: command.workingDirectory,
-            timeout: 1800
-        )
-        XCTAssertEqual(res.status, 0, res.stderr.suffix(2000).description)
+        // Q-Q10 (Phase 2.12 panel, 4 to 1). The gate retries once when MEGAHIT ends with exit -11 or -6, writes the
+        // signal into the gate evidence, and counts the retry only when its contigs are byte-equal to the golden.
+        // The product never retries. MegahitGateRetry sits in this test target, out of reach of product code.
+        let outcome = try MegahitGateRetry.runWithOneRetry({
+            // MEGAHIT refuses an output folder that exists, and a crashed run leaves one.
+            try? FileManager.default.removeItem(at: out)
+            let run = try ProcessRunner.run(
+                megahit,
+                command.arguments,
+                cwd: command.workingDirectory,
+                timeout: 1800
+            )
+            return (run.status, run.stderr)
+        }, log: MegahitGateRetry.emitEvidence)
+        XCTAssertEqual(outcome.final.status, 0, outcome.final.stderr.suffix(2000).description)
 
         let contigs = out.appendingPathComponent("final.contigs.fa")
         XCTAssertTrue(FileManager.default.fileExists(atPath: contigs.path))
+        let digest = try MegahitGateRetry.sha256(of: contigs)
+        let equalsGolden = digest == MegahitGateRetry.goldenOneThreadContigsSHA256
+        if let crash = outcome.retriedAfter {
+            XCTAssertTrue(equalsGolden, "the retry after \(crash.signalName) must reproduce the golden contigs, got \(digest)")
+            MegahitGateRetry.emitEvidence(MegahitGateRetry.retryAcceptedLine(digest: digest))
+        } else {
+            MegahitGateRetry.emitEvidence(
+                "MEGAHIT-CONTIGS first run passed, final.contigs.fa sha256 \(digest) "
+                    + (equalsGolden ? "equals" : "differs from") + " the golden")
+        }
 
         let result = try AssemblyOutputNormalizer.normalize(
             request: request,

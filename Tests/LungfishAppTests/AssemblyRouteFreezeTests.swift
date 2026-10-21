@@ -85,11 +85,18 @@ final class AssemblyRouteFreezeTests: XCTestCase {
             threads: 2,
             inputLayout: .strictlyInterleaved
         ).normalizedForExecution()
+        // The recorded command carries the thread count the run uses, and MEGAHIT gets one thread on Apple silicon
+        // (AssemblyExecutionHost.megahitThreadCap, Phase 2.13 lane 13.19, O8).
+        #if os(macOS) && arch(arm64)
+        let recordedThreads = "1"
+        #else
+        let recordedThreads = "2"
+        #endif
         XCTAssertEqual(try RecordedCLICommand.arguments(of: Self.recordedCommand(request)), [
             "assemble", Self.r1.path, "--read-layout", "interleaved",
             "--assembler", "megahit", "--read-type", "illumina-short-reads", "--project-name", "Interleaved",
-            "--threads", "2", "--output", "/tmp/lane a46/Assembly Output/Interleaved", "--reference-bundle",
-            "--format", "json",
+            "--threads", recordedThreads, "--output", "/tmp/lane a46/Assembly Output/Interleaved",
+            "--reference-bundle", "--format", "json",
         ])
     }
 
