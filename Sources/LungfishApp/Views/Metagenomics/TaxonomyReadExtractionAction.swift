@@ -644,7 +644,7 @@ public final class TaxonomyReadExtractionAction {
 
         explicitOptions["destination"] = .string(destinationKind)
         var argv: [String] = [
-            CLICommandIdentity.executableName,
+            LungfishAppIdentity.recordedToolName,
             "extract",
             "reads",
             "--by-classifier",

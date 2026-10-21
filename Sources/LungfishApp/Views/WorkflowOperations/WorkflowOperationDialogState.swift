@@ -1416,7 +1416,7 @@ final class WorkflowOperationDialogState {
         )
     }
 
-    private func projectOwnedBarcodeDefinitionURL(for selectedURL: URL) throws -> URL {
+    func projectOwnedBarcodeDefinitionURL(for selectedURL: URL) throws -> URL {
         let sourceURL = selectedURL.standardizedFileURL
         guard let projectURL = projectURL?.standardizedFileURL,
               !Self.isURL(sourceURL, inside: projectURL) else {
@@ -1470,7 +1470,8 @@ final class WorkflowOperationDialogState {
             workflowName: "Workflow Operations Barcode Definition Import",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: LungfishAppIdentity.recordedToolName,
-            toolVersion: WorkflowRun.currentAppVersion
+            toolVersion: WorkflowRun.currentAppVersion,
+            toolKind: LungfishAppIdentity.recordedToolKind
         )
         .argv(argv)
         .durableReplayArgv(argv)
@@ -1479,10 +1480,7 @@ final class WorkflowOperationDialogState {
         .output(destinationURL, format: Self.barcodeDefinitionFileFormat(for: destinationURL), role: .output)
         .runtime(ProvenanceRuntimeIdentity())
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
-        try ProvenanceWriter().write(
-            envelope,
-            toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL)
-        )
+        try ProvenanceWriter().write(envelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL))
     }
 
     private func expectedOutputURLs(

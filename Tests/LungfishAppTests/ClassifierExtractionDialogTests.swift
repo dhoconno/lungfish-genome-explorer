@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
+import LungfishCore
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -512,7 +513,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
 
         let provenance = recorded.fileProvenance
         let argv = provenance?.argv ?? []
-        XCTAssertEqual(Array(argv.prefix(4)), ["lungfish-cli", "extract", "reads", "--by-classifier"])
+        XCTAssertEqual(Array(argv.prefix(4)), [LungfishAppIdentity.recordedToolName, "extract", "reads", "--by-classifier"])
         XCTAssertTrue(argv.contains("--tool"))
         XCTAssertTrue(argv.contains("nvd"))
         XCTAssertTrue(argv.contains("--output"))

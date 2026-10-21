@@ -858,7 +858,7 @@ final class WorkflowOperationExecutionService {
         return requestedReferenceURL
     }
 
-    private func writeONTViewerBundleProvenance(
+    func writeONTViewerBundleProvenance(
         workflowName: String,
         sourceBundleURL: URL,
         bamURL: URL,
