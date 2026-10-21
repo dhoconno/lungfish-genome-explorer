@@ -456,15 +456,35 @@ extension VariantDatabase {
         return "INNER JOIN \(tableName) ON variants.id = \(targetColumn)"
     }
 
-    /// Detects whether a set of InfoFilters is a sole IMPACT=HIGH filter
-    /// that can be served from the pre-cached temp table.
+    /// Detects whether a set of InfoFilters is a sole IMPACT=HIGH filter that the `_high_impact` table can serve.
+    ///
+    /// The table holds the variants of every impact key the file stores, so it serves a filter only when the filter's
+    /// keys (key and `alsoKeys`, compared without case) are impact keys and cover every key stored. A lone
+    /// `ANN_IMPACT` filter on a file that also stores `CSQ_IMPACT` reads `variant_info`, as it does cold.
     func isHighImpactOnlyFilter(_ infoFilters: [InfoFilter]) -> Bool {
         guard cacheLock.withLock({ _highImpactCacheReady }) else { return false }
         guard infoFilters.count == 1 else { return false }
         let f = infoFilters[0]
-        return f.op == .eq
-            && f.value == "HIGH"
-            && Self.impactInfoKeys.contains(where: { $0.caseInsensitiveCompare(f.key) == .orderedSame })
+        guard f.op == .eq, f.value == "HIGH" else { return false }
+        let impactKeys = Set(Self.impactInfoKeys.map { $0.uppercased() })
+        let filterKeys = Set(([f.key] + f.alsoKeys).map { $0.uppercased() })
+        return filterKeys.isSubset(of: impactKeys) && storedImpactKeys().isSubset(of: filterKeys)
+    }
+
+    /// The upper-cased impact keys that have rows in `variant_info`, which `_high_impact` is built from.
+    /// Each key costs one seek on `idx_variant_info_key`.
+    private func storedImpactKeys() -> Set<String> {
+        guard let db else { return [] }
+        var stored = Set<String>()
+        for key in Self.impactInfoKeys {
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, "SELECT 1 FROM variant_info WHERE key = ? LIMIT 1", -1, &stmt, nil) == SQLITE_OK
+            else { continue }
+            sqlite3_bind_text(stmt, 1, key, -1, sqliteTransientDestructor)
+            if sqlite3_step(stmt) == SQLITE_ROW { stored.insert(key.uppercased()) }
+        }
+        return stored
     }
 
     /// Replaces the EXISTS subquery for IMPACT=HIGH with a JOIN on the temp table.

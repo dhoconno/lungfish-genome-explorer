@@ -151,18 +151,27 @@ final class VariantStructuredINFOTests: XCTestCase {
                 let imported = try VariantDatabase(url: dbURL)
                 imported.loadTokenCacheState()
                 XCTAssertEqual(hits(imported, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "imported \(profile)")
+                XCTAssertEqual(hits(imported, ["ANN_IMPACT"]), [100], "imported ANN \(profile)")
             }
             // Cache cold. The EXISTS path reads the keys the filter names and finds a HIGH among other impacts.
             try StructuredINFOFixture.execute(dbURL, "DROP TABLE IF EXISTS _high_impact")
             // Read-write, since warming the cache creates the table.
             let database = try VariantDatabase(url: dbURL, readWrite: true)
             XCTAssertEqual(hits(database, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "cold union \(profile)")
-            XCTAssertEqual(hits(database, ["ANN_IMPACT"]), [100], "cold ANN \(profile)")
-            XCTAssertEqual(hits(database, ["CSQ_IMPACT"]), [200], "cold CSQ \(profile)")
+            let coldANN = hits(database, ["ANN_IMPACT"])
+            let coldCSQ = hits(database, ["CSQ_IMPACT"])
+            XCTAssertEqual(coldANN, [100], "cold ANN \(profile)")
+            XCTAssertEqual(coldCSQ, [200], "cold CSQ \(profile)")
             XCTAssertEqual(hits(database, ["DP"], value: "4"), [], "DP stays an exact match \(profile)")
-            // Cache warm. The table covers every impact key with the same list-member match.
+            // Cache warm. The table covers every impact key with the same list-member match, so it serves only a
+            // filter on all of them, and a lone key reads `variant_info` and returns the rows it returned cold.
             XCTAssertTrue(database.warmHighImpactCache(), profile.rawValue)
             XCTAssertEqual(hits(database, ["ANN_IMPACT", "CSQ_IMPACT"]), [100, 200], "warm union \(profile)")
+            XCTAssertEqual(hits(database, ["ANN_IMPACT"]), [100], "warm ANN \(profile)")
+            XCTAssertEqual(hits(database, ["CSQ_IMPACT"]), [200], "warm CSQ \(profile)")
+            XCTAssertEqual(hits(database, ["ANN_IMPACT"]), coldANN, "warm ANN against cold \(profile)")
+            XCTAssertEqual(hits(database, ["CSQ_IMPACT"]), coldCSQ, "warm CSQ against cold \(profile)")
+            XCTAssertEqual(hits(database, ["csq_impact", "ann_impact"]), [100, 200], "keys compare without case \(profile)")
         }
     }
 
