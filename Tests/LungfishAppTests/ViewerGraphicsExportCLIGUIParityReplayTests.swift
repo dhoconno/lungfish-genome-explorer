@@ -7,9 +7,11 @@
 // of one root.
 //
 // - Side A is today's AppKit capture of the same view (`viewerExportData`), which stays live for the captures of
-//   other content. It is written beside the side roots and is a measurement only, never a pass or fail: the case
-//   prints the share of pixels that differ from side C and the largest channel change, decoded to RGBA at C's pixel
-//   size, and copies both images to `LUNGFISH_PARITY_DUMP` when it is set (O17, the declared visual difference).
+//   other content. It is taken once the viewer has finished fetching, so no Fetching pill is in it, and written
+//   beside the side roots. It is a measurement only, never a pass or fail: the case prints both pixel sizes, the share
+//   of pixels that differ from side C and the largest channel change, each image decoded to RGBA at its own pixel size
+//   and the top rows both have compared with no stretch, and copies both images to `LUNGFISH_PARITY_DUMP` when it is
+//   set (O17, the declared visual difference).
 // - Side C is `finishViewerGraphicsExport`, which writes the view state, begins the row and runs the built
 //   `lungfish-cli bundle export-graphic` on `CLIViewerExportRunner`.
 // - Side C' is the harness's replay of the command side C's row recorded, with the view-state file copied into its
@@ -220,6 +222,12 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
             fixture: { root in try Self.makeBundle(kind, in: root) },
             sideA: { root in
                 try viewer.displayBundle(at: Self.bundleURL(in: root), mode: .sequence(name: "chr1", restoreViewState: false))
+                // The capture waits until the viewer has finished fetching (BIO Fix 4), so no Fetching pill is in it.
+                try Self.waitUntilFetchingFinishes(name, viewer: viewer, draw: {
+                    _ = try delegate.viewerExportData(
+                        viewerController: viewer, scope: .tracks, format: .pdf, bitmapScale: 1
+                    )
+                })
                 let data = try delegate.viewerExportData(
                     viewerController: viewer, scope: .tracks, format: format, bitmapScale: 2
                 )
@@ -277,25 +285,61 @@ final class ViewerGraphicsExportCLIGUIParityReplayTests: XCTestCase {
 
     // MARK: - Side A against side C, a measurement
 
-    /// Prints the share of pixels that differ and the largest channel change between the capture and the figure,
-    /// both drawn to RGBA at the figure's pixel size, and copies both images to `LUNGFISH_PARITY_DUMP`.
+    /// Spins the main run loop in 50 ms steps for up to 30 s until the viewer has finished fetching and no loading
+    /// pill is drawn, and fails the case when it has not. The test window is never shown, so no display cycle draws
+    /// the view and starts its fetches. Each step therefore calls `draw`, which draws the view the way the capture
+    /// does and starts any stale fetch, and a step whose draw leaves every fetch flag clear drew no pill (BIO Fix 4).
+    static func waitUntilFetchingFinishes(
+        _ name: String, viewer: ViewerViewController, draw: () throws -> Void,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let view = try XCTUnwrap(viewer.viewerView, file: file, line: line)
+        let started = Date()
+        var standing: [String] = []
+        repeat {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            try draw()
+            standing = [
+                ("sequence", view.isFetchingBundleData), ("annotations", view.isFetchingAnnotations),
+                ("variants", view.isFetchingVariants), ("genotypes", view.isFetchingGenotypes),
+                ("reads", view.isFetchingReads)
+            ].filter { $0.1 }.map { $0.0 }
+        } while !standing.isEmpty && Date().timeIntervalSince(started) < 30
+        print("PARITY-WAIT \(name) seconds=\(Date().timeIntervalSince(started)) standing=\(standing)")
+        XCTAssertTrue(standing.isEmpty, "\(name): the viewer was still fetching \(standing) after 30 s", file: file, line: line)
+    }
+
+    /// Prints both pixel sizes, the share of pixels that differ and the largest channel change between the capture
+    /// and the figure. Each image is decoded to RGBA at its own pixel size, so nothing is stretched, and the top rows
+    /// both have are compared. A capture taller or shorter than the figure shows in the two heights. Both images are
+    /// copied to `LUNGFISH_PARITY_DUMP` when it is set.
     static func measure(_ name: String, capture: URL, figure: URL, format: ViewerGraphicFormat) throws {
-        let size = try pixelSize(of: figure, format: format)
-        let a = try rgba(capture, format: format, size: size)
-        let c = try rgba(figure, format: format, size: size)
+        let sizeA = try pixelSize(of: capture, format: format)
+        let sizeC = try pixelSize(of: figure, format: format)
+        let a = try rgba(capture, format: format, size: sizeA)
+        let c = try rgba(figure, format: format, size: sizeC)
+        let columns = min(sizeA.width, sizeC.width)
+        let rows = min(sizeA.height, sizeC.height)
         var differing = 0
         var largest = 0
-        for pixel in 0..<(size.width * size.height) {
-            var differs = false
-            for channel in 0..<4 {
-                let change = abs(Int(a[pixel * 4 + channel]) - Int(c[pixel * 4 + channel]))
-                largest = max(largest, change)
-                differs = differs || change > 0
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let pixelA = (row * sizeA.width + column) * 4
+                let pixelC = (row * sizeC.width + column) * 4
+                var differs = false
+                for channel in 0..<4 {
+                    let change = abs(Int(a[pixelA + channel]) - Int(c[pixelC + channel]))
+                    largest = max(largest, change)
+                    differs = differs || change > 0
+                }
+                if differs { differing += 1 }
             }
-            if differs { differing += 1 }
         }
-        let share = Double(differing) / Double(max(1, size.width * size.height))
-        print("PARITY-A-C \(name) size=\(size.width)x\(size.height) differing=\(differing) share=\(share) largestChannelChange=\(largest)")
+        let share = Double(differing) / Double(max(1, columns * rows))
+        print(
+            "PARITY-A-C \(name) sizeA=\(sizeA.width)x\(sizeA.height) sizeC=\(sizeC.width)x\(sizeC.height) "
+                + "compared=\(columns)x\(rows) differing=\(differing) share=\(share) largestChannelChange=\(largest)"
+        )
         if let dump = ProcessInfo.processInfo.environment["LUNGFISH_PARITY_DUMP"] {
             let folder = URL(fileURLWithPath: dump, isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
