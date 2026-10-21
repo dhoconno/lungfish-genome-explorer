@@ -126,7 +126,10 @@ final class ToolVersionEvidenceTests: XCTestCase {
 
     func testLockPinRecordsTheLockVersionForEveryEntry() {
         let lock = ManagedToolLock.bundled
-        XCTAssertEqual(lock.entries.count, 44)
+        // The count follows the lock, so a tool added to it (lane 13.17 added zstd and xz) does not stale this
+        // test. `CondaManagerTests` and `PluginPackRegistryTests` pin the size of the lock.
+        XCTAssertEqual(lock.entries.count, lock.tools.count + lock.packTools.count, "the entries view lists both lock lists")
+        XCTAssertFalse(lock.entries.isEmpty, "the bundled lock has entries, so the loop below is not vacuous")
         for entry in lock.entries {
             let evidence = ToolVersionEvidence.lockPin(for: entry.id, in: lock)
             XCTAssertEqual(evidence, .lockPin(version: entry.version ?? "", id: entry.id), entry.id.rawValue)

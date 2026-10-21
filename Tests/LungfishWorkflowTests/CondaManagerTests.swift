@@ -207,7 +207,8 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(lock.version, LungfishAppVersion.short)
-        XCTAssertEqual(lock.tools.count, 17)
+        // Pinned on purpose, as the size of the shipped lock: 19 since lane 13.17 added zstd and xz to `tools`.
+        XCTAssertEqual(lock.tools.count, 19)
         XCTAssertEqual(lock.managedData.count, 2)
 
         // Each managed tool's packageSpec must parse as `channel::name=version=build`,
