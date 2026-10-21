@@ -8,7 +8,7 @@
     python3 scripts/golden/environment.py lock --from-storage DIR --database NAME
 
 The golden captures run lungfish-cli against a managed storage root that holds
-eight conda environments, one test-only conda environment and two classifier
+ten conda environments, one test-only conda environment and two classifier
 databases. That root lives at a
 fixed path, /Users/Shared/lungfish-golden/storage, so the goldens record the
 same paths on every Mac and for every user. Its content is pinned by

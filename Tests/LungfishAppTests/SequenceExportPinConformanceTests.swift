@@ -12,9 +12,9 @@
 // run and only the text after decompression is pinned.
 //
 // macOS ships no /usr/bin/zstd, which was the only path the export launched, so at the base the zstd export
-// failed and published nothing on a Mac without one, and the pin said so. The route looks in /usr/bin, in
-// /usr/local/bin and in the bin folder HOMEBREW_PREFIX names, so with a zstd there the pin holds the same text,
-// and without one the export still fails and publishes nothing. The test at the end replays the row's recorded
+// failed and published nothing on a Mac without one, and the pin said so. The route now runs the zstd that
+// Lungfish manages (lane 13.17), so with that zstd installed the pin holds the same text, and without it the
+// export still fails and publishes nothing. The test at the end replays the row's recorded
 // command on a copy of the folder.
 //
 // It runs the system gzip, so its name ends in Conformance, which keeps it out of the unit tier, and it
