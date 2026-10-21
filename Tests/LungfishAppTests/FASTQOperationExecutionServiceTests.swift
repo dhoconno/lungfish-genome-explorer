@@ -3701,7 +3701,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
 
         #if os(macOS) && arch(arm64)
-        let expectedThreads = "2"
+        let expectedThreads = "1"
         #else
         let expectedThreads = "8"
         #endif

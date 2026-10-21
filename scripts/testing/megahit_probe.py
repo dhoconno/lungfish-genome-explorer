@@ -3,9 +3,10 @@
 
 MEGAHIT 1.2.9 (megahit_core_no_hw_accel assemble) ended 2 of 20 repeat runs of
 AssemblyConformanceTests.testMegahitProducesFinalContigs with exit -11 or -6 on Apple silicon, at two threads and
-without the hardware-accelerated core. The app caps MEGAHIT at two threads there (AssemblyRunRequest.effectiveThreadCount)
-and passes --no-hw-accel (ManagedAssemblyPipeline.buildMegahitCommand). This script runs that command at one thread
-(arm 1) and at two (arm 2) and records what each run did. It rules nothing. Lane 13.19 reads its numbers.
+without the hardware-accelerated core. The app capped MEGAHIT at two threads there until lane 13.19, which caps it at one
+(AssemblyExecutionHost.megahitThreadCap). It passes --no-hw-accel (ManagedAssemblyPipeline.buildMegahitCommand). This
+script runs that command at one thread (arm 1) and at two (arm 2) and records what each run did. It rules nothing. Lane
+13.19 reads its numbers.
 
 Harness. Both arms run the `megahit` front end of the managed conda environment directly, with the argument list that
 ManagedAssemblyPipeline.buildCommand(for:) returns for the conformance test's request on an arm64 Mac,

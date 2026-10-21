@@ -97,11 +97,16 @@ matches what `-t 2` recorded, so no numbers moved and the tolerance was left at
 5 percent. A megahit difference in a future sweep is now a real signal rather
 than something to rerun and dismiss.
 
-Note that `AssemblyConformanceTests.testMegahitProducesFinalContigs` keeps
-`-t 2` deliberately. It asserts structure only, that the run exits zero and
-produces at least one contig, and its thread cap documents the MEGAHIT 1.2.9
-arm64 crash above two threads. Determinism is a golden concern, not its
-concern.
+Note that `AssemblyConformanceTests.testMegahitProducesFinalContigs` runs the
+command the app builds, so on an Apple silicon Mac it runs MEGAHIT on one
+thread with `--no-hw-accel`, whatever thread count the request asks for. It
+asserts structure only, that the run exits zero and produces at least one
+contig. Determinism is a golden concern, not its concern, with one exception.
+When MEGAHIT ends with exit -11 or -6 the case runs it once more, writes a
+`MEGAHIT-RETRY` line with the signal to its standard error, which the gate
+keeps as evidence, and counts the retry only when `final.contigs.fa` has the
+SHA-256 in `MegahitGateRetry.swift`, the one-thread output of the Phase 2.12
+probe. The product never retries.
 - `kraken2-mini-SRR35517702`: byte identical to 2026.1 despite the Viral index
   moving to 20260626. That index renames the SARS-CoV-2 species to
   Betacoronavirus pandemicum under taxid 3418604, but this recipe's three
