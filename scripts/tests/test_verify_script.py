@@ -18,7 +18,7 @@ import tempfile
 import time
 import unittest
 
-ROOT =pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "scripts" / "deps" / "verify.sh"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MANIFEST = ROOT / "Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json"
