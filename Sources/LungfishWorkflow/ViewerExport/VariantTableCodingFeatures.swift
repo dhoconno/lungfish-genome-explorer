@@ -50,7 +50,7 @@ package enum VariantTableCodingFeatures {
                 codingBases: context?.codingBases,
                 codingGenomePositions: context?.codingGenomePositions,
                 phaseOffset: context?.phaseOffset ?? 0,
-                codonTable: context?.codonTable ?? .standard,
+                codonTable: context?.codonTable ?? TranslationEngine.resolvedCodonTable(for: annotation),
                 codonsBeforeFirstRead: context?.codonsBeforeFirstRead ?? 0
             )
         }

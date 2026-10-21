@@ -653,7 +653,7 @@ extension SequenceViewerView {
             codingBases: Array(layout.codingSequence.uppercased()),
             codingGenomePositions: layout.genomicPositions,
             phaseOffset: layout.phaseOffset,
-            codonTable: .standard,
+            codonTable: TranslationEngine.resolvedCodonTable(for: annotation),
             codonsBeforeFirstRead: layout.codonsBeforeFirstRead
         )
         cachedCDSCodingContexts[annotation.id] = context
