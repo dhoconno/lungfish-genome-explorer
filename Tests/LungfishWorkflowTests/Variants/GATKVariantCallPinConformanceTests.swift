@@ -127,6 +127,6 @@ final class GATKVariantCallPinConformanceTests: XCTestCase {
 
         let attach = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: attachment.provenanceURL)).legacyWorkflowRun()
         XCTAssertEqual(attach.name, "GATK HaplotypeCaller bundle attachment")
-        XCTAssertEqual(Array((attach.steps.first?.command ?? []).prefix(3)), ["lungfish-app", "gatk-attach", "--bundle"])
+        XCTAssertEqual(Array((attach.steps.first?.command ?? []).prefix(3)), [LungfishAppIdentity.recordedToolName, "gatk-attach", "--bundle"])
     }
 }

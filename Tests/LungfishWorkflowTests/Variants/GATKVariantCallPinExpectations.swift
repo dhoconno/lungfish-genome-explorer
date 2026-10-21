@@ -43,11 +43,11 @@ extension GATKVariantCallPinTests {
     exec.parameter.toolExecutable = gatk
     attach.file = <bundle>/variants/gatk/vc-pin-track.lungfish-provenance.json
     attach.envelope.status = completed
-    attach.envelope.argv = ["lungfish-app", "gatk-attach", "--bundle", "<bundle>", "--alignment-track", "aln-1", "--vcf", "<bundle>/variants/gatk/vc-pin-track.vcf", "--output-track", "vc-pin-track", "--name", "Sample BAM • GATK HaplotypeCaller", "--import-semantics", "standard", "--import-profile", "auto"]
+    attach.envelope.argv = ["Lungfish Genome Explorer", "gatk-attach", "--bundle", "<bundle>", "--alignment-track", "aln-1", "--vcf", "<bundle>/variants/gatk/vc-pin-track.vcf", "--output-track", "vc-pin-track", "--name", "Sample BAM • GATK HaplotypeCaller", "--import-semantics", "standard", "--import-profile", "auto"]
     attach.name = GATK HaplotypeCaller bundle attachment
     attach.stepCount = 1
     attach.step0.tool = lungfish gatk bundle attach
-    attach.step0.command = ["lungfish-app", "gatk-attach", "--bundle", "<bundle>", "--alignment-track", "aln-1", "--vcf", "<bundle>/variants/gatk/vc-pin-track.vcf", "--output-track", "vc-pin-track", "--name", "Sample BAM • GATK HaplotypeCaller", "--import-semantics", "standard", "--import-profile", "auto"]
+    attach.step0.command = ["Lungfish Genome Explorer", "gatk-attach", "--bundle", "<bundle>", "--alignment-track", "aln-1", "--vcf", "<bundle>/variants/gatk/vc-pin-track.vcf", "--output-track", "vc-pin-track", "--name", "Sample BAM • GATK HaplotypeCaller", "--import-semantics", "standard", "--import-profile", "auto"]
     attach.step0.inputs = ["<bundle>/variants/gatk/vc-pin-track.vcf", "<bundle>/variants/gatk/vc-pin-track.vcf.idx", "<bundle>/variants/gatk/.lungfish-provenance.json"]
     attach.step0.outputs = ["<bundle>/variants/gatk/vc-pin-track.vcf", "<bundle>/variants/gatk/vc-pin-track.vcf.idx", "<bundle>/variants/gatk/vc-pin-track.db", "<bundle>/manifest.json"]
     attach.parameter.alignmentTrackID = aln-1
