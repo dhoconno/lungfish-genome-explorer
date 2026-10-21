@@ -80,7 +80,7 @@ final class NamedUnsignedRecordsPinReplayTests: XCTestCase {
         let location = ReferenceBundleAnnotationRowLocation(
             trackID: "imported", rowID: try AnnotationEditRouteParityTests.firstRowID(in: bundle)
         )
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
 
         // A signed record first, with a throwaway key.
         let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
@@ -191,7 +191,7 @@ final class NamedUnsignedRecordsPinReplayTests: XCTestCase {
             intervals: [AnnotationInterval(start: 4, end: 20)],
             strand: .reverse
         )
-        _ = try await ReferenceBundleManualAnnotationService().addAnnotation(annotation, toBundleAt: bundle)
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(annotation, toBundleAt: bundle)
     }
 
     /// The record exists and neither file of a signature sits beside it.

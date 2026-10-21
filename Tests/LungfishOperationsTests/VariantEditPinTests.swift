@@ -12,6 +12,7 @@
 // route launches a process for it (SWIFT).
 
 import Foundation
+import LungfishCore
 import XCTest
 import LungfishIO
 import LungfishTestSupport
@@ -33,7 +34,7 @@ final class VariantEditPinTests: XCTestCase {
         let fixture = try VariantEditFixture.make(in: root)
         let ids = try fixture.variantIDs()
         XCTAssertEqual(ids.count, 3)
-        let result = try VariantDeletionMutationService().deleteVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
             idsByTrack: ["trackA": [ids[1]]],
             bundleURL: fixture.bundleURL,
             targets: [VariantDeletionMutationTarget(trackId: "trackA", databaseURL: fixture.databaseURL, trackName: "Variants")]
@@ -47,7 +48,7 @@ final class VariantEditPinTests: XCTestCase {
 
     func testDeleteAllLeavesTheseRowsAndRecord() throws {
         let fixture = try VariantEditFixture.make(in: root)
-        let result = try VariantDeletionMutationService().deleteAllVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
             bundleURL: fixture.bundleURL,
             targets: [VariantDeletionMutationTarget(trackId: "trackA", databaseURL: fixture.databaseURL, trackName: "Variants")]
         )
@@ -61,7 +62,7 @@ final class VariantEditPinTests: XCTestCase {
     func testSampleMetadataImportLeavesTheseRowsAndRecord() throws {
         let fixture = try VariantEditFixture.make(in: root)
         let metadata = try fixture.writeMetadata()
-        let result = try VariantSampleMetadataImportService().importMetadata(
+        let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
             from: metadata,
             format: .tsv,
             bundleURL: fixture.bundleURL,
@@ -82,7 +83,7 @@ final class VariantEditPinTests: XCTestCase {
         let metadata = try fixture.writeMetadata()
         let clock = ContinuousClock()
         let elapsed = try clock.measure {
-            _ = try VariantSampleMetadataImportService().importMetadata(
+            _ = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                 from: metadata,
                 format: .tsv,
                 bundleURL: fixture.bundleURL,

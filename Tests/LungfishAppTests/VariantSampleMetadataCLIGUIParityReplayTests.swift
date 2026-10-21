@@ -24,6 +24,7 @@
 // integration tier, where the CLI is built.
 
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishApp
 @testable import LungfishOperations
@@ -89,7 +90,7 @@ final class VariantSampleMetadataCLIGUIParityReplayTests: XCTestCase {
             + VariantSampleMetadataImportService.importMetadataArguments(metadataURL: file, format: .tsv, bundleURL: bundle)
             + ["--format", "json"]
         do {
-            _ = try VariantSampleMetadataImportService().importMetadata(
+            _ = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                 from: file,
                 format: .tsv,
                 bundleURL: bundle,

@@ -186,7 +186,7 @@ struct Primer3ResultsView: View {
       do {
         let analyses = projectURL.appendingPathComponent(
           AnalysesFolder.directoryName, isDirectory: true)
-        let url = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+        let url = try await PrimerAnalysisAnnotatedReferenceService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).createReference(
           analysisURL: bundleURL, resultID: result.resultID,
           outputDirectory: analyses, invocationArgv: CommandLine.arguments)
         // The service resolves symlinks before writing, so confirm the result

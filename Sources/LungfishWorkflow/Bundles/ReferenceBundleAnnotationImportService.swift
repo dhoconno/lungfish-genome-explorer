@@ -38,7 +38,9 @@ private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, categor
 /// `ReferenceBundleAnnotationImportResult` continue to hop themselves after `await`,
 /// exactly as before.
 public final class ReferenceBundleAnnotationImportService {
-    public init() {}
+    /// The caller's tool name and kind (BIO-Q-A2 R2). The CLI passes `lungfish-cli` and `cli`, the app the recorded name and `gui`.
+    public let toolName: String, toolKind: String
+    public init(toolName: String, toolKind: String) { (self.toolName, self.toolKind) = (toolName, toolKind) }
 
     #if DEBUG
     /// Test-only threading probe. When set, invoked once at the start of the heavy
@@ -173,6 +175,7 @@ public final class ReferenceBundleAnnotationImportService {
         invocationArgv: [String]? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
         let cancelled = AttachCancelFlag()
+        let toolName = self.toolName, toolKind = self.toolKind
         let task = Task<ReferenceBundleAnnotationImportResult, Error>.detached(priority: .userInitiated) {
             try await BundleManifestMutationSerializer.shared.run(bundleURL: bundleURL) {
                 try await ReferenceBundleAnnotationImportService.performAttach(
@@ -181,6 +184,8 @@ public final class ReferenceBundleAnnotationImportService {
                     requestedTrackID: requestedTrackID,
                     requestedTrackName: requestedTrackName,
                     invocationArgv: invocationArgv,
+                    toolName: toolName,
+                    toolKind: toolKind,
                     isCancelled: { cancelled.isSet }
                 )
             }
@@ -217,6 +222,8 @@ public final class ReferenceBundleAnnotationImportService {
         requestedTrackID: String?,
         requestedTrackName: String?,
         invocationArgv: [String]?,
+        toolName: String,
+        toolKind: String,
         isCancelled: @Sendable () -> Bool
     ) async throws -> ReferenceBundleAnnotationImportResult {
         #if DEBUG
@@ -316,7 +323,9 @@ public final class ReferenceBundleAnnotationImportService {
                 importerName: importerName,
                 inputManifestSnapshot: inputManifestSnapshot,
                 runClock: runClock,
-                invocationArgv: invocationArgv
+                invocationArgv: invocationArgv,
+                toolName: toolName,
+                toolKind: toolKind
             )
         } catch {
             try throwAfterProvenancePublicationFailure(error) {
@@ -448,13 +457,15 @@ public final class ReferenceBundleAnnotationImportService {
         importerName: String,
         inputManifestSnapshot: AnnotationImportFileSnapshot?,
         runClock: ProvenanceRunClock,
-        invocationArgv: [String]?
+        invocationArgv: [String]?,
+        toolName: String,
+        toolKind: String
     ) throws {
         let completedAt = runClock.now
         let provenanceURL = importProvenanceURL(bundleURL: bundleURL, trackID: track.id)
         var log = try loadProvenanceLog(from: provenanceURL)
         let command = invocationArgv ?? [
-            LungfishAppIdentity.recordedToolName,
+            toolName,
             "annotation-import",
             "--bundle", bundleURL.path,
             "--source", sourceURL.path,
@@ -473,7 +484,7 @@ public final class ReferenceBundleAnnotationImportService {
         let entry = AnnotationTrackImportProvenanceEntry(
             workflowName: "lungfish annotation track import",
             workflowVersion: appVersionString(),
-            toolName: LungfishAppIdentity.recordedToolName,
+            toolName: toolName,
             toolVersion: appVersionString(),
             argv: command,
             options: [
@@ -493,7 +504,7 @@ public final class ReferenceBundleAnnotationImportService {
             inputFileInfo: inputSnapshots,
             outputFileInfo: outputSnapshots,
             runtime: AnnotationTrackImportRuntime(
-                app: LungfishAppIdentity.recordedToolName,
+                app: toolName,
                 appVersion: appVersionString(),
                 condaEnvironment: nil,
                 containerRuntime: nil
@@ -526,7 +537,8 @@ public final class ReferenceBundleAnnotationImportService {
             inputManifestSnapshot: inputManifestSnapshot,
             startedAt: runClock.startedAt,
             completedAt: completedAt,
-            writer: writer
+            writer: writer,
+            toolKind: toolKind
         )
     }
 
@@ -559,7 +571,8 @@ public final class ReferenceBundleAnnotationImportService {
         inputManifestSnapshot: AnnotationImportFileSnapshot?,
         startedAt: Date,
         completedAt: Date,
-        writer: ProvenanceWriter
+        writer: ProvenanceWriter,
+        toolKind: String
     ) throws {
         let appVersion = appVersionString()
         let sourceDescriptor = try ProvenanceFileDescriptor.file(
@@ -598,7 +611,8 @@ public final class ReferenceBundleAnnotationImportService {
             workflowName: "lungfish annotation track import",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "lungfish annotation track import",
-            toolVersion: appVersion
+            toolVersion: appVersion,
+            toolKind: toolKind
         )
         .argv(command)
         .options(

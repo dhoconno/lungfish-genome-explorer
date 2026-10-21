@@ -60,7 +60,7 @@ final class AnnotationEditRouteParityTests: XCTestCase {
             await AppDelegate.beginManualReferenceAnnotationOperation(
                 annotation: annotation, chromosome: "chr1", bundleURL: bundle, routeContext: nil, reporter: reporter
             ) { _, argv in invocationArgv = argv }
-            _ = try await ReferenceBundleManualAnnotationService().addAnnotation(
+            _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
                 annotation, toBundleAt: bundle, invocationArgv: try XCTUnwrap(invocationArgv)
             )
             return try XCTUnwrap(reporter.items.first?.cliCommand)
@@ -85,7 +85,7 @@ final class AnnotationEditRouteParityTests: XCTestCase {
             AppDelegate.beginAnnotationUpdateOperation(
                 annotation: annotation, location: location, bundleURL: bundle, routeContext: nil, reporter: reporter
             )
-            _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
                 location,
                 name: annotation.name,
                 type: annotation.type.rawValue,
@@ -107,7 +107,7 @@ final class AnnotationEditRouteParityTests: XCTestCase {
             AppDelegate.beginAnnotationDeletionOperation(
                 location: location, bundleURL: bundle, routeContext: nil, reporter: reporter
             )
-            _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundle)
+            _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).deleteAnnotation(location, bundleURL: bundle)
             return try XCTUnwrap(reporter.items.first?.cliCommand)
         }
         assertAgree(.deleteAnnotation, found)

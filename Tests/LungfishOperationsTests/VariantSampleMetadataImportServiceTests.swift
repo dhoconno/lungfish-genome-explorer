@@ -17,7 +17,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
         SAMPLE_B\tcontrol\tmacaque
         """.write(to: metadataURL, atomically: true, encoding: .utf8)
 
-        let result = try VariantSampleMetadataImportService().importMetadata(
+        let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
             from: metadataURL,
             format: .tsv,
             bundleURL: fixture.bundleURL,
@@ -67,7 +67,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
         SAMPLE_A\ttreated
         """.write(to: metadataURL, atomically: true, encoding: .utf8)
 
-        let service = VariantSampleMetadataImportService { _, _ in
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind) { _, _ in
             throw IntentionalProvenanceFailure.write
         }
 
@@ -97,7 +97,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
         try ProvenanceWriter(signingProvider: nil).write(ProvenanceEnvelope(workflowName: "Previous fixture",
             toolName: "fixture", toolVersion: "1", argv: ["/bin/true"], exitStatus: 0), to: fixture.bundleURL)
         let original = try Data(contentsOf: provenanceURL)
-        let service = VariantSampleMetadataImportService(provenanceWriter: ProvenanceWriter(publicationMutationDidOccur: { mutation in
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, provenanceWriter: ProvenanceWriter(publicationMutationDidOccur: { mutation in
             if mutation.affectedURLs.contains(provenanceURL) { throw IntentionalProvenanceFailure.write }
         }, signingProvider: nil))
         XCTAssertThrowsError(try service.importMetadata(from: metadataURL, format: .tsv,
@@ -118,7 +118,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
         let reader = try VariantDatabase(url: fixture.databaseURL)
         let metadata = fixture.root.appendingPathComponent("metadata.tsv")
         try "sample\tcohort\nSAMPLE_A\tnew\n".write(to: metadata, atomically: true, encoding: .utf8)
-        let service = VariantSampleMetadataImportService { _, _ in throw IntentionalProvenanceFailure.write }
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind) { _, _ in throw IntentionalProvenanceFailure.write }
         XCTAssertThrowsError(try service.importMetadata(from: metadata, format: .tsv,
             bundleURL: fixture.bundleURL, targets: [.init(databaseURL: fixture.databaseURL)])) { error in
             XCTAssertFalse(error is ScientificPublicationRecoveryRequired, "Unexpected restoration failure: \(error)")
@@ -144,7 +144,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
                 throw IntentionalProvenanceFailure.write
             }
         }, signingProvider: nil)
-        let service = VariantSampleMetadataImportService(fileManager: manager, provenanceWriter: writer)
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, fileManager: manager, provenanceWriter: writer)
         do {
             _ = try service.importMetadata(from: metadata, format: .tsv, bundleURL: fixture.bundleURL,
                 targets: [.init(databaseURL: fixture.databaseURL)])
@@ -167,7 +167,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
         let provenance = fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         try Data("original receipt".utf8).write(to: provenance)
         let laterReceipt = Data("later external receipt".utf8)
-        let service = VariantSampleMetadataImportService { _, _ in
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind) { _, _ in
             var external: OpaquePointer?
             guard sqlite3_open(fixture.databaseURL.path, &external) == SQLITE_OK else { throw CocoaError(.fileReadUnknown) }
             defer { sqlite3_close(external) }
@@ -202,7 +202,7 @@ final class VariantSampleMetadataImportServiceTests: XCTestCase {
                 throw IntentionalProvenanceFailure.write
             }
         }, signingProvider: nil)
-        let service = VariantSampleMetadataImportService(provenanceWriter: writer)
+        let service = VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, provenanceWriter: writer)
         XCTAssertThrowsError(try service.importMetadata(from: metadata, format: .tsv, bundleURL: fixture.bundleURL,
             targets: [.init(databaseURL: fixture.databaseURL)])) { error in
             XCTAssertTrue(error is ScientificPublicationRecoveryRequired, "Expected explicit recovery: \(error)")

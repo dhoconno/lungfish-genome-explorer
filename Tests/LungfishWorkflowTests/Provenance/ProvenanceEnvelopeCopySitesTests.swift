@@ -382,7 +382,7 @@ final class ProvenanceEnvelopeCopySitesTests: XCTestCase {
                 at: sourceFolder.appendingPathComponent(ProvenanceWriter.provenanceFilename), as: kind
             )
 
-            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
                 sourceURL: bed, bundleURL: bundle
             )
 

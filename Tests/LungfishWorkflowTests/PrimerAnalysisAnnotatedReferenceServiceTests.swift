@@ -10,7 +10,7 @@ final class PrimerAnalysisAnnotatedReferenceServiceTests: XCTestCase {
     let fixture = try Self.makeFixture(wrongLink: true)
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     do {
-      _ = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+      _ = try await PrimerAnalysisAnnotatedReferenceService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).createReference(
         analysisURL: fixture.bundle.url, resultID: fixture.resultID,
         outputDirectory: fixture.output, invocationArgv: CommandLine.arguments)
       XCTFail("Expected mismatched link to fail")
@@ -27,7 +27,7 @@ final class PrimerAnalysisAnnotatedReferenceServiceTests: XCTestCase {
     let fixture = try Self.makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let argv = CommandLine.arguments
-    let reference = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+    let reference = try await PrimerAnalysisAnnotatedReferenceService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).createReference(
       analysisURL: fixture.bundle.url, resultID: fixture.resultID,
       outputDirectory: fixture.output, invocationArgv: argv)
     let manifest = try BundleManifest.load(from: reference)

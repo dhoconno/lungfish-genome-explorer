@@ -1,4 +1,5 @@
 import AppKit
+import LungfishCore
 import XCTest
 import LungfishIO
 import LungfishKit
@@ -66,7 +67,7 @@ final class VariantStorageWorkerOwnershipTests: XCTestCase {
             command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundle),
             center: center, work: {
                 XCTAssertFalse(Thread.isMainThread)
-                return try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundle,
+                return try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(bundleURL: bundle,
                     targets: [VariantDeletionMutationTarget(trackId: "invented", databaseURL: database)])
             }, publish: { published = $0 }))
         await task.value

@@ -74,7 +74,7 @@ final class VariantEditInvocationTests: XCTestCase {
         let selection = ["trackA": [ids[1]]]
         let argv = ["lungfish-cli"]
             + VariantDeletionMutationService.deleteSelectedArguments(bundleURL: fixture.bundleURL, idsByTrack: selection)
-        let result = try VariantDeletionMutationService().deleteVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
             idsByTrack: selection, bundleURL: fixture.bundleURL, targets: [target(of: fixture)], invocationArgv: argv
         )
         XCTAssertEqual(result.totalDeleted, 1)
@@ -91,7 +91,7 @@ final class VariantEditInvocationTests: XCTestCase {
     func testDeleteAllRecordsTheCommandItIsGiven() throws {
         let fixture = try VariantEditFixture.make(in: root)
         let argv = ["lungfish-cli"] + VariantDeletionMutationService.deleteAllArguments(bundleURL: fixture.bundleURL)
-        let result = try VariantDeletionMutationService().deleteAllVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
             bundleURL: fixture.bundleURL, targets: [target(of: fixture)], invocationArgv: argv
         )
         XCTAssertEqual(result.totalDeleted, 3)
@@ -107,7 +107,7 @@ final class VariantEditInvocationTests: XCTestCase {
         let argv = ["lungfish-cli"] + VariantSampleMetadataImportService.importMetadataArguments(
             metadataURL: metadata, format: .tsv, bundleURL: fixture.bundleURL
         )
-        let result = try VariantSampleMetadataImportService().importMetadata(
+        let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
             from: metadata, format: .tsv, bundleURL: fixture.bundleURL,
             targets: [VariantSampleMetadataImportTarget(databaseURL: fixture.databaseURL, trackName: "trackA")],
             invocationArgv: argv
@@ -136,7 +136,7 @@ final class VariantEditInvocationTests: XCTestCase {
         for cancelAt in 1...6 {
             var asks = 0
             XCTAssertThrowsError(
-                try VariantSampleMetadataImportService().importMetadata(
+                try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                     from: metadata, format: .tsv, bundleURL: fixture.bundleURL, targets: targets,
                     shouldCancel: { asks += 1; return asks == cancelAt }
                 ),
@@ -150,7 +150,7 @@ final class VariantEditInvocationTests: XCTestCase {
         }
 
         var asks = 0
-        let result = try VariantSampleMetadataImportService().importMetadata(
+        let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
             from: metadata, format: .tsv, bundleURL: fixture.bundleURL, targets: targets,
             shouldCancel: { asks += 1; return false }
         )

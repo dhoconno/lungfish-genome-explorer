@@ -11,6 +11,7 @@
 // integration tier.
 
 import Foundation
+import LungfishCore
 import XCTest
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -28,7 +29,7 @@ final class SequenceAnnotationUpdateSigningReplayTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let bundle = try AnnotationEditRouteParityTests.makeBundle(in: root, inputs: scratch)
         let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try AnnotationEditRouteParityTests.firstRowID(in: bundle))
-        _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
             location, name: "-10 box", type: "gene", strand: "-", note: "renamed in the Inspector", bundleURL: bundle
         )
 
@@ -49,7 +50,7 @@ final class SequenceAnnotationUpdateSigningReplayTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let bundle = try AnnotationEditRouteParityTests.makeBundle(in: root, inputs: scratch)
         let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try AnnotationEditRouteParityTests.firstRowID(in: bundle))
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
 
         // An update with no key leaves an unsigned record, which a failed signed update must give back as it was.
         XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the first update")

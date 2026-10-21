@@ -77,7 +77,7 @@ extension ProvenanceRunBuilder {
             toolVersion: toolVersion,
             githubReleaseVersion: steps.first?.githubReleaseVersion
                 ?? provenanceOptions.explicit["github_release_version"]?.stringValue,
-            tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: "cli"),
+            tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: toolKind),
             argv: arguments,
             durableReplayArgv: durableArguments,
             reproducibleCommand: command,

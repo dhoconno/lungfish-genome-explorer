@@ -55,7 +55,7 @@ final class VariantEditRouteParityTests: XCTestCase {
                 title: "Variant deletion", bundleURL: fixture.bundleURL, command: arguments, routeContext: nil, reporter: reporter
             ) { _ in }
             // The call performVariantDeletion makes, on the same values.
-            _ = try VariantDeletionMutationService().deleteVariants(
+            _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
                 idsByTrack: selection, bundleURL: fixture.bundleURL, targets: [Self.target(of: fixture)],
                 invocationArgv: [CLICommandIdentity.executableName] + arguments
             )
@@ -74,7 +74,7 @@ final class VariantEditRouteParityTests: XCTestCase {
                 title: "Delete all variants", bundleURL: fixture.bundleURL, command: arguments, routeContext: nil, reporter: reporter
             ) { _ in }
             // The call performDeleteAllVariants makes, on the same values.
-            _ = try VariantDeletionMutationService().deleteAllVariants(
+            _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
                 bundleURL: fixture.bundleURL, targets: [Self.target(of: fixture)],
                 invocationArgv: [CLICommandIdentity.executableName] + arguments
             )

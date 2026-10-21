@@ -19,7 +19,13 @@ public enum PrimerAnalysisAnnotatedReferenceError: Error, LocalizedError, Sendab
 /// Materializes a saved, annotated template as a native reference document.
 /// The saved analysis and original source sequences are immutable inputs.
 public struct PrimerAnalysisAnnotatedReferenceService: Sendable {
-  public init() {}
+  /// The caller's tool name and kind (BIO-Q-A2 R2), handed to the annotation import.
+  public let toolName: String, toolKind: String
+
+  public init(toolName: String, toolKind: String) {
+    self.toolName = toolName
+    self.toolKind = toolKind
+  }
 
   public func createReference(
     analysisURL: URL, resultID: UUID, outputDirectory: URL,
@@ -71,7 +77,7 @@ public struct PrimerAnalysisAnnotatedReferenceService: Sendable {
       // Once a reference has been published, finish attaching its annotations
       // before returning; a failure reports the existing partial reference path.
       do {
-        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        _ = try await ReferenceBundleAnnotationImportService(toolName: toolName, toolKind: toolKind).attachAnnotationTrack(
           sourceURL: input.annotationURL, bundleURL: imported.bundleURL,
           trackID: "primer-analysis-\(resultID.uuidString.lowercased())",
           trackName: "Primer analysis: \(input.title)", invocationArgv: invocationArgv)

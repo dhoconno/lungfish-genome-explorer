@@ -230,7 +230,7 @@ extension ImportCommand {
                 if let annotationsURL {
                     try Task.checkCancellation()
                     events.emitProgress(0.88, message: "Attaching projected annotations...")
-                    let annotationResult = try await ReferenceBundleAnnotationImportService()
+                    let annotationResult = try await ReferenceBundleAnnotationImportService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
                         .attachAnnotationTrack(sourceURL: annotationsURL, bundleURL: result.bundleURL)
                     try Task.checkCancellation()
                     try MSAExtractionAnnotationProvenance.write(

@@ -83,7 +83,7 @@ extension SequenceCommand {
                     intervals: [AnnotationInterval(start: start, end: end)],
                     strand: Strand(rawValue: strand) ?? .unknown
                 )
-                let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+                let result = try await ReferenceBundleManualAnnotationService(toolName: CLICommandIdentity.executableName).addAnnotation(
                     annotation,
                     toBundleAt: bundleURL,
                     invocationArgv: recordedArguments(bundleURL: bundleURL)
@@ -176,7 +176,7 @@ extension SequenceCommand {
             events.emitStart("Importing \(sourceURL.lastPathComponent)...")
             do {
                 try Self.checkPaths(source: sourceURL, bundle: bundleURL)
-                let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                let result = try await ReferenceBundleAnnotationImportService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind).attachAnnotationTrack(
                     sourceURL: sourceURL,
                     bundleURL: bundleURL,
                     trackID: trackID,

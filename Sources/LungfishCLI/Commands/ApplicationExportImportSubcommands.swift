@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension ImportCommand {
@@ -63,6 +64,8 @@ extension ImportCommand {
                     preserveUnsupportedArtifacts: preserveUnsupportedArtifacts
                 )
                 let service = GeneiousImportCollectionService(
+                    toolName: CLICommandIdentity.executableName,
+                    toolKind: CLICommandIdentity.recordedToolKind,
                     referenceImporter: Self.importReferenceViaSharedService
                 )
                 let result = try await service.importGeneiousExport(

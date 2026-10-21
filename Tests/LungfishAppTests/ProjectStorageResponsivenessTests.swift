@@ -105,7 +105,7 @@ final class ProjectStorageResponsivenessTests: XCTestCase {
             let task = try XCTUnwrap(drawer.runVariantStorageMutation(title: "Invented benchmark deletion", bundleURL: bundleURL,
                 command: VariantDeletionMutationService.deleteAllArguments(bundleURL: bundleURL),
                 center: center, work: {
-                    try VariantDeletionMutationService().deleteAllVariants(bundleURL: bundleURL,
+                    try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(bundleURL: bundleURL,
                         targets: [VariantDeletionMutationTarget(trackId: "invented", databaseURL: databaseURL)])
                 }, publish: { deletedCount = $0.totalDeleted }))
             await task.value

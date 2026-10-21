@@ -10,6 +10,7 @@
 // in the integration tier.
 
 import Foundation
+import LungfishCore
 import XCTest
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -30,7 +31,7 @@ final class ReferenceBundleAnnotationImportSigningReplayTests: XCTestCase {
         try "chr1\t2\t9\tprimer-left\t0\t+\nchr1\t10\t15\tprimer-right\t0\t-\n"
             .write(to: source, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: source,
             bundleURL: bundle,
             trackID: "primers",
@@ -58,7 +59,7 @@ final class ReferenceBundleAnnotationImportSigningReplayTests: XCTestCase {
         let source = root.appendingPathComponent("primers.bed")
         try "chr1\t2\t9\tprimer-left\t0\t+\nchr1\t10\t15\tprimer-right\t0\t-\n"
             .write(to: source, atomically: true, encoding: .utf8)
-        let service = ReferenceBundleAnnotationImportService()
+        let service = ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind)
 
         // An attach with no key leaves an unsigned record, which a failed signed attach must give back as it was.
         XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the first attach")

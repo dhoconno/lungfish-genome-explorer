@@ -20,6 +20,7 @@
 // integration tier, where the CLI is built.
 
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishApp
 import LungfishKit
@@ -91,7 +92,7 @@ final class AnnotationTrackAttachCLIGUIParityReplayTests: XCTestCase {
             )
             + ["--format", "json"]
         do {
-            let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
                 sourceURL: source,
                 bundleURL: bundle,
                 trackID: Self.trackID,

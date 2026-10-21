@@ -207,7 +207,7 @@ final class ReferenceImportParityReplayTests: XCTestCase {
             )
             if let annotations = shape.annotations {
                 let clock = ProvenanceRunClock()
-                let attached = try await ReferenceBundleAnnotationImportService()
+                let attached = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind)
                     .attachAnnotationTrack(sourceURL: annotations.bed, bundleURL: result.bundleURL)
                 try MSAExtractionAnnotationProvenance.write(
                     bundleURL: result.bundleURL,

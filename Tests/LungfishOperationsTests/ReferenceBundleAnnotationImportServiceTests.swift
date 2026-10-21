@@ -30,7 +30,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         let bedURL = tempRoot.appendingPathComponent("M1.bed")
         try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedURL,
             bundleURL: bundleURL
         )
@@ -49,7 +49,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         let bedURL = tempRoot.appendingPathComponent("features.bed")
         try "chr1\t1\t12\tprimer\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
         let argv = ["/Applications/Lungfish.app/Contents/MacOS/Lungfish", "--example-argument", "literal value"]
-        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedURL, bundleURL: bundleURL, trackID: "primers", invocationArgv: argv)
         let url = bundleURL.appendingPathComponent("annotations/primers-import-provenance.json")
         let data = try Data(contentsOf: url)
@@ -67,7 +67,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: gffURL,
             bundleURL: bundleURL
         )
@@ -83,7 +83,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         let bedURL = tempRoot.appendingPathComponent("source_annotations.bed")
         try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedURL,
             bundleURL: bundleURL,
             trackID: "curated_orfs",
@@ -144,7 +144,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
         try ProvenanceWriter(signingProvider: nil).write(sourceEnvelope, toSidecar: sourceSidecarURL)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedURL,
             bundleURL: bundleURL,
             trackID: "cli_import",
@@ -180,7 +180,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
-        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: gffURL,
             bundleURL: bundleURL
         )
@@ -215,7 +215,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
         do {
-            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
                 sourceURL: gffURL,
                 bundleURL: bundleURL
             )
@@ -249,7 +249,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
 
         do {
-            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
                 sourceURL: bedURL,
                 bundleURL: bundleURL,
                 trackID: "rollback_fail",
@@ -280,13 +280,13 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         let bedBURL = tempRoot.appendingPathComponent("track_b.bed")
         try "chr1\t2\t14\tgeneB\t0\t+\n".write(to: bedBURL, atomically: true, encoding: .utf8)
 
-        async let resultA = ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        async let resultA = ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedAURL,
             bundleURL: bundleURL,
             trackID: "track_a",
             trackName: "Track A"
         )
-        async let resultB = ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        async let resultB = ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedBURL,
             bundleURL: bundleURL,
             trackID: "track_b",
@@ -337,7 +337,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
             strand: .forward
         )
 
-        let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+        let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
             annotation,
             toBundleAt: bundleURL
         )
@@ -369,7 +369,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         let bundleURL = try makeBundle(named: "Versioned")
         let bedURL = tempRoot.appendingPathComponent("features.bed")
         try "chr1\t1\t12\tprimer\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
-        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bedURL, bundleURL: bundleURL, trackID: "primers")
 
         let log = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(
@@ -396,7 +396,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertEqual(mkfifo(fifo.path, 0o600), 0, "the held GFF3 is a FIFO")
         let before = try Self.regularFiles(in: bundleURL)
         let attach = Task {
-            try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(sourceURL: fifo, bundleURL: bundleURL)
+            try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(sourceURL: fifo, bundleURL: bundleURL)
         }
         guard let writer = await Self.openWriter(of: fifo) else {
             attach.cancel()

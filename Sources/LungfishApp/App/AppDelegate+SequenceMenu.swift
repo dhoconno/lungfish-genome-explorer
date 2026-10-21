@@ -531,7 +531,7 @@ extension AppDelegate {
             routeContext: routeContext
         ) { opID, invocationArgv in
             do {
-                let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+                let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
                     annotation,
                     toBundleAt: bundleURL, invocationArgv: invocationArgv
                 )

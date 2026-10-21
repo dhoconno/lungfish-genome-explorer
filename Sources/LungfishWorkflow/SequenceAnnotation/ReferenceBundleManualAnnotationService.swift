@@ -45,7 +45,12 @@ public final class ReferenceBundleManualAnnotationService {
     private let databasePath = "annotations/manual_annotations.db"
     private let provenancePath = "annotations/manual-annotation-provenance.json"
 
-    public init() {}
+    /// The caller's tool name (BIO-Q-A2 R2). The CLI passes `lungfish-cli`, the app the recorded name. The log has no kind field.
+    public let toolName: String
+
+    public init(toolName: String) {
+        self.toolName = toolName
+    }
 
     // MARK: - The lungfish-cli commands that reproduce the edits (findings R3 and R8)
 
@@ -419,7 +424,7 @@ public final class ReferenceBundleManualAnnotationService {
         var log = try loadProvenanceLog(from: provenanceURL)
         let region = annotation.boundingRegion
         let command = invocationArgv ?? [
-            LungfishAppIdentity.recordedToolName,
+            toolName,
             "manual-annotation",
             "--bundle", bundleURL.path,
             "--chromosome", chromosome,
@@ -459,7 +464,7 @@ public final class ReferenceBundleManualAnnotationService {
                 strand: annotation.strand.rawValue
             ),
             runtime: ManualAnnotationRuntime(
-                app: LungfishAppIdentity.recordedToolName,
+                app: toolName,
                 appVersion: appVersionString(),
                 condaEnvironment: nil,
                 containerRuntime: nil

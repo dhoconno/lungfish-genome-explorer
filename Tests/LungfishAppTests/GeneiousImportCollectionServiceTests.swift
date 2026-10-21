@@ -160,6 +160,8 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         let archiveURL = try makeGeneiousArchive(root: root, name: "Example.geneious")
         let capture = ReferenceImportCapture()
         let service = GeneiousImportCollectionService(
+            toolName: LungfishAppIdentity.recordedToolName,
+            toolKind: LungfishAppIdentity.recordedToolKind,
             scanner: GeneiousImportScanner(),
             referenceImporter: { sourceURL, outputDirectory, preferredName in
                 await capture.record(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName)
@@ -195,6 +197,8 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
         let archiveURL = try makeGeneiousArchive(root: root, name: "Example.geneious")
         let service = GeneiousImportCollectionService(
+            toolName: LungfishAppIdentity.recordedToolName,
+            toolKind: LungfishAppIdentity.recordedToolKind,
             scanner: GeneiousImportScanner(),
             referenceImporter: { _, outputDirectory, preferredName in
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
@@ -232,6 +236,8 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         let capture = ReferenceImportCapture()
         let annotationCapture = AnnotationImportCapture()
         let service = GeneiousImportCollectionService(
+            toolName: LungfishAppIdentity.recordedToolName,
+            toolKind: LungfishAppIdentity.recordedToolKind,
             scanner: GeneiousImportScanner(),
             referenceImporter: { sourceURL, outputDirectory, preferredName in
                 await capture.record(
@@ -311,6 +317,8 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
 
     private func makeService() -> GeneiousImportCollectionService {
         GeneiousImportCollectionService(
+            toolName: LungfishAppIdentity.recordedToolName,
+            toolKind: LungfishAppIdentity.recordedToolKind,
             scanner: GeneiousImportScanner(),
             referenceImporter: { sourceURL, outputDirectory, preferredName in
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)

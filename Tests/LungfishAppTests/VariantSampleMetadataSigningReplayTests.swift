@@ -12,6 +12,7 @@
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier.
 
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishApp
 @testable import LungfishOperations
@@ -68,7 +69,7 @@ final class VariantSampleMetadataSigningReplayTests: XCTestCase {
             + VariantSampleMetadataImportService.importMetadataArguments(metadataURL: file, format: .tsv, bundleURL: bundle)
             + ["--format", "json"]
         do {
-            _ = try VariantSampleMetadataImportService().importMetadata(
+            _ = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                 from: file,
                 format: .tsv,
                 bundleURL: bundle,

@@ -3126,7 +3126,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
         let arguments = VariantDeletionMutationService.deleteSelectedArguments(bundleURL: bundleURL, idsByTrack: idsByTrack)
         runVariantStorageMutation(title: "Variant deletion", bundleURL: bundleURL, command: arguments, work: {
-            try VariantDeletionMutationService().deleteVariants(
+            try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
                 idsByTrack: idsByTrack, bundleURL: bundleURL, targets: targets,
                 invocationArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in
@@ -3155,7 +3155,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
         let arguments = VariantDeletionMutationService.deleteAllArguments(bundleURL: bundleURL)
         runVariantStorageMutation(title: "Delete all variants", bundleURL: bundleURL, command: arguments, work: {
-            try VariantDeletionMutationService().deleteAllVariants(
+            try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
                 bundleURL: bundleURL, targets: targets,
                 invocationArgv: [CLICommandIdentity.executableName] + arguments)
         }, publish: { [weak self] result in

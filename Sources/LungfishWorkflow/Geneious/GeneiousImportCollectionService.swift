@@ -7,14 +7,15 @@ public typealias GeneiousReferenceImporter = @Sendable (URL, URL, String) async 
 public typealias GeneiousAnnotationImporter = @Sendable (URL, URL) async throws -> ReferenceBundleAnnotationImportResult
 
 public struct GeneiousImportCollectionService: Sendable {
-    public static let `default` = GeneiousImportCollectionService()
-
     private let scanner: GeneiousImportScanner
     private let archiveTool: GeneiousArchiveTool
     private let referenceImporter: GeneiousReferenceImporter
     private let annotationImporter: GeneiousAnnotationImporter
 
+    /// `toolName` and `toolKind` name the caller in the annotation records of the default importer (BIO-Q-A2 R2).
     public init(
+        toolName: String,
+        toolKind: String,
         scanner: GeneiousImportScanner = GeneiousImportScanner(),
         archiveTool: GeneiousArchiveTool = GeneiousArchiveTool(),
         referenceImporter: @escaping GeneiousReferenceImporter = { sourceURL, outputDirectory, preferredName in
@@ -24,15 +25,15 @@ public struct GeneiousImportCollectionService: Sendable {
                 preferredBundleName: preferredName
             )
         },
-        annotationImporter: @escaping GeneiousAnnotationImporter = { sourceURL, bundleURL in
-            let service = ReferenceBundleAnnotationImportService()
-            return try await service.attachAnnotationTrack(sourceURL: sourceURL, bundleURL: bundleURL)
-        }
+        annotationImporter: GeneiousAnnotationImporter? = nil
     ) {
         self.scanner = scanner
         self.archiveTool = archiveTool
         self.referenceImporter = referenceImporter
-        self.annotationImporter = annotationImporter
+        self.annotationImporter = annotationImporter ?? { sourceURL, bundleURL in
+            let service = ReferenceBundleAnnotationImportService(toolName: toolName, toolKind: toolKind)
+            return try await service.attachAnnotationTrack(sourceURL: sourceURL, bundleURL: bundleURL)
+        }
     }
 
     public func importGeneiousExport(

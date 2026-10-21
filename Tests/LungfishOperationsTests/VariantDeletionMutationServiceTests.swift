@@ -11,7 +11,7 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         let ids = try variantIDs(in: fixture.databaseURL)
         XCTAssertEqual(ids.count, 2)
 
-        let result = try VariantDeletionMutationService().deleteVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
             idsByTrack: ["trackA": [ids[0]]],
             bundleURL: fixture.bundleURL,
             targets: [
@@ -44,7 +44,7 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         let fixture = try makeVariantBundle()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        let result = try VariantDeletionMutationService().deleteAllVariants(
+        let result = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
             bundleURL: fixture.bundleURL,
             targets: [
                 VariantDeletionMutationTarget(
@@ -69,7 +69,7 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let ids = try variantIDs(in: fixture.databaseURL)
         XCTAssertEqual(ids.count, 2)
-        let service = VariantDeletionMutationService { _, _ in
+        let service = VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind) { _, _ in
             throw IntentionalVariantDeletionProvenanceFailure.write
         }
 
@@ -101,7 +101,7 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         try ProvenanceWriter(signingProvider: nil).write(ProvenanceEnvelope(workflowName: "Previous fixture",
             toolName: "fixture", toolVersion: "1", argv: ["/bin/true"], exitStatus: 0), to: fixture.bundleURL)
         let original = try Data(contentsOf: provenanceURL)
-        let service = VariantDeletionMutationService(provenanceWriter: ProvenanceWriter(publicationMutationDidOccur: { mutation in
+        let service = VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind, provenanceWriter: ProvenanceWriter(publicationMutationDidOccur: { mutation in
             if mutation.affectedURLs.contains(provenanceURL) { throw IntentionalVariantDeletionProvenanceFailure.write }
         }, signingProvider: nil))
         XCTAssertThrowsError(try service.deleteAllVariants(bundleURL: fixture.bundleURL, targets: [
@@ -121,7 +121,7 @@ final class VariantDeletionMutationServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: obstruction, withIntermediateDirectories: true)
         let marker = obstruction.appendingPathComponent("retained.txt")
         try Data("retained directory".utf8).write(to: marker)
-        XCTAssertThrowsError(try VariantDeletionMutationService().deleteAllVariants(bundleURL: fixture.bundleURL,
+        XCTAssertThrowsError(try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(bundleURL: fixture.bundleURL,
             targets: [VariantDeletionMutationTarget(trackId: "trackA", databaseURL: fixture.databaseURL)]))
         XCTAssertEqual(reader.totalCount(), 2)
         XCTAssertEqual(try? Data(contentsOf: marker), Data("retained directory".utf8))

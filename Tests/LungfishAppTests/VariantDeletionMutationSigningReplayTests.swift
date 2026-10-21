@@ -32,7 +32,7 @@ final class VariantDeletionMutationSigningReplayTests: XCTestCase {
             trackId: VariantEditFixture.trackID, databaseURL: fixture.databaseURL, trackName: VariantEditFixture.trackName
         )
         let arguments = VariantDeletionMutationService.deleteSelectedArguments(bundleURL: fixture.bundleURL, idsByTrack: selection)
-        _ = try VariantDeletionMutationService().deleteVariants(
+        _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
             idsByTrack: selection, bundleURL: fixture.bundleURL, targets: [target],
             invocationArgv: [CLICommandIdentity.executableName] + arguments
         )

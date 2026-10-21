@@ -83,7 +83,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         defer { TestTempDirectory.cleanup(scratch) }
         let bundle = try makeBundle(in: scratch)
         let log = Self.log(in: bundle)
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
         let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
         defer { saved.restore() }
 
@@ -111,7 +111,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         defer { TestTempDirectory.cleanup(scratch) }
         let bundle = try makeBundle(in: scratch)
         let log = Self.log(in: bundle)
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
         let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: log)
         let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: log)
 
@@ -151,7 +151,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         defer { TestTempDirectory.cleanup(scratch) }
         let bundle = try makeBundle(in: scratch)
         let log = Self.log(in: bundle)
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
 
         let saved = RouteParityHarness.SigningEnvironment(keyFile: try RouteParityHarness.writeSigningKey(in: scratch))
         _ = try await service.addAnnotation(Self.annotation("signed"), toBundleAt: bundle)
@@ -196,7 +196,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
         defer { TestTempDirectory.cleanup(scratch) }
         let bundle = try makeBundle(in: scratch)
         let log = Self.log(in: bundle)
-        let service = ReferenceBundleManualAnnotationService()
+        let service = ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName)
 
         XCTAssertNil(ProvenanceSigningConfiguration.defaultProvider(), "an ambient signing key would sign the appends")
         _ = try await service.addAnnotation(Self.annotation("first"), toBundleAt: bundle)
@@ -234,7 +234,7 @@ final class ReferenceBundleManualAnnotationLogSigningReplayTests: XCTestCase {
     /// Side A. The in-process add both sites made at the base.
     private func sideA(_ root: URL) async -> RouteParitySideOutcome {
         do {
-            let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+            let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
                 Self.annotation("-35 box"), toBundleAt: Self.bundle(in: root)
             )
             return RouteParitySideOutcome(end: .completed, detail: "\(result.featureCount) annotations")

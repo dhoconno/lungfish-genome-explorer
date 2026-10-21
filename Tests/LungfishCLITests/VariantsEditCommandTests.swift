@@ -69,7 +69,7 @@ final class VariantsEditCommandTests: XCTestCase {
         let (a, c) = try twoRoots()
         let ids = try a.variantIDs()
         let selection = [VariantEditFixture.trackID: [ids[1], ids[2]]]
-        _ = try VariantDeletionMutationService().deleteVariants(
+        _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants(
             idsByTrack: selection, bundleURL: a.bundleURL, targets: [tableTarget(a)],
             invocationArgv: [CLICommandIdentity.executableName]
                 + VariantDeletionMutationService.deleteSelectedArguments(bundleURL: a.bundleURL, idsByTrack: selection)
@@ -84,7 +84,7 @@ final class VariantsEditCommandTests: XCTestCase {
 
     func testDeleteAllWritesWhatTheTablesCallWrites() async throws {
         let (a, c) = try twoRoots()
-        _ = try VariantDeletionMutationService().deleteAllVariants(
+        _ = try VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants(
             bundleURL: a.bundleURL, targets: [tableTarget(a)],
             invocationArgv: [CLICommandIdentity.executableName] + VariantDeletionMutationService.deleteAllArguments(bundleURL: a.bundleURL)
         )
@@ -97,7 +97,7 @@ final class VariantsEditCommandTests: XCTestCase {
     func testMetadataImportWritesWhatTheTablesCallWrites() async throws {
         let (a, c) = try twoRoots(withMetadata: true)
         let metadataA = a.root.appendingPathComponent("metadata.tsv")
-        _ = try VariantSampleMetadataImportService().importMetadata(
+        _ = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
             from: metadataA, format: .tsv, bundleURL: a.bundleURL,
             targets: [VariantSampleMetadataImportTarget(databaseURL: a.databaseURL, trackName: VariantEditFixture.trackID)],
             invocationArgv: [CLICommandIdentity.executableName] + VariantSampleMetadataImportService.importMetadataArguments(
@@ -166,6 +166,68 @@ final class VariantsEditCommandTests: XCTestCase {
         XCTAssertEqual(try VariantEditDump.snapshot(ofBundleAt: fixture.bundleURL, databases: [fixture.databaseURL]), before)
     }
 
+    // MARK: - R2 of BIO-Q-A2 (lane 13.27). The caller gives the identity that its record names.
+
+    /// The leaf is the CLI's caller of the writer, so its record names `lungfish-cli` with kind `cli` in every field.
+    func testDeletionLeafRecordNamesTheCLI() async throws {
+        let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
+        try await VariantsCommand.DeleteSubcommand.parse([fixture.bundleURL.path, "--all", "--quiet"]).execute(emit: { _ in })
+        try assertRecordNames("lungfish-cli", kind: "cli", argv0: "lungfish-cli", in: fixture)
+    }
+
+    /// The table builds the service with the recorded name and kind `gui`. With no argv from its caller the writer still starts
+    /// the argv with its own `lungfish-gui`, which 13.27-c2 moves to the caller's name (MD58 (2)).
+    func testDeletionAppRecordNamesTheApp() throws {
+        let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
+        _ = try VariantDeletionMutationService(
+            toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind
+        ).deleteAllVariants(bundleURL: fixture.bundleURL, targets: [tableTarget(fixture)])
+        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "lungfish-gui", in: fixture)
+    }
+
+    func testMetadataImportLeafRecordNamesTheCLI() async throws {
+        let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
+        _ = try fixture.writeMetadata()
+        let metadata = fixture.root.appendingPathComponent("metadata.tsv")
+        try await VariantsCommand.ImportSampleMetadataSubcommand.parse([fixture.bundleURL.path, metadata.path, "--quiet"])
+            .execute(emit: { _ in })
+        try assertRecordNames("lungfish-cli", kind: "cli", argv0: "lungfish-cli", in: fixture)
+    }
+
+    func testMetadataImportAppRecordNamesTheApp() throws {
+        let fixture = try VariantEditFixture.make(in: root, withTrackManifest: true)
+        _ = try fixture.writeMetadata()
+        let metadata = fixture.root.appendingPathComponent("metadata.tsv")
+        _ = try VariantSampleMetadataImportService(
+            toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind
+        ).importMetadata(
+            from: metadata, format: .tsv, bundleURL: fixture.bundleURL,
+            targets: [VariantSampleMetadataImportTarget(databaseURL: fixture.databaseURL, trackName: VariantEditFixture.trackID)]
+        )
+        try assertRecordNames("Lungfish Genome Explorer", kind: "gui", argv0: "lungfish-gui", in: fixture)
+    }
+
+    /// The record's `toolName`, `tool.name`, `tool.kind`, first step's `toolName` and argv[0] as written.
+    private func assertRecordNames(
+        _ name: String, kind: String, argv0: String, in fixture: VariantEditFixture, line: UInt = #line
+    ) throws {
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: fixture.bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        ), line: line)
+        XCTAssertEqual(record.toolName, name, line: line)
+        XCTAssertEqual(record.tool.name, name, line: line)
+        XCTAssertEqual(record.tool.kind, kind, line: line)
+        XCTAssertEqual(record.steps.first?.toolName, name, line: line)
+        XCTAssertEqual(record.argv.first, argv0, line: line)
+    }
+
+    /// The table names the app (`Lungfish Genome Explorer`, `gui`) and the leaf names `lungfish-cli` (`cli`), whoever makes the
+    /// edit (R2 of BIO-Q-A2, lane 13.27). The four identity lines differ by design and every other line must still agree.
+    private func withoutCallerIdentity(_ dump: String) -> String {
+        let identity = ["toolName = ", "tool.name = ", "tool.kind = ", "steps[0].toolName = "]
+        return dump.components(separatedBy: "\n").filter { line in !identity.contains { line.hasPrefix($0) } }.joined(separator: "\n")
+    }
+
     // MARK: - Helpers
 
     private func tableTarget(_ fixture: VariantEditFixture) -> VariantDeletionMutationTarget {
@@ -192,7 +254,8 @@ final class VariantsEditCommandTests: XCTestCase {
             "the leaf leaves the table's rows", line: line
         )
         XCTAssertEqual(
-            try VariantEditDump.provenance(of: c.bundleURL, root: c.root), try VariantEditDump.provenance(of: a.bundleURL, root: a.root),
+            withoutCallerIdentity(try VariantEditDump.provenance(of: c.bundleURL, root: c.root)),
+            withoutCallerIdentity(try VariantEditDump.provenance(of: a.bundleURL, root: a.root)),
             "the leaf writes the table's record", line: line
         )
     }

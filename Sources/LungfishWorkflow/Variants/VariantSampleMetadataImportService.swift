@@ -30,13 +30,19 @@ package struct VariantSampleMetadataImportResult: Sendable, Equatable {
 }
 
 package struct VariantSampleMetadataImportService {
+    /// The caller's tool name and kind (BIO-Q-A2 R2). The CLI passes `lungfish-cli` and `cli`, the app the recorded name and `gui`.
+    private let toolName: String, toolKind: String
     private let fileManager: FileManager
     private let writeProvenance: (ProvenanceEnvelope, URL, VariantMutationPublication) throws -> URL
 
     package init(
+        toolName: String,
+        toolKind: String,
         fileManager: FileManager = .default,
         provenanceWriter: ProvenanceWriter = ProvenanceWriter()
     ) {
+        self.toolName = toolName
+        self.toolKind = toolKind
         self.fileManager = fileManager
         self.writeProvenance = { envelope, bundleURL, publication in
             try provenanceWriter.observingPublications { try publication.observeProvenance($0) }
@@ -45,9 +51,13 @@ package struct VariantSampleMetadataImportService {
     }
 
     package init(
+        toolName: String,
+        toolKind: String,
         fileManager: FileManager = .default,
         writeProvenance: @escaping (ProvenanceEnvelope, URL) throws -> URL
     ) {
+        self.toolName = toolName
+        self.toolKind = toolKind
         self.fileManager = fileManager
         self.writeProvenance = { envelope, bundleURL, _ in try writeProvenance(envelope, bundleURL) }
     }
@@ -181,7 +191,7 @@ package struct VariantSampleMetadataImportService {
             }
         )
         let step = ProvenanceStep(
-            toolName: LungfishAppIdentity.recordedToolName,
+            toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -197,8 +207,9 @@ package struct VariantSampleMetadataImportService {
         var builder = ProvenanceRunBuilder(
             workflowName: "Variant sample metadata import",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: LungfishAppIdentity.recordedToolName,
-            toolVersion: WorkflowRun.currentAppVersion
+            toolName: toolName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            toolKind: toolKind
         )
         .argv(argv)
         .durableReplayArgv(argv)

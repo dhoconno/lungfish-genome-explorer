@@ -14,7 +14,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 final class SequenceAnnotationEditCommandTests: XCTestCase {
     private var scratch: URL!
@@ -32,7 +32,7 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
     func testAddAnnotationWritesTheRowTrackAndRecordTheMenuItemWrites() async throws {
         let app = try SequenceEditFixture.referenceBundle(in: scratch.appendingPathComponent("app"))
         let cli = try SequenceEditFixture.referenceBundle(in: scratch.appendingPathComponent("cli"))
-        _ = try await ReferenceBundleManualAnnotationService().addAnnotation(
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
             SequenceAnnotation(
                 type: .gene,
                 name: "selection-feature",
@@ -73,7 +73,7 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
         let app = try SequenceEditFixture.referenceBundle(in: scratch.appendingPathComponent("app"))
         let cli = try SequenceEditFixture.referenceBundle(in: scratch.appendingPathComponent("cli"))
         let bed = try SequenceEditFixture.bedFile(in: scratch)
-        _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        _ = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: bed, bundleURL: app, trackID: "primers", trackName: nil
         )
         try await SequenceCommand.AttachTrack.parse([cli.path, bed.path, "--track-id", "primers", "--quiet"])
@@ -144,6 +144,65 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
         XCTAssertTrue(message.hasPrefix("The bundle holds no sequence named 'nope'"), message)
     }
 
+    // MARK: - R2 of BIO-Q-A2 (lane 13.27). The caller gives the identity that its record names.
+
+    /// The leaf is the CLI's caller of the writer, so the log it writes names `lungfish-cli` in `runtime.app` and argv[0].
+    func testAddAnnotationLeafRecordNamesTheCLI() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        try await SequenceCommand.AddAnnotation.parse([
+            bundle.path, "--chromosome", "chr1", "--start", "2", "--end", "9",
+            "--name", "selection-feature", "--type", "gene", "--strand", "+", "--quiet",
+        ]).execute(emit: { _ in })
+        let recorded = try entry(bundle, "annotations/manual-annotation-provenance.json")
+        XCTAssertEqual((recorded["runtime"] as? [String: Any])?["app"] as? String, "lungfish-cli")
+        XCTAssertEqual((recorded["argv"] as? [String])?.first, "lungfish-cli")
+    }
+
+    /// The app builds the service with the recorded name, so a write with no argv from its caller starts with that name.
+    func testAddAnnotationAppRecordNamesTheApp() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).addAnnotation(
+            SequenceAnnotation(
+                type: .gene, name: "selection-feature", chromosome: "chr1",
+                intervals: [AnnotationInterval(start: 2, end: 9)], strand: .forward
+            ),
+            toBundleAt: bundle
+        )
+        let recorded = try entry(bundle, "annotations/manual-annotation-provenance.json")
+        XCTAssertEqual((recorded["runtime"] as? [String: Any])?["app"] as? String, "Lungfish Genome Explorer")
+        XCTAssertEqual((recorded["argv"] as? [String])?.first, "Lungfish Genome Explorer")
+    }
+
+    func testAttachTrackLeafRecordsNameTheCLIAndItsKind() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        let bed = try SequenceEditFixture.bedFile(in: scratch)
+        try await SequenceCommand.AttachTrack.parse([bundle.path, bed.path, "--track-id", "primers", "--quiet"])
+            .execute(emit: { _ in })
+        try assertAttachRecordsName("lungfish-cli", kind: "cli", in: bundle)
+    }
+
+    func testAttachTrackAppRecordsNameTheAppAndItsKind() async throws {
+        let bundle = try SequenceEditFixture.referenceBundle(in: scratch)
+        let bed = try SequenceEditFixture.bedFile(in: scratch)
+        _ = try await ReferenceBundleAnnotationImportService(
+            toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind
+        ).attachAnnotationTrack(sourceURL: bed, bundleURL: bundle, trackID: "primers", trackName: nil)
+        try assertAttachRecordsName("Lungfish Genome Explorer", kind: "gui", in: bundle)
+    }
+
+    /// The import log's `toolName`, `runtime.app` and argv[0], and the bundle record's argv[0] and `tool.kind`, name the caller.
+    private func assertAttachRecordsName(_ name: String, kind: String, in bundle: URL, line: UInt = #line) throws {
+        let recorded = try entry(bundle, "annotations/primers-import-provenance.json")
+        XCTAssertEqual(recorded["toolName"] as? String, name, line: line)
+        XCTAssertEqual((recorded["runtime"] as? [String: Any])?["app"] as? String, name, line: line)
+        XCTAssertEqual((recorded["argv"] as? [String])?.first, name, line: line)
+        let canonical = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        ), line: line)
+        XCTAssertEqual(canonical.argv.first, name, line: line)
+        XCTAssertEqual(canonical.tool.kind, kind, line: line)
+    }
+
     // MARK: Helpers
 
     /// The `error` text of the last `failed` event among the event lines.
@@ -184,7 +243,12 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
     /// presence and then left out, and with the bundle's path written as `<BUNDLE>`.
     private func comparable(_ entry: [String: Any], bundle: URL) throws -> String {
         var entry = entry
-        for key in ["argv", "recordedAt", "wallTimeSeconds"] { entry[key] = nil }
+        // The caller names itself in `toolName` and `runtime.app` (R2 of BIO-Q-A2), so the two routes differ there by design.
+        for key in ["argv", "recordedAt", "wallTimeSeconds", "toolName"] { entry[key] = nil }
+        if var runtime = entry["runtime"] as? [String: Any] {
+            runtime["app"] = nil
+            entry["runtime"] = runtime
+        }
         if var annotation = entry["annotation"] as? [String: Any] {
             annotation["id"] = nil
             entry["annotation"] = annotation

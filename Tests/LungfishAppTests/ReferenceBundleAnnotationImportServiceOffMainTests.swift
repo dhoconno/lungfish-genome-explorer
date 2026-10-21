@@ -19,7 +19,7 @@ private actor BackgroundAnnotationImportRunner {
         trackID: String? = nil,
         trackName: String? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
-        try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: sourceURL,
             bundleURL: bundleURL,
             trackID: trackID,
@@ -36,7 +36,7 @@ private enum MainActorAnnotationImportRunner {
         trackID: String? = nil,
         trackName: String? = nil
     ) async throws -> ReferenceBundleAnnotationImportResult {
-        return try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+        return try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
             sourceURL: sourceURL,
             bundleURL: bundleURL,
             trackID: trackID,

@@ -11,6 +11,7 @@
 // integration tier.
 
 import Foundation
+import LungfishCore
 import XCTest
 import LungfishKitTestSupport
 import LungfishTestSupport
@@ -28,7 +29,7 @@ final class SequenceAnnotationDeleteSigningReplayTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let bundle = try AnnotationEditRouteParityTests.makeBundle(in: root, inputs: scratch)
         let location = ReferenceBundleAnnotationRowLocation(trackID: "imported", rowID: try AnnotationEditRouteParityTests.firstRowID(in: bundle))
-        _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundle)
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).deleteAnnotation(location, bundleURL: bundle)
 
         let record = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "the deletion left no record at \(record.path)")

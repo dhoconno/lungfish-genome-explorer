@@ -566,7 +566,7 @@ extension InspectorViewController {
                 let targets = variantDBURLs.map {
                     VariantSampleMetadataImportTarget(databaseURL: $0)
                 }
-                let result = try VariantSampleMetadataImportService().importMetadata(
+                let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                     from: fileURL,
                     format: format,
                     bundleURL: bundle.url,

@@ -1605,7 +1605,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
         do {
-            _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
                 location,
                 name: annotation.name,
                 type: annotation.type.rawValue,
@@ -1655,7 +1655,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
         do {
-            _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundleURL)
+            _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).deleteAnnotation(location, bundleURL: bundleURL)
             // See the matching comment in `persistReferenceBundleAnnotationUpdate`:
             // reload before complete so a reload failure still finds the
             // operation `.running` and `fail(id:)` is not a silent no-op.

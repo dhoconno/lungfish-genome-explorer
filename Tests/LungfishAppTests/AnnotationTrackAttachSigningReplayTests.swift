@@ -13,6 +13,7 @@
 // It launches the built lungfish-cli, so its name ends in ReplayTests and it runs in the integration tier.
 
 import Foundation
+import LungfishCore
 import XCTest
 @testable import LungfishApp
 import LungfishKit
@@ -73,7 +74,7 @@ final class AnnotationTrackAttachSigningReplayTests: XCTestCase {
             )
             + ["--format", "json"]
         do {
-            let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            let result = try await ReferenceBundleAnnotationImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).attachAnnotationTrack(
                 sourceURL: source,
                 bundleURL: bundle,
                 trackID: Self.trackID,

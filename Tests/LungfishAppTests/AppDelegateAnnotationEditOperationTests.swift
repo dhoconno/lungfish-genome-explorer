@@ -166,7 +166,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         let (appAnnotation, appLocation) = try editedGene(in: appBundle)
         let (cliAnnotation, cliLocation) = try editedGene(in: cliBundle)
 
-        _ = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
             appLocation,
             name: appAnnotation.name,
             type: appAnnotation.type.rawValue,
@@ -240,7 +240,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         let (_, appLocation) = try editedGene(in: appBundle)
         let (_, cliLocation) = try editedGene(in: cliBundle)
 
-        _ = try await ReferenceBundleManualAnnotationService().deleteAnnotation(appLocation, bundleURL: appBundle)
+        _ = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).deleteAnnotation(appLocation, bundleURL: appBundle)
         let reporter = RecordingOperationReporter()
         AppDelegate.beginAnnotationDeletionOperation(
             location: cliLocation, bundleURL: cliBundle, routeContext: nil, reporter: reporter
@@ -267,7 +267,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         )
         let row = try XCTUnwrap(reporter.items.first?.cliCommand)
 
-        let result = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+        let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
             location,
             name: annotation.name,
             type: annotation.type.rawValue,
@@ -291,7 +291,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         )
         let row = try XCTUnwrap(reporter.items.first?.cliCommand)
 
-        let result = try await ReferenceBundleManualAnnotationService().deleteAnnotation(location, bundleURL: bundleURL)
+        let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).deleteAnnotation(location, bundleURL: bundleURL)
 
         let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
         let rowArgv = [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: row))
@@ -303,7 +303,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
         let bundleURL = try makeBundle(named: "Sample")
         let (annotation, location) = try editedGene(in: bundleURL)
 
-        let result = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+        let result = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
             location,
             name: annotation.name,
             type: annotation.type.rawValue,
@@ -345,7 +345,7 @@ final class AppDelegateAnnotationEditOperationTests: XCTestCase {
             var cliAnnotation = editedCLIGene
             cliAnnotation.note = note
 
-            let appResult = try await ReferenceBundleManualAnnotationService().updateAnnotation(
+            let appResult = try await ReferenceBundleManualAnnotationService(toolName: LungfishAppIdentity.recordedToolName).updateAnnotation(
                 appLocation,
                 name: appAnnotation.name,
                 type: appAnnotation.type.rawValue,

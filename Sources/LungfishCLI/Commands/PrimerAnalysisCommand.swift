@@ -275,7 +275,7 @@ struct PrimerAnalysisAnnotatedReferenceCommand: AsyncParsableCommand {
     }
     func run() async throws {
         guard let id = UUID(uuidString: resultID) else { throw ValidationError("Invalid result UUID.") }
-        let output = try await PrimerAnalysisAnnotatedReferenceService().createReference(
+        let output = try await PrimerAnalysisAnnotatedReferenceService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind).createReference(
             analysisURL: URL(fileURLWithPath: bundlePath), resultID: id,
             outputDirectory: URL(fileURLWithPath: outputDirectory), invocationArgv: CommandLine.arguments)
         print("Annotated reference written to \(output.path)")

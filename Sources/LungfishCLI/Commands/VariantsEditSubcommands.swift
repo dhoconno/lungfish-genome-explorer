@@ -74,7 +74,7 @@ extension VariantsCommand {
                     VariantDeletionMutationTarget(trackId: $0.id, databaseURL: $0.databaseURL, trackName: $0.name)
                 }
                 let argv = recordedArguments(bundleURL: bundleURL, selection: selection)
-                let service = VariantDeletionMutationService()
+                let service = VariantDeletionMutationService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
                 let result = try all
                     ? service.deleteAllVariants(bundleURL: bundleURL, targets: targets, invocationArgv: argv)
                     : service.deleteVariants(idsByTrack: selection, bundleURL: bundleURL, targets: targets, invocationArgv: argv)
@@ -177,7 +177,7 @@ extension VariantsCommand {
                 let format = resolvedFormat(for: fileURL)
                 // The table names each target by its track ID.
                 let targets = tracks.map { VariantSampleMetadataImportTarget(databaseURL: $0.databaseURL, trackName: $0.id) }
-                let result = try VariantSampleMetadataImportService().importMetadata(
+                let result = try VariantSampleMetadataImportService(toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind).importMetadata(
                     from: fileURL,
                     format: format,
                     bundleURL: bundleURL,

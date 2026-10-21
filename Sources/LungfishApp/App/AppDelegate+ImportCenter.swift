@@ -525,7 +525,7 @@ extension AppDelegate {
                         trackName: track.name
                     )
                 }
-                let result = try VariantSampleMetadataImportService().importMetadata(
+                let result = try VariantSampleMetadataImportService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).importMetadata(
                     from: metadataURL,
                     format: format,
                     bundleURL: bundleURL,

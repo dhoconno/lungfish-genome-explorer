@@ -53,6 +53,8 @@ public struct ProvenanceRunBuilder: Sendable {
     let workflowVersion: String
     let toolName: String
     let toolVersion: String
+    /// The kind of the tool the record names. `cli` unless the writer passes the kind of its caller (BIO-Q-A2 R2).
+    let toolKind: String
     let arguments: [String]
     let durableArguments: [String]?
     let command: String?
@@ -66,13 +68,15 @@ public struct ProvenanceRunBuilder: Sendable {
         workflowName: String,
         workflowVersion: String,
         toolName: String,
-        toolVersion: String
+        toolVersion: String,
+        toolKind: String = "cli"
     ) {
         self.init(
             workflowName: workflowName,
             workflowVersion: workflowVersion,
             toolName: toolName,
             toolVersion: toolVersion,
+            toolKind: toolKind,
             arguments: [],
             durableArguments: nil,
             command: nil,
@@ -89,6 +93,7 @@ public struct ProvenanceRunBuilder: Sendable {
         workflowVersion: String,
         toolName: String,
         toolVersion: String,
+        toolKind: String = "cli",
         arguments: [String],
         durableArguments: [String]?,
         command: String?,
@@ -102,6 +107,7 @@ public struct ProvenanceRunBuilder: Sendable {
         self.workflowVersion = workflowVersion
         self.toolName = toolName
         self.toolVersion = toolVersion
+        self.toolKind = toolKind
         self.arguments = arguments
         self.durableArguments = durableArguments
         self.command = command
@@ -274,7 +280,7 @@ public struct ProvenanceRunBuilder: Sendable {
             workflowVersion: workflowVersion,
             toolName: toolName,
             toolVersion: toolVersion,
-            tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: "cli"),
+            tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: toolKind),
             argv: arguments,
             durableReplayArgv: durableArguments,
             reproducibleCommand: command,
@@ -419,6 +425,7 @@ public struct ProvenanceRunBuilder: Sendable {
             workflowVersion: workflowVersion,
             toolName: toolName,
             toolVersion: toolVersion,
+            toolKind: toolKind,
             arguments: arguments ?? self.arguments,
             durableArguments: durableArguments ?? self.durableArguments,
             command: command ?? self.command,
