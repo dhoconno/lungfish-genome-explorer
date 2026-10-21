@@ -264,6 +264,8 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "3 samtools [samtools] pinnedToLock -",
             "4 samtools [samtools] pinnedToLock -",
             "5 samtools [samtools] pinnedToLock -",
+            "6 samtools [samtools] pinnedToLock -",
+            "7 samtools [samtools] pinnedToLock -",
         ],
         "mapping/mapping-provenance.json": [
             "1 minimap2 [minimap2] pinnedToLock -",
@@ -271,6 +273,8 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
             "3 samtools [samtools] pinnedToLock -",
             "4 samtools [samtools] pinnedToLock -",
             "5 samtools [samtools] pinnedToLock -",
+            "6 samtools [samtools] pinnedToLock -",
+            "7 samtools [samtools] pinnedToLock -",
         ],
     ]
     private static func row(_ step: ProvenanceExportPinAssessment.StepAssessment) -> String {
@@ -329,7 +333,7 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
         let assessments = try Self.goldenAssessments()
         let steps = assessments.values.flatMap { $0 }
         XCTAssertEqual(assessments.count, 44)
-        XCTAssertEqual(steps.count, 101)
+        XCTAssertEqual(steps.count, 105)
         let counts = steps.reduce(into: [String: Int]()) { counts, step in
             let row = Self.row(step).split(separator: " ")
             counts[String(row[row.count - 2]), default: 0] += 1
@@ -339,9 +343,11 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
         // so none reads as an unknown version legacy spelling any more and all 26 are pinned to the lock.
         // Phase 2.8 lane B3. The Kraken2 golden gains the Lungfish Kraken2 Output Removal step, a Swift step
         // that records no environment, so one more step reads as no environment recorded.
+        // Phase 2.13 lane 13.16. Each of the two mapping records gains a samtools coverage step and a samtools
+        // view step, so four more steps are pinned to the lock.
         XCTAssertEqual(counts, [
             "noEnvironmentRecorded": 53,
-            "pinnedToLock": 40,
+            "pinnedToLock": 44,
             "versionUnknown.recordedAppVersion": 8
         ])
     }
@@ -368,6 +374,6 @@ final class ProvenanceExportPinAssessmentRecordTests: XCTestCase {
         let steps = try XCTUnwrap(Self.goldenAssessments()["mapping/lungfish-provenance.json"])
         XCTAssertEqual(steps.first?.exportedSpec, "bioconda::minimap2=2.31=h6bd33b9_0")
         XCTAssertEqual(steps.first?.lockSpec, "bioconda::minimap2=2.31=h6bd33b9_0")
-        XCTAssertEqual(steps.map(\.status), Array(repeating: .pinnedToLock, count: 5))
+        XCTAssertEqual(steps.map(\.status), Array(repeating: .pinnedToLock, count: 7))
     }
 }
