@@ -1,2 +1,2 @@
 # durable-writes baseline: lines under Sources/ that hold the whole token .atomic. The count may only fall.
-durable-writes 239
+durable-writes 238

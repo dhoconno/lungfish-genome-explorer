@@ -1,7 +1,7 @@
 # provenance-writers baseline: counts under Sources/ outside each count's exempt files. Counts may only fall.
-write_provenance_functions 23
+write_provenance_functions 0
 bare_workflow_run_writes 0
 legacy_run_embeds 14
-envelope_encodes_outside_writer 13
-provenance_filename_literals 175
-keyless_writer_sites 23
+envelope_encodes_outside_writer 0
+provenance_filename_literals 173
+keyless_writer_sites 22
