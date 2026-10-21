@@ -11,6 +11,7 @@
 import ArgumentParser
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class PrimerDesignExistingOutputTests: XCTestCase {
@@ -96,9 +97,10 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
     private func capturingStandardError(
         _ body: () async throws -> Void
     ) async throws -> (error: (any Error)?, standardError: String) {
-        let capture = FileManager.default.temporaryDirectory.appendingPathComponent("primer-stderr-\(UUID().uuidString).txt")
+        let folder = try TestTempDirectory.make(prefix: "primer-stderr")
+        defer { TestTempDirectory.cleanup(folder) }
+        let capture = folder.appendingPathComponent("standard-error.txt")
         XCTAssertTrue(FileManager.default.createFile(atPath: capture.path, contents: nil))
-        defer { try? FileManager.default.removeItem(at: capture) }
         let handle = try FileHandle(forWritingTo: capture)
         let saved = dup(STDERR_FILENO)
         dup2(handle.fileDescriptor, STDERR_FILENO)

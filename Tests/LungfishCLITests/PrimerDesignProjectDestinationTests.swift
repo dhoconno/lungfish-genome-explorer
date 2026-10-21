@@ -9,6 +9,7 @@
 import ArgumentParser
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class PrimerDesignProjectDestinationTests: XCTestCase {
@@ -16,14 +17,13 @@ final class PrimerDesignProjectDestinationTests: XCTestCase {
     private var project: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-            .appendingPathComponent("primer-destination-\(UUID().uuidString)", isDirectory: true)
+        root = try TestTempDirectory.make(prefix: "primer-destination").resolvingSymlinksInPath()
         project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     /// One parse of each leaf with its own inputs and the given place words.

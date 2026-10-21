@@ -10,6 +10,7 @@
 import ArgumentParser
 import Foundation
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 
 final class PrimerDesignProjectOptionTests: XCTestCase {
@@ -19,8 +20,7 @@ final class PrimerDesignProjectOptionTests: XCTestCase {
     private var primer3: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-            .appendingPathComponent("primer-project-\(UUID().uuidString)", isDirectory: true)
+        root = try TestTempDirectory.make(prefix: "primer-project").resolvingSymlinksInPath()
         project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         fasta = root.appendingPathComponent("templates.fasta")
@@ -29,7 +29,7 @@ final class PrimerDesignProjectOptionTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: root)
+        TestTempDirectory.cleanup(root)
     }
 
     private func analysesBundle(_ name: String) -> URL {
