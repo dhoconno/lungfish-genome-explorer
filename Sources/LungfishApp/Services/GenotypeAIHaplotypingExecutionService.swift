@@ -497,7 +497,7 @@ private struct PreparedRun {
 
     var cliCommand: String {
         ViralReconWorkflowCommandPreview.build(
-            executableName: argv.first ?? "lungfish-gui",
+            executableName: argv.first ?? LungfishAppIdentity.recordedToolName,
             arguments: Array(argv.dropFirst())
         )
     }
