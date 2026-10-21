@@ -91,19 +91,21 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
     func place(of path: String) -> Place {
         let moved = relocation.lazy.compactMap { $0.moving(path) }.first ?? path
         if outputs.contains(moved) || outputs.contains(path) {
-            return .output(relative(moved))
+            return .output(freshTail(of: moved))
         }
         if let folder = recordFolder, moved == folder || moved.hasPrefix(folder + "/"), inputs[moved] == nil {
-            return .output(relative(moved))
+            return .output(freshTail(of: moved))
         }
         return inputs[moved] != nil ? .input(moved) : .recorded
     }
 
-    /// `path` below the record's folder, or below the project, or its last name.
-    private func relative(_ path: String) -> String {
+    /// What a replay writes below its fresh folder for `path`: `path` below the record's folder, or below the project,
+    /// or its last name. The cut below a root is `GUIImportedProvenanceRehydrator.relativePath(for:under:)`, a string
+    /// function that reads no file.
+    private func freshTail(of path: String) -> String {
         for root in [recordFolder, project].compactMap({ $0 }) {
             if path == root { return "" }
-            if path.hasPrefix(root + "/") { return String(path.dropFirst(root.count + 1)) }
+            if let tail = GUIImportedProvenanceRehydrator.relativePath(for: path, under: root) { return tail }
         }
         return URL(fileURLWithPath: path).lastPathComponent
     }
