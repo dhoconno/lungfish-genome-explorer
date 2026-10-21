@@ -57,7 +57,7 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
         let cliEntry = try entry(cli, log)
         XCTAssertEqual(try comparable(cliEntry, bundle: cli), try comparable(appEntry, bundle: app))
         XCTAssertEqual(appEntry["argv"] as? [String], [
-            "Lungfish.app", "manual-annotation", "--bundle", app.path, "--chromosome", "chr1",
+            LungfishAppIdentity.recordedToolName, "manual-annotation", "--bundle", app.path, "--chromosome", "chr1",
             "--start", "2", "--end", "9", "--name", "selection-feature", "--type", "gene", "--strand", "+",
         ])
         let cliArgv = try XCTUnwrap(cliEntry["argv"] as? [String])
@@ -89,7 +89,7 @@ final class SequenceAnnotationEditCommandTests: XCTestCase {
         let cliEntry = try entry(cli, log)
         XCTAssertEqual(try comparable(cliEntry, bundle: cli), try comparable(appEntry, bundle: app))
         XCTAssertEqual(appEntry["argv"] as? [String], [
-            "Lungfish.app", "annotation-import", "--bundle", app.path, "--source", bed.path,
+            LungfishAppIdentity.recordedToolName, "annotation-import", "--bundle", app.path, "--source", bed.path,
             "--track-id", "primers", "--track-name", "primers", "--format", "bed",
         ])
         XCTAssertEqual(cliEntry["argv"] as? [String], [

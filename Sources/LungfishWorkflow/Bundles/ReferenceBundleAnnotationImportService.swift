@@ -454,7 +454,7 @@ public final class ReferenceBundleAnnotationImportService {
         let provenanceURL = importProvenanceURL(bundleURL: bundleURL, trackID: track.id)
         var log = try loadProvenanceLog(from: provenanceURL)
         let command = invocationArgv ?? [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "annotation-import",
             "--bundle", bundleURL.path,
             "--source", sourceURL.path,
@@ -473,7 +473,7 @@ public final class ReferenceBundleAnnotationImportService {
         let entry = AnnotationTrackImportProvenanceEntry(
             workflowName: "lungfish annotation track import",
             workflowVersion: appVersionString(),
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: appVersionString(),
             argv: command,
             options: [
@@ -493,7 +493,7 @@ public final class ReferenceBundleAnnotationImportService {
             inputFileInfo: inputSnapshots,
             outputFileInfo: outputSnapshots,
             runtime: AnnotationTrackImportRuntime(
-                app: "Lungfish Genome Explorer",
+                app: LungfishAppIdentity.recordedToolName,
                 appVersion: appVersionString(),
                 condaEnvironment: nil,
                 containerRuntime: nil

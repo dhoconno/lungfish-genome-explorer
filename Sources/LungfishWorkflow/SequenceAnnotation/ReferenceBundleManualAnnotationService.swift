@@ -419,7 +419,7 @@ public final class ReferenceBundleManualAnnotationService {
         var log = try loadProvenanceLog(from: provenanceURL)
         let region = annotation.boundingRegion
         let command = invocationArgv ?? [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "manual-annotation",
             "--bundle", bundleURL.path,
             "--chromosome", chromosome,
@@ -459,7 +459,7 @@ public final class ReferenceBundleManualAnnotationService {
                 strand: annotation.strand.rawValue
             ),
             runtime: ManualAnnotationRuntime(
-                app: "Lungfish Genome Explorer",
+                app: LungfishAppIdentity.recordedToolName,
                 appVersion: appVersionString(),
                 condaEnvironment: nil,
                 containerRuntime: nil
