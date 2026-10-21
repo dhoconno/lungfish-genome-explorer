@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 /// Lane 13.37, decision MD53 item 1. An equality on an `ANN_`, `CSQ_` or impact key keeps a variant whose
@@ -13,13 +14,11 @@ final class VariantListMemberCaseTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ListMemberCase-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "list-member-case")
     }
 
     override func tearDownWithError() throws {
-        if let directory { try? FileManager.default.removeItem(at: directory) }
+        if let directory { TestTempDirectory.cleanup(directory) }
     }
 
     /// The headers of `threeRecordVCF` over two records. POS 100 has two ANN entries, the genes `w` then `abc` with the

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 /// The tests of the plan row VCF-INFO-EXPAND (lane 13.37). The inline import of `fast` and `low-memory` and the
@@ -12,13 +13,11 @@ final class VariantStructuredINFOTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("StructuredINFO-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "structured-info")
     }
 
     override func tearDownWithError() throws {
-        if let directory { try? FileManager.default.removeItem(at: directory) }
+        if let directory { TestTempDirectory.cleanup(directory) }
     }
 
     func testStructuredINFOKeysMatchAcrossImportProfiles() throws {

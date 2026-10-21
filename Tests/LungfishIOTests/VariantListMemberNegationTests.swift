@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishIO
 
 /// Lane 13.37, decision MD53 item 2. `!=` on an `ANN_`, `CSQ_` or impact key keeps a variant none of whose list members
@@ -12,13 +13,11 @@ final class VariantListMemberNegationTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ListMemberNegation-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "list-member-negation")
     }
 
     override func tearDownWithError() throws {
-        if let directory { try? FileManager.default.removeItem(at: directory) }
+        if let directory { TestTempDirectory.cleanup(directory) }
     }
 
     func testInequalityOnAListKeyIsTheComplementOfTheMemberMatchAtEveryProfile() throws {
