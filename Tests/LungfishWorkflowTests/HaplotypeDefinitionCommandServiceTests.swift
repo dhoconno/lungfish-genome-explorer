@@ -1,6 +1,8 @@
 import LungfishIO
 @testable import LungfishWorkflow
 import XCTest
+import LungfishTestSupport
+import LungfishCore
 
 final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
     /// The lint names exactly the shipped MCM haplotypes whose
@@ -9,7 +11,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
     func testDefinitionWarningsFlagIdenticalRequiredSetsInShippedMCMDefinition() throws {
         let bundleURL = try MCMHaplotypingPreset.mcmMHCmiseq.bundledReferenceBundleURL()
         let definition = try XCTUnwrap(MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: bundleURL))
-        let service = HaplotypeDefinitionCommandService(projectRoot: nil)
+        let service = HaplotypeDefinitionCommandService(projectRoot: nil, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
 
         XCTAssertNoThrow(try service.validateDefinition(definition))
         let warnings = service.definitionWarnings(definition)
@@ -26,7 +28,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try writeDefinition(makeDefinition(id: "custom.mcm", displayName: "Custom MCM"), to: sourceURL)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let result = try service.importDefinition(
             from: sourceURL,
             scope: .project,
@@ -65,7 +67,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let installed = try service.installMHCReferenceBundle(
             from: sourceBundleURL,
             argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
@@ -107,6 +109,76 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         ))
     }
 
+    // MARK: - R2 of BIO-Q-A2 (lane 13.27). The caller gives the identity that every record of the service names.
+
+    /// Runs the two writers a caller reaches, the MHC bundle install record and the store's definition record, and
+    /// returns both envelopes as they were written.
+    private func recordsWritten(
+        by toolName: String, kind toolKind: String
+    ) throws -> (bundle: ProvenanceEnvelope, definition: ProvenanceEnvelope) {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let sourceBundleURL = root
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: sourceBundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
+        )
+        let sourceURL = root.appendingPathComponent("source.lungfishhaplotypedef.json")
+        try writeDefinition(makeDefinition(id: "custom.mcm", displayName: "Custom MCM"), to: sourceURL)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: toolName, toolKind: toolKind)
+        let installed = try service.installMHCReferenceBundle(
+            from: sourceBundleURL,
+            argv: [toolName, "haplotypes", "bundle-install", sourceBundleURL.path]
+        )
+        let imported = try service.importDefinition(
+            from: sourceURL,
+            scope: .project,
+            changeNote: "identity test",
+            argv: [toolName, "haplotypes", "import", sourceURL.path]
+        )
+        let bundleRecord = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: installed.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        ))
+        let definitionRecord = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(
+            fromSidecar: imported.definitionURL.appendingPathExtension("provenance.json")
+        ))
+        return (bundleRecord, definitionRecord)
+    }
+
+    private func assertNamesOneTool(
+        _ envelope: ProvenanceEnvelope, name: String, kind: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertEqual(envelope.toolName, name, file: file, line: line)
+        XCTAssertEqual(envelope.tool.name, name, file: file, line: line)
+        XCTAssertEqual(envelope.tool.kind, kind, file: file, line: line)
+        XCTAssertEqual(envelope.argv.first, name, file: file, line: line)
+    }
+
+    /// The service as `HaplotypeDefinitionsCommand.swift` builds it (`makeService`). Both records name `lungfish-cli`
+    /// with kind `cli`. Before 2.13 the bundle record named the app with kind `app` whoever ran it (F5).
+    func testRecordsOfAServiceTheCLIBuildsNameTheCLIWithKindCLI() throws {
+        let records = try recordsWritten(by: CLICommandIdentity.executableName, kind: CLICommandIdentity.recordedToolKind)
+        assertNamesOneTool(records.bundle, name: "lungfish-cli", kind: "cli")
+        assertNamesOneTool(records.definition, name: "lungfish-cli", kind: "cli")
+        XCTAssertEqual(records.bundle.workflowName, "MHC reference bundle install")
+        XCTAssertFalse(ProvenanceAppStep.isAppStep(records.bundle.argv))
+    }
+
+    /// The service as the manager window builds it. Both records name the app with kind `gui`, and neither is replayed.
+    func testRecordsOfAServiceTheAppBuildsNameTheAppWithKindGUI() throws {
+        let records = try recordsWritten(by: LungfishAppIdentity.recordedToolName, kind: LungfishAppIdentity.recordedToolKind)
+        assertNamesOneTool(records.bundle, name: "Lungfish Genome Explorer", kind: "gui")
+        assertNamesOneTool(records.definition, name: "Lungfish Genome Explorer", kind: "gui")
+        XCTAssertTrue(ProvenanceAppStep.isAppStep(records.bundle.argv))
+        XCTAssertTrue(ProvenanceAppStep.isAppStep(records.definition.argv))
+    }
+
     func testInstallMHCReferenceBundleDisambiguatesExistingDestination() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -121,7 +193,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let first = try service.installMHCReferenceBundle(
             from: sourceBundleURL,
             argv: ["lungfish-cli", "haplotypes", "bundle-install", sourceBundleURL.path]
@@ -147,7 +219,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let jsonURL = root.appendingPathComponent("plain.json")
         try writeDefinition(makeDefinition(id: "custom.json", displayName: "Plain JSON"), to: jsonURL)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         XCTAssertThrowsError(
             try service.installMHCReferenceBundle(
                 from: jsonURL,
@@ -172,7 +244,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: nil)
+        let service = HaplotypeDefinitionCommandService(projectRoot: nil, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         XCTAssertThrowsError(
             try service.installMHCReferenceBundle(
                 from: sourceBundleURL,
@@ -191,9 +263,9 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
         let exportURL = root.appendingPathComponent("exported.lungfishhaplotypedef.json")
         let definition = makeDefinition(id: "custom.export", displayName: "Export Me")
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(definition)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(definition)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         try service.exportDefinition(
             definitionID: definition.id,
             assayID: definition.assayID,
@@ -242,7 +314,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         try writeDefinition(invalid, to: sourceURL)
 
         let service = HaplotypeDefinitionCommandService(
-            projectRoot: root.appendingPathComponent("project.lungfish", isDirectory: true)
+            projectRoot: root.appendingPathComponent("project.lungfish", isDirectory: true), toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind
         )
 
         XCTAssertThrowsError(
@@ -292,7 +364,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             }
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let result = try service.saveDefinition(
             edited,
             inMHCReferenceBundle: bundleURL,
@@ -338,7 +410,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let outsideReferenceURL = bundleURL.deletingLastPathComponent().appendingPathComponent("outside.fa")
         try writeUnsafeMHCReferenceBundle(bundleURL: bundleURL, outsideReferenceURL: outsideReferenceURL)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         XCTAssertThrowsError(
             try service.saveDefinition(
                 makeDefinition(id: "custom.bundle", displayName: "Edited Bundle Definition"),
@@ -368,7 +440,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         )
         let originalOutsideData = try Data(contentsOf: outsideDefinitionURL)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         XCTAssertThrowsError(
             try service.saveDefinition(
                 makeDefinition(id: "custom.bundle", displayName: "Edited Bundle Definition"),
@@ -395,7 +467,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let replacementURL = root.appendingPathComponent("replacement.fa")
         try ">M1\nACGT\n>M2\nTTTT\n".write(to: replacementURL, atomically: true, encoding: .utf8)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let storedReferenceURL = try service.replaceReferenceFASTA(
             inMHCReferenceBundle: bundleURL,
             with: replacementURL,
@@ -431,7 +503,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let replacementURL = root.appendingPathComponent("replacement.fa")
         try ">replacement\nTTTT\n".write(to: replacementURL, atomically: true, encoding: .utf8)
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         XCTAssertThrowsError(
             try service.replaceReferenceFASTA(
                 inMHCReferenceBundle: bundleURL,
@@ -466,7 +538,7 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
             definition: definition
         )
 
-        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot)
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
         let result = try await service.createMHCReferenceBundle(
             definitionIDs: [definitionID],
             assayID: "MHC-exon2-miSeq",

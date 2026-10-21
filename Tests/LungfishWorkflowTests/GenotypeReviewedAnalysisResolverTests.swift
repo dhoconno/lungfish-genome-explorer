@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
     func testRunThresholdMetricsArePercentagesIncludingValuesAtOrBelowOne() throws {
@@ -32,7 +33,7 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let wrong = definition(assay: "other-assay")
         let store = HaplotypeDefinitionStore(projectRoot: fixture.project)
-        try store.save(wrong)
+        try store.seed(wrong)
         let snapshot = fixture.result.bundleURL.appendingPathComponent(".amplicon-genotyping/inputs/haplotype-definition.json")
         try FileManager.default.createDirectory(at: snapshot.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(definition()).write(to: snapshot)

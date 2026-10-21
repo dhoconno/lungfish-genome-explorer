@@ -21,9 +21,13 @@ public struct HaplotypeDefinitionCommandResult: Equatable, Sendable {
 
 public struct HaplotypeDefinitionCommandService: Sendable {
     public let projectRoot: URL?
+    /// The caller's tool name and kind (BIO-Q-A2 R2). The CLI passes `lungfish-cli` and `cli`, the app the recorded name and `gui`.
+    public let toolName: String, toolKind: String
 
-    public init(projectRoot: URL?) {
+    public init(projectRoot: URL?, toolName: String, toolKind: String) {
         self.projectRoot = projectRoot?.standardizedFileURL
+        self.toolName = toolName
+        self.toolKind = toolKind
     }
 
     public func listDefinitions(
@@ -614,7 +618,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     ) throws {
         let store = try writableStore(scope: scope)
         let context = HaplotypeDefinitionProvenanceContext(
-            workflowName: "Haplotype definition delete",
+            workflowName: "Haplotype definition delete", toolName: toolName,
             argv: argv,
             explicitOptions: [
                 "definitionID": definitionID,
@@ -707,7 +711,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         ]
         explicit.merge(explicitOptions) { _, new in new }
         return HaplotypeDefinitionProvenanceContext(
-            workflowName: workflowName,
+            workflowName: workflowName, toolName: toolName,
             argv: argv,
             explicitOptions: explicit,
             resolvedDefaults: resolvedDefaults(scope: scope),
@@ -769,7 +773,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             tool: ProvenanceToolIdentity(
                 name: primitive.toolName,
                 version: primitive.toolVersion,
-                kind: primitive.toolName == CLICommandIdentity.executableName ? "cli" : "gui"
+                kind: primitive.toolName == CLICommandIdentity.executableName ? CLICommandIdentity.recordedToolKind : LungfishAppIdentity.recordedToolKind
             ),
             argv: primitive.argv,
             durableReplayArgv: primitive.argv,
@@ -907,7 +911,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         inputs: [ProvenanceFileDescriptor],
         outputs: [ProvenanceFileDescriptor]
     ) throws {
-        let replayArgv = argv.isEmpty ? ["lungfish-gui", workflowName, bundleURL.path] : argv
+        let replayArgv = argv.isEmpty ? [toolName, workflowName, bundleURL.path] : argv
         let step = ProvenanceStep(
             toolName: workflowName,
             toolVersion: WorkflowRun.currentAppVersion,
@@ -925,13 +929,9 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             createdAt: startedAt,
             workflowName: workflowName,
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: toolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: ProvenanceToolIdentity(
-                name: "Lungfish Genome Explorer",
-                version: WorkflowRun.currentAppVersion,
-                kind: "app"
-            ),
+            tool: ProvenanceToolIdentity(name: toolName, version: WorkflowRun.currentAppVersion, kind: toolKind),
             argv: replayArgv,
             durableReplayArgv: replayArgv,
             reproducibleCommand: HaplotypeDefinitionStore.shellCommand(replayArgv),
@@ -1038,7 +1038,7 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: "Haplotype definition export",
             workflowVersion: HaplotypeDefinitionStore.currentToolVersion,
-            toolName: CLICommandIdentity.executableName,
+            toolName: toolName,
             toolVersion: HaplotypeDefinitionStore.currentToolVersion,
             argv: argv,
             reproducibleCommand: HaplotypeDefinitionStore.shellCommand(argv),

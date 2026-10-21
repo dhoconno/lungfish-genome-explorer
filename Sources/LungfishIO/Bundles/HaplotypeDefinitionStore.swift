@@ -63,7 +63,7 @@ public struct HaplotypeDefinitionStore: Sendable {
     public func save(
         _ set: GenotypeHaplotypeDefinitionSet,
         changeNote: String? = nil,
-        provenanceContext: HaplotypeDefinitionProvenanceContext? = nil
+        provenanceContext: HaplotypeDefinitionProvenanceContext
     ) throws {
         let runClock = ProvenanceRunClock()
         try ensureFolderExists()
@@ -113,7 +113,7 @@ public struct HaplotypeDefinitionStore: Sendable {
     /// Remove a user-defined set by id. Does nothing for built-in IDs.
     public func delete(
         id: String,
-        provenanceContext: HaplotypeDefinitionProvenanceContext? = nil
+        provenanceContext: HaplotypeDefinitionProvenanceContext
     ) throws {
         let runClock = ProvenanceRunClock()
         guard let url = fileURL(for: id),
@@ -156,13 +156,13 @@ public struct HaplotypeDefinitionStore: Sendable {
         set: GenotypeHaplotypeDefinitionSet,
         outputURL: URL,
         priorRecord: HaplotypeDefinitionEditProvenance.FileRecord?,
-        context: HaplotypeDefinitionProvenanceContext?,
+        context: HaplotypeDefinitionProvenanceContext,
         startedAt: Date,
         endedAt: Date
     ) throws {
         guard let projectRoot else { return }
         let defaultArgv = [
-            "lungfish-gui",
+            context.toolName,
             "save-haplotype-definition",
             "--project", projectRoot.path,
             "--definition-id", set.id,
@@ -183,10 +183,8 @@ public struct HaplotypeDefinitionStore: Sendable {
             "locusCount": "\(set.locusDefinitions.count)",
             "haplotypeCount": "\(set.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count })",
         ]
-        if let context {
-            explicit.merge(context.explicitOptions) { _, new in new }
-            resolvedDefaults.merge(context.resolvedDefaults) { _, new in new }
-        }
+        explicit.merge(context.explicitOptions) { _, new in new }
+        resolvedDefaults.merge(context.resolvedDefaults) { _, new in new }
         // Record the exact final definition payload, including associated and
         // diagnostic alleles, thresholds, weights, and resolved metadata.
         let canonicalEncoder = JSONEncoder()
@@ -195,10 +193,10 @@ public struct HaplotypeDefinitionStore: Sendable {
             data: try canonicalEncoder.encode(set),
             encoding: .utf8
         ) ?? ""
-        let argv = context?.argv.isEmpty == false ? context?.argv ?? defaultArgv : defaultArgv
-        let workflowName = context?.workflowName ?? "Haplotype definition save"
-        let toolName = context?.toolName ?? "Lungfish Genome Explorer"
-        let inputs = (context?.inputFiles ?? []) + (priorRecord.map { [$0] } ?? [])
+        let argv = context.argv.isEmpty ? defaultArgv : context.argv
+        let workflowName = context.workflowName
+        let toolName = context.toolName
+        let inputs = context.inputFiles + (priorRecord.map { [$0] } ?? [])
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: workflowName,
             workflowVersion: Self.currentToolVersion,
@@ -220,7 +218,7 @@ public struct HaplotypeDefinitionStore: Sendable {
             startedAt: Self.isoString(startedAt),
             endedAt: Self.isoString(endedAt),
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
-            stderr: context?.stderr
+            stderr: context.stderr
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -230,14 +228,14 @@ public struct HaplotypeDefinitionStore: Sendable {
     private func writeDeleteProvenance(
         definitionID: String,
         removedRecord: HaplotypeDefinitionEditProvenance.FileRecord,
-        context: HaplotypeDefinitionProvenanceContext?,
+        context: HaplotypeDefinitionProvenanceContext,
         startedAt: Date,
         endedAt: Date
     ) throws {
         guard let projectRoot,
               let provenanceURL = provenanceURL(for: definitionID) else { return }
         let defaultArgv = [
-            "lungfish-gui",
+            context.toolName,
             "delete-haplotype-definition",
             "--project", projectRoot.path,
             "--definition-id", definitionID,
@@ -250,13 +248,11 @@ public struct HaplotypeDefinitionStore: Sendable {
             "folderName": Self.folderName,
             "fileSuffix": Self.fileSuffix,
         ]
-        if let context {
-            explicit.merge(context.explicitOptions) { _, new in new }
-            resolvedDefaults.merge(context.resolvedDefaults) { _, new in new }
-        }
-        let argv = context?.argv.isEmpty == false ? context?.argv ?? defaultArgv : defaultArgv
-        let workflowName = context?.workflowName ?? "Haplotype definition delete"
-        let toolName = context?.toolName ?? "Lungfish Genome Explorer"
+        explicit.merge(context.explicitOptions) { _, new in new }
+        resolvedDefaults.merge(context.resolvedDefaults) { _, new in new }
+        let argv = context.argv.isEmpty ? defaultArgv : context.argv
+        let workflowName = context.workflowName
+        let toolName = context.toolName
         let provenance = HaplotypeDefinitionEditProvenance(
             workflowName: workflowName,
             workflowVersion: Self.currentToolVersion,
@@ -272,13 +268,13 @@ public struct HaplotypeDefinitionStore: Sendable {
                 operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
                 user: nil  // Records in a project do not name the account.
             ),
-            inputs: (context?.inputFiles ?? []) + [removedRecord],
+            inputs: context.inputFiles + [removedRecord],
             outputs: [],
             exitStatus: 0,
             startedAt: Self.isoString(startedAt),
             endedAt: Self.isoString(endedAt),
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
-            stderr: context?.stderr
+            stderr: context.stderr
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -439,7 +435,7 @@ public struct HaplotypeDefinitionProvenanceContext: Equatable, Sendable {
 
     public init(
         workflowName: String,
-        toolName: String = CLICommandIdentity.executableName,
+        toolName: String,
         argv: [String],
         explicitOptions: [String: String] = [:],
         resolvedDefaults: [String: String] = [:],

@@ -1,4 +1,6 @@
+import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 @testable import LungfishApp
 import XCTest
 
@@ -34,6 +36,39 @@ final class HaplotypeDefinitionManagerViewModelTests: XCTestCase {
         XCTAssertEqual(bundleURL.deletingLastPathComponent().standardizedFileURL, installedParent)
         XCTAssertTrue(MHCAmpliconReferenceBundle.isBundleURL(bundleURL))
         XCTAssertEqual(viewModel.selectedRecordID, installedRecord.id)
+    }
+
+    /// R2 of BIO-Q-A2 (lane 13.27). The window is the app caller, so the record of its install names the app with kind
+    /// `gui` in every field and its argv is an app step. Before 2.13 the record named the app with kind `app`.
+    func testImportBundleRecordsTheAppAsItsToolWithKindGUI() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        let sourceBundleURL = root
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent("Example.lungfishmhcref", isDirectory: true)
+        try writeMHCReferenceBundle(
+            bundleURL: sourceBundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: makeDefinition(id: "custom.install", displayName: "Installed Definition")
+        )
+
+        let viewModel = HaplotypeDefinitionManagerViewModel(projectURL: projectRoot)
+        viewModel.importBundle(at: sourceBundleURL)
+
+        XCTAssertNil(viewModel.errorMessage)
+        let installed = try XCTUnwrap(
+            viewModel.records.first { $0.definitionSet.id == "custom.install" }?.referenceBundleURL
+        )
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(
+            fromSidecar: installed.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        ))
+        XCTAssertEqual(record.toolName, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(record.tool.name, LungfishAppIdentity.recordedToolName)
+        XCTAssertEqual(record.tool.kind, LungfishAppIdentity.recordedToolKind)
+        XCTAssertEqual(record.argv.first, LungfishAppIdentity.recordedToolName)
+        XCTAssertTrue(ProvenanceAppStep.isAppStep(record.argv))
     }
 
     func testImportBundleRejectsNonBundleWithError() throws {

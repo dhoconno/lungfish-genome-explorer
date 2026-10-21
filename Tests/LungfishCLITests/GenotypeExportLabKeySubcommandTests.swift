@@ -190,7 +190,7 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definition = customDefinition(id: "custom.labkey.definition", haplotypeName: "NewB")
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(definition)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(definition)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-24T00:00:00Z")
         sidecar.settings.activeHaplotypeDefinitionSetID = definition.id
         let result = inMemoryResult(

@@ -2099,7 +2099,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definitionID = "custom.test.active-definition"
         let store = HaplotypeDefinitionStore(projectRoot: projectRoot)
-        try store.save(makeCustomHaplotypeDefinitionSet(
+        try store.seed(makeCustomHaplotypeDefinitionSet(
             id: definitionID,
             haplotypeName: "OldB",
             diagnosticAllele: "12_M8_B_001_01"
@@ -2173,7 +2173,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definitionID = "custom.test.raw-matrix-definition"
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(makeCustomHaplotypeDefinitionSet(
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(makeCustomHaplotypeDefinitionSet(
             id: definitionID,
             haplotypeName: "NewB",
             diagnosticAllele: "12_M9_B_001_01"
@@ -2403,7 +2403,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             haplotypeName: "NewB",
             diagnosticAllele: "12_M9_B_001_01"
         )
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(customDefinition)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(customDefinition)
         let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
@@ -3073,7 +3073,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definitionID = "custom.test.persisted-deterministic"
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(makeCustomHaplotypeDefinitionSet(
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(makeCustomHaplotypeDefinitionSet(
             id: definitionID,
             haplotypeName: "M9B",
             diagnosticAllele: "12_M9_B_001"
@@ -3132,7 +3132,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let activeDefinitionID = "custom.test.active-sidecar-definition"
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(makeCustomHaplotypeDefinitionSet(
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(makeCustomHaplotypeDefinitionSet(
             id: activeDefinitionID,
             haplotypeName: "M9B",
             diagnosticAllele: "12_M9_B_001"
@@ -3194,7 +3194,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definitionID = "custom.test.unsupported-menu-haplotypes"
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(GenotypeHaplotypeDefinitionSet(
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(GenotypeHaplotypeDefinitionSet(
             id: definitionID,
             assayID: "custom-assay",
             displayName: "Custom Test Definition",
@@ -3268,7 +3268,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let definitionID = "custom.test.threshold-omission"
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(makeCustomHaplotypeDefinitionSet(
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(makeCustomHaplotypeDefinitionSet(
             id: definitionID,
             haplotypeName: "M9B",
             diagnosticAlleles: ["12_M9_B_high", "12_M9_B_low"]

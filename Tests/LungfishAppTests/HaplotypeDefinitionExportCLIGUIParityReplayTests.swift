@@ -59,8 +59,8 @@ final class HaplotypeDefinitionExportCLIGUIParityReplayTests: XCTestCase {
         scratch = try TestTempDirectory.make(prefix: "haplotype-definition-export-parity")
         fixtureProject = scratch.appendingPathComponent("fixture/macaques.lungfish", isDirectory: true)
         let store = HaplotypeDefinitionStore(projectRoot: fixtureProject)
-        try store.save(Self.definition(id: "custom.export", assayID: "MHC-exon2-miSeq", name: "Export Me"))
-        try store.save(Self.definition(id: "custom.other", assayID: "MHC-exon4-ONT", name: "Other"))
+        try store.seed(Self.definition(id: "custom.export", assayID: "MHC-exon2-miSeq", name: "Export Me"))
+        try store.seed(Self.definition(id: "custom.other", assayID: "MHC-exon4-ONT", name: "Other"))
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
@@ -159,7 +159,7 @@ extension HaplotypeDefinitionExportCLIGUIParityReplayTests {
 
     /// The record the manager window lists for the case's definition, as its `reload` reads them.
     static func record(_ parityCase: Case, in root: URL) throws -> HaplotypeDefinitionRecord {
-        let records = HaplotypeDefinitionCommandService(projectRoot: projectURL(in: root))
+        let records = HaplotypeDefinitionCommandService(projectRoot: projectURL(in: root), toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind)
             .listDefinitions(includeShadowed: true, includeReferenceBundles: true)
         return try XCTUnwrap(records.first { $0.definitionSet.id == parityCase.definitionID })
     }
@@ -209,7 +209,7 @@ extension HaplotypeDefinitionExportCLIGUIParityReplayTests {
         do {
             let record = try Self.record(parityCase, in: root)
             let url = Self.outputURL(in: root)
-            try HaplotypeDefinitionCommandService(projectRoot: Self.projectURL(in: root)).exportDefinition(
+            try HaplotypeDefinitionCommandService(projectRoot: Self.projectURL(in: root), toolName: CLICommandIdentity.executableName, toolKind: CLICommandIdentity.recordedToolKind).exportDefinition(
                 definitionID: record.definitionSet.id,
                 assayID: record.definitionSet.assayID,
                 scope: record.scope,

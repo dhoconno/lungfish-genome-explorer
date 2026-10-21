@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class HaplotypeDefinitionLibraryProjectScopeTests: XCTestCase {
     func testRecordsReturnsOnlyProjectBundleRecords() throws {
@@ -49,7 +50,7 @@ final class HaplotypeDefinitionLibraryProjectScopeTests: XCTestCase {
                 )
             ]
         )
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(definition)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(definition)
 
         let library = HaplotypeDefinitionLibrary(projectRoot: projectRoot)
         XCTAssertTrue(library.records().isEmpty, "the GUI list stays bundle-only")

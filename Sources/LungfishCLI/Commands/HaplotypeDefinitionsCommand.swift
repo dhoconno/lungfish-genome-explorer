@@ -76,7 +76,7 @@ struct HaplotypeDefinitionsValidateSubcommand: AsyncParsableCommand {
     var input: String
 
     func run() async throws {
-        let service = HaplotypeDefinitionCommandService(projectRoot: nil)
+        let service = makeService(project: nil)
         let definition = try service.validateDefinition(at: URL(fileURLWithPath: input))
         try emitJSON(HaplotypeDefinitionValidatePayload(
             definition: definition,
@@ -498,7 +498,9 @@ private struct HaplotypeDefinitionValidatePayload: Encodable {
 
 private func makeService(project: String?) -> HaplotypeDefinitionCommandService {
     HaplotypeDefinitionCommandService(
-        projectRoot: project.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        projectRoot: project.map { URL(fileURLWithPath: $0, isDirectory: true) },
+        toolName: CLICommandIdentity.executableName,
+        toolKind: CLICommandIdentity.recordedToolKind
     )
 }
 

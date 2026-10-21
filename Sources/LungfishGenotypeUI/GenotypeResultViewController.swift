@@ -10192,7 +10192,7 @@ extension GenotypeResultViewController {
     }
 
     func testingSaveHaplotypeDefinition(_ definition: GenotypeHaplotypeDefinitionSet) throws {
-        try haplotypeDefinitionStore.save(definition)
+        try haplotypeDefinitionStore.save(definition, provenanceContext: .init(workflowName: "Haplotype definition save", toolName: LungfishAppIdentity.recordedToolName, argv: []))
         refreshAfterHaplotypeDefinitionChange()
     }
 

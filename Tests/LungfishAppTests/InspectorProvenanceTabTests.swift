@@ -210,7 +210,7 @@ final class InspectorProvenanceTabTests: XCTestCase {
                 )
             ]
         )
-        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(custom)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).seed(custom)
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-24T00:00:00Z")
         sidecar.settings.activeHaplotypeDefinitionSetID = custom.id
         try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))

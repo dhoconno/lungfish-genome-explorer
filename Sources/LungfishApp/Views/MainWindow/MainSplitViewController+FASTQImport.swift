@@ -150,10 +150,10 @@ extension MainSplitViewController {
             }
 
             do {
-                let installedURL = try HaplotypeDefinitionCommandService(projectRoot: projectURL)
+                let installedURL = try HaplotypeDefinitionCommandService(projectRoot: projectURL, toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind)
                     .installMHCReferenceBundle(
                         from: url,
-                        argv: [CLICommandIdentity.executableName, "haplotypes", "bundle-install", url.path]
+                        argv: [LungfishAppIdentity.recordedToolName, "haplotypes", "bundle-install", url.path]
                     )
                 mainSplitLogger.info(
                     "handleSidebarFileDropped: Installed reference allele database at \(installedURL.path, privacy: .public)"
