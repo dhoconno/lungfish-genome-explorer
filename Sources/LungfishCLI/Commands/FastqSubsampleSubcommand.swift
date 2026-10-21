@@ -38,6 +38,11 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "subsample")
+    }
+
     /// The number of pairs reformat.sh must emit so the output holds `count`
     /// reads. `samplereadstarget` counts pairs on interleaved input, so the
     /// GUI's "Keep a fixed number of reads" is halved here, never doubled.

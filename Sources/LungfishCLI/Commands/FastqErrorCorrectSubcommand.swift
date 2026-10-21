@@ -24,6 +24,11 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "error-correct")
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "error-correct", output: output)
         defer { resolvedInput.cleanup() }

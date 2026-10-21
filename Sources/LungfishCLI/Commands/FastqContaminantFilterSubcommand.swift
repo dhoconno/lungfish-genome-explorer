@@ -35,6 +35,11 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "contaminant-filter")
+    }
+
     static func bbdukReferenceURL(
         mode: String,
         reference: String?,

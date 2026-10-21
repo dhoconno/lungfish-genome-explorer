@@ -26,6 +26,11 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "adapter-trim")
+    }
+
     /// The operation the window and this subcommand both render through
     /// ``FastpTrimOptions``.
     var trimOperation: FastpTrimOperation {

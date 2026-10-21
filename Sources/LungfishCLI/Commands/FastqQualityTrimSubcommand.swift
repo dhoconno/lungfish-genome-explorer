@@ -39,6 +39,11 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "quality-trim")
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "quality-trim", output: output)
         defer { resolvedInput.cleanup() }

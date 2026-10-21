@@ -15,6 +15,11 @@ struct FastqQCSummarySubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "qc-summary")
+    }
+
     func run() async throws {
         guard !inputs.isEmpty else {
             throw ValidationError("Specify at least one input FASTQ file")

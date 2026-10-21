@@ -18,6 +18,11 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "search-text")
+    }
+
     @Option(name: .customLong("query"), help: "Search query string")
     var query: String
 

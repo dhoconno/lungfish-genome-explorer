@@ -21,6 +21,11 @@ struct FastqReverseComplementSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "reverse-complement")
+    }
+
     func run() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "reverse-complement", output: output)
         defer { resolvedInput.cleanup() }

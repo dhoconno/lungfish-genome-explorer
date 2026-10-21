@@ -18,6 +18,11 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "search-motif")
+    }
+
     @Option(name: .customLong("pattern"), help: "Sequence motif pattern to search for")
     var pattern: String
 

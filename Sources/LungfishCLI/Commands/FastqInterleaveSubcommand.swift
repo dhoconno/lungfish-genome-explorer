@@ -24,6 +24,11 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "interleave")
+    }
+
     func run() async throws {
         guard FileManager.default.fileExists(atPath: in1) else {
             throw CLIError.inputFileNotFound(path: in1)

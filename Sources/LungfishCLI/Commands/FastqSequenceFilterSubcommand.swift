@@ -18,6 +18,11 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "sequence-filter")
+    }
+
     @Option(name: .customLong("sequence"), help: "Literal sequence to match against reads")
     var sequence: String?
 

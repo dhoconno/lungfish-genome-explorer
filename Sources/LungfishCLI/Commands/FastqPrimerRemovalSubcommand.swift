@@ -67,6 +67,11 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "primer-remove")
+    }
+
     /// The bases a basecalled native-barcoded ONT read carries ahead of its
     /// insert: the Y-adapter, the outer flank, the 24-base barcode and the
     /// inner flank (`ONTNativeAdapterContext`), 67 bases in all.

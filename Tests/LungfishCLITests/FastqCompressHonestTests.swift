@@ -2,15 +2,18 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.13 lane 13.39 (COMPRESS-HONEST), milestone M1. `OutputOptions` gives the 23 `fastq` subcommands that
-// take it a `--compress` flag whose help says "Compress output with gzip". Twenty of them never read the flag
-// except to write `--compress` into the argv of their record and `compress` into its parameters, so they write
-// plain bytes and the record says `compress` is true. `merge`, `materialize` and `scrub-human` do gzip.
+// Phase 2.13 lane 13.39 (COMPRESS-HONEST). `OutputOptions` used to give the 23 `fastq` subcommands that take it a
+// `--compress` flag whose help said "Compress output with gzip". Twenty of them never read the flag except to
+// write `--compress` into the argv of their record and `compress` into its options, so they wrote plain bytes
+// and the record said `compress` was true. `merge`, `materialize` and `scrub-human` do gzip.
 //
-// These cases pin the base before any Sources edit. All 23 parse the flag, `materialize` gzips (it needs no
-// external tool) and the record of each gzip writer names `compress` only when the bytes are gzip. The cases
-// of `merge` and `scrub-human` run the real tool, so they sit in the Conformance class and skip where the tool
-// is missing. The run of `translate` stays in `TranslateFramePinTests`.
+// Milestone M1 pinned that base with a parse case for each of the 23, and the gzip of the three that gzip. Both
+// are in this file. The 20 plain writers now refuse `--compress` when their arguments are parsed (exit 64, the
+// words of the tally), before any file or record exists, so each of their cases checks the message, the missing
+// output and the missing sidecar. The three gzip writers keep their parse case, and `materialize` keeps its
+// gzip case, which needs no external tool. The cases of `merge` and `scrub-human` run the real tool, so they sit
+// in the Conformance class and skip where the tool is missing. The run of `translate` stays in
+// `TranslateFramePinTests`.
 
 import ArgumentParser
 import Foundation
@@ -50,7 +53,40 @@ final class FastqCompressHonestTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Parses `arguments` with an output in the test folder and `--compress`, and checks the flag arrived.
+    /// A plain writer. Its arguments parse without the flag, and with `--compress` they throw the refusal with the
+    /// words of the tally. Parsing is all a refusal does, so no output file and no sidecar exist afterwards.
+    private func assertRefusesCompress<C: ParsableCommand>(
+        _ type: C.Type,
+        _ name: String,
+        _ arguments: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let output = folder.appendingPathComponent("out.fastq")
+        XCTAssertNoThrow(try C.parse(arguments + ["--output", output.path]), "\(name) parses without the flag", file: file, line: line)
+        XCTAssertThrowsError(
+            try C.parse(arguments + ["--output", output.path, "--compress"]),
+            "\(name) refuses --compress",
+            file: file,
+            line: line
+        ) { error in
+            XCTAssertEqual(
+                C.message(for: error),
+                "--compress is not supported by fastq \(name). Remove it to write plain output.",
+                file: file,
+                line: line
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name) wrote no output", file: file, line: line)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path),
+            "\(name) wrote no sidecar",
+            file: file,
+            line: line
+        )
+    }
+
+    /// A gzip writer. The flag parses and arrives in `output.compress`.
     private func assertAcceptsCompress<C: ParsableCommand>(
         _ type: C.Type,
         _ arguments: [String],
@@ -63,39 +99,89 @@ final class FastqCompressHonestTests: XCTestCase {
         XCTAssertTrue(command[keyPath: compress], "\(C.self) parses --compress", file: file, line: line)
     }
 
-    // MARK: The 23 subcommands, each parsed with --compress
+    // MARK: The 20 plain writers refuse --compress
 
-    func testAdapterTrimAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqAdapterTrimSubcommand.self, ["in.fastq"], \.output.compress)
+    func testAdapterTrimRefusesCompress() {
+        assertRefusesCompress(FastqAdapterTrimSubcommand.self, "adapter-trim", ["in.fastq"])
     }
 
-    func testContaminantFilterAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqContaminantFilterSubcommand.self, ["in.fastq"], \.output.compress)
+    func testContaminantFilterRefusesCompress() {
+        assertRefusesCompress(FastqContaminantFilterSubcommand.self, "contaminant-filter", ["in.fastq"])
     }
 
-    func testDeduplicateAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqDeduplicateSubcommand.self, ["in.fastq"], \.output.compress)
+    func testDeduplicateRefusesCompress() {
+        assertRefusesCompress(FastqDeduplicateSubcommand.self, "deduplicate", ["in.fastq"])
     }
 
-    func testEntropyFilterAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqEntropyFilterSubcommand.self, ["in.fastq"], \.output.compress)
+    func testEntropyFilterRefusesCompress() {
+        assertRefusesCompress(FastqEntropyFilterSubcommand.self, "entropy-filter", ["in.fastq"])
     }
 
-    func testErrorCorrectAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqErrorCorrectSubcommand.self, ["in.fastq"], \.output.compress)
+    func testErrorCorrectRefusesCompress() {
+        assertRefusesCompress(FastqErrorCorrectSubcommand.self, "error-correct", ["in.fastq"])
     }
 
-    func testFixedTrimAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqFixedTrimSubcommand.self, ["in.fastq"], \.output.compress)
+    func testFixedTrimRefusesCompress() {
+        assertRefusesCompress(FastqFixedTrimSubcommand.self, "fixed-trim", ["in.fastq"])
     }
 
-    func testInterleaveAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqInterleaveSubcommand.self, ["--in1", "r1.fastq", "--in2", "r2.fastq"], \.output.compress)
+    func testInterleaveRefusesCompress() {
+        assertRefusesCompress(FastqInterleaveSubcommand.self, "interleave", ["--in1", "r1.fastq", "--in2", "r2.fastq"])
     }
 
-    func testLengthFilterAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqLengthFilterSubcommand.self, ["in.fastq"], \.output.compress)
+    func testLengthFilterRefusesCompress() {
+        assertRefusesCompress(FastqLengthFilterSubcommand.self, "length-filter", ["in.fastq"])
     }
+
+    func testOrientRefusesCompress() {
+        assertRefusesCompress(FastqOrientSubcommand.self, "orient", ["in.fastq", "--reference", "ref.fasta"])
+    }
+
+    func testPrimerRemovalRefusesCompress() {
+        assertRefusesCompress(FastqPrimerRemovalSubcommand.self, "primer-remove", ["in.fastq"])
+    }
+
+    func testQCSummaryRefusesCompress() {
+        assertRefusesCompress(FastqQCSummarySubcommand.self, "qc-summary", ["in.fastq"])
+    }
+
+    func testQualityTrimRefusesCompress() {
+        assertRefusesCompress(FastqQualityTrimSubcommand.self, "quality-trim", ["in.fastq"])
+    }
+
+    func testRepairRefusesCompress() {
+        assertRefusesCompress(FastqRepairSubcommand.self, "repair", ["in.fastq"])
+    }
+
+    func testReverseComplementRefusesCompress() {
+        assertRefusesCompress(FastqReverseComplementSubcommand.self, "reverse-complement", ["in.fastq"])
+    }
+
+    func testSearchMotifRefusesCompress() {
+        assertRefusesCompress(FastqSearchMotifSubcommand.self, "search-motif", ["in.fastq", "--pattern", "ACGT"])
+    }
+
+    func testSearchTextRefusesCompress() {
+        assertRefusesCompress(FastqSearchTextSubcommand.self, "search-text", ["in.fastq", "--query", "frag"])
+    }
+
+    func testSequenceFilterRefusesCompress() {
+        assertRefusesCompress(FastqSequenceFilterSubcommand.self, "sequence-filter", ["in.fastq"])
+    }
+
+    func testSubsampleRefusesCompress() {
+        assertRefusesCompress(FastqSubsampleSubcommand.self, "subsample", ["in.fastq"])
+    }
+
+    func testTranslateRefusesCompress() {
+        assertRefusesCompress(FastqTranslateSubcommand.self, "translate", ["in.fastq"])
+    }
+
+    func testTrimRefusesCompress() {
+        assertRefusesCompress(FastqTrimSubcommand.self, "trim", ["in.fastq"])
+    }
+
+    // MARK: The 3 gzip writers accept it
 
     func testMaterializeAcceptsCompress() throws {
         try assertAcceptsCompress(FastqMaterializeSubcommand.self, ["in.fastq"], \.output.compress)
@@ -105,52 +191,8 @@ final class FastqCompressHonestTests: XCTestCase {
         try assertAcceptsCompress(FastqMergeSubcommand.self, ["in.fastq"], \.output.compress)
     }
 
-    func testOrientAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqOrientSubcommand.self, ["in.fastq", "--reference", "ref.fasta"], \.output.compress)
-    }
-
-    func testPrimerRemovalAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqPrimerRemovalSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testQCSummaryAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqQCSummarySubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testQualityTrimAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqQualityTrimSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testRepairAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqRepairSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testReverseComplementAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqReverseComplementSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
     func testScrubHumanAcceptsCompress() throws {
         try assertAcceptsCompress(FastqScrubHumanSubcommand.self, ["in.fastq", "--database-id", "deacon-panhuman"], \.output.compress)
-    }
-
-    func testSearchMotifAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqSearchMotifSubcommand.self, ["in.fastq", "--pattern", "ACGT"], \.output.compress)
-    }
-
-    func testSearchTextAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqSearchTextSubcommand.self, ["in.fastq", "--query", "frag"], \.output.compress)
-    }
-
-    func testSequenceFilterAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqSequenceFilterSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testSubsampleAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqSubsampleSubcommand.self, ["in.fastq"], \.output.compress)
-    }
-
-    func testTrimAcceptsCompress() throws {
-        try assertAcceptsCompress(FastqTrimSubcommand.self, ["in.fastq"], \.output.compress)
     }
 
     // MARK: materialize gzips and its record says so

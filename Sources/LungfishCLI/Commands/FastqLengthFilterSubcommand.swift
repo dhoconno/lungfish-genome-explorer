@@ -29,6 +29,11 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "length-filter")
+    }
+
     /// The command this run executes: bbduk `interleaved=t` when the input
     /// pairs (both mates kept or dropped together), `seqkit seq` for
     /// single reads. The window's in-process filter renders the same plan.

@@ -29,6 +29,11 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "fixed-trim")
+    }
+
     /// The fastp arguments other than the input and output flags. fastp
     /// applies `--trim_front1` and `--trim_tail1` to read 2 as well unless
     /// `--trim_front2`/`--trim_tail2` are given, so a paired run trims both

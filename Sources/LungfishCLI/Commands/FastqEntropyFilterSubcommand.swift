@@ -43,6 +43,11 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "entropy-filter")
+    }
+
     /// Validates the entropy parameters. Factored out so tests can exercise the
     /// bounds without running bbduk.
     static func validate(entropy: Double, window: Int, kmer: Int) throws {

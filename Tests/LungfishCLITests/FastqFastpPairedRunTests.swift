@@ -169,7 +169,7 @@ final class FastqFastpPairedRunTests: XCTestCase {
             .write(to: inputURL, atomically: true, encoding: .utf8)
         let outputURL = root.appendingPathComponent("slash.trimmed.fastq.gz")
         try await FastqTrimSubcommand.parse(
-            [inputURL.path, "--pairing", "interleaved", "-o", outputURL.path, "--compress"]
+            [inputURL.path, "--pairing", "interleaved", "-o", outputURL.path]
         ).run()
         let magic = try FileHandle(forReadingFrom: outputURL).read(upToCount: 2)
         XCTAssertEqual(magic, Data([0x1F, 0x8B]), "a .gz output is gzip-compressed")

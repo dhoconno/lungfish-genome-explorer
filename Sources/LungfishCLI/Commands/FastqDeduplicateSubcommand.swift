@@ -32,6 +32,11 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "deduplicate")
+    }
+
     /// The clumpify argv for one run.
     ///
     /// interleaved=t: clumpify compares and clusters whole pairs and writes

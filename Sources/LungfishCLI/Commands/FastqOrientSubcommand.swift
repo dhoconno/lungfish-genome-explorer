@@ -19,6 +19,11 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    /// A plain writer, so `--compress` is refused before any file or record is written.
+    func validate() throws {
+        try output.rejectCompress(subcommand: "orient")
+    }
+
     @Option(name: .customLong("reference"), help: "Reference FASTA file path")
     var reference: String
 
