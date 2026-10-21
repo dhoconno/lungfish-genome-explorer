@@ -212,7 +212,7 @@ public extension ReconcilerServices {
     /// the manifest database id the planner compares against.
     ///
     /// Keying by the row's *recorded* `catalogID` alone silently dropped every database a
-    /// user registered from disk: `registerExisting` stores no catalog identity, so `Viral`
+    /// user registered from disk: an older build stored no catalog identity for them, so `Viral`
     /// and `Standard-16` on real machines have `catalogID == nil` and were never planned,
     /// while `db list` and `db info` advertised an update for them the whole time. Resolving
     /// through ``MetagenomicsDatabaseInfo/resolvedCatalogID`` applies the same two-step match

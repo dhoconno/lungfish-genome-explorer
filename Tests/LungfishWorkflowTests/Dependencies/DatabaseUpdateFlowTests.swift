@@ -988,7 +988,7 @@ final class DatabaseUpdateFlowTests: XCTestCase {
     /// directly, so a registry constructed later loads it as already installed.
     ///
     /// Recovery tests need the persisted row to exist *before* `loadIfNeeded()` runs,
-    /// which `registerExisting` cannot provide (it requires a live registry and the
+    /// which `seedRowThroughManifest` cannot provide (it needs a live registry and the
     /// directory to be present).
     @discardableResult
     private func seedInstalledViralDatabase(
@@ -1030,10 +1030,10 @@ final class DatabaseUpdateFlowTests: XCTestCase {
     }
 
     /// Seeds an installed Kraken2 Viral row that carries no catalog identity, which is
-    /// how `registerExisting` records a database it did not install from the catalog and
+    /// how an older build recorded a database it did not install from the catalog and
     /// therefore how the rows in a real user's registry actually look.
     ///
-    /// The manifest is written directly rather than going through `registerExisting`,
+    /// The manifest is written directly rather than going through a live registry,
     /// because `loadIfNeeded` pre-seeds the catalog rows: registering "Viral" against a
     /// live registry takes the branch that reuses the pre-seeded row and inherits its
     /// `catalogID`, which is precisely the case that already worked.
@@ -1066,8 +1066,8 @@ final class DatabaseUpdateFlowTests: XCTestCase {
     /// Seeds an installed EsViritu catalog entry by writing the registry manifest
     /// directly.
     ///
-    /// `registerExisting` validates every candidate against the Kraken2 file list, so
-    /// it cannot register an EsViritu directory. A real EsViritu install reaches this
+    /// The Kraken2 fixture helpers adopt a folder as a Kraken2 row, so they cannot make
+    /// an EsViritu row. A real EsViritu install reaches this
     /// state through `downloadDatabase`, which persists exactly this row.
     private func seedInstalledEsVirituDatabase(in base: URL, marker: String) throws -> URL {
         let directory = base.appendingPathComponent("esviritu/esviritu-viral-db", isDirectory: true)

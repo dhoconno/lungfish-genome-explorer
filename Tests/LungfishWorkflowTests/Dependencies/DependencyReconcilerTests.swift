@@ -705,7 +705,7 @@ final class DependencyReconcilerTests: XCTestCase {
 /// The map `ReconcilerServices.live` hands the planner, which decides whether a metagenomics
 /// database is planned for update at all.
 ///
-/// Rows registered from disk by `registerExisting` carry no `catalogID`. Keying the map by the
+/// Rows an older build registered from disk carry no `catalogID`. Keying the map by the
 /// recorded id alone dropped every one of them, so a real machine's hand-registered `Viral` was
 /// never planned while `db list` and `db info` advertised an update for it.
 final class ReconcilerMetagenomicsVersionMapTests: XCTestCase {

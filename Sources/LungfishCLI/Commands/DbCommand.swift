@@ -634,7 +634,7 @@ extension DbCommand {
         ///
         /// For `--all` this is exactly the set of rows `db list` marks as having an
         /// update available. The previous form mapped that set through `compactMap(\.catalogID)`,
-        /// which silently dropped every row registered by `registerExisting` -- the way
+        /// which silently dropped every row an older build registered from disk -- the way
         /// most real installs look, since those rows carry no catalog identity. With all
         /// such rows dropped the command printed "No databases have an update available"
         /// and exited 0 while `db list` was still advertising the update, so a scripted

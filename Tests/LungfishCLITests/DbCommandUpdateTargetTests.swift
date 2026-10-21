@@ -153,7 +153,7 @@ final class DbCommandUpdateTargetTests: XCTestCase {
     /// `tools update --plan` must propose the same database update `db list` advertises.
     ///
     /// The reconciler's installed-version map keyed metagenomics rows by their *recorded*
-    /// `catalogID`, which every `registerExisting` row lacks, so the plan silently omitted
+    /// `catalogID`, which a row an older build registered from disk lacks, so the plan silently omitted
     /// exactly the databases real users have while `db list` kept offering the update.
     /// Offline: `--plan` reads the filesystem and never contacts the network.
     func testToolsUpdatePlanIncludesADatabaseRegisteredWithoutCatalogIdentity() throws {

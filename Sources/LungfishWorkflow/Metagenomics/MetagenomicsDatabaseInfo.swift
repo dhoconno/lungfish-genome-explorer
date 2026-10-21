@@ -63,7 +63,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     /// AWS Kraken2 collections.
     ///
     /// Mutable within the module so the registry can stamp the identity onto a row
-    /// that was registered from disk by ``MetagenomicsDatabaseRegistry/registerExisting(at:name:)``
+    /// that an older build registered from disk
     /// and therefore started with none. Once an update has resolved such a row to a
     /// catalog entry by name and tool, recording the identity means every later lookup
     /// addresses it directly instead of re-deriving the match. Existing identities are
@@ -293,8 +293,7 @@ extension MetagenomicsDatabaseInfo {
     /// two-step match: the recorded ``catalogID`` first, then name and tool.
     ///
     /// Rows installed through the catalog carry a `catalogID`, but the rows real users
-    /// actually have are usually registered by
-    /// ``MetagenomicsDatabaseRegistry/registerExisting(at:name:)``, which records no
+    /// actually have are usually registered from a folder by an older build, which records no
     /// catalog identity at all. Every place that asks "which catalog entry is this?"
     /// must apply the same fallback or the surfaces disagree: `db list` and `db info`
     /// advertise an update (they read ``availableUpdateVersion``) while the reconciler's

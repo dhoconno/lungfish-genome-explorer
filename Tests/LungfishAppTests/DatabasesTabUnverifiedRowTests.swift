@@ -8,7 +8,7 @@ import XCTest
 
 /// Phase 2.12 lane 12.26, B5 (UX ruling U-W5 and U-W7, BIO's line). A ready row that records the catalog identity of
 /// `Standard-8` and has no payload digest is a folder an older build adopted (its version label is the catalog's), a
-/// build that adopts one now (`registerExisting` records no version) or a download made before receipts existed.
+/// folder a later build adopted (it records no version) or a download made before receipts existed.
 /// Nothing checked its files against a catalog build, so the tab, the update gate, the new classification records and
 /// the reconciler read it as unverified. The words below are the ruling's, written out so a change to them shows here.
 @MainActor

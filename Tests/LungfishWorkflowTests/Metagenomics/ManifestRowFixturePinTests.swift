@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.13 lane 13.24 B66-DELETE, QA 1. Thirty-five test lines adopted a database folder with a registry
-// method that no shipped code called. The fixtures now write the row through the manifest with
-// `seedRowThroughManifest` (LungfishTestSupport). This suite passes at the base, where the old method still
-// exists, so the first test compares the manifest each of the two ways writes, field by field, except the
-// dates and the bookmark. The other tests state the row's own facts, so they outlive the old method.
+// method that no shipped code called, and the lane deleted the method. The fixtures write the row through the
+// manifest with `seedRowThroughManifest` (LungfishTestSupport). At the base the old method still existed, and a
+// first test compared the manifest each way wrote, field by field, except the dates and the bookmark. The
+// tests below state the row's own facts, which that comparison showed to be the facts the old method wrote.
 
 import XCTest
 @testable import LungfishWorkflow
@@ -33,41 +33,6 @@ final class ManifestRowFixturePinTests: XCTestCase {
             try Data(repeating: 0x41, count: size).write(to: folder.appendingPathComponent(file))
         }
         return folder
-    }
-
-    /// The manifest under `base` with the dates and the bookmark of every row taken out.
-    private func manifestWithoutDates(in base: URL) throws -> NSDictionary {
-        let data = try Data(contentsOf: base.appendingPathComponent("metagenomics-db-registry.json"))
-        var manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let rows = try XCTUnwrap(manifest["databases"] as? [[String: Any]])
-        manifest["databases"] = rows.map { row -> [String: Any] in
-            var kept = row
-            for key in ["installedAt", "lastUpdated", "bookmarkData"] { kept.removeValue(forKey: key) }
-            return kept
-        }
-        return manifest as NSDictionary
-    }
-
-    func testTheSeededManifestHoldsTheFieldsTheOldMethodWrote() async throws {
-        let cases = [("my-viral-db", "Lab Index"), ("plain-db", "Plain DB"), ("viral", "Viral")]
-        for (index, (folderName, rowName)) in cases.enumerated() {
-            let parent = scratch.appendingPathComponent("case-\(index)", isDirectory: true)
-            let folder = try makeFolder(named: folderName, under: parent)
-            let baseOfOldMethod = parent.appendingPathComponent("old-method", isDirectory: true)
-            let baseOfHelper = parent.appendingPathComponent("helper", isDirectory: true)
-
-            let adopted = MetagenomicsDatabaseRegistry(baseDirectory: baseOfOldMethod)
-            try await adopted.registerExisting(at: folder, name: rowName)
-            let seeded = MetagenomicsDatabaseRegistry(baseDirectory: baseOfHelper)
-            let row = try await seeded.seedRowThroughManifest(at: folder, name: rowName)
-
-            XCTAssertEqual(row.name, rowName)
-            XCTAssertEqual(row.path?.path, folder.path, "case \(rowName) holds the folder")
-            XCTAssertEqual(
-                try manifestWithoutDates(in: baseOfHelper), try manifestWithoutDates(in: baseOfOldMethod),
-                "case \(rowName) writes the manifest the old method wrote"
-            )
-        }
     }
 
     /// BIO 4. A folder adopted under a catalog display name has no install receipt, so nothing checked its

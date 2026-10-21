@@ -531,97 +531,6 @@ public actor MetagenomicsDatabaseRegistry {
         return databases.values.first { $0.tool == tool.rawValue && $0.status == .ready && $0.path != nil }
     }
 
-    /// Registers an existing database directory.
-    ///
-    /// Validates that the directory contains the required Kraken2 files,
-    /// then adds it to the registry. If a database with the same name
-    /// already exists and is downloaded, throws ``MetagenomicsDatabaseRegistryError/duplicateDatabase(name:)``.
-    ///
-    /// - Parameters:
-    ///   - url: Path to the database directory on disk.
-    ///   - name: Display name for the database. If `nil`, the directory name is used.
-    /// - Returns: The registered database info.
-    @discardableResult
-    public func registerExisting(at url: URL, name: String? = nil) throws -> MetagenomicsDatabaseInfo {
-        try loadIfNeeded()
-
-        let dbName = name ?? url.lastPathComponent
-
-        // Check for duplicates (only if the existing entry is already downloaded).
-        if let existing = databases[dbName], existing.isDownloaded {
-            throw MetagenomicsDatabaseRegistryError.duplicateDatabase(name: dbName)
-        }
-
-        // Validate required files.
-        let missingFiles = Self.missingRequiredFiles(in: url)
-        if !missingFiles.isEmpty {
-            throw MetagenomicsDatabaseRegistryError.invalidDatabaseDirectory(
-                path: url.path, missingFiles: missingFiles
-            )
-        }
-
-        // Compute size on disk.
-        let sizeOnDisk = Self.directorySize(at: url)
-        let isExternal = externalVolumeDetector(url)
-        let bookmarkData: Data?
-        if isExternal {
-            do {
-                bookmarkData = try createBookmark(for: url)
-            } catch {
-                bookmarkData = nil
-                logger.warning(
-                    "Failed to create bookmark for imported database '\(dbName, privacy: .public)': \(error.localizedDescription, privacy: .public)"
-                )
-            }
-        } else {
-            bookmarkData = nil
-        }
-
-        // Determine if this matches a catalog entry.
-        let matchingCollection = DatabaseCollection.allCases.first { collection in
-            url.lastPathComponent.lowercased().contains(collection.rawValue.replacingOccurrences(of: "-", with: ""))
-                || dbName == collection.displayName
-        }
-
-        var info: MetagenomicsDatabaseInfo
-        let now = Date()
-        if let existing = databases[dbName] {
-            info = existing
-            info.path = url
-            info.status = .ready
-            info.version = nil  // The catalog row keeps its identity. Nothing checked the files against its build (BIO 4).
-            info.installedAt = info.installedAt ?? now
-            info.lastUpdated = now
-            info.isExternal = isExternal
-            info.bookmarkData = bookmarkData
-        } else {
-            // Create a new entry for a user-imported database.
-            info = MetagenomicsDatabaseInfo(
-                name: dbName,
-                tool: MetagenomicsTool.kraken2.rawValue,
-                version: nil,
-                sizeBytes: sizeOnDisk,
-                sizeOnDisk: sizeOnDisk,
-                downloadURL: nil,
-                description: "User-imported Kraken2 database",
-                collection: matchingCollection,
-                path: url,
-                isExternal: isExternal,
-                bookmarkData: bookmarkData,
-                installedAt: now,
-                lastUpdated: now,
-                status: .ready,
-                recommendedRAM: sizeOnDisk  // conservative: assume RAM ~= DB size
-            )
-        }
-
-        databases[dbName] = info
-        try saveManifest()
-
-        logger.info("Registered database '\(dbName, privacy: .public)' at \(url.path, privacy: .public)")
-        return info
-    }
-
     /// Removes a database from the registry.
     ///
     /// This only removes the registry entry -- it does **not** delete the
@@ -1369,7 +1278,7 @@ public actor MetagenomicsDatabaseRegistry {
         var updated = installed
         updated.path = installedPath
         updated.version = catalogEntry.version
-        // A row registered by `registerExisting` carries no catalog identity, so it was
+        // A row an older build registered from a folder carries no catalog identity, so it was
         // resolved here by display name and tool. Stamping the identity it just proved
         // it has means the next update, the reconciler, and the plan all address it by
         // its stable id rather than re-deriving the match from a display name the user
@@ -1421,7 +1330,7 @@ public actor MetagenomicsDatabaseRegistry {
     /// should be replaced with.
     ///
     /// A row installed through the catalog carries its `catalogID`, but the rows real
-    /// users actually have are usually registered by `registerExisting`, which records
+    /// users actually have are usually registered from a folder by an older build, which records
     /// no catalog identity at all. Matching only on `catalogID` therefore reported
     /// every hand-registered database as "not found in registry" while `db list` and
     /// `db info` were happily advertising an update for it, because those read

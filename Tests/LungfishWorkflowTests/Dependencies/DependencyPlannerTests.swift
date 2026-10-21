@@ -140,7 +140,7 @@ final class DependencyPlannerTests: XCTestCase {
         XCTAssertFalse(plan.databaseUpdates.contains { $0.id == "kraken2-standard" })
     }
 
-    /// End to end for the `registerExisting` gap: a `Viral` row registered from disk carries no
+    /// End to end for the adopted-row gap: a `Viral` row an older build registered from disk carries no
     /// `catalogID`, and the version map used to drop it, so the plan never proposed the update
     /// that `db list` and `db info` were already advertising.
     func testRegisterExistingDatabaseWithoutCatalogIDIsPlanned() {
