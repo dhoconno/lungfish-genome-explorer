@@ -460,7 +460,7 @@ public enum VCFAutoIngestor {
         )
         let outputs = [databaseOutput, manifestOutput]
         let step = ProvenanceStep(
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: appVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -476,9 +476,9 @@ public enum VCFAutoIngestor {
             createdAt: startedAt,
             workflowName: "lungfish app vcf auto-ingest",
             workflowVersion: appVersion,
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: appVersion,
-            tool: ProvenanceToolIdentity(name: "Lungfish.app", version: appVersion, kind: "gui"),
+            tool: ProvenanceToolIdentity(name: LungfishAppIdentity.recordedToolName, version: appVersion, kind: LungfishAppIdentity.recordedToolKind),
             argv: argv,
             durableReplayArgv: argv,
             options: ProvenanceOptions(

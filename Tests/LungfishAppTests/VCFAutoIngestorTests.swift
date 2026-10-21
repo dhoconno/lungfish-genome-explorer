@@ -82,7 +82,7 @@ final class VCFAutoIngestorTests: XCTestCase {
         let manifestURL = result.bundleURL.appendingPathComponent(BundleManifest.filename)
 
         XCTAssertEqual(envelope.workflowName, "lungfish app vcf auto-ingest")
-        XCTAssertEqual(envelope.toolName, "Lungfish.app")
+        XCTAssertEqual(envelope.toolName, LungfishAppIdentity.recordedToolName)
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertTrue(envelope.argv.contains("--vcf-path"))
         XCTAssertTrue(envelope.argv.contains(vcf.path))
