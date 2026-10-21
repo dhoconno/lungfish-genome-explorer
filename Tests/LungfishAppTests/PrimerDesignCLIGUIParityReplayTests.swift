@@ -86,6 +86,10 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
         )
         let command = try XCTUnwrap(result.runs.c.outcome.recordedCommand, "side C records the row's command")
         XCTAssertTrue(command.hasPrefix("lungfish-cli primers design primer3 "), command)
+        // A result in a project takes --project, so a replay writes a new bundle and leaves this one alone.
+        XCTAssertTrue(command.contains(" --project "), command)
+        XCTAssertTrue(command.contains(" --name=\(Self.analysisName)"), command)
+        XCTAssertFalse(command.contains("--output"), command)
         // Side A runs in its own root, so its row's command names that root, and its record names that command.
         let commandA = try XCTUnwrap(result.runs.a.outcome.recordedCommand, "side A records the row's command")
         try Self.assertRecordedArgv(of: result.runs.a, is: RecordedCLICommand.arguments(of: commandA), cli: cli)
@@ -116,8 +120,9 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
     /// One template of 600 bases from a fixed generator, about half G and C, so Primer3 finds pairs. One template, because
     /// the comparison numbers the UUIDs of files that tie on their blanked name and text (`annotations/<UUID>.bed` of two
     /// templates) in the order of their random raw names, so two runs of the same design would number them differently.
-    /// The project has no `Analyses` folder. The dialog creates it on sides A and C, and the command creates it on the
-    /// replay C', which pins A67-ANALYSES (2.12 lane 12.17).
+    /// The project has no `Analyses` folder. The command creates it on every side, from the `--project` the dialog
+    /// records in place of `--output`, which pins A67-ANALYSES (2.12 lane 12.17) and the Known limit of Preview
+    /// 2026.10.21 that lane 13.43 closed.
     static func writeFixture(_ root: URL) throws {
         let text = ">template-one\n" + wrapped(sequence(seed: 11, length: 600)) + "\n"
         try text.write(to: root.appendingPathComponent("templates.fasta"), atomically: true, encoding: .utf8)
@@ -192,7 +197,7 @@ final class PrimerDesignCLIGUIParityReplayTests: XCTestCase {
         let reporter = RecordingOperationReporter()
         do {
             let state = await Self.dialog(in: root, engine: engine, input: input)
-            let destination = try state.validatedDestinationURL(createParent: true)
+            let destination = try state.validatedDestinationURL(createParent: false)
             PrimerDesignOperation.beginPrimerDesignOperation(
                 title: "\(state.engine.rawValue) · \(state.analysisName)", destination: destination, routeContext: nil,
                 cliCommand: PrimerDesignOperation.cliCommand(state: state, destination: destination), reporter: reporter

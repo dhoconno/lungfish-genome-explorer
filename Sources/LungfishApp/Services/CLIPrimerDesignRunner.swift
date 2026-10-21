@@ -62,8 +62,10 @@ struct CLIPrimerDesignRunner {
     }
 
     /// Whether `error` is the command's refusal of a destination that exists. The dialog refuses a name in use before
-    /// Run, so the command refuses one only when a bundle appeared between that check and the launch. A refusal exits 3
-    /// with its failed event, and no other failure leaves a bundle at the destination.
+    /// Run, and the recorded command names `--project`, which writes the first free name (Phase 2.13 lane 13.43), so
+    /// only a command that names `--output` can meet a bundle that appeared between that check and the launch. A
+    /// refusal exits 3 with its failed event, and no other failure leaves a bundle at the destination. The alert words
+    /// stay as the UX ruling on lane 12.17 set them.
     static func refusedAnExistingDestination(_ error: any Error, destination: URL) -> Bool {
         switch error as? CLISubprocessTransport.RunError {
         case .nonZeroExit(status: 3, _)?, .failedEvent?:

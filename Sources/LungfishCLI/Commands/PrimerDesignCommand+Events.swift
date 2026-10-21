@@ -16,7 +16,8 @@ import LungfishWorkflow
 /// own command, is an info log event, as the in-process row logged them. SIGTERM, the app's Cancel, cancels the design
 /// and exits 125, and a second SIGTERM ends the command at once. A design that fails ends with its failed event and
 /// exits 64, or 126 when a tool is missing (`docs/contracts/ADDING-AN-OPERATION.md:184`). An existing `--output` is
-/// refused with exit 3 before any folder exists. `olivar` keeps text only and the dialog keeps running it in process until its bundle replay
+/// refused with exit 3 before any folder exists, and `--project` writes the first free name in the project's Analyses
+/// folder (lane 13.43). `olivar` keeps text only and the dialog keeps running it in process until its bundle replay
 /// (2.13 row A67-OLIVAR).
 extension PrimerDesignCommand {
     /// The first detail of the dialog's row, which the start event repeats so the row keeps its words.
@@ -45,10 +46,14 @@ extension PrimerDesignCommand {
     /// Runs one design leaf. `design` gets the argv the run records and a progress sink, and returns the published
     /// bundle. `summary` gives the human lines that follow a saved design.
     static func runDesign(
-        outputPath: String,
+        output: String?,
+        project: String?,
+        name: String?,
         globalOptions: TextAndJSONGlobalOptions,
         emit: @escaping (String) -> Void = printEventLine,
-        design: @escaping @Sendable (_ argv: [String], _ progress: @escaping @Sendable (Double, String) -> Void) async throws -> URL,
+        design: @escaping @Sendable (
+            _ argv: [String], _ destination: URL, _ progress: @escaping @Sendable (Double, String) -> Void
+        ) async throws -> URL,
         summary: (URL) -> [String]
     ) async throws {
         let resolved = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
@@ -57,8 +62,9 @@ extension PrimerDesignCommand {
         // Every transcript begins with its start event, a refusal's too, which still comes before any folder exists.
         events.emitStart(startMessage)
         var refusal: String?
+        let destination: URL
         do {
-            try refuseExistingOutput(outputPath) { message in
+            destination = try resolveDestination(output: output, project: project, name: name) { message in
                 refusal = message
                 printStatusLine(message)
             }
@@ -73,7 +79,7 @@ extension PrimerDesignCommand {
         let native: (@Sendable (NativeProcessEvent) -> Void)? = eventsOn ? nativeToolLog(events) : nil
         let result = await designCancellingOnSIGTERM {
             try await NativeProcessObservation.$onEvent.withValue(native) {
-                try await design(argv, progress)
+                try await design(argv, destination, progress)
             }
         }
         switch result {

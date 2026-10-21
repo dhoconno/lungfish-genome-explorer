@@ -12,8 +12,12 @@ struct OlivarDesignCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("msa"), help: "Equal-length native MSA, one-sequence reference, or aligned nucleotide FASTA. Repeatable.")
     var msaPaths: [String] = []
-    @Option(name: .customLong("output"), help: "New .lungfishprimeranalysis destination.")
-    var outputPath: String
+    @Option(name: .customLong("output"), help: PrimerDesignCommand.outputHelp)
+    var outputPath: String?
+    @Option(name: .customLong("project"), help: PrimerDesignCommand.projectHelp)
+    var projectPath: String?
+    @Option(name: .customLong("name"), help: PrimerDesignCommand.nameHelp)
+    var analysisName: String?
     @Option(name: .customLong("grouping"), help: "independent or combined")
     var grouping = "independent"
     @Option(name: .customLong("python-path"), help: "Optional exact Python executable; the adapter still verifies pinned Olivar source and conda identity.")
@@ -129,26 +133,30 @@ struct OlivarDesignCommand: AsyncParsableCommand {
         try makeOptions(supplied: suppliedNames(argv))
     }
 
+    func validate() throws {
+        try PrimerDesignCommand.validateDestinationOptions(output: outputPath, project: projectPath, name: analysisName)
+    }
+
     func run() async throws {
         let output = try await execute(argv: CommandLine.arguments)
         print("Olivar primer analysis written to \(output.path)")
     }
 
     private func execute(argv: [String]) async throws -> URL {
-        try PrimerDesignCommand.refuseExistingOutput(outputPath)
+        let destination = try PrimerDesignCommand.resolveDestination(output: outputPath, project: projectPath, name: analysisName)
         let inputs = try primerSchemeInputs(msaPaths)
         let options = try makeOptions(argv: argv)
         var checksums: [URL: String] = [:]
         for input in inputs {
             checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256
         }
-        try PrimerDesignCommand.createOutputParent(outputPath)
+        try PrimerDesignCommand.createOutputParent(destination.path)
         let invocation = PrimerAnalysisWrapperInvocation(
             argv: argv, callerVersion: LungfishAppVersion.cliToolVersion,
             explicitOptions: options.provenanceOptions,
             runtimeIdentity: .init(executablePath: argv.first ?? CLICommandIdentity.executableName))
         return try await PrimerSchemeDesignPipeline().run(request: .init(
-            inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath),
+            inputURLs: inputs, destinationURL: destination,
             options: options, invocation: invocation, expectedInputChecksums: checksums,
             executableURL: pythonPath.map(URL.init(fileURLWithPath:))))
     }

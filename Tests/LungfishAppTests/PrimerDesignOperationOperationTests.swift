@@ -89,7 +89,10 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         XCTAssertEqual(item.routeContext, routeContext)
         let command = try RecordedCLICommand.parse(item.cliCommand, as: PrimerDesignCommand.PrimalScheme3Subcommand.self)
         XCTAssertEqual(command.msaPaths, ["/input/mhc 1.fasta"])
-        XCTAssertEqual(command.outputPath, destination.path)
+        // A result in a project takes --project, so a replay writes a new bundle (lane 13.43, row PRIMER-PROJECT).
+        XCTAssertNil(command.outputPath)
+        XCTAssertEqual(command.projectPath, "/tmp/lane 1a2/Project.lungfish")
+        XCTAssertEqual(command.analysisName, "Primer3 Test")
     }
 
     // MARK: - argv (2.12 lane 12.17, A67-ARGV)
@@ -116,6 +119,39 @@ final class PrimerDesignOperationOperationTests: XCTestCase {
         unread.addInputs([URL(fileURLWithPath: "/input/mhc 1.fasta")])
         XCTAssertNil(PrimerDesignOperation.cliArgv(state: unread, destination: destination))
         XCTAssertNil(PrimerDesignOperation.cliCommand(state: unread, destination: destination))
+    }
+
+    // MARK: - the form of a result in a project (2.13 lane 13.43, row PRIMER-PROJECT)
+
+    /// The recorded command of every engine names `--project` and `--name` in place of `--output`, so a replay in Terminal
+    /// writes a new bundle and leaves the one the app wrote alone, and each leaf parses it back to the dialog's project and
+    /// name.
+    func testEveryEngineRecordsProjectAndNameInPlaceOfOutput() throws {
+        for engine in [PrimerDesignEngine.primalScheme, .olivar, .varVAMP] {
+            let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
+            state.engine = engine
+            state.addInputs([URL(fileURLWithPath: "/input/mhc 1.fasta")])
+            let argv = try XCTUnwrap(PrimerDesignOperation.cliArgv(state: state, destination: destination), "\(engine)")
+            XCTAssertFalse(argv.contains("--output"), "\(engine): \(argv)")
+            let index = try XCTUnwrap(argv.firstIndex(of: "--project"), "\(engine)")
+            XCTAssertEqual(Array(argv[index...].prefix(3)), ["--project", "/tmp/lane 1a2/Project.lungfish", "--name=Primer3 Test"])
+        }
+    }
+
+    /// Words with no `--output` pair for the destination stay as they are, and a name that starts with a hyphen joins its
+    /// option so the leaf reads it as a value.
+    func testTheProjectFormReplacesOnlyTheOutputPairOfTheDestination() throws {
+        let hyphen = URL(fileURLWithPath: "/tmp/p.lungfish/Analyses/-odd name.lungfishprimeranalysis", isDirectory: true)
+        XCTAssertEqual(
+            PrimerDesignOperation.inProjectForm(["--msa", "a.fasta", "--output", hyphen.path, "--grouping=independent"], destination: hyphen),
+            ["--msa", "a.fasta", "--project", "/tmp/p.lungfish", "--name=-odd name", "--grouping=independent"])
+        let other = ["--msa", "a.fasta", "--output", "/elsewhere/x.lungfishprimeranalysis"]
+        XCTAssertEqual(PrimerDesignOperation.inProjectForm(other, destination: hyphen), other)
+        XCTAssertEqual(PrimerDesignOperation.inProjectForm(["--msa", "a.fasta"], destination: hyphen), ["--msa", "a.fasta"])
+        let command = try PrimerDesignCommand.PrimalScheme3Subcommand.parse(
+            PrimerDesignOperation.inProjectForm(["--msa", "a.fasta", "--output", hyphen.path], destination: hyphen))
+        XCTAssertEqual(command.analysisName, "-odd name")
+        XCTAssertEqual(command.projectPath, "/tmp/p.lungfish")
     }
 
     // MARK: - dialog words (2.12 lane 12.17, UX ruling)

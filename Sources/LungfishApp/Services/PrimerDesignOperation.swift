@@ -71,10 +71,30 @@ enum PrimerDesignOperation {
         arguments = PrimerDesignCLIArguments.primerScheme(
           inputs: state.inputURLs, output: destination, options: try state.primerSchemeOptions())
       }
-      return arguments.map { [CLICommandIdentity.executableName, "primers", "design", engine] + $0 }
+      return arguments.map {
+        [CLICommandIdentity.executableName, "primers", "design", engine] + inProjectForm($0, destination: destination)
+      }
     } catch {
       return nil
     }
+  }
+
+  /// `arguments` with `--output <destination>` replaced by `--project <project> --name=<name>`, the form of a result in
+  /// a project (`docs/contracts/ADDING-AN-OPERATION.md`, the Copy CLI Command part). A replay in Terminal then writes a
+  /// new bundle in the project and leaves the one the app wrote alone, and it makes the project's `Analyses` folder
+  /// when the project has none (Phase 2.13 lane 13.43, row PRIMER-PROJECT). The classifier routes do the same with
+  /// `--output-dir`. `destination` is `<project>/Analyses/<name>.lungfishprimeranalysis`, which the dialog validated.
+  /// The name joins its option with `=`, so the parser reads a name that starts with a hyphen as a value. Arguments
+  /// with no `--output` pair for `destination` stay as they are.
+  static func inProjectForm(_ arguments: [String], destination: URL) -> [String] {
+    guard let index = arguments.firstIndex(of: "--output"), arguments.indices.contains(index + 1),
+      arguments[index + 1] == destination.path
+    else { return arguments }
+    let project = destination.deletingLastPathComponent().deletingLastPathComponent()
+    let name = destination.deletingPathExtension().lastPathComponent
+    var words = arguments
+    words.replaceSubrange(index...(index + 1), with: ["--project", project.path, "--name=\(name)"])
+    return words
   }
 
   /// The status line of a dialog whose settings have no `lungfish-cli` command. Nothing runs (UX ruling on lane 12.17).

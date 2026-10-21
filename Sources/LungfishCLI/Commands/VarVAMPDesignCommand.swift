@@ -11,7 +11,9 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         discussion: "The cumulative consensus threshold is passed directly to native -t and is never complemented. Single/tiled bounds become --opt-length and --max-length; qPCR bounds become QAMPLICON_LENGTH. The nominal size is retained for display and provenance.")
 
     @Option(name: .customLong("msa")) var msaPaths: [String] = []
-    @Option(name: .customLong("output")) var outputPath: String
+    @Option(name: .customLong("output"), help: PrimerDesignCommand.outputHelp) var outputPath: String?
+    @Option(name: .customLong("project"), help: PrimerDesignCommand.projectHelp) var projectPath: String?
+    @Option(name: .customLong("name"), help: PrimerDesignCommand.nameHelp) var analysisName: String?
     @Option(name: .customLong("mode"), help: "single, tiled, or qpcr") var mode = "tiled"
     @Option(name: .customLong("grouping"), help: "varVAMP supports independent only") var grouping = "independent"
     @Option(name: .customLong("python-path")) var pythonPath: String?
@@ -203,10 +205,16 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
+    func validate() throws {
+        try PrimerDesignCommand.validateDestinationOptions(output: outputPath, project: projectPath, name: analysisName)
+    }
+
     func run() async throws {
         try await PrimerDesignCommand.runDesign(
-            outputPath: outputPath, globalOptions: globalOptions,
-            design: { argv, progress in try await execute(argv: argv, progress: progress) },
+            output: outputPath, project: projectPath, name: analysisName, globalOptions: globalOptions,
+            design: { argv, destination, progress in
+                try await execute(argv: argv, destination: destination, progress: progress)
+            },
             summary: { ["varVAMP primer analysis written to \($0.path)"] + Self.advisoryLines(analysisURL: $0) }
         )
     }
@@ -223,21 +231,23 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
         }
     }
 
-    private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
-        try PrimerDesignCommand.refuseExistingOutput(outputPath)
+    private func execute(
+        argv: [String], destination: URL, progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        try PrimerDesignCommand.refuseExistingOutput(destination.path)
         let inputs = try primerSchemeInputs(msaPaths)
         let options = try makeOptions(argv: argv)
         var checksums: [URL: String] = [:]
         for input in inputs {
             checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256
         }
-        try PrimerDesignCommand.createOutputParent(outputPath)
+        try PrimerDesignCommand.createOutputParent(destination.path)
         let invocation = PrimerAnalysisWrapperInvocation(
             argv: argv, callerVersion: LungfishAppVersion.cliToolVersion,
             explicitOptions: options.provenanceOptions,
             runtimeIdentity: .init(executablePath: argv.first ?? CLICommandIdentity.executableName))
         return try await PrimerSchemeDesignPipeline().run(request: .init(
-            inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath),
+            inputURLs: inputs, destinationURL: destination,
             options: options, invocation: invocation, expectedInputChecksums: checksums,
             executableURL: pythonPath.map(URL.init(fileURLWithPath:))), progress: progress)
     }

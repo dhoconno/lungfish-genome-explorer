@@ -20,6 +20,8 @@ import XCTest
 final class PrimerDesignCommandRoundTripTests: XCTestCase {
     private static let input = URL(fileURLWithPath: "/input/mhc.fasta")
     private static let output = URL(fileURLWithPath: "/tmp/out dir/out.lungfishprimeranalysis")
+    /// The project the recorded command names for ``output``, the folder above its parent (lane 13.43).
+    private static let projectOfOutput = output.deletingLastPathComponent().deletingLastPathComponent()
 
     private func dialog(_ engine: PrimerDesignEngine) -> PrimerDesignDialogState {
         let state = PrimerDesignDialogState(projectURL: FileManager.default.temporaryDirectory)
@@ -153,7 +155,9 @@ final class PrimerDesignCommandRoundTripTests: XCTestCase {
         XCTAssertEqual(run.grouping, .combined)
         XCTAssertEqual(parsed.executablePath, "/usr/bin/true")
         XCTAssertEqual(parsed.msaPaths, [Self.input.path])
-        XCTAssertEqual(parsed.outputPath, Self.output.path)
+        XCTAssertNil(parsed.outputPath, "a result in a project takes --project")
+        XCTAssertEqual(parsed.projectPath, Self.projectOfOutput.path)
+        XCTAssertEqual(parsed.analysisName, Self.output.deletingPathExtension().lastPathComponent)
     }
 
     // MARK: - Olivar and varVAMP
@@ -165,7 +169,9 @@ final class PrimerDesignCommandRoundTripTests: XCTestCase {
         XCTAssertEqual(
             normalized(try parsed.makeOptions(argv: args)), normalized(try state.primerSchemeOptions()), file: file, line: line)
         XCTAssertEqual(parsed.msaPaths, [Self.input.path], file: file, line: line)
-        XCTAssertEqual(parsed.outputPath, Self.output.path, file: file, line: line)
+        XCTAssertNil(parsed.outputPath, "a result in a project takes --project", file: file, line: line)
+        XCTAssertEqual(parsed.projectPath, Self.projectOfOutput.path, file: file, line: line)
+        XCTAssertEqual(parsed.analysisName, Self.output.deletingPathExtension().lastPathComponent, file: file, line: line)
     }
 
     private func assertVarVAMPRoundTrip(_ state: PrimerDesignDialogState, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -175,7 +181,9 @@ final class PrimerDesignCommandRoundTripTests: XCTestCase {
         XCTAssertEqual(
             normalized(try parsed.makeOptions(argv: args)), normalized(try state.primerSchemeOptions()), file: file, line: line)
         XCTAssertEqual(parsed.msaPaths, [Self.input.path], file: file, line: line)
-        XCTAssertEqual(parsed.outputPath, Self.output.path, file: file, line: line)
+        XCTAssertNil(parsed.outputPath, "a result in a project takes --project", file: file, line: line)
+        XCTAssertEqual(parsed.projectPath, Self.projectOfOutput.path, file: file, line: line)
+        XCTAssertEqual(parsed.analysisName, Self.output.deletingPathExtension().lastPathComponent, file: file, line: line)
     }
 
     func testOlivarCommandResolvesToTheDialogsParameters() throws {

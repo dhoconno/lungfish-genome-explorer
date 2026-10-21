@@ -21,9 +21,9 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     }
 
     /// Refuses an `--output` that exists, before the leaf reads an input or makes a folder, and never replaces it. A replay
-    /// of a recorded command names the bundle the app already wrote, so the text names the bundle and the option to change,
-    /// and the leaf exits 3 (Phase 2.12 lane 12.17, ruling R-B1). UX's sentence goes on to suggest `--project`, which no
-    /// `primers design` leaf has, so the text stops after its first clause until UX rules.
+    /// of a command that names the bundle the app already wrote meets it, so the text names the bundle and the two ways out,
+    /// and the leaf exits 3 (ruling R-B1 of Phase 2.12, which 12.17 amended while no leaf had `--project`. The words are
+    /// R-B1 word for word again since lane 13.43 gave the four leaves the option).
     static func refuseExistingOutput(
         _ outputPath: String,
         standardError: (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
@@ -31,7 +31,7 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         let output = URL(fileURLWithPath: outputPath)
         // attributesOfItem reads a link itself, so a link at the destination counts as existing even when it dangles.
         guard (try? FileManager.default.attributesOfItem(atPath: output.path)) != nil else { return }
-        standardError("Output already exists: \(output.path). Give --output a new path.")
+        standardError("Output already exists: \(output.path). Give --output a new path, or use --project to write a new bundle in the project.")
         throw CLIExitCode.inputError.exitCode
     }
 
@@ -56,8 +56,12 @@ struct PrimerDesignCommand: AsyncParsableCommand {
         var msaTemplates: [String] = []
         @Option(name: .customLong("binding-site-policy"), help: "MSA binding policy: template-only or exclude-variable-and-gapped-columns.")
         var bindingSitePolicy: String = "exclude-variable-and-gapped-columns"
-        @Option(name: .customLong("output"), help: "New .lungfishprimeranalysis destination.")
-        var outputPath: String
+        @Option(name: .customLong("output"), help: PrimerDesignCommand.outputHelp)
+        var outputPath: String?
+        @Option(name: .customLong("project"), help: PrimerDesignCommand.projectHelp)
+        var projectPath: String?
+        @Option(name: .customLong("name"), help: PrimerDesignCommand.nameHelp)
+        var analysisName: String?
         @Option(name: .customLong("primer3-path"), help: "Optional exact primer3_core executable path.")
         var executablePath: String?
         @Option(name: .customLong("assay"), help: "Assay preset, as in the GUI: pcr, qpcr-dye, or qpcr-probe. Omitted values below take the preset's defaults.") var assay = "pcr"
@@ -111,10 +115,16 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
+        func validate() throws {
+            try PrimerDesignCommand.validateDestinationOptions(output: outputPath, project: projectPath, name: analysisName)
+        }
+
         func run() async throws {
             try await PrimerDesignCommand.runDesign(
-                outputPath: outputPath, globalOptions: globalOptions,
-                design: { argv, progress in try await execute(argv: argv, progress: progress) },
+                output: outputPath, project: projectPath, name: analysisName, globalOptions: globalOptions,
+                design: { argv, destination, progress in
+                    try await execute(argv: argv, destination: destination, progress: progress)
+                },
                 summary: { ["Primer3 analysis written to \($0.path)"] + Self.summaryLines(forAnalysisAt: $0) }
             )
         }
@@ -149,10 +159,15 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             return lines
         }
 
-        func executeForTesting(argv: [String]) async throws -> URL { try await execute(argv: argv) }
+        func executeForTesting(argv: [String]) async throws -> URL {
+            let destination = try PrimerDesignCommand.resolveDestination(output: outputPath, project: projectPath, name: analysisName)
+            return try await execute(argv: argv, destination: destination)
+        }
 
-        private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
-            try PrimerDesignCommand.refuseExistingOutput(outputPath)
+        private func execute(
+            argv: [String], destination: URL, progress: (@Sendable (Double, String) -> Void)? = nil
+        ) async throws -> URL {
+            try PrimerDesignCommand.refuseExistingOutput(destination.path)
             let policy: Primer3BindingSitePolicy
             switch bindingSitePolicy {
             case "template-only": policy = .templateOnly
@@ -177,9 +192,9 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
             let options = try makeOptions()
             let explicit = Self.explicitOptions(options, selections: selections)
-            try PrimerDesignCommand.createOutputParent(outputPath)
+            try PrimerDesignCommand.createOutputParent(destination.path)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
-            return try await Primer3DesignPipeline().run(request: .init(inputURLs: inputs, selections: selections, destinationURL: URL(fileURLWithPath: outputPath), options: options, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
+            return try await Primer3DesignPipeline().run(request: .init(inputURLs: inputs, selections: selections, destinationURL: destination, options: options, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
         }
 
         /// Resolves the parsed flags onto the shared assay preset so the CLI and
@@ -294,7 +309,9 @@ struct PrimerDesignCommand: AsyncParsableCommand {
     struct PrimalScheme3Subcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(commandName: "primalscheme3", abstract: "Run PrimalScheme on nucleotide sequences or alignments")
         @Option(name: .customLong("msa"), help: "Native .lungfishmsa, .lungfishref, or raw aligned nucleotide FASTA input. Repeatable; a single sequence is valid.") var msaPaths: [String] = []
-        @Option(name: .customLong("output")) var outputPath: String
+        @Option(name: .customLong("output"), help: PrimerDesignCommand.outputHelp) var outputPath: String?
+        @Option(name: .customLong("project"), help: PrimerDesignCommand.projectHelp) var projectPath: String?
+        @Option(name: .customLong("name"), help: PrimerDesignCommand.nameHelp) var analysisName: String?
         @Option(name: .customLong("grouping"), help: "independent or combined") var grouping = "independent"
         @Option(name: .customLong("primalscheme3-path")) var executablePath: String?
         @Option(name: .customLong("amplicon-size")) var ampliconSize = 400
@@ -368,10 +385,16 @@ struct PrimerDesignCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
+        func validate() throws {
+            try PrimerDesignCommand.validateDestinationOptions(output: outputPath, project: projectPath, name: analysisName)
+        }
+
         func run() async throws {
             try await PrimerDesignCommand.runDesign(
-                outputPath: outputPath, globalOptions: globalOptions,
-                design: { argv, progress in try await execute(argv: argv, progress: progress) },
+                output: outputPath, project: projectPath, name: analysisName, globalOptions: globalOptions,
+                design: { argv, destination, progress in
+                    try await execute(argv: argv, destination: destination, progress: progress)
+                },
                 summary: { ["PrimalScheme analysis written to \($0.path)"] }
             )
         }
@@ -385,8 +408,10 @@ struct PrimerDesignCommand: AsyncParsableCommand {
                 return url
             }
         }
-        private func execute(argv: [String], progress: (@Sendable (Double, String) -> Void)? = nil) async throws -> URL {
-            try PrimerDesignCommand.refuseExistingOutput(outputPath)
+        private func execute(
+            argv: [String], destination: URL, progress: (@Sendable (Double, String) -> Void)? = nil
+        ) async throws -> URL {
+            try PrimerDesignCommand.refuseExistingOutput(destination.path)
             let inputs = try validatedInputURLs(paths: msaPaths)
             let resolved = try makeOptions()
             let options = resolved.options
@@ -394,9 +419,9 @@ struct PrimerDesignCommand: AsyncParsableCommand {
             var checksums: [URL: String] = [:]
             for input in inputs { checksums[input] = try await Primer3DesignPipeline.inspectInput(at: input).checksumSHA256 }
             let explicit = options.provenanceOptions.merging(["grouping": .string(resolvedGrouping.rawValue), "inputCount": .integer(inputs.count)]) { _, new in new }
-            try PrimerDesignCommand.createOutputParent(outputPath)
+            try PrimerDesignCommand.createOutputParent(destination.path)
             let invocation = PrimerAnalysisWrapperInvocation(argv: argv, callerVersion: LungfishAppVersion.cliToolVersion, explicitOptions: explicit, runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: argv.first ?? CLICommandIdentity.executableName))
-            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: URL(fileURLWithPath: outputPath), options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
+            return try await PrimalScheme3DesignPipeline().run(request: .init(inputURLs: inputs, destinationURL: destination, options: options, grouping: resolvedGrouping, invocation: invocation, executableURL: executablePath.map(URL.init(fileURLWithPath:)), expectedInputChecksums: checksums), progress: progress)
         }
 
         /// Resolves the parsed flags into the same typed options the GUI dialog
