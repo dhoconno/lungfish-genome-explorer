@@ -203,7 +203,9 @@ struct ConvertCommand: AsyncParsableCommand {
             let records = sourced.map { seq, sourceAnnotations in
                 GenBankRecord(
                     sequence: seq,
-                    annotations: includeAnnotations ? sourceAnnotations.filter { $0.chromosome == seq.name } : [],
+                    annotations: includeAnnotations
+                        ? sourceAnnotations.filter { $0.chromosome == seq.name }.map(Self.withoutTrackTag)
+                        : [],
                     locus: LocusInfo(
                         name: seq.name,
                         length: seq.length,
@@ -462,6 +464,14 @@ struct ConvertCommand: AsyncParsableCommand {
             guard seen.insert(standardizedURL.path).inserted else { return nil }
             return ProvenanceRecorder.fileRecord(url: standardizedURL, role: role)
         }
+    }
+
+    /// The annotation without the `annotation_db_track_id` a bundle's loader gives it. The tag lets the GFF3 writer tell
+    /// the databases of a bundle apart, and the GenBank writer would print it as a qualifier (lane 13.20 M2, MD50).
+    private static func withoutTrackTag(_ annotation: SequenceAnnotation) -> SequenceAnnotation {
+        var untagged = annotation
+        untagged.qualifiers.removeValue(forKey: GFF3ExportIdentifiers.trackIDKey)
+        return untagged
     }
 
     private static func readReferenceBundle(
