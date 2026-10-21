@@ -239,10 +239,14 @@ struct ConvertCommand: AsyncParsableCommand {
             // Unreachable: normalizedToFormat was already validated above.
             throw CLIError.unsupportedFormat(format: toFormat)
         }
+        var compressionReceipt: SequenceExportCompressor.Receipt?
+        var compressionSeconds: TimeInterval = 0
         if let compress {
-            try await SequenceExportCompressor.compress(
+            let compressStartedAt = runClock.now
+            compressionReceipt = try await SequenceExportCompressor.compress(
                 source: stagedOutputURL, to: publishedStageURL, kind: compress.kind
             )
+            compressionSeconds = runClock.now.timeIntervalSince(compressStartedAt)
         }
         let completedAt = runClock.now
         try Task.checkCancellation()
@@ -276,6 +280,9 @@ struct ConvertCommand: AsyncParsableCommand {
             toolName: "lungfish convert",
             toolVersion: LungfishCLI.configuration.version,
             command: provenanceCommand(inputURLs: inputURLs, outputURL: outputURL),
+            extraSteps: compressionReceipt.map {
+                [SequenceExportCompressor.provenanceStep(for: $0, wallTimeSeconds: compressionSeconds)]
+            } ?? [],
             inputs: provenanceInputs,
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
