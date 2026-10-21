@@ -221,16 +221,16 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
         let marker = request.outputDirectory.appendingPathComponent("raw-output.txt")
-        try FileManager.default.createDirectory(at: request.outputDirectory,
-                                                withIntermediateDirectories: true)
-        try "pipeline output".write(to: marker, atomically: true, encoding: .utf8)
+        let runner = StubViralReconProcessRunner(result: .init(exitCode: 0, standardOutput: "", standardError: ""))
+        runner.onRun = {  // The pipeline writes its output when it runs, so the stand-in does it at the launch (13.21).
+            try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+            try "pipeline output".write(to: marker, atomically: true, encoding: .utf8)
+        }
 
         let operationCenter = OperationCenter()
         let service = ViralReconWorkflowExecutionService(
             operationCenter: operationCenter,
-            processRunner: StubViralReconProcessRunner(
-                result: .init(exitCode: 0, standardOutput: "", standardError: "")
-            ),
+            processRunner: runner,
             referenceDownloader: { _, _ in },
             resultIngest: { _ in
                 throw ViralReconResultIngest.IngestError.referenceBundleMissing

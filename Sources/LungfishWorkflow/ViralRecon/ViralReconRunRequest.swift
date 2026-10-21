@@ -126,6 +126,8 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
     public enum ValidationError: Error, Sendable, Equatable {
         case conflictingAdvancedParam(String)
         case emptySamples
+        /// The results folder already holds files (Phase 2.13 lane 13.21), see ``ResultsFolder``.
+        case resultsFolderHoldsFiles(URL)
     }
 
     public let samples: [ViralReconSample]
@@ -220,6 +222,10 @@ public struct ViralReconRunRequest: Codable, Sendable, Equatable {
         sequencingSummaryURL: URL? = nil
     ) throws {
         guard !samples.isEmpty else { throw ValidationError.emptySamples }
+        // Phase 2.13 lane 13.21. The folder is checked where the request is built, before anything stages or runs.
+        guard !ResultsFolder.holdsFiles(outputDirectory) else {
+            throw ValidationError.resultsFolderHoldsFiles(outputDirectory)
+        }
         try Self.validateAdvancedParams(advancedParams)
         let resolvedSequencingSummaryURL = Self.validSequencingSummaryURL(
             explicit: sequencingSummaryURL,
