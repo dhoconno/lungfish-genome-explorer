@@ -158,7 +158,7 @@ enum GenotypeCandidateDisplayPersistence {
             )),
         ]
         let step = ProvenanceStep(
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             inputs: inputs,
@@ -172,9 +172,9 @@ enum GenotypeCandidateDisplayPersistence {
             createdAt: startedAt,
             workflowName: "Genotype annotation sidecar edit",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
-            tool: .init(name: "Lungfish Genome Explorer", version: WorkflowRun.currentAppVersion, kind: "gui"),
+            tool: .init(name: LungfishAppIdentity.recordedToolName, version: WorkflowRun.currentAppVersion, kind: LungfishAppIdentity.recordedToolKind),
             argv: argv,
             options: .init(
                 explicit: explicit,
