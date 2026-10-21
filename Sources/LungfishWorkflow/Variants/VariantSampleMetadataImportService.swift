@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishCore
 
 package struct VariantSampleMetadataImportTarget: Sendable, Equatable {
     package let databaseURL: URL
@@ -180,7 +181,7 @@ package struct VariantSampleMetadataImportService {
             }
         )
         let step = ProvenanceStep(
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
             durableReplayArgv: argv,
@@ -196,7 +197,7 @@ package struct VariantSampleMetadataImportService {
         var builder = ProvenanceRunBuilder(
             workflowName: "Variant sample metadata import",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish Genome Explorer",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
