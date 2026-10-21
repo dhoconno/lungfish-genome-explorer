@@ -1453,7 +1453,7 @@ final class WorkflowOperationDialogState {
         completedAt: Date
     ) throws {
         let argv = [
-            "Lungfish.app",
+            LungfishAppIdentity.recordedToolName,
             "workflow-operations",
             "import-barcode-definition",
             "--input",
@@ -1469,7 +1469,7 @@ final class WorkflowOperationDialogState {
         let envelope = try ProvenanceRunBuilder(
             workflowName: "Workflow Operations Barcode Definition Import",
             workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: WorkflowRun.currentAppVersion
         )
         .argv(argv)
