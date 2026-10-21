@@ -182,5 +182,5 @@
   "toolName" : "lungfish-cli",
   "toolVersion" : "Lungfish <APP_VERSION> (dev)",
   "wallTimeSeconds" : "<DURATION>",
-  "workflowName" : "lungfish genotype export-xlsx"
+  "workflowName" : "lungfish fastq genotype-cohort"
 }

@@ -203,5 +203,5 @@
   "toolName" : "lungfish-cli",
   "toolVersion" : "<APP_VERSION>",
   "wallTimeSeconds" : "<DURATION>",
-  "workflowName" : "lungfish genotype export-xlsx"
+  "workflowName" : "lungfish genotype export-pivot-xlsx"
 }
