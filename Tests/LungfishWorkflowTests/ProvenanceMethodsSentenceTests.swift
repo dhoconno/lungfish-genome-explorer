@@ -382,7 +382,7 @@ struct ProvenanceMethodsSentenceTests {
         #expect(text.hasPrefix("Reads were mapped to the reference with minimap2 v2.31 ("), Comment(rawValue: text))
         #expect(text.contains("Alignments were filtered, sorted and indexed with samtools v1.24 ("), Comment(rawValue: text))
         #expect(
-            text.hasSuffix("using samtools view, samtools sort, samtools index and samtools flagstat, with secondary alignments (flag 256) excluded."),
+            text.hasSuffix("using samtools view, samtools sort, samtools index, samtools flagstat and samtools coverage, with secondary alignments (flag 256) excluded."),
             Comment(rawValue: text)
         )
         #expect(text.components(separatedBy: "with samtools ").count == 2, Comment(rawValue: text))

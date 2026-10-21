@@ -116,8 +116,8 @@
       "format" : "json",
       "path" : "<project>/Analyses/mapping/mapping-provenance.json",
       "role" : "input",
-      "sha256" : "a5efbcd860afc4bde3a57379315ae7f6f44308ac8761b191d2c1d5009acff58b",
-      "size" : 13744
+      "sha256" : "8870ab7ddb6e4f566b0b7ad68f44cf000f80278b2db6e0329bd917f24b28fcd2",
+      "size" : 16074
     },
     {
       "format" : "bam",
@@ -298,8 +298,8 @@
           "format" : "json",
           "path" : "<project>/Analyses/mapping/mapping-provenance.json",
           "role" : "input",
-          "sha256" : "a5efbcd860afc4bde3a57379315ae7f6f44308ac8761b191d2c1d5009acff58b",
-          "size" : 13744
+          "sha256" : "8870ab7ddb6e4f566b0b7ad68f44cf000f80278b2db6e0329bd917f24b28fcd2",
+          "size" : 16074
         }
       ],
       "outputs" : [
