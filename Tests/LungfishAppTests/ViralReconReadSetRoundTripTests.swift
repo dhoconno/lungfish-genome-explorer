@@ -143,7 +143,10 @@ final class ViralReconReadSetRoundTripTests: XCTestCase {
             }
             let appRows = try XCTUnwrap(runner.launches.last, bundle.lastPathComponent)
 
-            // The recorded command, parsed back from the Operations panel string.
+            // The recorded command, parsed back from the Operations panel string. A run refuses a results folder
+            // that already holds files (Phase 2.13 lane 13.21, MD54), so the replay gets its own empty one, as a
+            // person who runs the command again names a new folder.
+            try emptyResultsFolder(of: request)
             let recorded = ViralReconWorkflowExecutionService.cliCommandPreview(for: request, bundleURL: runBundle)
             try await RunSubcommand.$nfCoreWorkflowProcessRunner.withValue(runner) { try await RecordedCLICommand.runInProcess(recorded) }
             let replayRows = try XCTUnwrap(runner.launches.last, bundle.lastPathComponent)
@@ -151,6 +154,18 @@ final class ViralReconReadSetRoundTripTests: XCTestCase {
             XCTAssertEqual(runner.launches.count, 2, bundle.lastPathComponent)
             XCTAssertEqual(appRows, rows, bundle.lastPathComponent)
             XCTAssertEqual(replayRows, appRows, "\(bundle.lastPathComponent): the replay stages the app's rows")
+
+            // The next bundle's request is built over the same folder, and a request refuses a folder that holds files.
+            try emptyResultsFolder(of: request)
+        }
+    }
+
+    /// Empties the request's results folder by removing it. A missing folder is a new one for the request and for
+    /// `lungfish-cli workflow run` alike.
+    private func emptyResultsFolder(of request: ViralReconRunRequest) throws {
+        let folder = request.outputDirectory
+        if FileManager.default.fileExists(atPath: folder.path) {
+            try FileManager.default.removeItem(at: folder)
         }
     }
 }
