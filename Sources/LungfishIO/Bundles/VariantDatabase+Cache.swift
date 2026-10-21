@@ -446,10 +446,12 @@ extension VariantDatabase {
         ]
 
         // Tables built before the stamp hold the strict `value = 'HIGH'` rows, so a database without the stamp keeps both
-        // unready and its filters read `variant_info`.
+        // unready and its filters read `variant_info`. A _tok_bio_hi of a database whose INFO is skipped is built from
+        // the raw INFO text, which never used the strict match, so it needs no stamp.
         let highImpactStamped = highImpactTablesAreStamped
         for (name, tableName) in knownTables {
-            if Self.highImpactTableNames.contains(tableName), !highImpactStamped { continue }
+            if Self.highImpactTableNames.contains(tableName), !highImpactStamped,
+               !(tableName == "_tok_bio_hi" && variantInfoSkipped) { continue }
             // Check if the table exists.
             var checkStmt: OpaquePointer?
             let checkSQL = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"

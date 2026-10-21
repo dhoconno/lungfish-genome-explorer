@@ -283,6 +283,22 @@ final class VariantStructuredINFOTests: XCTestCase {
         XCTAssertEqual(rebuilt, expected, "read-write table against the member SQL")
     }
 
+    func testASkippedInfoDatabaseKeepsItsRawBiologicalTableWithoutTheStamp() throws {
+        let dbURL = try StructuredINFOFixture.importDatabase(
+            StructuredINFOFixture.mixedImpactVCF, profile: .fast, in: directory, name: "skipped")
+        // A database whose INFO is skipped builds `_tok_bio_hi` from the raw INFO text, which never used the strict
+        // match, so the table needs no stamp. `_high_impact` has no raw form and stays unready without the stamp.
+        try StructuredINFOFixture.execute(
+            dbURL, "INSERT OR REPLACE INTO db_metadata VALUES ('skip_variant_info', 'true')")
+        try StructuredINFOFixture.execute(dbURL, "DELETE FROM db_metadata WHERE key = 'high_impact_match'")
+        XCTAssertEqual(
+            try StructuredINFOFixture.rows(dbURL, "SELECT name FROM sqlite_master WHERE name = '_tok_bio_hi'"),
+            [["_tok_bio_hi"]], "the import built the table")
+        let database = try VariantDatabase(url: dbURL)
+        XCTAssertEqual(database.tokenCacheState["highImpactBiological"]?.ready, true, "raw token")
+        XCTAssertFalse(database.highImpactCacheReady, "high impact table")
+    }
+
     func testHeaderPartNamesRoundTripThroughMetadata() throws {
         var names = StructuredINFOFieldNames()
         let lof = "Predicted loss of function effects for this variant. Format: 'Gene_Name | Gene_ID | "
