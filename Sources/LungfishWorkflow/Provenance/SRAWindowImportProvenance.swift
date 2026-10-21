@@ -13,14 +13,14 @@ import LungfishIO
 package let sraFASTQBundleWorkflowName = "sra-fastq-download-bundle"
 
 /// Writes the provenance of one SRA run that `fetch sra download --bundle` downloaded and imported.
-/// The window's staging calls it too, in tests only, since its in-process route is gone (K3).
-/// Internal, not private, so tests can read what it records.
+/// The CLI leaf (`SRADownloadBundleRun.writeRecord`) is the only caller in the product, since the
+/// window's in-process route is gone (K3). Package access, not private, so tests can read what it
+/// records.
 ///
 /// `cliBinaryPath` names the CLI in the import step, and `cliCommandLine`
 /// is the display line of the command, recorded under `cliCommand`. Both
-/// are given, so this function reads nothing from the app. The window's
-/// wrapper passes the located CLI and the line `CLIImportRunner` shows
-/// (`writeGUISRAFASTQImportProvenance` without `cliCommandLine`).
+/// are given, so this function reads nothing from the app. The leaf passes no
+/// located CLI and the line of its own argv, and a test passes a fixed path and a line.
 ///
 /// `fallbackMessage` is the line the row logged when the run fell back to
 /// the other archive, recorded under `fallbackMessage` beside the
