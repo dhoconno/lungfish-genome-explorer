@@ -58,7 +58,7 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
         XCTAssertThrowsError(try PrimerDesignCommand.refuseExistingOutput(bundle.path) { lines.append($0) }) { error in
             XCTAssertEqual((error as? ExitCode)?.rawValue, 3)
         }
-        XCTAssertEqual(lines, ["Output already exists: \(bundle.path). Give --output a new path."])
+        XCTAssertEqual(lines, [Self.refusalWords(bundle.path)])
         let fresh = root.appendingPathComponent("Analyses/new.lungfishprimeranalysis").path
         XCTAssertNoThrow(try PrimerDesignCommand.refuseExistingOutput(fresh) { lines.append($0) })
         XCTAssertEqual(lines.count, 1, "a new path is not refused")
@@ -66,20 +66,47 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Runs the leaf on `arguments` with `--output` naming the existing bundle. The leaf exits 3, and no file or folder
-    /// under the project changes.
+    /// The words a leaf writes to standard error when `--output` names a destination that exists. Lane 13.43 pins them
+    /// at the base, as 12.17 shipped them, so the commit that returns the `--project` clause changes this one place.
+    static func refusalWords(_ path: String) -> String {
+        "Output already exists: \(path). Give --output a new path."
+    }
+
+    /// Runs the leaf on `arguments` with `--output` naming the existing bundle. The leaf exits 3, says the refusal
+    /// words once on standard error, and no file or folder under the project changes.
     private func assertRefuses<Command: AsyncParsableCommand>(
         _ type: Command.Type, _ arguments: [String], file: StaticString = #filePath, line: UInt = #line
     ) async throws {
         let before = try snapshot()
         var command = try type.parse(arguments + ["--output", bundle.path])
-        do {
-            try await command.run()
-            XCTFail("the leaf ran into an existing destination", file: file, line: line)
-        } catch {
+        let run = try await capturingStandardError { try await command.run() }
+        if let error = run.error {
             XCTAssertEqual(type.exitCode(for: error).rawValue, 3, type.message(for: error), file: file, line: line)
+        } else {
+            XCTFail("the leaf ran into an existing destination", file: file, line: line)
         }
+        let said = run.standardError.components(separatedBy: Self.refusalWords(bundle.path)).count - 1
+        XCTAssertEqual(said, 1, "the refusal words, once, on standard error: \(run.standardError)", file: file, line: line)
         XCTAssertEqual(try snapshot(), before, "the old bundle's bytes and the project's folders", file: file, line: line)
+    }
+
+    /// Runs `body` with standard error (descriptor 2) pointed at a file outside the project, and returns the error it
+    /// threw and the text written there.
+    private func capturingStandardError(
+        _ body: () async throws -> Void
+    ) async throws -> (error: (any Error)?, standardError: String) {
+        let capture = FileManager.default.temporaryDirectory.appendingPathComponent("primer-stderr-\(UUID().uuidString).txt")
+        XCTAssertTrue(FileManager.default.createFile(atPath: capture.path, contents: nil))
+        defer { try? FileManager.default.removeItem(at: capture) }
+        let handle = try FileHandle(forWritingTo: capture)
+        let saved = dup(STDERR_FILENO)
+        dup2(handle.fileDescriptor, STDERR_FILENO)
+        var thrown: (any Error)?
+        do { try await body() } catch { thrown = error }
+        dup2(saved, STDERR_FILENO)
+        close(saved)
+        try handle.close()
+        return (thrown, try String(contentsOf: capture, encoding: .utf8))
     }
 
     /// Every folder and file under the project, a folder as an empty value and a file with its bytes.

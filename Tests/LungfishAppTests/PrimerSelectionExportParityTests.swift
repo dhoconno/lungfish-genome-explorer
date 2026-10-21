@@ -15,6 +15,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishKitTestSupport
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -103,6 +104,55 @@ final class PrimerSelectionExportParityTests: XCTestCase {
                 Array(envelope.argv.prefix(4)),
                 [CLICommandIdentity.executableName, "primers", "analysis", "export-selection"], item.label)
         }
+    }
+
+    /// Pin at the base of lane 13.43 (QA 1), before PRIMER-EXPORT-RUN changes the route. The record of the
+    /// in-process writer names its tool and the keys of its resolved options, and the begin helper registers the row
+    /// with the recorded command, its type, its lock and its first detail. The continuation compares its converted
+    /// route with these facts, and a difference there is a prediction row.
+    func testTheRecordNamesItsToolAndResolvedKeysAndTheRowItsCommandToday() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        var facts: [String: String] = [:]
+        for item in try cases(snapshot) {
+            let folder = try await exportAsTheAppDoes(fixture, item)
+            let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: folder), item.label)
+            facts[item.label] = "\(envelope.tool.name)|\(envelope.tool.kind ?? "none")|"
+                + envelope.options.resolvedDefaults.keys.sorted().joined(separator: ",")
+            let reporter = RecordingOperationReporter()
+            let row = MainSplitViewController.primerSelectionExportCLICommand(
+                analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder)
+            MainSplitViewController.beginPrimerAnalysisSelectionExportOperation(
+                title: "Save Primer FASTA Bundle", destinationURL: folder, cliCommand: row,
+                routeContext: OperationRouteContext(projectURL: fixture.root, windowStateScopeID: UUID()),
+                reporter: reporter) { _ in }
+            let recorded = try XCTUnwrap(reporter.items.first, item.label)
+            XCTAssertEqual(recorded.title, "Save Primer FASTA Bundle", item.label)
+            XCTAssertEqual(recorded.initialDetail, "Verifying saved primer analysis…", item.label)
+            XCTAssertEqual(recorded.operationType, .workflow, item.label)
+            XCTAssertEqual(recorded.targetBundleURL, folder, item.label)
+            XCTAssertEqual(
+                try RecordedCLICommand.arguments(of: recorded.cliCommand),
+                ["primers", "analysis", "export-selection"] + MainSplitViewController.primerSelectionExportCLIArguments(
+                    analysisURL: fixture.bundle, selection: item.selection, kind: item.kind, destinationURL: folder),
+                item.label)
+        }
+        let tool = "lungfish.primer-analysis.selection-export|cli|"
+        let shared = "analysisID,compressFASTA,coordinateConvention,includePrimerSites,kind"
+        let amplicon = "ampliconID,ampliconName,analysisID,candidateRank,compressFASTA,coordinateConvention,includePrimerSites,kind,nativePool,"
+        XCTAssertEqual(facts, [
+            "primer": tool + shared + ",outputBundle,primers,publication,recordPrimerIDs,runID,sequenceSemantics,"
+                + "sourceResultIDs,targetIDs",
+            "pool": tool + shared + ",outputBundle,pool,primers,publication,recordPrimerIDs,runID,sequenceSemantics,"
+                + "sourceResultIDs,targetIDs",
+            "native pool": tool + shared + ",nativePool,outputBundle,primers,publication,recordPrimerIDs,runID,"
+                + "sequenceSemantics,sourceResultIDs,targetIDs",
+            "amplicon": tool + amplicon + "orientation,outputBundle,primerMembership,primers,publication,referenceID,"
+                + "runID,sequenceSemantics,sourceEnd,sourceResultIDs,sourceStart,targetIDs",
+            "amplicon oligos": tool + amplicon + "outputBundle,primers,publication,recordPrimerIDs,runID,"
+                + "sequenceSemantics,sourceEnd,sourceResultIDs,sourceStart,targetIDs",
+        ], "the tool and the resolved keys of today's selection export")
     }
 
     /// The command the row records, parsed with the real leaf and run on a second folder, writes what the app

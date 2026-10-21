@@ -15,6 +15,8 @@ import XCTest
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -67,6 +69,94 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         XCTAssertEqual(cli.document.metadata, gui.document.metadata)
         XCTAssertEqual(cli.document.selection.selectedAssayIDs, gui.document.selection.selectedAssayIDs)
         XCTAssertEqual(cli.provenance.workflowName, gui.provenance.workflowName)
+    }
+
+    /// Pins at the base of lane 13.43 (QA 1), before PRIMER-EXPORT-RUN changes the route. The order export as it is
+    /// today: the row the begin helper registers with its recorded command, the files the in-process writer and the
+    /// leaf write, and the record each leaves (its tool, its argv and the keys of its resolved options). The
+    /// continuation compares its converted route with these facts, and a difference there is a prediction row.
+    func testTheOrderExportAsItIsTodayRowFilesAndRecord() async throws {
+        let fixture = try makePrimer3Fixture(pairCount: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let pairID = try XCTUnwrap(
+            snapshot.designReview.filter { $0.presentation == .primer3Template }.map(\.id).last)
+        let selection = try PrimerOrderExportService.captureSelection(
+            snapshot: snapshot, scope: .primer3CandidatePairs(includedPairIDs: [pairID]))
+        let draft = PrimerOrderDraft(
+            selection: selection,
+            oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
+            defaultName: "fixture candidate pairs order")
+        let metadata = PrimerOrderMetadata(name: "Pair order", requestedBy: "Bench", notes: "Rush")
+        let appFolder = fixture.root.appendingPathComponent("App order")
+
+        // The row. The title and the detail are words of the private caller, so the helper's own parts are pinned.
+        let reporter = RecordingOperationReporter()
+        let route = OperationRouteContext(projectURL: fixture.root, windowStateScopeID: UUID())
+        MainSplitViewController.beginPrimerOrderExportOperation(
+            title: "Export Candidate Pairs", detail: "Verifying 2 candidate oligos…", draft: draft, metadata: metadata,
+            destinationURL: appFolder, routeContext: route, reporter: reporter) { _ in }
+        let row = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(row.title, "Export Candidate Pairs")
+        XCTAssertEqual(row.initialDetail, "Verifying 2 candidate oligos…")
+        XCTAssertEqual(row.operationType, .workflow)
+        XCTAssertEqual(row.targetBundleURL, appFolder)
+        XCTAssertEqual(row.additionalLockedBundleURLs, [])
+        let words = try RecordedCLICommand.arguments(of: row.cliCommand)
+        XCTAssertEqual(words, [
+            "primers", "analysis", "export-order", fixture.bundle.path, "--output", appFolder.path, "--scope",
+            "candidate-pairs", "--candidate-pair-id", pairID, "--name", "Pair order", "--requested-by", "Bench",
+            "--notes", "Rush",
+        ])
+        let appArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
+            draft: draft, metadata: metadata, destinationURL: appFolder)
+        XCTAssertEqual(appArgv, [CLICommandIdentity.executableName] + words)
+
+        // The files and the record of the in-process writer and of the leaf the recorded command names.
+        _ = try await PrimerOrderExportService().export(
+            selection: draft.selection, metadata: metadata, destinationURL: appFolder, invocationArgv: appArgv)
+        let leafFolder = fixture.root.appendingPathComponent("Leaf order")
+        let leafRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: leafFolder)
+        try await RecordedCLICommand.parse(leafRow, as: PrimerAnalysisExportOrderCommand.self).run()
+        let facts = try ["app": appFolder, "leaf": leafFolder].mapValues { folder -> [String: String] in
+            let loaded = try PrimerOrderExportService.loadSnapshot(from: folder)
+            let entries = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+            let csv = try String(contentsOf: folder.appendingPathComponent("ordering.csv"), encoding: .utf8)
+            return [
+                "entries": entries.joined(separator: ","),
+                "csvHeader": csv.components(separatedBy: "\n").first ?? "",
+                "csvRows": String(csv.split(whereSeparator: \.isNewline).count),
+                "workflowName": loaded.provenance.workflowName,
+                "tool": "\(loaded.provenance.tool.name)|\(loaded.provenance.tool.kind ?? "none")",
+                "resolvedKeys": loaded.provenance.options.resolvedDefaults.keys.sorted().joined(separator: ","),
+            ]
+        }
+        XCTAssertEqual(facts["app"], facts["leaf"], "the leaf writes what the in-process writer writes")
+        let columns = [
+            "Pool name", "Oligo name", "Sequence (5′–3′)", "Length (nt)", "Scheme", "Pool number", "Primer ID", "Target ID",
+            "Source result ID", "Reference ID", "Amplicon IDs (JSON)", "Start (1-based inclusive)",
+            "End (1-based inclusive)", "Strand", "Compatible rows", "Assessable rows", "Unassessed rows",
+            "Total alignment rows", "Observed MSA compatibility (%)", "Order name", "Requested by", "Project",
+            "Order reference", "Order notes", "Source oligo ID", "Oligo role", "Candidate status", "Assay IDs (JSON)",
+            "Native pool", "Synthesis scale", "Purification", "Modifications",
+        ]
+        XCTAssertEqual(facts["app"], [
+            "workflowName": "Export Primer3 candidate pairs",
+            "tool": "LGE primer ordering|cli",
+            "csvHeader": columns.map { "\"\($0)\"" }.joined(separator: ",") + "\r",
+            "csvRows": "3",
+            "entries": ".lungfish-provenance.json,analysis-metadata.json,order.json,ordering.csv,primer-order.xlsx,"
+                + "source-analysis,template-parts,template.xlsx,workbook-parts",
+            "resolvedKeys": "candidatePairsAreAlternatives,compatibilityReady,deduplicate,displaySettingsJSON,"
+                + "idtOPoolsWorkbook,orderMetadataJSON,publication,scope,selectedCandidatePairIDs,selectedCount,"
+                + "selectedPrimerIDs,selectionDocument,sequenceOrientation,sourceAnalysisID,sourceManifestSHA256,"
+                + "sourceNormalizedResult,sourceRunID,templateSHA256",
+        ], "the facts of today's order export")
+        let appRecord = try PrimerOrderExportService.loadSnapshot(from: appFolder).provenance
+        XCTAssertEqual(appRecord.argv, appArgv)
+        let leafRecord = try PrimerOrderExportService.loadSnapshot(from: leafFolder).provenance
+        XCTAssertEqual(leafRecord.argv, CommandLine.arguments, "the leaf in the test process records its own arguments")
     }
 
     /// A saved Primer3 analysis with `pairCount` candidate pairs, the fixture
