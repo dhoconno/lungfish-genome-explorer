@@ -264,18 +264,14 @@ extension PrimerExportCLIGUIParityReplayTests {
             sideA: { root in try await self.sideA(item, root) },
             sideC: { root in try await self.sideC(item, root, reloads: reloads) }
         )
-        if let dump = RouteParityHarness.dumpFolder {
-            _ = try harness.evaluate(item, declared: [], runs: runs, dumpingTo: dump)
-        }
         for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
         }
-        let found = try harness.differences(of: runs)
-        for side in RouteParitySide.allCases {
-            XCTAssertEqual(found[.side(side)]?.map(\.description) ?? [], [], "side \(side) names no other side's root")
-        }
-        XCTAssertEqual(unexplained(found[.cAgainstCPrime] ?? []), [], "C against C' declares nothing")
-        XCTAssertEqual(unexplained(try harness.differences(runs.a, runs.c)), [], "A against C declares nothing")
+        // The contract's own check (13.43-M3 review Fix 1). It fails a side that names another side's root, any C
+        // against C' difference, any A against C difference and any whole-file difference, and it dumps the case under
+        // LUNGFISH_PARITY_DUMP. The class declares nothing, so every difference must be a contract mask.
+        let result = try harness.evaluate(item, declared: [], runs: runs)
+        RouteParityHarness.assertNoFailures(result.failures, in: item.rawValue)
         XCTAssertEqual(reloads.count, 1, "the sidebar reloads once, after the leaf wrote the folder")
 
         let rowArguments = try RouteParityHarness.arguments(ofLine: try XCTUnwrap(runs.c.outcome.recordedCommand))
@@ -286,20 +282,6 @@ extension PrimerExportCLIGUIParityReplayTests {
             try recordedArgv(item, in: runs.a.root), argvA,
             "the in-app writer recorded the canonical argv of the invocation, built before the folder existed")
         return runs
-    }
-
-    /// The differences of two runs that the standard masks do not cover and that name no route (report finding for the
-    /// contract's masks). `selection.capturedAt` is the clock of the run, the order workbook and its parts embed it to the
-    /// second, the record lists the digests of those two files, and each side's `manifest.json` names its own analysis
-    /// path (`source.source_url`), which the masks turn into `<workspace>` but not into the side folder. A difference in
-    /// any payload file stays listed.
-    private func unexplained(_ found: [RouteParityDifference]) -> [String] {
-        found.map(\.description).filter { description in
-            let clock = ["selection.capturedAt", "primer-order.xlsx", "workbook-parts/", "source.source_url"]
-            return !clock.contains { description.contains($0) }
-                && !(description.contains(".lungfish-provenance.json")
-                    && (description.contains("checksumSHA256") || description.contains("fileSize")))
-        }
     }
 
     private func assertNothingLeft(_ output: URL, in root: URL, _ message: String) throws {

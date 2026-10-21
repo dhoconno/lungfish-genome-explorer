@@ -64,14 +64,14 @@ extension OutputEquivalence {
                 Masks.epochValues,
                 Masks.manifestWallTime,
                 Masks.demuxManifestWallClock,
-                Masks.alignmentStatsDuration,
+                Masks.alignmentStatsDuration, Masks.primerOrderRecordDigests, Masks.primerExportSourceURL,
             ]
             return MaskPolicy(
                 provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
                 payloads: [
-                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks, Masks.resultSidecarClocks,
+                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks, Masks.resultSidecarClocks, Masks.primerOrderCaptureClocks,
                 ],
                 managed: [Masks.managedStateClocks],
                 managedNames: [Masks.managedRecordStamp]

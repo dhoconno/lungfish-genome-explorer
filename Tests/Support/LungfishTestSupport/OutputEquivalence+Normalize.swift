@@ -55,6 +55,11 @@ extension OutputEquivalence {
         if masks.comparesPDFByPresence, name.hasSuffix(".pdf"), data.starts(with: pdfSignature) {
             return "pdf present"
         }
+        // M-3 of the 13.43-M3 review. The order workbook is a zip whose entries keep their stored modification times, so its
+        // bytes follow the clock. It is compared through its parts, which sit beside it under `workbook-parts/`.
+        if name == "primer-order.xlsx", data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            return "xlsx present"
+        }
         var bytes = data
         if isGzip(data) {
             bytes = try run("/usr/bin/gzip", ["-dc", url.path]).stdout

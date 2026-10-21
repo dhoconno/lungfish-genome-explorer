@@ -26,6 +26,85 @@ private final class DescriptorCallCounter: Sendable {
 }
 
 final class RouteParityHarnessTests: XCTestCase {
+    /// 13.43-M3 review Fix 1, ruling 1 (M-1, M-2, M-4 and M-5 of the Masks rows of docs/contracts/CLI-EQUIVALENCE.md).
+    /// Each mask hides the clock, the record digest or the own root and nothing else. Two texts that differ only there
+    /// compare equal under the standard masks, and the same texts with one other value changed compare unequal.
+    func testTheCaptureTimeMasksHideOnlyTheTimestamp() throws {
+        let context = OutputEquivalence.MaskContext(
+            rootA: URL(fileURLWithPath: "/tmp/side-a"), rootB: URL(fileURLWithPath: "/tmp/side-b"))
+        let policy = OutputEquivalence.MaskPolicy.standard
+        func payload(_ text: String) -> String {
+            policy.payloads.reduce(text) { partial, mask in mask(partial, context: context) }
+        }
+        func record(_ text: String) -> String {
+            policy.records.reduce(text) { partial, mask in mask(partial, context: context) }
+        }
+        func order(_ capturedAt: Double, sequence: String = "ACGT", pool: Int = 1) -> String {
+            #"{"metadata":{"name":"Pair order"},"oligos":[{"pool":\#(pool),"sequence":"\#(sequence)"}],"selection":{"capturedAt":\#(capturedAt),"selectedPrimerIDs":["p1"]}}"#
+        }
+        func sheet(_ stamp: String, sequence: String = "ACGT") -> String {
+            "<worksheet><sheetData><row><c><is><t>Captured at</t></is></c><c><is><t>\(stamp)</t></is></c></row>"
+                + "<row><c><is><t>\(sequence)</t></is></c></row></sheetData></worksheet>"
+        }
+        func provenance(_ file: String, digest: String, size: Int) -> String {
+            #"{"outputs":[{"path":"\#(file)","checksumSHA256":"\#(digest)","fileSize":\#(size)}]}"#
+        }
+        func manifest(_ folder: String, name: String = "source") -> String {
+            #"{"name":"pool","source":{"source_url":"file:///tmp/case/\#(folder)/\#(name).lungfishprimeranalysis/"}}"#
+        }
+
+        XCTAssertEqual(payload(order(814269159.3)), payload(order(814269160.8)), "M-1 hides the capture time")
+        XCTAssertNotEqual(
+            payload(order(814269159.3)), payload(order(814269159.3, sequence: "ACGA")), "M-1 keeps a primer sequence")
+        XCTAssertNotEqual(payload(order(814269159.3)), payload(order(814269159.3, pool: 2)), "M-1 keeps a pool number")
+
+        XCTAssertEqual(
+            payload(sheet("2026-10-21T04:44:22Z")), payload(sheet("2026-10-21T04:44:25Z")), "M-2 hides the capture time")
+        XCTAssertNotEqual(
+            payload(sheet("2026-10-21T04:44:22Z")), payload(sheet("2026-10-21T04:44:22Z", sequence: "ACGA")),
+            "M-2 keeps every other cell")
+
+        for file in ["order/order.json", "order/primer-order.xlsx", "order/workbook-parts/xl/worksheets/sheet1.xml"] {
+            XCTAssertEqual(
+                record(provenance(file, digest: "aa", size: 10)), record(provenance(file, digest: "bb", size: 11)),
+                "M-4 hides the digest and size of \(file)")
+        }
+        XCTAssertNotEqual(
+            record(provenance("order/ordering.csv", digest: "aa", size: 10)),
+            record(provenance("order/ordering.csv", digest: "bb", size: 10)), "M-4 keeps the digest of any other file")
+
+        XCTAssertEqual(record(manifest("A-route")), record(manifest("C-route")), "M-5 hides a side's own root")
+        XCTAssertNotEqual(
+            record(manifest("A-route")), record(manifest("A-route", name: "other")), "M-5 keeps the source folder's name")
+    }
+
+    /// M-3. The order workbook is compared through its parts and not by its own bytes, and a changed part still differs.
+    func testTheOrderWorkbookIsComparedThroughItsParts() throws {
+        let fileManager = FileManager.default
+        let base = fileManager.temporaryDirectory.appendingPathComponent("order-workbook-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: base) }
+        func tree(_ name: String, archive: [UInt8], sheet: String) throws -> URL {
+            let root = base.appendingPathComponent(name)
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent("workbook-parts"), withIntermediateDirectories: true)
+            try Data([0x50, 0x4B, 0x03, 0x04] + archive).write(to: root.appendingPathComponent("primer-order.xlsx"))
+            try Data(sheet.utf8).write(to: root.appendingPathComponent("workbook-parts/sheet1.xml"))
+            return root
+        }
+        let stamped = "<worksheet><t>Captured at</t><t>2026-10-21T04:44:22Z</t><t>ACGT</t></worksheet>"
+        let later = "<worksheet><t>Captured at</t><t>2026-10-21T04:44:25Z</t><t>ACGT</t></worksheet>"
+        let changed = "<worksheet><t>Captured at</t><t>2026-10-21T04:44:22Z</t><t>ACGA</t></worksheet>"
+        let first = try tree("a", archive: [1, 2], sheet: stamped)
+        let second = try tree("b", archive: [3, 4, 5], sheet: later)
+        let third = try tree("c", archive: [1, 2], sheet: changed)
+        XCTAssertEqual(
+            try OutputEquivalence.compare(first, second, kind: .files, masks: .standard).differences, [],
+            "archives with other bytes and a later capture time are the same workbook")
+        XCTAssertFalse(
+            try OutputEquivalence.compare(first, third, kind: .files, masks: .standard).differences.isEmpty,
+            "a changed cell of a part is a difference")
+    }
+
     private var scratch: URL!
     private let harness = RouteParityHarness(cliBinary: URL(fileURLWithPath: "/usr/bin/false"), kind: .bundle)
 
