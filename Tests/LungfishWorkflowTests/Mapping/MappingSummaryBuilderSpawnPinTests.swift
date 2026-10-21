@@ -4,6 +4,7 @@
 
 import XCTest
 import os
+import CryptoKit
 import LungfishCore
 @testable import LungfishWorkflow
 
@@ -152,6 +153,73 @@ final class MappingSummaryBuilderSpawnPinTests: XCTestCase {
             "<ROOT>|coverage --ff UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP <ROOT>/input.bam",
             "<ROOT>|view <ROOT>/input.bam",
         ])
+    }
+
+    /// BIO 4 of the 13.16 M2 review. The mapping golden masks every digest, so it cannot show which file
+    /// the pass hashed. This test hashes the two files itself with CryptoKit and FileManager, and holds
+    /// both recorded steps to those values and each step's argv to the line its spawn logged.
+    func testTheRecordedStepsHoldTheArgvAndTheDigestsOfTheSpawnsThatRan() async throws {
+        let f = try makeFixture(body: Self.unfilteredBody)
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        // Two files of different bytes and sizes, so a swapped or a wrong file cannot give the expected pair.
+        try Data("a stand-in for the sorted BAM, which no spawn here reads".utf8).write(to: f.bam)
+        let index = URL(fileURLWithPath: f.bam.path + ".bai")
+        try Data("a stand-in index".utf8).write(to: index)
+        let expected = try [f.bam, index].map { url -> (sha256: String, size: UInt64) in
+            let digest = CryptoKit.SHA256.hash(data: try Data(contentsOf: url))
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let size = try XCTUnwrap((attributes[.size] as? NSNumber)?.uint64Value, url.lastPathComponent)
+            return (digest.map { String(format: "%02x", $0) }.joined(), size)
+        }
+        XCTAssertNotEqual(expected[0].sha256, expected[1].sha256)
+        XCTAssertNotEqual(expected[0].size, expected[1].size)
+        let version = "1.24 (stand-in)"
+
+        let result = try await MappingSummaryBuilder.buildRecordingSteps(
+            sortedBAMURL: f.bam, indexURL: index, totalReads: 10, toolVersion: version, runner: f.runner, timeout: 300
+        )
+        let table = result.table
+        XCTAssertEqual(table.referenceCount, 3)
+        XCTAssertEqual(table.rows.count, 3)
+        guard table.rows.count == 3 else { return XCTFail("three rows expected, got \(table.rows.count)") }
+        assertRow(table.rows[0], "chr1", length: 100, reads: 3, percent: 30, depth: 0.6, breadth: 0.6, mapq: 40, identity: 0.9)
+        assertRow(table.rows[1], "chr2", length: 200, reads: 0, percent: 0, depth: 0, breadth: 0, mapq: 0, identity: 0)
+        assertRow(table.rows[2], "chr3", length: 300, reads: 0, percent: 0, depth: 0, breadth: 0, mapq: 0, identity: 1)
+
+        let steps = result.steps
+        guard steps.count == 2 else { return XCTFail("two steps expected, got \(steps.count)") }
+        XCTAssertEqual(
+            Array(steps[0].command.dropFirst()), ["coverage", "--ff", "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP", f.bam.path]
+        )
+        XCTAssertEqual(Array(steps[1].command.dropFirst()), ["view", f.bam.path])
+        let samtools = try await f.runner.findTool(.samtools).path
+        for step in steps {
+            let label = step.command.joined(separator: " ")
+            XCTAssertEqual(step.command.first, samtools, label)
+            // The BAM first with its role and format, then the index.
+            XCTAssertEqual(step.inputs.map { ($0.path as NSString).lastPathComponent }, ["input.bam", "input.bam.bai"], label)
+            XCTAssertEqual(step.inputs.map(\.role), [.input, .index], label)
+            XCTAssertEqual(step.inputs.first?.format, .bam, label)
+            XCTAssertEqual(step.inputs.map(\.sha256), expected.map { Optional($0.sha256) }, label)
+            XCTAssertEqual(step.inputs.map(\.sizeBytes), expected.map { Optional($0.size) }, label)
+            XCTAssertTrue(step.outputs.isEmpty, label)
+            XCTAssertEqual(step.exitCode, 0, label)
+            XCTAssertEqual(step.stdoutReadInProcess, true, label)
+            XCTAssertEqual(step.toolVersion, version, label)
+            let end = try XCTUnwrap(step.endTime, label)
+            XCTAssertLessThanOrEqual(step.startTime, end, label)
+        }
+        let coverageEnd = try XCTUnwrap(steps[0].endTime)
+        XCTAssertLessThanOrEqual(coverageEnd, steps[1].startTime)
+
+        // The step and the spawn come from one argv, so each step's argv is the line its spawn logged.
+        let logged = try loggedCalls(f)
+        XCTAssertEqual(logged, [
+            "<ROOT>|coverage --ff UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP <ROOT>/input.bam",
+            "<ROOT>|view <ROOT>/input.bam",
+        ])
+        let fromSteps = steps.map { "<ROOT>|" + tokenized($0.command.dropFirst().joined(separator: " "), root: f.root) }
+        XCTAssertEqual(fromSteps.sorted(), logged)
     }
 
     func testTheUnfilteredPathLeavesOutOnlyAReferenceNoRecordNames() async throws {
