@@ -76,6 +76,71 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         XCTAssertEqual(cli.provenance.workflowName, gui.provenance.workflowName)
     }
 
+    /// Fix 4 of the 13.43-M3 review (UX 4, ARCH 2, BIO 3). Before M3 the app wrote the order in its own process, so an
+    /// order name or note that starts with a hyphen, such as `-80 C freezer`, worked. The row now runs these words, and
+    /// ArgumentParser refuses a next token that reads as an option, so every free-text field joins its option with `=`.
+    /// The order's invocation, the app's row for the same draft and the leaf that runs that row read the five fields
+    /// back as typed, and the leaf records them.
+    func testAnOrderFieldThatStartsWithAHyphenReadsBackFromTheRecordedCommand() async throws {
+        let fixture = try makePrimer3Fixture(pairCount: 2)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let snapshot = try PrimerAnalysisViewerSnapshot.load(from: fixture.bundle)
+        let pairID = try XCTUnwrap(
+            snapshot.designReview.filter { $0.presentation == .primer3Template }.map(\.id).last)
+        let selection = try PrimerOrderExportService.captureSelection(
+            snapshot: snapshot, scope: .primer3CandidatePairs(includedPairIDs: [pairID]))
+        let draft = PrimerOrderDraft(
+            selection: selection,
+            oligos: try PrimerOrderExportService.prepare(snapshot: snapshot, selection: selection),
+            defaultName: "fixture candidate pairs order")
+        let metadata = PrimerOrderMetadata(
+            name: "-Pair order", requestedBy: "-Bench", project: "-Study", orderReference: "-PO 7",
+            notes: "-80 C freezer")
+
+        // The invocation, and the row the begin helper records for it, one field at a time so a failure names the
+        // field. The parser reads a hyphen-led token as options when it holds a short option letter (`-t` is the
+        // global `--threads`), so `-Study` and `-80 C freezer, tube 2` need the `=` and `-Bench` happens to pass.
+        let fields: [(option: String, metadata: PrimerOrderMetadata, read: (PrimerAnalysisExportOrderCommand) -> String?)] = [
+            ("--name", PrimerOrderMetadata(name: "-Pair order"), { $0.name }),
+            ("--requested-by", PrimerOrderMetadata(requestedBy: "-Bench"), { $0.requestedBy }),
+            ("--project", PrimerOrderMetadata(project: "-Study"), { $0.project }),
+            ("--order-reference", PrimerOrderMetadata(orderReference: "-PO 7"), { $0.orderReference }),
+            ("--notes", PrimerOrderMetadata(notes: "-80 C freezer"), { $0.notes }),
+            ("--notes", PrimerOrderMetadata(notes: "-80 C freezer, tube 2"), { $0.notes }),
+        ]
+        for field in fields {
+            let invocation = PrimerOrderExport.invocation(
+                analysisURL: fixture.bundle, selection: selection, metadata: field.metadata,
+                outputURL: fixture.root.appendingPathComponent("Invocation order"))
+            let invocationRow = OperationCenter.buildCLICommand(
+                subcommand: "primers analysis export-order", args: Array(invocation.arguments().dropFirst(3)))
+            let expected = [
+                field.metadata.name, field.metadata.requestedBy, field.metadata.project,
+                field.metadata.orderReference, field.metadata.notes,
+            ].first { $0.hasPrefix("-") }
+            do {
+                let parsed = try RecordedCLICommand.parse(invocationRow, as: PrimerAnalysisExportOrderCommand.self)
+                XCTAssertEqual(field.read(parsed), expected, "\(field.option) reads back as typed")
+            } catch {
+                XCTFail("\(field.option) \(expected ?? "") does not parse from the recorded command: \(error)")
+            }
+        }
+
+        // The app's row for the draft, then the leaf runs that row and records the same words.
+        let destination = fixture.root.appendingPathComponent("Hyphen order")
+        let appRow = MainSplitViewController.primerOrderExportCLICommand(
+            draft: draft, metadata: metadata, destinationURL: destination)
+        let command = try RecordedCLICommand.parse(appRow, as: PrimerAnalysisExportOrderCommand.self)
+        XCTAssertEqual(command.name, "-Pair order")
+        XCTAssertEqual(command.notes, "-80 C freezer")
+        try await command.run()
+        let written = try PrimerOrderExportService.loadSnapshot(from: destination)
+        XCTAssertEqual(written.document.metadata, metadata, "the leaf recorded the five fields as typed")
+        XCTAssertEqual(
+            written.provenance.argv, [CLICommandIdentity.executableName] + (try RecordedCLICommand.arguments(of: appRow)),
+            "the row, the record and the leaf print one argv")
+    }
+
     /// Pins at the base of lane 13.43 (QA 1), before PRIMER-EXPORT-RUN changes the route. The order export as it is
     /// today: the row the begin helper registers with its recorded command, the files the in-process writer and the
     /// leaf write, and the record each leaves (its tool, its argv and the keys of its resolved options). The
@@ -116,8 +181,8 @@ final class PrimerOrderExportProvenanceParityTests: XCTestCase {
         // and `--format json` ends it, with standardized absolute paths.
         XCTAssertEqual(words, [
             "primers", "analysis", "export-order", fixture.bundle.standardizedFileURL.path, "--scope",
-            "candidate-pairs", "--candidate-pair-id", pairID, "--name", "Pair order", "--requested-by", "Bench",
-            "--notes", "Rush", "--output", appFolder.standardizedFileURL.path, "--format", "json",
+            "candidate-pairs", "--candidate-pair-id", pairID, "--name=Pair order", "--requested-by=Bench",
+            "--notes=Rush", "--output", appFolder.standardizedFileURL.path, "--format", "json",
         ])
         let appArgv = MainSplitViewController.primerOrderExportProvenanceArgv(
             draft: draft, metadata: metadata, destinationURL: appFolder)

@@ -33,7 +33,7 @@ final class PrimerAnalysisExportRowTests: XCTestCase {
     private var orderInvocation: ViewerExportInvocation {
         ViewerExportInvocation(
             commandPath: PrimerOrderExport.commandPath, input: analysis,
-            leafArguments: ["--scope", "candidate-pairs", "--name", "Pair order", "--requested-by", "Bench"],
+            leafArguments: ["--scope", "candidate-pairs", "--name=Pair order", "--requested-by=Bench"],
             output: orderFolder)
     }
 

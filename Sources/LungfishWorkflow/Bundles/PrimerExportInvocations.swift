@@ -75,9 +75,14 @@ extension PrimerOrderExport {
     }
 
     /// `--name` and the order fields the user filled in. `--name` is always
-    /// passed because the CLI's default name differs from the app's.
+    /// passed because the CLI's default name differs from the app's. Each value
+    /// joins its option with `=`, so the parser reads free text that starts with
+    /// a hyphen, such as `-80 C freezer`, as the value and not as options
+    /// (13.43-M3 review Fix 4). The dialog accepts any text in these five
+    /// fields, and the order was written in process before M3, so such text
+    /// always worked in the app.
     private static func primerOrderMetadataArguments(_ metadata: PrimerOrderMetadata) -> [String] {
-        var args = ["--name", metadata.name]
+        var args = ["--name=\(metadata.name)"]
         let optionalFields = [
             ("--requested-by", metadata.requestedBy),
             ("--project", metadata.project),
@@ -85,7 +90,7 @@ extension PrimerOrderExport {
             ("--notes", metadata.notes),
         ]
         for (flag, value) in optionalFields where !value.isEmpty {
-            args += [flag, value]
+            args.append("\(flag)=\(value)")
         }
         return args
     }

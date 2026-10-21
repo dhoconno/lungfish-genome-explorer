@@ -62,8 +62,8 @@ final class PrimerAnalysisExportOrderCommandTests: XCTestCase {
     XCTAssertEqual(loaded.provenance.workflowName, "Export Primer3 candidate pairs")
     XCTAssertEqual(loaded.provenance.argv, [
       CLICommandIdentity.executableName, "primers", "analysis", "export-order", fixture.bundle.standardizedFileURL.path,
-      "--scope", "candidate-pairs", "--candidate-pair-id", second, "--name", "fixture candidate pairs order",
-      "--requested-by", "Bench", "--output", expectedOutput,
+      "--scope", "candidate-pairs", "--candidate-pair-id", second, "--name=fixture candidate pairs order",
+      "--requested-by=Bench", "--output", expectedOutput,
     ], "the record names the command with its effective options and absolute paths")
     let files = Set(try FileManager.default.contentsOfDirectory(atPath: output.path))
     XCTAssertTrue(files.isSuperset(of: ["order.json", "ordering.csv", "primer-order.xlsx", "template.xlsx"]))
