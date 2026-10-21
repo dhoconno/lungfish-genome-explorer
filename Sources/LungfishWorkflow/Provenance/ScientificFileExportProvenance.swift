@@ -350,11 +350,17 @@ public enum ScientificFileExportProvenance {
     ) -> ProvenanceEnvelope {
         let outputDescriptor = outputDescriptors[0]
         let toolVersion = WorkflowRun.currentAppVersion
+        let replayArgv = request.durableReplayArgv ?? request.argv
+        // A request whose argv names the app and whose replay argv is a command a Terminal can run keeps the replay words as its
+        // command, since the Command row and an exported script read them (V1-6, MD76). Every other request renders its command from argv.
+        let replayCommand = ProvenanceAppStep.isAppStep(request.argv) && !ProvenanceAppStep.isAppStep(replayArgv)
+            ? replayArgv.map(shellEscape).joined(separator: " ") : nil
         let step = ProvenanceStep(
             toolName: request.toolName,
             toolVersion: toolVersion,
             argv: request.argv,
-            durableReplayArgv: request.durableReplayArgv ?? request.argv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: replayCommand,
             resolvedOptions: request.resolved,
             inputs: inputDescriptors,
             outputs: outputDescriptors,
@@ -372,7 +378,8 @@ public enum ScientificFileExportProvenance {
             toolVersion: toolVersion,
             tool: ProvenanceToolIdentity(name: request.toolName, version: toolVersion, kind: request.toolKind),
             argv: request.argv,
-            durableReplayArgv: request.durableReplayArgv ?? request.argv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: replayCommand,
             options: ProvenanceOptions(
                 explicit: request.explicitOptions,
                 defaults: request.defaults,

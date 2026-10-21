@@ -36,6 +36,9 @@ public struct ExtractionFileProvenance: Sendable, Hashable {
     public let workflowName: String
     public let toolName: String
     public let argv: [String]
+    /// The command a Terminal can run to make the same file, or `nil` when `argv` is that command. The record keeps it as its
+    /// durable replay argv, so an exported script replays it where `argv` names the app (V1-6, MD76).
+    public let durableReplayArgv: [String]?
     public let explicitOptions: [String: ParameterValue]
     public let defaults: [String: ParameterValue]
     public let resolved: [String: ParameterValue]
@@ -44,6 +47,7 @@ public struct ExtractionFileProvenance: Sendable, Hashable {
         workflowName: String,
         toolName: String,
         argv: [String],
+        durableReplayArgv: [String]? = nil,
         explicitOptions: [String: ParameterValue] = [:],
         defaults: [String: ParameterValue] = [:],
         resolved: [String: ParameterValue] = [:]
@@ -51,6 +55,7 @@ public struct ExtractionFileProvenance: Sendable, Hashable {
         self.workflowName = workflowName
         self.toolName = toolName
         self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
         self.explicitOptions = explicitOptions
         self.defaults = defaults
         self.resolved = resolved
@@ -65,6 +70,7 @@ public struct ExtractionFileProvenance: Sendable, Hashable {
             workflowName: workflowName,
             toolName: toolName,
             argv: argv,
+            durableReplayArgv: durableReplayArgv,
             explicitOptions: explicitOptions,
             defaults: defaults,
             resolved: merged

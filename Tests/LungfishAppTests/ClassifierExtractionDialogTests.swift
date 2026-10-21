@@ -601,15 +601,18 @@ final class ClassifierExtractionDialogTests: XCTestCase {
             [1]
         )
 
+        // The selections come first, then the format, then the output: the order of the `extract reads` leaf's own record (13.27 c7).
         let selectionStart = try XCTUnwrap(envelope.argv.firstIndex(of: "--sample"))
+        let formatStart = try XCTUnwrap(envelope.argv.firstIndex(of: "--read-format"))
         let outputStart = try XCTUnwrap(envelope.argv.firstIndex(of: "--output"))
         XCTAssertEqual(
-            Array(envelope.argv[selectionStart..<outputStart]),
+            Array(envelope.argv[selectionStart..<formatStart]),
             [
                 "--sample", "SRR35517702", "--taxon", "1270",
                 "--sample", "SRR35517703", "--taxon", "1",
             ]
         )
+        XCTAssertEqual(Array(envelope.argv[formatStart..<outputStart]), ["--read-format", "fastq"])
         XCTAssertEqual(envelope.output?.path, writtenURL.path)
         XCTAssertEqual(
             envelope.output?.fileSize,

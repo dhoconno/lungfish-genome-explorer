@@ -645,12 +645,9 @@ public final class TaxonomyReadExtractionAction {
         explicitOptions["destination"] = .string(destinationKind)
         var argv: [String] = [
             LungfishAppIdentity.recordedToolName,
-            "extract",
-            "reads",
-            "--by-classifier",
+            "extract", "reads", "--by-classifier",
             "--tool", context.tool.rawValue,
             "--result", context.resultPath.path,
-            "--read-format", options.format.rawValue,
         ]
         let readNameAllowlist = mergedReadNameAllowlist(from: context.selections)
         if !readNameAllowlist.isEmpty {
@@ -671,6 +668,7 @@ public final class TaxonomyReadExtractionAction {
                 argv.append(contentsOf: ["--taxon", String(taxon)])
             }
         }
+        argv.append(contentsOf: ["--read-format", options.format.rawValue]) // the leaf's own record order
         if options.includeUnmappedMates {
             argv.append("--include-unmapped-mates")
         }
@@ -692,6 +690,7 @@ public final class TaxonomyReadExtractionAction {
             workflowName: "lungfish app classifier read extraction",
             toolName: LungfishAppIdentity.recordedToolName,
             argv: argv,
+            durableReplayArgv: [CLICommandIdentity.executableName] + argv.dropFirst(),
             explicitOptions: explicitOptions,
             defaults: [
                 "format": .string(CopyFormat.fastq.rawValue),

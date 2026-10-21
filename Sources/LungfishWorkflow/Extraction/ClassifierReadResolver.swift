@@ -767,7 +767,7 @@ public actor ClassifierReadResolver {
             sourceURLs: sourceURLs,
             outputURL: outputURL,
             outputFormat: outputFormat,
-            argv: argv,
+            argv: argv, durableReplayArgv: provenance.durableReplayArgv,
             explicitOptions: explicitOptions,
             defaults: provenance.defaults,
             resolved: provenance.resolved,
