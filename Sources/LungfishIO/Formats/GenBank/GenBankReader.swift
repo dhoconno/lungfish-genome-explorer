@@ -1389,8 +1389,8 @@ public final class GenBankWriter: Sendable {
         var lines: [String] = []
 
         // Feature key and location
-        let featureType = annotation.type.rawValue.lowercased()
-        let location = formatLocation(annotation)
+        let featureType = Self.featureKey(of: annotation)
+        let location = Self.featureLocation(of: annotation, rebuilt: formatLocation(annotation))
         let paddedType = featureType.padding(toLength: 15, withPad: " ", startingAt: 0)
         lines.append("     \(paddedType) \(location)")
 

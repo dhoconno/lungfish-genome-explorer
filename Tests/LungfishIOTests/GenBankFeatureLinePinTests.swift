@@ -4,10 +4,11 @@
 //
 // Phase 2.13 lane 13.41 M1 (row M858 GENBANK-FEATURE-LINE, the BIO ruling on lane 12.13 section 3, QA 1). A
 // GenBank file with a CDS of two parts marked partial at both ends, a reverse gene and an order() feature is
-// read, written and read again. At the base the writer prints each key in lower case and rebuilds each
-// location from its ranges, so `CDS` becomes `cds`, the partial markers `<` and `>` are lost and `order()`
-// becomes `join()`, while the ranges and strands read back the same. M3 of the lane prints the key and the
-// location the reader read whenever they still describe the annotation, and moves this pin by its prediction.
+// read, written and read again. At the lane's base the writer printed each key in lower case and rebuilt each
+// location from its ranges, so `CDS` became `cds`, the partial markers `<` and `>` were lost and `order()`
+// became `join()`. Since M3 the writer prints the key and the location the reader read while they still
+// describe the annotation, so the three lines read as the source had them (predictions P1 to P5), and the
+// ranges and strands read back the same.
 
 import Foundation
 import XCTest
@@ -47,8 +48,8 @@ final class GenBankFeatureLinePinTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// The feature lines a read and written file holds at the base, and the ranges and strands it reads back.
-    func testTheWriterRebuildsTheFeatureLinesOfAReadFile() throws {
+    /// The feature lines a read and written file holds, and the ranges and strands it reads back.
+    func testTheWriterKeepsTheFeatureLinesOfAReadFile() throws {
         let sourceURL = folder.appendingPathComponent("source.gb")
         try Self.source.write(to: sourceURL, atomically: true, encoding: .utf8)
         let read = try GenBankReader(url: sourceURL).readAllSync()
@@ -59,13 +60,13 @@ final class GenBankFeatureLinePinTests: XCTestCase {
         try GenBankWriter(url: writtenURL).write(read)
         let text = try String(contentsOf: writtenURL, encoding: .utf8)
         XCTAssertEqual(Self.featureLines(text), [
-            "     cds             join(1..30,50..80)",
+            "     CDS             join(<1..>30,50..80)",
             "     gene            complement(90..120)",
-            "     misc_feature    join(130..140,150..160)",
+            "     misc_feature    order(130..140,150..160)",
         ], text)
-        XCTAssertFalse(text.contains("<1"), "the 5' partial marker is lost")
-        XCTAssertFalse(text.contains(">30"), "the 3' partial marker is lost")
-        XCTAssertFalse(text.contains("order("), "order() is written as join()")
+        XCTAssertTrue(text.contains("<1"), "the 5' partial marker is kept")
+        XCTAssertTrue(text.contains(">30"), "the 3' partial marker is kept")
+        XCTAssertTrue(text.contains("order("), "order() is kept")
 
         let reread = try XCTUnwrap(GenBankReader(url: writtenURL).readAllSync().first)
         XCTAssertEqual(reread.annotations.map(Self.shape), record.annotations.map(Self.shape))
