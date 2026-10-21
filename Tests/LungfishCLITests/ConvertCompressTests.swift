@@ -5,7 +5,7 @@
 // Phase 2.11 lane A49 M3. `convert` writes its output as gzip or zstd with `--compress` and reads several
 // inputs into one output. The compression runs on `SequenceExportCompressor`, which streams the compressor
 // into a part file and names the result only when it is whole. gzip is /usr/bin/gzip on every Mac, zstd is
-// looked for in /usr/bin and the two Homebrew prefixes, so the zstd test is a Conformance test.
+// a managed tool of Lungfish, so the test of the real zstd is a Conformance test.
 
 import ArgumentParser
 import XCTest
@@ -109,12 +109,13 @@ final class ConvertCompressTests: XCTestCase {
     func testAFailingCompressorPublishesNothingAndLeavesNoStage() async throws {
         let missing = root.appendingPathComponent("missing.fa")
         let destination = root.appendingPathComponent("out.fa.gz")
-        HomebrewPrefixForZstd.exposeIfNeeded()
-        var kinds: [SequenceExportCompressor.Kind] = [.gzip]
-        if SequenceExportCompressor.zstdExecutable() != nil { kinds.append(.zstd) }
-        for kind in kinds {
+        let standIn = try ManagedTestStandIn(prefix: "ConvertCompressHome")
+        defer { standIn.remove() }
+        try standIn.install("zstd", script: ManagedTestStandIn.zstdScript)
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: standIn.home, appIdentity: .preview)
+        for kind in SequenceExportCompressor.Kind.allCases {
             do {
-                try await SequenceExportCompressor.compress(source: missing, to: destination, kind: kind)
+                try await SequenceExportCompressor.compress(source: missing, to: destination, kind: kind, runner: runner)
                 XCTFail("\(kind) of a missing file must fail")
             } catch {
             }
@@ -149,13 +150,10 @@ final class ConvertCompressTests: XCTestCase {
     }
 }
 
-/// zstd is not part of macOS, so this runs where a zstd sits in /usr/bin or a Homebrew prefix.
+/// zstd is not part of macOS, so this runs where Lungfish has installed its managed zstd.
 final class ConvertCompressZstdConformanceTests: XCTestCase {
     func testZstdOutputHoldsTheConvertedText() async throws {
-        HomebrewPrefixForZstd.exposeIfNeeded()
-        guard let zstd = SequenceExportCompressor.zstdExecutable() else {
-            try ToolAvailability.skipOrFail("no zstd in \(SequenceExportCompressor.zstdCandidates)")
-        }
+        let zstd = try await ToolAvailability.require("zstd", environment: "zstd")
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ConvertCompressZstd-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

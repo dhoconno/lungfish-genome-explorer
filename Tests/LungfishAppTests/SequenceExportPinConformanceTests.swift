@@ -109,11 +109,11 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         }
 
         // The same four exports with zstd. At the base the export launched only /usr/bin/zstd, which macOS does
-        // not ship, so on a Mac without one it failed and published nothing. The route looks in /usr/bin, in
-        // /usr/local/bin and in the bin folder HOMEBREW_PREFIX names, so with a zstd in one of them the text is the
-        // same, and without one the export still fails and publishes nothing.
-        HomebrewPrefixForZstd.exposeIfNeeded()
-        let hasZstd = SequenceExportCompressor.zstdExecutable() != nil
+        // not ship, so on a Mac without one it failed and published nothing. The route now runs the zstd that
+        // Lungfish manages (lane 13.17), so with that tool installed the text is the same, and without it the
+        // export still fails and publishes nothing.
+        let zstdPath = (try? await NativeToolRunner.shared.toolPath(for: .zstd))?.path
+        let hasZstd = zstdPath != nil
         for item in cases {
             if hasZstd {
                 let text = try await export(item.sources, to: "\(item.name).zst", format: item.format, compression: .zstd)
@@ -122,7 +122,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                 let output = root.appendingPathComponent("out/\(item.name).zst")
                 do {
                     try await runExport(item.sources, to: output, format: item.format, compression: .zstd)
-                    XCTFail("\(item.name) with zstd should fail without /usr/bin/zstd")
+                    XCTFail("\(item.name) with zstd should fail without the managed zstd")
                 } catch {
                     XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(item.name) publishes nothing")
                     XCTAssertFalse(
@@ -201,9 +201,9 @@ final class SequenceExportPinConformanceTests: XCTestCase {
         try FileManager.default.copyItem(at: inputs, to: replayRoot.appendingPathComponent("inputs"))
         try FileManager.default.createDirectory(at: replayRoot.appendingPathComponent("out"), withIntermediateDirectories: true)
 
-        HomebrewPrefixForZstd.exposeIfNeeded()
+        let zstdPath = (try? await NativeToolRunner.shared.toolPath(for: .zstd))?.path
         var compressions: [SequenceExportCompression] = [.gzip]
-        if SequenceExportCompressor.zstdExecutable() != nil { compressions.append(.zstd) }
+        if zstdPath != nil { compressions.append(.zstd) }
         for compression in compressions {
             let name = compression == .gzip ? "run.fa.gz" : "run.fa.zst"
             let text = try await export(
@@ -220,7 +220,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             )
             XCTAssertEqual(count, 3, "\(name) replay count")
             let replayed = try Self.decompress(
-                replayOutput, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
+                replayOutput, with: compression == .gzip ? "/usr/bin/gzip" : (zstdPath ?? "zstd")
             )
             XCTAssertEqual(replayed, text, "\(name) replay text")
             XCTAssertEqual(text, SequenceExportPinExpected.cases["two"], "\(name) against the pinned text")
@@ -542,7 +542,7 @@ final class SequenceExportPinConformanceTests: XCTestCase {
             )
         }
         let text = try Self.decompress(
-            output, with: compression == .gzip ? "/usr/bin/gzip" : (SequenceExportCompressor.zstdExecutable()?.path ?? "zstd")
+            output, with: compression == .gzip ? "/usr/bin/gzip" : ((try? await NativeToolRunner.shared.toolPath(for: .zstd))?.path ?? "zstd")
         )
         return text.replacingOccurrences(of: "[0-9]{2}-[A-Z]{3}-[0-9]{4}", with: "<DATE>", options: .regularExpression)
     }

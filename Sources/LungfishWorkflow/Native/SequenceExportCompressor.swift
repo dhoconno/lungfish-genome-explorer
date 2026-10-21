@@ -9,8 +9,9 @@ import os
 /// The one place a sequence export is compressed (Phase 2.11 lane A49 M3), for `lungfish-cli convert --compress`
 /// and for the Import Center's export of a captured selection, which has no file for `convert` to read.
 ///
-/// gzip goes through ``DurableGzip``, the gzip helper of lane S62. zstd follows the same rule on ``ToolProcess``.
-/// The compressor's standard output streams into a hidden part file in the destination's folder, which
+/// gzip goes through ``DurableGzip``, the gzip helper of lane S62. zstd follows the same rule on ``ToolProcess``
+/// and runs the zstd that Lungfish manages, found through ``NativeToolRunner`` (Phase 2.13 lane 13.17 M3). The
+/// compressor's standard output streams into a hidden part file in the destination's folder, which
 /// ``DurableReplace`` syncs and publishes under the destination name, so a compressor that dies, a cancel and a
 /// full disk leave the destination as it was and never a cut file under a name a reader trusts. The child gets
 /// an empty environment, so the bytes never depend on the user's shell, and ``ToolProcess`` drains standard
@@ -33,10 +34,28 @@ package enum SequenceExportCompressor {
         }
     }
 
-    /// Why ``compress(source:to:kind:)`` published no file.
+    /// What a compression ran, for the record of the command that asked for it (lane 13.17 M3, BIO 4). gzip runs
+    /// the system tool and has no receipt. zstd names the executable of its managed environment and the arguments
+    /// it ran with, so the step of the record reads the version from the environment that ran.
+    package struct Receipt: Sendable, Equatable {
+        /// The managed tool, which is also its lock entry, such as `zstd`.
+        package let toolName: String
+        /// The executable that ran, in the `bin` folder of its conda environment.
+        package let executable: URL
+        /// The arguments it ran with.
+        package let arguments: [String]
+
+        package init(toolName: String, executable: URL, arguments: [String]) {
+            self.toolName = toolName
+            self.executable = executable
+            self.arguments = arguments
+        }
+    }
+
+    /// Why ``compress(source:to:kind:runner:)`` published no file.
     package enum CompressionError: Error, LocalizedError, Sendable, Equatable {
-        /// No zstd binary sits in any place that ``zstdCandidates`` lists.
-        case compressorNotFound(searched: [String])
+        /// Lungfish has not installed the zstd it manages.
+        case compressorNotFound
         /// zstd ended with a nonzero status, or a signal ended it.
         case compressorFailed(exitCode: Int32, stderr: String)
         /// zstd exited with status 0, but a process it started kept the output open, so the bytes may be short.
@@ -44,9 +63,10 @@ package enum SequenceExportCompressor {
 
         package var errorDescription: String? {
             switch self {
-            case .compressorNotFound(let searched):
-                return "zstd is not installed. macOS does not ship it. Install it with Homebrew (brew install zstd) "
-                    + "or export with gzip. Looked in \(searched.joined(separator: ", "))."
+            case .compressorNotFound:
+                return "zstd is not installed. macOS does not ship it, and Lungfish installs it with its Required Setup. "
+                    + "In the app, open the Welcome window and click Install, or run "
+                    + "lungfish-cli tools update --apply --yes --required-only. You can also export with gzip."
             case .compressorFailed(let exitCode, let stderr):
                 let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                 return detail.isEmpty ? "zstd failed with exit code \(exitCode)" : "zstd failed with exit code \(exitCode): \(detail)"
@@ -87,20 +107,31 @@ package enum SequenceExportCompressor {
     /// Writes `source` compressed as `destination`, swapping out a regular file the name holds. `source` stays.
     /// A cancel of the calling task stops the compressor and throws `CancellationError`.
     ///
-    /// - Throws: ``DurableGzipError`` or ``CompressionError`` when the compressor fails,
+    /// zstd is a managed tool of Lungfish, found through `runner`, and the receipt names the executable that ran.
+    /// gzip stays on the system tool and returns nil.
+    ///
+    /// - Throws: ``DurableGzipError`` or ``CompressionError`` when the compressor fails or zstd is not installed,
     ///   ``DurableReplace/ReplaceError`` when the part file cannot be written or published.
     @concurrent
-    package static func compress(source: URL, to destination: URL, kind: Kind) async throws {
+    @discardableResult
+    package static func compress(
+        source: URL,
+        to destination: URL,
+        kind: Kind,
+        runner: NativeToolRunner = .shared
+    ) async throws -> Receipt? {
         let relay = CancelRelay()
         do {
-            try await withTaskCancellationHandler {
+            return try await withTaskCancellationHandler { () async throws -> Receipt? in
                 switch kind {
                 case .gzip:
                     let cancellation = ToolProcessCancellation()
                     relay.attach { cancellation.cancel() }
                     try DurableGzip.compress(source: source, to: destination, cancellation: cancellation)
+                    return nil
                 case .zstd:
-                    try compressWithZstd(source: source, to: destination, relay: relay)
+                    let executable = try await managedZstd(runner)
+                    return try compressWithZstd(source: source, to: destination, executable: executable, relay: relay)
                 }
             } onCancel: {
                 relay.cancel()
@@ -111,13 +142,26 @@ package enum SequenceExportCompressor {
         }
     }
 
-    private static func compressWithZstd(source: URL, to destination: URL, relay: CancelRelay) throws {
-        guard let executable = zstdExecutable() else {
-            throw CompressionError.compressorNotFound(searched: zstdCandidates)
+    /// The zstd of the managed environment, or ``CompressionError/compressorNotFound`` when it is not installed.
+    private static func managedZstd(_ runner: NativeToolRunner) async throws -> URL {
+        do {
+            return try await runner.toolPath(for: .zstd)
+        } catch let error as NativeToolError {
+            if case .toolNotFound = error { throw CompressionError.compressorNotFound }
+            throw error
         }
+    }
+
+    private static func compressWithZstd(
+        source: URL,
+        to destination: URL,
+        executable: URL,
+        relay: CancelRelay
+    ) throws -> Receipt {
+        let arguments = ["-c", source.path]
         let spec = ToolProcessSpec(
             executableURL: executable,
-            arguments: ["-c", source.path],
+            arguments: arguments,
             environment: [:],
             stdout: .stream,
             label: "zstd"
@@ -129,6 +173,7 @@ package enum SequenceExportCompressor {
         ) { stage in
             try streamZstd(spec, into: stage, relay: relay)
         }
+        return Receipt(toolName: "zstd", executable: executable, arguments: arguments)
     }
 
     /// Runs `spec` and writes its standard output into `stage`, or throws and leaves the stage to be removed.

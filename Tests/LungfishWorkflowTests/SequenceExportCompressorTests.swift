@@ -6,50 +6,23 @@
 // person in the Export Failed alert, and no other test drives them (UX 1). The compressor publishes a part file
 // through `DurableReplace`, a new call that the tests of lane S62 do not cover, so the second class has Durability
 // in its name, which is what `scripts/testing/exfat-tests.sh --simulate` selects.
+//
+// Phase 2.13 lane 13.17 M3. zstd is a managed tool of Lungfish, so the durability tests run it from a stand-in in a
+// temporary home that follows zstd's command line, and the not-found words point at Lungfish's own setup.
 
 import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
 final class SequenceExportCompressorTests: XCTestCase {
-    /// The lookup names no Homebrew prefix of its own, because the source scan of ReleaseBuildConfigurationTests
-    /// forbids it. It takes the prefix from HOMEBREW_PREFIX, keeps /usr/bin first and lists no place twice (Q66 fix a).
-    func testZstdIsLookedForInUsrBinThenTheHomebrewPrefixThenUsrLocal() {
+    /// The words point at Lungfish's Required Setup, where the tool is installed, and name no package manager
+    /// and no place that was searched (lane 13.17 M3, BIO 4).
+    func testTheRefusalWordsPointAtLungfishSetupAndNotAtHomebrew() {
         XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: nil),
-            ["/usr/bin/zstd", "/usr/local/bin/zstd"]
-        )
-        XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/custom/brew"),
-            ["/usr/bin/zstd", "/custom/brew/bin/zstd", "/usr/local/bin/zstd"]
-        )
-        XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/custom/brew//"),
-            ["/usr/bin/zstd", "/custom/brew/bin/zstd", "/usr/local/bin/zstd"],
-            "a trailing slash is dropped"
-        )
-        XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "/usr/local"),
-            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
-            "the Intel prefix is listed once"
-        )
-        XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: ""),
-            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
-            "an empty value names no prefix"
-        )
-        XCTAssertEqual(
-            SequenceExportCompressor.zstdSearchList(homebrewPrefix: "relative/brew"),
-            ["/usr/bin/zstd", "/usr/local/bin/zstd"],
-            "a prefix that is not an absolute path is ignored"
-        )
-    }
-
-    func testTheRefusalWordsNameWhatToInstallAndWhereItLooked() {
-        XCTAssertEqual(
-            SequenceExportCompressor.CompressionError.compressorNotFound(searched: ["/a/zstd", "/b/zstd"]).errorDescription,
-            "zstd is not installed. macOS does not ship it. Install it with Homebrew (brew install zstd) or export with gzip. "
-                + "Looked in /a/zstd, /b/zstd."
+            SequenceExportCompressor.CompressionError.compressorNotFound.errorDescription,
+            "zstd is not installed. macOS does not ship it, and Lungfish installs it with its Required Setup. "
+                + "In the app, open the Welcome window and click Install, or run "
+                + "lungfish-cli tools update --apply --yes --required-only. You can also export with gzip."
         )
         XCTAssertEqual(
             SequenceExportCompressor.CompressionError.compressorFailed(exitCode: 2, stderr: "bad\n").errorDescription,
@@ -58,25 +31,28 @@ final class SequenceExportCompressorTests: XCTestCase {
     }
 }
 
-/// gzip always runs, and zstd runs where one is installed in `/usr/bin` or a Homebrew prefix.
+/// gzip runs from the system, and zstd runs the managed zstd, here a stand-in in a temporary home, so every test
+/// holds on every Mac.
 final class SequenceExportCompressorDurabilityTests: XCTestCase {
     private var root: URL!
+    private var standIn: ManagedTestStandIn!
+    private var runner: NativeToolRunner!
 
     override func setUpWithError() throws {
-        // The zstd of Homebrew is found through HOMEBREW_PREFIX, which a plain launch of the tests lacks.
-        HomebrewPrefixForZstd.exposeIfNeeded()
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SequenceExportCompressorDurability-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        standIn = try ManagedTestStandIn(prefix: "SequenceExportCompressorHome")
+        try standIn.install("zstd", script: ManagedTestStandIn.zstdScript)
+        runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: standIn.home, appIdentity: .preview)
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: root)
+        standIn.remove()
     }
 
-    private var kinds: [SequenceExportCompressor.Kind] {
-        SequenceExportCompressor.zstdExecutable() == nil ? [.gzip] : [.gzip, .zstd]
-    }
+    private var kinds: [SequenceExportCompressor.Kind] { SequenceExportCompressor.Kind.allCases }
 
     func testEachCompressorPublishesAWholeFileThatDecompressesToTheSource() async throws {
         let source = root.appendingPathComponent("export.fa")
@@ -84,10 +60,51 @@ final class SequenceExportCompressorDurabilityTests: XCTestCase {
         try text.write(to: source, atomically: true, encoding: .utf8)
         for kind in kinds {
             let destination = root.appendingPathComponent("out.fa.\(kind.fileExtension)")
-            try await SequenceExportCompressor.compress(source: source, to: destination, kind: kind)
+            try await SequenceExportCompressor.compress(source: source, to: destination, kind: kind, runner: runner)
             XCTAssertEqual(try decompress(destination, kind: kind), text, "\(kind) publishes the whole file")
             XCTAssertEqual(stages(), [], "\(kind) leaves no stage")
         }
+    }
+
+    /// The export runs the zstd of the managed environment and says which executable that was, and gzip, which
+    /// stays on the system tool, returns no receipt.
+    func testZstdRunsTheManagedZstdAndReturnsItsReceipt() async throws {
+        let source = root.appendingPathComponent("export.fa")
+        try ">a\nACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let destination = root.appendingPathComponent("out.fa.zst")
+        let receipt = try await SequenceExportCompressor.compress(
+            source: source, to: destination, kind: .zstd, runner: runner
+        )
+        let written = String(decoding: try Data(contentsOf: destination), as: UTF8.self)
+        XCTAssertTrue(written.hasPrefix(ManagedTestStandIn.compressedMarker + "\n"), "the managed zstd wrote the file")
+        let zstd = try XCTUnwrap(receipt, "zstd returns a receipt")
+        XCTAssertEqual(zstd.toolName, "zstd")
+        XCTAssertTrue(zstd.executable.path.hasSuffix(".lungfish/conda/envs/zstd/bin/zstd"), zstd.executable.path)
+        XCTAssertEqual(zstd.arguments, ["-c", source.path])
+        let gzip = try await SequenceExportCompressor.compress(
+            source: source, to: root.appendingPathComponent("out.fa.gz"), kind: .gzip, runner: runner
+        )
+        XCTAssertNil(gzip, "gzip records no managed step")
+    }
+
+    /// Without the managed zstd the export refuses in Lungfish's words and publishes nothing.
+    func testAMissingManagedZstdRefusesAndPublishesNothing() async throws {
+        let emptyHome = try ManagedTestStandIn(prefix: "SequenceExportCompressorEmptyHome")
+        defer { emptyHome.remove() }
+        let source = root.appendingPathComponent("export.fa")
+        try ">a\nACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let destination = root.appendingPathComponent("out.fa.zst")
+        do {
+            try await SequenceExportCompressor.compress(
+                source: source, to: destination, kind: .zstd,
+                runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: emptyHome.home, appIdentity: .preview)
+            )
+            XCTFail("zstd without the managed tool must not publish")
+        } catch let error as SequenceExportCompressor.CompressionError {
+            XCTAssertEqual(error, .compressorNotFound)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "nothing is published")
+        XCTAssertEqual(stages(), [], "no stage is left")
     }
 
     func testAFailingCompressorLeavesTheEarlierDestination() async throws {
@@ -97,7 +114,7 @@ final class SequenceExportCompressorDurabilityTests: XCTestCase {
         for kind in kinds {
             try earlier.write(to: destination)
             do {
-                try await SequenceExportCompressor.compress(source: missing, to: destination, kind: kind)
+                try await SequenceExportCompressor.compress(source: missing, to: destination, kind: kind, runner: runner)
                 XCTFail("\(kind) of a missing file must fail")
             } catch {
             }
@@ -109,11 +126,12 @@ final class SequenceExportCompressorDurabilityTests: XCTestCase {
     func testATaskCancelledBeforeTheCallThrowsCancellationErrorAndPublishesNothing() async throws {
         let source = root.appendingPathComponent("export.fa")
         try ">a\nACGT\n".write(to: source, atomically: true, encoding: .utf8)
+        let runner = self.runner!
         for kind in kinds {
             let destination = root.appendingPathComponent("cancelled.\(kind.fileExtension)")
             let task = Task { () -> Void in
                 withUnsafeCurrentTask { $0?.cancel() }
-                try await SequenceExportCompressor.compress(source: source, to: destination, kind: kind)
+                try await SequenceExportCompressor.compress(source: source, to: destination, kind: kind, runner: runner)
             }
             do {
                 try await task.value
@@ -135,9 +153,7 @@ final class SequenceExportCompressorDurabilityTests: XCTestCase {
     }
 
     private func decompress(_ url: URL, kind: SequenceExportCompressor.Kind) throws -> String {
-        let tool = kind == .gzip
-            ? URL(fileURLWithPath: "/usr/bin/gzip")
-            : try XCTUnwrap(SequenceExportCompressor.zstdExecutable())
+        let tool = kind == .gzip ? URL(fileURLWithPath: "/usr/bin/gzip") : standIn.executableURL("zstd")
         let process = Process()
         process.executableURL = tool
         process.arguments = ["-dc", url.path]
