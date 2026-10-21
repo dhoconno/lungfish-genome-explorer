@@ -106,7 +106,8 @@ def megahit_argv(r1: Path, r2: Path, out_dir: Path, threads: int) -> list:
 
 def busy_processes() -> list:
     """pid:name of every swift, xctest or megahit process now running (a name is the file name of the command)."""
-    listing = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, check=True).stdout
+    listing = subprocess.run(
+        ["ps", "-axo", "pid=,comm="], capture_output=True, text=True, check=True, timeout=30).stdout
     found = []
     for line in listing.splitlines():
         pid_text, _, command = line.strip().partition(" ")
@@ -341,6 +342,7 @@ def run_once(cfg: dict, seq: int, total: int, threads: int, ordinal: int) -> dic
             status = stop_group(child)
         except BaseException:
             stop_group(child)
+            sweep_group(child.pid)
             raise
     wall = time.monotonic() - clock
     leftover = sweep_group(child.pid)
@@ -636,6 +638,7 @@ def command_run(args) -> int:
     else:
         write_json(header_path, probe_header(cfg, args, plan, busy))
     signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
+    signal.signal(signal.SIGHUP, lambda number, frame: sys.exit(128 + number))
     print("plan %s in %s with %s, other processes at start: %s" % (plan, folder, tool, busy or "none"), flush=True)
     keep_awake = start_caffeinate()
     seen: Counter = Counter()
