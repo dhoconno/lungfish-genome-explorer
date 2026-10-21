@@ -178,12 +178,11 @@ public struct FullLengthONTMHCGenotypingRunRequest: Sendable, Codable, Equatable
         ONTGenotypeResultBundle.manifestURL(in: outputDirectory)
     }
 
+    /// The CLI command path this request runs, which the workbook receipt names as its workflow (MD77).
+    public var commandPath: [String] { ["fastq", "full-length-ont-mhc-genotype"] }
+
     public var argv: [String] {
-        var values = [
-            CLICommandIdentity.executableName,
-            "fastq",
-            "full-length-ont-mhc-genotype",
-        ] + inputFASTQURLs.map(\.path) + [
+        var values = [CLICommandIdentity.executableName] + commandPath + inputFASTQURLs.map(\.path) + [
             "--reference", referenceSourceURL.path,
             "--output-dir", outputDirectory.path,
             "--output-name", outputName,

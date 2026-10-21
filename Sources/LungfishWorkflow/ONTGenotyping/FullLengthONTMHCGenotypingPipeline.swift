@@ -1332,7 +1332,7 @@ public struct FullLengthONTMHCGenotypingPipeline: Sendable {
             },
             candidates: candidateDocument, unnameable: unnameableDocument, catalog: reviewableRowCatalogPublication?.document,
             python: try await condaManager.toolPath(name: "python", environment: "openpyxl"),
-            argv: request.argv, condaRoot: condaManager.rootPrefix)
+            argv: request.argv, commandPath: request.commandPath, condaRoot: condaManager.rootPrefix)
         pipelineSteps.append(FullLengthONTMHCProvenanceStep(
             toolName: "lungfish genotype Excel export", toolVersion: WorkflowRun.currentAppVersion,
             argv: report.execution.executedArgv,

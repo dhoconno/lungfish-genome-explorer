@@ -7,26 +7,30 @@ import LungfishCore
 import LungfishWorkflow
 import XCTest
 
-/// Pins of the three genotype workbook receipts the goldens hold (Phase 2.13 lane 13.51 M0). The workbook and pivot
-/// receipts come from the CLI `--bundle` path of `genotype export-xlsx` and `genotype export-pivot-xlsx`, and the
-/// bundle receipt from the cohort pipeline. Each pin names the receipt's tool, its kind, its workflow, the request's
-/// workflow, the head of its argv, the head of its durable replay and its own path.
+/// Pins of the three genotype workbook receipts the goldens hold (Phase 2.13 lane 13.51 M0, MD77). The workbook and
+/// pivot receipts come from the CLI `--bundle` path of `genotype export-xlsx` and `genotype export-pivot-xlsx`, and
+/// the bundle receipt from the cohort pipeline. Each pin names the receipt's tool, its kind, its workflow (the command
+/// that ran), the request's workflow, the head of its argv, the head of its durable replay and its own path.
 final class GenotypeWorkbookReceiptIdentityTests: XCTestCase {
     private struct Pin {
         let path: String
+        let workflow: String
         let requestWorkflow: String
         let argvHead: [String]
         let output: String
     }
 
     private static let pins: [Pin] = [
-        Pin(path: "genotype/exports/workbook.xlsx.provenance.json", requestWorkflow: "genotype.export.xlsx",
+        Pin(path: "genotype/exports/workbook.xlsx.provenance.json", workflow: "lungfish genotype export-xlsx",
+            requestWorkflow: "genotype.export.xlsx",
             argvHead: ["<RUN_ROOT>/bin/lungfish-cli", "genotype", "export-xlsx", "--bundle"],
             output: "<RUN_ROOT>/genotype/exports/workbook.xlsx"),
-        Pin(path: "genotype/exports/pivot.xlsx.provenance.json", requestWorkflow: "genotype.export.pivot-xlsx",
+        Pin(path: "genotype/exports/pivot.xlsx.provenance.json", workflow: "lungfish genotype export-pivot-xlsx",
+            requestWorkflow: "genotype.export.pivot-xlsx",
             argvHead: ["<RUN_ROOT>/bin/lungfish-cli", "genotype", "export-pivot-xlsx", "--bundle"],
             output: "<RUN_ROOT>/genotype/exports/pivot.xlsx"),
-        Pin(path: "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json", requestWorkflow: "genotype.pipeline.excel",
+        Pin(path: "genotype/bundle/SIMULATED-MHC-haplotypes.xlsx.provenance.json",
+            workflow: "lungfish fastq genotype-cohort", requestWorkflow: "genotype.pipeline.excel",
             argvHead: ["lungfish-cli", "fastq", "genotype-cohort"],
             output: "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/SIMULATED-MHC-haplotypes.xlsx"),
     ]
@@ -46,7 +50,10 @@ final class GenotypeWorkbookReceiptIdentityTests: XCTestCase {
             let receipt = try receipt(pin)
             XCTAssertEqual(receipt["toolName"] as? String, CLICommandIdentity.executableName, pin.path)
             XCTAssertEqual(receipt["toolKind"] as? String, "cli", pin.path)
-            XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-xlsx", pin.path)
+            XCTAssertEqual(receipt["workflowName"] as? String, pin.workflow, pin.path)
+            let argv = try XCTUnwrap(receipt["argv"] as? [String], pin.path)
+            XCTAssertEqual(receipt["workflowName"] as? String, "lungfish " + argv[1...2].joined(separator: " "),
+                           "\(pin.path) names a command other than the one in its argv")
             XCTAssertEqual(receipt["requestWorkflowName"] as? String, pin.requestWorkflow, pin.path)
             XCTAssertEqual(receipt["schemaVersion"] as? Int, 1, pin.path)
             XCTAssertEqual(receipt["status"] as? String, "completed", pin.path)
@@ -58,13 +65,15 @@ final class GenotypeWorkbookReceiptIdentityTests: XCTestCase {
     }
 
     /// A receipt written before lane 13.51 still reads as a workbook receipt, and a record that only shares the new
-    /// tool name does not.
+    /// tool name does not. The current shape is the tool, the kind and a `requestWorkflowName`, whatever command
+    /// the workflow names (MD77).
     func testReceiptRecognitionAcceptsTheOlderShapeAndNoOtherCLIRecord() {
         XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
             "toolName": "lungfish genotype Excel export", "workflowName": "genotype.export.xlsx",
         ]))
         XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
             "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-xlsx",
+            "requestWorkflowName": "genotype.export.xlsx",
         ]))
         XCTAssertFalse(GenotypeExcelExportService.isWorkbookReceipt([
             "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-manual-definitions",
@@ -72,6 +81,31 @@ final class GenotypeWorkbookReceiptIdentityTests: XCTestCase {
         XCTAssertFalse(GenotypeExcelExportService.isWorkbookReceipt([
             "toolName": "lungfish-cli", "workflowName": "lungfish genotype export-xlsx",
         ]))
+        XCTAssertFalse(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-xlsx",
+        ]), "a lungfish-cli record with no requestWorkflowName is not a workbook receipt")
+        XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish genotype export-pivot-xlsx",
+            "requestWorkflowName": "genotype.export.pivot-xlsx",
+        ]))
+        XCTAssertTrue(GenotypeExcelExportService.isWorkbookReceipt([
+            "toolName": "lungfish-cli", "toolKind": "cli", "workflowName": "lungfish fastq genotype",
+            "requestWorkflowName": "genotype.pipeline.excel",
+        ]))
+    }
+
+    /// The workflow is `lungfish` and the command path of the command that ran (MD77).
+    func testReceiptWorkflowNameIsLungfishFollowedByTheCommandPath() {
+        XCTAssertEqual(GenotypeExcelExportService.receiptWorkflowName(commandPath: GenotypeWorkbookExport.commandPath),
+                       "lungfish genotype export-xlsx")
+        XCTAssertEqual(GenotypeExcelExportService.receiptWorkflowName(commandPath: ["genotype", "export-pivot-xlsx"]),
+                       "lungfish genotype export-pivot-xlsx")
+        XCTAssertEqual(GenotypeExcelExportService.receiptWorkflowName(commandPath: ["genotype", "export"]),
+                       "lungfish genotype export")
+        XCTAssertEqual(GenotypeExcelExportService.receiptWorkflowName(commandPath: ["fastq", "genotype"]),
+                       "lungfish fastq genotype")
+        XCTAssertEqual(GenotypeExcelExportService.receiptWorkflowName(commandPath: ["fastq", "genotype-cohort"]),
+                       "lungfish fastq genotype-cohort")
     }
 
     private static func strings(in value: Any) -> [String] {

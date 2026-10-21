@@ -234,7 +234,7 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
             snapshot: capture, outputURL: output,
             provenance: GenotypeViewportExportService.provenanceRequest(snapshot: snapshot, capture: capture,
                 outputURL: output, python: python, replacingExisting: replacing,
-                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path]),
+                argv: ["Lungfish", "genotype.export.excel", "--captured-at", capture.generatedAt, "--output", output.path]), commandPath: GenotypeWorkbookExport.commandPath,
             replacingExisting: replacing)
         guard FileManager.default.fileExists(atPath: result.outputURL.path),
               FileManager.default.fileExists(atPath: result.receiptURL.path) else {
@@ -399,7 +399,7 @@ extension GenotypeWorkbookExportCLIGUIParityReplayTests {
         XCTAssertFalse(rowArguments.contains("--format"), "a result row runs without events")
         XCTAssertEqual(c["argv"] as? [String], [CLICommandIdentity.executableName] + rowArguments, "the receipt's argv is the row's command")
         XCTAssertEqual(c["requestWorkflowName"] as? String, "genotype.export.excel.replay")
-        XCTAssertEqual(c["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(c["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName(commandPath: GenotypeWorkbookExport.commandPath))
         XCTAssertEqual(c["toolName"] as? String, CLICommandIdentity.executableName)
         XCTAssertEqual(c["toolKind"] as? String, "cli")
         let context = try XCTUnwrap(c["runtimeContext"] as? [String: String])

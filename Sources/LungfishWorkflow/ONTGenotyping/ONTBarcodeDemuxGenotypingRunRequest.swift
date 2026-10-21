@@ -346,12 +346,11 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         return ontSampleBundleCohort || illuminaCohort ? "genotype-cohort" : "genotype"
     }
 
+    /// The CLI command path this request runs, which the workbook receipt names as its workflow (MD77).
+    public var commandPath: [String] { ["fastq", cliSubcommand] }
+
     public var argv: [String] {
-        var values = [
-            CLICommandIdentity.executableName,
-            "fastq",
-            cliSubcommand,
-        ] + inputFASTQURLs.map(\.path) + [
+        var values = [CLICommandIdentity.executableName] + commandPath + inputFASTQURLs.map(\.path) + [
             "--mode", mode.cliArgument,
             "--read-type", readType.cliArgument,
             "--output-dir", outputDirectory.path,

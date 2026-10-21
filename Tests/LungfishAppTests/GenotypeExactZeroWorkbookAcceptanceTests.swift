@@ -54,7 +54,7 @@ final class GenotypeExactZeroWorkbookAcceptanceTests: XCTestCase {
             let output = root.appendingPathComponent("report-\(phase).xlsx")
             let exported = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot,
                 outputURL: output, provenance: .init(workflowName: "exact-zero-native-review", toolVersion: "test",
-                    argv: ["lungfish-cli", "genotype", "export"], options: ["phase": phase], defaults: [:], runtimeContext: [:], inputs: []))
+                    argv: ["lungfish-cli", "genotype", "export"], options: ["phase": phase], defaults: [:], runtimeContext: [:], inputs: []), commandPath: GenotypeWorkbookExport.commandPath)
             XCTAssertTrue(FileManager.default.fileExists(atPath: exported.receiptURL.path))
             try runPython(python, code: #"""
 import sys

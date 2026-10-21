@@ -95,6 +95,7 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
                 activeHaplotypeDefinitionID: nil,
                 filter: .unfiltered,
                 workflowName: "genotype.export.xlsx",
+                commandPath: GenotypeWorkbookExport.commandPath,
                 argv: GenotypeExcelCLIExportSupport.invocation(fallback: argv),
                 options: [
                     "bundle": bundleURL.path,
@@ -158,7 +159,8 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         // A SIGTERM test holds the replay inside its transaction, with the workbook and receipt staged.
         let service = GenotypeExcelExportService(pythonExecutableURL: pythonURL, replayExecutableURL: Bundle.main.executableURL,
             beforeOutputPublication: { try ViewerExportLeaf.checkpointAfterStaging() })
-        let result = try await service.export(snapshot: decoded, outputURL: outputURL, provenance: request, replacingExisting: force)
+        let result = try await service.export(snapshot: decoded, outputURL: outputURL, provenance: request,
+            commandPath: GenotypeWorkbookExport.commandPath, replacingExisting: force)
         let summary = ["output": result.outputURL.path, "receipt": result.receiptURL.path, "snapshot": result.snapshotURL.path]
         FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]))
         FileHandle.standardOutput.write(Data("\n".utf8))

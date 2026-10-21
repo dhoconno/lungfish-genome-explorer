@@ -67,7 +67,7 @@ final class NativeRecordWorkflowWriterTests: XCTestCase {
                     "condaEnvironment": "openpyxl",
                     "condaPrefix": roots.toolRoot.path,
                     "python": roots.toolRoot.appendingPathComponent("envs/openpyxl/bin/python").path,
-                ]))
+                ]), commandPath: GenotypeWorkbookExport.commandPath)
         let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as? [String: Any])
 
         XCTAssertEqual(receipt["status"] as? String, "completed")

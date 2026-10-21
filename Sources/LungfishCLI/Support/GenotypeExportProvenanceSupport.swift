@@ -157,6 +157,7 @@ enum GenotypeExcelCLIExportSupport {
         let activeHaplotypeDefinitionID: String?
         let filter: GenotypeMatrixBaseProjection.Filter
         let workflowName: String
+        let commandPath: [String]
         let argv: [String]
         let options: [String: String]
         let defaults: [String: String]
@@ -381,6 +382,7 @@ enum GenotypeExcelCLIExportSupport {
             snapshot: snapshot,
             outputURL: output,
             provenance: provenance,
+            commandPath: request.commandPath,
             replacingExisting: request.replacingExisting
         )
         return .init(

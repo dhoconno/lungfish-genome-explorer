@@ -11,7 +11,7 @@ enum GenotypePipelineExcelReport {
         candidates: ONTMHCCandidateAllelesDocument? = nil,
         unnameable: ONTMHCUnnameableClustersDocument? = nil,
         catalog: GenotypeReviewableRowCatalog? = nil,
-        python: URL, argv: [String], condaRoot: URL
+        python: URL, argv: [String], commandPath: [String], condaRoot: URL
     ) async throws -> GenotypeExcelExportService.ExportResult {
         func physical(_ path: String) -> URL { ONTGenotypeResultBundle.resolvedURL(for: path, in: physicalDirectory) }
         func final(_ path: String) -> URL { ONTGenotypeResultBundle.resolvedURL(for: path, in: finalDirectory) }
@@ -66,7 +66,8 @@ enum GenotypePipelineExcelReport {
                 options: ["filter": "unfiltered", "output": final(manifest.primaryWorkbookPath).path],
                 defaults: ["filter": "unfiltered", "filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy],
                 runtimeContext: ["condaEnvironment": "openpyxl", "condaPrefix": condaRoot.path],
-                inputs: witnesses))
+                inputs: witnesses),
+            commandPath: commandPath)
         if physicalDirectory.standardizedFileURL != finalDirectory.standardizedFileURL {
             try GenotypeExcelExportService.relocateReports(in: physicalDirectory, from: physicalDirectory, to: finalDirectory)
         }

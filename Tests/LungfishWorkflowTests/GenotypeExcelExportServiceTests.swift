@@ -83,7 +83,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
             pythonExecutableURL: python, replayExecutableURL: try cli()
         ).export(
             snapshot: annotatedSnapshot, outputURL: annotatedOutput,
-            provenance: .init(toolVersion: "test", argv: ["test"])
+            provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         let annotatedInspection = try inspectMatrixComments(annotatedOutput)
         let expectedComments = [
@@ -114,7 +114,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
             pythonExecutableURL: python, replayExecutableURL: try cli()
         ).export(
             snapshot: plainSnapshot, outputURL: plainOutput,
-            provenance: .init(toolVersion: "test", argv: ["test"])
+            provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         let plainInspection = try inspectMatrixComments(plainOutput)
         for title in ["Genotype Matrix - All", "Genotype Matrix - Filtered"] {
@@ -140,7 +140,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(snapshot: snapshot,
             outputURL: output, provenance: .init(toolVersion: "test-version", argv: ["lungfish-cli", "genotype", "export-xlsx"],
                 options: ["output": output.path], defaults: ["minimumReads": "0"],
-                runtimeContext: ["condaEnvironment": "openpyxl"], inputs: [.init(path: input.path, data: inputBytes)]))
+                runtimeContext: ["condaEnvironment": "openpyxl"], inputs: [.init(path: input.path, data: inputBytes)]), commandPath: GenotypeWorkbookExport.commandPath)
         let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as? [String: Any])
         let artifact = try XCTUnwrap(receipt["output"] as? [String: Any])
         XCTAssertEqual(artifact["path"] as? String, output.path)
@@ -220,7 +220,7 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
         })
         do {
             _ = try await service.export(snapshot: snapshot, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "genotype", "export-xlsx"]))
+                provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "genotype", "export-xlsx"]), commandPath: GenotypeWorkbookExport.commandPath)
             XCTFail("The replaced directory contains no staged workbook to publish")
         } catch { }
         let replacement = URL(fileURLWithPath: try String(contentsOf: replacementRecord, encoding: .utf8))
@@ -242,13 +242,13 @@ final class GenotypeExcelExportServiceTests: XCTestCase {
             sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil, generatedAt: timestamp)
         do {
             _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"], inputs: [.init(path: input.path, data: Data("old".utf8))]))
+                provenance: .init(toolVersion: "test", argv: ["test"], inputs: [.init(path: input.path, data: Data("old".utf8))]), commandPath: GenotypeWorkbookExport.commandPath)
             XCTFail("changed witnessed input was accepted")
         } catch {}
         XCTAssertEqual(try Data(contentsOf: output), old)
         do {
             _ = try await GenotypeExcelExportService(pythonExecutableURL: URL(fileURLWithPath: "/usr/bin/false")).export(
-                snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]))
+                snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
             XCTFail("failed renderer was accepted")
         } catch {}
         XCTAssertEqual(try Data(contentsOf: output), old)
@@ -284,7 +284,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             _ = try await GenotypeExcelExportService(pythonExecutableURL: wrapper).export(
                 snapshot: snapshot,
                 outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"])
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
             )
             XCTFail("Incomplete renderer execution metadata was accepted")
         } catch {
@@ -310,7 +310,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             generatedAt: timestamp, authority: .init(analysis: nil))
         let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
-            provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "fastq", "genotype", "--output-dir", source.path]))
+            provenance: .init(toolVersion: "test", argv: ["lungfish-cli", "fastq", "genotype", "--output-dir", source.path]), commandPath: GenotypeWorkbookExport.commandPath)
         let snapshotBytes = try Data(contentsOf: exported.snapshotURL)
         let oldReceipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.receiptURL)) as? [String: Any])
         let envelope = try ProvenanceRunBuilder(workflowName: "CLI genotype", workflowVersion: "1", toolName: "lungfish-cli", toolVersion: "test")
@@ -352,7 +352,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             generatedAt: timestamp, authority: .init(analysis: nil))
         let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
-            provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]), commandPath: GenotypeWorkbookExport.commandPath)
         for mutation in ["escape", "symlink", "hash", "different-request", "missing-request", "different-snapshot", "different-output"] {
             let destination = root.appendingPathComponent(mutation)
             try FileManager.default.copyItem(at: source, to: destination)
@@ -408,7 +408,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
             generatedAt: timestamp, authority: .init(analysis: nil))
         let export = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
             snapshot: snapshot, outputURL: source.appendingPathComponent("report.xlsx"),
-            provenance: .init(toolVersion: "test", argv: ["historical", source.path]))
+            provenance: .init(toolVersion: "test", argv: ["historical", source.path]), commandPath: GenotypeWorkbookExport.commandPath)
         XCTAssertNoThrow(try GenotypeExcelExportService.relocateReports(in: source,
             from: source.resolvingSymlinksInPath(), to: final))
         try FileManager.default.moveItem(at: source, to: final)
@@ -441,7 +441,7 @@ printf '%s\n' '{"openpyxlVersion":"3.1.5"}'
         XCTAssertEqual(descriptor["path"] as? String, output.path)
         XCTAssertEqual(descriptor["sha256"] as? String, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
         XCTAssertEqual(descriptor["sizeBytes"] as? Int, bytes.count)
-        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName(commandPath: GenotypeWorkbookExport.commandPath))
         XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.excel.replay")
         XCTAssertEqual(receipt["toolName"] as? String, CLICommandIdentity.executableName)
         XCTAssertEqual(receipt["toolKind"] as? String, "cli")
@@ -587,7 +587,7 @@ print(json.dumps(result))
         XCTAssertThrowsError(try capture(["MHC-unknown"]))
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-band-scope-\(UUID().uuidString).xlsx")
         let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: try cli()).export(
-            snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]))
+            snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
         func assertBands(_ url: URL) throws {
             let bands = try XCTUnwrap(try inspect(url)["bands"] as? [String: [[String: String]]])
             XCTAssertEqual(bands["Genotype Matrix - All"]?.map { $0["value"] ?? "" },
@@ -658,7 +658,7 @@ print(json.dumps(result))
         ).export(
             snapshot: historical,
             outputURL: output,
-            provenance: .init(toolVersion: "test", argv: ["test"])
+            provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         let replayed = root.appendingPathComponent("legacy-replayed.xlsx")
         XCTAssertEqual(try runCommand(["/bin/sh", exported.replayScriptURL.path, replayed.path]), 0)
@@ -805,7 +805,7 @@ print(json.dumps(result))
         XCTAssertTrue(visible.filteredMatrix.rows.isEmpty)
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-manual-\(UUID().uuidString).xlsx")
         _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: visible, outputURL: output,
-            provenance: .init(toolVersion: "test", argv: ["test"]))
+            provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
         let inspection = try inspect(output)
         XCTAssertEqual(inspection["sheets"] as? [String], ["Haplotype Calls", "Genotype Matrix - All", "Genotype Matrix - Filtered", "Export Metadata"])
         try assertWorkbookCalls(inspection, values: ["=1+1", "", "called", "unassigned", "manualAssignment", "unassigned"], fills: ["008000", ""])
@@ -826,7 +826,7 @@ print(json.dumps(result))
             XCTAssertEqual(snapshot.calls.first?.h2.pipeline, "")
             let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-\(status.rawValue)-\(UUID().uuidString).xlsx")
             _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"]))
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
             let inspection = try inspect(output)
             XCTAssertEqual((inspection["sheets"] as? [String])?.count, 4)
             let effective = status == .called ? "M4" : ""
@@ -944,7 +944,7 @@ print(json.dumps(result))
             sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil))
         do {
             _ = try await GenotypeExcelExportService(pythonExecutableURL: wrapper).export(snapshot: snapshot, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"]), replacingExisting: false)
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath, replacingExisting: false)
             XCTFail("a competing report was overwritten")
         } catch {}
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "competing report")
@@ -976,7 +976,7 @@ print(json.dumps(result))
             _ = try await service.export(
                 snapshot: snapshot,
                 outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"]),
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath,
                 replacingExisting: true
             )
             XCTFail("a competing report was overwritten")
@@ -1010,7 +1010,7 @@ print(json.dumps(result))
             sidecar: .empty(generatedAt: timestamp), allProjection: nil, filteredProjection: nil, generatedAt: timestamp, authority: .init(analysis: nil))
         do {
             _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"]))
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
             XCTFail("invalid receipt destination was accepted")
         } catch {}
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "previous report")
@@ -1237,7 +1237,7 @@ print(json.dumps(result))
         try Data("prior report".utf8).write(to: output)
         do {
             _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: corrupted, outputURL: output,
-                provenance: .init(toolVersion: "test", argv: ["test"]))
+                provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
             XCTFail("incoherent decoded scientific snapshot was published")
         } catch {}
         XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "prior report")
@@ -1252,7 +1252,7 @@ print(json.dumps(result))
         XCTAssertEqual(snapshot.filteredMatrix.rows[0].target.genotype, "Mafa-A*001:01")
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("lge-abbreviated-\(UUID().uuidString).xlsx")
         _ = try await GenotypeExcelExportService(pythonExecutableURL: python).export(snapshot: snapshot, outputURL: output,
-            provenance: .init(toolVersion: "test", argv: ["test"]))
+            provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath)
         XCTAssertTrue((try inspect(output)["filteredLabels"] as? [String] ?? []).contains("A*001"))
     }
 

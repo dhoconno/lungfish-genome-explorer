@@ -110,7 +110,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         let exported = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
             snapshot: scientific,
             outputURL: output,
-            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         print("Retained native-column workbook QA: \(output.path)")
         print("Retained native-column snapshot QA: \(exported.snapshotURL.path)")
@@ -221,7 +221,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         ).export(
             snapshot: snapshot,
             outputURL: output,
-            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         let expected = ["C2|native row note|LGE"]
         XCTAssertEqual(try workbookComments(output)["Genotype Matrix - All"], expected)
@@ -346,7 +346,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
             snapshot: thresholdSnapshot,
             outputURL: thresholdOutput,
-            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         XCTAssertEqual(try workbookLiterals(thresholdOutput, sheet: "Genotype Matrix - All", genotype: genotype), [16])
         XCTAssertEqual(try workbookLiterals(thresholdOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), [])
@@ -369,7 +369,7 @@ final class GenotypeExcelDialogBehaviorTests: GenotypeResultViewportTestCase {
         _ = try await GenotypeExcelExportService(pythonExecutableURL: openpyxlPython).export(
             snapshot: unfilteredSnapshot,
             outputURL: unfilteredOutput,
-            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"])
+            provenance: .init(toolVersion: "test", argv: ["Lungfish", "genotype.export.excel"]), commandPath: GenotypeWorkbookExport.commandPath
         )
         XCTAssertEqual(try workbookLiterals(unfilteredOutput, sheet: "Genotype Matrix - All", genotype: genotype), [16])
         XCTAssertEqual(try workbookLiterals(unfilteredOutput, sheet: "Genotype Matrix - Filtered", genotype: genotype), [16])

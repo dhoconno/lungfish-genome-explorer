@@ -134,7 +134,7 @@ enum GenotypeThreeSheetCohortAcceptance {
             let exported = try await GenotypeExcelExportService(pythonExecutableURL: python, replayExecutableURL: cli).export(
                 snapshot: snapshot, outputURL: root.appendingPathComponent(phase + ".xlsx"),
                 provenance: .init(workflowName: "cohort-one-way-acceptance", toolVersion: version.stdout,
-                    argv: [cli.path, "genotype", "export"], options: ["phase": phase]))
+                    argv: [cli.path, "genotype", "export"], options: ["phase": phase]), commandPath: GenotypeWorkbookExport.commandPath)
             if phase == "clear" { finalExport = exported }
             print("Task6 cohort verifying phase \(phase)")
             do {

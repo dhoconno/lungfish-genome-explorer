@@ -327,7 +327,7 @@ final class GenotypeExportSubcommandTests: XCTestCase {
         let receiptURL = output.appendingPathExtension("provenance.json")
         let receipt = try jsonObject(receiptURL)
         // Lane 13.51. The receipt names the leaf whose durable replay it carries and keeps the request's workflow.
-        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-xlsx")
+        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export")
         XCTAssertEqual(receipt["requestWorkflowName"] as? String, "lungfish genotype export")
         XCTAssertEqual(receipt["toolName"] as? String, "lungfish-cli")
         XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, output.path)
@@ -1159,5 +1159,11 @@ print(json.dumps({
             JSONSerialization.jsonObject(with: Data(contentsOf: url))
                 as? [String: Any]
         )
+    }
+
+    /// The unified export names its own command as the receipt's workflow (MD77).
+    func testUnifiedExportCommandPathNamesItsOwnCommand() {
+        XCTAssertEqual(GenotypeExportSubcommand.commandPath, ["genotype", "export"])
+        XCTAssertEqual(GenotypeExportSubcommand.commandPath.last, GenotypeExportSubcommand.configuration.commandName)
     }
 }

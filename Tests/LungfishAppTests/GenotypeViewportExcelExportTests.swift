@@ -201,7 +201,7 @@ final class GenotypeViewportExcelExportTests: XCTestCase {
         let receipt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: provenanceURL)) as? [String: Any])
         // The prediction rows of lane 12.35 (BIO 7). The leaf records its replay and names the request's workflow,
         // and since lane 13.51 the receipt names the leaf as its workflow and the request's under its own key.
-        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName(commandPath: GenotypeWorkbookExport.commandPath))
         XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.excel.replay")
         XCTAssertEqual((receipt["runtimeContext"] as? [String: String])?["originalWorkflowName"], "genotype.export.excel")
         XCTAssertEqual(receipt["toolVersion"] as? String, LungfishAppVersion.short)

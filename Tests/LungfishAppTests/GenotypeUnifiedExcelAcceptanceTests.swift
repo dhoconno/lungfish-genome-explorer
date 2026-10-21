@@ -301,7 +301,7 @@ assert w['Haplotype Calls']['G2'].value=='noHaplotype'
                 argv: [replay.path, "genotype", "export-xlsx"],
                 options: ["matrixMinimumReads": snapshot.metadata.first { $0.first == "Minimum reads" }?[1] ?? ""],
                 defaults: ["filteredEvidenceRowPolicy": GenotypeExcelSnapshotBuilder.filteredEvidenceRowPolicy],
-                runtimeContext: ["environment": "managed-openpyxl"]))
+                runtimeContext: ["environment": "managed-openpyxl"]), commandPath: GenotypeWorkbookExport.commandPath)
     }
 
     private func verifyMiSeqArtifact(_ workbook: URL, snapshotURL: URL) throws {

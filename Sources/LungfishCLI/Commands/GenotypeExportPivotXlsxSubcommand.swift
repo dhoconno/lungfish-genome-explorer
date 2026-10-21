@@ -11,6 +11,9 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         abstract: "Export a one-way genotype XLSX report with All and Filtered matrices."
     )
 
+    /// The CLI command path the receipt names as its workflow, `lungfish genotype export-pivot-xlsx`.
+    static let commandPath = ["genotype", "export-pivot-xlsx"]
+
     enum PercentBasis: String, CaseIterable, ExpressibleByArgument, Sendable {
         case viewedLocus = "viewed-locus"
         case sampleRetained = "sample-retained"
@@ -110,6 +113,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 activeHaplotypeDefinitionID: nil,
                 filter: filter,
                 workflowName: "genotype.export.pivot-xlsx",
+                commandPath: Self.commandPath,
                 argv: GenotypeExcelCLIExportSupport.invocation(fallback: argv),
                 options: [
                     "bundle": bundleURL.path,

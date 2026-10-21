@@ -48,7 +48,7 @@ final class GenotypeExcelRunPythonPinTests: XCTestCase {
         with python: URL, to output: URL
     ) async throws -> GenotypeExcelExportService.ExportResult {
         try await GenotypeExcelExportService(pythonExecutableURL: python).export(
-            snapshot: try makeSnapshot(), outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"])
+            snapshot: try makeSnapshot(), outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
         )
     }
 
@@ -167,7 +167,7 @@ final class GenotypeExcelRunPythonPinTests: XCTestCase {
         let snapshot = try makeSnapshot()
         let task = Task {
             try await GenotypeExcelExportService(pythonExecutableURL: python).export(
-                snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"])
+                snapshot: snapshot, outputURL: output, provenance: .init(toolVersion: "test", argv: ["test"]), commandPath: GenotypeWorkbookExport.commandPath
             )
         }
         var rendererPID: Int32?

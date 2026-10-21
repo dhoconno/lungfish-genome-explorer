@@ -87,7 +87,7 @@ final class GenotypePipelineReportArtifactOwnershipTests: XCTestCase {
             outputURL: root.appendingPathComponent("report.xlsx"), provenance: .init(toolVersion: "test",
                 argv: ["lungfish-cli", "genotype", "export-xlsx"],
                 inputs: [.init(path: root.appendingPathComponent("in-memory-input").path,
-                    data: Data("scientific input witness".utf8), verifyCurrentFile: false)]))
+                    data: Data("scientific input witness".utf8), verifyCurrentFile: false)]), commandPath: GenotypeWorkbookExport.commandPath)
         let bytes = try Dictionary(uniqueKeysWithValues: export.artifactURLs.map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
         return .init(root: root, export: export, bytes: bytes)
     }

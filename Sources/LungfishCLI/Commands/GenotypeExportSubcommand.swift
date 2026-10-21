@@ -191,10 +191,10 @@ private final class GenotypeExportRollbackWitnessTracker:
 /// provenance-`inspectOnly` (`cli.genotype` policy) — it never modifies the
 /// bundle or its sidecar.
 struct GenotypeExportSubcommand: AsyncParsableCommand {
+    static let commandPath = ["genotype", "export"]
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export a genotype bundle (or a rendered view projection) as XLSX/CSV/TSV."
-    )
+        abstract: "Export a genotype bundle (or a rendered view projection) as XLSX/CSV/TSV.")
 
     /// Export container format.
     enum ExportFormat: String, ExpressibleByArgument, CaseIterable, Sendable {
@@ -466,7 +466,7 @@ struct GenotypeExportSubcommand: AsyncParsableCommand {
                 samples: samples,
                 activeHaplotypeDefinitionID: activeHaplotypeDefinition,
                 filter: scientificFilter,
-                workflowName: "lungfish genotype export",
+                workflowName: "lungfish genotype export", commandPath: Self.commandPath,
                 argv: GenotypeExcelCLIExportSupport.invocation(fallback: argv),
                 options: [
                     "bundle": bundleURL.path,

@@ -104,14 +104,15 @@ public struct GenotypeExcelExportService: Sendable {
     }
 
     public func export(snapshot: GenotypeWorkbookPresentation.Snapshot, outputURL: URL,
-                       provenance: ProvenanceRequest, replacingExisting: Bool = true) async throws -> ExportResult {
+                       provenance: ProvenanceRequest, commandPath: [String],
+                       replacingExisting: Bool = true) async throws -> ExportResult {
         try Task.checkCancellation()
         try GenotypeExcelSnapshotBuilder.validate(snapshot)
         let fm = FileManager.default
         let output = outputURL.standardizedFileURL
         let receipt = output.appendingPathExtension("provenance.json")
-        guard !provenance.toolVersion.isEmpty, !provenance.argv.isEmpty else {
-            throw ExportError.invalidInput("tool version and invocation are required")
+        guard !provenance.toolVersion.isEmpty, !provenance.argv.isEmpty, !commandPath.isEmpty else {
+            throw ExportError.invalidInput("tool version, invocation and command path are required")
         }
         for input in provenance.inputs {
             guard URL(fileURLWithPath: input.path).standardizedFileURL != output,
@@ -231,7 +232,8 @@ public struct GenotypeExcelExportService: Sendable {
         }
         let runtime = try JSONSerialization.jsonObject(with: runtimeData)
         let record: [String: Any] = [
-            "schemaVersion": 1, "workflowName": Self.receiptWorkflowName, "requestWorkflowName": provenance.workflowName,
+            "schemaVersion": 1, "workflowName": Self.receiptWorkflowName(commandPath: commandPath),
+            "requestWorkflowName": provenance.workflowName,
             "toolName": CLICommandIdentity.executableName, "toolKind": Self.receiptToolKind,
             "toolVersion": provenance.toolVersion, "argv": provenance.argv, "executedArgv": executedArgv,
             "durableReplayArgv": replayArgv, "replayCommand": replayArgv.map(Self.shellQuote).joined(separator: " "),
@@ -279,23 +281,27 @@ public struct GenotypeExcelExportService: Sendable {
         return try encoder.encode(value)
     }
 
-    /// The workflow every workbook receipt names, the `lungfish-cli` leaf whose durable replay the receipt carries.
-    /// The command that writes a workbook is that leaf even when the app runs it (ARCH-12.35-B1), so the receipt names
-    /// tool ``CLICommandIdentity/executableName`` with kind `cli`, and keeps the caller's workflow as
-    /// `requestWorkflowName` (Phase 2.13 lane 13.51).
-    public static let receiptWorkflowName = (["lungfish"] + GenotypeWorkbookExport.commandPath).joined(separator: " ")
+    /// The workflow a workbook receipt names, `lungfish` and the CLI command path of the command that ran. The leaf
+    /// `genotype export-xlsx` names itself when the app runs it (ARCH-12.35-B1), and the pivot, unified and pipeline
+    /// callers name their own command. The receipt names tool ``CLICommandIdentity/executableName`` with kind `cli`,
+    /// keeps the caller's request workflow as `requestWorkflowName` and carries the leaf's replay as
+    /// `durableReplayArgv` (Phase 2.13 lane 13.51, MD77).
+    public static func receiptWorkflowName(commandPath: [String]) -> String {
+        (["lungfish"] + commandPath).joined(separator: " ")
+    }
     /// The tool kind every workbook receipt names.
     public static let receiptToolKind = "cli"
     /// The tool name of a workbook receipt written before Phase 2.13 lane 13.51. Readers still accept it.
     public static let legacyReceiptToolName = "lungfish genotype Excel export"
 
     /// Whether `receipt` is a workbook receipt this service writes, in its current shape or in the shape before
-    /// Phase 2.13 lane 13.51.
+    /// Phase 2.13 lane 13.51. The current shape is tool `lungfish-cli`, kind `cli` and a `requestWorkflowName`, a key
+    /// only this service writes, so the workflow may name any command that ran this writer.
     public static func isWorkbookReceipt(_ receipt: [String: Any]) -> Bool {
         let toolName = receipt["toolName"] as? String
         if toolName == legacyReceiptToolName { return true }
         return toolName == CLICommandIdentity.executableName && receipt["toolKind"] as? String == receiptToolKind
-            && receipt["workflowName"] as? String == receiptWorkflowName
+            && receipt["requestWorkflowName"] is String
     }
 
     private func verify(_ inputs: [InputWitness]) throws {

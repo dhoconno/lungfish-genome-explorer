@@ -2917,7 +2917,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             finalDirectory: request.outputDirectory, manifest: manifest, analysis: analysis,
             definition: try analysis.map { _ in try JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self,
                 from: Data(contentsOf: haplotypeDefinitionSnapshotURL(for: request))) }, catalog: catalog,
-            python: pythonURL, argv: request.argv, condaRoot: condaManager.rootPrefix)
+            python: pythonURL, argv: request.argv, commandPath: request.commandPath, condaRoot: condaManager.rootPrefix)
         try reportArtifacts.captureExport(exported)
         return ReportStepResult(arguments: Array(exported.execution.executedArgv.dropFirst()),
             stdout: "", stderr: exported.execution.stderr, wallClockSeconds: runClock.elapsed,

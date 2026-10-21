@@ -113,7 +113,7 @@ final class GenotypePivotFilteredCopyTests: XCTestCase {
         XCTAssertEqual((receipt["output"] as? [String: Any])?["path"] as? String, output.path)
         XCTAssertEqual(receipt["receiptPath"] as? String, receiptURL.path)
         XCTAssertEqual(receipt["exitStatus"] as? Int, 0)
-        XCTAssertEqual(receipt["workflowName"] as? String, GenotypeExcelExportService.receiptWorkflowName)
+        XCTAssertEqual(receipt["workflowName"] as? String, "lungfish genotype export-pivot-xlsx")
         XCTAssertEqual(receipt["requestWorkflowName"] as? String, "genotype.export.pivot-xlsx")
         XCTAssertFalse((receipt["durableReplayArgv"] as? [String] ?? []).isEmpty)
         XCTAssertFalse((receipt["inputs"] as? [[String: Any]] ?? []).isEmpty)
@@ -576,5 +576,12 @@ print(json.dumps({
                 with: stdout.fileHandleForReading.readDataToEndOfFile()
             ) as? [String: Any]
         )
+    }
+
+    /// The pivot export names its own command as the receipt's workflow (MD77).
+    func testPivotExportCommandPathNamesItsOwnCommand() {
+        XCTAssertEqual(GenotypeExportPivotXlsxSubcommand.commandPath, ["genotype", "export-pivot-xlsx"])
+        XCTAssertEqual(GenotypeExportPivotXlsxSubcommand.commandPath.last,
+                       GenotypeExportPivotXlsxSubcommand.configuration.commandName)
     }
 }
