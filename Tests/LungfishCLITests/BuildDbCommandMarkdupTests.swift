@@ -6,6 +6,7 @@ import XCTest
 import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class BuildDbCommandMarkdupTests: XCTestCase {
     private func findFixtureDir(_ name: String) -> URL {
@@ -309,6 +310,51 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
             )
             let normalizedExpected = row.readsAligned > 0 ? max(expected, 1) : 0
             XCTAssertEqual(row.uniqueReads, normalizedExpected, "DB unique_reads must match normalized samtools count")
+        }
+    }
+
+    /// BIO's Q-A3 item 5 (review of lane 13.15 M2, fix 1). The stages of one BAM's duplicate marking are recorded as
+    /// a chain in which each stage depends on the stage before it, so the record beside a BAM keeps the `fixmate`
+    /// and the coordinate `sort` of its own marking, which name no file, and drops those of the other BAMs. The
+    /// stand-in samtools runs the real tracker over each BAM of the fixture, and the folder record holds its steps.
+    func testTheMarkdupStagesAreRecordedAsADependencyChain() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let tmp = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+
+        let resultDir = tmp.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: findFixtureDir("taxtriage-mini"), to: resultDir)
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let record = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: resultDir))
+        let samtools = record.steps.filter { $0.toolName == "samtools" }
+        func subcommand(_ step: ProvenanceStep) -> String? {
+            step.argv.first { ["sort", "fixmate", "markdup", "index"].contains($0) }
+        }
+        func isNameSort(_ step: ProvenanceStep) -> Bool {
+            subcommand(step) == "sort" && step.argv.contains("-n")
+        }
+        let fixmates = samtools.filter { subcommand($0) == "fixmate" }
+        XCTAssertFalse(fixmates.isEmpty, "the folder record holds the markdup stages, \(samtools.map(\.argv))")
+        for fixmate in fixmates {
+            let label = fixmate.argv.joined(separator: " ")
+            let nameSorts = samtools.filter { isNameSort($0) && fixmate.dependsOn == [$0.id] }
+            XCTAssertEqual(nameSorts.count, 1, "the fixmate `\(label)` depends on exactly one name sort")
+            XCTAssertEqual(nameSorts.first?.dependsOn, [], "the name sort starts the chain")
+            let sorts = samtools.filter { subcommand($0) == "sort" && !isNameSort($0) && $0.dependsOn == [fixmate.id] }
+            XCTAssertEqual(sorts.count, 1, "exactly one coordinate sort depends on the fixmate `\(label)`")
+            guard let sort = sorts.first else { continue }
+            let marks = samtools.filter { subcommand($0) == "markdup" && $0.dependsOn == [sort.id] }
+            XCTAssertEqual(marks.count, 1, "exactly one markdup depends on that coordinate sort")
+            guard let mark = marks.first else { continue }
+            let indexes = samtools.filter { subcommand($0) == "index" && $0.dependsOn == [mark.id] }
+            XCTAssertEqual(indexes.count, 1, "exactly one index depends on that markdup")
         }
     }
 }
