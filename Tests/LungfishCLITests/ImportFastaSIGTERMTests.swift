@@ -8,8 +8,10 @@
 // no `.processing` file, and no process behind. It writes no cancelled record, because the helper
 // route it replaces wrote none (ruling A48 F2, L5). The built lungfish-cli runs against a stand-in
 // bgzip that writes its process ID and then sleeps, so the leaf is known to be building when the
-// signal arrives, and no real tool and no network are needed. The cancel after the build, with
-// `--annotations`, needs the real tools and is `ImportFastaAnnotatedSIGTERMConformanceTests`.
+// signal arrives, and no real tool and no network are needed. A `.zst` input runs a stand-in zstd the
+// same way, which the leaf finds as a managed tool in the same stub conda root (13.17 M3). The cancel
+// after the build, with `--annotations`, needs the real tools and is
+// `ImportFastaAnnotatedSIGTERMConformanceTests`.
 
 import Foundation
 import XCTest
@@ -54,20 +56,21 @@ final class ImportFastaSIGTERMTests: XCTestCase {
 
     /// A SIGTERM while the leaf waits for the decompressor of a compressed input is acted on as well
     /// (A48 M3 review, Fix 1). The stand-in zstd writes its process ID and sleeps, so the leaf is
-    /// known to be decompressing when the signal arrives. The leaf must end the decompressor, remove
-    /// its temporary folder and the marker, and exit 125 inside the grace, where it stayed blocked
-    /// until the harness killed it before.
+    /// known to be decompressing when the signal arrives. The leaf finds zstd as a managed tool since
+    /// lane 13.17 M3, so the stand-in is staged in a stub conda root, as the first test stages its bgzip.
+    /// The leaf must end the decompressor, remove its temporary folder and the marker, and exit 125
+    /// inside the grace, where it stayed blocked until the harness killed it before.
     func testAReferenceImportTurnsSIGTERMDuringDecompressionIntoACancelAndLeavesNothing() async throws {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let source = root.appendingPathComponent("ref.fa.zst")
         try Data().write(to: source)
         let pidFile = root.appendingPathComponent("zstd.pid")
-        let stubs = try Self.stubZstdFolder(in: root, pidFile: pidFile)
+        let condaRoot = try Self.stubCondaRoot(in: root, pidFile: pidFile)
 
         let run = try CLISIGTERMHarness.launchCLI(
             ["import", "fasta", source.path, "--output-dir", project.path, "--name", "Mid decompression", "--format", "json"],
-            environment: ["PATH": "\(stubs.path):/usr/bin:/bin"],
+            environment: ["LUNGFISH_CONDA_ROOT": condaRoot.path],
             workingDirectory: root,
             testClass: Self.self
         )
@@ -117,24 +120,12 @@ final class ImportFastaSIGTERMTests: XCTestCase {
         return found.sorted()
     }
 
-    /// A folder with a `zstd` that writes `$$` and then sleeps. `/usr/bin/env zstd` finds it first
-    /// when the folder leads the child's PATH.
-    private static func stubZstdFolder(in root: URL, pidFile: URL) throws -> URL {
-        let folder = root.appendingPathComponent("stubs", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let zstd = folder.appendingPathComponent("zstd")
-        try """
-        #!/bin/sh
-        echo $$ > '\(pidFile.path)'
-        exec sleep 120
-        """.write(to: zstd, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: zstd.path)
-        return folder
-    }
-
-    /// A conda root whose bgzip and samtools answer a version probe, and whose bgzip sleeps on any
-    /// other call, after it wrote `$$`. The CLI reads the root from `LUNGFISH_CONDA_ROOT`, so the
-    /// stand-ins win over any real tool whatever app identity the built CLI has.
+    /// A conda root whose bgzip, samtools and zstd answer a version probe, and whose bgzip and zstd sleep on
+    /// any other call, after they wrote `$$`. A reference build reaches bgzip and a compressed input reaches
+    /// zstd, so one process ID file serves both tests. The CLI reads the root from `LUNGFISH_CONDA_ROOT`, so
+    /// the stand-ins win over any real tool whatever app identity the built CLI has. Since lane 13.17 M3 the
+    /// leaf finds zstd as a managed tool, in `envs/zstd/bin`, and runs it with an empty environment, so its
+    /// stand-in sleeps through the absolute `/bin/sleep`, which needs no PATH.
     private static func stubCondaRoot(in root: URL, pidFile: URL) throws -> URL {
         let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
         let bgzip = """
@@ -145,12 +136,23 @@ final class ImportFastaSIGTERMTests: XCTestCase {
         echo $$ > '\(pidFile.path)'
         exec sleep 120
         """
+        let zstd = """
+        #!/bin/sh
+        case "$1" in
+          --version) echo "*** Zstandard CLI (64-bit) v1.5.7, by Yann Collet ***"; exit 0 ;;
+        esac
+        echo $$ > '\(pidFile.path)'
+        exec /bin/sleep 120
+        """
         let samtools = """
         #!/bin/sh
         echo "samtools 1.20"
         exit 0
         """
-        for (path, script) in [("envs/htslib/bin/bgzip", bgzip), ("envs/samtools/bin/samtools", samtools)] {
+        let stubs = [
+            ("envs/htslib/bin/bgzip", bgzip), ("envs/samtools/bin/samtools", samtools), ("envs/zstd/bin/zstd", zstd),
+        ]
+        for (path, script) in stubs {
             let binary = condaRoot.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
             try script.write(to: binary, atomically: true, encoding: .utf8)
