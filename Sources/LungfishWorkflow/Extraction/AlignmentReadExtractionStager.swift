@@ -211,7 +211,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 internalRecord(
                     stage: .payloadStaging,
                     toolName: "lungfish alignment FASTQ merge",
-                    argv: ["Lungfish.app", "alignment", "extract", "merge-fastq", outputFASTQ.path],
+                    argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "merge-fastq", outputFASTQ.path],
                     inputs: descriptors(forExisting: [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ], role: .input),
                     outputs: [],
                     exitStatus: 1,
@@ -238,7 +238,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             internalRecord(
                 stage: .payloadStaging,
                 toolName: "lungfish alignment FASTQ merge",
-                argv: ["Lungfish.app", "alignment", "extract", "merge-fastq", outputFASTQ.path],
+                argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "merge-fastq", outputFASTQ.path],
                 inputs: descriptors(forExisting: [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ], role: .input),
                 outputs: descriptors(forExisting: [outputFASTQ], role: .output, format: .fastq),
                 exitStatus: 0,
@@ -546,7 +546,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         records.append(internalRecord(
             stage: .payloadStaging,
             toolName: "lungfish alignment extraction payload finalizer",
-            argv: ["Lungfish.app", "alignment", "extract", "finalize-qname-payloads"],
+            argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "finalize-qname-payloads"],
             inputs: descriptors(forExisting: [outputURL, singletonURL, readNameURL], role: .input),
             outputs: descriptors(forExisting: stagedFiles.map(\.stagedURL), role: .output),
             exitStatus: 0,
