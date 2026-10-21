@@ -226,4 +226,30 @@ final class WorkflowOperationExecutionServiceCancelTests: XCTestCase {
             try await service.run(.twelveSAmpliconMatching(configuration))
         }
     }
+
+    /// `runFullLengthONTMHCGenotyping` is private and reached through `run(_:)`. The CLI publishes the bundle in one
+    /// step, so the app leaves the bundle path absent and a cancelled run leaves none.
+    func testCancelOfTheFullLengthONTMHCGenotypingEndsTheRowAndLeavesNoProcessWithEveryCoreBusy() async throws {
+        let site = try makeSite()
+        let root = site.standIn.root
+        let reads = root.appendingPathComponent("NB13.lungfishfastq", isDirectory: true)
+        let reference = root.appendingPathComponent("Mamu-class-I.lungfishmhcref", isDirectory: true)
+        for directory in [reads, reference] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let request = FullLengthONTMHCGenotypingRunRequest(
+            inputFASTQURLs: [reads],
+            referenceSourceURL: reference,
+            outputDirectory: root.appendingPathComponent("Analyses/nb13-full-length.lungfishgenotype", isDirectory: true),
+            outputName: "nb13-full-length",
+            threads: 4
+        )
+        let service = site.service
+
+        try await assertCancelEndsTheRowAndLeavesNoProcess(
+            site, rowTitle: "Full-Length ONT MHC Genotyping", absent: [request.outputDirectory]
+        ) {
+            try await service.run(.fullLengthONTMHCGenotyping(request))
+        }
+    }
 }
