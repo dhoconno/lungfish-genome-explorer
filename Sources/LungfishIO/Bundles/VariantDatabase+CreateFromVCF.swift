@@ -396,8 +396,8 @@ extension VariantDatabase {
         var writesSinceCommit = 0
         var transactionCommitCount = 0
 
-        // Track all structured INFO fields with pipe-delimited sub-fields (key → sub-field names)
-        var structuredInfoFields: [String: [String]] = [:]
+        // The part names of the structured INFO fields, built once from the ##INFO header lines.
+        var structuredInfoFields = StructuredINFOFieldNames()
 
         // Collect contig lengths from ##contig header lines for chromosome alias mapping
         var contigLengths: [String: Int64] = [:]
@@ -554,43 +554,22 @@ extension VariantDatabase {
             if line.first == "#" {
                 guard parseHeaders else { return }
 
-                // Parse ##INFO=<...> header lines for structured INFO definitions
+                // Parse ##INFO=<...> header lines. Every profile records the part names of the structured fields
+                // (db_metadata keeps them for the ultra-low-memory materializer). A profile that fills variant_info
+                // also stores each definition and one for each part.
                 if line.hasPrefix("##INFO=") {
-                    // When skipping variant_info, we don't need to parse or store INFO defs
+                    guard let def = parseINFODefinition(line.dropFirst(7)) else { return }
+                    let partNames = structuredInfoFields.register(id: def.id, description: def.description) ?? []
                     if !tuning.skipVariantInfo, let insertInfoDefStmt {
-                        let content = line.dropFirst(7)
-                        if let def = parseINFODefinition(content) {
+                        let partDefs = partNames.map { ("\(def.id)_\($0)", "String", ".", "\(def.id) sub-field: \($0)") }
+                        for (key, type, number, description) in [(def.id, def.type, def.number, def.description)] + partDefs {
                             sqlite3_reset(insertInfoDefStmt)
-                            variantDBBindText(insertInfoDefStmt, 1, def.id)
-                            variantDBBindText(insertInfoDefStmt, 2, def.type)
-                            variantDBBindText(insertInfoDefStmt, 3, def.number)
-                            variantDBBindText(insertInfoDefStmt, 4, def.description)
+                            variantDBBindText(insertInfoDefStmt, 1, key)
+                            variantDBBindText(insertInfoDefStmt, 2, type)
+                            variantDBBindText(insertInfoDefStmt, 3, number)
+                            variantDBBindText(insertInfoDefStmt, 4, description)
                             sqlite3_step(insertInfoDefStmt)
                             writesSinceCommit += 1
-
-                            // Detect structured fields with pipe-delimited sub-fields from Description
-                            // e.g., CSQ: "...Format: Allele|Consequence|IMPACT|SYMBOL|Gene|..."
-                            if let formatRange = def.description.range(of: "Format: ", options: .caseInsensitive) {
-                                let formatStr = String(def.description[formatRange.upperBound...])
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                                let subFields = formatStr.split(separator: "|").map(String.init)
-                                if subFields.count >= 2 {
-                                    structuredInfoFields[def.id] = subFields
-                                    // Register each sub-field as a separate info def
-                                    for subField in subFields {
-                                        let subKey = "\(def.id)_\(subField)"
-                                        sqlite3_reset(insertInfoDefStmt)
-                                        variantDBBindText(insertInfoDefStmt, 1, subKey)
-                                        variantDBBindText(insertInfoDefStmt, 2, "String")
-                                        variantDBBindText(insertInfoDefStmt, 3, ".")
-                                        variantDBBindText(insertInfoDefStmt, 4, "\(def.id) sub-field: \(subField)")
-                                        sqlite3_step(insertInfoDefStmt)
-                                        writesSinceCommit += 1
-                                    }
-                                    variantDBLogger.info("createFromVCF: Found structured INFO field '\(def.id)' with \(subFields.count) sub-fields")
-                                }
-                            }
                         }
                         try rotateImportTransactionIfNeeded()
                     }
@@ -667,6 +646,10 @@ extension VariantDatabase {
                             writesSinceCommit += 1
                             variantDBLogger.info("createFromVCF: Stored \(contigLengths.count) contig lengths from VCF header")
                         }
+                    }
+                    if let formats = structuredInfoFields.metadataValue {
+                        Self.insertMetadataRow(db, key: StructuredINFOFieldNames.metadataKey, value: formats, replace: true)
+                        writesSinceCommit += 1
                     }
 
                     try rotateImportTransactionIfNeeded()
@@ -767,63 +750,13 @@ extension VariantDatabase {
                     for field in infoStr.split(separator: ";") {
                         if infoKeyLimit > 0 && infoKeysInserted >= infoKeyLimit { break }
 
-                        let parts = field.split(separator: "=", maxSplits: 1)
-                        let key: String
-                        let value: Substring
-                        if parts.count == 2 {
-                            key = String(parts[0])
-                            value = parts[1]
-                        } else if parts.count == 1 {
-                            key = String(parts[0])
-                            value = "true"
-                        } else {
-                            continue
-                        }
-
-                        // Check if this is a structured field with pipe-delimited sub-fields (e.g., CSQ)
-                        if let subFieldNames = structuredInfoFields[key] {
-                            // Split by comma for multiple entries (e.g., overlapping transcripts/frames)
-                            // and aggregate unique values per sub-field so downstream table/hover logic
-                            // can surface all possible impacts.
-                            let entries = value.split(separator: ",")
-                            var aggregatedByField: [String: [String]] = [:]
-                            for entry in entries {
-                                let subValues = entry.split(separator: "|", omittingEmptySubsequences: false)
-                                for (idx, subFieldName) in subFieldNames.enumerated() {
-                                    let subValue = idx < subValues.count
-                                        ? String(subValues[idx]).trimmingCharacters(in: .whitespacesAndNewlines)
-                                        : ""
-                                    guard !subValue.isEmpty else { continue }
-                                    aggregatedByField[subFieldName, default: []].append(subValue)
-                                }
-                            }
-                            for subFieldName in subFieldNames {
-                                guard let values = aggregatedByField[subFieldName], !values.isEmpty else { continue }
-                                let deduped = Self.orderedUniqueStrings(values)
-                                guard !deduped.isEmpty else { continue }
-                                let subKey = "\(key)_\(subFieldName)"
-                                sqlite3_reset(insertInfoStmt)
-                                sqlite3_bind_int64(insertInfoStmt, 1, variantRowId)
-                                variantDBBindText(insertInfoStmt, 2, subKey)
-                                variantDBBindText(insertInfoStmt, 3, deduped.joined(separator: ","))
-                                sqlite3_step(insertInfoStmt)
-                                writesSinceCommit += 1
-                            }
-                            // Also store entry count if multiple transcripts
-                            if entries.count > 1 {
-                                sqlite3_reset(insertInfoStmt)
-                                sqlite3_bind_int64(insertInfoStmt, 1, variantRowId)
-                                variantDBBindText(insertInfoStmt, 2, "\(key)_entries")
-                                variantDBBindText(insertInfoStmt, 3, String(entries.count))
-                                sqlite3_step(insertInfoStmt)
-                                writesSinceCommit += 1
-                            }
-                        } else {
-                            // Standard scalar INFO field
+                        // The raw row, then for a field the header or the ANN and CSQ templates mark as structured
+                        // its parts, entry count and ANN aliases, the rows the ultra-low-memory materializer writes.
+                        Self.forEachINFORow(field: field, names: structuredInfoFields) { key, value in
                             sqlite3_reset(insertInfoStmt)
                             sqlite3_bind_int64(insertInfoStmt, 1, variantRowId)
                             variantDBBindText(insertInfoStmt, 2, key)
-                            variantDBBindText(insertInfoStmt, 3, String(value))
+                            variantDBBindText(insertInfoStmt, 3, value)
                             sqlite3_step(insertInfoStmt)
                             writesSinceCommit += 1
                         }
