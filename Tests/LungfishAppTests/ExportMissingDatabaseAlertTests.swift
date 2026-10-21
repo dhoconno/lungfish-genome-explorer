@@ -76,7 +76,8 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
     }
 
     private func assertNothingStarted(
-        _ window: NSWindow?, rowsBefore: Int, folder: URL, file: StaticString = #filePath, line: UInt = #line
+        _ window: NSWindow?, rowsBefore: Int, folder: URL, expectedFiles: [String] = [],
+        file: StaticString = #filePath, line: UInt = #line
     ) {
         XCTAssertNil(window?.attachedSheet, "no save panel opened", file: file, line: line)
         XCTAssertEqual(
@@ -84,8 +85,8 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
             file: file, line: line
         )
         XCTAssertEqual(
-            (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? ["unreadable"], [],
-            "the export wrote no file", file: file, line: line
+            ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? ["unreadable"]).sorted(),
+            expectedFiles.sorted(), "the export wrote no file", file: file, line: line
         )
     }
 
@@ -207,13 +208,26 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
     }
 
     /// A TaxTriage viewer in a window with its one sample picked. It opened from a database that sits in another
-    /// folder, so the result folder it exports from holds no database, the shape the NVD test above uses.
+    /// folder, so the result folder it exports from holds no database, the shape the NVD test above uses. With
+    /// `withSidecar` the result folder also holds the run's `taxtriage-result.json`, which `configureFromDatabase`
+    /// loads into `taxTriageResult` and `taxTriageConfig`, the two things the batch report action needs.
     private func makeTaxTriageViewWithoutItsDatabase(
-        _ name: String
+        _ name: String, withSidecar: Bool = false
     ) throws -> (vc: TaxTriageResultViewController, window: NSWindow, presenter: RecordingExportFailurePresenter, folder: URL) {
         let folder = try makeFolder(name)
         let databaseURL = try makeFolder("\(name)-database").appendingPathComponent("taxtriage.sqlite")
         _ = try TaxTriageDatabase.create(at: databaseURL, rows: [Self.taxTriageRow()], metadata: ["tool": "taxtriage"])
+        if withSidecar {
+            let config = TaxTriageConfig(
+                samples: [TaxTriageSample(sampleId: "sample-1", fastq1: folder.appendingPathComponent("sample-1.fastq.gz"))],
+                outputDirectory: folder
+            )
+            let result = TaxTriageResult(config: config, runtime: 1, exitCode: 0, outputDirectory: folder)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(result).write(to: folder.appendingPathComponent("taxtriage-result.json"))
+        }
         let vc = TaxTriageResultViewController()
         let window = host(vc)
         let presenter = RecordingExportFailurePresenter()
@@ -231,6 +245,20 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
 
         assertOneAlert(presenter.alerts, tool: "TaxTriage")
         assertNothingStarted(window, rowsBefore: rowsBefore, folder: folder)
+    }
+
+    func testTaxTriageBatchReportExportStopsWithOneAlertWhenTheDatabaseIsGone() throws {
+        let (vc, window, presenter, folder) = try makeTaxTriageViewWithoutItsDatabase(
+            "taxtriage-batch-report-gone", withSidecar: true
+        )
+        XCTAssertNotNil(vc.taxTriageResult, "the sidecar loaded, so the action cannot return silently on it")
+        XCTAssertNotNil(vc.taxTriageConfig, "the sidecar loaded, so the action cannot return silently on it")
+        let rowsBefore = OperationCenter.shared.items.count
+
+        _ = vc.perform(NSSelectorFromString("exportBatchReportAction:"), with: vc)
+
+        assertOneAlert(presenter.alerts, tool: "TaxTriage")
+        assertNothingStarted(window, rowsBefore: rowsBefore, folder: folder, expectedFiles: ["taxtriage-result.json"])
     }
 
     func testKraken2CheckShowsOneAlertWhenTheSourceFileIsGone() throws {

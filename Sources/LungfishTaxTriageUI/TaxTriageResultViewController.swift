@@ -3360,7 +3360,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard let window = view.window,
               taxTriageResult != nil,
               taxTriageConfig != nil,
-              !exportSelectedSampleIds().isEmpty else { return }
+              !exportSelectedSampleIds().isEmpty, exportDatabaseIsPresent(in: window) else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
             title: "Export Batch Report",
