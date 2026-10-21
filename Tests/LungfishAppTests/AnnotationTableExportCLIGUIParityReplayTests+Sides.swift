@@ -300,6 +300,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
     }
 
     static func collectCase(_ parityCase: Case, in root: URL) async throws -> Collected {
+        if parityCase.bundleWide { return try await collectBundleWide(parityCase, in: root) }
         if parityCase.derived { return try await collectDerived(parityCase, in: root) }
         return try collect(parityCase.tab, in: root)
     }

@@ -88,15 +88,24 @@ struct AnnotationTableVariantQueryRequest: @unchecked Sendable {
     let numericColumnKeys: Set<String>
     let sortKey: String?
     let sortAscending: Bool
+    /// When set, a derived column filter or sort reads the bundle's CDS over the rows it orders, through the read the
+    /// leaf makes, instead of the viewer's cached CDS (lane 13.38, BIO ruling on M854 item 7 and F7). The drawer sets
+    /// it, and `resolverSnapshot` then gives only the bundle and the chromosome names.
+    var readsBundleCodingFeatures = false
+
+    /// The record's `derivedVariantResolutionScope` of a variant export, in both scopes (BIO ruling on M854 item 8).
+    static let bundleCodingFeatureResolutionScope = "bundle CDS annotations overlapping the exported rows"
 
     func run(
         shouldCancel: @escaping @Sendable () -> Bool,
         preparedResolverSnapshot: VariantTableExportResolverSnapshot? = nil
     ) throws -> [AnnotationSearchIndex.SearchResult] {
         if shouldCancel() { throw AnnotationTableExportQueryError.cancelled }
-        let resolver: VariantTableExportResolverSnapshot
+        var resolver: VariantTableExportResolverSnapshot
         if let preparedResolverSnapshot {
             resolver = preparedResolverSnapshot
+        } else if readsBundleCodingFeatures {
+            resolver = .empty
         } else {
             resolver = try resolverSnapshot.preparingForBackgroundExport(
                 shouldCancel: shouldCancel
@@ -199,6 +208,13 @@ struct AnnotationTableVariantQueryRequest: @unchecked Sendable {
         let derivedKeys: Set<String> = ["coding_feature", "consequence", "aa_change"]
         let needsDerivedValues = variantColumnFilters.contains { derivedKeys.contains($0.key) }
             || sortKey.map { derivedKeys.contains($0) } == true
+        if needsDerivedValues, readsBundleCodingFeatures, preparedResolverSnapshot == nil {
+            // F7. A row outside the view is kept, dropped and placed by the values its exported cells show.
+            resolver = try bundleVariantExportResolver(
+                rows: rows, base: resolverSnapshot, variantChromosomeAliasMap: context.variantAliasMap,
+                shouldCancel: shouldCancel
+            )
+        }
         let resolvedByIdentity: [String: VariantTableExportResolvedFields] = needsDerivedValues
             ? Dictionary(uniqueKeysWithValues: rows.map { row in
                 (variantExportIdentity(row), resolver.resolve(row))
@@ -223,6 +239,20 @@ struct AnnotationTableVariantQueryRequest: @unchecked Sendable {
             resolvedByIdentity: resolvedByIdentity
         )
     }
+}
+
+/// The drawer's derived-column resolver for a variant export, the CDS of every annotation track of the viewer's bundle
+/// that has a database, read over `rows` by `VariantTableBundleCodingFeatures`, the read the leaf makes (lane 13.38,
+/// BIO ruling on M854 item 7). Empty when the viewer shows no bundle.
+func bundleVariantExportResolver(
+    rows: [AnnotationSearchIndex.SearchResult], base: VariantTableExportResolverSnapshot,
+    variantChromosomeAliasMap: [String: String], shouldCancel: @escaping @Sendable () -> Bool
+) throws -> VariantTableExportResolverSnapshot {
+    guard let bundle = base.referenceBundle else { return .empty }
+    return try VariantTableBundleCodingFeatures.resolver(
+        bundle: bundle, trackIDs: VariantTableBundleCodingFeatures.trackIDs(bundle: bundle), rows: rows,
+        variantChromosomeAliasMap: variantChromosomeAliasMap, shouldCancel: shouldCancel
+    )
 }
 
 private func geneCandidateScore(_ row: AnnotationDatabaseRecord, needle: String) -> (Int, Int, Int, String, Int) {

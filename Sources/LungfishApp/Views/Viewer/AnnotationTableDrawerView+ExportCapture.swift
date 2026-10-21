@@ -107,14 +107,23 @@ extension AnnotationTableDrawerView {
             // either scope and never the drawer's placeholder (ARCH ruling on 12.39 R1, "Selected Rows").
             let rows = selected.compactMap { displayedAnnotations.indices.contains($0) ? displayedAnnotations[$0] : nil }
             let sourceURLs = try sources.urls(tab: "variants", trackIDs: Set(rows.map(\.trackId)))
-            let description = variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
+            // Lane 13.38 (BIO ruling on M854 items 7 and 8). Both scopes read the bundle's CDS over the exported rows
+            // with the leaf's read, not the viewer's cache, and the record says so.
+            let description = variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending).merging(
+                ["derivedVariantResolutionScope": AnnotationTableVariantQueryRequest.bundleCodingFeatureResolutionScope]
+            ) { _, new in new }
             let resolverSnapshot = delegate?.annotationDrawerVariantExportResolverSnapshot(self) ?? .empty
+            let aliases = variantChromosomeAliasMap
+            let derivedIDs = [Self.codingFeatureColumn, Self.consequenceColumn, Self.aaChangeColumn].map(\.rawValue)
+            let writesDerived = columns.contains { derivedIDs.contains($0.id) }
             let callerSettingsByTrack = Dictionary(uniqueKeysWithValues: Set(rows.map(\.trackId)).map { trackID in
                 (trackID, searchIndex?.variantCallerSettings(for: trackID) ?? "Not recorded")
             })
             return AnnotationTablePendingExport(runClock: runClock, tab: "variants", scope: scope) { shouldCancel in
                 if shouldCancel() { throw AnnotationTableExportQueryError.cancelled }
-                let resolver = try resolverSnapshot.preparingForBackgroundExport(shouldCancel: shouldCancel)
+                let resolver = try writesDerived ? bundleVariantExportResolver(
+                    rows: rows, base: resolverSnapshot, variantChromosomeAliasMap: aliases, shouldCancel: shouldCancel
+                ) : .empty
                 return AnnotationTableExportSnapshot.captureVariants(
                     rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
                     integerInfoColumnIDs: integerInfoIDs, sourceURLs: sourceURLs, queryDescription: description,
@@ -126,21 +135,23 @@ extension AnnotationTableDrawerView {
             }
 
         case (.variants, .calls, .allMatching):
-            let request = try captureVariantAllMatchingRequest(sortKey: sortKey, ascending: sortAscending)
+            var request = try captureVariantAllMatchingRequest(sortKey: sortKey, ascending: sortAscending)
+            request.readsBundleCodingFeatures = true
             var description = variantExportQueryDescription(sortKey: sortKey, ascending: sortAscending)
             description["resolvedRegion"] = request.region.map { "\($0.chromosome):\($0.start)-\($0.end)" } ?? "genome"
             description["resolvedGeneList"] = request.geneList?.joined(separator: ",") ?? "none"
-            description["derivedVariantResolutionScope"] = "captured cached bundle CDS annotations with off-main reference preparation"
-            description["derivedVariantFeatureCount"] = String(request.resolverSnapshot.features.count)
+            description["derivedVariantResolutionScope"] = AnnotationTableVariantQueryRequest.bundleCodingFeatureResolutionScope
             let capturedDescription = description
+            let capturedRequest = request
+            let derivedIDs = [Self.codingFeatureColumn, Self.consequenceColumn, Self.aaChangeColumn].map(\.rawValue)
+            let writesDerived = columns.contains { derivedIDs.contains($0.id) }
             return AnnotationTablePendingExport(runClock: runClock, tab: "variants", scope: scope) { shouldCancel in
-                let resolver = try request.resolverSnapshot.preparingForBackgroundExport(
+                let request = capturedRequest
+                let rows = try request.run(shouldCancel: shouldCancel)
+                let resolver = try writesDerived ? bundleVariantExportResolver(
+                    rows: rows, base: request.resolverSnapshot, variantChromosomeAliasMap: request.context.variantAliasMap,
                     shouldCancel: shouldCancel
-                )
-                let rows = try request.run(
-                    shouldCancel: shouldCancel,
-                    preparedResolverSnapshot: resolver
-                )
+                ) : .empty
                 return AnnotationTableExportSnapshot.captureVariants(
                     rows, columns: columns, scope: scope, numericInfoColumnIDs: numericInfoIDs,
                     integerInfoColumnIDs: integerInfoIDs,

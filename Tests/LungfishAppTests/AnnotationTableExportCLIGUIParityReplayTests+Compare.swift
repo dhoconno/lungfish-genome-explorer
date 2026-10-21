@@ -218,7 +218,7 @@ extension AnnotationTableExportCLIGUIParityReplayTests {
         XCTAssertEqual(a.toolName, "Lungfish.app")
         XCTAssertEqual(a.tool.kind, "gui")
         XCTAssertEqual(Array(a.argv.prefix(10)), [
-            "Lungfish.app", "export-annotation-table", "--tab", parityCase.tab.rawValue, "--scope", "allMatching",
+            "Lungfish.app", "export-annotation-table", "--tab", parityCase.tab.rawValue, "--scope", parityCase.scope.rawValue,
             "--format", parityCase.format.rawValue, "--output", outputA.path,
         ])
         XCTAssertEqual(Set(a.argv.dropFirst(10).enumerated().filter { $0.offset % 2 == 0 }.map(\.element)), ["--source"])

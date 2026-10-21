@@ -29,8 +29,9 @@ struct AnnotationTableExportLeafFailure: LocalizedError {
 extension AnnotationTableDrawerView {
     /// The panel's capture, with the state the selection file carries frozen at the click (R1 items 2 to 4). The
     /// columns are the ones shown. Numeric and integer ids are the variant tab's INFO columns, the genotype tab's
-    /// `gt` ones, or none. A written derived variant column names the viewer's cached region, or an empty region
-    /// when the viewer cached none, so the leaf names the genome as the drawer does. The sample tab writes the
+    /// `gt` ones, or none. A written derived variant column names every annotation track of the bundle with a
+    /// database in `bundleCodingFeatureTrackIDs`, an empty list when the viewer shows no bundle, so the leaf reads the
+    /// CDS over the exported rows and names the genome (lane 13.38, V1-1). The sample tab writes the
     /// visible flag and display name of every exported row.
     func captureAnnotationTableExport(scope: AnnotationTableExportScope) throws -> AnnotationTablePendingExport {
         var pending = try captureScientificTableExport(scope: scope)
@@ -45,15 +46,17 @@ extension AnnotationTableDrawerView {
         default: typed = ([], [])
         }
         let derivedColumnIDs = [Self.codingFeatureColumn, Self.consequenceColumn, Self.aaChangeColumn].map(\.rawValue)
-        var region: AnnotationTableFeatureRegion?
+        // V1-1 item 2. A written derived column names every annotation track of the bundle that has a database, the
+        // tracks the drawer's read and the leaf's read both take, and no region (lane 13.38).
+        var bundleTrackIDs: [String]?
         if pending.tab == "variants", columns.contains(where: { derivedColumnIDs.contains($0.id) }) {
-            region = (delegate?.annotationDrawerVariantExportResolverSnapshot(self) ?? .empty).codingFeatureRegion
-                ?? AnnotationTableFeatureRegion(chromosome: "", start: 0, end: 0, trackIDs: [])
+            bundleTrackIDs = (delegate?.annotationDrawerVariantExportResolverSnapshot(self) ?? .empty).referenceBundle
+                .map { VariantTableBundleCodingFeatures.trackIDs(bundle: $0) } ?? []
         }
         pending.tableSelection = AnnotationTableExportSelection(
             scope: scope.rawValue, columns: columns,
             numericColumnIDs: Array(typed.numeric), integerColumnIDs: Array(typed.integer),
-            variantChromosomeAliases: variantChromosomeAliasMap, codingFeatureRegion: region
+            variantChromosomeAliases: variantChromosomeAliasMap, bundleCodingFeatureTrackIDs: bundleTrackIDs
         )
         pending.bundleURL = try delegate?.annotationDrawerAdditionalExportSources(self)
             .first { $0.lastPathComponent == BundleManifest.filename }?

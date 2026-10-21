@@ -64,9 +64,16 @@ final class AnnotationTableExportCLIGUIParityReplayTests: XCTestCase {
         /// With `derived`, the fixture adds `chr2`, the track `cds2` and the `chr2` calls, and side A builds its
         /// features as the viewer does while it shows `chr2` (lane 13.38 M1, BIO ruling on M854 item 5).
         var addsChr2 = false
+        /// With `derived`, the selection names `bundleCodingFeatureTrackIDs`, the viewer's cache holds `cdsF` only, and
+        /// side A reads every track over each chromosome of the rows (lane 13.38 M2, `+BundleCDS.swift`).
+        var bundleWide = false
+        /// With `bundleWide`, All Matching sorts by Consequence through the drawer's request.
+        var sortsByConsequence = false
+        var scope: AnnotationTableExportScope = .allMatching
         var description: String {
             "\(tab.rawValue)-\(format.rawValue)" + (derived ? "-derived" : "") + (showsPlainTrack ? "-both" : "")
-                + (addsChr2 ? "-chr2" : "")
+                + (addsChr2 ? "-chr2" : "") + (bundleWide ? "-bundle" : "") + (sortsByConsequence ? "-consequence" : "")
+                + (scope == .allMatching ? "" : "-\(scope.rawValue)")
         }
     }
 
