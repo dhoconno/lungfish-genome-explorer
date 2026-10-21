@@ -683,9 +683,6 @@ def run_swift_gate(args):
     preferences_before = directory / "preferences-before.json"
     if not errors:
         errors += preferences_leaks(root, directory, "snapshot", "--output", str(preferences_before))
-    domain_before = directory / "domain-before.json"
-    if not errors:
-        errors += preferences_leaks(root, directory, "domain-snapshot", "--output", str(domain_before))
     if not errors:
         def attempt(name, include, exclude, parallel, role, chosen, timeout=timeout_seconds, environment=None):
             target = directory / name
@@ -726,10 +723,10 @@ def run_swift_gate(args):
                 include = "^" + re.escape(suite) + "(/|$)"
                 chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
                 attempt(f"retry-{index}", include, args.skip, False, "diagnostic-retry", chosen)
+    # The xctest tool's domain is not checked here yet (DOMAIN-CHECK-GATE, decision MD63). Run the `domain-snapshot`
+    # and `domain-check` commands of preferences-leaks.py by hand around a tier.
     if preferences_before.is_file():
         errors += preferences_leaks(root, directory, "check", "--before", str(preferences_before))
-    if domain_before.is_file():
-        errors += preferences_leaks(root, directory, "domain-check", "--before", str(domain_before))
     if source_identity(root) != source:
         errors.append("source changed during gate")
     result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,

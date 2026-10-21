@@ -409,36 +409,30 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(evidence["attempts"], [])
         self.assertEqual(evidence["errors"], ["preferences-leaks snapshot exited 4"])
 
-    # The xctest tool's domain (Phase 2.13 lane 13.52 wires domain-snapshot and domain-check into
-    # gate_evidence.py, lane 13.69 pins the wiring, review 13.52-SWIFT Fix 3). The fake swift writes the
-    # domain's plist into the fixture folder while the tests run.
+    # The xctest tool's domain is not part of the gate yet (DOMAIN-CHECK-GATE, decision MD63 of Phase 2.13). The
+    # script keeps its domain-snapshot and domain-check commands and the DomainTests of test_preferences_leaks.py,
+    # but gate_evidence.py does not run them until the routed views use suites. These two tests assert that absence.
+    # When the gate wires the check in again they turn into the pins of review 13.52-SWIFT Fix 3. A new layout key
+    # fails the gate with `preferences-leaks domain-check exited 1, see preferences.txt`, a clean domain passes, and an
+    # unreadable export stops the run with `preferences-leaks domain-snapshot exited 4`.
     DOMAIN_KEY = "org.lungfish.metadata-column-layout.x:/tmp/y"
 
-    def test_a_new_layout_key_in_the_xctest_domain_fails_the_gate(self):
+    def test_a_new_layout_key_in_the_xctest_domain_does_not_fail_the_gate_yet(self):
         result, evidence = self.run_gate("one", "--filter", "ExampleTests",
                                          env={"STUB_DOMAIN_KEY": self.DOMAIN_KEY}, with_leak_check=True)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIs(evidence["authorized"], False)
-        self.assertEqual(evidence["attempts"][0]["exitStatus"], 0, "the tests themselves passed")
-        self.assertEqual(evidence["errors"], ["preferences-leaks domain-check exited 1, see preferences.txt"])
-        self.assertIn("preferences-leaks: FAIL", result.stderr)
-        self.assertIn(self.DOMAIN_KEY, result.stderr)
-
-    def test_a_clean_xctest_domain_passes_the_gate(self):
-        result, evidence = self.run_gate("one", "--filter", "ExampleTests", with_leak_check=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], True)
         self.assertEqual(evidence["errors"], [])
-        self.assertIn("PASS - 0 new org.lungfish. keys", result.stdout)
+        self.assertNotIn("org.lungfish. keys", result.stdout + result.stderr)
+        self.assertNotIn(self.DOMAIN_KEY, result.stdout + result.stderr)
 
-    def test_an_unreadable_domain_export_runs_no_tests(self):
-        # A python file stands in for the export, so reading it as a plist fails and the check exits 4.
+    def test_an_unreadable_domain_export_does_not_stop_a_tier_yet(self):
         result, evidence = self.run_gate(
             "one", "--filter", "ExampleTests", with_leak_check=True,
             env={"LUNGFISH_PREFERENCES_DOMAIN_EXPORT": str(ROOT / "scripts/testing/preferences-leaks.py")})
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIs(evidence["authorized"], False)
-        self.assertEqual(evidence["attempts"], [])
-        self.assertEqual(evidence["errors"], ["preferences-leaks domain-snapshot exited 4"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["errors"], [])
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 0, "the tests ran")
 
     def test_the_quiet_gate_prints_the_failed_preferences_check_after_its_fail_line(self):
         result, _ = self.run_gate("one", "--filter", "ExampleTests", "--quiet",

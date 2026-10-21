@@ -8,9 +8,10 @@ only empties that file, so thousands piled up. The preferences daemon writes the
 again seconds after a test removes it, so cleaning up by hand does not last. The shared helper
 TestDefaultsSuite (Tests/Support/LungfishTestSupport) names its suite by a path in the temporary
 directory, which keeps the plist out of the folder. This script is the check around it.
-scripts/release/gate_evidence.py runs `snapshot` and `domain-snapshot` before the tests of every Swift
-gate (a tier or a profile) and `check` and `domain-check` after their processes exit, and records a
-failure as an error in gate.result.json.
+scripts/release/gate_evidence.py runs `snapshot` before the tests of every Swift gate (a tier or a
+profile) and `check` after their processes exit, and records a failure as an error in
+gate.result.json. It does not run `domain-snapshot` and `domain-check` yet. Run them by hand around a
+tier until the routed views use suites (DOMAIN-CHECK-GATE, decision MD63 of Phase 2.13).
 
   snapshot --output FILE   list the UUID-named plists now and write the list to FILE
   check --before FILE      wait for the system to settle, list them again, and fail on a new one
@@ -44,7 +45,7 @@ A test host's UserDefaults.standard is the domain com.apple.dt.xctest.tool, whic
 cannot see, since its file keeps one name for ever. A table of a result view saves its column layout
 there under org.lungfish.metadata-column-layout.<kind>:<result path> unless the test gives the
 table's MetadataColumnController a suite. The domain commands compare key names only, as
-`defaults export` reads them, and the gate runs them on a Mac where no other agent runs tests.
+`defaults export` reads them, and they must run on a Mac where no other agent runs tests.
 
 Exit status: 0 clean, 1 a leak, 3 the allowed list is stale or malformed, 4 unusable input.
 LUNGFISH_PREFERENCES_DIR names another folder to list and LUNGFISH_PREFERENCES_SETTLE_SECONDS
