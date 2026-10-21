@@ -79,13 +79,49 @@ enum SequenceExportRoute {
         case .exited(let exit):
             removeStages(beside: outputURL)
             let detail = exit.failureDetail.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw RouteError(detail: detail.isEmpty ? "lungfish-cli convert exited with status \(exit.status)" : detail)
+            throw RouteError(
+                detail: detail.isEmpty
+                    ? "lungfish-cli convert exited with status \(exit.status)"
+                    : namingChosenFiles(in: detail, arguments: arguments)
+            )
         case .cancelled:
             removeStages(beside: outputURL)
             throw CancellationError()
         case .launchFailed(let reason):
             throw LungfishCLIRunner.RunError.launchFailed(reason)
         }
+    }
+
+    /// `detail` with each staged input of `arguments` named as the file the person chose (2.13 decision MD59), so
+    /// the Export Failed alert for `empty.seq` names `empty.seq` and not its copy `1-empty.seq.fa`. Staging writes
+    /// ``SequenceExportStaging/selectionFileName`` beside the staged files, one entry for each input in the order
+    /// of the run, so an input that is not the chosen file maps back to the chosen file's path and name. A whole
+    /// path or name is replaced, never a part of a longer one, and a run that staged nothing keeps its text.
+    static func namingChosenFiles(in detail: String, arguments: [String]) -> String {
+        guard arguments.first == "convert" else { return detail }
+        let inputs = arguments.dropFirst().prefix { $0 != "--to" }.map { URL(fileURLWithPath: $0) }
+        var chosenFor: [String: String] = [:]
+        for folder in Set(inputs.map { $0.deletingLastPathComponent() }) {
+            let selection = folder.appendingPathComponent(SequenceExportStaging.selectionFileName)
+            guard let data = try? Data(contentsOf: selection),
+                  let chosen = try? JSONDecoder().decode([SequenceExportSourceResolver.Metadata].self, from: data),
+                  chosen.count == inputs.count else { continue }
+            for (input, source) in zip(inputs, chosen.map(\.url))
+            where input.deletingLastPathComponent() == folder && input.path != source.path {
+                chosenFor[input.path] = source.path
+                chosenFor[input.lastPathComponent] = source.lastPathComponent
+            }
+        }
+        guard !chosenFor.isEmpty else { return detail }
+        let names = chosenFor.keys.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern(for:))
+        let pattern = "(?<![A-Za-z0-9._/-])(?:" + names.joined(separator: "|") + ")(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9])"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return detail }
+        var named = detail
+        for match in expression.matches(in: detail, range: NSRange(detail.startIndex..., in: detail)).reversed() {
+            guard let range = Range(match.range, in: named), let chosen = chosenFor[String(named[range])] else { continue }
+            named.replaceSubrange(range, with: chosen)
+        }
+        return named
     }
 
     /// The `sequenceCount` of the JSON result `convert --format json` prints.

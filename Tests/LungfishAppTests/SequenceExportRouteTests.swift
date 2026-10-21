@@ -62,6 +62,47 @@ final class SequenceExportRouteTests: XCTestCase {
         ), "a file convert cannot read is staged before the row, so no command names it")
     }
 
+    /// The error of a refused export names the file the person chose, not the copy staging made of it (MD59).
+    func testTheErrorNamesTheChosenFileNotTheStagedCopy() throws {
+        let chosen = root.appendingPathComponent("my reads.seq")
+        let plain = root.appendingPathComponent("11-empty.seq.fa")
+        let folder = root.appendingPathComponent("sequence-export-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let staged = folder.appendingPathComponent("1-empty.seq.fa")
+        let metadata = [chosen, plain].map { url in
+            SequenceExportSourceResolver.Metadata(
+                kind: .filesystem, url: url, documentID: nil, nativeSequenceID: nil, projectURL: nil
+            )
+        }
+        try JSONEncoder().encode(metadata)
+            .write(to: folder.appendingPathComponent(SequenceExportStaging.selectionFileName))
+        let output = root.appendingPathComponent("out.fa")
+        let arguments = SequenceExportRoute.arguments(
+            inputs: [staged, plain], outputURL: output, format: .fasta, compression: .none
+        )
+        XCTAssertEqual(
+            SequenceExportRoute.namingChosenFiles(
+                in: "Error: Conversion failed: No sequences found in 1-empty.seq.fa.", arguments: arguments
+            ),
+            "Error: Conversion failed: No sequences found in my reads.seq."
+        )
+        XCTAssertEqual(
+            SequenceExportRoute.namingChosenFiles(in: "Error: Input file not found: \(staged.path)", arguments: arguments),
+            "Error: Input file not found: \(chosen.path)"
+        )
+        // A file the person chose keeps its own name, even when a staged name lies inside it.
+        XCTAssertEqual(
+            SequenceExportRoute.namingChosenFiles(in: "No sequences found in 11-empty.seq.fa.", arguments: arguments),
+            "No sequences found in 11-empty.seq.fa."
+        )
+        // A run that staged nothing keeps its text.
+        let unstaged = SequenceExportRoute.arguments(inputs: [plain], outputURL: output, format: .fasta, compression: .none)
+        XCTAssertEqual(
+            SequenceExportRoute.namingChosenFiles(in: "No sequences found in 1-empty.seq.fa.", arguments: unstaged),
+            "No sequences found in 1-empty.seq.fa."
+        )
+    }
+
     func testRemoveStagesRemovesOnlyTheHiddenConvertStagesOfThatOutput() throws {
         let output = root.appendingPathComponent("out.fa.gz")
         let stages = [

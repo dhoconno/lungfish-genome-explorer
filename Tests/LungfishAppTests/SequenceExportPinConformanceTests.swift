@@ -447,10 +447,11 @@ final class SequenceExportPinConformanceTests: XCTestCase {
                 XCTFail("\(name) must not export, it reported \(count) sequences")
             } catch {
                 print("13.41 alert text for \(name): \(error.localizedDescription)")
-                XCTAssertTrue(
-                    error.localizedDescription.hasSuffix("No sequences found in \(stagedName)."),
-                    "\(name): \(error.localizedDescription)"
+                // The alert names the file the person chose, not the staged copy (MD59).
+                XCTAssertEqual(
+                    error.localizedDescription, "Error: Conversion failed: No sequences found in \(name).", name
                 )
+                XCTAssertFalse(error.localizedDescription.contains(stagedName), "\(name): \(stagedName)")
             }
             XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "\(name) publishes no output")
             XCTAssertEqual(Self.convertEntries(in: folder), [], "\(name) leaves no stage beside the output")
