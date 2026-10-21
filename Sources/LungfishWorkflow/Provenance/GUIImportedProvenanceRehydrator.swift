@@ -613,8 +613,6 @@ public enum GUIImportedProvenanceRehydrator {
         return standardizedPath.hasPrefix(copiedPrefix)
     }
 
-    /// `path` below `root`, or nil when it lies outside `root` or is `root` itself. It works on strings and reads no
-    /// file, so `ProvenanceReplayArguments` uses it too.
     static func relativePath(for path: String, under root: String) -> String? {
         let prefix = root.hasSuffix("/") ? root : root + "/"
         guard path.hasPrefix(prefix) else { return nil }
