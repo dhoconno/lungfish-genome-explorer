@@ -375,6 +375,11 @@ final class ToolsCommandTests: XCTestCase {
         process.executableURL = binary
         process.arguments = arguments
         var merged = ProcessInfo.processInfo.environment
+        // A gate exports LUNGFISH_CONDA_ROOT so that tool lookups reach the real conda tree. A child
+        // given its own storage root, by LUNGFISH_STORAGE_ROOT or by --storage-root, has to read only
+        // that root, because the inherited conda root would override the conda folder under it and
+        // make an empty root look installed. A test that passes the variable itself still gets it.
+        merged.removeValue(forKey: "LUNGFISH_CONDA_ROOT")
         for (key, value) in environment { merged[key] = value }
         process.environment = merged
 
