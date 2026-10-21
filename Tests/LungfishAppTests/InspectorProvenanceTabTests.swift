@@ -588,16 +588,11 @@ final class InspectorProvenanceTabTests: XCTestCase {
     /// the main actor. Idiom: `waitUntil` in `SequenceViewerInteractionAsyncBundleReadTests`.
     private func waitUntilLoadCompletes(
         _ viewModel: ProvenanceInspectorViewModel,
-        timeout: TimeInterval = 60
+        budget: WaitBudget = .lookup
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while viewModel.isLoading {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for provenance load to complete")
-                return
-            }
-            await Task.yield()
-            try await Task.sleep(nanoseconds: 5_000_000)
+        let finished = await waitUntil(budget: budget, pollInterval: .milliseconds(5)) { !viewModel.isLoading }
+        if !finished {
+            XCTFail("Timed out waiting for provenance load to complete")
         }
     }
 }

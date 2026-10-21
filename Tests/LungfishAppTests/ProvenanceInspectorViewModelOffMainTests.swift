@@ -6,6 +6,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 
 /// Thread-safe capture box for the `loadThreadingProbe` hook. The probe closure is
@@ -283,16 +284,11 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
     /// the main actor.
     private func waitUntilLoadCompletes(
         _ viewModel: ProvenanceInspectorViewModel,
-        timeout: TimeInterval = 60
+        budget: WaitBudget = .lookup
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while viewModel.isLoading {
-            if Date() >= deadline {
-                XCTFail("Timed out waiting for provenance load to complete")
-                return
-            }
-            await Task.yield()
-            try await Task.sleep(nanoseconds: 5_000_000)
+        let finished = await waitUntil(budget: budget, pollInterval: .milliseconds(5)) { !viewModel.isLoading }
+        if !finished {
+            XCTFail("Timed out waiting for provenance load to complete")
         }
     }
 }
