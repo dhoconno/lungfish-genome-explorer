@@ -50,6 +50,9 @@ final class MSAExtractionAnnotationProvenanceTests: XCTestCase {
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
         XCTAssertEqual(envelope.workflowName, "msa-selection-reference-bundle-extraction")
         XCTAssertEqual(envelope.toolName, "lungfish-gui msa extract annotated bundle")
+        // Only `lungfish-cli import fasta --annotations` writes this record, so argv[0] keeps its base name until the shared-writer
+        // row gives it the CLI's own words (review 13.27-M3-BIO Fix 4, row P-V16-1b).
+        XCTAssertEqual(envelope.argv.first, "lungfish-gui")
         XCTAssertEqual(envelope.output?.path, bundleURL.path)
         XCTAssertEqual(envelope.options.explicit["feature_count"], ParameterValue.integer(2))
         let files = envelope.files
