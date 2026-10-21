@@ -219,6 +219,7 @@ final class VariantStructuredINFOTests: XCTestCase {
         }
 
         // A read-only handle ignores the table, answers from `variant_info` and writes nothing.
+        let bytesBefore = try Data(contentsOf: dbURL)
         let readOnly = try VariantDatabase(url: dbURL)
         readOnly.loadTokenCacheState()
         XCTAssertFalse(readOnly.highImpactCacheReady, "read-only ready")
@@ -228,6 +229,7 @@ final class VariantStructuredINFOTests: XCTestCase {
         assertEveryFilter(readOnly, "read-only after warm")
         XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [], "read-only wrote the stamp")
         XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [], "read-only table")
+        XCTAssertEqual(try Data(contentsOf: dbURL), bytesBefore, "read-only changed the file")
 
         // A writable handle drops the table, rebuilds it with the member match and writes the stamp.
         let writable = try VariantDatabase(url: dbURL, readWrite: true)
@@ -235,6 +237,14 @@ final class VariantStructuredINFOTests: XCTestCase {
         assertEveryFilter(writable, "read-write")
         XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [["member"]], "read-write stamp")
         XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [100, 200], "table")
+
+        // A later open finds the stamped table ready and does not build it again.
+        try StructuredINFOFixture.execute(dbURL, "INSERT INTO _high_impact VALUES (999)")
+        let reopened = try VariantDatabase(url: dbURL, readWrite: true)
+        XCTAssertEqual(reopened.tokenCacheState["highImpact"]?.ready, true, "second open ready")
+        XCTAssertTrue(reopened.warmHighImpactCache(), "second open warm")
+        XCTAssertEqual(
+            try StructuredINFOFixture.rows(dbURL, "SELECT COUNT(*) FROM _high_impact"), [["3"]], "second open rebuilt")
     }
 
     func testHeaderPartNamesRoundTripThroughMetadata() throws {
