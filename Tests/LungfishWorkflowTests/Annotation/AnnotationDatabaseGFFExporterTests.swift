@@ -383,4 +383,29 @@ struct AnnotationDatabaseGFFExporterTests {
         #expect(features.count == 3)
         #expect(Set(features.compactMap(\.id)) == ["cycle-a", "cycle-b", "self-parent"])
     }
+
+    @Test("pins column 9 of a CDS imported with a phase, with the internal phase key present (lane 13.20 M0)")
+    func pinsColumnNineOfACDSImportedWithAPhase() async throws {
+        let exported = try await exportedGFF3(
+            ofGFF3: """
+            ##gff-version 3
+            MN908947.3\tGenbank\tgene\t100\t900\t.\t+\t.\tID=gene-N;Name=N;gene=N
+            MN908947.3\tGenbank\tCDS\t100\t900\t.\t+\t0\tID=cds-N;Parent=gene-N;Name=N;gene=N;product=nucleocapsid phosphoprotein%3B test
+            MN908947.3\tGenbank\tCDS\t1000\t1300\t.\t+\t2\tID=cds-X
+            MN908947.3\tGenbank\tCDS\t1500\t1800\t.\t+\t1\t.
+            """,
+            chromosomeSizes: [("MN908947.3", 29_903)]
+        )
+        // Type, start, phase (column 8) and attributes (column 9) of each feature line, in file order.
+        let lines = exported.split(separator: "\n").filter { !$0.hasPrefix("#") }.map { line -> [String] in
+            let columns = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            return [columns[2], columns[3], columns[7], columns[8]]
+        }
+        #expect(lines == [
+            ["gene", "100", ".", "ID=gene-N;Name=N;gene=N"],
+            ["CDS", "100", "0", "ID=cds-N;Name=N;Parent=gene-N;gene=N;lungfish_gff_phase=0;product=nucleocapsid phosphoprotein%3B test"],
+            ["CDS", "1000", "2", "ID=cds-X;lungfish_gff_phase=2"],
+            ["CDS", "1500", "1", "lungfish_gff_phase=1"],
+        ])
+    }
 }
