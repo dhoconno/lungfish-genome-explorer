@@ -93,7 +93,7 @@ extension BAMImportService {
             ))
         } else {
             materializationSteps.append(ProvenanceStep(
-                toolName: "Lungfish.app",
+                toolName: LungfishAppIdentity.recordedToolName,
                 toolVersion: appVersion,
                 argv: argv + ["--clone-sorted-alignment"],
                 inputs: [input],
@@ -106,7 +106,7 @@ extension BAMImportService {
             ))
         }
         let metadataStep = ProvenanceStep(
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: appVersion,
             argv: argv + ["--collect-alignment-metadata", "--metadata-db", metadataDBURL.path],
             inputs: [alignmentOutput, indexOutput],
@@ -120,7 +120,7 @@ extension BAMImportService {
             createdAt: startedAt,
             workflowName: "lungfish app bam import",
             workflowVersion: appVersion,
-            toolName: "Lungfish.app",
+            toolName: LungfishAppIdentity.recordedToolName,
             toolVersion: appVersion,
             argv: argv,
             durableReplayArgv: argv,
