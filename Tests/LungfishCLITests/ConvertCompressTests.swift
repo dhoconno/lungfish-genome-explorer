@@ -125,6 +125,27 @@ final class ConvertCompressTests: XCTestCase {
         }
     }
 
+    /// A gzip convert runs no managed compressor, so its record holds the `lungfish convert` step alone. This
+    /// guards the `?? []` that gives `extraSteps` for a convert without a compressor receipt (review 13.17,
+    /// BIO Fix 1).
+    func testAGzipConvertRecordsNoCompressorStep() async throws {
+        let input = root.appendingPathComponent("first.fa")
+        try ">a\nACGT\n>b\nTTGG\n".write(to: input, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("out.fa.gz")
+
+        let command = try ConvertCommand.parse([input.path, "--to", output.path, "--compress", "gzip", "--quiet"])
+        try await command.run()
+
+        let folderRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: root), "the folder record")
+        let sidecarRecord = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)), "the sidecar"
+        )
+        for (label, record) in [("folder record", folderRecord), ("sidecar", sidecarRecord)] {
+            XCTAssertEqual(record.steps.map(\.toolName), ["lungfish convert"], "the \(label) holds the convert step alone")
+            XCTAssertFalse(record.steps.contains { $0.toolName == "zstd" }, "the \(label) names no zstd step")
+        }
+    }
+
     // MARK: - Helpers
 
     static func decompress(_ url: URL, with tool: String) throws -> String {
@@ -168,5 +189,34 @@ final class ConvertCompressZstdConformanceTests: XCTestCase {
         XCTAssertEqual(Array(try Data(contentsOf: output).prefix(4)), [0x28, 0xb5, 0x2f, 0xfd], "a zstd frame")
         XCTAssertEqual(try ConvertCompressTests.decompress(output, with: zstd.path), ">a\nACGT\n>b\nTTGG\n")
         XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: output).path))
+
+        // The record `convert` wrote names the zstd that ran, with the version of the environment it ran from
+        // (review 13.17, BIO Fix 1 and SWIFT Fix 4). The folder record and the sidecar beside the output both hold
+        // the step, and the `lungfish convert` step stays first. Deleting `extraSteps:` at the end of the
+        // `recordSingleStepRun` call in ConvertCommand fails this test.
+        let folderRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: root), "the folder record")
+        let sidecarRecord = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)), "the sidecar"
+        )
+        for (label, record) in [("folder record", folderRecord), ("sidecar", sidecarRecord)] {
+            XCTAssertEqual(record.steps.first?.toolName, "lungfish convert", "the \(label) keeps the convert step first")
+            XCTAssertEqual(record.steps.filter { $0.toolName == "lungfish convert" }.count, 1, "the \(label) holds one convert step")
+            let compressorSteps = record.steps.filter { $0.toolName == "zstd" }
+            XCTAssertEqual(compressorSteps.count, 1, "the \(label) holds one zstd step")
+            guard let step = compressorSteps.first else { continue }
+            XCTAssertEqual(step.toolVersion, "1.5.7", "the \(label) names the version that ran")
+            XCTAssertEqual(step.managedToolID, ManagedToolID(rawValue: "zstd"), "the \(label) names the managed tool")
+            XCTAssertEqual(
+                step.toolVersionEvidence,
+                .observed(version: "1.5.7", reportedLine: "zstd-1.5.7-hf451053_7"),
+                "the \(label) says the version was read from the environment that ran"
+            )
+            XCTAssertEqual(step.argv.dropFirst().first, "-c", "the \(label) records the streaming flag")
+            XCTAssertEqual(
+                step.argv.first.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
+                zstd.resolvingSymlinksInPath().path,
+                "the \(label) names the zstd that ran"
+            )
+        }
     }
 }
