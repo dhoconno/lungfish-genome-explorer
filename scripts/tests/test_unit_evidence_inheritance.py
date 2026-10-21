@@ -866,6 +866,17 @@ class UnitResultStatusTests(unittest.TestCase):
         stale = ["preferences-leaks snapshot exited 3, see preferences.txt"]
         self.assertEqual(self.status(lambda r: r.update(attempts=[], errors=stale), authorized=False), "red")
 
+    def test_a_domain_check_that_could_not_read_its_input_is_not_red_but_a_new_layout_key_is(self):
+        # Lane 13.52 wires domain-snapshot and domain-check into the gate. Exit 4 says nothing about the
+        # code, and exit 1 names a layout key that a test wrote to UserDefaults.standard (review 13.52-QA
+        # Fix 2, which pins the `[\\w-]+` token of unit_result_status).
+        snapshot = ["preferences-leaks domain-snapshot exited 4"]
+        self.assertIsNone(self.status(lambda r: r.update(attempts=[], errors=snapshot), authorized=False))
+        check = ["preferences-leaks domain-check exited 4"]
+        self.assertIsNone(self.status(lambda r: r.update(errors=check), authorized=False))
+        leak = ["preferences-leaks domain-check exited 1, see preferences.txt"]
+        self.assertEqual(self.status(lambda r: r.update(errors=leak), authorized=False), "red")
+
     def test_failures_that_say_nothing_about_the_code_are_not_red(self):
         for label, change in UNINFORMATIVE_FAILURES.items():
             with self.subTest(label):

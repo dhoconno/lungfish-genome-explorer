@@ -557,6 +557,8 @@ class DomainTests(WorkspaceCase):
 
         def fake_run(argv, **kwargs):
             calls.append(argv)
+            self.assertEqual(kwargs["timeout"], leaks.DEFAULTS_TIMEOUT_SECONDS)
+            self.assertNotIn("shell", kwargs)
             return subprocess.CompletedProcess(argv, 0, stdout=plistlib.dumps({self.ADDED: 1}), stderr=b"")
 
         with mock.patch.dict(os.environ):
@@ -567,6 +569,32 @@ class DomainTests(WorkspaceCase):
         self.assertEqual(status, 0, out + err)
         self.assertEqual(calls, [["/usr/bin/defaults", "export", "com.apple.dt.xctest.tool", "-"]])
         self.assertEqual(json.loads(self.before.read_text())["names"], [self.ADDED])
+
+    def test_a_defaults_export_that_fails_or_does_not_end_is_an_input_error(self):
+        def failing(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, stdout=b"", stderr=b"boom\n")
+
+        def hanging(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        def missing(argv, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+        for fake, text in ((failing, "exited 1: boom"), (hanging, "did not end in 120 s"), (missing, "No such file")):
+            with mock.patch.dict(os.environ):
+                os.environ.pop("LUNGFISH_PREFERENCES_DIR", None)
+                os.environ.pop("LUNGFISH_PREFERENCES_DOMAIN_EXPORT", None)
+                with mock.patch.object(leaks.subprocess, "run", fake):
+                    status, out, err = self.run_script("domain-snapshot", "--output", str(self.before))
+            self.assertEqual(status, 4, out + err)
+            self.assertIn(text, err)
+            self.assertFalse(self.before.exists(), "a failed export leaves no snapshot")
+
+    def test_a_snapshot_of_another_domain_is_an_input_error(self):
+        self.before.write_text(json.dumps({"schema": 1, "domain": "com.example.other", "names": []}))
+        status, out, err = self.check_domain(self.export())
+        self.assertEqual(status, 4, out + err)
+        self.assertIn("not com.apple.dt.xctest.tool", err)
 
     def test_the_script_runs_as_a_program_and_reads_the_export_from_the_environment(self):
         env = {**os.environ, "LUNGFISH_PREFERENCES_DOMAIN_EXPORT": str(self.export(self.OLD))}
@@ -586,6 +614,7 @@ class DomainTests(WorkspaceCase):
                                env=env, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertEqual(json.loads(self.before.read_text())["names"], [], "no plist in the folder is an empty domain")
+        self.assertIn("LUNGFISH_PREFERENCES_DIR", first.stderr, "the run says where it reads the domain from")
         (self.preferences / "com.apple.dt.xctest.tool.plist").write_bytes(plistlib.dumps({self.ADDED: 1}))
         second = subprocess.run([sys.executable, str(SCRIPT), "domain-check", "--before", str(self.before)],
                                 env=env, capture_output=True, text=True)

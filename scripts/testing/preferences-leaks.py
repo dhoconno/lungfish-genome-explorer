@@ -326,14 +326,18 @@ def command_check(args, sleep) -> int:
 def domain_export_file(option: Path | None) -> tuple[Path | None, bool]:
     """The plist file that stands in for `defaults export`, and whether a missing file is an empty
     domain. The option wins, then LUNGFISH_PREFERENCES_DOMAIN_EXPORT. A run that lists a fixture
-    folder (LUNGFISH_PREFERENCES_DIR) reads the domain's plist from it, so a test of the gate never
-    reads the machine's own domain. None means the real domain."""
+    folder (LUNGFISH_PREFERENCES_DIR) reads the domain's plist from it and says so on stderr, so a test
+    of the gate never reads the machine's own domain and a stray variable in a real gate shows. None
+    means the real domain."""
     if option is not None:
         return option, False
     if os.environ.get("LUNGFISH_PREFERENCES_DOMAIN_EXPORT"):
         return Path(os.environ["LUNGFISH_PREFERENCES_DOMAIN_EXPORT"]), False
     if os.environ.get("LUNGFISH_PREFERENCES_DIR"):
-        return Path(os.environ["LUNGFISH_PREFERENCES_DIR"]) / f"{DOMAIN}.plist", True
+        plist = Path(os.environ["LUNGFISH_PREFERENCES_DIR"]) / f"{DOMAIN}.plist"
+        print(f"preferences-leaks: reading the xctest domain from {plist}, since LUNGFISH_PREFERENCES_DIR is set",
+              file=sys.stderr)
+        return plist, True
     return None, False
 
 

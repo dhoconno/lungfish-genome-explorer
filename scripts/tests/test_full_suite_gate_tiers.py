@@ -409,6 +409,37 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(evidence["attempts"], [])
         self.assertEqual(evidence["errors"], ["preferences-leaks snapshot exited 4"])
 
+    # The xctest tool's domain (Phase 2.13 lane 13.52 wires domain-snapshot and domain-check into
+    # gate_evidence.py, lane 13.69 pins the wiring, review 13.52-SWIFT Fix 3). The fake swift writes the
+    # domain's plist into the fixture folder while the tests run.
+    DOMAIN_KEY = "org.lungfish.metadata-column-layout.x:/tmp/y"
+
+    def test_a_new_layout_key_in_the_xctest_domain_fails_the_gate(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests",
+                                         env={"STUB_DOMAIN_KEY": self.DOMAIN_KEY}, with_leak_check=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], False)
+        self.assertEqual(evidence["attempts"][0]["exitStatus"], 0, "the tests themselves passed")
+        self.assertEqual(evidence["errors"], ["preferences-leaks domain-check exited 1, see preferences.txt"])
+        self.assertIn("preferences-leaks: FAIL", result.stderr)
+        self.assertIn(self.DOMAIN_KEY, result.stderr)
+
+    def test_a_clean_xctest_domain_passes_the_gate(self):
+        result, evidence = self.run_gate("one", "--filter", "ExampleTests", with_leak_check=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(evidence["errors"], [])
+        self.assertIn("PASS - 0 new org.lungfish. keys", result.stdout)
+
+    def test_an_unreadable_domain_export_runs_no_tests(self):
+        # A python file stands in for the export, so reading it as a plist fails and the check exits 4.
+        result, evidence = self.run_gate(
+            "one", "--filter", "ExampleTests", with_leak_check=True,
+            env={"LUNGFISH_PREFERENCES_DOMAIN_EXPORT": str(ROOT / "scripts/testing/preferences-leaks.py")})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIs(evidence["authorized"], False)
+        self.assertEqual(evidence["attempts"], [])
+        self.assertEqual(evidence["errors"], ["preferences-leaks domain-snapshot exited 4"])
+
     def test_the_quiet_gate_prints_the_failed_preferences_check_after_its_fail_line(self):
         result, _ = self.run_gate("one", "--filter", "ExampleTests", "--quiet",
                                   env={"STUB_WRITES": LEAKED_PLIST}, with_leak_check=True)
@@ -692,6 +723,10 @@ if "list" in args:
     sys.exit(0)
 for name in filter(None, os.environ.get("STUB_WRITES", "").split(",")):
     pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], name).write_text("{}")
+if os.environ.get("STUB_DOMAIN_KEY"):
+    import plistlib
+    pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], "com.apple.dt.xctest.tool.plist").write_bytes(
+        plistlib.dumps({os.environ["STUB_DOMAIN_KEY"]: 1}))
 if serial_scenario:
     include, exclude = option("--filter"), option("--skip")
     chosen = [t for t in SERIAL if (not include or re.search(include, t)) and (not exclude or not re.search(exclude, t))]
