@@ -273,7 +273,7 @@ public final class ReferenceBundleImportService: @unchecked Sendable {
     ) -> [String]? {
         guard isEnabled else { return nil }
         return [
-            "lungfish-app",
+            LungfishAppIdentity.recordedToolName,
             "reference-bundle-import",
             sourceURL.standardizedFileURL.path,
             "--output-directory",

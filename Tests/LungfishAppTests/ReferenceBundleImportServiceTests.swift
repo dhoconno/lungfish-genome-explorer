@@ -61,7 +61,7 @@ final class ReferenceBundleImportServiceTests: XCTestCase {
         )
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
         let expectedCommand = [
-            "lungfish-app",
+            LungfishAppIdentity.recordedToolName,
             "reference-bundle-import",
             sourceURL.standardizedFileURL.path,
             "--output-directory",
