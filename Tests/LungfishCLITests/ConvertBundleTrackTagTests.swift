@@ -54,6 +54,39 @@ final class ConvertBundleTrackTagTests: XCTestCase {
         XCTAssertFalse(text.contains("annotation_db_track_id"), "no internal key reaches the file")
     }
 
+    /// Two bundles can hold a track of one id, since a builder names its track the same way each time, and the GFF3
+    /// writer tells the databases of a file apart by that id. A `convert` of both into one GFF3 file must still give
+    /// every feature an ID of its own (13.20 BIO review, Fix 1).
+    func testTwoBundlesThatShareATrackIDKeepOneIDPerFeatureInAGFF3File() async throws {
+        let folderA = root.appendingPathComponent("a", isDirectory: true)
+        let folderB = root.appendingPathComponent("b", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+        let bundleA = try Self.makeTwoTrackBundle(in: folderA)
+        let bundleB = try Self.makeTwoTrackBundle(in: folderB)
+        let output = root.appendingPathComponent("two-bundles.gff3")
+        let command = try ConvertCommand.parse([
+            bundleA.path, bundleB.path, "--to", output.path, "--to-format", "gff3", "--include-annotations", "--force",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let text = try String(contentsOf: output, encoding: .utf8)
+        let ids = text.split(separator: "\n")
+            .filter { !$0.hasPrefix("#") }
+            .compactMap { line -> String? in
+                let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard columns.count >= 9 else { return nil }
+                return AnnotationDatabase.parseAttributes(String(columns[8]))["ID"]
+            }
+        XCTAssertEqual(ids.count, 4, "the gene of each track of each bundle is one feature line")
+        XCTAssertEqual(Set(ids).count, 4, "no two features of the file share an ID")
+        XCTAssertEqual(
+            Set(ids), ["shared", "second:shared", "input2-genes:shared", "input2-second:shared"],
+            "the first input keeps its track ids, and a later input writes its own"
+        )
+    }
+
     /// A reference bundle with one chromosome and two annotation tracks, `genes` then `second`, whose one gene each
     /// stores the same GFF3 ID, `shared`.
     private static func makeTwoTrackBundle(in root: URL) throws -> URL {

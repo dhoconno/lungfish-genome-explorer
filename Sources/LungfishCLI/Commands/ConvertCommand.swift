@@ -142,12 +142,13 @@ struct ConvertCommand: AsyncParsableCommand {
         var allAnnotations: [SequenceAnnotation] = []
         var provenanceInputs: [FileRecord] = []
         var inputFormats: [String] = []
-        for inputURL in inputURLs {
+        for (position, inputURL) in inputURLs.enumerated() {
             let read = try await readInput(inputURL)
             provenanceInputs += read.records
             if !inputFormats.contains(read.format) { inputFormats.append(read.format) }
-            sourced += read.sequences.map { ($0, read.annotations) }
-            allAnnotations += read.annotations
+            let readAnnotations = read.annotations.map { Self.withInputTrackTag($0, input: position) }
+            sourced += read.sequences.map { ($0, readAnnotations) }
+            allAnnotations += readAnnotations
         }
         let sequences = sourced.map(\.sequence)
         let annotations = allAnnotations
@@ -472,6 +473,18 @@ struct ConvertCommand: AsyncParsableCommand {
         var untagged = annotation
         untagged.qualifiers.removeValue(forKey: GFF3ExportIdentifiers.trackIDKey)
         return untagged
+    }
+
+    /// The annotation with its `annotation_db_track_id` made unique across the inputs of one command. Two bundles can
+    /// hold a track of one id, and the GFF3 writer takes the rows of one track id for one database. The first input
+    /// keeps its tag, so a command with one input and the first input of a longer one write the same IDs.
+    private static func withInputTrackTag(_ annotation: SequenceAnnotation, input: Int) -> SequenceAnnotation {
+        guard input > 0, let tag = annotation.qualifiers[GFF3ExportIdentifiers.trackIDKey]?.values.first else {
+            return annotation
+        }
+        var tagged = annotation
+        tagged.qualifiers[GFF3ExportIdentifiers.trackIDKey] = AnnotationQualifier("input\(input + 1)-\(tag)")
+        return tagged
     }
 
     private static func readReferenceBundle(
