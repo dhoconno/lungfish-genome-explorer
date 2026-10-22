@@ -48,6 +48,8 @@ struct FASTQImportRun {
     /// The project folder the import writes `Imports/<sample>.lungfishfastq` into.
     var project: String
     var recipe = "none"
+    /// The recipe switches an option set, by switch id, such as `removeDuplicates`.
+    var switchOptions: [String: Bool] = [:]
     var qualityBinning = "none"
     var logDir: String?
     var dryRun = false
@@ -234,18 +236,28 @@ struct FASTQImportRun {
 
         var newRecipe: Recipe? = nil
         var oldRecipe: ProcessingRecipe? = nil
-        if recipe.lowercased() != "none" {
+        if recipe.lowercased() != "none" || !switchOptions.isEmpty {
             do {
-                let resolvedRecipe = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: recipe)
+                let resolvedRecipe = try ImportCommand.FastqSubcommand.resolveImportRecipe(
+                    named: recipe, switchOptions: switchOptions
+                )
                 newRecipe = resolvedRecipe.newRecipe
                 oldRecipe = resolvedRecipe.legacyRecipe
             } catch let unavailable as ImportCommand.FastqSubcommand.RecipeFileUnavailable {
                 throw reporter.fail(unavailable.localizedDescription, detail: nil, exitCode: .inputError)
+            } catch let switchError as RecipeResolutionError {
+                throw reporter.fail(switchError.errorDescription ?? "\(switchError)", detail: nil, exitCode: .inputError)
             } catch let batchError as BatchImportError {
                 throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, detail: nil, exitCode: .inputError)
             } catch {
                 reporter.failedEvent(error.localizedDescription)
                 throw error
+            }
+        }
+        // What the name resolved to and each switch's value, as info lines (UX review points 3 and 11).
+        if let newRecipe, !quiet {
+            for line in newRecipe.resolutionLines {
+                reporter.text(formatter.info(line))
             }
         }
 

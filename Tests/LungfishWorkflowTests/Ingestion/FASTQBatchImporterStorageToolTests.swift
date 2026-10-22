@@ -44,7 +44,7 @@ final class FASTQBatchImporterStorageToolTests: XCTestCase {
     }
 
     func testVSP2WithTrimGaloreFailsBeforeAnyRecipeStep() async throws {
-        let recipe = try XCTUnwrap(RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" })
+        let recipe = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes())))
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: tempDir.appendingPathComponent("Storage.lungfish"), platform: .illumina,
             newRecipe: recipe,

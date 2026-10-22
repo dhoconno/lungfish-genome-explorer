@@ -12,7 +12,7 @@ import LungfishWorkflow
 /// picks BBTools clumpify or turns storage optimization off.
 final class FASTQImportSheetStorageToolTests: XCTestCase {
     private func vsp2Option() throws -> FASTQImportSheetRecipeOption {
-        let recipe = try XCTUnwrap(RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" })
+        let recipe = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes())))
         return FASTQImportSheetRecipeOption(recipe: recipe)
     }
 

@@ -147,6 +147,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                 qualityBinning: importOptions.qualityBinning,
                 compression: importOptions.compression,
                 recipe: importOptions.recipe,
+                switchOptions: importOptions.switchOptions,
                 noOptimizeStorage: importOptions.noOptimizeStorage,
                 clumpingTool: importOptions.clumpingTool,
                 threads: globalOptions.threads,
@@ -194,6 +195,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         if importOptions.qualityBinning != "none" { arguments += ["--quality-binning", importOptions.qualityBinning] }
         if importOptions.compression != "balanced" { arguments += ["--compression", importOptions.compression] }
         if importOptions.recipe != "none" { arguments += ["--recipe", importOptions.recipe] }
+        arguments += importOptions.switchOptionArguments
         if importOptions.noOptimizeStorage { arguments.append("--no-optimize-storage") }
         if let tool = importOptions.clumpingTool { arguments += ["--clumping-tool", tool] }
         return arguments

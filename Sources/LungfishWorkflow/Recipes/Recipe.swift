@@ -124,7 +124,11 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
 
     // MARK: Properties
 
-    /// Schema version — currently always `1`.
+    /// The format versions this build reads. Version 2 adds ``switches`` and ``presets``, which an older build
+    /// would ignore and so run every step, so a build refuses a version it does not know (ruling BIO-PRESET P3).
+    public static let supportedFormatVersions: ClosedRange<Int> = 1...2
+
+    /// Schema version, one of ``supportedFormatVersions``.
     public let formatVersion: Int
 
     /// Unique identifier for the recipe (e.g. `"vsp2-target-enrichment"`).
@@ -151,8 +155,18 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
     /// Optional quality-binning scheme applied during ingestion.
     public var qualityBinning: QualityBinningScheme?
 
-    /// Ordered processing steps.
+    /// Ordered processing steps. A switch that is off leaves its step out of the run (``activeSteps``).
     public var steps: [RecipeStep]
+
+    /// Switches that turn one step each on or off, formatVersion 2 and later.
+    public var switches: [RecipeSwitch]
+
+    /// Named sets of switch values, formatVersion 2 and later.
+    public var presets: [RecipePreset]
+
+    /// What the name a run passed resolved to, set by ``RecipeResolver`` and nil for a recipe nobody resolved. It is
+    /// not part of the JSON.
+    public var resolution: RecipeResolution?
 
     /// SHA-256 of the recipe file's bytes, set by ``RecipeRegistryV2`` when it reads the file and nil for a recipe
     /// built in code. It is not part of the JSON, and two recipes with the same content stay equal whatever their
@@ -164,13 +178,14 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
             && lhs.description == rhs.description && lhs.author == rhs.author && lhs.tags == rhs.tags
             && lhs.platforms == rhs.platforms && lhs.requiredInput == rhs.requiredInput
             && lhs.qualityBinning == rhs.qualityBinning && lhs.steps == rhs.steps
+            && lhs.switches == rhs.switches && lhs.presets == rhs.presets
     }
 
     // MARK: CodingKeys
 
     private enum CodingKeys: String, CodingKey {
         case formatVersion, id, name, description, author, tags,
-             platforms, requiredInput, qualityBinning, steps
+             platforms, requiredInput, qualityBinning, steps, switches, presets
     }
 
     // MARK: Memberwise initialiser (for tests and programmatic construction)
@@ -185,7 +200,9 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
         platforms: [IngestionPlatform] = [.illumina],
         requiredInput: InputRequirement = .any,
         qualityBinning: QualityBinningScheme? = nil,
-        steps: [RecipeStep]
+        steps: [RecipeStep],
+        switches: [RecipeSwitch] = [],
+        presets: [RecipePreset] = []
     ) {
         self.formatVersion  = formatVersion
         self.id             = id
@@ -197,13 +214,18 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
         self.requiredInput  = requiredInput
         self.qualityBinning = qualityBinning
         self.steps          = steps
+        self.switches       = switches
+        self.presets        = presets
     }
 
-    // MARK: Custom decoder (tags defaults to [])
+    // MARK: Custom decoder (tags defaults to [], an unknown formatVersion is refused)
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         formatVersion  = try container.decode(Int.self,                   forKey: .formatVersion)
+        guard Self.supportedFormatVersions.contains(formatVersion) else {
+            throw RecipeFormatVersionError(formatVersion: formatVersion)
+        }
         id             = try container.decode(String.self,                forKey: .id)
         name           = try container.decode(String.self,                forKey: .name)
         description    = try container.decodeIfPresent(String.self,       forKey: .description)
@@ -213,5 +235,39 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
         requiredInput  = try container.decode(InputRequirement.self,      forKey: .requiredInput)
         qualityBinning = try container.decodeIfPresent(QualityBinningScheme.self, forKey: .qualityBinning)
         steps          = try container.decode([RecipeStep].self,          forKey: .steps)
+        switches       = try container.decodeIfPresent([RecipeSwitch].self, forKey: .switches) ?? []
+        presets        = try container.decodeIfPresent([RecipePreset].self, forKey: .presets) ?? []
+        try validateSwitches()
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encode(tags, forKey: .tags)
+        try container.encode(platforms, forKey: .platforms)
+        try container.encode(requiredInput, forKey: .requiredInput)
+        try container.encodeIfPresent(qualityBinning, forKey: .qualityBinning)
+        try container.encode(steps, forKey: .steps)
+        if !switches.isEmpty { try container.encode(switches, forKey: .switches) }
+        if !presets.isEmpty { try container.encode(presets, forKey: .presets) }
+    }
+}
+
+/// A recipe file at a format version this build does not read.
+public struct RecipeFormatVersionError: Error, LocalizedError, Equatable {
+    public let formatVersion: Int
+
+    public init(formatVersion: Int) {
+        self.formatVersion = formatVersion
+    }
+
+    public var errorDescription: String? {
+        let versions = Recipe.supportedFormatVersions
+        let advice = formatVersion > versions.upperBound ? "Update the app." : "No version of it reads this file."
+        return "The recipe has formatVersion \(formatVersion). This version of Lungfish Genome Explorer reads formatVersion \(versions.lowerBound) to \(versions.upperBound). \(advice)"
     }
 }

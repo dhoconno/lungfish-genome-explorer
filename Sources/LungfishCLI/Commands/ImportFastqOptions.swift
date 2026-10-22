@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishWorkflow
 
 /// The flags that choose how reads import, the ones `CLIImportRunner.buildCLIArguments` writes for
 /// the app's Import FASTQ sheet (Phase 2.10 lane A45 M3, ruling A45-M3 section 1).
@@ -73,6 +74,37 @@ struct ImportFastqOptions: ParsableArguments {
         )
     )
     var recipe: String = "none"
+
+    @Flag(
+        name: .customLong("remove-duplicates"),
+        inversion: .prefixedNo,
+        help: "Remove duplicate reads. Replaces the recipe's setting."
+    )
+    var removeDuplicates: Bool?
+
+    @Flag(
+        name: .customLong("remove-ribosomal-rna"),
+        inversion: .prefixedNo,
+        help: ArgumentHelp(
+            "Remove ribosomal RNA reads. Replaces the recipe's setting.",
+            discussion: "Removal is final for a stored import. Only a reimport from the raw files brings the removed reads back."
+        )
+    )
+    var removeRibosomalRNA: Bool?
+
+    /// The recipe switches an option set, by switch id (CHTC lane C2-MERGED). A recipe without one of these
+    /// switches refuses the option by name.
+    var switchOptions: [String: Bool] {
+        var options: [String: Bool] = [:]
+        options["removeDuplicates"] = removeDuplicates
+        options["removeRibosomalRNA"] = removeRibosomalRNA
+        return options
+    }
+
+    /// The options that give ``switchOptions``, for a command that passes the settings on.
+    var switchOptionArguments: [String] {
+        switchOptions.sorted { $0.key < $1.key }.map { ($0.value ? "--" : "--no-") + RecipeSwitch.optionName(for: $0.key) }
+    }
 
     @Flag(
         name: .customLong("no-optimize-storage"),

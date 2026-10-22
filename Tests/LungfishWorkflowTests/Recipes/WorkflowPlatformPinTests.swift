@@ -312,7 +312,7 @@ final class WorkflowPlatformPinTests: XCTestCase {
     }
 
     func testBuiltInRecipesListIllumina() {
-        let ids = ["illumina-amplicon-merge", "vsp2-target-enrichment", "wastewater-metagenomics"]
+        let ids = ["illumina-amplicon-merge", "illumina-paired-cleanup"]
         let builtins = RecipeRegistryV2.builtinRecipes()
         for id in ids {
             let recipe = builtins.first { $0.id == id }

@@ -1,0 +1,38 @@
+{
+    "formatVersion": 2,
+    "id": "illumina-paired-cleanup",
+    "name": "Illumina paired-end cleanup",
+    "description": "Paired-end Illumina reads. Removes duplicate reads, trims adapters and low-quality ends, removes human reads, merges overlapping pairs and drops reads under 50 bases. Keeps ribosomal RNA reads.",
+    "author": "Lungfish Built-in",
+    "tags": ["illumina", "paired-end", "viral", "vsp2", "target-enrichment", "wastewater", "metagenomics"],
+    "platforms": ["illumina"],
+    "requiredInput": "paired",
+    "qualityBinning": "illumina4",
+    "switches": [
+        { "id": "removeDuplicates", "label": "Remove duplicate reads", "default": true, "gates": "fastp-dedup" },
+        { "id": "removeRibosomalRNA", "label": "Remove ribosomal RNA reads", "default": false, "gates": "deacon-ribo-filter" }
+    ],
+    "presets": [
+        {
+            "id": "vsp2-target-enrichment",
+            "name": "VSP2 target enrichment",
+            "description": "Short-insert viral enrichment. Removes duplicate reads, trims adapters and low-quality ends, removes human reads, merges overlapping pairs and drops reads under 50 bases.",
+            "aliases": ["vsp2"],
+            "switches": { "removeDuplicates": true, "removeRibosomalRNA": false }
+        },
+        {
+            "id": "wastewater-metagenomics",
+            "name": "Wastewater metagenomics",
+            "description": "Metagenomic samples such as wastewater. Same steps as VSP2 target enrichment, and also removes ribosomal RNA reads.",
+            "switches": { "removeDuplicates": true, "removeRibosomalRNA": true }
+        }
+    ],
+    "steps": [
+        { "type": "fastp-dedup", "label": "Remove duplicate reads" },
+        { "type": "fastp-trim", "label": "Adapter + quality trim", "params": { "detectAdapter": true, "quality": 15, "window": 5, "cutMode": "right" } },
+        { "type": "deacon-scrub", "label": "Remove human reads", "params": { "database": "deacon-panhuman" } },
+        { "type": "deacon-ribo-filter", "label": "Remove ribosomal RNA reads", "params": { "database": "deacon-ribokmers", "absoluteThreshold": 1, "relativeThreshold": 0 } },
+        { "type": "fastp-merge", "label": "Merge overlapping pairs", "params": { "minOverlap": 15 } },
+        { "type": "seqkit-length-filter", "label": "Remove short reads", "params": { "minLength": 50 } }
+    ]
+}

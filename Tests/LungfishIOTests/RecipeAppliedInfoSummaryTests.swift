@@ -34,6 +34,30 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
         )
     }
 
+    /// A record written before the merged recipe (C2-MERGED) keeps every field it holds, gains none when written
+    /// again, and still reads as deduplicated in one fused fastp pass.
+    func test_baseWrittenRecordReadsUnchanged() throws {
+        let json = Data("""
+        {"appliedDate":782000000,"recipeFormatVersion":1,"recipeID":"vsp2-target-enrichment",\
+        "recipeName":"VSP2 Target Enrichment","recipeSHA256":"0f0e","stepResults":[{"commandArguments":\
+        ["fastp","--dedup","-A","-G","-Q","-L","--detect_adapter_for_pe","-q","15","-W","5","--cut_right"],\
+        "durationSeconds":2.5,"inputReadCount":1000,"logicalComponents":[{"displayName":"Remove PCR duplicates",\
+        "typeID":"fastp-dedup"},{"displayName":"Adapter + quality trim","typeID":"fastp-trim"}],\
+        "outputReadCount":880,"stepName":"Remove PCR duplicates + Adapter + quality trim","tool":"fastp"}]}
+        """.utf8)
+        let info = try JSONDecoder().decode(RecipeAppliedInfo.self, from: json)
+        XCTAssertTrue(info.didApplyDeduplication)
+        XCTAssertTrue(info.deduplicationPerformedInCombinedPass)
+        XCTAssertEqual(info.totalReadsRemoved, 120)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let rewritten = try encoder.encode(info)
+        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? NSDictionary)
+        let after = try XCTUnwrap(JSONSerialization.jsonObject(with: rewritten) as? NSDictionary)
+        XCTAssertEqual(before, after)
+    }
+
     func testDeduplicationSummaryUsesDedupStepCounts() throws {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",

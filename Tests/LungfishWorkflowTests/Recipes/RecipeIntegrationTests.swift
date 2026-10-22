@@ -30,14 +30,14 @@ final class RecipeIntegrationTests: XCTestCase {
 
     func testVSP2RecipeLoadsAndValidates() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let vsp2 = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: recipes)))
         let engine = RecipeEngine()
         XCTAssertNoThrow(try engine.validate(recipe: vsp2, inputFormat: .pairedR1R2))
     }
 
     func testVSP2RecipePlanFusesDedupAndTrim() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let vsp2 = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: recipes)))
         let engine = RecipeEngine()
         let plan = try engine.plan(recipe: vsp2, inputFormat: .pairedR1R2)
 
@@ -61,14 +61,14 @@ final class RecipeIntegrationTests: XCTestCase {
 
     func testVSP2RecipeRejectsSingleEndInput() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let vsp2 = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: recipes)))
         let engine = RecipeEngine()
         XCTAssertThrowsError(try engine.validate(recipe: vsp2, inputFormat: .single))
     }
 
     func testWastewaterMetagenomicsRecipeLoadsAndValidates() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let wastewater = try XCTUnwrap(recipes.first { $0.id == "wastewater-metagenomics" })
+        let wastewater = try XCTUnwrap((try? RecipeResolver.resolve("wastewater-metagenomics", in: recipes)))
         let engine = RecipeEngine()
 
         XCTAssertEqual(wastewater.name, "Wastewater metagenomics")
@@ -81,7 +81,7 @@ final class RecipeIntegrationTests: XCTestCase {
 
     func testWastewaterMetagenomicsRecipeUsesDeaconRiboFilterBeforeMerge() throws {
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let wastewater = try XCTUnwrap(recipes.first { $0.id == "wastewater-metagenomics" })
+        let wastewater = try XCTUnwrap((try? RecipeResolver.resolve("wastewater-metagenomics", in: recipes)))
         let engine = RecipeEngine()
         let plan = try engine.plan(recipe: wastewater, inputFormat: .pairedR1R2)
 
@@ -365,7 +365,7 @@ final class RecipeIntegrationTests: XCTestCase {
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let vsp2 = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: recipes)))
         let engine = RecipeEngine()
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
@@ -414,7 +414,7 @@ final class RecipeIntegrationTests: XCTestCase {
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 
         let recipes = RecipeRegistryV2.builtinRecipes()
-        let vsp2 = try XCTUnwrap(recipes.first { $0.id == "vsp2-target-enrichment" })
+        let vsp2 = try XCTUnwrap((try? RecipeResolver.resolve("vsp2-target-enrichment", in: recipes)))
         let engine = RecipeEngine()
 
         let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")

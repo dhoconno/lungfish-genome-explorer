@@ -386,7 +386,7 @@ final class RecipeEngineTests: XCTestCase {
 
     func testReportableStepCountUsesPhysicalVSP2Plan() throws {
         let recipe = try XCTUnwrap(
-            RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
+            (try? RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes()))
         )
 
         XCTAssertEqual(

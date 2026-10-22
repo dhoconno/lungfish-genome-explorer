@@ -213,7 +213,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         }
         _ = try ConformanceFixtures.installedManagedDatabaseFile(id: "deacon-panhuman", path: installedDatabase)
         let recipe = try XCTUnwrap(
-            RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
+            (try? RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes()))
         )
 
         let sequence = String(repeating: "ACGT", count: 30)
@@ -401,7 +401,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
             try ToolAvailability.skipOrFail("Deacon human-read removal index (deacon-panhuman) not installed")
         }
         let recipe = try XCTUnwrap(
-            RecipeRegistryV2.builtinRecipes().first { $0.id == "vsp2-target-enrichment" }
+            (try? RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes()))
         )
         let fixtures = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

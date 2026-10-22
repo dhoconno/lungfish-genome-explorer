@@ -12,7 +12,7 @@ import LungfishIO
 /// 2026-10-20 the import found out only after the whole recipe had run.
 final class ClumpingToolRecipeOutputTests: XCTestCase {
     private func builtin(_ id: String) throws -> Recipe {
-        try XCTUnwrap(RecipeRegistryV2.builtinRecipes().first { $0.id == id })
+        try XCTUnwrap(try RecipeResolver.resolve(id, in: RecipeRegistryV2.builtinRecipes()))
     }
 
     func testVSP2OutputMixesMergedReadsWithPairs() throws {

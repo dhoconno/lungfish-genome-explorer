@@ -15,6 +15,8 @@ struct SRADownloadImportSettings: Sendable {
     var qualityBinning = "none"
     var compression = "balanced"
     var recipe = "none"
+    /// The recipe switches an option set, by switch id.
+    var switchOptions: [String: Bool] = [:]
     var noOptimizeStorage = false
     var clumpingTool: String?
     var threads: Int?
@@ -128,6 +130,7 @@ struct SRADownloadBundleRun: Sendable {
         importRun.qualityBinning = settings.qualityBinning
         importRun.compression = settings.compression
         importRun.recipe = settings.recipe
+        importRun.switchOptions = settings.switchOptions
         importRun.noOptimizeStorage = settings.noOptimizeStorage
         importRun.clumpingTool = settings.clumpingTool
         importRun.threads = settings.threads

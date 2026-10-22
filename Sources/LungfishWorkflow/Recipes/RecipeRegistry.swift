@@ -29,7 +29,7 @@ public enum RecipeRegistryV2 {
             return []
         }
 
-        return loadRecipes(from: recipesDir)
+        return loadRecipes(from: recipesDir).recipes
     }
 
     // MARK: - User recipes
@@ -48,7 +48,30 @@ public enum RecipeRegistryV2 {
         guard fileManager.fileExists(atPath: userRecipesDir.path) else {
             return []
         }
-        return loadRecipes(from: userRecipesDir, fileManager: fileManager)
+        return loadRecipes(from: userRecipesDir, fileManager: fileManager).recipes
+    }
+
+    /// The recipe files, bundled and the user's, that did not load: a newer `formatVersion`, a switch that names no
+    /// step, or bytes that are not a recipe. A name such a file holds then reads as refused, never as unknown (QA
+    /// review of ruling BIO-PRESET, point 6). A given `applicationSupportDirectory` reads only that folder.
+    public static func refusedRecipeFiles(
+        appIdentity: LungfishAppIdentity = .current,
+        fileManager: FileManager = .default,
+        applicationSupportDirectory: URL? = nil
+    ) -> [RefusedRecipeFile] {
+        var refused: [RefusedRecipeFile] = []
+        if applicationSupportDirectory == nil, let recipesDir = RecipeBundleAccessor.recipesDirectoryURL() {
+            refused += loadRecipes(from: recipesDir).refused
+        }
+        let userRecipesDir = userRecipesDirectoryURL(
+            appIdentity: appIdentity,
+            applicationSupportDirectory: applicationSupportDirectory,
+            fileManager: fileManager
+        )
+        if fileManager.fileExists(atPath: userRecipesDir.path) {
+            refused += loadRecipes(from: userRecipesDir, fileManager: fileManager).refused
+        }
+        return refused
     }
 
     public static func userRecipesDirectoryURL(
@@ -94,29 +117,57 @@ public enum RecipeRegistryV2 {
     private static func loadRecipes(
         from directory: URL,
         fileManager: FileManager = .default
-    ) -> [Recipe] {
+    ) -> (recipes: [Recipe], refused: [RefusedRecipeFile]) {
         guard let contents = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles
         ) else {
-            return []
+            return ([], [])
         }
 
         let decoder = JSONDecoder()
         var recipes: [Recipe] = []
+        var refused: [RefusedRecipeFile] = []
 
-        for url in contents where url.pathExtension.lowercased() == "json" {
+        // Sorted by file name, so the help and the sheet list the recipes in one order on every volume.
+        for url in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        where url.pathExtension.lowercased() == "json" {
+            var data = Data()
             do {
-                let data = try Data(contentsOf: url)
+                data = try Data(contentsOf: url)
                 var recipe = try decoder.decode(Recipe.self, from: data)
                 recipe.sourceSHA256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
                 recipes.append(recipe)
             } catch {
-                logger.warning("RecipeRegistryV2: Failed to decode recipe at \(url.lastPathComponent): \(error.localizedDescription)")
+                let refusal = refusal(of: url.lastPathComponent, data: data, error: error)
+                logger.warning("RecipeRegistryV2: \(refusal.reason, privacy: .public)")
+                refused.append(refusal)
             }
         }
 
-        return recipes
+        return (recipes, refused)
+    }
+
+    /// The words a refused file reads with: its version when that is what refused it, otherwise the decoder's reason.
+    private static func refusal(of fileName: String, data: Data, error: any Error) -> RefusedRecipeFile {
+        struct Header: Decodable {
+            let formatVersion: Int?
+            let id: String?
+        }
+        let header = try? JSONDecoder().decode(Header.self, from: data)
+        let reason: String
+        if let versionError = error as? RecipeFormatVersionError {
+            let versions = Recipe.supportedFormatVersions
+            let advice = versionError.formatVersion > versions.upperBound
+                ? "Update the app." : "No version of it reads this file."
+            reason = "Recipe file \(fileName) has formatVersion \(versionError.formatVersion). This version of "
+                + "Lungfish Genome Explorer reads formatVersion \(versions.lowerBound) to \(versions.upperBound). \(advice)"
+        } else {
+            reason = "Recipe file \(fileName) could not be read: \(error.localizedDescription)"
+        }
+        return RefusedRecipeFile(
+            fileName: fileName, recipeID: header?.id, formatVersion: header?.formatVersion, reason: reason
+        )
     }
 }

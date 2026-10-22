@@ -106,9 +106,10 @@ public final class RecipeEngine: Sendable {
     /// - Throws: ``RecipeEngineError`` if a step type is unknown or the
     ///   format chain cannot be satisfied.
     public func plan(recipe: Recipe, inputFormat: RecipeFileFormat) throws -> [PlannedStep] {
-        // Instantiate all executors
+        // Instantiate the executors of the steps that run. A switch that is off leaves its step out, so keeping
+        // duplicates drops only the dedup step's flags from the fused fastp call (ruling BIO-PRESET P3).
         var executors: [(executor: any RecipeStepExecutor, step: RecipeStep)] = []
-        for recipeStep in recipe.steps {
+        for recipeStep in recipe.activeSteps {
             guard let Type = stepTypes[recipeStep.type] else {
                 throw RecipeEngineError.unknownStepType(recipeStep.type)
             }

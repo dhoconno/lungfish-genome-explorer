@@ -492,9 +492,10 @@ public enum FASTQIngestionService {
             return name
         }
         guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
-        if recipe.name.lowercased().contains("vsp2"),
-           let nr = RecipeRegistryV2.allRecipes().first(where: { $0.name.lowercased().contains("vsp2") }) {
-            return nr.id
+        // The legacy built-in VSP2 recipe runs as the merged recipe's VSP2 preset. It is matched by its id and
+        // passed as a preset id, never matched by a recipe's name (ruling BIO-PRESET P3).
+        if recipe.id == ProcessingRecipe.illuminaVSP2TargetEnrichment.id {
+            return "vsp2-target-enrichment"
         }
         return recipe.name.lowercased()
     }

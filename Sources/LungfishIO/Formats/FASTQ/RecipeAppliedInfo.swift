@@ -6,6 +6,44 @@ import Foundation
 import LungfishCore
 import os.log
 
+// MARK: - Recipe Switch Setting
+
+/// One switch's value in a recipe run and where the value came from (CHTC lane C2-MERGED, ruling BIO-PRESET P3).
+public struct RecipeSwitchSetting: Codable, Sendable, Equatable {
+    /// Where a switch's value came from.
+    public enum Source: String, Codable, Sendable, Equatable {
+        /// The recipe file's own default.
+        case recipeDefault
+        /// The preset the name resolved to.
+        case preset
+        /// A CLI option such as `--no-remove-duplicates`, or the sheet's checkbox.
+        case option
+
+        /// The words a run's info line and the Inspector give the source.
+        public var displayName: String {
+            switch self {
+            case .recipeDefault: return "recipe default"
+            case .preset: return "preset"
+            case .option: return "option"
+            }
+        }
+    }
+
+    /// The switch id, such as `removeDuplicates`.
+    public let id: String
+    /// The switch label, such as "Remove duplicate reads".
+    public let label: String
+    public let value: Bool
+    public let source: Source
+
+    public init(id: String, label: String, value: Bool, source: Source) {
+        self.id = id
+        self.label = label
+        self.value = value
+        self.source = source
+    }
+}
+
 // MARK: - Recipe Applied Info
 
 /// Summary of a post-import recipe run, stored in IngestionMetadata.

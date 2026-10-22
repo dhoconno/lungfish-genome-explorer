@@ -323,8 +323,41 @@ final class ImportFastqCommandTests: XCTestCase {
     func testResolveImportRecipeMapsVSP2AliasToDeclarativeRecipe() throws {
         let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2")
 
-        XCTAssertEqual(resolved.newRecipe?.id, "vsp2-target-enrichment")
+        XCTAssertEqual(resolved.newRecipe?.id, "illumina-paired-cleanup")
+        XCTAssertEqual(resolved.newRecipe?.resolution?.preset?.id, "vsp2-target-enrichment")
         XCTAssertNil(resolved.legacyRecipe)
+    }
+
+    /// `--no-remove-duplicates` reaches the resolver as an option and beats the preset (CHTC lane C2-MERGED).
+    func testSwitchOptionsReachTheResolver() throws {
+        let command = try ImportCommand.FastqSubcommand.parse([
+            "/tmp/reads", "--project", "/tmp/project.lungfish",
+            "--recipe", "wastewater-metagenomics", "--no-remove-duplicates",
+        ])
+        XCTAssertEqual(command.importOptions.switchOptions, ["removeDuplicates": false])
+        XCTAssertEqual(command.importOptions.switchOptionArguments, ["--no-remove-duplicates"])
+        let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(
+            named: command.recipe, switchOptions: command.importOptions.switchOptions
+        )
+        let recipe = try XCTUnwrap(resolved.newRecipe)
+        XCTAssertEqual(recipe.resolutionLines, [
+            "Recipe 'wastewater-metagenomics' runs illumina-paired-cleanup with preset wastewater-metagenomics (Wastewater metagenomics).",
+            "Remove duplicate reads: off (option)",
+            "Remove ribosomal RNA reads: on (preset)",
+        ])
+        XCTAssertEqual(recipe.activeSteps.first?.type, "fastp-trim")
+        XCTAssertTrue(recipe.activeSteps.contains { $0.type == "deacon-ribo-filter" })
+    }
+
+    /// A switch option for a recipe without that switch, or for no recipe file, is refused by name.
+    func testSwitchOptionForARecipeWithoutTheSwitchIsRefused() {
+        for name in ["illumina-amplicon-merge", "none", "wgs"] {
+            XCTAssertThrowsError(try ImportCommand.FastqSubcommand.resolveImportRecipe(
+                named: name, switchOptions: ["removeRibosomalRNA": true]
+            ), name) { error in
+                XCTAssertTrue(error.localizedDescription.contains("--remove-ribosomal-rna"), error.localizedDescription)
+            }
+        }
     }
 
     // C0 found a bare release lungfish-cli that loaded no recipe files. `--recipe vsp2` then
@@ -334,7 +367,7 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertThrowsError(
             try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2", recipes: [])
         ) { error in
-            XCTAssertTrue(error.localizedDescription.contains("vsp2-target-enrichment"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("illumina-paired-cleanup"), error.localizedDescription)
         }
     }
 
@@ -357,13 +390,13 @@ final class ImportFastqCommandTests: XCTestCase {
     }
 
     func testMissingRecipeFileNamesTheRecipeFilesThatDidLoad() throws {
-        let loaded = RecipeRegistryV2.builtinRecipes().filter { $0.id != "vsp2-target-enrichment" }
+        let loaded = RecipeRegistryV2.builtinRecipes().filter { $0.id != "illumina-paired-cleanup" }
         XCTAssertFalse(loaded.isEmpty, "the other bundled recipe files should load")
         XCTAssertThrowsError(
             try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2", recipes: loaded)
         ) { error in
             let message = error.localizedDescription
-            XCTAssertTrue(message.contains("vsp2-target-enrichment"), message)
+            XCTAssertTrue(message.contains("illumina-paired-cleanup"), message)
             for recipe in loaded {
                 XCTAssertTrue(message.contains(recipe.id), message)
             }
@@ -400,6 +433,8 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertFalse(recipes.isEmpty, "the bundled recipe files should load")
         let names = ImportCommand.FastqSubcommand.availableRecipeNames(recipes: recipes)
         XCTAssertTrue(names.contains("vsp2-target-enrichment"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("wastewater-metagenomics"), names.joined(separator: ", "))
+        XCTAssertTrue(names.contains("illumina-paired-cleanup"), names.joined(separator: ", "))
         XCTAssertTrue(names.contains("illumina-amplicon-merge"), names.joined(separator: ", "))
         XCTAssertTrue(names.contains("vsp2"), names.joined(separator: ", "))
         XCTAssertTrue(names.contains("wgs"), names.joined(separator: ", "))

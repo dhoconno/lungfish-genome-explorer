@@ -145,7 +145,7 @@ extension ImportCommand {
             // `fetch sra download --bundle` (FASTQImportRun).
             let importRun = FASTQImportRun(
                 input: input, samplesheet: samplesheet, project: project, recipe: recipe,
-                qualityBinning: qualityBinning, logDir: logDir, dryRun: dryRun, platform: platform,
+                switchOptions: importOptions.switchOptions, qualityBinning: qualityBinning, logDir: logDir, dryRun: dryRun, platform: platform,
                 pairing: pairing, noOptimizeStorage: noOptimizeStorage, clumpingTool: clumpingTool,
                 compression: compression, force: force, name: name, recursive: recursive, threads: threads,
                 clumpifyHeapGB: clumpifyHeapGB,
@@ -190,7 +190,7 @@ extension ImportCommand {
                 ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: databaseID))
             }
 
-            for step in newRecipe?.steps ?? [] {
+            for step in newRecipe?.activeSteps ?? [] {
                 if Self.newRecipeStepRequiresHumanScrubber(step) {
                     let configuredID = step.params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
                     ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: configuredID))
@@ -205,30 +205,40 @@ extension ImportCommand {
 
         /// Resolves a `--recipe` value to the recipe file or the legacy recipe it names.
         ///
-        /// Only the names in ``legacyRecipeNames`` resolve to a legacy `ProcessingRecipe`.
-        /// A name that stands for a recipe file, such as the `vsp2` alias, never falls back to
-        /// a legacy recipe of the same short name, because that ran a different chain than the
-        /// one asked for and said nothing. When no recipe file matches, the import stops with
-        /// ``RecipeFileUnavailable``, which says what to do.
+        /// A recipe file matches by id only, through ``RecipeResolver``: a recipe's id, a preset's id
+        /// or a preset's alias such as `vsp2`, with `switchOptions` beating the preset. A name only
+        /// a refused file holds stops with that file's refusal. Only the names in
+        /// ``legacyRecipeNames`` resolve to a legacy `ProcessingRecipe`. A name that stands for a
+        /// shipped recipe file never falls back to a legacy recipe of the same short name, because
+        /// that ran a different chain than the one asked for and said nothing. When no recipe file
+        /// matches, the import stops with ``RecipeFileUnavailable``, which says what to do.
         static func resolveImportRecipe(
             named name: String,
-            recipes: [Recipe] = RecipeRegistryV2.allRecipes()
+            switchOptions: [String: Bool] = [:],
+            recipes: [Recipe] = RecipeRegistryV2.allRecipes(),
+            refused: [RefusedRecipeFile] = RecipeRegistryV2.refusedRecipeFiles()
         ) throws -> (newRecipe: Recipe?, legacyRecipe: ProcessingRecipe?) {
             let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            // A switch option is refused by name for a run with no recipe file, never ignored.
+            if normalized == "none" || legacyRecipeNames.contains(normalized),
+               let switchID = switchOptions.keys.sorted().first {
+                throw RecipeResolutionError.unknownSwitch(switchID, recipeID: normalized)
+            }
             guard normalized != "none" else {
                 return (nil, nil)
             }
 
-            let recipeID = v2RecipeAliases[normalized] ?? normalized
-            if let recipe = recipes.first(where: { $0.id.lowercased() == recipeID }) {
+            if let recipe = try RecipeResolver.resolve(
+                name, in: recipes, refused: refused, switchOptions: switchOptions
+            ) {
                 return (recipe, nil)
             }
             if legacyRecipeNames.contains(normalized) {
                 return (nil, try FASTQBatchImporter.resolveRecipe(named: normalized))
             }
-            // An alias stands for a recipe file, and with no recipe file loaded no name can be
+            // A shipped name stands for a recipe file, and with no recipe file loaded no name can be
             // told from a recipe file's ID, so both stop here instead of guessing.
-            if v2RecipeAliases[normalized] != nil || recipes.isEmpty {
+            if let recipeID = shippedRecipeNames[normalized] ?? (recipes.isEmpty ? normalized : nil) {
                 throw RecipeFileUnavailable(
                     requested: name.trimmingCharacters(in: .whitespacesAndNewlines),
                     recipeID: recipeID,
@@ -291,28 +301,25 @@ extension ImportCommand {
             }
         }
 
-        private static let v2RecipeAliases: [String: String] = [
-            "vsp2": "vsp2-target-enrichment",
+        /// The names the shipped merged recipe file holds (its id, its presets' ids and their alias),
+        /// so that with the file missing they read as unavailable, never as unknown.
+        private static let shippedRecipeNames: [String: String] = [
+            "illumina-paired-cleanup": "illumina-paired-cleanup",
+            "vsp2-target-enrichment": "illumina-paired-cleanup",
+            "wastewater-metagenomics": "illumina-paired-cleanup",
+            "vsp2": "illumina-paired-cleanup",
         ]
 
-        /// The legacy `ProcessingRecipe` names ``resolveImportRecipe(named:recipes:)``
+        /// The legacy `ProcessingRecipe` names ``resolveImportRecipe(named:switchOptions:recipes:refused:)``
         /// falls back to when no recipe file matches. Every name here resolves.
         static let legacyRecipeNames: [String] = ["wgs", "hifi"]
 
         /// Every `--recipe` value that resolves, in the order the help lists
-        /// them: the recipe files' own IDs, then the short aliases, then the
-        /// legacy names. The help used to list `vsp2, wgs, hifi` while the
-        /// IDs that actually resolve read like `vsp2-target-enrichment`.
+        /// them: the recipe files' own IDs, then their presets' IDs, then the
+        /// presets' aliases, then the legacy names. An alias is listed only
+        /// while the recipe file that holds it is loaded.
         static func availableRecipeNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> [String] {
-            var names: [String] = []
-            for recipe in recipes where !names.contains(recipe.id) {
-                names.append(recipe.id)
-            }
-            // An alias is listed only while the recipe file it stands for is loaded.
-            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key })
-            where !names.contains(alias) && recipes.contains(where: { $0.id.lowercased() == target }) {
-                names.append(alias)
-            }
+            var names = RecipeResolver.resolvableNames(in: recipes)
             for legacy in legacyRecipeNames where !names.contains(legacy) {
                 names.append(legacy)
             }
@@ -323,14 +330,32 @@ extension ImportCommand {
             availableRecipeNames(recipes: recipes).joined(separator: ", ")
         }
 
+        /// A recipe's or preset's switch values as the help gives them, such as
+        /// " (Remove duplicate reads on, Remove ribosomal RNA reads off)".
+        private static func switchSummary(_ recipe: Recipe, preset: RecipePreset?) -> String {
+            guard !recipe.switches.isEmpty else { return "" }
+            let values = recipe.switches.map { gate in
+                "\(gate.label) \((preset?.switches[gate.id] ?? gate.defaultValue) ? "on" : "off")"
+            }
+            return " (" + values.joined(separator: ", ") + ")"
+        }
+
         static func recipeHelpDiscussion(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> String {
             var lines: [String] = []
             for recipe in recipes {
-                lines.append("\(recipe.id): \(recipe.name)")
+                lines.append("\(recipe.id): \(recipe.name)\(switchSummary(recipe, preset: nil))")
             }
-            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key })
-            where recipes.contains(where: { $0.id.lowercased() == target }) {
-                lines.append("\(alias): alias of \(target)")
+            for recipe in recipes {
+                for preset in recipe.presets {
+                    lines.append("\(preset.id): \(preset.name), a preset of \(recipe.id)\(switchSummary(recipe, preset: preset))")
+                }
+            }
+            for recipe in recipes {
+                for preset in recipe.presets {
+                    for alias in preset.aliases {
+                        lines.append("\(alias): alias of \(preset.id)")
+                    }
+                }
             }
             lines.append("wgs: the built-in Illumina whole-genome recipe")
             lines.append("hifi: the built-in PacBio HiFi recipe")

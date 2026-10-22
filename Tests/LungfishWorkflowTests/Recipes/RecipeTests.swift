@@ -138,20 +138,52 @@ struct RecipeTests {
         #expect(decoded.steps[0].params?["name"]?.stringValue == "hello")
     }
 
+    // MARK: - test_decodeRefusesUnknownFormatVersion
+
+    /// A build reads only the format versions it knows. A newer file holds switches an older build would ignore,
+    /// so running it would run every step (ruling BIO-PRESET P3, QA review point 6).
+    @Test func test_decodeRefusesUnknownFormatVersion() throws {
+        func recipeJSON(version: Int) -> Data {
+            Data("""
+            {
+                "formatVersion": \(version),
+                "id": "version-\(version)",
+                "name": "Version \(version)",
+                "platforms": ["illumina"],
+                "requiredInput": "any",
+                "steps": [{ "type": "fastp-trim" }]
+            }
+            """.utf8)
+        }
+        for version in [0, 3] {
+            #expect(throws: (any Error).self, "formatVersion \(version) must be refused") {
+                try JSONDecoder().decode(Recipe.self, from: recipeJSON(version: version))
+            }
+        }
+        for version in [1, 2] {
+            let recipe = try JSONDecoder().decode(Recipe.self, from: recipeJSON(version: version))
+            #expect(recipe.formatVersion == version)
+        }
+    }
+
     // MARK: - testLoadBundledVSP2Recipe
 
     @Test func testLoadBundledVSP2Recipe() throws {
         let resolvedURL = try #require(
             RecipeBundleAccessor.recipesDirectoryURL()?
-                .appendingPathComponent("vsp2.recipe.json"),
-            "vsp2.recipe.json not found in workflow resources"
+                .appendingPathComponent("illumina-paired-cleanup.recipe.json"),
+            "illumina-paired-cleanup.recipe.json not found in workflow resources"
         )
 
         let data = try Data(contentsOf: resolvedURL)
-        let recipe = try JSONDecoder().decode(Recipe.self, from: data)
+        let recipe = try #require(try RecipeResolver.resolve(
+            "vsp2", in: [try JSONDecoder().decode(Recipe.self, from: data)]
+        ))
+        let steps = recipe.activeSteps
 
-        #expect(recipe.id == "vsp2-target-enrichment")
-        #expect(recipe.name == "VSP2 Target Enrichment")
+        #expect(recipe.id == "illumina-paired-cleanup")
+        #expect(recipe.name == "Illumina paired-end cleanup")
+        #expect(recipe.resolution?.preset?.name == "VSP2 target enrichment")
         #expect(recipe.platforms == [IngestionPlatform.illumina])
         #expect(recipe.requiredInput == Recipe.InputRequirement.paired)
         #expect(recipe.qualityBinning == QualityBinningScheme.illumina4)
