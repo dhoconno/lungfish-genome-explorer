@@ -102,6 +102,26 @@ final class ExecutorLaunchTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: "\(runs[1].folder)/ran"))
     }
 
+    func testSubreaperFailureRefusesWithUXWords() {
+        // The Linux branch cannot be reached by a failed prctl in a test, so the check takes the platform as a parameter and
+        // this test runs it on every platform with the reports a refused kernel would give.
+        let options = StepCommand.Options(record: "record.json", stdout: "tool.out", stderr: "tool.err", program: ["/bin/sh"])
+        let denied = ChildSubreaper.Report(setterResult: EPERM, getterResult: 0, getterValue: 0)
+        XCTAssertEqual(
+            StepCommand.refusal(options, subreaper: denied, subreaperRequired: true),
+            "The executor could not register to adopt leftover processes (prctl failed with EPERM). No tool ran."
+        )
+        let unavailable = ChildSubreaper.Report(setterResult: ENOSYS, getterResult: ENOSYS, getterValue: nil)
+        XCTAssertEqual(
+            StepCommand.refusal(options, subreaper: unavailable, subreaperRequired: true),
+            "The executor could not register to adopt leftover processes (prctl failed with ENOSYS). No tool ran."
+        )
+        let adopting = ChildSubreaper.Report(setterResult: 0, getterResult: 0, getterValue: 1)
+        XCTAssertNil(StepCommand.refusal(options, subreaper: adopting, subreaperRequired: true))
+        // Where the subreaper is not required, an unset one does not refuse the run.
+        XCTAssertNil(StepCommand.refusal(options, subreaper: denied, subreaperRequired: false))
+    }
+
     func testChildSubreaperWrapperReportsENOSYSOffLinux() {
         #if os(Linux)
         // The test process never calls the setter (tally-r2 K3-1), so the getter reads 0 here.

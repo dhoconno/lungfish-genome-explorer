@@ -86,15 +86,18 @@ enum StepCommand {
         return .success(options)
     }
 
-    /// Why the run may not start, checked before any tool runs, or nil.
-    static func refusal(_ options: Options, subreaper: ChildSubreaper.Report) -> String? {
-        #if os(Linux)
-        if !subreaper.isSet {
+    /// Why the run may not start, checked before any tool runs, or nil. The executor must be a child subreaper on Linux, so
+    /// `subreaperRequired` defaults to `isLinux`. A test passes true to reach the refusal on any platform.
+    static func refusal(
+        _ options: Options,
+        subreaper: ChildSubreaper.Report,
+        subreaperRequired: Bool = StepCommand.isLinux
+    ) -> String? {
+        if subreaperRequired && !subreaper.isSet {
             let code = subreaper.setterResult != 0 ? subreaper.setterResult : subreaper.getterResult
             let name = code != 0 ? ChildSubreaper.errnoName(code) : "a getter value of \(subreaper.getterValue ?? 0)"
             return StepReason.subreaperRefused(errnoName: name)
         }
-        #endif
         if options.grace < 0 || options.grace > maximumGraceSeconds {
             return "The grace of \(StepController.format(options.grace)) seconds is outside 0 to 120 seconds. No tool ran."
         }
@@ -192,7 +195,7 @@ enum StepCommand {
         return finish(record, at: options.record)
     }
 
-    private static var isLinux: Bool {
+    static var isLinux: Bool {
         #if os(Linux)
         return true
         #else
