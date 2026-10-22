@@ -29,9 +29,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
     public let presentationText: String
     public let requiresBarcodeDefinition: Bool
     public let usesDemultiplexOutputFolder: Bool
-    /// Whether the recipe writes merged reads beside read pairs in one file,
-    /// which Trim Galore cannot store.
-    public let outputMixesMergedReadsAndPairs: Bool
     /// The checkboxes the sheet shows under the picker, in the recipe's order. Empty for a recipe without switches.
     public let switches: [FASTQImportSheetSwitch]
     /// The recipe the option runs, kept so the Workflow line can follow the checkboxes (``descriptionText(switchValues:)``).
@@ -42,8 +39,7 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         name: String,
         presentationText: String,
         requiresBarcodeDefinition: Bool = false,
-        usesDemultiplexOutputFolder: Bool = false,
-        outputMixesMergedReadsAndPairs: Bool = false
+        usesDemultiplexOutputFolder: Bool = false
     ) {
         self.init(
             id: id,
@@ -51,7 +47,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             presentationText: presentationText,
             requiresBarcodeDefinition: requiresBarcodeDefinition,
             usesDemultiplexOutputFolder: usesDemultiplexOutputFolder,
-            outputMixesMergedReadsAndPairs: outputMixesMergedReadsAndPairs,
             switches: [],
             switchRecipe: nil
         )
@@ -63,7 +58,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         presentationText: String,
         requiresBarcodeDefinition: Bool,
         usesDemultiplexOutputFolder: Bool,
-        outputMixesMergedReadsAndPairs: Bool,
         switches: [FASTQImportSheetSwitch],
         switchRecipe: Recipe?
     ) {
@@ -72,7 +66,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         self.presentationText = presentationText
         self.requiresBarcodeDefinition = requiresBarcodeDefinition
         self.usesDemultiplexOutputFolder = usesDemultiplexOutputFolder
-        self.outputMixesMergedReadsAndPairs = outputMixesMergedReadsAndPairs
         self.switches = switches
         self.switchRecipe = switchRecipe
     }
@@ -91,7 +84,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             presentationText: Self.makeDescription(purpose: purpose, recipe: recipe),
             requiresBarcodeDefinition: false,
             usesDemultiplexOutputFolder: false,
-            outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs,
             switches: switches,
             switchRecipe: switches.isEmpty ? nil : recipe
         )

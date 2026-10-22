@@ -322,14 +322,6 @@ struct FASTQImportRun {
             clumpifyHeapGB: clumpifyHeapGB
         )
 
-        // A storage tool that cannot store the recipe's output fails only
-        // after the whole recipe has run, so the pair is refused here.
-        if let refusal = FASTQBatchImporter.storageToolRefusal(config: config) {
-            throw reporter.fail(
-                refusal + " Pass --clumping-tool bbtools or --no-optimize-storage.", detail: nil, exitCode: .inputError
-            )
-        }
-
         let isQuiet = quiet
         try await ImportCommand.FastqSubcommand.installRequiredManagedDatabases(
             requiredIDs: ImportCommand.FastqSubcommand.requiredManagedDatabaseIDs(legacyRecipe: oldRecipe, newRecipe: newRecipe),

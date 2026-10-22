@@ -119,7 +119,7 @@ public struct FASTQIngestionResult: Sendable {
     }
 }
 
-private struct FASTQProcessingRecord: Sendable {
+struct FASTQProcessingRecord: Sendable {
     let url: URL
     let tool: String
     let toolVersion: String?
@@ -178,7 +178,7 @@ public enum FASTQIngestionError: Error, LocalizedError {
 /// Original files are deleted only after successful, verified processing.
 public final class FASTQIngestionPipeline: @unchecked Sendable {
 
-    private let runner = NativeToolRunner.shared
+    let runner = NativeToolRunner.shared
 
     public init() {}
 
@@ -576,33 +576,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         case .splitMixed:
             // Partition by name so each half gets the right flag, clump each,
             // then compress the concatenation as one stream.
-            let scratch = config.outputDirectory.appendingPathComponent(
-                ".clumpify-split-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-            defer { try? fm.removeItem(at: scratch) }
-            let pairsURL = scratch.appendingPathComponent("pairs.fastq")
-            let unpairedURL = scratch.appendingPathComponent("unpaired.fastq")
             progress(0.04, "Separating mate pairs from unpaired reads...")
-            try await Self.detachedWork {
-                FileManager.default.createFile(atPath: pairsURL.path, contents: nil)
-                FileManager.default.createFile(atPath: unpairedURL.path, contents: nil)
-                let pairsHandle = try FileHandle(forWritingTo: pairsURL)
-                defer { try? pairsHandle.close() }
-                let unpairedHandle = try FileHandle(forWritingTo: unpairedURL)
-                defer { try? unpairedHandle.close() }
-                let split = try FASTQPairInterleaver.partitionMixed(
-                    interleaved: inputFile,
-                    pairs: pairsHandle,
-                    unpaired: unpairedHandle
-                )
-                guard split == counts else {
-                    throw FASTQIngestionError.clumpifyFailed(
-                        "the pair scan found \(counts.pairs) pairs and \(counts.unpaired) unpaired reads, but the split wrote \(split.pairs) and \(split.unpaired)"
-                    )
-                }
-            }
+            let halves = try await Self.splitMixedByMate(
+                inputFile, counts: counts, in: config.outputDirectory, scratchPrefix: ".clumpify-split"
+            )
+            let scratch = halves.scratch
+            defer { try? fm.removeItem(at: scratch) }
+            let pairsURL = halves.pairs
+            let unpairedURL = halves.unpaired
 
             let clumpedPairs = scratch.appendingPathComponent("pairs.clumped.fastq")
             let clumpedUnpaired = scratch.appendingPathComponent("unpaired.clumped.fastq")
@@ -634,15 +615,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         progress(0.95, "Verifying read count...")
-        let outputRecords = try await Self.detachedWork {
-            try FASTQPairInterleaver.countRecords(in: outputFile)
-        }
-        guard outputRecords == expectedRecords else {
-            try? fm.removeItem(at: outputFile)
-            throw FASTQIngestionError.clumpifyFailed(
-                "expected \(expectedRecords) reads after clumpify.sh but \(outputFile.lastPathComponent) holds \(outputRecords); originals were kept"
-            )
-        }
+        try await Self.verifyStoredRecordCount(
+            in: outputFile, expected: expectedRecords, tool: "clumpify.sh", mayRemoveReads: false
+        )
         return try await clumpifyRecord(outputFile: outputFile, steps: steps, config: config, progress: progress)
     }
 
@@ -727,7 +702,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQProcessingRecord {
         let fm = FileManager.default
-        let trimGalore = try await runner.toolPath(for: .trimGalore)
+        _ = try await runner.toolPath(for: .trimGalore)
         let trimOutputDirectory = config.outputDirectory.appendingPathComponent(
             "trim-galore-\(UUID().uuidString)",
             isDirectory: true
@@ -769,8 +744,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 trimInputs = [r1, r2]
                 trimPairing = .pairedEnd
             case .splitMixed:
-                throw FASTQIngestionError.clumpifyFailed(
-                    "Trim Galore cannot keep mates together in a file that mixes \(counts.pairs) read pairs with \(counts.unpaired) unpaired reads. Choose BBTools clumpify or skip storage optimization for this file."
+                // Merged reads beside read pairs: the split, per-half run and join clumpify uses.
+                return try await trimGaloreStoreMixed(
+                    config: config, input: interleavedInput, counts: counts, outputFile: outputFile, progress: progress
                 )
             }
         }
@@ -787,38 +763,12 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
 
         progress(0.05, "Launching Trim Galore --clumpify...")
-        let stepClock = ProvenanceRunClock()
-        let result = try await runner.runProcess(
-            executableURL: trimGalore,
+        let (trimStep, evidence) = try await runTrimGalore(
             arguments: args,
-            workingDirectory: config.outputDirectory,
-            timeout: timeoutSeconds,
-            toolName: "trim_galore"
-        )
-        let stepCompletedAt = stepClock.now
-
-        guard result.isSuccess else {
-            let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
-            throw FASTQIngestionError.clumpifyFailed(
-                String(stderr.suffix(2_000)).trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-
-        let evidence = await versionEvidence(for: .trimGalore)
-        let trimStep = StepExecution(
-            toolName: "trim_galore",
-            toolVersion: evidence.recordedString,
-            command: [trimGalore.path] + args,
-            inputs: config.inputFiles.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-            },
-            outputs: [ProvenanceRecorder.fileOrDirectoryRecord(url: trimOutputDirectory, format: .unknown, role: .output)],
-            exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
-            stderr: result.stderr.isEmpty ? nil : result.stderr,
-            managedToolID: NativeTool.trimGalore.managedToolID, toolVersionEvidence: evidence,
-            startTime: stepClock.startedAt,
-            endTime: stepCompletedAt
+            inputs: config.inputFiles,
+            outputDirectory: trimOutputDirectory,
+            config: config,
+            timeout: timeoutSeconds
         )
 
         if trimPairing == .pairedEnd {
@@ -872,7 +822,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    private func interleavePairedFASTQ(
+    func interleavePairedFASTQ(
         r1: URL,
         r2: URL,
         outputFile: URL,
@@ -1230,7 +1180,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     }
 
     /// Compresses a FASTQ file with pigz (parallel gzip) or bgzip.
-    private func compress(
+    func compress(
         inputFile: URL,
         outputFile: URL,
         threads: Int,
@@ -1297,7 +1247,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
     /// A probe that answers is observed. One that does not leaves the lock's pin for the tool's id,
     /// recorded as a pin and never as a measurement, or unknown when the lock holds none.
-    private func versionEvidence(for tool: NativeTool) async -> ToolVersionEvidence {
+    func versionEvidence(for tool: NativeTool) async -> ToolVersionEvidence {
         Self.versionEvidence(observed: await runner.getToolVersion(tool), for: tool)
     }
 
@@ -1339,7 +1289,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         return args
     }
 
-    private static func trimGaloreSingleOutput(in directory: URL) throws -> URL {
+    static func trimGaloreSingleOutput(in directory: URL) throws -> URL {
         let outputs = try fastqOutputs(in: directory).filter { url in
             ["_trimmed.fq.gz", "_trimmed.fastq.gz", "_trimmed.fq", "_trimmed.fastq"]
                 .contains { url.lastPathComponent.hasSuffix($0) }
@@ -1350,7 +1300,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         return output
     }
 
-    private static func trimGalorePairedOutputs(in directory: URL) throws -> (r1: URL, r2: URL) {
+    static func trimGalorePairedOutputs(in directory: URL) throws -> (r1: URL, r2: URL) {
         let outputs = try fastqOutputs(in: directory)
         // Plain input gives plain `_val_N.fq` under --clumpify; reformat.sh
         // reads either when it interleaves them.
@@ -1376,7 +1326,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
     }
 
-    private static func isGzipCompressed(_ url: URL) -> Bool {
+    static func isGzipCompressed(_ url: URL) -> Bool {
         let name = url.lastPathComponent.lowercased()
         return name.hasSuffix(".gz") || name.hasSuffix(".gzip") || name.hasSuffix(".bgz")
     }

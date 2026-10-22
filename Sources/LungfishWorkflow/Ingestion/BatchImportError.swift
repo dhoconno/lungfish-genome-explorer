@@ -15,7 +15,6 @@ public enum BatchImportError: Error, LocalizedError {
     case outputBundleAlreadyExists(URL)
     case statisticsUnavailable(String)
     case recipeArtifactMissing(URL)
-    case storageToolCannotStoreRecipeOutput(String)
 
     public var errorDescription: String? {
         switch self {
@@ -37,8 +36,6 @@ public enum BatchImportError: Error, LocalizedError {
             return "FASTQ statistics could not be computed: \(reason)"
         case .recipeArtifactMissing(let url):
             return "Recipe step artifact is missing and cannot be retained: \(url.path)"
-        case .storageToolCannotStoreRecipeOutput(let reason):
-            return reason
         }
     }
 }
