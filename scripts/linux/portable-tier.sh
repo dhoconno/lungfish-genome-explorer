@@ -29,7 +29,7 @@
 # --offline prints a note and record.json says closedNetwork false.
 #
 # Evidence: record.json names the runtime and its version, the kernel seen inside each container, the probe of PID 1 and
-# the user, the toolchain and SDK with their checksums, the XCTest binary's SHA-256, the artifacts' SHA-256, the commit
+# the user, the toolchain and SDK with their checksums, the SHA-256 of the XCTest runner and library files, the artifacts' SHA-256, the commit
 # and whether the tree was clean. The tier builds the working tree, so a landing runs it on a clean checkout of the named
 # commit. Landing evidence counts only when the last line of the output reads `commit <sha> clean`. A run that ends in
 # `commit <sha> DIRTY` is a development run and proves nothing about that commit.
@@ -250,8 +250,13 @@ prepare_view_package
 step resolve-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift package resolve
 step xctest-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" swift test --disable-automatic-resolution
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container.log"
-test_binary="$(find "$pkg/.build" -type f -name '*PackageTests.xctest' | sort | sed -n 1p)"
-[ -n "$test_binary" ] || die "swift test left no *PackageTests.xctest file under $pkg/.build"
+# SwiftPM 6.4 builds a Linux test target as a test runner plus a shared library (<Target>-test-runner and <Target>.so
+# under .build/out/Products). Older layouts build one .xctest file. Every one of these files goes into the record.
+test_binary_args=()
+while IFS= read -r test_file; do
+  test_binary_args+=("testBinary.file=${test_file#"$repo"/}|$(size_of "$test_file")|$(sha256_of "$test_file")")
+done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so' -o -name '*.xctest' \) | sort)
+[ "${#test_binary_args[@]}" -gt 0 ] || die "swift test left no test runner, test library or .xctest file under $pkg/.build"
 
 printf abc > "$work/smoke/abc.txt"
 cp "$aarch64_dir/lungfish-htc" "$work/smoke/lungfish-htc"
@@ -301,8 +306,7 @@ python3 -I - "$work/record.json" "$repo" "$artifacts" \
   "toolchain.name=$toolchain_name" "toolchain.identifier=$(pin toolchain.identifier)" \
   "toolchain.sha256=$(pin toolchain.sha256)" "toolchain.swiftVersion=$swift_version" \
   "staticSDK.id=$sdk_id" "staticSDK.sha256=$(pin staticSDK.sha256)" \
-  "testBinary.path=${test_binary#"$repo"/}" "testBinary.bytes=$(size_of "$test_binary")" \
-  "testBinary.sha256=$(sha256_of "$test_binary")" \
+  "${test_binary_args[@]}" \
   :: "$0" "$@" <<'PY'
 import hashlib, json, os, sys, time
 
@@ -324,11 +328,15 @@ def put(tree, dotted, value):
         tree = tree.setdefault(key, {})
     tree[keys[-1]] = value
 
-numbers, flags = {"testBinary.bytes", "wallSeconds", "containerProbe.uid"}, {"treeClean", "closedNetwork"}
+numbers, flags = {"wallSeconds", "containerProbe.uid"}, {"treeClean", "closedNetwork"}
 pins = json.load(open(os.path.join(repo, "scripts/linux/toolchain.json")))
 out = {"tool": "scripts/linux/portable-tier.sh", "argv": script_argv, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
 for pair in pairs:
     key, _, value = pair.partition("=")
+    if key == "testBinary.file":
+        path, size, sha = value.split("|")
+        out.setdefault("testBinary", {}).setdefault("files", []).append({"path": path, "bytes": int(size), "sha256": sha})
+        continue
     put(out, key, int(value) if key in numbers else (value == "true") if key in flags else value)
 out["containers"] = pins["containers"]
 out["artifacts"] = {name: {"bytes": os.path.getsize(os.path.join(artifacts, name)),
