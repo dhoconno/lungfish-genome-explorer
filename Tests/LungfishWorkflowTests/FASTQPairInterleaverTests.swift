@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 

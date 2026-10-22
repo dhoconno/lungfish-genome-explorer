@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Read counts taken from the reports recipe tools write beside their output,
 /// so the engine never reads a step's reads again just to count them.

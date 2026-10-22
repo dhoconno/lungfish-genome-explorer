@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 /// Small FASTQ files with merged reads and read pairs, as a merging recipe leaves them, and a reader that says how a
