@@ -16,12 +16,6 @@ import LungfishIO
 /// mismatched mate counts instead of silently truncating either file.
 public enum FASTQPairInterleaver {
 
-    public struct Counts: Sendable, Equatable {
-        public let r1Records: Int
-        public let r2Records: Int
-        public let writtenRecords: Int
-    }
-
     public enum InterleaveError: Error, LocalizedError, Equatable {
         case malformedRecord(file: String, recordNumber: Int, reason: String)
         case mateCountMismatch(r1File: String, r1Records: Int, r2File: String, r2Records: Int)
@@ -43,6 +37,15 @@ public enum FASTQPairInterleaver {
                 return "Cannot read \(file): \(reason)"
             }
         }
+    }
+}
+
+extension FASTQPairInterleaver {
+
+    public struct Counts: Sendable, Equatable {
+        public let r1Records: Int
+        public let r2Records: Int
+        public let writtenRecords: Int
     }
 
     /// Writes R1 and R2 records alternately to `sink`.
@@ -523,9 +526,12 @@ public enum FASTQPairInterleaver {
         }
         return MixedCounts(pairs: pairs, unpaired: unpaired)
     }
+}
+
+extension FASTQPairInterleaver {
 
     /// The header line without its leading `@`, as the classifier expects.
-    private static func headerText(_ line: [UInt8]) -> String {
+    package static func headerText(_ line: [UInt8]) -> String {
         String(decoding: line.dropFirst(), as: UTF8.self)
     }
 
@@ -537,13 +543,7 @@ public enum FASTQPairInterleaver {
     /// Polls for a cancel at every chunk. A cancelled caller gets
     /// `CancellationError` at the next chunk, and `close()` stops and reaps
     /// the `gzip -dc` child.
-    public static func countRecords(in url: URL) throws -> Int {
-        try countRecords(in: url, launcher: ToolProcessChildLauncher())
-    }
-
-    /// ``countRecords(in:)`` with the launcher that starts `gzip -dc` for a
-    /// gzip file.
-    static func countRecords(in url: URL, launcher: any PortableChildLauncher) throws -> Int {
+    package static func countRecords(in url: URL, launcher: any PortableChildLauncher) throws -> Int {
         let reader = try FASTQRawLineReader(url: url, launcher: launcher)
         defer { reader.close() }
         var lines = 0
@@ -582,7 +582,7 @@ public enum FASTQPairInterleaver {
         }
     }
 
-    private static func readRecord(
+    package static func readRecord(
         from reader: FASTQRawLineReader, file: String, recordNumber: Int
     ) throws -> [[UInt8]]? {
         guard let header = try reader.nextLine() else { return nil }
@@ -604,6 +604,15 @@ public enum FASTQPairInterleaver {
             )
         }
         return [header, sequence, separator, quality]
+    }
+}
+
+extension FASTQPairInterleaver {
+
+    /// ``countRecords(in:launcher:)`` with the launcher that starts `gzip -dc`
+    /// through ``ToolProcess``.
+    public static func countRecords(in url: URL) throws -> Int {
+        try countRecords(in: url, launcher: ToolProcessChildLauncher())
     }
 
     private struct BufferedSink {
@@ -654,7 +663,7 @@ extension FASTQRawLineReader {
 /// `GzipLineSource` takes, because it handles concatenated BGZF members.
 /// `launcher` starts that child, so the reader names no launcher of one
 /// platform.
-final class FASTQRawLineReader {
+package final class FASTQRawLineReader {
     private let url: URL
     private let handle: FileHandle?
     private let child: (any PortableChild)?
@@ -664,7 +673,7 @@ final class FASTQRawLineReader {
     private var closed = false
     private let chunkSize = 1_048_576
 
-    init(url: URL, launcher: any PortableChildLauncher) throws {
+    package init(url: URL, launcher: any PortableChildLauncher) throws {
         self.url = url
         guard let probe = FileHandle(forReadingAtPath: url.path) else {
             throw FASTQPairInterleaver.InterleaveError.unreadableInput(file: url.lastPathComponent, reason: "file not found or not readable")
@@ -689,7 +698,7 @@ final class FASTQRawLineReader {
 
     deinit { close() }
 
-    func nextLine() throws -> [UInt8]? {
+    package func nextLine() throws -> [UInt8]? {
         while true {
             if let newline = indexOfNewline() {
                 let line = Array(buffer[position..<newline])
@@ -706,7 +715,7 @@ final class FASTQRawLineReader {
         }
     }
 
-    func readChunk() throws -> [UInt8]? {
+    package func readChunk() throws -> [UInt8]? {
         guard !reachedEnd else { return nil }
         // A plain file's `read(upToCount:)` hands back an autoreleased buffer.
         // Without a pool per chunk, a caller that never leaves its thread keeps
@@ -721,7 +730,7 @@ final class FASTQRawLineReader {
         return chunk
     }
 
-    func close() {
+    package func close() {
         guard !closed else { return }
         closed = true
         try? handle?.close()
