@@ -117,6 +117,12 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         let matching = try await identity.record(databaseID: Self.databaseID, spec: spec, at: pinnedURL)
         XCTAssertEqual(matching.sha256, Self.sha256(pinned))
         XCTAssertTrue(matching.lockPinned)
+        // The pinned file's record keeps the build facts the lock holds, so an import record that runs the rRNA step
+        // still names the source the index was built from. An index that differs has no install record to read them from.
+        XCTAssertEqual(matching.buildSourceSHA256, String(repeating: "a", count: 64))
+        XCTAssertEqual(matching.buildToolVersion, "0.16.0")
+        XCTAssertEqual(matching.buildSourceSizeBytes, 12)
+        XCTAssertNil(differing.buildSourceSHA256)
     }
 
     /// The bundled lock names the hosted file, its SHA-256 and size, as a pinned HTTPS download.

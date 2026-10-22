@@ -80,7 +80,13 @@ public actor RecipeDatabaseIdentity {
         }
         let header = Self.deaconIndexHeader(at: url, sizeBytes: size)
         let lockPinned = pinnedSHA256 == digest
-        let build = lockPinned ? nil : builtFrom(indexAt: url, key: key, indexSHA256: digest)
+        // A file that is the lock's pinned build takes the build facts the lock holds. A file that is not takes them
+        // from its own install record, when that record names it (C2-RIBOPIN fix 1).
+        let build: BuildInputs? = lockPinned
+            ? spec?.build.map {
+                BuildInputs(sourceSHA256: $0.sourceSha256, sourceSizeBytes: $0.sourceSizeBytes, toolVersion: $0.toolVersion)
+            }
+            : builtFrom(indexAt: url, key: key, indexSHA256: digest)
         return RecipeDatabaseRecord(
             id: databaseID,
             version: spec?.version ?? "unknown",
