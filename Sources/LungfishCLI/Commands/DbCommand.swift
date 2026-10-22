@@ -519,10 +519,13 @@ extension DbCommand {
             guard yes else {
                 throw refuse("Updating a database replaces the installed copy; re-run with --yes to confirm", .usage)
             }
-            if let catalogID, DatabaseRegistry.knownIDs.contains(DatabaseRegistry.canonicalDatabaseID(for: catalogID)) {
+            // Only a database the lock pins as a hosted build is updated by the registry. Another managed id, such as
+            // `deacon-panhuman`, takes the catalog path as it did before the lane, since the registry would reinstall it.
+            if let catalogID, case let managedID = DatabaseRegistry.canonicalDatabaseID(for: catalogID),
+               DatabaseRegistry.knownIDs.contains(managedID),
+               ManagedToolLock.bundled.database(id: managedID)?.build != nil {
                 try await updateManaged(
-                    DatabaseRegistry.canonicalDatabaseID(for: catalogID),
-                    events: events, say: say, formatter: formatter, eventsOn: eventsOn, quiet: quiet
+                    managedID, events: events, say: say, formatter: formatter, eventsOn: eventsOn, quiet: quiet
                 )
                 return
             }

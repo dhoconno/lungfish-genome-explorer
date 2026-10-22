@@ -306,6 +306,23 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(build.byteReproducible, true)
     }
 
+    /// A managed database whose lock row pins no hosted build has no update to apply. The registry says so and never
+    /// falls back to a reinstall, which for `deacon-panhuman` would download 3.2 GB.
+    func testUpdateOfADatabaseWithNoHostedBuildThrowsAndDownloadsNothing() async throws {
+        let payload = Data("pinned-ribokmers-index\n".utf8)
+        let requests = RibokmersSeamLog<URL>()
+        let registry = makeRegistry(spec: try spec(pinning: payload, url: try serve(payload, as: "x.idx")), requests: requests)
+
+        do {
+            _ = try await registry.updateManagedDatabase("deacon-panhuman")
+            XCTFail("The update reinstalled a database the lock pins no hosted build for")
+        } catch HumanScrubberDatabaseError.installationFailed(let databaseID, _, let reason) {
+            XCTAssertEqual(databaseID, "deacon-panhuman")
+            XCTAssertTrue(reason.contains("pins no hosted build"), reason)
+        }
+        XCTAssertEqual(requests.values, [])
+    }
+
     // MARK: - Helpers
 
     private static let buildArgv = [

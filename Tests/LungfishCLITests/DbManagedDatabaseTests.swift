@@ -146,6 +146,29 @@ final class DbManagedDatabaseTests: XCTestCase {
         XCTAssertEqual(message, "Update cancelled. The installed database was left as it was.")
     }
 
+    /// A managed id the lock pins no hosted build for takes the catalog path as it did before the lane. For
+    /// `deacon-panhuman` that path reports it missing from the catalog and exits 1, with no download and no managed
+    /// registry call, so a 3.2 GB reinstall is never started by `db update`.
+    func testUpdateOfAnUnhostedManagedIdTakesTheCatalogPathAsAtTheBase() async throws {
+        let requests = ManagedDownloadLog()
+        DbCommand.managedRegistryOverride = try registry(pinning: Data("pinned-ribokmers-index\n".utf8), requests: requests)
+        DbCommand.DbUpdateSubcommand.registryOverride = try await ManagedToolLeafFixtures.registry(
+            in: root.appendingPathComponent("catalog-databases"), stalling: false
+        )
+
+        let run = await runUpdate("deacon-panhuman")
+
+        XCTAssertEqual(run.exit, CLIExitCode.failure.rawValue)
+        XCTAssertEqual(requests.values, [], "The managed registry must not be asked to download")
+        guard case .failed(let message, let detail)? = run.events.last else { return XCTFail("ends with failed: \(run.events)") }
+        XCTAssertEqual(message, "1 database(s) failed to update")
+        XCTAssertTrue((detail ?? "").contains("not found in registry"), "\(detail ?? "nil")")
+        let record = try latestRecord()
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertNil(record.options.explicit["outcome"], "The catalog path records no managed outcome")
+        XCTAssertEqual(record.options.explicit["databases"], .array([.string("deacon-panhuman")]))
+    }
+
     // MARK: - Helpers
 
     static func sha256(_ data: Data) -> String {

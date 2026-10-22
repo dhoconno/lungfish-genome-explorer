@@ -61,18 +61,22 @@ extension DatabaseRegistry {
             : .differsFromPin(installedSHA256: digest, pinnedSHA256: pinned)
     }
 
-    /// Brings an installed managed database to the lock's pin. A database the lock pins as a hosted download, such as
-    /// `deacon-ribokmers`, is replaced only after the new file passes the lock check, so a refused download leaves the
-    /// installed copy in place, and a copy that already matches is left alone. Other managed databases are
-    /// reinstalled.
+    /// Brings an installed managed database to the lock's pin. It is for a database the lock pins as a hosted build,
+    /// such as `deacon-ribokmers`. The copy is replaced only after the new file passes the lock check, so a refused
+    /// download leaves the installed copy in place, and a copy that already matches is left alone. A database whose lock
+    /// row has no hosted build has no update to apply, and the call throws instead of reinstalling it.
     public func updateManagedDatabase(
         _ id: String,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let resolvedID = Self.canonicalDatabaseID(for: id)
-        guard let spec = managedDatabaseLockLookup(resolvedID), spec.url != nil, spec.sha256 != nil,
+        guard let spec = managedDatabaseLockLookup(resolvedID), spec.build != nil, spec.url != nil, spec.sha256 != nil,
               let manifest = requiredDatabaseManifest(for: resolvedID) else {
-            return try await installManagedDatabase(resolvedID, reinstall: true, progress: progress)
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: resolvedID,
+                displayName: requiredDatabaseManifest(for: resolvedID)?.displayName ?? resolvedID,
+                reason: "The bundled lock pins no hosted build for this database, so there is no update to apply"
+            )
         }
         if case .matchesPin = try pinStatus(for: resolvedID), let installed = effectiveDatabasePath(for: resolvedID) {
             progress?(1.0, "\(manifest.displayName) matches the pinned build")
