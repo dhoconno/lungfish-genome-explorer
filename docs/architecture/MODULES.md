@@ -20,16 +20,16 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 2 | 51 | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 142 | 52208 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 412 | 104963 | 660 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 409 | 104503 | 655 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 85 | 18465 | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 7 | 3939 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 5 | 3383 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 52 | 10761 | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishPortable | library | Sources/LungfishPortable | 6 | 439 | 3 | none |
+| LungfishPortable | library | Sources/LungfishPortable | 12 | 1429 | 8 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 268066 | 1551 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 267669 | 1551 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15616 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -880,7 +880,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishIO
-- Swift files. 412, lines 104963
+- Swift files. 409, lines 104503
 - Depends on. LungfishCore
 - External products. AsyncAlgorithms (swift-async-algorithms), SystemPackage (swift-system)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
@@ -894,12 +894,12 @@ None.
 | Assembly | 1 | 222 |
 | Bundles | 225 | 53358 |
 | Compression | 2 | 690 |
-| Formats | 149 | 40931 |
+| Formats | 146 | 40471 |
 | Formats/BED | 1 | 464 |
 | Formats/Common | 4 | 511 |
 | Formats/EsViritu | 6 | 2204 |
 | Formats/FASTA | 1 | 747 |
-| Formats/FASTQ | 78 | 19167 |
+| Formats/FASTQ | 75 | 18707 |
 | Formats/GFF | 7 | 1659 |
 | Formats/GenBank | 2 | 1511 |
 | Formats/Kraken | 10 | 3756 |
@@ -1030,7 +1030,6 @@ None.
 - `FASTQDerivativePayload` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativePayload.swift:9`
 - `FASTQDerivedBundleManifest` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivedBundleManifest.swift:108`
 - `FASTQEntropyFilterDefaults` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQEntropyFilter.swift:13`
-- `FASTQError` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQError.swift:11`
 - `FASTQFolderMetadata` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQFolderMetadata.swift:24`
 - `FASTQInputLayout` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:20`
 - `FASTQInputLayoutResolution` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:123`
@@ -1059,12 +1058,10 @@ None.
 - `FASTQPrimerTool` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:54`
 - `FASTQPrimerTrimConfiguration` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:95`
 - `FASTQPrimerTrimMode` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:77`
-- `FASTQQualityFractions` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQQualityFractions.swift:16`
 - `FASTQQualityTrimMode` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:191`
 - `FASTQReader` class, `Sources/LungfishIO/Formats/FASTQ/FASTQReader.swift:29`
 - `FASTQReadLayout` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:10`
 - `FASTQReadLayoutClassification` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:75`
-- `FASTQReadLayoutClassifier` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift:118`
 - `FASTQReadLayoutHandling` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift:57`
 - `FASTQRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQRecord.swift:25`
 - `FASTQRiboDetectorEnsure` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift:227`
@@ -1451,14 +1448,12 @@ None.
 - `ProjectUniversalSearchQuery` struct, `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift:82`
 - `ProjectUniversalSearchQueryParser` enum, `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift:306`
 - `ProjectUniversalSearchResult` struct, `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift:10`
-- `QualityEncoding` enum, `Sources/LungfishIO/Formats/FASTQ/QualityScore.swift:19`
-- `QualityScore` struct, `Sources/LungfishIO/Formats/FASTQ/QualityScore.swift:113`
+- `QualityScore` struct, `Sources/LungfishIO/Formats/FASTQ/QualityScore.swift:28`
 - `ReadAnnotationFile` enum, `Sources/LungfishIO/Formats/FASTQ/ReadAnnotationFile.swift:18`
 - `ReadClassification` struct, `Sources/LungfishIO/Formats/FASTQ/ReadClassification.swift:19`
 - `ReadDepthCapPlan` struct, `Sources/LungfishIO/Bundles/ReadDepthCapPlan.swift:26`
 - `ReadDirection` enum, `Sources/LungfishIO/Formats/FASTQ/PlatformAdapterContext.swift:14`
 - `ReadManifest` struct, `Sources/LungfishIO/Formats/FASTQ/ReadManifest.swift:15`
-- `ReadPair` struct, `Sources/LungfishIO/Formats/FASTQ/ReadPair.swift:11`
 - `RecipeAppliedInfo` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeAppliedInfo.swift:50`
 - `RecipeDatabaseRecord` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeDatabaseRecord.swift:10`
 - `RecipeLogicalComponent` struct, `Sources/LungfishIO/Formats/FASTQ/RecipeLogicalComponent.swift:14`
@@ -1826,7 +1821,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishPortable
-- Swift files. 6, lines 439
+- Swift files. 12, lines 1429
 - Depends on. none
 - External products. Crypto (swift-crypto)
 - Used by. LungfishCore, LungfishExecutor
@@ -1836,14 +1831,19 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| FASTQ | 2 | 258 |
+| FASTQ | 8 | 1248 |
 | Process | 1 | 53 |
 
 ### Public types
 
+- `FASTQError` enum, `Sources/LungfishPortable/FASTQ/FASTQError.swift:10`
 - `FASTQPairInterleaver` enum, `Sources/LungfishPortable/FASTQ/FASTQPairInterleaver.swift:15`
+- `FASTQQualityFractions` struct, `Sources/LungfishPortable/FASTQ/FASTQQualityFractions.swift:8`
+- `FASTQReadLayoutClassifier` enum, `Sources/LungfishPortable/FASTQ/FASTQReadLayoutClassifier.swift:14`
 - `FileDigest` enum, `Sources/LungfishPortable/FileDigest.swift:22`
 - `PortableDigest` enum, `Sources/LungfishPortable/PortableDigest.swift:12`
+- `QualityEncoding` enum, `Sources/LungfishPortable/FASTQ/QualityEncoding.swift:17`
+- `ReadPair` struct, `Sources/LungfishPortable/FASTQ/ReadPair.swift:10`
 
 ## LungfishTaxTriageUI
 
@@ -1893,7 +1893,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 979, lines 268066
+- Swift files. 979, lines 267669
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1921,7 +1921,7 @@ None.
 | Extraction | 35 | 10689 |
 | FASTQ | 1 | 259 |
 | Geneious | 10 | 2386 |
-| Ingestion | 48 | 11947 |
+| Ingestion | 48 | 11550 |
 | MSA | 14 | 2641 |
 | Mapping | 30 | 9768 |
 | Metagenomics | 76 | 23491 |

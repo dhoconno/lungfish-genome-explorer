@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishCore
 
 // MARK: - ReadPair
 
