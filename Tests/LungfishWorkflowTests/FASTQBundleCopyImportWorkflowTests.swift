@@ -297,6 +297,30 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         assertNothingPublished(fixture)
     }
 
+    /// `rsync` without `--partial` writes each file under a temporary name and renames it only when it is whole,
+    /// so a transfer cut short leaves the reads absent and not short.
+    func testCopyImportRefusesFASTQTheRecordNamesButTheBundleLacks() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // The sidecar stays in the record on purpose. With the reads as the only recorded output no output maps to
+        // a file the bundle holds, and the copy stops earlier, as a missing source record.
+        let sidecar = fixture.source.appendingPathComponent("reads.fastq.lungfish-meta.json")
+        try #"{"platform":"illumina"}"#.write(to: sidecar, atomically: true, encoding: .utf8)
+        let reads = try ProvenanceFileDescriptor.file(url: fixture.reads, format: .fastq, role: .output)
+        let metadata = try ProvenanceFileDescriptor.file(url: sidecar, format: .json, role: .output)
+        try writeRecord(in: fixture.source, outputs: [reads, metadata])
+        let expectedPath = fixture.reads.standardizedFileURL.path
+        try FileManager.default.removeItem(at: fixture.reads)
+
+        XCTAssertThrowsError(try copy(fixture)) { error in
+            XCTAssertEqual(
+                error as? FASTQBundleCopyImportError,
+                .payloadDoesNotMatchRecord(expectedPath)
+            )
+        }
+        assertNothingPublished(fixture)
+    }
+
     func testCopyImportKeepsFilesTheRecordDoesNotHash() throws {
         let fixture = try recordedBundleFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

@@ -225,7 +225,9 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
     /// Refuses a copy whose FASTQ files differ from what the source bundle's record states for them, before
     /// anything is published. `copiedOutputs` are the outputs the copy step just described, with the digest and
     /// size it computed, so no payload is read again. A transfer cut short leaves a file whose size and digest
-    /// differ from the record's, and the new record would otherwise certify the short file.
+    /// differ from the record's, and the new record would otherwise certify the short file. A FASTQ the record
+    /// states and the bundle does not hold is refused the same way, because the new record would otherwise drop
+    /// that output without a word.
     ///
     /// Only the top-level outputs of the record count, by their path relative to the bundle, and only those that
     /// state a digest. The reads are the one part of the bundle that nothing rewrites after the record is
@@ -256,6 +258,17 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                     sourceBundleURL.appendingPathComponent(relativePath).path
                 )
             }
+        }
+        // A FASTQ the record names with a digest and the bundle lacks was never transferred. `rsync` without
+        // `--partial` leaves exactly that, because it renames its temporary file only when the file is whole.
+        let copiedPaths = Set(copiedOutputs.map {
+            self.relativePath(from: destinationBundleURL, to: URL(fileURLWithPath: $0.path))
+        })
+        for recordedPath in recorded.keys.sorted()
+        where provenanceFormat(for: URL(fileURLWithPath: recordedPath)) == .fastq && !copiedPaths.contains(recordedPath) {
+            throw FASTQBundleCopyImportError.payloadDoesNotMatchRecord(
+                sourceBundleURL.appendingPathComponent(recordedPath).path
+            )
         }
     }
 
