@@ -482,6 +482,13 @@ public enum FASTQBatchImporter {
         log: (@Sendable (ImportLogEvent) -> Void)? = nil,
         databaseRegistry: DatabaseRegistry = .shared
     ) async -> ImportResult {
+        // One digest cache for the whole command: a file the records describe twice is read once (L7-HASHONCE).
+        await ProvenanceDigestCache.scoped { await runBatchImportInScope(pairs, config, log, databaseRegistry) }
+    }
+
+    private static func runBatchImportInScope(
+        _ pairs: [SamplePair], _ config: ImportConfig, _ log: (@Sendable (ImportLogEvent) -> Void)?, _ databaseRegistry: DatabaseRegistry
+    ) async -> ImportResult {
         let startTime = Date()
         let recipeName = config.newRecipe?.name ?? config.recipe?.name
 
@@ -1137,7 +1144,7 @@ public enum FASTQBatchImporter {
 
     // MARK: - Provenance
 
-    private static func writeImportProvenance(
+    static func writeImportProvenance(
         pair: SamplePair,
         processingPair: SamplePair,
         materializationSteps: [StepExecution],

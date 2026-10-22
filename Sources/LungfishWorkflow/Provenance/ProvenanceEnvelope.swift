@@ -575,7 +575,7 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
     ) throws -> ProvenanceFileDescriptor {
         try ProvenanceFileDescriptor(
             path: url.path,
-            checksumSHA256: ProvenanceFileHasher.sha256(of: url, cancellationCheck: cancellationCheck),
+            checksumSHA256: ProvenanceDigestCache.digest(of: url, cancellationCheck: cancellationCheck),
             fileSize: ProvenanceFileHasher.fileSize(of: url),
             format: format,
             role: role,

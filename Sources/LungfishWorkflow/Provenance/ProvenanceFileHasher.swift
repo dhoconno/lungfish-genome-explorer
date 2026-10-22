@@ -25,15 +25,21 @@ public enum ProvenanceFileHasherError: Error, LocalizedError, Sendable {
 /// Workflow; this type keeps its existing API for the ~30 existing call
 /// sites and the directory-manifest logic below.
 public enum ProvenanceFileHasher {
+    /// Sees the URL of every file `sha256` is about to read, so a test can count how many times one command
+    /// reads each file (CHTC lane L7-HASHONCE). It is nil outside a test and changes nothing the hasher returns.
+    @TaskLocal package static var readObserver: (@Sendable (URL) -> Void)? = nil
+
     public static func sha256(of url: URL) throws -> String {
-        try FileDigest.sha256(of: url)
+        readObserver?(url)
+        return try FileDigest.sha256(of: url)
     }
 
     public static func sha256(
         of url: URL,
         cancellationCheck: () throws -> Void
     ) throws -> String {
-        try FileDigest.sha256(of: url, cancellationCheck: cancellationCheck)
+        readObserver?(url)
+        return try FileDigest.sha256(of: url, cancellationCheck: cancellationCheck)
     }
 
     public static func fileSize(of url: URL) throws -> UInt64 {

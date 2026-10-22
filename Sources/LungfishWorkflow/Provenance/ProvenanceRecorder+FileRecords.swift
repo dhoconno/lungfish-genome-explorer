@@ -9,9 +9,10 @@ extension ProvenanceRecorder {
 
     // MARK: - Checksum Helpers
 
-    /// Computes SHA-256 checksum of a file.
+    /// Computes SHA-256 checksum of a file, taking it from the import command's ``ProvenanceDigestCache`` when one
+    /// is bound so a file the command describes twice is read once.
     public static func sha256(of url: URL) -> String? {
-        try? ProvenanceFileHasher.sha256(of: url)
+        try? ProvenanceDigestCache.digest(of: url)
     }
 
     /// Creates a FileRecord with computed checksum and size.
