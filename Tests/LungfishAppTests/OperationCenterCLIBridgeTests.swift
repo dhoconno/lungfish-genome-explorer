@@ -433,6 +433,42 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         OperationCenter.shared.acknowledgeCancellation(id: id)
     }
 
+    /// `import fastq --recipe vsp2 --no-remove-duplicates` prints what the name resolved to and each switch's value
+    /// as info lines (`ImportFastqRun`, UX review points 3 and 11). A row that plays those lines and then completes
+    /// reads Completed and holds no entry above info level, although a line such as "Remove duplicate reads: off
+    /// (option)" reads like a caution. Only a warning event or `completeWithWarning` makes a row Completed with
+    /// Warnings (S16).
+    func testTheResolutionLinesOfAVSP2ImportWithDuplicatesKeptLeaveTheRowCompleted() async throws {
+        let recipe = try XCTUnwrap(RecipeResolver.resolve(
+            "vsp2", in: RecipeRegistryV2.builtinRecipes(), switchOptions: ["removeDuplicates": false]
+        ))
+        let lines = recipe.resolutionLines
+        XCTAssertEqual(lines.count, 3, "the preset line and one line for each of the two switches")
+        XCTAssertTrue(lines.contains { $0.hasSuffix("(option)") }, "the switch the option set says so")
+
+        let id = beginRow(title: "Import FASTQ", type: .ingestion)
+        defer { OperationCenter.shared.clearItem(id: id) }
+        let handle = OperationCenterCLIBridge.onEvent(operationID: id)
+        handle(.start(message: "Importing FASTQ"))
+        for line in lines {
+            handle(.log(level: .info, message: line))
+        }
+        handle(.progress(fraction: 0.9, message: "Writing the bundle"))
+        await eventsApplied()
+        _ = OperationCenter.shared.complete(id: id, detail: "Imported 1 sample", bundleURLs: [])
+
+        let row = try XCTUnwrap(item(id))
+        XCTAssertEqual(row.displayStateLabel, "Completed")
+        let logged = loggedLines(of: row)
+        for line in lines {
+            XCTAssertTrue(logged.contains("info: \(line)"), "\(line) is logged at info level")
+        }
+        XCTAssertFalse(
+            logged.contains { $0.hasPrefix("warning: ") || $0.hasPrefix("error: ") },
+            "no entry above info level: \(logged)"
+        )
+    }
+
     /// Returns once the bridge has applied every event handed to it so far. The bridge hops each event
     /// to the main queue in arrival order, so a block queued afterwards runs after all of them.
     private func eventsApplied() async {
