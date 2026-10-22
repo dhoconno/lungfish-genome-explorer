@@ -24,6 +24,10 @@
     {
       "id": "varvamp",
       "note": "varVAMP 1.3.2 is installed on demand into its own managed environment from a checksum-bound osx-arm64 explicit conda lock. Source: https://github.com/jonas-fuchs/varVAMP, licensed GPL-3.0-or-later. It is not included in the app executable; LGE's MIT license does not replace the tool's GPL license."
+    },
+    {
+      "id": "deacon-ribokmers",
+      "note": "The Ribosomal RNA Removal Data (deacon-ribokmers) is the deacon minimizer index ribokmers.k31w15.idx (SHA-256 f88286f607bc062ef872b55cac9aff1d447f7106068cafefef72a3ba8e49ede6), which LGE hosts at https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/deacon-ribokmers/k31w15-deacon0.16.0-1thread-2026-10-22/ and every install downloads on demand. It is not included in the app executable. It was built on one thread with deacon 0.16.0 (MIT, https://github.com/bede/deacon) from ribokmers.fa.gz (https://bbmap.org/resources/ribokmers.fa.gz, SHA-256 38607351140350d33c868919eb01aaa438c9b729470a094ab2eed55f8056fbf1), which Brian Bushnell made with BBTools and bbmap.org distributes. BBTools Copyright (c) 2014, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy). All rights reserved. BBTools is licensed BSD-3-Clause-LBNL, and its complete notice is in the NOTICE.txt beside the hosted file. The reference sequences derive from the SILVA SSU and LSU ribosomal RNA databases. SILVA is credited as the original author of that data, which SILVA licenses under Creative Commons Attribution 4.0 (CC BY 4.0, https://creativecommons.org/licenses/by/4.0/) as of release 138. BBTools does not name the SILVA release it used. The index changes the data's form from reference sequences to minimizers."
     }
   ],
   "containerizationPayloads": [
