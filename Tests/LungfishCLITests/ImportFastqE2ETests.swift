@@ -5,6 +5,7 @@
 import XCTest
 import Foundation
 @testable import LungfishCLI
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
@@ -307,6 +308,23 @@ final class ImportFastqE2ETests: XCTestCase {
         XCTAssertTrue(envelope.outputs.contains {
             $0.path.hasSuffix(".fastq.gz") && $0.checksumSHA256 != nil && $0.fileSize != nil
         })
+
+        // Digest by digest (L7-HASHONCE): what the import recorded for an original input or a payload is the
+        // SHA-256 of that file on disk now, so the one read per command moved no digest.
+        // The decoder above leaves the portable path tokens (`@` for the project, `<workspace>`) as they were
+        // written, so the loop reads the record back through the reader that expands them.
+        let loaded = try ProvenanceEnvelopeReader.load(from: bundleURL)
+        let resolved = try XCTUnwrap(loaded, "the record loads back with its paths expanded")
+        var compared = 0
+        for descriptor in resolved.files + resolved.outputs {
+            guard descriptor.role == .input || descriptor.path.hasSuffix(".fastq.gz"),
+                  FileManager.default.fileExists(atPath: descriptor.path) else { continue }
+            let onDisk = try FileDigest.sha256(of: URL(fileURLWithPath: descriptor.path))
+            XCTAssertEqual(descriptor.checksumSHA256, onDisk, descriptor.path)
+            compared += 1
+        }
+        XCTAssertGreaterThanOrEqual(compared, 3, "R1, R2 and the payload are each compared with the disk, not \(compared)")
+
         XCTAssertFalse(
             envelope.outputs.contains { $0.path.contains("/.tmp/") },
             "Final provenance output records should point at bundle payloads, not temp workspace files"
