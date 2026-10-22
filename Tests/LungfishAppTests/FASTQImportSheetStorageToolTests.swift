@@ -36,4 +36,21 @@ final class FASTQImportSheetStorageToolTests: XCTestCase {
         let pairsOnly = FASTQImportSheetRecipeOption(id: "pairs", name: "Pairs only", presentationText: "")
         XCTAssertNil(FASTQImportConfigSheet.storageToolRefusal(recipe: pairsOnly, optimizeStorage: true, tool: .trimGalore))
     }
+
+    /// CHTC lane C2-MERGED fix 2. The Workflow line lists the steps that run. The merged recipe at its defaults keeps
+    /// ribosomal RNA reads, so its line does not name the step that removes them, and the wastewater preset does.
+    func testTheWorkflowLineListsOnlyTheStepsThatRun() throws {
+        let recipes = RecipeRegistryV2.builtinRecipes()
+        let merged = try XCTUnwrap(recipes.first { $0.id == "illumina-paired-cleanup" })
+        let wastewater = try XCTUnwrap(try RecipeResolver.resolve("wastewater-metagenomics", in: recipes))
+
+        func workflowLine(_ recipe: Recipe) throws -> String {
+            let text = FASTQImportSheetRecipeOption(recipe: recipe).presentationText
+            return try XCTUnwrap(text.components(separatedBy: "\n").first { $0.hasPrefix("Workflow: ") }, text)
+        }
+        let mergedLine = try workflowLine(merged)
+        let wastewaterLine = try workflowLine(wastewater)
+        XCTAssertFalse(mergedLine.contains("Remove ribosomal RNA reads"), mergedLine)
+        XCTAssertTrue(wastewaterLine.contains("Remove ribosomal RNA reads"), wastewaterLine)
+    }
 }

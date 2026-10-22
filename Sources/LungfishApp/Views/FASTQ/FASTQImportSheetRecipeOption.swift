@@ -39,7 +39,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             lines.append(purpose)
         }
 
-        let workflow = recipe.steps
+        // The steps that run, so the line agrees with the description beside it (a switch that is off leaves its step out).
+        let workflow = recipe.activeSteps
             .compactMap { $0.label ?? $0.type }
             .joined(separator: " \u{2192} ")
         lines.append("Workflow: \(workflow)")
