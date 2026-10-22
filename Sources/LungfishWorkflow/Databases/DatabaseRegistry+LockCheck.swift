@@ -5,17 +5,22 @@
 import Foundation
 
 extension DatabaseRegistry {
-    /// Reports the install's check step and, when the bundled lock pins the database's bytes with `sha256` and
+    /// Finds a database's entry in the bundled lock. A registry uses it unless it is handed another lookup.
+    static let bundledLockLookup: ManagedDatabaseLockLookup = { ManagedToolLock.bundled.database(id: $0) }
+
+    /// Reports the install's check step and, when the lock pins the database's bytes with `sha256` and
     /// `sizeBytes`, refuses a staged index that does not match them, before it replaces the installed file. An
     /// entry without `sha256`, such as `deacon-ribokmers`, which each install builds on its host, is not checked
-    /// (CHTC lane L5-RECORDS M2).
+    /// (CHTC lane L5-RECORDS M2). `lock` finds the entry, in the bundled lock unless a test hands the registry
+    /// a lookup that pins its own fixture.
     nonisolated static func checkStagedIndexAgainstLock(
         _ stagedURL: URL,
         manifest: BundledDatabase,
+        lock: ManagedDatabaseLockLookup = DatabaseRegistry.bundledLockLookup,
         progress: (@Sendable (Double, String) -> Void)?
     ) throws {
         progress?(0.88, "Checking \(manifest.displayName)…")
-        guard let spec = ManagedToolLock.bundled.database(id: manifest.id),
+        guard let spec = lock(manifest.id),
               let pinnedSHA256 = spec.sha256?.lowercased() else {
             return
         }

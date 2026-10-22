@@ -43,18 +43,6 @@ struct ManagedDatabaseToolResult: Sendable {
     }
 }
 
-typealias ManagedDatabaseDownloadProgress = @Sendable (Double, Int64, Int64) -> Void
-typealias ManagedDatabaseDownloader = @Sendable (URL, ManagedDatabaseDownloadProgress) async throws -> ManagedDatabaseDownloadResult
-typealias ManagedDatabaseStderrHandler = @Sendable (String) -> Void
-typealias ManagedDatabaseToolRunner = @Sendable (
-    String,
-    [String],
-    String,
-    TimeInterval,
-    ManagedDatabaseStderrHandler?
-) async throws -> ManagedDatabaseToolResult
-typealias ManagedDatabaseProvenanceWriter = @Sendable (WorkflowRun, URL) throws -> Void
-
 // MARK: - HumanScrubberDatabaseError
 
 /// User-actionable errors for the managed human-scrubber database.
@@ -249,6 +237,7 @@ public actor DatabaseRegistry {
     private let userDatabasesRootProvider: @Sendable () -> URL?
     private let managedDatabaseDownloader: ManagedDatabaseDownloader?
     private let managedDatabaseToolRunner: ManagedDatabaseToolRunner?
+    private let managedDatabaseLockLookup: ManagedDatabaseLockLookup
     private let managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter
     /// Other channels' `databases/` directories on this volume, given this
     /// registry's database root. An identical verified file there is cloned
@@ -266,6 +255,7 @@ public actor DatabaseRegistry {
         }
         self.managedDatabaseDownloader = nil
         self.managedDatabaseToolRunner = nil
+        self.managedDatabaseLockLookup = Self.bundledLockLookup
         self.managedDatabaseProvenanceWriter = Self.writeManagedDatabaseProvenance
         self.siblingDatabaseRootsProvider = Self.channelSiblingDatabaseRoots
     }
@@ -282,6 +272,7 @@ public actor DatabaseRegistry {
         userDatabasesRoot: URL?,
         managedDatabaseDownloader: ManagedDatabaseDownloader? = nil,
         managedDatabaseToolRunner: ManagedDatabaseToolRunner? = nil,
+        managedDatabaseLockLookup: ManagedDatabaseLockLookup? = nil,
         managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter? = nil,
         preferences: UserDefaults? = nil,
         siblingDatabaseRoots: [URL] = []
@@ -291,6 +282,7 @@ public actor DatabaseRegistry {
         self.userDatabasesRootProvider = { userDatabasesRoot }
         self.managedDatabaseDownloader = managedDatabaseDownloader
         self.managedDatabaseToolRunner = managedDatabaseToolRunner
+        self.managedDatabaseLockLookup = managedDatabaseLockLookup ?? Self.bundledLockLookup
         self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
         let roots = siblingDatabaseRoots.map { $0.standardizedFileURL }
         self.siblingDatabaseRootsProvider = { _ in roots }
@@ -311,6 +303,7 @@ public actor DatabaseRegistry {
         }
         self.managedDatabaseDownloader = managedDatabaseDownloader
         self.managedDatabaseToolRunner = managedDatabaseToolRunner
+        self.managedDatabaseLockLookup = Self.bundledLockLookup
         self.managedDatabaseProvenanceWriter = managedDatabaseProvenanceWriter ?? Self.writeManagedDatabaseProvenance
         self.siblingDatabaseRootsProvider = { _ in [] }
     }
@@ -762,7 +755,9 @@ public actor DatabaseRegistry {
                 )
             }
 
-            try Self.checkStagedIndexAgainstLock(tempOutputURL, manifest: manifest, progress: progress)
+            try Self.checkStagedIndexAgainstLock(
+                tempOutputURL, manifest: manifest, lock: managedDatabaseLockLookup, progress: progress
+            )
             let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: infoArgs,
@@ -928,7 +923,9 @@ public actor DatabaseRegistry {
                 )
             }
 
-            try Self.checkStagedIndexAgainstLock(tempOutputURL, manifest: manifest, progress: progress)
+            try Self.checkStagedIndexAgainstLock(
+                tempOutputURL, manifest: manifest, lock: managedDatabaseLockLookup, progress: progress
+            )
             let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: ["index", "info", tempOutputURL.path],

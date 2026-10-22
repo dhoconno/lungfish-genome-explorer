@@ -26,7 +26,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 965 | 266682 | 1538 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 966 | 266706 | 1538 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 73 | 15405 | 74 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -52,7 +52,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1037 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 709 | 226137 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 709 | 226194 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1835,7 +1835,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 965, lines 266682
+- Swift files. 966, lines 266706
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1854,7 +1854,7 @@ None.
 | CLIEvents | 5 | 1146 |
 | Conda | 31 | 8743 |
 | Containers | 9 | 3557 |
-| Databases | 3 | 1913 |
+| Databases | 4 | 1937 |
 | DemoProjects | 5 | 1053 |
 | Demultiplex | 16 | 6174 |
 | Dependencies | 17 | 2784 |
@@ -2140,7 +2140,7 @@ None.
 - `BundleAlignmentTrackRemovalService` actor, `Sources/LungfishWorkflow/Alignment/BundleAlignmentTrackRemovalService.swift:63`
 - `BundleContainerExportResult` struct, `Sources/LungfishWorkflow/Containers/BundleContainerExportService.swift:4`
 - `BundleContainerExportService` struct, `Sources/LungfishWorkflow/Containers/BundleContainerExportService.swift:11`
-- `BundledDatabase` struct, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:160`
+- `BundledDatabase` struct, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:148`
 - `BundleVariantCallingRequest` struct, `Sources/LungfishWorkflow/Variants/BundleVariantCallingModels.swift:32`
 - `BundleVariantTrackAttachmentError` enum, `Sources/LungfishWorkflow/Variants/BundleVariantTrackAttachmentService.swift:5`
 - `BundleVariantTrackAttachmentRequest` struct, `Sources/LungfishWorkflow/Variants/BundleVariantCallingModels.swift:217`
@@ -2265,14 +2265,14 @@ None.
 - `DatabaseCollection` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsModels.swift:75`
 - `DatabaseExtractionConfig` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:337`
 - `DatabaseLocation` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsModels.swift:182`
-- `DatabaseRegistry` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:226`
+- `DatabaseRegistry` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:214`
 - `DatabaseSourcePolicy` enum, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:215`
 - `DatabaseSpec` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:223`
 - `DatabaseStatus` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsModels.swift:198`
 - `DatabaseUpdatePolicy` enum, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:208`
-- `DeaconPanhumanDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:109`
+- `DeaconPanhumanDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:97`
 - `DeaconRiboFilterStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/DeaconRiboFilterStep.swift:8`
-- `DeaconRibokmersDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:130`
+- `DeaconRibokmersDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:118`
 - `DeaconScrubStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/DeaconScrubStep.swift:13`
 - `DefaultContainerImages` enum, `Sources/LungfishWorkflow/Containers/DefaultContainerImages.swift:40`
 - `DefaultFullLengthONTMHCWorkDirectoryCleaner` struct, `Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCEvidenceProvenance.swift:239`
@@ -2530,8 +2530,8 @@ None.
 - `HaplotypeDefinitionCommandService` struct, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift:22`
 - `HaplotypeDefinitionCommandServiceError` enum, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift:1074`
 - `HaplotypeDefinitionExport` enum, `Sources/LungfishWorkflow/ViewerExport/HaplotypeDefinitionExport.swift:9`
-- `HumanScrubberDatabaseError` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:61`
-- `HumanScrubberDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:88`
+- `HumanScrubberDatabaseError` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:49`
+- `HumanScrubberDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:76`
 - `IlluminaAmpliconPairMerger` enum, `Sources/LungfishWorkflow/ONTGenotyping/IlluminaAmpliconPairMerger.swift:36`
 - `ImageAvailability` struct, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:353`
 - `ImageCategory` enum, `Sources/LungfishWorkflow/Containers/ContainerImageRegistry.swift:277`
@@ -2610,7 +2610,7 @@ None.
 - `ManagedPythonRuntimeSpec` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:49`
 - `ManagedPythonRuntimeWheelSource` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift:13`
 - `ManagedSavontProcessRunner` struct, `Sources/LungfishWorkflow/Savont/SavontClusteringPipeline.swift:37`
-- `ManagedStorageAvailability` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:203`
+- `ManagedStorageAvailability` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:191`
 - `ManagedStorageCoordinator` actor, `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:4`
 - `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:147`
 - `ManagedToolLockEntry` struct, `Sources/LungfishWorkflow/Dependencies/ManagedToolLock+Entry.swift:12`

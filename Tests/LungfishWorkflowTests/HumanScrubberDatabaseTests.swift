@@ -319,6 +319,8 @@ final class HumanScrubberDatabaseTests: XCTestCase {
             bundledDatabasesRoot: bundledRoot,
             userDatabasesRoot: userRoot,
             managedDatabaseToolRunner: toolRunner,
+            // The bundled lock pins the real index, so the fixture's own digest and size are pinned in its place.
+            managedDatabaseLockLookup: try lockLookup(pinning: indexPayload, as: "deacon-panhuman"),
             preferences: preferencesSuite.makeDefaults()
         )
 
@@ -347,6 +349,61 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.outputs.first?.path, installed.path)
         XCTAssertEqual(run.steps.first?.durableReplayArgv?.suffix(2), ["-o", installed.path])
         XCTAssertEqual(run.steps.first?.outputs.first?.sizeBytes, UInt64(indexPayload.count))
+    }
+
+    /// The bundled lock pins the real panhuman index, so an install whose fetched file is not that file is refused
+    /// with the install error, and it leaves no index, partial file or record behind.
+    func testDeaconPanhumanInstallRefusesAFetchedIndexThatTheBundledLockDoesNotPin() async throws {
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let indexPayload = Data("deacon-index\n".utf8)
+        let toolRunner: ManagedDatabaseToolRunner = { _, arguments, _, _, _ in
+            if arguments.starts(with: ["index", "fetch"]), let outputPath = arguments.last {
+                try indexPayload.write(to: URL(fileURLWithPath: outputPath))
+            }
+            return ManagedDatabaseToolResult(stdout: "ok", stderr: "", exitCode: 0, wallTime: 0.25)
+        }
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: try bundledDatabasesRoot(),
+            userDatabasesRoot: userRoot,
+            managedDatabaseToolRunner: toolRunner,
+            preferences: preferencesSuite.makeDefaults()
+        )
+        let pinnedSize = try XCTUnwrap(ManagedToolLock.bundled.database(id: "deacon-panhuman")?.sizeBytes)
+
+        do {
+            _ = try await registry.installManagedDatabase("deacon-panhuman", reinstall: true)
+            XCTFail("The install accepted an index the bundled lock does not pin")
+        } catch HumanScrubberDatabaseError.installationFailed(let databaseID, let displayName, let reason) {
+            XCTAssertEqual(databaseID, "deacon-panhuman")
+            XCTAssertEqual(displayName, "Human Read Removal Data")
+            XCTAssertEqual(reason, "The index is \(indexPayload.count) bytes, and the bundled lock pins \(pinnedSize) bytes.")
+        }
+        XCTAssertEqual(regularFileNames(under: userRoot), [], "A refused install must leave no index, partial file or record")
+    }
+
+    /// A lock lookup with one entry, which pins `payload`'s SHA-256 and size under `id`. The bundled lock pins the
+    /// real index, so an install of a small fixture takes this in its place and still runs the lock check.
+    private func lockLookup(pinning payload: Data, as id: String) throws -> ManagedDatabaseLockLookup {
+        let json: [String: Any] = [
+            "id": id, "tool": "deacon", "displayName": id, "version": "fixture-1", "filename": "fixture.idx",
+            "indexFormat": 3, "sizeBytes": payload.count,
+            "sha256": SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined(),
+        ]
+        let spec = try JSONDecoder().decode(DatabaseSpec.self, from: JSONSerialization.data(withJSONObject: json))
+        return { $0 == id ? spec : nil }
+    }
+
+    private func regularFileNames(under root: URL) -> [String] {
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return []
+        }
+        var names: [String] = []
+        while let url = enumerator.nextObject() as? URL {
+            if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                names.append(url.lastPathComponent)
+            }
+        }
+        return names.sorted()
     }
 
     func testDeaconRibokmersInstallWritesDurableReplayProvenance() async throws {
