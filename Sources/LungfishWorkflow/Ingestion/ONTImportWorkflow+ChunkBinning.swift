@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import os
 
 extension ONTImportWorkflow {
     /// The reads a chunked bundle's preview holds, as the importer writes it.
@@ -76,5 +77,42 @@ extension ONTImportWorkflow {
             stepsByBundle[bundleURL.standardizedFileURL.resolvingSymlinksInPath().path] = steps
         }
         return stepsByBundle
+    }
+}
+
+/// Keeps a chunked import's progress in order when its chunks are binned after the importer ends. The importer takes
+/// the first 80 percent of the bar and the binning the rest, and the importer's last word, such as
+/// "Import complete (5 reads, 0.4s)", is said again once the binning ends, so it stays the row's last detail. Any
+/// other import reports as the importer and Optimize Storage say.
+struct ChunkBinningProgress: Sendable {
+    private static let importShare = 0.8
+    private let binsChunks: Bool
+    private let report: @Sendable (Double, String) -> Void
+    private let lastImportWord = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    init(
+        storageMode: ONTImportStorageMode,
+        optimization: ONTImportWorkflow.OptimizationConfig,
+        report: @escaping @Sendable (Double, String) -> Void
+    ) {
+        binsChunks = !optimization.optimizeStorage
+            && ONTImportWorkflow.appliesQualityBinning(storageMode: storageMode, optimization: optimization)
+        self.report = report
+    }
+
+    func importer(_ fraction: Double, _ message: String) {
+        guard binsChunks else { return report(fraction, message) }
+        lastImportWord.withLock { $0 = message }
+        report(fraction * Self.importShare, message)
+    }
+
+    func binning(_ fraction: Double, _ message: String) {
+        guard binsChunks else { return report(fraction, message) }
+        report(Self.importShare + fraction * (1 - Self.importShare), message)
+    }
+
+    func finish() {
+        guard binsChunks, let word = lastImportWord.withLock({ $0 }) else { return }
+        report(1.0, word)
     }
 }

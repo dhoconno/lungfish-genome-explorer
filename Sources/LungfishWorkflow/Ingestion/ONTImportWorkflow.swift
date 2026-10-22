@@ -203,13 +203,15 @@ public struct ONTImportWorkflow: Sendable {
         let stagedImportResult: ONTImportResult
         let stagedOptimizationStepsByBundle: [String: [ProvenanceStep]]
         do {
-            stagedImportResult = try await importer.importDirectory(config: stagingConfig, progress: progress)
+            let ordered = ChunkBinningProgress(storageMode: config.storageMode, optimization: optimization, report: progress)
+            stagedImportResult = try await importer.importDirectory(config: stagingConfig, progress: { ordered.importer($0, $1) })
             stagedOptimizationStepsByBundle = try await optimizeImportedBundlesIfNeeded(
                 bundleURLs: stagedImportResult.bundleURLs,
                 config: stagingConfig,
                 optimization: optimization,
-                progress: progress
+                progress: { ordered.binning($0, $1) }
             )
+            ordered.finish()
         } catch {
             rollback(rollbackPlan)
             throw error
