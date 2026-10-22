@@ -652,7 +652,7 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertEqual(envelope.exitStatus, 0)
         // The default platform is auto (inference), no longer Illumina.
         XCTAssertEqual(envelope.options.defaults["platform"], .string("auto"))
-        XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.defaults["threads"], .integer(ProcessInfo.processInfo.activeProcessorCount))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
         XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(1))
         XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string(QualityBinningScheme.none.rawValue))

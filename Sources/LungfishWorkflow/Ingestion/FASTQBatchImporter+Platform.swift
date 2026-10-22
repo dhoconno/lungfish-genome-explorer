@@ -37,6 +37,13 @@ extension FASTQBatchImporter {
         /// When `true`, reimport even if a bundle already exists for the sample.
         public let forceReimport: Bool
 
+        /// The binning `import fastq` runs when `--quality-binning` is not given. A recipe's `qualityBinning` does
+        /// not change it, so the record names this value as the default (CHTC lane L5-RECORDS M1).
+        public static let commandDefaultQualityBinning = QualityBinningScheme.none
+
+        /// The thread count `import fastq` runs when `--threads` is not given, every core this host reports.
+        public static var hostThreadCount: Int { ProcessInfo.processInfo.activeProcessorCount }
+
         private let requestedQualityBinning: QualityBinningScheme?
         private let requestedOptimizeStorage: Bool?
         private let requestedClumpingTool: ClumpingTool?

@@ -292,7 +292,7 @@ final class ImportFastqE2ETests: XCTestCase {
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.options.defaults["compressionLevel"], .string(CompressionLevel.balanced.rawValue))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(true))
-        XCTAssertEqual(envelope.options.defaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.defaults["threads"], .integer(ProcessInfo.processInfo.activeProcessorCount))
         XCTAssertEqual(envelope.options.resolvedDefaults["compressionLevel"], .string(CompressionLevel.fast.rawValue))
         XCTAssertEqual(envelope.options.resolvedDefaults["optimizeStorage"], .boolean(false))
         guard case .integer(let resolvedThreads) = envelope.options.resolvedDefaults["threads"] else {

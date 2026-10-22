@@ -282,7 +282,7 @@ struct FASTQImportRun {
 
         let projectURL = URL(fileURLWithPath: project)
         let logDirURL = logDir.map { URL(fileURLWithPath: $0) }
-        let threadCount = threads ?? ProcessInfo.processInfo.activeProcessorCount
+        let threadCount = threads ?? FASTQBatchImporter.ImportConfig.hostThreadCount
 
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: projectURL,

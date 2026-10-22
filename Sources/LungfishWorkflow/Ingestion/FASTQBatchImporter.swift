@@ -1822,11 +1822,11 @@ public enum FASTQBatchImporter {
         [
             "platform": .string(ImportPlatformRequest.auto.cliValue),
             "recipe": .string("none"),
-            "qualityBinning": .string((config.newRecipe?.qualityBinning ?? QualityBinningScheme.none).rawValue),
+            "qualityBinning": .string(ImportConfig.commandDefaultQualityBinning.rawValue),
             "optimizeStorage": .boolean(config.sequencingPlatform.supportsStorageClumping),
             "clumpingTool": .string(config.sequencingPlatform.supportsStorageClumping ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
             "compressionLevel": .string(CompressionLevel.balanced.rawValue),
-            "threads": .integer(4),
+            "threads": .integer(ImportConfig.hostThreadCount),
             "forceReimport": .boolean(false),
             "r2": .null,
             "sampleSheet": .null,
