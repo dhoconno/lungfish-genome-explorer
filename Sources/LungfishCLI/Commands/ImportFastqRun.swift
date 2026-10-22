@@ -73,6 +73,10 @@ struct FASTQImportRun {
     /// - Returns: The batch's result, or nil for a dry run, whose lines are already printed.
     /// - Throws: The exit code of a failure, after `reporter` printed its failed line.
     func run(reporter: some FASTQImportReporting, cancellation: FASTQImportCancellation) async throws -> FASTQBatchImporter.ImportResult? {
+        if let clumpifyHeapGB, let problem = clumpifyHeapProblem(clumpifyHeapGB) {
+            throw reporter.fail(problem, detail: nil, exitCode: .inputError)
+        }
+
         let formatter = TerminalFormatter(useColors: useColors)
         guard !input.isEmpty || samplesheet != nil else {
             throw reporter.fail("At least one input path or --samplesheet is required.", detail: nil, exitCode: .inputError)
@@ -280,10 +284,6 @@ struct FASTQImportRun {
             )
         }
 
-        if let clumpifyHeapGB, clumpifyHeapGB < 1 {
-            throw reporter.fail("--clumpify-heap-gb must be at least 1.", detail: nil, exitCode: .inputError)
-        }
-
         // MARK: Build config
 
         let projectURL = URL(fileURLWithPath: project)
@@ -366,4 +366,16 @@ struct FASTQImportRun {
         }
         return result
     }
+}
+
+/// Why `--clumpify-heap-gb` cannot be `gigabytes`, or nil when it can. Clumpify's heap is multiplied by a GiB in bytes
+/// where it is planned and launched, so a value no host holds overflowed and trapped. The limit is this host's
+/// physical memory in GiB, and the message names it (CHTC lane L5-RECORDS, Fix 6).
+private func clumpifyHeapProblem(
+    _ gigabytes: Int,
+    physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory
+) -> String? {
+    let limit = max(1, Int(clamping: physicalMemoryBytes / 1_073_741_824))
+    guard gigabytes < 1 || gigabytes > limit else { return nil }
+    return "--clumpify-heap-gb must be between 1 and \(limit), this host's physical memory in GB."
 }

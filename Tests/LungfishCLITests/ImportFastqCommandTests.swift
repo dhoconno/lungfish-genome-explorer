@@ -551,4 +551,50 @@ final class ImportFastqCommandTests: XCTestCase {
             // silently applying the override to an arbitrary sample.
         }
     }
+
+    // MARK: - --clumpify-heap-gb (L5-RECORDS Fix 6)
+
+    func testParseClumpifyHeapGB() throws {
+        let command = try ImportCommand.FastqSubcommand.parse([
+            "/data/fastq_dir", "--project", "/projects/Test.lungfish", "--clumpify-heap-gb", "4",
+        ])
+        XCTAssertEqual(command.clumpifyHeapGB, 4)
+    }
+
+    /// The exit code of a dry run of one detected sample with `--clumpify-heap-gb value`, or nil when it did not fail.
+    private func exitCodeOfDryRun(clumpifyHeapGB value: String) async throws -> Int32? {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "import-fastq-heap-\(UUID().uuidString)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let sample = tempDir.appendingPathComponent("SampleA_R1.fastq.gz")
+        try Data().write(to: sample)
+        let projectDir = tempDir.appendingPathComponent("Test.lungfish")
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let command = try ImportCommand.FastqSubcommand.parse([
+            sample.path, "--project", projectDir.path, "--clumpify-heap-gb", value, "--dry-run",
+        ])
+        do {
+            try await command.run()
+            return nil
+        } catch let error as ExitCode {
+            return error.rawValue
+        }
+    }
+
+    func testAClumpifyHeapBelowOneEndsWithExitCode3() async throws {
+        let code = try await exitCodeOfDryRun(clumpifyHeapGB: "0")
+        XCTAssertEqual(code, 3, "--clumpify-heap-gb 0 must end the command with the input error exit code")
+    }
+
+    /// The heap is multiplied by a GiB in bytes, so a large enough value overflowed and trapped. A value above this
+    /// host's physical memory is refused with the input error exit code, before anything multiplies it.
+    func testAClumpifyHeapBeyondTheHostEndsWithExitCode3NotACrash() async throws {
+        for value in ["100000", String(Int.max)] {
+            let code = try await exitCodeOfDryRun(clumpifyHeapGB: value)
+            XCTAssertEqual(code, 3, "--clumpify-heap-gb \(value) exceeds this host's memory and must be refused")
+        }
+    }
 }

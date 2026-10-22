@@ -123,7 +123,7 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("clumpify-heap-gb"),
-            help: "Java heap for BBTools clumpify in GB (default: sized from this host's free memory)"
+            help: "Java heap for BBTools clumpify in GB, from 1 up to this host's physical memory (default: sized from this host's free memory)"
         )
         var clumpifyHeapGB: Int?
 
