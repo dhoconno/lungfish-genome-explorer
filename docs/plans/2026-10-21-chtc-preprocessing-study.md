@@ -252,8 +252,211 @@ to build on Linux. It plans six lanes, K0 to K5, and leaves nine open questions,
 agents may install the swift.org toolchain and Static Linux SDK on both Macs. Q-C3-4 asks whether swift-crypto may join
 `Package.swift`, or a pure-Swift SHA-256 should be used.
 
+## Owner answers of 2026-10-22
+
+The owner answered Q4, Q10, Q11, Q12, Q-C3-3 and Q-C3-4 when session 2 began, and answered the questions that the session
+raised as it went. The manager's log `c2/events.log` in `~/lungfish-phase-records/chtc-program/` keeps most answers as
+one-line notes. A cell below puts quotation marks only around words that the log or a lane brief quotes from the owner, so
+a cell without them is the manager's note of the answer. These answers close Q4, Q10, Q11, Q12, Q-C3-3 and Q-C3-4 in the
+open questions above, and they release C2-TRIMGALORE from its hold for Q12.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O14 | Q4, should imports bin qualities as a recipe says, or keep the CLI's `none`? | "I think we should still offer binning with iillumina4 as the default. ONT and other platforms don't bin, and binning does save space." Asked whether that covers every route, the owner chose "Every route, ONT too" | `illumina4` becomes the default on every import route, ONT included, unless the user picks `none` or `eightLevel`. Lane C2-BINNING |
+| O15 | OQ1 of the C2-BINNING review. The ONT run folder import stores chunked payloads by default and bins them only when Optimize Storage runs, so should it bin them | The owner chose "Bin chunked ONT payloads" | New lane C2-ONTBIN, which runs the `illumina4` quantize pass on chunked ONT payloads by default |
+| O16 | Q10, host one pinned ribokmers index or pin a deacon 0.16.0 build and reinstall | The owner chose "Build it once with the pinned deacon 0.16.0, put it on the LGE large-files folder on LabKey, pin its SHA-256 in the lock. Every install and CHTC download those exact bytes." | One hosted index in the tool lock, and the one upload of lane C2-RIBOPIN to the public LGE folder is approved |
+| O17 | The first hosted index came from a build whose record order is not stable. The review of C2-RIBOPIN offered option B, to re-host a one-thread build, and asked to upload its `NOTICE.txt` too | The owner chose "Re-host 1-thread build" and answered "Yes, upload it" for `NOTICE.txt`. Later the owner approved deleting the first hosted folder | The one-thread build `f88286f6…ede6` and its `NOTICE.txt` sit in one new versioned folder, the first folder is deleted, and the lock, the records and the hosted databases table follow the new folder |
+| O18 | Q11, may the golden compare run on this laptop, with the Viral database installed into the golden root | Recorded as allowed. The manager installed the Viral database between 07:38 and 07:41, and `provision` matches the lock | The golden compare ran here at landings 4 to 7 and matched in all four groups |
+| O19 | Q12, keep Trim Galore as a storage choice with a plain warning that it trims, or remove it as a storage tool | "I don't want to remove it because it is the most laptop-safe option. Check if there is a new version that might have fixed this issue. If not, keep the current version and just make note of the issue in provenance." | Trim Galore 2.3.0 stays. Each Trim Galore storage step, the import notice and the record say that it removes reads (C2-TGFIX fix 7) |
+| O20 | Q-C3-3, may agents install the swift.org toolchain and the Static Linux SDK on both Macs | Recorded as yes | K0 pins Swift 6.4.0 and the Static Linux SDK 0.1.0 in `scripts/linux/toolchain.json`. The Linux tier runs on demand and at each landing and never in the pre-push hook |
+| O21 | Q-C3-4, may swift-crypto join `Package.swift`, or should the portable target use a pure-Swift SHA-256 | Recorded as swift-crypto | swift-crypto may join the package for the portable target's digests |
+| O22 | N1 of the C3 tally, where each release's executor binary lives, which Mac builds it and how the plan writer learns its digest | "It should be included but should be generic to run on Linux. We should handle orchestration of individual jobs on chtc but this tool should handle the data preprocessing on any x86 ljbux machine." | The executor ships inside the app bundle and runs on any x86-64 Linux machine, and HTCondor orchestration is a separate layer. ARCH renamed the executor `lungfish-executor` and placed it at `Contents/Resources/LinuxExecutor/x86_64/` (ARCH A2 to A4) |
+| O23 | Cf-8 and the tally's flag F6, may a CHTC plan name Trim Galore, which a UX condition would have the Mac refuse until a lane makes it run there | "Offer it on CHTC too" | ARCH A5 withdraws the refusal. Trim Galore storage moves behind the same seam as clumpify in K2, and the linux-64 lock and the image gain Trim Galore 2.3.0 in K5 |
+| O24 | The tally's flag F5, is O4 met by CHTC running every full pass (counts, Q20 and Q30, statistics) while the Mac writes the sidecar and the envelope from the run record at adopt | Recorded as yes | O4 is read that way. Q-C3-1 A carries it, and V3 gets a revisit row below |
+| O25 | The OOM fact-check found that clumpify without `-eoom` hung idle in 7 of 27 runs that ran out of memory at one group, so should every clumpify call add `-eoom` | "Yes, add -eoom now", whose option text reads "A small C2 lane adds `-eoom` to every clumpify call, so an out-of-memory run fails at once with a plain message. The argv in new import records changes, with each moved golden key predicted." | New lane C2-EOOM, run after landing 4 |
+| O26 | May the GUI walk click Update in the Debug app's Update tools sheet | Recorded as yes. The sheet installs or updates managed tools only in the Debug app's own storage `~/.lungfish-debug`. The owner also said full-screen control is fine | Walk 2 ran hands off, and the manager drove walk 3 with full-screen control |
+| O27 | Disk on this Mac | The owner approved deleting `lungfish-fastq-import-failure-58c429/.build` (13:23), asked the manager to quit an old Lungfish Debug that ran from that worktree (14:29), and approved thinning local snapshots (17:34) | Free disk rose from 80 GB to 332 GB, which keeps room for four agents' builds |
+
+## C2 results (2026-10-22)
+
+Session 2 finished C2 in four landings, 4 to 7, after landings 1 to 3 of session 1. Each lane got one review of the fields
+it touches, a fix agent for the numbered fixes and a landing. The fix rounds got no separate re-review, except the fixes
+of C2-RIBOPIN, which a second review read. A landing agent (sonnet at effort max) cherry-picks the lane commits with `-x`
+in an isolation worktree, runs the build, the targeted tests, the seven ratchets and the golden compare, and the manager
+fast-forwards `chtc-program`. Nothing is pushed. The lane reports are in `c2/lanes/`, the reviews in `c2/reviews/` and the
+landing records in `c2/land/`. C2-FIX3 closes review fix 3 of the merged recipe, C2-TGFIX closes the hold on
+C2-TRIMGALORE, and the GUI walk below pays the sheet's walk.
+
+| Lane | What it does | Review verdict | Landing |
+|---|---|---|---|
+| C2-TGFIX | The fixes of the C2-TRIMGALORE review. Trim Galore storage counts every read it removes from its trimming reports (fix 1) and counts the stored file in the sidecar (fix 2). It stores a run with a joined third file (fix 3), keeps the Import sheet enabled for a merging recipe with Trim Galore (fix 4) and leaves no scratch and no process after a cancel in the mixed route (fix 5). Each storage step and the import notice say that Trim Galore removes reads (fix 7, O19) | Merge after fixes, 6 numbered fixes (`reviews/C2-TRIMGALORE.md`) | Landing 4, 8 commits |
+| C2-BINNING | `illumina4` becomes the default quality binning on every import route (O14). It moves the tests and the help goldens that pinned the old default, keeps the sheet's binning choice when the platform changes, says that BBTools is missing when binning cannot find `reformat`, and names the binning in the app's in-place ingestion command | Merge after fixes, 9 numbered fixes and the owner question OQ1 | Landing 4, 9 commits |
+| C2-RIBOPIN | Pins one hosted ribokmers index, the one-thread build `f88286f6…ede6` with its `NOTICE.txt`, in the tool lock and installs it by download (O16, O17). A pinned download publishes through DurableReplace, managed `db update` gets a cancel contract, a full record and a command test, and a sibling clone cannot replace an installed ribokmers index. The lock, the status and the records say that a rebuild is not a changed database | Merge after fixes, 9 numbered fixes, then Merge after fixes, 3 numbered fixes for the fix round | Landing 4, 13 commits |
+| C2-ONTBIN | Bins chunked ONT payloads with `illumina4` by default (O15). It adds contract row M-6, a narrow named mask for BBTools run time and rates in a provenance stderr, so that the chunked parity replay compares equal. It keeps an ONT import's progress in order, says which imports bin quality scores, says that the Fluidigm sample split does not bin scores, tests that a SIGTERM during chunk binning cancels the import, and recaptures the `import-ont` help golden | Merge after fixes, 4 numbered fixes | Landing 5, 10 commits |
+| C2-FIX3 | Runs the merged recipe's full-chain tests with real databases on a scratch storage root (`LUNGFISH_STORAGE_ROOT` and `LUNGFISH_CONDA_ROOT`), which needed no new seam. Four classes ran 88 tests with no skip. The two failures were stale expectations from before the tests moved to the merged recipe, and a test-only commit brings them to the recipe's values | Merge, no fixes | Landing 6, 1 commit |
+| C2-EOOM | Starts every import `clumpify` with `-eoom`, so a full heap fails at once with a plain message (O25). It gives the recipe dedupe argvs and the status 3 check one place each, records every BBTools launch beside the out-of-memory contract, and says that the sample was not imported and which command has `--clumpify-heap-gb` | Merge after fixes, 4 numbered fixes | Landing 6, 5 commits |
+| C2-PROVPATH | Keys an ONT import's tool steps by one spelling of the output path that outlives the staging folder, so an output spelled `/private/tmp/...` keeps its `reformat.sh` and `clumpify.sh` steps. It relocates a record from a staged folder in every spelling the record may hold. The gap predates C2, and landing 5 found it | Merge after fixes, 4 numbered fixes | Landing 6, 4 commits |
+| C2-SHEETFIX | Fixes the three defects of the GUI walk below. The Import sheet keeps the detected Paired-end pairing after the platform changes to Oxford Nanopore and back, its pop-ups carry accessibility titles, and the durable command states the platform and pairing an import ran with while old records replay unchanged | Merge after fixes, 2 numbered fixes that change no behaviour | Landing 7, 2 commits |
+
+| Landing | New head of `chtc-program` | What it holds | Results |
+|---|---|---|---|
+| 4 | `6bb2a3154a4fbda82ea197dd7dbf472b638f5e08` | C2-TGFIX, C2-BINNING, C2-RIBOPIN and K0 of C3 on the base `fc6576f39216fd3a75b5afb5d9003608f8ab6540`. 37 cherry-picks and 1 module map commit change 97 files (4,071 lines in, 1,101 out) | 741 tests, 1 failure and 1 skip. The seven ratchets sit at baseline, the Linux tier passes, and the golden compare matches in all four groups (cli-help 321 files, mapping 9, classifiers 24, genotype 133) |
+| 5 | `9a070a76f38172388b3449f425b9f3ac5caab13b` | C2-ONTBIN (10 cherry-picks) and 3 folds, 26 files (858 in, 37 out). The folds remove the deleted ribokmers folder's row from the hosted databases table, note that a hosted file is checked with GET and never HEAD, and point the deacon-panhuman source URL at `bede/deacon` | 470 tests in 52 classes, 0 failures and 1 skip. Ratchets at baseline and the golden compare matches. The landing found the `/private/tmp` gap that became C2-PROVPATH |
+| 6 | `12c931b14d621b160cfd1dc0262ad2a381f23760` | C2-FIX3, C2-EOOM and C2-PROVPATH (10 cherry-picks), 2 folds and 1 module map commit, 20 files (996 in, 151 out). The folds move the in-place ingest conformance test to the import default binning, since it still expected `none`, and add the scratch database root recipe to `docs/development.md` | 265 tests in 32 classes, 1 failure and 1 skip. On a scratch database root `RecipeIntegrationTests` passes 15 of 15 and `FASTQBatchImporterRecipeIntegrationTests` 4 of 4. The golden compare matches. The landing found a stale ribokmers `lockPinned` expectation in `ImportFastqE2ETests+RecordTruth.swift`, folded into landing 7 |
+| 7 | `beec05eea45a0a53fc8aed634c43ca346758bebe` | C2-SHEETFIX (2 cherry-picks), 2 folds and 1 module map commit, 7 files (274 in, 49 out). The folds pin the old-record replay test to a literal command as the earlier builder wrote it, and make the ribokmers `lockPinned` expectation follow the index digest so that it holds for any install | 110 tests in 10 XCTest classes with 1 failure and 1 skip, plus 28 Swift Testing tests. On a scratch root with a fresh ribokmers install `ImportFastqE2ETests` runs 21 tests with 1 skip and 0 failures, and `FASTQBatchImporterRecipeIntegrationTests` passes 4 of 4. Ratchets at baseline and the golden compare matches. C2 is complete |
+
+The one failure in landings 4, 6 and 7 is `ConformanceFixtures.swift:81`, which needs a deacon-panhuman install record that
+the Stable install on this laptop lacks. It does not occur on a scratch root (`docs/development.md`), and it did not occur
+in landing 5, whose classes never read that fixture. The skip is the documented `testSIGTERMEscalationChild` helper.
+After landing 7 the program branch is 120 commits past `8190b9000` and its module map is current.
+
+## The GUI walk of the Import FASTQ sheet (2026-10-22)
+
+The sheet's walk with Computer Use was owed after C2-SHEET. Walk 1, by an agent, was blocked by the missing scratch
+project, the Update tools sheet and user interruptions. The owner allowed the sheet's Update button (O26), an agent
+launched walk 2 hands off, and the manager drove walk 3 itself, whose report is the record,
+`c2/lanes/C2-GUIWALK2/C2-GUIWALK-manager.md`. The Debug app came from `chtc-program` at `9a070a76f`. It ran with
+`LUNGFISH_UI_TEST_MODE=1`, the live-smoke backend and a scratch project, and the route was File, Import Center, Sequencing
+Read Files, Import. The inputs were an Illumina pair and an ONT FASTQ copied from `Tests/Fixtures/`.
+
+| # | Check | Result | What was seen |
+|---|---|---|---|
+| 1 | The sheet opens for Illumina paired input | Pass | The sheet shows R1 `test_1` and R2 `test_2`, detects Illumina and Paired-end |
+| 2 | The presets and their switch defaults | Pass | The recipe pop-up lists Illumina Amplicon Merge, VSP2 target enrichment and Wastewater metagenomics. VSP2 sets Remove duplicate reads on and Remove ribosomal RNA reads off. Wastewater sets both on |
+| 3 | The description and the Workflow line follow the boxes, the Tab order, the labels | Partly | Clearing Remove duplicate reads gives "VSP2 target enrichment, with Remove duplicate reads off." and drops the dedup step from the Workflow line. The wastewater Workflow line includes "Remove ribosomal RNA reads". The Tab order was not walked. Checkboxes and buttons carry titles in the accessibility tree, and the four pop-up buttons show no title to the Computer Use reader |
+| 4 | The binning default and a kept choice | Pass | Illumina starts at "Illumina (7-level)". After choosing None and changing the platform to Oxford Nanopore and back, binning stays "None (preserve original)". ONT input detected as Oxford Nanopore also starts at "Illumina (7-level)". The ONT barcode recipe pop-up was not reached, since it needs an ONT run folder |
+| 5 | Trim Galore with a merging preset | Pass | No refusal and the Import button stays enabled. The note reads "Trim Galore also performs adapter detection/removal, quality trimming, and short-read filtering." |
+| 6 | The import records | Pass | VSP2 with BBTools gave 116 reads, 17 pairs and 82 merged. The Inspector shows Quality Binning Illumina (7-level), Preset VSP2 target enrichment, Remove duplicate reads On (preset), Remove ribosomal RNA reads Off (preset), the recipe digest, and step 3 as "Not run" because the switch is off. The Operations command ends `--recipe vsp2-target-enrichment --clumping-tool bbtools`. VSP2 with Trim Galore finished as Completed with Warnings, and the warning says Trim Galore 2.3.0 trimmed adapters and bases under quality 20, removed the reads left shorter than 20 bases (0 of 17 pairs and 0 of 82 unpaired reads, each pair as a unit), and that no Trim Galore 2.3.0 option turns this off |
+
+| # | Finding | What was done |
+|---|---|---|
+| 1 | Pairing resets. With R1 and R2 detected as Paired-end, changing Platform to Oxford Nanopore and back to Illumina leaves Pairing at Single-end, so a user who touches the platform pop-up imports a pair as single-end. A change through Ultima Genomics and back kept Paired-end. The defect is likely older than C2 | C2-SHEETFIX task 1 gives the pairing back (landing 7) |
+| 2 | The recorded command of an import that keeps the detected platform says `--platform auto` and names no `--pairing`, while an import with a changed platform names both. Replay re-detects, but the record does not state the platform and pairing the run used | The manager ruled that the bundle record states the resolved platform and pairing, the Operations row keeps the launched argv, and old records replay unchanged. C2-SHEETFIX task 2 does it (landing 7) |
+| 3 | The sheet's four pop-up buttons show no accessibility title to the Computer Use reader | C2-SHEETFIX task 3 labels the pop-ups (landing 7). The walk asks for a check of the labels with Accessibility Inspector |
+
+The Wispr Flow overlay refuses clicks in a band near the screen centre, so a sheet or button there needs the Return key or
+a moved window. The debug app was quit through its app menu item at the end of the walk.
+
+## C3 votes (2026-10-22)
+
+C3 began from the SWIFT and ARCH design inventory `c3/inv/C3-design.md` of session 1. Six seats (SWIFT, ARCH, BIO, UX, QA
+and CHTC) wrote memos with votes and conditions on the inventory's questions, and a tally by `lge-expert` (sonnet at effort
+max) merged them without ruling. Round 1 voted five questions. The questions that the memos raised afterwards went to a
+ruling by one field, to a fact-check, or to a second round of six memos (opus at effort xhigh) and a second tally. The
+records are in `~/lungfish-phase-records/chtc-program/c3/` (`memos/`, `votes/tally.md`, `votes/tally-r2.md`, `rulings/` and
+`reviews/`). The rule of the panel decisions above still holds, so a vote passes by a majority of the seats that vote and an
+abstention does not count. The executor was named `lungfish-htc` when round 1 voted, and ruling A2 renamed it
+`lungfish-executor`, so the texts below say "the executor".
+
+| Id | Decision | Vote |
+|---|---|---|
+| Q-C3-1 | A. CHTC runs every full pass (record counts, the Q20 and Q30 counts, `seqkit stats`) and its run record carries the values. The adopt on the Mac writes the sidecar and the envelope from them with today's IO code, and adds a 100,000-read head sample for the charts. Signing stays on the Mac. This also settles V4a | 6 to 0 |
+| Q-C3-5 | A. The executor is sent beside the Apptainer image with its own SHA-256 in the plan and is not baked into the image | 6 to 0 |
+| Q-C3-7 | A. A plan refuses `auto` for the clumping tool and the compressor outright, and the Mac resolves them when it writes the plan | 6 to 0 |
+| Q-C3-9 | A. The portable reader on Linux decompresses gzip through a pinned `pigz -dc` child from the image, with no in-process zlib and no new C dependency | 6 to 0 |
+| Q-C3-10 | A. The Linux test container is Apple `container` when installed and else `docker`, with one image pinned by digest | 3 to 0, BIO, UX and CHTC abstained |
+| N2 | A. The plan writer names `bbtools` at the plan's pinned heap for every sample, so the template stays per recipe and V5 holds. The user may name `trim-galore` or `none` instead | 5 to 1, UX voted C, which offers no Automatic for a run off the Mac |
+| N9-V15 | A. The lines that may differ between a bundle adopted from an executor run and a Mac import of the same sample are the lines that name where or with what binary a step ran, plus the steps only the executor route runs. Every count, digest and relative argv must be equal | 6 to 0, and BIO's vote reads A amended by its V15-R, under which no compressed digest is compared |
+| Q-S-R1 | A. One C target, the repository's first, holds a non-variadic wrapper of `prctl(PR_SET_CHILD_SUBREAPER)` and its getter, with a Linux-only body and no external library. K3 adopts orphans as SWIFT's N4 ruling sets | 6 to 0 |
+
+The first five rows are round 1 and the last three are round 2. No seat voted against a winning option in round 1. BIO
+abstained on Q-C3-10 because its condition B-C20 applies to either option, CHTC because no local container result can
+stand in for the CHTC signal check under either runtime, and UX because the choice touches no label, record or view. The
+second tally merges the seats' lists for V15 into 25 lines, names 27 conflicts between the memos and 13 open rows, and
+settles none of the conflicts, which the lane briefs carry.
+
+The first tally's flags F1 and F2 ask this record to revisit V3 and to settle V4a. SWIFT and QA asked for a revisit row
+under the old id and ARCH asked to reword the row, so this record takes the revisit row.
+
+| Id | Amended decision | Basis |
+|---|---|---|
+| V3 (revisit) | Shape B′ stands, narrowed. The byte code that moves into the one shared target is the layout writer, the pair split and join, the storage plan, and the passes that produce the record counts, the Q20 and Q30 counts and the statistics values, which are "the counts and statistics values" and no longer "statistics, sidecar". The sidecar and envelope writers stay on the Mac and run at adopt from the run record, with today's IO code and with signing on the Mac | Q-C3-1 A (6 to 0), the tally's flag F1, and the owner's confirmation of the O4 reading (O24) |
+| V4a | Settled. The provenance envelope is written at adopt on the Mac from the run record, and no portable envelope writer is built for CHTC | Q-C3-1 A, the tally's flag F2 and O24 |
+
+The flags F4, F5, F6 and F8 are settled by N2, by O24, by O23 with ruling A5 and by the V15 vote.
+
+## C3 rulings and fact-checks (2026-10-22)
+
+A question that the tally routes to one field went to a ruling by an `lge-expert` at opus and effort xhigh, kept in
+`c3/rulings/`, and a claim that the memos lean on went to a `manual-fidelity-reviewer` at sonnet and effort max, kept in
+`c3/reviews/`. A ruling or a fact-check replaces the memos where they differ, and each binds the lane briefs.
+
+| Id | Ruling | By |
+|---|---|---|
+| Q-C3-8 | Granted, the amendment of `docs/contracts/RUNNING-A-TOOL.md` that makes the executor's POSIX launcher the one stated exception to `ToolProcess`. Refused, an exempt-list entry for the executor's folder. A third count in the process-spawn ratchet, `raw_posix_spawn_calls` with baseline 0, is exempt only under `Sources/LungfishCore/Process/` and the executor's process folder | ARCH, not voted |
+| N3 | Clumpify's compressor. Neither option is taken. The Mac puts no pigz on clumpify's `PATH` and no argv changes to `pigz=f`, because at every level LGE passes (1, 4 and 9) BBTools 40.02 never reaches its pigz branch. Every argv keeps `pigz=t` and `zl=` byte for byte, a plan names `bgzip` for the BBTools storage steps, and every record states the writer and the level | BIO |
+| N6 | The exact Q20 and Q30 count is a recorded step on the CHTC route, in the run record and in the adopted envelope as a child of the executor's step. The 100,000-read head sample is no step in C3. The counter step, the `seqkit head` step and a failed-statistics warning for the Mac route wait for a later lane (MO-B1) | BIO |
+| N4 | On Linux the executor marks itself a child subreaper with `prctl(PR_SET_CHILD_SUBREAPER, 1)` before it starts any child, so every orphaned descendant, a `setsid` double fork included, re-parents to the executor whatever PID 1 is and whether or not the job has a PID namespace. K3 keeps the parent walk beside it | SWIFT |
+| N8 | Each step's child runs with its working directory at the work root and names its files by the plan's relative paths, so the argv in the run record is the argv the executor passed and holds no node path. The work root is the real path of the folder that holds the plan file. The executor reads no `_CONDOR_` variable | SWIFT |
+| A1 (N5) | `ImportSettingSource` gains a case, `plan`, and moves to `LungfishPortable`. An adopted record says `plan` in the sources of the values the plan fixed, and the plan keeps the user's own source | ARCH |
+| A2 | The product is `lungfish-executor`, the executable target `LungfishExecutor` and its tests `LungfishExecutorTests`, renamed before K1 lands, since HTC now names the separate orchestration layer | ARCH |
+| A3 | The x86-64 executor ships stripped as a sealed resource, never as code, at `Contents/Resources/LinuxExecutor/x86_64/lungfish-executor` beside a `manifest.json`, from C4 on. This settles N1 and the text of QC18 | ARCH |
+| A4 | The executor is a generic x86-64 Linux program. Its whole input is the plan, the files the plan pins in the plan's folder and the image's tool manifest, and its whole output is the payloads and the run record in that folder. It holds no HTCondor code. In round 2 ARCH replaced the site files with `--site-fact KEY=VALUE` arguments that fill `siteFacts` | ARCH |
+| A5 | Trim Galore is offered on CHTC (O23). The Mac plan writer's refusal of `trim-galore` (K4.9) and UX's condition U-8 are withdrawn. K2 moves the whole Trim Galore storage route behind the same seam as clumpify, and K5 adds Trim Galore 2.3.0 to the linux-64 lock and the image | ARCH |
+| A6 | F-A1 is false, so the K1 check in `portable-imports.sh` must itself fail when a target other than the executor's test target lists the executor among its dependencies | ARCH |
+| OQ-7 | How the C target of Q-S-R1 enters the ratchets. Two counts guard two things, `c_targets` with baseline 1 and `c_target_dependents` with baseline 0, which counts the Swift files that import the target. The ruling gives the K1 brief a 21-row table (`c3/briefs/lane-K1.md`) | ARCH |
+
+| Fact-check | Verdict | What it changes |
+|---|---|---|
+| F-A1, SwiftPM refuses a library target that depends on an executable target | False | SwiftPM 6.4 accepts it in both build engines, and a library that also imports the executable builds under `--build-system native`. K1's check cannot lean on SwiftPM (A6) |
+| F-A2, `pigz -dc` decodes concatenated gzip members, BGZF included, as `/usr/bin/gzip -dc` does | True | The output was byte-identical on six inputs. The error cases differ, so K3's equality test compares the exit status for failures and leaves out partial output, stderr text and a trailing-garbage file |
+| F-A3, clumpify with `pigz=t` looks for pigz on `PATH`, and `groups=auto` splits an input to fit `-Xmx` | Partly | The pigz half is false. With `zl=4` BBTools returns a BGZF writer first, which is the external `bgzip` when it is on `PATH` and BBTools' own Java writer otherwise. The `groups=auto` half is true. This answers Q-S1 and feeds N3 |
+| An Apptainer rebuild is not byte-reproducible | Partly | True by default. Apptainer 1.5.0 added `SOURCE_DATE_EPOCH` and `--reproducible`, so the result depends on pinned inputs. Q-C3-5 stands, and the plan says a rebuild is not promised to reproduce the bytes |
+| Apple `container` PID 1, and a test binary as PID 1 having to reap an orphan | Partly | The reaping is true, since Docker 28.3.2 without `--init` held a zombie. `container` is not installed on this Mac, so its PID 1 is unverified, and K0's tier script passes the init flag to both runtimes |
+| The `PATH` that a GUI launch of the Mac app finds | True for a Finder, Dock or Spotlight launch | The `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`, with none of `pigz`, `bgzip`, `brew` and `conda`. `open` run from a shell forwards the shell's environment, which hides this. Lanes say "a Finder or Dock launch" and never "a GUI launch" |
+| EL7 and EL8 boot cgroup v1 by default, `-C` gives the container its own `/proc`, HTCondor 26.1 still passes `-C` | Partly | The cgroup v1 claim is true, so C4 requires `OpSysMajorVer >= 9`. The other two claims are left to K3's CHTC jobs |
+| FC-B1, who writes the gzip of Trim Galore 2.3.0 under `--clumpify` | 3 true, 4 false, 1 unverifiable | Trim Galore writes the gzip itself through the Rust crate `flate2`, one gzip member per clumpify bin, at the `--compression` level (1, 4 or 9), and never looks at `PATH`. The output is not BGZF. The managed osx-arm64 build compresses through the environment's `libz` 1.3.2 and not the `zlib-rs` that `Cargo.toml` names. The linux-64 build is unverified |
+| FC-B2 and FC-Q1, clumpify without `-eoom` after an `OutOfMemoryError` | Both outcomes occur | At one group, 20 of 27 out-of-memory runs exited with status 1 inside 3 s and 7 hung idle (`threads=1` hung in 4 of 7 runs). At `groups=auto`, 5 of 5 exited. With `-eoom`, 3 of 3 exited with status 3 in under 1 s. This led to O25 |
+
+CHTC's own facts, read with `condor_status -af` on `oconnor-ap4000` on 2026-10-22 (Q-C3-6), count 265 machines, 255 of them
+with `HasCHTCStaging`. Of those, 198 run CentOS Stream 9 (kernel 5.14), 51 AlmaLinux 10 (kernel 6.12), 4 CentOS 8 (kernel
+4.18), 1 CentOS 7 (kernel 3.10, Apptainer 1.3.1) and 1 is aarch64. Every other staging host runs Apptainer 1.5.3 or 1.5.4,
+and `MachineMaxVacateTime` is 600 s on every slot. HTCondor sends `kill_sig`, SIGTERM by default, for eviction, removal and
+hold alike, since `remove_kill_sig` and `hold_kill_sig` apply to the scheduler universe only. So a run record says
+`interrupted` with the signal number and the cause comes from the job event log. Signals through Apptainer's init shim are
+still unobserved.
+
+## C3 progress (2026-10-22)
+
+The lanes are K0 to K5 of the inventory, run as `lge-worker` agents and reviewed by the seats the tally names. The state
+below is the manager's STATE block of 17:35 CDT. K0 is the only C3 lane on the program branch so far.
+
+| Lane | What it does | State |
+|---|---|---|
+| K0 | Adds the empty `LungfishPortable` and `LungfishHTC` targets, pins the Linux toolchain (Swift 6.4.0 and Static Linux SDK 0.1.0) and adds the Linux tier script, which picks a container runtime only when it answers, runs the containers hardened and probes PID 1. A static build inside the repository takes 73 s and gives a 148 MB static ELF. CHTC test job 590464 passed, on bytes that the K0 fix then changed (the x86_64 SHA-256 now begins `a23547ed`) | Landed in landing 4 (7 commits). The review found 5 fixes, all done at `fa6e2e110` |
+| K1 | Renames the executor to `lungfish-executor` and adds the C target, the module map line, the contract change and the ratchets (milestone 1, `e11356211562771a591e298c8e0480e86d10f3db`, no moves). Continuation 1 (`d5b56c6a27d2ea05fdea009a9f7b97a9696938ef`) adds the reader seam, `FileDigest` and the reader moves, and leaves the Linux build broken on `autoreleasepool`. Continuation 2 adds a shim, moves the Foundation-only IO types, then the rest of the moves, and runs the golden compare | Continuation 2 running |
+| K3 | The Linux process subset, the subreaper and the signal tests, at `9d98a0f12d52649e258eaf16fa32dcadc53f4b2a` on K1's milestone 1. CHTC test job 591283 passed | Review running. K3.1 and K3.2, the pigz child over K1's seam, wait for K1 |
+| K5 | The linux-64 lock with Trim Galore 2.3.0 | Running on `beec05eea` |
+| K2 | `PortableStorageStep` with the Trim Galore route behind the seam | Not started. It needs the N3 words of BIO's ruling, ARCH's conditions of round 2 and UX's words of round 2 |
+| K4 | The plan, the run record and the parity tests | Not started. OQ-8, the OQ-9 vote and UX's N7 ruling for C4 are open |
+| K6 | The statistics builder that both the Mac import and the adopt call | Proposed by ARCH, not started |
+
+## Open questions that remain (2026-10-22)
+
+Q4, Q10, Q11, Q12, Q-C3-3 and Q-C3-4 are answered (O14 to O21), so these four remain. The lanes also hold open items that
+are not the owner's, such as OQ-8, the OQ-9 vote and the N7 ruling.
+
+| Id | Question | Who answers |
+|---|---|---|
+| Q5 | May LGE submit over a reused SSH session, does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? | CHTC staff, asked by the owner |
+| Q-C3-11 | Do the 30 s and 0 s `MaxJobRetirementTime` values on owned slots apply to guest jobs only, and does the group's own `oconnor` hardware give group jobs the 72 h retirement? The answer sets how often a batch is vacated and retried and does not change the design | CHTC staff, asked by the owner, and it may join Q5 |
+| MO-S1 | The Mac's own `auto` skips clumping above half the heap, though `groups=auto` keeps such an input in the heap. Making the Mac follow the plan's rule changes the stored bytes of large Mac imports, so C3 changes no Mac resolution | The owner, after C3 |
+| MO-B2 | Clumpify fixes `zl=4`, and the bgzip and pigz steps pass no level, so the user's level takes effect only on the `reformat.sh` and Trim Galore routes. Should clumpify follow the user's level? That changes compressed bytes. C4's effective-level field makes the record true meanwhile | The owner, after C3 |
+
 ## Next step
 
-C2's open items (fix 3 of the merged recipe's review, the sheet's GUI walk, Q12), then C3 from its design inventory.
-The weekly quota read 95% on 2026-10-22 at 05:00 CDT, so the first session stopped there. The handoff for another
-account is `~/lungfish-phase-records/chtc-program/CONTINUE.md`.
+C2 is complete and C3 is in progress. The program branch `chtc-program` is at
+`beec05eea45a0a53fc8aed634c43ca346758bebe`, 120 commits past `8190b9000` and not pushed. Session 2 started at 07:00 CDT on
+2026-10-22 with the weekly quota at 0%, the account changed mid-session, and the quota read 15% at 16:25 CDT. The manager's
+state is the STATE block of `c2/notes.md` and `c2/state-s2.md` in `~/lungfish-phase-records/chtc-program/`, beside the older
+handoff `CONTINUE.md`.
+
+| Step | Work |
+|---|---|
+| 1 | Review K1 when continuation 2 lands, then land K1, K3 and K5 as landing 8 |
+| 2 | Continue K3 with the pigz child over K1's seam (K3.1 and K3.2) |
+| 3 | Run K2, the storage step with the Trim Galore route, with the N3 words of BIO's ruling, ARCH's conditions of round 2 and UX's words of round 2 |
+| 4 | Run K4, the plan, the run record and the parity tests, once OQ-8, the OQ-9 vote and UX's N7 ruling for C4 are settled |
+| 5 | Ask CHTC staff Q5 and Q-C3-11 through the owner, and ask the owner MO-S1 and MO-B2 after C3 |
+| 6 | Finish what the GUI walk left open, which is the sheet's Tab order, the labels of its four pop-ups in Accessibility Inspector, and the ONT barcode recipe pop-up with an ONT run folder |
+| 7 | Merge the program into `main` after 2.13 lands |
