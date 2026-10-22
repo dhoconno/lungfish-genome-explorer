@@ -638,7 +638,6 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func platformChanged(_ sender: Any) {
         platformChosenByUser = Self.platformChoice(in: platformPopup) != nil
-        binningPopup.selectItem(at: defaultBinningIndex(for: selectedPlatform()))
         clumpifyCheckbox.state = defaultOptimizeStorage(for: selectedPlatform()) ? .on : .off
         selectClumpingTool(defaultClumpingTool())
         updateClumpingToolControls()

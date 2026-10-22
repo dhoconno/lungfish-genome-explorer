@@ -49,6 +49,32 @@ final class FASTQImportQualityBinningDefaultTests: XCTestCase {
                       "\(arguments)")
     }
 
+    /// A user who picks a binning scheme and then corrects the Platform popup keeps that scheme. Before the fix the
+    /// platform change put the popup back on the import default, which turned lossy binning on again for a user who
+    /// had chosen None, and binning cannot be undone once the originals are removed.
+    func testQualityBinningChoiceSurvivesAPlatformChange() throws {
+        let pair = FASTQFilePair(
+            r1: URL(fileURLWithPath: "/data/Sample_R1_001.fastq.gz"),
+            r2: URL(fileURLWithPath: "/data/Sample_R2_001.fastq.gz")
+        )
+        var captured: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(pairs: [pair], detectedPlatform: .illumina, onImport: { captured = $0 })
+        sheet.loadViewIfNeeded()
+        let popups = Self.descendants(of: sheet.view).compactMap { $0 as? NSPopUpButton }
+        let binningTitles = Set([QualityBinningScheme.illumina4, .eightLevel, .none].map(\.displayName))
+        let nanopore = try XCTUnwrap(FASTQImportConfigSheet.platformChoices.first { $0.platform == .oxfordNanopore })
+        let binningPopup = try XCTUnwrap(popups.first { Set($0.itemTitles) == binningTitles })
+        let platformPopup = try XCTUnwrap(popups.first { $0.itemTitles.contains(nanopore.title) })
+
+        binningPopup.selectItem(withTitle: QualityBinningScheme.none.displayName)
+        platformPopup.selectItem(withTitle: nanopore.title)
+        XCTAssertTrue(platformPopup.sendAction(platformPopup.action, to: platformPopup.target))
+        let importButton = Self.descendants(of: sheet.view).compactMap { $0 as? NSButton }.first { $0.title == "Import" }
+        importButton?.performClick(nil)
+
+        XCTAssertEqual(captured?.qualityBinning, QualityBinningScheme.none)
+    }
+
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
