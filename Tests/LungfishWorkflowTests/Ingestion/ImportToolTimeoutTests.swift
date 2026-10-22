@@ -74,6 +74,27 @@ final class ImportToolTimeoutTests: XCTestCase {
         XCTAssertTrue(ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [r1, missing]).isFinite)
     }
 
+    /// The user's own URLs reach the legacy import path unresolved, so a source
+    /// that is a symbolic link must be sized by the file it points at.
+    func testASymlinkedInputIsSizedByItsTarget() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appendingPathComponent("target.fastq.gz")
+        // A sparse file, so the size is read from the file system and nothing is written.
+        XCTAssertTrue(FileManager.default.createFile(atPath: target.path, contents: nil))
+        let handle = try FileHandle(forWritingTo: target)
+        try handle.truncate(atOffset: 1_200_000_000)
+        try handle.close()
+        let link = root.appendingPathComponent("link.fastq.gz")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertEqual(ImportToolTimeout.totalBytes(of: [link]), 1_200_000_000)
+        XCTAssertTrue(
+            ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [link]).isInfinite,
+            "a 1.2 GB file behind a symbolic link must get no wall-clock limit"
+        )
+    }
+
     // MARK: Cancel
 
     /// A whole-sample call has no wall-clock limit, so only a cancel stops it.

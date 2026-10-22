@@ -31,10 +31,13 @@ enum ImportToolTimeout {
         seconds(for: tool, atLeast: atLeast, inputBytes: totalBytes(of: inputs))
     }
 
-    /// The summed size of the files at `urls`. A file that cannot be read adds nothing.
+    /// The summed size of the files at `urls`. A symbolic link is sized by the
+    /// file it points at, because `attributesOfItem(atPath:)` does not follow a
+    /// final link and would size it by the length of its target path. A file that
+    /// cannot be read adds nothing.
     static func totalBytes(of urls: [URL]) -> Int64 {
         urls.reduce(Int64(0)) { total, url in
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path))?[.size] as? Int64
             return total + (size ?? 0)
         }
     }
