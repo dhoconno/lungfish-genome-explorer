@@ -27,8 +27,8 @@ let package = Package(
         ),
         // Static Linux executor for CHTC jobs, built with the swift.org toolchain and the Static Linux SDK
         .executable(
-            name: "lungfish-htc",
-            targets: ["LungfishHTC"]
+            name: "lungfish-executor",
+            targets: ["LungfishExecutor"]
         ),
         // Core library for sequence data models and services
         .library(
@@ -164,16 +164,16 @@ let package = Package(
             path: "Tests/LungfishPortableTests"
         ),
 
-        // MARK: - LungfishHTC (static Linux executor for CHTC jobs)
+        // MARK: - LungfishExecutor (static Linux executor for CHTC jobs)
         .executableTarget(
-            name: "LungfishHTC",
+            name: "LungfishExecutor",
             dependencies: ["LungfishPortable"],
-            path: "Sources/LungfishHTC"
+            path: "Sources/LungfishExecutor"
         ),
         .testTarget(
-            name: "LungfishHTCTests",
-            dependencies: ["LungfishHTC"],
-            path: "Tests/LungfishHTCTests"
+            name: "LungfishExecutorTests",
+            dependencies: ["LungfishExecutor"],
+            path: "Tests/LungfishExecutorTests"
         ),
 
         // MARK: - LungfishCore

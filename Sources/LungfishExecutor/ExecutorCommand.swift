@@ -1,12 +1,12 @@
 import Foundation
 import LungfishPortable
 
-/// The probe command line of `lungfish-htc`.
+/// The probe command line of `lungfish-executor`.
 ///
-/// Grammar: `lungfish-htc [--version] [<file>]`. The version line always prints first. A file argument adds a
+/// Grammar: `lungfish-executor [--version] [<file>]`. The version line always prints first. A file argument adds a
 /// `shasum -a 256` style line, `<64 hex digits>  <path>`. The executor proper (`run --plan <file>`) arrives in a
 /// later lane, so this command exists to prove the static build, the digest and the test targets on every platform.
-enum HTCCommand {
+enum ExecutorCommand {
     /// The probe version. The executor names itself by the SHA-256 of `/proc/self/exe`, so there is no other version site.
     static let version = "0.1.0-k0"
 
@@ -17,13 +17,13 @@ enum HTCCommand {
     }
 
     static func run(arguments: [String]) -> Result {
-        let versionLine = "lungfish-htc \(version)\n"
+        let versionLine = "lungfish-executor \(version)\n"
         let files = arguments.filter { $0 != "--version" }
         guard files.count <= 1 else {
             return Result(
                 status: 64,
                 standardOutput: versionLine,
-                standardError: "usage: lungfish-htc [--version] [<file>]\n"
+                standardError: "usage: lungfish-executor [--version] [<file>]\n"
             )
         }
         guard let path = files.first else {
@@ -36,7 +36,7 @@ enum HTCCommand {
             return Result(
                 status: 1,
                 standardOutput: versionLine,
-                standardError: "lungfish-htc: cannot hash \(path): \(error)\n"
+                standardError: "lungfish-executor: cannot hash \(path): \(error)\n"
             )
         }
     }

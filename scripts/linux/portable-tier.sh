@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# portable-tier.sh - the Linux tier for LungfishPortable and LungfishHTC (CHTC program, lane K0).
+# portable-tier.sh - the Linux tier for LungfishPortable and LungfishExecutor (CHTC program, lane K0).
 #
 # What it does, in order:
-#   1. Cross-builds lungfish-htc for aarch64-swift-linux-musl with the swift.org toolchain and its Static Linux SDK.
+#   1. Cross-builds lungfish-executor for aarch64-swift-linux-musl with the swift.org toolchain and its Static Linux SDK.
 #   2. Resolves the packages of a generated test package in an arm64 Swift container pinned by digest (network on), then
-#      runs the XCTest hello tests of LungfishPortableTests and LungfishHTCTests in a second container with the network
+#      runs the XCTest hello tests of LungfishPortableTests and LungfishExecutorTests in a second container with the network
 #      closed. The Static Linux SDK ships neither XCTest nor Swift Testing, so no test target can be cross-built for
 #      musl. The tests build and run on glibc inside the container instead.
 #   3. Probes PID 1, the user and the kernel inside the arm64 Debian container (step container-probe) and stops when the
@@ -173,7 +173,7 @@ step() {
 }
 
 cross_build() {   # cross_build <triple>
-  "$swift_bin" build -c release --swift-sdk "$sdk_id" --triple "$1" --product lungfish-htc --scratch-path "$scratch"
+  "$swift_bin" build -c release --swift-sdk "$sdk_id" --triple "$1" --product lungfish-executor --scratch-path "$scratch"
 }
 
 bin_dir() {   # bin_dir <triple>
@@ -181,11 +181,11 @@ bin_dir() {   # bin_dir <triple>
 }
 
 # The root package cannot build the two test targets alone, because a Linux test product holds every test target of
-# its package. This view package declares only the Portable and HTC targets, cut from the root Package.swift so the
+# its package. This view package declares only the Portable and Executor targets, cut from the root Package.swift so the
 # two never drift, next to copies of their sources and tests.
 prepare_view_package() {
   local dir
-  for dir in Sources/LungfishPortable Sources/LungfishHTC Tests/LungfishPortableTests Tests/LungfishHTCTests; do
+  for dir in Sources/LungfishPortable Sources/LungfishExecutor Tests/LungfishPortableTests Tests/LungfishExecutorTests; do
     mkdir -p "$pkg/$dir"
     rsync -a --delete "$repo/$dir/" "$pkg/$dir/"
   done
@@ -203,7 +203,7 @@ import PackageDescription
 let package = Package(
     name: "LungfishPortableTier",
     platforms: [.macOS(.v26)],
-    products: [.executable(name: "lungfish-htc", targets: ["LungfishHTC"])],
+    products: [.executable(name: "lungfish-executor", targets: ["LungfishExecutor"])],
     dependencies: [
         {crypto},
     ],
@@ -214,7 +214,7 @@ PY
 }
 
 # The probe of PID 1. Under an init process /proc/1/comm names the init. When the container command itself is PID 1 the
-# name is sh, swift, swift-test or lungfish-htc, and a test process in that place would inherit the orphaned descendant
+# name is sh, swift, swift-test or lungfish-executor, and a test process in that place would inherit the orphaned descendant
 # of a setsid child and have to reap it. K3 runs the same probe on a machine that has Apple container before it writes a
 # signal test, and records what it printed.
 container_probe() {   # container_probe <host directory>
@@ -226,7 +226,7 @@ container_probe() {   # container_probe <host directory>
   [ -n "$pid1" ] || { echo "the probe printed no PID 1 name" >&2; return 1; }
   [ "$uid" = 1000 ] || { echo "the probe ran as uid $uid and not 1000" >&2; return 1; }
   case "$pid1" in
-    sh|swift|swift-test|lungfish-htc)
+    sh|swift|swift-test|lungfish-executor)
       echo "PID 1 is $pid1, so the container has no init process and the process under test would be PID 1" >&2
       return 1 ;;
   esac
@@ -234,7 +234,7 @@ container_probe() {   # container_probe <host directory>
 
 smoke_static_binary() {   # runs the static binary on abc.txt in the read-only smoke folder and compares its digest
   local smoke="$work/smoke" output expected
-  output="$(run_arm64 --ro --offline "$smoke_image" "$smoke" ./lungfish-htc abc.txt)"
+  output="$(run_arm64 --ro --offline "$smoke_image" "$smoke" ./lungfish-executor abc.txt)"
   echo "$output"
   expected="$(sha256_of "$smoke/abc.txt")"
   [ "$(printf '%s\n' "$output" | sed -n 2p | cut -d' ' -f1)" = "$expected" ] || die "the container's digest differs from shasum ($expected)"
@@ -244,7 +244,7 @@ mkdir -p "$logs" "$artifacts" "$work/smoke"
 
 step cross-build-aarch64 cross_build aarch64-swift-linux-musl
 aarch64_dir="$(bin_dir aarch64-swift-linux-musl)"
-cp "$aarch64_dir/lungfish-htc" "$artifacts/lungfish-htc-aarch64-linux-musl"
+cp "$aarch64_dir/lungfish-executor" "$artifacts/lungfish-executor-aarch64-linux-musl"
 
 prepare_view_package
 step resolve-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift package resolve
@@ -259,7 +259,7 @@ done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so
 [ "${#test_binary_args[@]}" -gt 0 ] || die "swift test left no test runner, test library or .xctest file under $pkg/.build"
 
 printf abc > "$work/smoke/abc.txt"
-cp "$aarch64_dir/lungfish-htc" "$work/smoke/lungfish-htc"
+cp "$aarch64_dir/lungfish-executor" "$work/smoke/lungfish-executor"
 step container-probe container_probe "$work/smoke"
 cat "$logs/container-probe.log"
 step static-binary-in-arm64-debian-container smoke_static_binary
@@ -278,10 +278,10 @@ probe_kernel="$(sed -n 's/^kernel=//p' "$logs/container-probe.log")"
 
 step cross-build-x86_64 cross_build x86_64-swift-linux-musl
 x86_dir="$(bin_dir x86_64-swift-linux-musl)"
-cp "$x86_dir/lungfish-htc" "$artifacts/lungfish-htc-x86_64-linux-musl"
+cp "$x86_dir/lungfish-executor" "$artifacts/lungfish-executor-x86_64-linux-musl"
 
 for arch in x86_64 aarch64; do
-  file_path="$artifacts/lungfish-htc-$arch-linux-musl"
+  file_path="$artifacts/lungfish-executor-$arch-linux-musl"
   echo "$arch: $(file "$file_path" | sed 's/^[^:]*: //')"
   echo "$arch: $(size_of "$file_path") bytes, sha256 $(sha256_of "$file_path")"
 done

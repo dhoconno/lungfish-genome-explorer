@@ -49,14 +49,14 @@ class CatalogTests(unittest.TestCase):
         self.assertGreater(len(counts), 15)
 
     def test_portable_targets_have_one_collection_and_join_the_core_profiles(self):
-        """C3 lane K0 added LungfishPortableTests and LungfishHTCTests; they are headless and owned by one collection."""
+        """C3 lane K0 added LungfishPortableTests and LungfishExecutorTests; they are headless and owned by one collection."""
         hello = ['LungfishPortableTests.PortableHelloTests/testHelloDigestOfBytesAndFileAgree',
-                 'LungfishHTCTests.HTCHelloTests/testHelloVersionLineAndFileDigest']
+                 'LungfishExecutorTests.ExecutorHelloTests/testHelloVersionLineAndFileDigest']
         for test in hello:
             owners = [c['id'] for c in self.data['collections']
                       if c['harness'] == 'swift' and self.catalog.collection_matches(test, c)]
             self.assertEqual(owners, ['portable'], test)
-        for target in ('LungfishPortableTests', 'LungfishHTCTests'):
+        for target in ('LungfishPortableTests', 'LungfishExecutorTests'):
             self.assertEqual(self.data['targets'].get(target), 'headless', target)
         for name, policy in self.data['profiles'].items():
             if 'core' in policy['collections']:

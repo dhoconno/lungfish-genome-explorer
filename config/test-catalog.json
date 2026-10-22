@@ -27,7 +27,7 @@
     "LungfishOperationsTests": "ui-diagnostics",
     "LungfishCLITests": "headless",
     "LungfishPortableTests": "headless",
-    "LungfishHTCTests": "headless",
+    "LungfishExecutorTests": "headless",
     "LungfishIntegrationTests": "integration-diagnostics"
   },
   "collections": [
@@ -155,9 +155,9 @@
     },
     {
       "id": "portable",
-      "purpose": "Headless contracts of the portable executor library and the lungfish-htc command with local fixtures",
+      "purpose": "Headless contracts of the portable executor library and the lungfish-executor command with local fixtures",
       "harness": "swift",
-      "include": "^(LungfishPortableTests|LungfishHTCTests)\\.",
+      "include": "^(LungfishPortableTests|LungfishExecutorTests)\\.",
       "exclude": "",
       "resources": [
         "filesystem"

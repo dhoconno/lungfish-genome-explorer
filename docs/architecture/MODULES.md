@@ -17,8 +17,8 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 180 | 46253 | 333 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishExecutor | executable | Sources/LungfishExecutor | 2 | 51 | 0 | LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 142 | 52208 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishHTC | executable | Sources/LungfishHTC | 2 | 51 | 0 | LungfishPortable |
 | LungfishIO | library | Sources/LungfishIO | 412 | 104963 | 660 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 85 | 18465 | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 7 | 3939 | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -44,8 +44,8 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLITests | Tests/LungfishCLITests | 407 | 97611 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 146 | 40836 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 8 | 2106 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
+| LungfishExecutorTests | Tests/LungfishExecutorTests | 1 | 22 | LungfishExecutor |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 91 | 59261 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
-| LungfishHTCTests | Tests/LungfishHTCTests | 1 | 22 | LungfishHTC |
 | LungfishIOTests | Tests/LungfishIOTests | 230 | 76812 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 33 | 11692 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
 | LungfishKitTests | Tests/LungfishKitTests | 47 | 8529 | LungfishCore, LungfishKit, LungfishKitTestSupport, LungfishTestSupport |
@@ -776,6 +776,20 @@ None.
 - `ViralCoverageSparklineView` class, `Sources/LungfishEsVirituUI/ViralCoverageSparklineView.swift:39`
 - `ViralDetectionTableView` class, `Sources/LungfishEsVirituUI/ViralDetectionTableView.swift:49`
 
+## LungfishExecutor
+
+- Kind. executable
+- Path. Sources/LungfishExecutor
+- Swift files. 2, lines 51
+- Depends on. LungfishPortable
+- External products. none
+- Used by. none
+- Test target. LungfishExecutorTests
+
+### Public types
+
+None.
+
 ## LungfishGenotypeUI
 
 - Kind. library
@@ -846,20 +860,6 @@ None.
 - `GenotypeSummaryViewMode` enum, `Sources/LungfishGenotypeUI/GenotypeSummaryViewMode.swift:6`
 - `ManualHaplotypeReplacementError` enum, `Sources/LungfishGenotypeUI/ManualHaplotypeReplacementError.swift:8`
 - `ManualHaplotypeReplacementResult` struct, `Sources/LungfishGenotypeUI/ManualHaplotypeReplacementResult.swift:8`
-
-## LungfishHTC
-
-- Kind. executable
-- Path. Sources/LungfishHTC
-- Swift files. 2, lines 51
-- Depends on. LungfishPortable
-- External products. none
-- Used by. none
-- Test target. LungfishHTCTests
-
-### Public types
-
-None.
 
 ## LungfishIO
 
@@ -1814,7 +1814,7 @@ None.
 - Swift files. 1, lines 42
 - Depends on. none
 - External products. Crypto (swift-crypto)
-- Used by. LungfishHTC
+- Used by. LungfishExecutor
 - Test target. LungfishPortableTests
 
 ### Public types
