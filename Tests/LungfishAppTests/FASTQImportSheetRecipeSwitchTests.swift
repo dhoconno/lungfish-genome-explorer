@@ -219,6 +219,48 @@ final class FASTQImportSheetRecipeSwitchTests: XCTestCase {
         XCTAssertEqual(try recipeTokens(in: argv(configuration)), ["--recipe", recipe.id])
     }
 
+    // MARK: - The sheet's height
+
+    /// The checkboxes add about 46 points above the Import and Cancel buttons, which hang from the bottom of a sheet of
+    /// fixed height while every row hangs from the top. Extra height overlaps without a constraint error, so this reads
+    /// the frames after layout, in the states that change the description and the stack.
+    @MainActor
+    func testTheSwitchesAndTheDescriptionStayClearOfTheButtons() throws {
+        let states: [(preset: String, clicks: [String])] = [
+            (Self.vsp2, []), (Self.vsp2, [Self.ribo]), (Self.vsp2, [Self.ribo, Self.dedup]),
+            (Self.wastewater, []), (Self.wastewater, [Self.ribo]), (Self.wastewater, [Self.ribo, Self.dedup]),
+        ]
+        for state in states {
+            let label = "\(state.preset) after \(state.clicks)"
+            let run = SheetRun(r1: r1, r2: r2)
+            try run.choose(state.preset)
+            for title in state.clicks { try run.clickSwitch(title) }
+            let view = run.sheet.view
+            view.layoutSubtreeIfNeeded()
+            func frame(of subview: NSView) -> NSRect { view.convert(subview.bounds, from: subview) }
+
+            let controls = try XCTUnwrap(view.recipeSwitchTestDescendants(of: FASTQImportSheetSwitchControls.self).first, label)
+            let description = try XCTUnwrap(
+                view.recipeSwitchTestDescendants(of: NSTextField.self).first {
+                    $0.stringValue.components(separatedBy: "\n").contains { $0.hasPrefix("Workflow: ") }
+                },
+                label
+            )
+            let importFrame = frame(of: try XCTUnwrap(run.button(titled: "Import"), label))
+            let cancelFrame = frame(of: try XCTUnwrap(run.button(titled: "Cancel"), label))
+            for (name, control) in [("switches", controls as NSView), ("description", description as NSView)] {
+                let box = frame(of: control)
+                for (button, buttonFrame) in [("Import", importFrame), ("Cancel", cancelFrame)] {
+                    XCTAssertFalse(
+                        box.intersects(buttonFrame),
+                        "\(label): the \(name) \(box) run into \(button) \(buttonFrame), by \(box.intersection(buttonFrame).height) points"
+                    )
+                }
+                XCTAssertTrue(view.bounds.contains(box), "\(label): the \(name) \(box) leave the sheet \(view.bounds)")
+            }
+        }
+    }
+
     // MARK: - Accessibility and the keyboard
 
     @MainActor
