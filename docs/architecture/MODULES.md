@@ -29,7 +29,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortable | library | Sources/LungfishPortable | 12 | 1429 | 8 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 267669 | 1551 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 982 | 267771 | 1554 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15616 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -1893,7 +1893,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 979, lines 267669
+- Swift files. 982, lines 267771
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1921,7 +1921,7 @@ None.
 | Extraction | 35 | 10689 |
 | FASTQ | 1 | 259 |
 | Geneious | 10 | 2386 |
-| Ingestion | 48 | 11550 |
+| Ingestion | 50 | 11621 |
 | MSA | 14 | 2641 |
 | Mapping | 30 | 9768 |
 | Metagenomics | 76 | 23491 |
@@ -1937,7 +1937,7 @@ None.
 | Provenance | 93 | 20477 |
 | ReadPairing | 14 | 1887 |
 | ReadPairing/Capabilities | 6 | 207 |
-| Recipes | 14 | 3217 |
+| Recipes | 15 | 3248 |
 | Recipes/Steps | 7 | 984 |
 | Savont | 4 | 1166 |
 | Schema | 2 | 1129 |
@@ -2917,6 +2917,9 @@ None.
 - `PluginPackStatusProviding` protocol, `Sources/LungfishWorkflow/Conda/PluginPackStatusProviding.swift:5`
 - `PluginPackStatusService` actor, `Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift:10`
 - `PluginPackStatusServiceError` enum, `Sources/LungfishWorkflow/Conda/PluginPackStatusServiceError.swift:5`
+- `PortableFileJoin` enum, `Sources/LungfishWorkflow/Ingestion/PortableFileJoin.swift:9`
+- `PortableMixedLayout` enum, `Sources/LungfishWorkflow/Recipes/PortableMixedLayout.swift:10`
+- `PortableStoragePlan` enum, `Sources/LungfishWorkflow/Ingestion/PortableStoragePlan.swift:10`
 - `PortMapping` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:370`
 - `PortProtocol` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:434`
 - `PostInstallHook` struct, `Sources/LungfishWorkflow/Conda/PostInstallHook.swift:3`

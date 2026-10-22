@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishCore
-import LungfishIO
 
 extension FASTQPairInterleaver {
 

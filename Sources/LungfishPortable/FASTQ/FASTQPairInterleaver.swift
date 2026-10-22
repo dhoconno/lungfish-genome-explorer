@@ -1,4 +1,4 @@
-// FASTQPairInterleaver.swift - The portable core of the pair interleaver, its errors, record reads and count
+// FASTQPairInterleaver.swift - The pair interleaver's joins, splits, scans and record count, with no Mac service
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

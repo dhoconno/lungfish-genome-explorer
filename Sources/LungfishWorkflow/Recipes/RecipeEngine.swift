@@ -730,41 +730,19 @@ public final class RecipeEngine: Sendable {
     /// returns its counts. With no unmerged files the merged reads are
     /// copied on their own.
     ///
-    /// Runs the byte copy off the calling executor; the output is plain FASTQ
-    /// because the storage step that follows reads, reorders, and compresses
-    /// it anyway.
+    /// ``PortableMixedLayout/writeMixedLayout(merged:unmergedR1:unmergedR2:to:launcher:)``
+    /// writes it, with the launcher that starts `gzip -dc` through ``ToolProcess``.
     static func writeMixedLayout(
         merged: URL,
         unmergedR1: URL?,
         unmergedR2: URL?,
         to output: URL
     ) async throws -> RecipeMixedLayoutCounts {
-        try await Task.detached(priority: .utility) {
-            let counts = try Self.openSink(at: output) { sink in
-                try FASTQPairInterleaver.writeMergedThenPairs(
-                    merged: merged,
-                    unmergedR1: unmergedR1,
-                    unmergedR2: unmergedR2,
-                    to: sink
-                )
-            }
-            return RecipeMixedLayoutCounts(mergedReads: counts.mergedRecords, pairs: counts.pairs)
-        }.value
-    }
-
-    private static func openSink<T>(at output: URL, _ body: (FileHandle) throws -> T) throws -> T {
-        try? FileManager.default.removeItem(at: output)
-        FileManager.default.createFile(atPath: output.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: output)
-        do {
-            let result = try body(handle)
-            try handle.close()
-            return result
-        } catch {
-            try? handle.close()
-            try? FileManager.default.removeItem(at: output)
-            throw error
-        }
+        let counts = try await PortableMixedLayout.writeMixedLayout(
+            merged: merged, unmergedR1: unmergedR1, unmergedR2: unmergedR2, to: output,
+            launcher: ToolProcessChildLauncher()
+        )
+        return RecipeMixedLayoutCounts(mergedReads: counts.mergedRecords, pairs: counts.pairs)
     }
 
     static func concatenateStreams(_ sources: [URL], to output: URL) throws {
