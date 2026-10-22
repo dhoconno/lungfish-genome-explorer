@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import os.log
 import LungfishCore
@@ -108,7 +109,8 @@ public enum RecipeRegistryV2 {
         for url in contents where url.pathExtension.lowercased() == "json" {
             do {
                 let data = try Data(contentsOf: url)
-                let recipe = try decoder.decode(Recipe.self, from: data)
+                var recipe = try decoder.decode(Recipe.self, from: data)
+                recipe.sourceSHA256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
                 recipes.append(recipe)
             } catch {
                 logger.warning("RecipeRegistryV2: Failed to decode recipe at \(url.lastPathComponent): \(error.localizedDescription)")

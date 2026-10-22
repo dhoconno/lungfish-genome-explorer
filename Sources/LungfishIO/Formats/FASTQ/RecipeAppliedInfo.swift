@@ -18,17 +18,25 @@ public struct RecipeAppliedInfo: Codable, Sendable {
     public let appliedDate: Date
     /// Ordered results for each recipe step.
     public let stepResults: [RecipeStepResult]
+    /// SHA-256 of the recipe file that ran, nil for a recipe built in code or a sidecar written before 2026-10-21.
+    public let recipeSHA256: String?
+    /// The recipe's `formatVersion`, nil for a legacy recipe or a sidecar written before 2026-10-21.
+    public let recipeFormatVersion: Int?
 
     public init(
         recipeID: String,
         recipeName: String,
         appliedDate: Date = Date(),
-        stepResults: [RecipeStepResult]
+        stepResults: [RecipeStepResult],
+        recipeSHA256: String? = nil,
+        recipeFormatVersion: Int? = nil
     ) {
         self.recipeID = recipeID
         self.recipeName = recipeName
         self.appliedDate = appliedDate
         self.stepResults = stepResults
+        self.recipeSHA256 = recipeSHA256
+        self.recipeFormatVersion = recipeFormatVersion
     }
 
     /// Total reads removed across all steps (input of step 0 minus output of last step).

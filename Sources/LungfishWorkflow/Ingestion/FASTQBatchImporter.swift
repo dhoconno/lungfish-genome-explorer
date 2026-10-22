@@ -853,7 +853,8 @@ public enum FASTQBatchImporter {
                     recipeID: recipe.id,
                     recipeName: recipe.name,
                     appliedDate: Date(),
-                    stepResults: recipeStepResults
+                    stepResults: recipeStepResults,
+                    recipeSHA256: recipe.sourceSHA256, recipeFormatVersion: recipe.formatVersion
                 )
             } else if let recipe = config.recipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
@@ -1874,6 +1875,10 @@ public enum FASTQBatchImporter {
         parameters["processingTool"] = ingestionResult.processingTool.map(ParameterValue.string) ?? .null
         parameters["processingToolVersion"] = ingestionResult.processingToolVersion.map(ParameterValue.string) ?? .null
         parameters["processingCommandLine"] = ingestionResult.processingCommandLine.map(ParameterValue.string) ?? .null
+        if let recipe = config.newRecipe {
+            parameters["recipeSHA256"] = recipe.sourceSHA256.map(ParameterValue.string) ?? .null
+            parameters["recipeFormatVersion"] = .integer(recipe.formatVersion)
+        }
         return parameters
     }
 

@@ -154,6 +154,18 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
     /// Ordered processing steps.
     public var steps: [RecipeStep]
 
+    /// SHA-256 of the recipe file's bytes, set by ``RecipeRegistryV2`` when it reads the file and nil for a recipe
+    /// built in code. It is not part of the JSON, and two recipes with the same content stay equal whatever their
+    /// files' bytes (CHTC lane L5-RECORDS M2).
+    public var sourceSHA256: String?
+
+    public static func == (lhs: Recipe, rhs: Recipe) -> Bool {
+        lhs.formatVersion == rhs.formatVersion && lhs.id == rhs.id && lhs.name == rhs.name
+            && lhs.description == rhs.description && lhs.author == rhs.author && lhs.tags == rhs.tags
+            && lhs.platforms == rhs.platforms && lhs.requiredInput == rhs.requiredInput
+            && lhs.qualityBinning == rhs.qualityBinning && lhs.steps == rhs.steps
+    }
+
     // MARK: CodingKeys
 
     private enum CodingKeys: String, CodingKey {

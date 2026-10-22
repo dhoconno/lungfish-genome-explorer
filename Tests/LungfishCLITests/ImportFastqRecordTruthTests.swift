@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import CryptoKit
 import Foundation
 import LungfishIO
 import LungfishTestSupport
@@ -96,5 +97,31 @@ final class ImportFastqRecordTruthTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["threads"], .integer(cores))
         XCTAssertEqual(envelope.options.defaults["threads"], .integer(cores),
                        "the recorded default must be the thread count the command runs when the option is absent")
+    }
+
+    // MARK: - M2, recipe identity
+
+    /// The record names the recipe file that ran by the SHA-256 of its bytes and its format version, beside the id
+    /// and name, so a plan built elsewhere can prove it ran the same file.
+    func testRecordNamesTheRecipeFileThatRanByItsDigest() throws {
+        let (envelope, metadata) = try importFixturePair([
+            "--platform", "illumina",
+            "--recipe", "illumina-amplicon-merge",
+            "--no-optimize-storage",
+            "--compression", "fast",
+        ])
+        let recipeFile = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Recipes/illumina-amplicon-merge.recipe.json")
+        let expected = SHA256.hash(data: try Data(contentsOf: recipeFile)).map { String(format: "%02x", $0) }.joined()
+
+        XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeID, "illumina-amplicon-merge")
+        XCTAssertEqual(envelope.options.resolvedDefaults["recipeSHA256"], .string(expected),
+                       "the record must name the recipe file's bytes")
+        XCTAssertEqual(envelope.options.resolvedDefaults["recipeFormatVersion"], .integer(1))
+        XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeSHA256, expected, "the sidecar must name it too")
+        XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeFormatVersion, 1)
     }
 }
