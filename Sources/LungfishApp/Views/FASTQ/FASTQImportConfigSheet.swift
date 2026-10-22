@@ -569,9 +569,6 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     // MARK: - Platform Defaults
 
-    /// Quality binning defaults to "None" for every platform.
-    /// Binning is lossy and irreversible once originals are deleted, so it is
-    /// opt-in only — the user must explicitly choose a binning level here.
     /// The binning popup's items, in order.
     private static let binningChoices: [QualityBinningScheme] = [.illumina4, .eightLevel, .none]
 
