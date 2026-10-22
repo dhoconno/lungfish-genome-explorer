@@ -101,7 +101,8 @@ public enum ONTBAMImportMaterializer {
         let conversion = try await runner.runWithFileOutput(
             .samtools,
             arguments: bamToFASTQArguments,
-            outputFile: fastqURL
+            outputFile: fastqURL,
+            timeout: ImportToolTimeout.seconds(for: .samtools, atLeast: 300, inputs: [conversionInput])
         )
         let conversionEndedAt = conversionClock.now
         guard conversion.isSuccess else {
@@ -140,7 +141,8 @@ public enum ONTBAMImportMaterializer {
         let compression = try await runner.runWithFileOutput(
             .pigz,
             arguments: compressionArguments,
-            outputFile: compressedURL
+            outputFile: compressedURL,
+            timeout: ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [fastqURL])
         )
         let compressionEndedAt = compressionClock.now
         guard compression.isSuccess else {
