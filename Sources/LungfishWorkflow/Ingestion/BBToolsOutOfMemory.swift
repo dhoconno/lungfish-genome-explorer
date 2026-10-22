@@ -23,6 +23,16 @@ enum BBToolsOutOfMemory {
         exitCode == exitStatus
     }
 
+    /// The error an import fails with when a launch that carried ``flag`` ended because its JVM ran out of heap, or
+    /// nil for any other end. Every such launch asks this one function, so the status check and the sentence stay
+    /// together.
+    static func error(
+        exitCode: Int32, tool: String, arguments: [String], optionPinsHeap: Bool
+    ) -> FASTQIngestionError? {
+        guard isOutOfMemory(exitCode: exitCode) else { return nil }
+        return .outOfMemory(message(tool: tool, arguments: arguments, optionPinsHeap: optionPinsHeap))
+    }
+
     /// The heap in whole gigabytes that an `-Xmx<N>g` argument asked for, or nil when none was pinned.
     static func heapGB(in arguments: [String]) -> Int? {
         for argument in arguments where argument.hasPrefix("-Xmx") && argument.hasSuffix("g") {

@@ -72,4 +72,77 @@ final class BBToolsOutOfMemoryTests: XCTestCase {
         XCTAssertTrue(unpinned.contains("ran out of memory"), unpinned)
         XCTAssertFalse(unpinned.contains("--clumpify-heap-gb"), unpinned)
     }
+
+    // MARK: - The recipe dedupe launches, and the one place status 3 becomes the sentence
+
+    private let mateOne = URL(fileURLWithPath: "/work/in_R1.fastq")
+    private let mateTwo = URL(fileURLWithPath: "/work/in_R2.fastq")
+    private let outOne = URL(fileURLWithPath: "/work/out_R1.fastq")
+    private let outTwo = URL(fileURLWithPath: "/work/out_R2.fastq")
+
+    /// Both recipe dedupe builders: separate mates, then one file interleaved and one file not.
+    private func recipeDedupeLaunches(optical: Bool) -> [[String]] {
+        [
+            FASTQBatchImporter.pairedDedupeArguments(
+                r1: mateOne, r2: mateTwo, outR1: outOne, outR2: outTwo, heapGB: 4, substitutions: 0,
+                optical: optical, opticalDistance: 2500, threads: 4),
+            FASTQBatchImporter.interleavedDedupeArguments(
+                input: reads, output: out, optical: optical, threads: 4, interleaved: true),
+            FASTQBatchImporter.interleavedDedupeArguments(
+                input: reads, output: out, optical: optical, threads: 4, interleaved: false),
+        ]
+    }
+
+    func testEveryRecipeDedupeLaunchCarriesEoomOnce() throws {
+        for optical in [true, false] {
+            let launches = recipeDedupeLaunches(optical: optical)
+            for args in launches {
+                XCTAssertEqual(args.filter { $0 == "-eoom" }.count, 1, "optical \(optical): \(args)")
+            }
+            let paired = launches[0]
+            let heap = try XCTUnwrap(paired.firstIndex(of: "-Xmx4g"), "\(paired)")
+            XCTAssertEqual(paired[heap + 1], "-eoom", "the JVM flags stay together: \(paired)")
+        }
+    }
+
+    func testTheRecipeDedupeLaunchesKeepEveryOtherArgumentTheyHadBeforeTheFlag() {
+        let optical = FASTQBatchImporter.pairedDedupeArguments(
+            r1: mateOne, r2: mateTwo, outR1: outOne, outR2: outTwo, heapGB: 4, substitutions: 2,
+            optical: true, opticalDistance: 100, threads: 4)
+        XCTAssertEqual(optical, [
+            "in1=/work/in_R1.fastq", "in2=/work/in_R2.fastq", "out1=/work/out_R1.fastq", "out2=/work/out_R2.fastq",
+            "-Xmx4g", "-eoom", "dedupe=t", "subs=2", "ow=t", "threads=4", "optical=t", "dupedist=100",
+        ])
+        let plain = FASTQBatchImporter.pairedDedupeArguments(
+            r1: mateOne, r2: mateTwo, outR1: outOne, outR2: outTwo, heapGB: 4, substitutions: 0,
+            optical: false, opticalDistance: 2500, threads: 4)
+        XCTAssertEqual(plain, [
+            "in1=/work/in_R1.fastq", "in2=/work/in_R2.fastq", "out1=/work/out_R1.fastq", "out2=/work/out_R2.fastq",
+            "-Xmx4g", "-eoom", "dedupe=t", "subs=0", "ow=t", "threads=4",
+        ])
+        XCTAssertEqual(
+            FASTQBatchImporter.interleavedDedupeArguments(
+                input: reads, output: out, optical: false, threads: 4, interleaved: true),
+            ["in=/work/reads.fastq", "out=/work/out.fastq.gz", "-eoom", "dedupe=t", "optical=f", "threads=4",
+             "interleaved=t"])
+        XCTAssertEqual(
+            FASTQBatchImporter.interleavedDedupeArguments(
+                input: reads, output: out, optical: true, threads: 2, interleaved: false),
+            ["in=/work/reads.fastq", "out=/work/out.fastq.gz", "-eoom", "dedupe=t", "optical=t", "threads=2",
+             "interleaved=f"])
+    }
+
+    func testOnlyStatusThreeBecomesTheSentence() {
+        let args = ["in=/work/reads.fastq", "-Xmx4g", "-eoom"]
+        guard case .outOfMemory(let sentence)? = BBToolsOutOfMemory.error(
+            exitCode: 3, tool: "clumpify.sh", arguments: args, optionPinsHeap: true)
+        else { return XCTFail("status 3 must end as the out-of-memory error") }
+        XCTAssertEqual(
+            sentence, BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: args, optionPinsHeap: true))
+        for status: Int32 in [0, 1, 2, 137] {
+            XCTAssertNil(
+                BBToolsOutOfMemory.error(exitCode: status, tool: "clumpify.sh", arguments: args, optionPinsHeap: true),
+                "status \(status)")
+        }
+    }
 }

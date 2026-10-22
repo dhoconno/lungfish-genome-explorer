@@ -662,9 +662,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
         let stepCompletedAt = stepClock.now
 
-        if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
-            throw FASTQIngestionError.outOfMemory(
-                BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: args, optionPinsHeap: true))
+        if let failure = BBToolsOutOfMemory.error(
+            exitCode: result.exitCode, tool: "clumpify.sh", arguments: args, optionPinsHeap: true) {
+            throw failure
         }
         guard result.isSuccess else {
             let stderr = result.stderr.isEmpty ? result.stdout : result.stderr

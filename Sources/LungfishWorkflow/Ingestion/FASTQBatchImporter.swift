@@ -1972,20 +1972,16 @@ public enum FASTQBatchImporter {
 
                 switch step.kind {
                 case .deduplicate:
-                    var args = [
-                        "in1=\(currentR1.path)", "in2=\(r2.path)",
-                        "out1=\(outR1.path)", "out2=\(outR2.path)",
-                        "-Xmx\(heapGB)g", BBToolsOutOfMemory.flag, "dedupe=t",
-                        "subs=\(step.deduplicateSubstitutions ?? 0)", "ow=t",
-                        "threads=\(config.threads)",
-                    ]
-                    if step.deduplicateOptical == true {
-                        args += ["optical=t", "dupedist=\(step.deduplicateOpticalDistance ?? 2500)"]
-                    }
+                    let args = FASTQBatchImporter.pairedDedupeArguments(
+                        r1: currentR1, r2: r2, outR1: outR1, outR2: outR2, heapGB: heapGB,
+                        substitutions: step.deduplicateSubstitutions ?? 0,
+                        optical: step.deduplicateOptical == true,
+                        opticalDistance: step.deduplicateOpticalDistance ?? 2500,
+                        threads: config.threads)
                     let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentR1, r2]))
-                    if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
-                        throw FASTQIngestionError.outOfMemory(
-                            BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: args, optionPinsHeap: false))
+                    if let failure = BBToolsOutOfMemory.error(
+                        exitCode: result.exitCode, tool: "clumpify.sh", arguments: args, optionPinsHeap: false) {
+                        throw failure
                     }
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("paired dedup failed: \(String(result.stderr.suffix(500)))")
@@ -2103,22 +2099,13 @@ public enum FASTQBatchImporter {
             case .deduplicate:
                 // Run clumpify.sh deduplicate on the current file
                 let env = await bbToolsEnvironment()
-                let dedupeArgs = [
-                    "in=\(currentURL.path)",
-                    "out=\(outputURL.path)",
-                    BBToolsOutOfMemory.flag,
-                    "dedupe=t",
-                    "optical=\(step.deduplicateOptical == true ? "t" : "f")",
-                    "threads=\(config.threads)",
-                    // Stated, not guessed: BBTools does not pair identically
-                    // named mates on its own, and when it does pair /1 /2
-                    // names by position an odd record count loses a read.
-                    currentIsInterleaved ? "interleaved=t" : "interleaved=f",
-                ]
+                let dedupeArgs = FASTQBatchImporter.interleavedDedupeArguments(
+                    input: currentURL, output: outputURL, optical: step.deduplicateOptical == true,
+                    threads: config.threads, interleaved: currentIsInterleaved)
                 let result = try await runner.run(.clumpify, arguments: dedupeArgs, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentURL]))
-                if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
-                    throw FASTQIngestionError.outOfMemory(
-                        BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: dedupeArgs, optionPinsHeap: false))
+                if let failure = BBToolsOutOfMemory.error(
+                    exitCode: result.exitCode, tool: "clumpify.sh", arguments: dedupeArgs, optionPinsHeap: false) {
+                    throw failure
                 }
                 guard result.isSuccess else {
                     throw BatchImportError.unknownRecipe("clumpify dedupe failed: \(result.stderr.suffix(500))")
