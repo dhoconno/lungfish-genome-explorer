@@ -65,12 +65,13 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
             XCTAssertFalse(step.toolVersion.isEmpty)
         }
         XCTAssertEqual(
-            Set(binningSteps.flatMap(\.inputs).map(\.path)),
+            // The record names the run's chunk by its real path, /private/var on macOS, so both sides resolve links.
+            Set(binningSteps.flatMap(\.inputs).map { canonicalPath(URL(fileURLWithPath: $0.path)) }),
             Set(Self.chunks.map { canonicalPath(source.appendingPathComponent("barcode01").appendingPathComponent($0.name)) }),
             "each step reads the run's own chunk"
         )
         XCTAssertEqual(
-            Set(binningSteps.flatMap(\.outputs).map(\.path)),
+            Set(binningSteps.flatMap(\.outputs).map { canonicalPath(URL(fileURLWithPath: $0.path)) }),
             Set(Self.chunks.map { canonicalPath(bundle.appendingPathComponent("chunks").appendingPathComponent($0.name)) }),
             "each step writes the bundle's stored chunk"
         )
