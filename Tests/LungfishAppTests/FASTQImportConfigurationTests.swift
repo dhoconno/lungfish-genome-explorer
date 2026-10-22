@@ -270,6 +270,71 @@ struct FASTQImportConfigurationTests {
         #expect(disclosure?.isHidden == false)
     }
 
+    /// Review fix 4 of lane C2-TRIMGALORE, answered in lane C2-TGFIX. Trim Galore now stores the merged reads and the
+    /// pairs of a merging recipe, so the sheet no longer refuses that pair of choices. The refusal is gone from the
+    /// code and nothing else pins that the Import button stays on, that the disclosure is the plain Trim Galore text
+    /// in the secondary colour and that the choice reaches the import. Each handler recomputes the sheet, so the
+    /// recipe is chosen first in one run and the tool first in the other.
+    @MainActor
+    @Test("FASTQ import sheet stays enabled for a merging recipe with Trim Galore")
+    func importSheetStaysEnabledForAMergingRecipeWithTrimGalore() throws {
+        for recipeFirst in [true, false] {
+            let order = recipeFirst ? "recipe chosen before the tool" : "tool chosen before the recipe"
+            let r1 = try Self.temporaryFASTQ(named: "sample_R1.fastq.gz", byteCount: 1_048_576)
+            let r2 = try Self.temporaryFASTQ(named: "sample_R2.fastq.gz", byteCount: 1_048_576)
+            defer {
+                try? FileManager.default.removeItem(at: r1.deletingLastPathComponent())
+                try? FileManager.default.removeItem(at: r2.deletingLastPathComponent())
+            }
+            var capturedConfig: FASTQImportConfiguration?
+            let sheet = FASTQImportConfigSheet(
+                pairs: [FASTQFilePair(r1: r1, r2: r2)],
+                detectedPlatform: .illumina,
+                recipeOptions: [
+                    FASTQImportSheetRecipeOption(
+                        id: "vsp2-target-enrichment",
+                        name: "VSP2 target enrichment",
+                        presentationText: "Workflow: merge overlapping pairs"
+                    ),
+                ],
+                onImport: { configuration in
+                    capturedConfig = configuration
+                }
+            )
+            sheet.loadViewIfNeeded()
+
+            let buttons = sheet.view.fastqImportDescendants(of: NSButton.self)
+            let recipeCheckbox = try #require(buttons.first { $0.title == "Apply processing recipe after import" })
+            let importButton = try #require(buttons.first { $0.title == "Import" })
+            let popup = try #require(sheet.view.fastqImportStorageToolPopup())
+            let disclosure = try #require(
+                sheet.view.fastqImportDescendants(of: NSTextField.self)
+                    .first { $0.accessibilityIdentifier() == "fastq-import-trim-galore-disclosure" }
+            )
+
+            if recipeFirst {
+                recipeCheckbox.performClick(nil)
+                popup.selectClumpingTool(.trimGalore)
+            } else {
+                popup.selectClumpingTool(.trimGalore)
+                recipeCheckbox.performClick(nil)
+            }
+
+            #expect(recipeCheckbox.state == .on, "the recipe is on, \(order)")
+            #expect(popup.selectedClumpingTool == .trimGalore, "Trim Galore is selected, \(order)")
+            #expect(importButton.isEnabled, "Import is enabled, \(order)")
+            #expect(disclosure.isHidden == false, "the disclosure is shown, \(order)")
+            #expect(disclosure.stringValue == ClumpingTool.trimGalore.importSheetDisclosure, "the disclosure text, \(order)")
+            #expect(disclosure.textColor == NSColor.secondaryLabelColor, "the disclosure is a note and not a refusal, \(order)")
+
+            importButton.performClick(nil)
+
+            #expect(capturedConfig?.skipClumpify == false, "storage optimization stays on, \(order)")
+            #expect(capturedConfig?.clumpingTool == .trimGalore, "the import receives Trim Galore, \(order)")
+            #expect(capturedConfig?.recipeName == "vsp2-target-enrichment", "the import receives the recipe, \(order)")
+        }
+    }
+
     @Test("Inspector combined fastp presentation uses the approved message exclusively")
     func inspectorUsesCombinedFastpPresentation() throws {
         let info = RecipeAppliedInfo(
