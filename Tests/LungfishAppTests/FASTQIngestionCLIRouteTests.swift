@@ -68,13 +68,20 @@ final class FASTQIngestionCLIRouteTests: XCTestCase {
         XCTAssertEqual(command.input, first.path)
         XCTAssertNil(command.pair)
         XCTAssertTrue(command.deleteOriginals, "the app's run has always deleted the original")
-        XCTAssertEqual(command.binning, .none, "the app's run applies no quality binning")
+        XCTAssertEqual(command.binning, QualityBinningScheme.importDefault, "the app's run bins with the import default")
+        XCTAssertTrue(
+            zip(arguments, arguments.dropFirst()).contains { $0 == "--binning" && $1 == QualityBinningScheme.importDefault.rawValue },
+            "the row names its binning, so a record replays the same whatever the default is later: \(arguments)"
+        )
         XCTAssertFalse(command.skipClumpify)
         XCTAssertEqual(command.globalOptions.threads, 7, "the leaf records its thread count only when it is given")
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
         XCTAssertEqual(
             try FASTQIngestionService.inPlaceIngestionCLIArguments(url: first),
-            ["fastq", "ingest", first.path, "--delete-originals", "--threads", String(ProcessInfo.processInfo.activeProcessorCount), "--format", "json"],
+            [
+                "fastq", "ingest", first.path, "--delete-originals", "--binning", QualityBinningScheme.importDefault.rawValue,
+                "--threads", String(ProcessInfo.processInfo.activeProcessorCount), "--format", "json",
+            ],
             "the run passes the cores it has, as the in-process route did"
         )
     }
