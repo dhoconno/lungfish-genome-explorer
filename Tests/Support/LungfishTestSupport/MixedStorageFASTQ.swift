@@ -66,6 +66,24 @@ public enum MixedStorageFASTQ {
         try second.write(to: r2, atomically: true, encoding: .utf8)
     }
 
+    /// The 12 read pairs of the C2-TRIMGALORE review: 100-base mates that do not overlap, and in the last pair an R2
+    /// whose bases after the 15th fall under quality 20. Trim Galore's quality trim leaves that R2 15 bases long,
+    /// under its length cutoff of 20, so it removes that pair as a unit and keeps the other 11.
+    public static func writeReviewPairs(r1: URL, r2: URL) throws {
+        var first = "", second = ""
+        for index in 0..<12 {
+            let fragment = InterleavedFASTQFixture.deterministicSequence(seed: UInt64(7_000 + index), length: 400)
+            first += record("review\(index + 1)/1", String(fragment.prefix(100)))
+            let mate = reverseComplement(String(fragment.suffix(100)))
+            let quality = index == 11
+                ? String(repeating: "I", count: 15) + String(repeating: "#", count: 85)
+                : String(repeating: "I", count: 100)
+            second += "@review\(index + 1)/2\n\(mate)\n+\n\(quality)\n"
+        }
+        try first.write(to: r1, atomically: true, encoding: .utf8)
+        try second.write(to: r2, atomically: true, encoding: .utf8)
+    }
+
     /// Each four-line record of a plain or gzip FASTQ, in file order, with its newlines.
     public static func records(of url: URL) throws -> [String] {
         let text: String

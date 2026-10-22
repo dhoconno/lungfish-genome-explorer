@@ -47,10 +47,15 @@ public struct FASTQStorageReadRemoval: Sendable, Equatable {
         return parts.joined(separator: " and ")
     }
 
-    /// The import's notice after storage, one plain sentence.
+    /// The import's notice after storage, one plain sentence that names the version, the cutoffs, what Trim Galore
+    /// does to every read it stores and what it removed (owner answer Q12).
     public var notice: String {
+        let tool = toolVersion.map { "Trim Galore \($0)" } ?? "Trim Galore"
+        let quality = qualityCutoff.map { "bases under quality \($0)" } ?? "low-quality bases"
         let length = lengthCutoff.map { "\($0) bases" } ?? "its length cutoff"
-        return "Trim Galore removed \(removedCounts) while it stored this sample, because its trim left them shorter than \(length)."
+        let unit = pairsRead > 0 ? ", each pair as a unit" : ""
+        return "\(tool) trimmed adapters and \(quality) from this sample's reads and removed the reads left shorter "
+            + "than \(length) (\(removedCounts)\(unit)), and no \(tool) option turns this off."
     }
 }
 
@@ -166,7 +171,22 @@ extension FASTQIngestionPipeline {
         options["\(unit)Read"] = .integer(report.totalReads)
         options["\(unit)Written"] = .integer(report.readsWritten)
         options["\(unit)Removed"] = .integer(report.removed)
+        if let version = report.version { options["trimGaloreVersion"] = .string(version) }
+        options["storageReadRemoval"] = .string(trimGaloreRemovalStatement(report))
         return options
+    }
+
+    /// What a Trim Galore storage call does to the reads it stores and what this call removed, for the step's record.
+    /// The owner keeps Trim Galore as the most laptop-safe storage tool and asked that its loss be noted in provenance
+    /// (Q12, 2026-10-22). Trim Galore 2.3.0, the newest release then, has no option set that turns its adapter and
+    /// quality trim or its length filter off (review of lane C2-TRIMGALORE).
+    static func trimGaloreRemovalStatement(_ report: TrimGaloreReport) -> String {
+        let tool = report.version.map { "Trim Galore \($0)" } ?? "Trim Galore"
+        let quality = report.qualityCutoff.map { " (quality cutoff \($0))" } ?? ""
+        let length = report.lengthCutoff.map { "the length cutoff of \($0) bases" } ?? "its length cutoff"
+        return "\(tool) adapter- and quality-trims every read\(quality) and removes each read that trimming leaves "
+            + "shorter than \(length), a pair as a unit in paired mode. No \(tool) option set turns this off. "
+            + "This call removed \(report.removed) of \(report.totalReads) \(report.paired ? "pairs" : "reads")."
     }
 
     /// The removal of a run, from the report of its pairs call, its unpaired or single-end call, or both.
