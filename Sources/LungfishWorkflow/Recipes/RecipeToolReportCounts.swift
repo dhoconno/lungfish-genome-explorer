@@ -1,4 +1,4 @@
-// RecipeToolReportCounts.swift - read counts from the reports recipe tools write
+// RecipeToolReportCounts.swift - read counts from the reports recipe tools write, or from a step's lines
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -60,5 +60,25 @@ enum RecipeToolReportCounts {
 
     private static func totalReads(_ section: Any?) -> Int? {
         (section as? [String: Any])?["total_reads"] as? Int
+    }
+}
+
+extension RecipeEngine {
+    /// Records in a step's files, counted from their lines rather than parsed:
+    /// pairs for R1/R2, the records of one stream, and every record of a merged
+    /// layout. Only for a step whose tool reports no count.
+    static func countReadsForRecipeStep(_ output: StepOutput) async throws -> Int {
+        let files: [URL]
+        switch output.format {
+        case .pairedR1R2, .interleaved, .single, .mixed:
+            files = [output.r1]
+        case .merged:
+            files = [output.r1, output.r2, output.r3].compactMap { $0 }
+        }
+        return try await Task.detached(priority: .utility) {
+            try files.reduce(0) { total, file in
+                total + (try FASTQPairInterleaver.countRecords(in: file))
+            }
+        }.value
     }
 }
