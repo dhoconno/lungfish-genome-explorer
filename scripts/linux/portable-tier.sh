@@ -6,7 +6,10 @@
 #   2. Resolves the packages of a generated test package in an arm64 Swift container pinned by digest (network on), then
 #      runs the XCTest hello tests of LungfishPortableTests and LungfishExecutorTests in a second container with the network
 #      closed. The Static Linux SDK ships neither XCTest nor Swift Testing, so no test target can be cross-built for
-#      musl. The tests build and run on glibc inside the container instead.
+#      musl. The tests build and run on glibc inside the container instead. The launcher tests start the built
+#      lungfish-executor as a child, so that first run names the glibc debug build. A second run of ExecutorSignalTests and
+#      ExecutorLaunchTests (step xctest-static-binary-in-arm64-swift-container) names the static musl binary of step 1
+#      instead, the bytes that ship, and record.json holds that binary's SHA-256 beside the XCTest files'.
 #   3. Probes PID 1, the user and the kernel inside the arm64 Debian container (step container-probe) and stops when the
 #      process under test would be PID 1.
 #   4. Runs the static aarch64 binary in that Debian container, on a file whose SHA-256 it must reproduce. Debian is
@@ -261,6 +264,17 @@ while IFS= read -r test_file; do
 done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so' -o -name '*.xctest' \) | sort)
 [ "${#test_binary_args[@]}" -gt 0 ] || die "swift test left no test runner, test library or .xctest file under $pkg/.build"
 
+# The same launcher tests again, against the static musl binary that ships and not the glibc debug build above, so descriptor
+# hygiene through static Foundation, stdin, the environment, exit codes, the ru_maxrss unit, the deadline and the step record
+# are exercised on musl (lane K3, fix 5). The test process is still the glibc build and the binary under test is the shipped
+# one. The copy sits in the mounted package folder, which the container sees at /work.
+static_name=lungfish-executor-static-musl
+cp "$aarch64_dir/lungfish-executor" "$pkg/$static_name"
+step xctest-static-binary-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" sh -c \
+  "LUNGFISH_EXECUTOR_BINARY=/work/$static_name swift test --disable-automatic-resolution --filter ExecutorSignalTests --filter ExecutorLaunchTests"
+grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-static-binary-in-arm64-swift-container.log"
+test_binary_args+=("testBinary.staticExecutor=$static_name|$(size_of "$pkg/$static_name")|$(sha256_of "$pkg/$static_name")")
+
 printf abc > "$work/smoke/abc.txt"
 cp "$aarch64_dir/lungfish-executor" "$work/smoke/lungfish-executor"
 step container-probe container_probe "$work/smoke"
@@ -339,6 +353,11 @@ for pair in pairs:
     if key == "testBinary.file":
         path, size, sha = value.split("|")
         out.setdefault("testBinary", {}).setdefault("files", []).append({"path": path, "bytes": int(size), "sha256": sha})
+        continue
+    if key == "testBinary.staticExecutor":
+        path, size, sha = value.split("|")
+        out.setdefault("testBinary", {})["staticExecutor"] = {
+            "path": path, "bytes": int(size), "sha256": sha, "step": "xctest-static-binary-in-arm64-swift-container"}
         continue
     put(out, key, int(value) if key in numbers else (value == "true") if key in flags else value)
 out["containers"] = pins["containers"]
