@@ -36,3 +36,4 @@ scripts/lge-files/lge-files.sh --internal sync screencasts/01-lge-overview/takes
 
 - The LabKey MCP server configured for agents points at labkey.org, not at dholk.primate.wisc.edu, so it cannot see this folder. Use the tool.
 - `LABKEY_WEBDAV_URL` in `~/.env` points at a different folder; the tool ignores it and uses the LGE root above (override with `LGE_FILES_WEBDAV`).
+- The LabKey WebDAV server answers HEAD with 401 and GET with 200 for a hosted file, so a check of a hosted file uses GET, never HEAD.
