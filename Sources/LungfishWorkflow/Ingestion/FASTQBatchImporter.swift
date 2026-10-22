@@ -476,17 +476,7 @@ public enum FASTQBatchImporter {
     ///   - config: Import configuration (recipe, threads, directories).
     ///   - log: Optional callback for structured log events.
     /// - Returns: Summary of completed, skipped, and failed sample counts.
-    public static func runBatchImport(
-        pairs: [SamplePair],
-        config: ImportConfig,
-        log: (@Sendable (ImportLogEvent) -> Void)? = nil,
-        databaseRegistry: DatabaseRegistry = .shared
-    ) async -> ImportResult {
-        // One digest cache for the whole command: a file the records describe twice is read once (L7-HASHONCE).
-        await ProvenanceDigestCache.scoped { await runBatchImportInScope(pairs, config, log, databaseRegistry) }
-    }
-
-    private static func runBatchImportInScope(
+    static func runBatchImportInScope(
         _ pairs: [SamplePair], _ config: ImportConfig, _ log: (@Sendable (ImportLogEvent) -> Void)?, _ databaseRegistry: DatabaseRegistry
     ) async -> ImportResult {
         let startTime = Date()
