@@ -255,9 +255,9 @@ extension ImportCommand {
         }
 
         /// Why no recipe file loads, shared by the refusal and the help. The recipe files ship
-        /// inside Lungfish.app, and a standalone lungfish-cli trusts no other location.
-        static let noRecipeFilesNotice = "This lungfish-cli found no recipe files. They ship inside Lungfish.app, so a lungfish-cli that runs outside the app, such as a bare 'swift build -c release' binary, cannot load them."
-        static let noRecipeFilesAdvice = "Run the lungfish-cli at Lungfish.app/Contents/MacOS/lungfish-cli, or a debug build, and try again."
+        /// inside the Lungfish app, and a standalone lungfish-cli trusts no other location.
+        static let noRecipeFilesNotice = "This lungfish-cli found no recipe files. They ship inside the Lungfish app, so a lungfish-cli that runs outside the app, such as one built with 'swift build -c release', cannot load them."
+        static let noRecipeFilesAdvice = "Run the lungfish-cli inside the app, at Contents/MacOS/lungfish-cli in the app's folder, or run a debug build."
 
         /// What the storage flags ask for, or nil when they ask nothing.
         /// `--no-optimize-storage` and `--clumping-tool` are requests, and the
@@ -329,7 +329,7 @@ extension ImportCommand {
             lines.append("hifi: the built-in PacBio HiFi recipe")
             if recipes.isEmpty {
                 let usable = legacyRecipeNames.joined(separator: " and ")
-                lines.append("\(noRecipeFilesNotice) Only \(usable) run from it. \(noRecipeFilesAdvice)")
+                lines.append("\(noRecipeFilesNotice) Only \(usable) run from this lungfish-cli. \(noRecipeFilesAdvice)")
             }
             return lines.joined(separator: "\n")
         }

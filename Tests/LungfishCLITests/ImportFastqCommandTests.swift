@@ -346,7 +346,7 @@ final class ImportFastqCommandTests: XCTestCase {
             ) { error in
                 let message = error.localizedDescription
                 XCTAssertTrue(message.contains("found no recipe files"), "\(name): \(message)")
-                XCTAssertTrue(message.contains("Lungfish.app"), "\(name): \(message)")
+                XCTAssertTrue(message.contains("Contents/MacOS/lungfish-cli"), "\(name): \(message)")
             }
         }
         for name in ImportCommand.FastqSubcommand.legacyRecipeNames {
