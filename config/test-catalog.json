@@ -26,6 +26,8 @@
     "LungfishAppWorkflowTests": "ui-diagnostics",
     "LungfishOperationsTests": "ui-diagnostics",
     "LungfishCLITests": "headless",
+    "LungfishPortableTests": "headless",
+    "LungfishHTCTests": "headless",
     "LungfishIntegrationTests": "integration-diagnostics"
   },
   "collections": [
@@ -150,6 +152,18 @@
       ],
       "isolation": "serial",
       "skipPolicy": "record"
+    },
+    {
+      "id": "portable",
+      "purpose": "Headless contracts of the portable executor library and the lungfish-htc command with local fixtures",
+      "harness": "swift",
+      "include": "^(LungfishPortableTests|LungfishHTCTests)\\.",
+      "exclude": "",
+      "resources": [
+        "filesystem"
+      ],
+      "isolation": "serial",
+      "skipPolicy": "record"
     }
   ],
   "profiles": {
@@ -159,7 +173,8 @@
         "core",
         "io",
         "workflow",
-        "cli"
+        "cli",
+        "portable"
       ],
       "filter": "^(LungfishCoreTests\\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\\.(DependencyReconcilerTests|BAMPrimerTrimProvenanceTests|MappingProvenanceTests|ScientificProvenancePolicyTests)|LungfishCLITests\\.ScientificCLIProvenanceCoverageTests)(/|$)",
       "parallel": true,
@@ -176,7 +191,8 @@
         "core",
         "io",
         "workflow",
-        "cli"
+        "cli",
+        "portable"
       ],
       "parallel": true,
       "workers": 1,
@@ -194,7 +210,8 @@
         "core",
         "io",
         "workflow",
-        "cli"
+        "cli",
+        "portable"
       ],
       "parallel": true,
       "workers": 4,
@@ -215,6 +232,7 @@
         "io",
         "workflow",
         "cli",
+        "portable",
         "extended-scientific"
       ],
       "parallel": true,

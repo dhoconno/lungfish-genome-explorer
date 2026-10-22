@@ -48,6 +48,20 @@ class CatalogTests(unittest.TestCase):
         counts = self.catalog.audit_source_targets(self.data, ROOT)
         self.assertGreater(len(counts), 15)
 
+    def test_portable_targets_have_one_collection_and_join_the_core_profiles(self):
+        """C3 lane K0 added LungfishPortableTests and LungfishHTCTests; they are headless and owned by one collection."""
+        hello = ['LungfishPortableTests.PortableHelloTests/testHelloDigestOfBytesAndFileAgree',
+                 'LungfishHTCTests.HTCHelloTests/testHelloVersionLineAndFileDigest']
+        for test in hello:
+            owners = [c['id'] for c in self.data['collections']
+                      if c['harness'] == 'swift' and self.catalog.collection_matches(test, c)]
+            self.assertEqual(owners, ['portable'], test)
+        for target in ('LungfishPortableTests', 'LungfishHTCTests'):
+            self.assertEqual(self.data['targets'].get(target), 'headless', target)
+        for name, policy in self.data['profiles'].items():
+            if 'core' in policy['collections']:
+                self.assertIn('portable', policy['collections'], name)
+
     def test_extended_retains_every_python_test_module(self):
         retained = set(self.catalog.python_modules(self.data, 'extended', ROOT))
         expected = {'scripts.tests.' + p.stem for p in (ROOT / 'scripts/tests').glob('test_*.py')}
