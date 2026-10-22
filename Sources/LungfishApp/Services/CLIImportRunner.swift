@@ -89,6 +89,8 @@ public actor CLIImportRunner {
     ///   - projectDirectory: The project directory to import into.
     ///   - platform: Sequencing platform name (e.g. "illumina", "nanopore").
     ///   - recipeName: Optional recipe name (e.g. "vsp2").
+    ///   - recipeSwitchOptions: Switch id to value for each recipe switch the user changed from the preset. Each is
+    ///     passed as the CLI's own option after `--recipe`, and none is passed without a recipe.
     ///   - qualityBinning: Whether to enable quality score binning.
     ///   - optimizeStorage: Whether to optimize storage (omitted flag means enabled).
     ///   - clumpingTool: Storage optimization tool selection.
@@ -103,6 +105,7 @@ public actor CLIImportRunner {
         projectDirectory: URL,
         platform: String,
         recipeName: String?,
+        recipeSwitchOptions: [String: Bool] = [:],
         qualityBinning: String,
         optimizeStorage: Bool,
         clumpingTool: ClumpingTool = .default,
@@ -141,6 +144,7 @@ public actor CLIImportRunner {
 
         if let recipeName {
             args += ["--recipe", recipeName]
+            args += recipeSwitchArguments(recipeSwitchOptions)
         }
 
         if !optimizeStorage || clumpingTool == .none {
@@ -150,6 +154,12 @@ public actor CLIImportRunner {
         }
 
         return args
+    }
+
+    /// The options that set recipe switches, such as `--no-remove-duplicates`, in the order of the switch ids (the
+    /// order `ImportFastqOptions.switchOptionArguments` writes).
+    public static func recipeSwitchArguments(_ options: [String: Bool]) -> [String] {
+        options.sorted { $0.key < $1.key }.map { ($0.value ? "--" : "--no-") + RecipeSwitch.optionName(for: $0.key) }
     }
 
     /// The `--pairing` value for an ingestion pairing mode.

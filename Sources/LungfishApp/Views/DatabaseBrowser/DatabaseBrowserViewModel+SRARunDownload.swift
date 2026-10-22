@@ -94,6 +94,7 @@ extension DatabaseBrowserViewModel {
             projectDirectory: projectDirectory,
             platform: importConfig.cliPlatformValue,
             recipeName: FASTQIngestionService.resolvedRecipeName(for: importConfig),
+            recipeSwitchOptions: importConfig.recipeSwitchOptions,
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,

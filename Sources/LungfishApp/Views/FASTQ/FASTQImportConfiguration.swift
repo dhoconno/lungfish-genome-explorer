@@ -46,6 +46,10 @@ public struct FASTQImportConfiguration: Sendable {
     public let compressionLevel: CompressionLevel?
     /// Optional subfolder name for ONT demultiplexing recipe outputs.
     public let demultiplexOutputFolderName: String?
+    /// The recipe switches the user changed from the chosen preset, switch id to value, such as `removeDuplicates`
+    /// to `false`. The import passes each as the CLI's own option, `--no-remove-duplicates`. A switch left at the
+    /// preset's value is not here, so the command reads as the user chose.
+    public var recipeSwitchOptions: [String: Bool] = [:]
 
     public init(
         inputFiles: [URL],
@@ -94,6 +98,13 @@ public struct FASTQImportConfiguration: Sendable {
         guard !platformIsUserChoice, platform != .unknown, confirmedPlatform == platform else { return self }
         var copy = self
         copy.platformIsUserChoice = true
+        return copy
+    }
+
+    /// This configuration with the recipe switches the user changed from the preset (``recipeSwitchOptions``).
+    public func settingRecipeSwitches(_ options: [String: Bool]) -> FASTQImportConfiguration {
+        var copy = self
+        copy.recipeSwitchOptions = options
         return copy
     }
 

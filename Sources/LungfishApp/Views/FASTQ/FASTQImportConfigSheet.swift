@@ -55,6 +55,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     private let recipeCheckbox = NSButton(checkboxWithTitle: "Apply processing recipe after import", target: nil, action: nil)
     private let recipePopup = NSPopUpButton()
     private let recipeDescLabel = NSTextField(wrappingLabelWithString: "")
+    private let recipeSwitches = FASTQImportSheetSwitchControls()
     private let barcodeDefinitionRow = NSStackView()
     private let barcodeDefinitionLabel = NSTextField(labelWithString: "Barcode Sheet:")
     private let barcodeDefinitionHelpButton = NSButton(title: "", target: nil, action: nil)
@@ -92,7 +93,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         self.detectedPlatform = detectedPlatform
         self.summaryOverride = summaryOverride
         self.projectURL = projectURL
-        self.recipeOptions = recipeOptions ?? RecipeRegistryV2.allRecipes().map(FASTQImportSheetRecipeOption.init(recipe:))
+        self.recipeOptions = recipeOptions ?? RecipeRegistryV2.allRecipes().flatMap(FASTQImportSheetRecipeOption.options(for:))
         self.barcodeDefinitionCandidates = barcodeDefinitionCandidates
         self.onImport = onImport
         self.onCancel = onCancel
@@ -317,6 +318,8 @@ public final class FASTQImportConfigSheet: NSViewController {
         recipeDescLabel.preferredMaxLayoutWidth = 400
         recipeDescLabel.isHidden = true
         view.addSubview(recipeDescLabel)
+        recipeSwitches.install(in: view, below: recipeDescLabel, alignedWith: recipePopup)
+        recipeSwitches.onChange = { [weak self] in self?.updateRecipeDescription() }
 
         // Barcode sample-sheet controls for recipes that require them.
         barcodeDefinitionRow.orientation = .horizontal
@@ -487,7 +490,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             recipeDescLabel.leadingAnchor.constraint(equalTo: recipePopup.leadingAnchor),
             recipeDescLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -margin),
 
-            barcodeDefinitionRow.topAnchor.constraint(equalTo: recipeDescLabel.bottomAnchor, constant: 8),
+            barcodeDefinitionRow.topAnchor.constraint(equalTo: recipeSwitches.bottomAnchor, constant: 8),
             barcodeDefinitionRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: margin),
 
             barcodeDefinitionStatusLabel.topAnchor.constraint(equalTo: barcodeDefinitionRow.bottomAnchor, constant: 4),
@@ -823,6 +826,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         let showRecipe = recipeCheckbox.state == .on && !recipeOptions.isEmpty
         recipePopup.isHidden = !showRecipe
         recipeDescLabel.isHidden = !showRecipe
+        recipeSwitches.display(selectedRecipeOption, visible: showRecipe)
         if showRecipe {
             updateRecipeDescription()
         } else {
@@ -871,7 +875,7 @@ public final class FASTQImportConfigSheet: NSViewController {
             return
         }
         let recipe = recipeOptions[idx]
-        recipeDescLabel.stringValue = recipe.presentationText
+        recipeDescLabel.stringValue = recipe.descriptionText(switchValues: recipeSwitches.values)
     }
 
     private var selectedRecipeOption: FASTQImportSheetRecipeOption? {
@@ -969,7 +973,8 @@ public final class FASTQImportConfigSheet: NSViewController {
             demultiplexOutputFolderName: demultiplexOutputFolderName
         )
 
-        onImport?(config)
+        // Only the switches changed from the preset, as the CLI's own options (CLI-EQUIVALENCE).
+        onImport?(config.settingRecipeSwitches(chosenRecipeOption == nil ? [:] : recipeSwitches.changedValues))
         dismissSheet()
     }
 

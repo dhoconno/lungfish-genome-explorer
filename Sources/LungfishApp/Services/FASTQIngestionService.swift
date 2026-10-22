@@ -473,6 +473,7 @@ public enum FASTQIngestionService {
             projectDirectory: projectDirectory,
             platform: importConfig.cliPlatformValue,
             recipeName: resolvedRecipeName(for: importConfig),
+            recipeSwitchOptions: importConfig.recipeSwitchOptions,
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             clumpingTool: importConfig.clumpingTool,
