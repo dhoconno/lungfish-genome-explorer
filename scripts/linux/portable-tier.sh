@@ -248,7 +248,10 @@ cp "$aarch64_dir/lungfish-executor" "$artifacts/lungfish-executor-aarch64-linux-
 
 prepare_view_package
 step resolve-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift package resolve
-step xctest-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" swift test --disable-automatic-resolution
+# The launcher's tests start the built lungfish-executor as a child (tally-r2 K3-1), so the container builds the product
+# first and names it to the tests.
+step xctest-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" sh -c \
+  'swift build --disable-automatic-resolution --product lungfish-executor && LUNGFISH_EXECUTOR_BINARY="$(swift build --disable-automatic-resolution --show-bin-path)/lungfish-executor" swift test --disable-automatic-resolution'
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container.log"
 # SwiftPM 6.4 builds a Linux test target as a test runner plus a shared library (<Target>-test-runner and <Target>.so
 # under .build/out/Products). Older layouts build one .xctest file. Every one of these files goes into the record.
