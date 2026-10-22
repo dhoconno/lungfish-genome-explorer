@@ -75,7 +75,7 @@ public actor RecipeDatabaseIdentity {
             throw mismatch("SHA-256", pinnedSHA256, digest)
         }
         let header = Self.deaconIndexHeader(at: url, sizeBytes: size)
-        let build = pinnedSHA256 == nil ? builtFrom(indexAt: url, key: key) : nil
+        let build = pinnedSHA256 == nil ? builtFrom(indexAt: url, key: key, indexSHA256: digest) : nil
         return RecipeDatabaseRecord(
             id: databaseID,
             version: spec?.version ?? "unknown",
@@ -101,12 +101,13 @@ public actor RecipeDatabaseIdentity {
         return digest
     }
 
-    private func builtFrom(indexAt url: URL, key: FileKey) -> BuildInputs? {
+    private func builtFrom(indexAt url: URL, key: FileKey, indexSHA256: String) -> BuildInputs? {
         if let known = buildInputsByFile[key] { return known }
         let inputs = Self.buildInputs(
             installRecordAt: url.deletingLastPathComponent()
                 .appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            indexFileName: url.lastPathComponent
+            indexFileName: url.lastPathComponent,
+            indexSHA256: indexSHA256
         )
         buildInputsByFile[key] = .some(inputs)
         return inputs
@@ -130,8 +131,15 @@ public actor RecipeDatabaseIdentity {
     }
 
     /// The source file and tool version of the step of an install record that wrote the index named
-    /// `indexFileName`. It reads both the envelope an install writes now and the run an older install wrote.
-    static func buildInputs(installRecordAt recordURL: URL, indexFileName: String) -> BuildInputs? {
+    /// `indexFileName`. It reads both the envelope an install writes now and the run an older install wrote. A step
+    /// whose output of that name states a SHA-256 other than `indexSHA256` wrote another file, such as a copy that a
+    /// reinstall replaced or a record carried over from another host, so its inputs are not attributed to this index.
+    /// An output that states no digest is taken as the record gives it.
+    static func buildInputs(
+        installRecordAt recordURL: URL,
+        indexFileName: String,
+        indexSHA256: String
+    ) -> BuildInputs? {
         guard let data = try? Data(contentsOf: recordURL),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let steps = root["steps"] as? [[String: Any]] else {
@@ -139,13 +147,17 @@ public actor RecipeDatabaseIdentity {
         }
         for step in steps {
             let outputs = step["outputs"] as? [[String: Any]] ?? []
-            let wroteIndex = outputs.contains { output in
+            let written = outputs.first { output in
                 (output["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent == indexFileName }
                     ?? false
             }
+            guard let written else { continue }
+            if let stated = (written["sha256"] ?? written["checksumSHA256"]) as? String,
+               stated.lowercased() != indexSHA256.lowercased() {
+                continue
+            }
             let inputs = step["inputs"] as? [[String: Any]] ?? []
-            guard wroteIndex,
-                  let source = inputs.first(where: { $0["role"] as? String == "reference" }) ?? inputs.first else {
+            guard let source = inputs.first(where: { $0["role"] as? String == "reference" }) ?? inputs.first else {
                 continue
             }
             return BuildInputs(

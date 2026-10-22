@@ -156,4 +156,63 @@ final class RecipeDatabaseIdentityTests: XCTestCase {
             message.range(of: "lungfish-cli conda db install-managed deacon-panhuman --reinstall"), message
         )
     }
+
+    /// An install record whose step states another digest for the index file name describes another file, so its
+    /// source and its Deacon version are not attributed to this index (BIO 4 of the L5-RECORDS review).
+    func testAStaleInstallRecordIsNotAttributedToAnIndexItDoesNotDescribe() async throws {
+        let index = try writeIndex(named: "ribo.idx", minimizers: 1)
+        let source = directory.appendingPathComponent("ribo.fa.gz").path
+        let installRecord: [String: Any] = [
+            "steps": [
+                ["toolName": "deacon", "toolVersion": "0.15.0",
+                 "inputs": [["path": source, "role": "reference", "sha256": "abc123", "sizeBytes": 9548991]],
+                 "outputs": [["path": index.url.path, "role": "index",
+                              "sha256": String(repeating: "a", count: 64), "sizeBytes": index.size]]],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: installRecord)
+            .write(to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+
+        let record = try await RecipeDatabaseIdentity().record(
+            databaseID: "deacon-test", spec: try spec(sha256: nil, sizeBytes: nil), at: index.url
+        )
+
+        XCTAssertEqual(record.sha256, index.sha256, "the record still states the index's own digest")
+        XCTAssertNil(record.buildSourceSHA256, "a record that states another digest names no source")
+        XCTAssertNil(record.buildSourceSizeBytes)
+        XCTAssertNil(record.buildToolVersion, "a record that states another digest names no Deacon version")
+    }
+
+    /// The install record an install writes now, through the registry's own writer, names the source file, its size
+    /// and the Deacon version of the step that wrote the index, and an index it describes gets them.
+    func testTheInstallRecordTheRegistryWritesNowNamesTheBuildInputs() async throws {
+        let index = try writeIndex(named: "ribo.idx", minimizers: 1)
+        let source = directory.appendingPathComponent("ribo.fa.gz")
+        let now = Date()
+        let step = StepExecution(
+            toolName: "deacon", toolVersion: "0.15.0",
+            command: ["deacon", "index", "build", source.path],
+            inputs: [FileRecord(path: source.path, sha256: "abc123", sizeBytes: 9_548_991, format: .unknown, role: .input)],
+            outputs: [FileRecord(
+                path: index.url.path, sha256: index.sha256, sizeBytes: UInt64(index.size), format: .unknown, role: .index
+            )],
+            exitCode: 0, wallTime: 1, stderr: nil, startTime: now, endTime: now
+        )
+        let manifest = BundledDatabase(
+            id: "deacon-test", displayName: "Test", tool: "deacon", version: "v", filename: "ribo.idx",
+            releaseDate: "", description: "", sourceUrl: "", releasesUrl: ""
+        )
+        let registry = DatabaseRegistry(bundledDatabasesRoot: directory, userDatabasesRoot: directory)
+        try await registry.writeManagedDatabaseInstallProvenance(
+            installDirectory: directory, manifest: manifest, steps: [step], totalWallTime: 1
+        )
+
+        let record = try await RecipeDatabaseIdentity().record(
+            databaseID: "deacon-test", spec: try spec(sha256: nil, sizeBytes: nil), at: index.url
+        )
+
+        XCTAssertEqual(record.buildSourceSHA256, "abc123")
+        XCTAssertEqual(record.buildSourceSizeBytes, 9_548_991)
+        XCTAssertEqual(record.buildToolVersion, "0.15.0")
+    }
 }

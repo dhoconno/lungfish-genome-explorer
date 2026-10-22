@@ -1379,7 +1379,7 @@ public actor DatabaseRegistry {
         return steps
     }
 
-    private func writeManagedDatabaseInstallProvenance(
+    func writeManagedDatabaseInstallProvenance(
         installDirectory: URL,
         manifest: BundledDatabase,
         steps: [StepExecution],
