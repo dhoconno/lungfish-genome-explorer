@@ -4,6 +4,7 @@
 
 import Testing
 import Foundation
+import LungfishCore
 @testable import LungfishWorkflow
 
 @Suite("Recipe")

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishCore
 
 /// What the storage step of an import decides before it launches anything, the layout plan of one input file and
 /// the `clumpify.sh` argv, so the Mac import and a portable executor build the same run.

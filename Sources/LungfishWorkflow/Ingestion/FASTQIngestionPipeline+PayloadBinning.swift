@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 extension FASTQIngestionPipeline {
     /// Bins the quality scores of one single-end FASTQ file into `outputFile`, keeping every read, its whole name,

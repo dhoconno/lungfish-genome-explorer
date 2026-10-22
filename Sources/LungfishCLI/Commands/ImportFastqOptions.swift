@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 /// The flags that choose how reads import, the ones `CLIImportRunner.buildCLIArguments` writes for

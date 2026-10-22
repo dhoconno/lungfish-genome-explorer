@@ -14,7 +14,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishApp | library | Sources/LungfishApp | 639 | 212336 | 171 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 319 | 78408 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 319 | 78409 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 180 | 46247 | 332 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -26,10 +26,10 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 5 | 3383 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 52 | 10761 | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishPortable | library | Sources/LungfishPortable | 12 | 1429 | 8 | none |
+| LungfishPortable | library | Sources/LungfishPortable | 16 | 1676 | 12 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 982 | 267771 | 1554 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 267526 | 1550 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15616 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -57,7 +57,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortableTests | Tests/LungfishPortableTests | 2 | 69 | LungfishPortable |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 722 | 228518 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 722 | 228521 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## CLungfishExecutor
 
@@ -372,7 +372,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 319, lines 78408
+- Swift files. 319, lines 78409
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -382,7 +382,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 295 | 73386 |
+| Commands | 295 | 73387 |
 | Options | 3 | 812 |
 | Output | 2 | 554 |
 | Support | 18 | 3346 |
@@ -1821,7 +1821,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishPortable
-- Swift files. 12, lines 1429
+- Swift files. 16, lines 1676
 - Depends on. none
 - External products. Crypto (swift-crypto)
 - Used by. LungfishCore, LungfishExecutor
@@ -1831,7 +1831,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| FASTQ | 8 | 1248 |
+| FASTQ | 11 | 1457 |
 | Process | 1 | 53 |
 
 ### Public types
@@ -1842,6 +1842,10 @@ None.
 - `FASTQReadLayoutClassifier` enum, `Sources/LungfishPortable/FASTQ/FASTQReadLayoutClassifier.swift:14`
 - `FileDigest` enum, `Sources/LungfishPortable/FileDigest.swift:22`
 - `PortableDigest` enum, `Sources/LungfishPortable/PortableDigest.swift:12`
+- `PortableFileJoin` enum, `Sources/LungfishPortable/PortableFileJoin.swift:9`
+- `PortableMixedLayout` enum, `Sources/LungfishPortable/FASTQ/PortableMixedLayout.swift:9`
+- `PortableStoragePlan` enum, `Sources/LungfishPortable/FASTQ/PortableStoragePlan.swift:9`
+- `QualityBinningScheme` enum, `Sources/LungfishPortable/FASTQ/QualityBinningScheme.swift:11`
 - `QualityEncoding` enum, `Sources/LungfishPortable/FASTQ/QualityEncoding.swift:17`
 - `ReadPair` struct, `Sources/LungfishPortable/FASTQ/ReadPair.swift:10`
 
@@ -1893,7 +1897,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 982, lines 267771
+- Swift files. 979, lines 267526
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1921,7 +1925,7 @@ None.
 | Extraction | 35 | 10689 |
 | FASTQ | 1 | 259 |
 | Geneious | 10 | 2386 |
-| Ingestion | 50 | 11621 |
+| Ingestion | 48 | 11429 |
 | MSA | 14 | 2641 |
 | Mapping | 30 | 9768 |
 | Metagenomics | 76 | 23491 |
@@ -1937,7 +1941,7 @@ None.
 | Provenance | 93 | 20477 |
 | ReadPairing | 14 | 1887 |
 | ReadPairing/Capabilities | 6 | 207 |
-| Recipes | 15 | 3248 |
+| Recipes | 14 | 3195 |
 | Recipes/Steps | 7 | 984 |
 | Savont | 4 | 1166 |
 | Schema | 2 | 1129 |
@@ -2434,9 +2438,9 @@ None.
 - `FASTQGzipProvenanceResult` struct, `Sources/LungfishWorkflow/Ingestion/FastpPairedRunner.swift:401`
 - `FASTQImportEventStream` struct, `Sources/LungfishWorkflow/Ingestion/FASTQImportEventStream.swift:19`
 - `FASTQIngestionConfig` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionConfig.swift:13`
-- `FASTQIngestionError` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:143`
-- `FASTQIngestionPipeline` class, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:195`
-- `FASTQIngestionResult` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:58`
+- `FASTQIngestionError` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:100`
+- `FASTQIngestionPipeline` class, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:152`
+- `FASTQIngestionResult` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:15`
 - `FASTQLengthFilterPlan` struct, `Sources/LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift:16`
 - `FASTQMixedLayoutHint` enum, `Sources/LungfishWorkflow/Extraction/FASTQMixedLayoutHint.swift:20`
 - `FASTQPairingDecision` struct, `Sources/LungfishWorkflow/Ingestion/FASTQPairingModeResolver.swift:16`
@@ -2917,9 +2921,6 @@ None.
 - `PluginPackStatusProviding` protocol, `Sources/LungfishWorkflow/Conda/PluginPackStatusProviding.swift:5`
 - `PluginPackStatusService` actor, `Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift:10`
 - `PluginPackStatusServiceError` enum, `Sources/LungfishWorkflow/Conda/PluginPackStatusServiceError.swift:5`
-- `PortableFileJoin` enum, `Sources/LungfishWorkflow/Ingestion/PortableFileJoin.swift:9`
-- `PortableMixedLayout` enum, `Sources/LungfishWorkflow/Recipes/PortableMixedLayout.swift:10`
-- `PortableStoragePlan` enum, `Sources/LungfishWorkflow/Ingestion/PortableStoragePlan.swift:10`
 - `PortMapping` struct, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:370`
 - `PortProtocol` enum, `Sources/LungfishWorkflow/Containers/ContainerConfiguration.swift:434`
 - `PostInstallHook` struct, `Sources/LungfishWorkflow/Conda/PostInstallHook.swift:3`
@@ -3167,7 +3168,6 @@ None.
 - `ProvenanceWriterMutation` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceWriterMutation.swift:15`
 - `ProvenanceWriterMutationAcceptedError` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceWriterMutationAcceptedError.swift:12`
 - `QualityBinningReplay` enum, `Sources/LungfishWorkflow/Provenance/QualityBinningReplay.swift:15`
-- `QualityBinningScheme` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:18`
 - `ReadExtractionService` actor, `Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift:28`
 - `ReadIDBAMExtractionConfig` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:227`
 - `ReadIDBAMExtractionFormat` enum, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift:291`

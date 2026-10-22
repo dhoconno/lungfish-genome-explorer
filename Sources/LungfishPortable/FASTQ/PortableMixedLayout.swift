@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishCore
 
 /// Writes the one file a merge recipe stores, the merged reads first and then each unmerged pair with R1 next to
 /// its R2, so the Mac import and a portable executor write the same bytes.
