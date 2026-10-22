@@ -245,6 +245,54 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(regularFileNames(under: userRoot), [])
     }
 
+    /// Another channel's copy of the index is cloned only when it is the file this build's lock pins. A sibling copy
+    /// that an older build installed from another pin is not the pinned file, so the install downloads the pinned one.
+    func testASiblingCopyThatIsNotThePinnedFileIsNotCloned() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let siblingRoot = tempDir.appendingPathComponent("stable-root/databases", isDirectory: true)
+        let sibling = makeRegistry(
+            spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")), userRoot: siblingRoot
+        )
+        _ = try await sibling.installManagedDatabase(Self.databaseID, reinstall: true)
+        let served = try serve(pinned, as: "pinned.idx")
+        let requests = RibokmersSeamLog<URL>()
+        let registry = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            userRoot: tempDir.appendingPathComponent("preview-root/databases", isDirectory: true),
+            requests: requests,
+            siblingDatabaseRoots: [siblingRoot]
+        )
+
+        let installed = try await registry.installManagedDatabase(Self.databaseID)
+
+        XCTAssertEqual(requests.values, [served], "A sibling copy that is not the pinned file must not stand in for the download")
+        XCTAssertEqual(try Data(contentsOf: installed), pinned)
+        XCTAssertEqual(try installRecord(beside: installed).parameters["installSource"]?.stringValue, "pinned-download")
+    }
+
+    /// A sibling copy that is the pinned file, verified against its own install record, is cloned without a download.
+    func testASiblingCopyThatIsThePinnedFileIsCloned() async throws {
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let served = try serve(pinned, as: "pinned.idx")
+        let siblingRoot = tempDir.appendingPathComponent("stable-root/databases", isDirectory: true)
+        let sibling = makeRegistry(spec: try spec(pinning: pinned, url: served), userRoot: siblingRoot)
+        _ = try await sibling.installManagedDatabase(Self.databaseID, reinstall: true)
+        let requests = RibokmersSeamLog<URL>()
+        let registry = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            userRoot: tempDir.appendingPathComponent("preview-root/databases", isDirectory: true),
+            requests: requests,
+            siblingDatabaseRoots: [siblingRoot]
+        )
+
+        let installed = try await registry.installManagedDatabase(Self.databaseID)
+
+        XCTAssertEqual(requests.values, [], "A verified sibling copy of the pinned file replaces the download")
+        XCTAssertEqual(try Data(contentsOf: installed), pinned)
+        XCTAssertEqual(try installRecord(beside: installed).parameters["installSource"]?.stringValue, "sibling-root-clone")
+    }
+
     /// The bundled lock keeps how the hosted file was built as data, a one-thread build that two runs gave with
     /// equal digests.
     func testBundledLockKeepsTheHostedBuildProvenance() throws {
@@ -299,7 +347,8 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         requests: RibokmersSeamLog<URL>? = nil,
         tools: RibokmersSeamLog<String>? = nil,
         downloader: ManagedDatabaseDownloader? = nil,
-        provenanceWriter: ManagedDatabaseProvenanceWriter? = nil
+        provenanceWriter: ManagedDatabaseProvenanceWriter? = nil,
+        siblingDatabaseRoots: [URL] = []
     ) -> DatabaseRegistry {
         let downloads = tempDir.appendingPathComponent("downloads", isDirectory: true)
         let fileDownloader: ManagedDatabaseDownloader = { url, progress in
@@ -323,7 +372,8 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
             managedDatabaseToolRunner: toolRunner,
             managedDatabaseLockLookup: { $0 == Self.databaseID ? pinned : nil },
             managedDatabaseProvenanceWriter: provenanceWriter,
-            preferences: preferencesSuite.makeDefaults()
+            preferences: preferencesSuite.makeDefaults(),
+            siblingDatabaseRoots: siblingDatabaseRoots
         )
     }
 
