@@ -98,4 +98,35 @@ final class CrossProjectItemCopierStageTests: XCTestCase {
         )
         XCTAssertFalse(receiptText.contains("project-copy-"), "the receipt names the stage")
     }
+
+    /// CHTC program lane L2-COPYCHECK. The copier hands a read bundle to `FASTQBundleCopyImportWorkflow`, so reads cut
+    /// short in transfer reach the workflow's refusal, and the copy leaves no item and no stage.
+    func testATruncatedReadBundleIsRefusedAndLeavesNoItemAndNoStage() throws {
+        let bundle = sourceProject.appendingPathComponent("Imports/reads.lungfishfastq", isDirectory: true)
+        try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let reads = bundle.appendingPathComponent("reads.fastq")
+        try (1...50).map { "@r\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined().write(to: reads, atomically: true, encoding: .utf8)
+        let output = try ProvenanceFileDescriptor.file(url: reads, format: .fastq, role: .output)
+        let step = ProvenanceStep(
+            toolName: "source-fastq-tool", toolVersion: "1.0", argv: ["source-fastq-tool"],
+            outputs: [output], exitStatus: 0, wallTimeSeconds: 0.1
+        )
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "source FASTQ bundle", workflowVersion: "1.0", toolName: "source-fastq-tool",
+                toolVersion: "1.0", argv: ["source-fastq-tool"], files: [output], output: output, outputs: [output],
+                steps: [step], wallTimeSeconds: 0.1, exitStatus: 0
+            ),
+            to: bundle
+        )
+        let complete = try Data(contentsOf: reads)
+        try complete.prefix(complete.count / 2).write(to: reads)
+
+        XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject, identity: .neutral)) { error in
+            XCTAssertEqual(error as? FASTQBundleCopyImportError, .payloadDoesNotMatchRecord(reads.standardizedFileURL.path))
+        }
+        let landed = targetProject.appendingPathComponent("Imports", isDirectory: true)
+        XCTAssertEqual((try? fm.contentsOfDirectory(atPath: landed.path)) ?? [], [], "the refused copy left a partial item")
+        XCTAssertEqual(stages(), [], "the refused copy left its stage")
+    }
 }

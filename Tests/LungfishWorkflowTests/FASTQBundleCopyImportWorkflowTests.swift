@@ -259,6 +259,165 @@ final class FASTQBundleCopyImportWorkflowTests: XCTestCase {
         XCTAssertEqual(try readRepositorySource(fixture.source.appendingPathComponent("reads.fastq")), "@fixture\nACGT\n+\n!!!!\n")
     }
 
+    // MARK: - Payloads that differ from the source record (CHTC program lane L2-COPYCHECK)
+
+    func testCopyImportRefusesPayloadThatDiffersFromItsRecord() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // A transfer cut short leaves the reads shorter than the record says.
+        let complete = try Data(contentsOf: fixture.reads)
+        try complete.prefix(complete.count / 2).write(to: fixture.reads)
+
+        XCTAssertThrowsError(try copy(fixture)) { error in
+            XCTAssertEqual(
+                error as? FASTQBundleCopyImportError,
+                .payloadDoesNotMatchRecord(fixture.reads.standardizedFileURL.path)
+            )
+            XCTAssertEqual(
+                error.localizedDescription,
+                "reads.fastq does not match its provenance record and may be incomplete. Copy it again and retry."
+            )
+        }
+        assertNothingPublished(fixture)
+    }
+
+    func testCopyImportRefusesPayloadWithTheRecordedSizeButOtherBytes() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var bytes = try Data(contentsOf: fixture.reads)
+        bytes[bytes.count / 2] ^= 0x01
+        try bytes.write(to: fixture.reads)
+
+        XCTAssertThrowsError(try copy(fixture)) { error in
+            XCTAssertEqual(
+                error as? FASTQBundleCopyImportError,
+                .payloadDoesNotMatchRecord(fixture.reads.standardizedFileURL.path)
+            )
+        }
+        assertNothingPublished(fixture)
+    }
+
+    func testCopyImportKeepsFilesTheRecordDoesNotHash() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // The record names the reads but states no digest and no size, so there is nothing to compare.
+        let unhashed = ProvenanceFileDescriptor(path: fixture.reads.path, format: .fastq, role: .output)
+        try writeRecord(in: fixture.source, outputs: [unhashed])
+        let complete = try Data(contentsOf: fixture.reads)
+        try complete.prefix(complete.count / 2).write(to: fixture.reads)
+
+        let result = try copy(fixture)
+
+        XCTAssertEqual(result.bundleURL, fixture.destination.standardizedFileURL)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appendingPathComponent("reads.fastq")),
+            try Data(contentsOf: fixture.reads)
+        )
+    }
+
+    func testCopyImportKeepsBundleWhoseRecordListsNoOutputs() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // Only the step names the reads, so the record holds no output list to compare against.
+        let hashed = try ProvenanceFileDescriptor.file(url: fixture.reads, format: .fastq, role: .output)
+        try writeRecord(in: fixture.source, outputs: [], stepOutputs: [hashed])
+        let complete = try Data(contentsOf: fixture.reads)
+        try complete.prefix(complete.count / 2).write(to: fixture.reads)
+
+        let result = try copy(fixture)
+
+        XCTAssertEqual(result.bundleURL, fixture.destination.standardizedFileURL)
+        XCTAssertEqual(
+            try Data(contentsOf: fixture.destination.appendingPathComponent("reads.fastq")),
+            try Data(contentsOf: fixture.reads)
+        )
+    }
+
+    /// `lungfish fastq platform` and the metadata editors rewrite `<reads>.lungfish-meta.json` after the import,
+    /// and leave the import's record alone, so the check covers the reads and not the metadata beside them.
+    func testCopyImportKeepsMetadataThatChangedAfterTheRecord() throws {
+        let fixture = try recordedBundleFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let sidecar = fixture.source.appendingPathComponent("reads.fastq.lungfish-meta.json")
+        try #"{"platform":"illumina"}"#.write(to: sidecar, atomically: true, encoding: .utf8)
+        let reads = try ProvenanceFileDescriptor.file(url: fixture.reads, format: .fastq, role: .output)
+        let metadata = try ProvenanceFileDescriptor.file(url: sidecar, format: .json, role: .output)
+        try writeRecord(in: fixture.source, outputs: [reads, metadata])
+        try #"{"platform":"ont"}"#.write(to: sidecar, atomically: true, encoding: .utf8)
+
+        _ = try copy(fixture)
+
+        XCTAssertEqual(
+            try readRepositorySource(fixture.destination.appendingPathComponent("reads.fastq.lungfish-meta.json")),
+            #"{"platform":"ont"}"#
+        )
+    }
+
+    private typealias RecordedBundleFixture = (root: URL, source: URL, reads: URL, destination: URL)
+
+    /// A source bundle whose record states the digest and size of `reads.fastq` as it was written.
+    private func recordedBundleFixture() throws -> RecordedBundleFixture {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBundleCopyRecordCheck-\(UUID().uuidString)", isDirectory: true)
+        let source = root.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let reads = source.appendingPathComponent("reads.fastq")
+        let text = (1...50).map { "@r\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
+        try text.write(to: reads, atomically: true, encoding: .utf8)
+        try writeSourceFASTQBundleProvenance(bundleURL: source, fastqURL: reads)
+        return (root, source, reads, root.appendingPathComponent("copied.lungfishfastq", isDirectory: true))
+    }
+
+    private func copy(_ fixture: RecordedBundleFixture) throws -> FASTQBundleCopyImportResult {
+        try FASTQBundleCopyImportWorkflow().importBundle(
+            sourceBundleURL: fixture.source,
+            outputURL: fixture.destination,
+            context: replacementContext()
+        )
+    }
+
+    private func assertNothingPublished(_ fixture: RecordedBundleFixture, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.path), file: file, line: line)
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: fixture.root.path)) ?? []
+        XCTAssertFalse(
+            entries.contains { $0.hasPrefix(".copied.") },
+            "A refused copy must discard its staged bundle: \(entries)",
+            file: file,
+            line: line
+        )
+    }
+
+    /// A record whose top-level output list is `outputs` and whose one step lists `stepOutputs`, which are
+    /// `outputs` unless given.
+    private func writeRecord(
+        in bundleURL: URL,
+        outputs: [ProvenanceFileDescriptor],
+        stepOutputs: [ProvenanceFileDescriptor]? = nil
+    ) throws {
+        let step = ProvenanceStep(
+            toolName: "source-fastq-tool",
+            toolVersion: "1.0",
+            argv: ["source-fastq-tool"],
+            outputs: stepOutputs ?? outputs,
+            exitStatus: 0,
+            wallTimeSeconds: 0.1
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "source FASTQ bundle",
+            workflowVersion: "1.0",
+            toolName: "source-fastq-tool",
+            toolVersion: "1.0",
+            argv: ["source-fastq-tool"],
+            files: outputs,
+            output: outputs.first,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: 0.1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
     private func replacementContext() -> FASTQBundleCopyImportWorkflow.CommandContext {
         .init(workflowName: "replacement fixture", toolName: "fixture", argv: ["fixture"])
     }

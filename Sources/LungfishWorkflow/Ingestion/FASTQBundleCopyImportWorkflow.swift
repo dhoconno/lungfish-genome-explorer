@@ -21,9 +21,14 @@ public enum FASTQBundleCopyImportError: Error, LocalizedError, Sendable, Equatab
     case sourceDestinationAlias(String)
     case cannotCreateDestinationParent(String)
     case unsupportedSymlinkPayload(String)
+    /// A copied FASTQ file differs in size or digest from what the source bundle's record states for it. The
+    /// path is the file in the source bundle.
+    case payloadDoesNotMatchRecord(String)
 
     public var errorDescription: String? {
         switch self {
+        case .payloadDoesNotMatchRecord(let path):
+            return "\(URL(fileURLWithPath: path).lastPathComponent) does not match its provenance record and may be incomplete. Copy it again and retry."
         case .sourceIsNotFASTQBundle(let path):
             return "Source is not a .lungfishfastq bundle: \(path)"
         case .sourceProvenanceMissing(let path):
@@ -184,6 +189,14 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
                 completedAt: completedAt,
                 checkCancellation: checkCancellation
             )
+            // The record that is about to certify these files is checked against the source bundle's own record,
+            // so a transfer cut short is refused here and the catch below discards the staged copy.
+            try requireCopiedFASTQMatchesSourceRecord(
+                copyEnvelope.outputs,
+                sourceProvenanceURL: sourceProvenanceURL,
+                sourceBundleURL: sourceBundleURL,
+                destinationBundleURL: destinationBundleURL
+            )
             let envelope = mergedCopyImportEnvelope(
                 sourceEnvelope: rehydratedSourceEnvelope,
                 copyEnvelope: copyEnvelope
@@ -206,6 +219,43 @@ public final class FASTQBundleCopyImportWorkflow: @unchecked Sendable {
         } catch {
             try? fileManager.removeItem(at: stagingBundleURL)
             try publication.rollback(after: error)
+        }
+    }
+
+    /// Refuses a copy whose FASTQ files differ from what the source bundle's record states for them, before
+    /// anything is published. `copiedOutputs` are the outputs the copy step just described, with the digest and
+    /// size it computed, so no payload is read again. A transfer cut short leaves a file whose size and digest
+    /// differ from the record's, and the new record would otherwise certify the short file.
+    ///
+    /// Only the top-level outputs of the record count, by their path relative to the bundle, and only those that
+    /// state a digest. The reads are the one part of the bundle that nothing rewrites after the record is
+    /// written. `lungfish fastq platform` and the metadata editors rewrite the metadata files that the import's
+    /// record also lists, so those files, and a file the record names without a digest, keep today's behaviour.
+    private func requireCopiedFASTQMatchesSourceRecord(
+        _ copiedOutputs: [ProvenanceFileDescriptor],
+        sourceProvenanceURL: URL,
+        sourceBundleURL: URL,
+        destinationBundleURL: URL
+    ) throws {
+        guard let sourceRecord = try ProvenanceEnvelopeReader.load(fromSidecar: sourceProvenanceURL) else { return }
+        var recorded: [String: ProvenanceFileDescriptor] = [:]
+        for descriptor in (sourceRecord.output.map { [$0] } ?? []) + sourceRecord.outputs
+        where descriptor.checksumSHA256 != nil {
+            if let recordedPath = ProvenanceWriter.bundleRelativePath(for: descriptor.path, relativeTo: sourceBundleURL) {
+                recorded[recordedPath] = descriptor
+            }
+        }
+        for copied in copiedOutputs {
+            let relativePath = relativePath(from: destinationBundleURL, to: URL(fileURLWithPath: copied.path))
+            guard provenanceFormat(for: URL(fileURLWithPath: relativePath)) == .fastq,
+                  let expected = recorded[relativePath] else { continue }
+            let digestDiffers = expected.checksumSHA256?.lowercased() != copied.checksumSHA256?.lowercased()
+            let sizeDiffers = expected.fileSize != nil && expected.fileSize != copied.fileSize
+            if digestDiffers || sizeDiffers {
+                throw FASTQBundleCopyImportError.payloadDoesNotMatchRecord(
+                    sourceBundleURL.appendingPathComponent(relativePath).path
+                )
+            }
         }
     }
 
