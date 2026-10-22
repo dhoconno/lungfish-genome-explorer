@@ -6,6 +6,7 @@ import XCTest
 import CryptoKit
 import Foundation
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class RecipeDatabaseIdentityTests: XCTestCase {
@@ -13,12 +14,11 @@ final class RecipeDatabaseIdentityTests: XCTestCase {
     private var directory: URL!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("db-identity-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        directory = try TestTempDirectory.make(prefix: "db-identity")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        TestTempDirectory.cleanup(directory)
     }
 
     /// A Deacon index of format 3, k 31 and window 15 holding `minimizers` 8-byte minimizers.
