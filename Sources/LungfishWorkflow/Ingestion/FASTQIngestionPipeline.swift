@@ -924,6 +924,21 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
     }
 
+    /// The error a binning run throws when its tool lookup fails.
+    ///
+    /// A route that runs no clumpify bins with `reformat.sh`, so a default
+    /// import fails at the lookup on a machine without the BBTools plugin. The
+    /// runner's message names only the missing tool. This one names the plugin
+    /// and the way to import without binning. Any other error passes through
+    /// unchanged.
+    static func qualityBinningToolError(_ error: Error) -> Error {
+        guard let toolError = error as? NativeToolError, case .toolNotFound = toolError else { return error }
+        return FASTQIngestionError.qualityBinningFailed(
+            "Quality binning needs the BBTools plugin, which is not installed. "
+                + "Install it from the Plugin Manager or import again with --quality-binning none."
+        )
+    }
+
     /// Bins quality scores with BBTools `reformat.sh` when clumping is off.
     ///
     /// Uses the same `quantize=` values `clumpify.sh` takes, so a binned
@@ -937,7 +952,12 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         guard let quantize = Self.quantizeArgument(for: config.qualityBinning) else {
             preconditionFailure("reformatQuantize requires a binning scheme")
         }
-        let reformat = try await runner.toolPath(for: .reformat)
+        let reformat: URL
+        do {
+            reformat = try await runner.toolPath(for: .reformat)
+        } catch {
+            throw Self.qualityBinningToolError(error)
+        }
         // reformat.sh chooses its decompressor from the file name, and its
         // extin= override does not change that. A plain FASTQ carrying a .gz
         // name (or gzip data under a plain name) fails as "Not a gzip file",

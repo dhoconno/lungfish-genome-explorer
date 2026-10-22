@@ -390,4 +390,29 @@ final class FASTQIngestionReformatExtensionOverrideTests: XCTestCase {
         try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: gz)
         XCTAssertNil(FASTQIngestionPipeline.reformatInputExtensionOverride(for: gz))
     }
+
+    // MARK: - Quality binning without the BBTools plugin
+
+    /// A default import bins with reformat.sh when no clumping runs, so a machine without the BBTools plugin fails at
+    /// the tool lookup. The error has to say that BBTools is missing and how to import without binning.
+    func testMissingReformatToolErrorNamesThePluginAndTheWayToSkipBinning() throws {
+        let mapped = FASTQIngestionPipeline.qualityBinningToolError(NativeToolError.toolNotFound("reformat"))
+        let failure = try XCTUnwrap(mapped as? FASTQIngestionError, "\(mapped)")
+        guard case .qualityBinningFailed(let message) = failure else {
+            return XCTFail("A missing reformat tool should map to qualityBinningFailed, got \(failure)")
+        }
+        XCTAssertTrue(message.contains("BBTools plugin"), message)
+        XCTAssertTrue(message.contains("--quality-binning none"), message)
+    }
+
+    func testOtherToolErrorsPassThroughTheBinningToolMappingUnchanged() {
+        struct Unrelated: Error, Equatable { let code: Int }
+        let unrelated = FASTQIngestionPipeline.qualityBinningToolError(Unrelated(code: 7))
+        XCTAssertEqual(unrelated as? Unrelated, Unrelated(code: 7))
+        let failed = FASTQIngestionPipeline.qualityBinningToolError(NativeToolError.executionFailed("reformat", 1, "boom"))
+        guard case .executionFailed(let tool, let code, let stderr)? = failed as? NativeToolError else {
+            return XCTFail("A failed run should pass through, got \(failed)")
+        }
+        XCTAssertEqual("\(tool) \(code) \(stderr)", "reformat 1 boom")
+    }
 }
