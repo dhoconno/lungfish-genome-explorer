@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import LungfishIO
 
@@ -139,6 +140,31 @@ public actor RecipeDatabaseIdentity {
         let (minimizerBytes, overflow) = count.multipliedReportingOverflow(by: 8)
         guard !overflow, minimizerBytes + 11 == UInt64(sizeBytes) else { return nil }
         return (Int(header[0]), Int(header[1]), Int(header[2]))
+    }
+
+    /// The minimizer set of a Deacon index, computed from the file: the format, the count and the SHA-256 of the
+    /// minimizers sorted ascending as 8-byte little-endian integers, with the 11-byte header left out. Indexes built
+    /// from one source with one k, w and format hold one set, whatever order a multi-threaded build wrote them in
+    /// (C2-RIBOPIN). Nil when the file is not laid out as a Deacon index or holds more than `maximumBytes`.
+    static func minimizerSetIdentity(
+        of url: URL,
+        maximumBytes: Int64 = 256 * 1024 * 1024
+    ) -> (format: Int, count: Int, sha256: String)? {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value,
+              size - 11 <= maximumBytes,
+              let header = deaconIndexHeader(at: url, sizeBytes: size),
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let count = Int((size - 11) / 8)
+        var words = [UInt64](repeating: 0, count: count)
+        data.withUnsafeBytes { raw in
+            for index in 0..<count {
+                words[index] = UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: 11 + index * 8, as: UInt64.self))
+            }
+        }
+        words.sort()
+        let sorted = words.map(\.littleEndian)
+        let digest = sorted.withUnsafeBytes { SHA256.hash(data: $0) }
+        return (header.format, count, digest.map { String(format: "%02x", $0) }.joined())
     }
 
     /// The source file and tool version of the step of an install record that wrote the index named

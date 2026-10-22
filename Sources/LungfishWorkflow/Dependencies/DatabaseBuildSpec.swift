@@ -13,7 +13,10 @@ import Foundation
 /// pinned file is a one-thread build, which writes the same bytes on every run, so the lock's `argv` rebuilds the
 /// pinned file from its source (`byteReproducible`). An entry with a build pins what an install downloads, and an
 /// index that an earlier install built on its own host is reported as differing from the pin, never refused at
-/// run time.
+/// run time. The version label names the content (source, k, w), the hosted folder and `releaseDate` name the build,
+/// the `sha256` names the file, and the minimizer set names what the file holds: a file with the same source and the
+/// same set digest is a rebuild of the pinned build, whatever order its minimizers are in, and it filters the same
+/// reads.
 public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
     /// The tool that built the file, such as `deacon`.
     public let tool: String
@@ -30,6 +33,14 @@ public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
     /// True when the same tool, source and `argv` write the same bytes on every run, so anyone can rebuild the
     /// pinned file. The lock sets it only for a build that two runs gave with equal digests.
     public let byteReproducible: Bool?
+    /// How many distinct minimizers the built index holds.
+    public let minimizerCount: Int?
+    /// SHA-256 of the built index's minimizer set, lowercase hex, computed as `minimizerSetMethod` says.
+    public let minimizerSetSha256: String?
+    /// How `minimizerSetSha256` is computed, so anyone can recompute it from an index.
+    public let minimizerSetMethod: String?
+    /// What a reader needs to know about the build that its fields do not say.
+    public let note: String?
 
     /// The build as install-record parameters.
     var provenanceParameters: [String: ParameterValue] {
@@ -45,6 +56,18 @@ public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
         }
         if let byteReproducible {
             parameters["buildByteReproducible"] = .boolean(byteReproducible)
+        }
+        if let minimizerCount {
+            parameters["buildMinimizerCount"] = .integer(minimizerCount)
+        }
+        if let minimizerSetSha256 {
+            parameters["buildMinimizerSetSHA256"] = .string(minimizerSetSha256)
+        }
+        if let minimizerSetMethod {
+            parameters["buildMinimizerSetMethod"] = .string(minimizerSetMethod)
+        }
+        if let note {
+            parameters["buildNote"] = .string(note)
         }
         return parameters
     }

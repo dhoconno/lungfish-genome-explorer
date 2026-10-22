@@ -304,6 +304,15 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(build.sourceSizeBytes, 9_548_991)
         XCTAssertEqual(build.argv, Self.buildArgv)
         XCTAssertEqual(build.byteReproducible, true)
+        XCTAssertEqual(build.minimizerCount, 1_263_492)
+        XCTAssertEqual(build.minimizerSetSha256, "65a92bbcfb88b4db2ed437c9d4a22e2751916dafa4a31cf8c167daeaa0242c05")
+        XCTAssertEqual(
+            build.minimizerSetMethod,
+            "SHA-256 of the minimizers sorted ascending as 8-byte little-endian integers, the 11-byte header left out"
+        )
+        let note = try XCTUnwrap(build.note)
+        XCTAssertTrue(note.contains("minimizer-set digest"), note)
+        XCTAssertTrue(note.contains("one thread"), note)
     }
 
     /// A managed database whose lock row pins no hosted build has no update to apply. The registry says so and never
@@ -323,7 +332,66 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(requests.values, [])
     }
 
+    /// An index that holds the pinned build's minimizers in another order is a rebuild, and the status says so only
+    /// after it has computed the set from the installed file.
+    func testStatusCallsAReorderedCopyOfThePinnedIndexARebuild() async throws {
+        let words: [UInt64] = [5, 90, 17, 1_000_000, 42]
+        let pinned = Self.deaconIndex(words: words)
+        let reordered = Self.deaconIndex(words: [1_000_000, 17, 5, 42, 90])
+        let earlier = makeRegistry(spec: try spec(pinning: reordered, url: try serve(reordered, as: "reordered.idx")))
+        _ = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let registry = makeRegistry(spec: try spec(
+            pinning: pinned, url: try serve(pinned, as: "pinned.idx"), minimizerSet: (words.count, Self.setDigest(of: words))
+        ))
+
+        let status = try await registry.pinStatus(for: Self.databaseID)
+
+        XCTAssertEqual(status, .rebuildOfPinnedBuild(
+            installedSHA256: Self.sha256(reordered), pinnedSHA256: Self.sha256(pinned), minimizerCount: 5
+        ))
+        let summary = status.summary(databaseID: Self.databaseID)
+        XCTAssertTrue(summary.contains("holds the same 5 minimizers as the pinned build in a different order"), summary)
+        XCTAssertTrue(summary.contains("is a rebuild and filters the same reads"), summary)
+        XCTAssertTrue(summary.contains("db update deacon-ribokmers --yes"), summary)
+    }
+
+    /// An index with one minimizer changed has the same size and is not called a rebuild.
+    func testStatusStillCallsADifferentIndexDifferent() async throws {
+        let words: [UInt64] = [5, 90, 17, 1_000_000, 42]
+        let pinned = Self.deaconIndex(words: words)
+        let changed = Self.deaconIndex(words: [5, 90, 17, 1_000_001, 42])
+        XCTAssertEqual(pinned.count, changed.count)
+        let earlier = makeRegistry(spec: try spec(pinning: changed, url: try serve(changed, as: "changed.idx")))
+        _ = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let registry = makeRegistry(spec: try spec(
+            pinning: pinned, url: try serve(pinned, as: "pinned.idx"), minimizerSet: (words.count, Self.setDigest(of: words))
+        ))
+
+        let status = try await registry.pinStatus(for: Self.databaseID)
+
+        XCTAssertEqual(status, .differsFromPin(installedSHA256: Self.sha256(changed), pinnedSHA256: Self.sha256(pinned)))
+        XCTAssertTrue(status.summary(databaseID: Self.databaseID).contains("differs from the pinned build"))
+    }
+
     // MARK: - Helpers
+
+    /// A Deacon index: the 11-byte header (format 3, k 31, w 15, a little-endian count) and the 8-byte words.
+    static func deaconIndex(words: [UInt64]) -> Data {
+        var data = Data([3, 31, 15])
+        for value in [UInt64(words.count)] + words {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        return data
+    }
+
+    /// The set digest the lock records, computed here by the method the lock states and not by the code under test.
+    static func setDigest(of words: [UInt64]) -> String {
+        var data = Data()
+        for value in words.sorted() {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        return sha256(data)
+    }
 
     private static let buildArgv = [
         "deacon", "index", "build", "-k", "31", "-w", "15", "ribokmers.fa.gz", "-o", "ribokmers.k31w15.idx", "-t", "1",
@@ -343,15 +411,20 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
     }
 
     /// The lock entry of a hosted ribokmers build that pins `payload` and names `url` as its download.
-    func spec(pinning payload: Data, url: URL) throws -> DatabaseSpec {
+    func spec(pinning payload: Data, url: URL, minimizerSet: (count: Int, sha256: String)? = nil) throws -> DatabaseSpec {
+        var build: [String: Any] = [
+            "tool": "deacon", "toolVersion": "0.16.0", "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz",
+            "sourceSha256": String(repeating: "a", count: 64), "sourceSizeBytes": 12, "argv": Self.buildArgv,
+        ]
+        if let minimizerSet {
+            build["minimizerCount"] = minimizerSet.count
+            build["minimizerSetSha256"] = minimizerSet.sha256
+        }
         let json: [String: Any] = [
             "id": Self.databaseID, "sourcePolicy": "pinnedArchive", "tool": "deacon",
             "displayName": "Ribosomal RNA Removal Data", "version": "fixture-1", "filename": "ribokmers.k31w15.idx",
             "indexFormat": 3, "url": url.absoluteString, "sizeBytes": payload.count, "sha256": Self.sha256(payload),
-            "build": [
-                "tool": "deacon", "toolVersion": "0.16.0", "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz",
-                "sourceSha256": String(repeating: "a", count: 64), "sourceSizeBytes": 12, "argv": Self.buildArgv,
-            ] as [String: Any],
+            "build": build,
         ]
         return try JSONDecoder().decode(DatabaseSpec.self, from: JSONSerialization.data(withJSONObject: json))
     }

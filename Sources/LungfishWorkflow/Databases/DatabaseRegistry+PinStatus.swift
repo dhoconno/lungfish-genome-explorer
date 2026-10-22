@@ -10,6 +10,9 @@ public enum ManagedDatabasePinStatus: Sendable, Equatable {
     case notPinned(installedSHA256: String)
     case matchesPin(sha256: String)
     case differsFromPin(installedSHA256: String, pinnedSHA256: String)
+    /// The installed file holds the pinned build's minimizers in another order. The count is the one computed from the
+    /// installed file.
+    case rebuildOfPinnedBuild(installedSHA256: String, pinnedSHA256: String, minimizerCount: Int)
 
     /// One line for `lungfish-cli conda db info` and `db update`.
     public func summary(databaseID: String) -> String {
@@ -23,7 +26,15 @@ public enum ManagedDatabasePinStatus: Sendable, Equatable {
         case let .differsFromPin(installed, pinned):
             return "differs from the pinned build. The installed SHA-256 is \(installed), and the lock pins \(pinned). "
                 + "`lungfish-cli conda db update \(databaseID) --yes` replaces it"
+        case let .rebuildOfPinnedBuild(installed, pinned, count):
+            return "holds the same \(Self.groupedCount(count)) minimizers as the pinned build in a different order, so it is a "
+                + "rebuild and filters the same reads. The installed SHA-256 is \(installed), and the lock pins \(pinned). "
+                + "`lungfish-cli conda db update \(databaseID) --yes` replaces it"
         }
+    }
+
+    private static func groupedCount(_ count: Int) -> String {
+        count.formatted(IntegerFormatStyle<Int>().locale(Locale(identifier: "en_US")))
     }
 
     /// The SHA-256 of the installed file, nil when nothing is installed.
@@ -33,6 +44,7 @@ public enum ManagedDatabasePinStatus: Sendable, Equatable {
         case .notPinned(let installed): installed
         case .matchesPin(let sha256): sha256
         case .differsFromPin(let installed, _): installed
+        case .rebuildOfPinnedBuild(let installed, _, _): installed
         }
     }
 
@@ -42,6 +54,7 @@ public enum ManagedDatabasePinStatus: Sendable, Equatable {
         case .notInstalled, .notPinned: nil
         case .matchesPin(let sha256): sha256
         case .differsFromPin(_, let pinned): pinned
+        case .rebuildOfPinnedBuild(_, let pinned, _): pinned
         }
     }
 }
@@ -53,12 +66,21 @@ extension DatabaseRegistry {
         let resolvedID = Self.canonicalDatabaseID(for: id)
         guard let installed = effectiveDatabasePath(for: resolvedID) else { return .notInstalled }
         let digest = try ProvenanceFileHasher.sha256(of: installed)
-        guard let pinned = managedDatabaseLockLookup(resolvedID)?.sha256?.lowercased() else {
+        guard let spec = managedDatabaseLockLookup(resolvedID), let pinned = spec.sha256?.lowercased() else {
             return .notPinned(installedSHA256: digest)
         }
-        return digest == pinned
-            ? .matchesPin(sha256: digest)
-            : .differsFromPin(installedSHA256: digest, pinnedSHA256: pinned)
+        if digest == pinned {
+            return .matchesPin(sha256: digest)
+        }
+        // Another file that holds the pinned build's minimizers is a rebuild, not a changed database. The claim is
+        // computed from the installed file and never assumed, since a summary that says "same minimizers" without
+        // computing them would be a false fact.
+        if let pinnedSet = spec.build?.minimizerSetSha256?.lowercased(),
+           let identity = RecipeDatabaseIdentity.minimizerSetIdentity(of: installed),
+           identity.sha256 == pinnedSet, spec.indexFormat.map({ $0 == identity.format }) ?? true {
+            return .rebuildOfPinnedBuild(installedSHA256: digest, pinnedSHA256: pinned, minimizerCount: identity.count)
+        }
+        return .differsFromPin(installedSHA256: digest, pinnedSHA256: pinned)
     }
 
     /// Brings an installed managed database to the lock's pin. It is for a database the lock pins as a hosted build,
