@@ -143,4 +143,17 @@ final class RecipeDatabaseIdentityTests: XCTestCase {
             try DatabaseRegistry.checkStagedIndexAgainstLock(staged.url, manifest: manifest("deacon-ribokmers"), progress: nil)
         )
     }
+
+    /// The refusal tells the user what a reinstall does to the copy they have.
+    func testTheRefusalSaysThatReinstallingReplacesTheInstalledCopy() {
+        let message = RecipeDatabaseIdentityError.lockMismatch(
+            databaseID: "deacon-panhuman", path: "/db/panhuman-1.k31w15.idx", field: "SHA-256",
+            expected: "aa", actual: "bb"
+        ).localizedDescription
+
+        XCTAssertNotNil(message.range(of: "Reinstalling replaces the installed copy"), message)
+        XCTAssertNotNil(
+            message.range(of: "lungfish-cli conda db install-managed deacon-panhuman --reinstall"), message
+        )
+    }
 }

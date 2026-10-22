@@ -13,8 +13,8 @@ public enum RecipeDatabaseIdentityError: Error, LocalizedError, Sendable, Equata
         switch self {
         case let .lockMismatch(databaseID, path, field, expected, actual):
             return "The \(databaseID) database at \(path) does not match the bundled lock. Its \(field) is \(actual), "
-                + "and the lock pins \(expected). Reinstall it with `lungfish-cli conda db install-managed "
-                + "\(databaseID) --reinstall`."
+                + "and the lock pins \(expected). Reinstalling replaces the installed copy: "
+                + "`lungfish-cli conda db install-managed \(databaseID) --reinstall`."
         }
     }
 }
