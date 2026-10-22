@@ -67,7 +67,7 @@ extension OutputEquivalence {
                 Masks.alignmentStatsDuration, Masks.primerOrderRecordDigests, Masks.primerExportSourceURL,
             ]
             return MaskPolicy(
-                provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes],
+                provenance: records + [Masks.provenanceRuntime, Masks.minimap2RunTimes, Masks.bbtoolsRunTimes],
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
                 payloads: [
