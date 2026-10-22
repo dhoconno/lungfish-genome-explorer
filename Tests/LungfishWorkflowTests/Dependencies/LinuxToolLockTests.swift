@@ -18,6 +18,10 @@ final class LinuxToolLockTests: XCTestCase {
     /// deacon check ran on. A change to the image's tool set is a lane of its own that reruns both (K5.1).
     private static let sliceZeroEnvironmentSHA256 = "9bb6e82dd3516d28a8ebac4dafee930842b798c77e13b11a3104bbbb2cdec414"
 
+    /// The SHA-256 of the Trim Galore environment's explicit file. This is the build whose engine the K5
+    /// review read. A change reruns that read and FC-B1's experiment inside the image.
+    private static let trimGaloreEnvironmentSHA256 = "6a6b0d237bc37c871cd5cd6b466e97340c6f6268752ec96368ecead6901c0a99"
+
     /// The Mac lock's tools the CHTC image does not carry. A tool added to the Mac lock fails the
     /// mirror test until it is named here or added to the linux-64 lock.
     private static let toolsTheImageDoesNotCarry: Set<String> = [
@@ -141,6 +145,8 @@ final class LinuxToolLockTests: XCTestCase {
         let trim = try XCTUnwrap(installed["trim_galore"])
         XCTAssertTrue(trim.contains { $0.name == "trim-galore" && $0.version == "2.3.0" })
         XCTAssertEqual(linux.tool(named: "trim_galore")?.environment, "trim_galore")
+        XCTAssertEqual(try XCTUnwrap(linux.explicitLock(forEnvironment: "trim_galore")).sha256, Self.trimGaloreEnvironmentSHA256,
+                       "a change to the Trim Galore build reruns the K5 review's read of its engine")
         for tool in linux.tools where tool.id != "trim_galore" {
             XCTAssertEqual(tool.environment, "lge-tools", tool.id)
         }
