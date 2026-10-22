@@ -25,6 +25,25 @@ public enum ManagedDatabasePinStatus: Sendable, Equatable {
                 + "`lungfish-cli conda db update \(databaseID) --yes` replaces it"
         }
     }
+
+    /// The SHA-256 of the installed file, nil when nothing is installed.
+    public var installedSHA256: String? {
+        switch self {
+        case .notInstalled: nil
+        case .notPinned(let installed): installed
+        case .matchesPin(let sha256): sha256
+        case .differsFromPin(let installed, _): installed
+        }
+    }
+
+    /// The SHA-256 the lock pins, nil when the status does not carry it.
+    public var pinnedSHA256: String? {
+        switch self {
+        case .notInstalled, .notPinned: nil
+        case .matchesPin(let sha256): sha256
+        case .differsFromPin(_, let pinned): pinned
+        }
+    }
 }
 
 extension DatabaseRegistry {
