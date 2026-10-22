@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """process-spawn.sh - Ratchet on direct subprocess creation and termination (review finding R7).
 
-Counts, over Sources/**/*.swift, outside the folder that hosts the process primitive
-(Sources/LungfishCore/Process/):
-    files_creating_process   files that contain Process()
-    raw_terminate_calls      occurrences of .terminate()
-Each count may only fall. Text after // on a line is ignored (comment lines and trailing
-comments). Sources/LungfishWorkflow/Native/ is counted like any other folder, because
+Counts, over Sources/**/*.swift, outside each count's exempt folders:
+    files_creating_process   files that contain Process()            exempt in Sources/LungfishCore/Process/
+    raw_terminate_calls      occurrences of .terminate()             exempt in Sources/LungfishCore/Process/
+    raw_posix_spawn_calls    occurrences of posix_spawn( and         exempt in Sources/LungfishCore/Process/ and
+                             posix_spawnp(, also over Sources/**/*.c  Sources/LungfishExecutor/Process/
+Sources/LungfishCore/Process/ hosts the process primitive, ToolProcess. Sources/LungfishExecutor/Process/ is the
+launcher of the Linux executor lungfish-executor alone, which runs where ToolProcess does not build, so it may spawn
+but may not create a Process() or call .terminate(). Each count may only fall. Text after // on a line is ignored
+(comment lines and trailing comments). Sources/LungfishWorkflow/Native/ is counted like any other folder, because
 NativeToolRunner is an adapter on ToolProcess and spawns nothing itself.
 New code should launch tools through the shared process primitive so cancellation, process
 group teardown and output capture behave the same everywhere.
@@ -29,14 +32,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES_DIR = REPO_ROOT / "Sources"
 BASELINE_FILE = Path(__file__).resolve().with_suffix(".baseline")
 
-EXCLUDED_PREFIXES = (
-    "Sources/LungfishCore/Process/",
-)
+CORE_PROCESS = "Sources/LungfishCore/Process/"
+EXECUTOR_PROCESS = "Sources/LungfishExecutor/Process/"
+EXEMPT = {
+    "files_creating_process": (CORE_PROCESS,),
+    "raw_terminate_calls": (CORE_PROCESS,),
+    "raw_posix_spawn_calls": (CORE_PROCESS, EXECUTOR_PROCESS),
+}
 
 PROCESS_RX = re.compile(r"(?<![\w.])(?:Foundation\.)?Process\(\)")
 TERMINATE_RX = re.compile(r"\.terminate\(\)")
+SPAWN_RX = re.compile(r"\bposix_spawnp?\(")
 
-NAMES = ("files_creating_process", "raw_terminate_calls")
+NAMES = ("files_creating_process", "raw_terminate_calls", "raw_posix_spawn_calls")
 
 
 def strip_line_comment(line):
@@ -64,22 +72,28 @@ def scan():
     sites = []
     if not SOURCES_DIR.is_dir():
         return counts, sites
-    for path in sorted(SOURCES_DIR.rglob("*.swift")):
+    paths = sorted(SOURCES_DIR.rglob("*.swift")) + sorted(SOURCES_DIR.rglob("*.c"))
+    for path in paths:
         rel = path.relative_to(REPO_ROOT).as_posix()
-        if rel.startswith(EXCLUDED_PREFIXES):
-            continue
+        swift = rel.endswith(".swift")
+        counted = {name: not rel.startswith(EXEMPT[name]) for name in NAMES}
         text = path.read_text(encoding="utf-8", errors="replace")
         creates = False
         for lineno, line in enumerate(text.splitlines(), 1):
             code = strip_line_comment(line)
-            if PROCESS_RX.search(code):
+            if swift and counted["files_creating_process"] and PROCESS_RX.search(code):
                 if not creates:
                     counts["files_creating_process"] += 1
                     creates = True
                 sites.append(f"{rel}:{lineno}: Process()")
-            for _ in TERMINATE_RX.finditer(code):
-                counts["raw_terminate_calls"] += 1
-                sites.append(f"{rel}:{lineno}: .terminate()")
+            if swift and counted["raw_terminate_calls"]:
+                for _ in TERMINATE_RX.finditer(code):
+                    counts["raw_terminate_calls"] += 1
+                    sites.append(f"{rel}:{lineno}: .terminate()")
+            if counted["raw_posix_spawn_calls"]:
+                for _ in SPAWN_RX.finditer(code):
+                    counts["raw_posix_spawn_calls"] += 1
+                    sites.append(f"{rel}:{lineno}: posix_spawn")
     return counts, sites
 
 
@@ -110,7 +124,11 @@ def main(argv):
         return 0
 
     if "--update" in argv:
-        lines = ["# process-spawn baseline: counts under Sources/ outside the process primitive folder, Sources/LungfishCore/Process/. Counts may only fall."]
+        lines = [
+            "# process-spawn baseline: counts under Sources/ taken outside each count's exempt folders, "
+            "Sources/LungfishCore/Process/ for all three and Sources/LungfishExecutor/Process/ for "
+            "raw_posix_spawn_calls alone. Counts may only fall."
+        ]
         lines += [f"{name} {n}" for name, n in counts.items()]
         BASELINE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print("Updated baseline: " + ", ".join(f"{n} {name}" for name, n in counts.items()) + ".")
@@ -134,8 +152,9 @@ def main(argv):
             )
         print(
             "Launch tools through the shared process primitive, ToolProcess in "
-            "Sources/LungfishCore/Process/, instead of creating a Process() or calling .terminate() "
-            "directly (review finding R7).",
+            "Sources/LungfishCore/Process/, instead of creating a Process(), calling .terminate() or calling "
+            "posix_spawn directly (review finding R7). Only the Linux executor's launcher in "
+            "Sources/LungfishExecutor/Process/ may call posix_spawn as well.",
             file=sys.stderr,
         )
         return 1

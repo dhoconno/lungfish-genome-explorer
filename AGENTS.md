@@ -54,7 +54,7 @@ LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. Lun
 
 | Looking for | Start at |
 |---|---|
-| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive, see `docs/contracts/RUNNING-A-TOOL.md`). An analysis kind is a different id from a managed tool, and both are added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
+| Tool execution and pinned tool versions | `Sources/LungfishCore/Process/ToolProcess.swift` (the one primitive on the Mac, with the `lungfish-executor` launcher in `Sources/LungfishExecutor/Process/` as the one exception (`docs/contracts/RUNNING-A-TOOL.md`)). An analysis kind is a different id from a managed tool, and both are added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
 | Menus | `Sources/LungfishApp/App/MainMenu.swift` and its `MainMenu+<Menu>.swift` extensions. The Tools menu is generated from `FASTQOperationToolID`, so a new read tool is never a menu item and is added as Where to add X in `docs/architecture/ARCHITECTURE.md` sets |
 
 ## Binding rules
@@ -70,7 +70,7 @@ These rules are not optional.
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |
 | Provenance policy registered | A new top-level CLI command needs an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` or `ScientificCLIProvenanceCoverageTests` fails. A new `NativeTool` case without a `nativeToolPolicies` entry makes `NativeToolRunner` throw `missingProvenancePolicy`. |
 | Projects live on ExFAT too | Most external SSDs ship as ExFAT, where `RENAME_EXCL`, `RENAME_SWAP`, `clonefile` and hard links fail with `ENOTSUP`. Every rename with a flag goes through `PortableRename` (raw calls are banned), and every file-system change follows `docs/contracts/EXTERNAL-VOLUMES.md`. |
-| Launch tools through ToolProcess | Start every external program through `ToolProcess` or one of its adapters and never create a `Process()` or call `.terminate()` outside `Sources/LungfishCore/Process/`. `docs/contracts/RUNNING-A-TOOL.md` picks the entry point. |
+| Launch tools through ToolProcess | Start every external program through `ToolProcess` or one of its adapters on the Mac, with the `lungfish-executor` launcher in `Sources/LungfishExecutor/Process/` as the one exception (`docs/contracts/RUNNING-A-TOOL.md`), and never create a `Process()` or call `.terminate()` outside `Sources/LungfishCore/Process/`. `docs/contracts/RUNNING-A-TOOL.md` picks the entry point. |
 | Viral Recon binds `.lungfishref` | The Viral Recon viewport binds a `.lungfishref` bundle whose manifest registers the BAM. It never opens a loose BAM. |
 
 One more habit matters. Call both `OperationCenter.shared.update` and `OperationCenter.shared.log` from a running operation, because only logged lines persist in the row history.

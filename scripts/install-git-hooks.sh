@@ -12,7 +12,7 @@
 #     every bundled Python resource script under Sources/*/Resources
 #     (scripts/checks/compile-embedded-python.py), then
 #     runs the architecture-program ratchets and checks (file-size,
-#     concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn,
+#     concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, portable-imports,
 #     provenance-writers, path-helpers, tool-identity, native-tool-runner-in-app, doc-path-references,
 #     module-map-current, features-yaml-sources, duplicate-public-types; docs/plans/2026-10-02-architecture-program.md), then
 #     checks that no plan, spec, issue or verification note under docs/ looks finished or
@@ -187,7 +187,7 @@ fi
 
 echo "pre-push: checking the process-spawn ratchet (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/ratchets/process-spawn.sh"; then
-    echo "pre-push: process-spawn ratchet FAILED (a new Process() or .terminate() outside the shared process primitive; see scripts/ratchets/process-spawn.sh) — push aborted. Use --no-verify to bypass." >&2
+    echo "pre-push: process-spawn ratchet FAILED (a new Process(), .terminate() or posix_spawn outside the shared process primitive; see scripts/ratchets/process-spawn.sh) — push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
@@ -212,6 +212,12 @@ fi
 echo "pre-push: checking the native-tool-runner-in-app ratchet (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/ratchets/native-tool-runner-in-app.sh"; then
     echo "pre-push: native-tool-runner-in-app ratchet FAILED (a new App file that names NativeToolRunner; see scripts/ratchets/native-tool-runner-in-app.sh) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the portable-imports ratchet (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/ratchets/portable-imports.sh"; then
+    echo "pre-push: portable-imports ratchet FAILED (an Apple-only import, a host or scheduler token, or a new user of the Linux executor or its C target; see scripts/ratchets/portable-imports.sh) — push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
@@ -301,7 +307,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, portable-imports, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash

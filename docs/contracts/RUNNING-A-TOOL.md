@@ -1,6 +1,6 @@
 # Running a tool
 
-This contract says how Lungfish Genome Explorer (LGE) code launches an external program. Every launch goes through one primitive, `ToolProcess` in `Sources/LungfishCore/Process/ToolProcess.swift`, either directly or through one of four adapters. Before Phase 2.2 each runner had its own pipe handling, its own timeout and its own way of stopping a tree, so a tool that wrote more than 64 KB could deadlock one runner and a cancelled Nextflow left its JVM running. This is review finding R7.
+This contract says how Lungfish Genome Explorer (LGE) code launches an external program. Every launch on the Mac goes through one primitive, `ToolProcess` in `Sources/LungfishCore/Process/ToolProcess.swift`, either directly or through one of four adapters. The one exception is the Linux executor `lungfish-executor`, which runs where `ToolProcess` does not build and starts its plan's tools through its own POSIX launcher in `Sources/LungfishExecutor/Process/` (see The Linux executor's launcher). Before Phase 2.2 each runner had its own pipe handling, its own timeout and its own way of stopping a tree, so a tool that wrote more than 64 KB could deadlock one runner and a cancelled Nextflow left its JVM running. This is review finding R7.
 
 ## Which entry point to use
 
@@ -54,13 +54,35 @@ Every run, from any entry point, keeps these guarantees. Do not rebuild one of t
 
 | Rule | Why |
 |---|---|
-| Never create `Process()` or call `.terminate()` outside `Sources/LungfishCore/Process/` | `scripts/ratchets/process-spawn.sh` counts both and fails the pre-push hook when a count rises. A raw `Process` leaves its descendants running on cancel and reads its pipes in ways that deadlock. The recorded baseline in `scripts/ratchets/process-spawn.baseline` only falls. |
+| Never create `Process()` or call `.terminate()` outside `Sources/LungfishCore/Process/`, and never call `posix_spawn` or `posix_spawnp` outside that folder and `Sources/LungfishExecutor/Process/` | `scripts/ratchets/process-spawn.sh` counts all three and fails the pre-push hook when a count rises. A raw `Process` leaves its descendants running on cancel and reads its pipes in ways that deadlock. `Sources/LungfishExecutor/Process/` is the launcher of the Linux executor `lungfish-executor` alone, and no target but its tests depends on it. The recorded baseline in `scripts/ratchets/process-spawn.baseline` only falls. |
 | Never name `NativeToolRunner` in `Sources/LungfishApp` | `scripts/ratchets/native-tool-runner-in-app.sh` counts the App files that name it outside comments and fails the pre-push hook when the count rises. The GUI runs the `lungfish-cli` command for an operation, so an App file that runs a managed tool in process is a second path to the same result. The recorded baseline in `scripts/ratchets/native-tool-runner-in-app.baseline` only falls. |
 | Never read a pipe after the process exits | A descendant can still hold the write end, and a tool that wrote more than 64 KB blocks until someone reads. `ToolProcess` reads from launch to end of file. |
 | Never block a thread on a semaphore waiting for a `Task` | A blocked cooperative thread starves the pool the task needs, and the pair deadlocks. A synchronous caller uses `ToolProcess.runBlocking`, which needs no Swift task. An async caller uses `ToolProcess.run`. Never call `runBlocking`, `waitBlocking`, `read(upTo:)` or `writeBlocking` on the main thread. A debug build of the app traps any of these calls on the main thread through `ToolProcessMainThreadGuard`, which only `Sources/Lungfish/main.swift` arms. So the trap fires only on the paths a debug run takes, such as `release.py debug` and the GUI walk, and a test process, `lungfish-cli` and a packaged build are never armed. |
 | Parse stdout from bytes or streamed stdout, never from line events | Lines are cut at `maxLineBytes` and a lone CR becomes a line break. Use `ToolProcessResult.stdout` or `ToolProcessOutput.stream` for BAM text, VCF records and JSON. Line events are for progress and logs. |
 | Check `isSuccess`, not only the exit code | A clean exit with a lingering descendant is not a success. Map `incompleteOutputReason` into your error type, as `NativeToolProcessAdapter.requireCompleteOutput` does. A runner whose caller reads nothing from the output, and takes its success from the exit code and the files it checks on disk, may keep the exit code instead if its operation row logs the reason as a warning line, as the app's runner of `lungfish-cli workflow run` for Viral Recon and Local Workflow does (Phase 2.9 lane S16). |
 | Register the process with the caller's cancellation | Pass the task's cancellation through `ToolProcess.run`, keep the `ToolProcessRun` from `start`, or give `runBlocking` a `ToolProcessCancellation`. A cancel that only signals a pid skips the descendants. |
+
+## The Linux executor's launcher
+
+`lungfish-executor` runs a plan's tools on Linux, where `ToolProcess` does not build, through its own POSIX launcher in `Sources/LungfishExecutor/Process/`. Each guarantee of What the primitive guarantees is kept, changed or not applicable there. A later change to a `ToolProcess` guarantee updates this table in the same commit. Lane K3 of the CHTC program writes the launcher and the tests marked K3, and corrects in its own commit any name it changes.
+
+| Guarantee | On the executor | Test that pins it |
+|---|---|---|
+| Spawned with posix_spawn | Changed. The child leads its own process group with default signal dispositions and an empty signal mask. Spawn hygiene uses an `FD_CLOEXEC` sweep of `/proc/self/fd` at start and `pipe2(O_CLOEXEC)` in place of `POSIX_SPAWN_CLOEXEC_DEFAULT`, so a tool still has only stdin, stdout and stderr open. | `testChildHasOnlyStandardDescriptorsOpen` (K3) |
+| Stdin is `/dev/null` by default | Kept. | `testChildStdinReadsEndOfFile` (K3) |
+| The environment is complete | Kept. The plan's step gives the whole environment. | `testChildEnvironmentIsTheStepEnvironmentOnly` (K3) |
+| Both streams are drained while the process runs | Kept. | `testChildWritingPastThePipeBufferDoesNotBlock` (K3) |
+| Incomplete output is a failure | Kept. A descendant that outlives the tool fails the step before its outputs are counted or hashed. | `testLingeringDescendantFailsStep` and `testLingeringWriterFailsStepBeforeOutputDigest` (K3) |
+| A nonzero exit is a result | Kept. The run record carries the code or the signal. | `testNonzeroExitIsRecordedAsStepFailure` (K3) |
+| Cancel kills the group and the tree | Changed. Cancel sends SIGTERM to the group and to descendants found through `/proc/<pid>/stat`, then SIGKILL after the plan's grace (default 30 s, refused above 120 s) in place of 500 ms. On Linux the executor is a child subreaper through `CLungfishExecutor`, so a descendant that left the group re-parents to it and the walk finds it. | `testSIGTERMReachesGroupAndSetsidDescendantThenSIGKILLAfterGrace`, `testSweepNeverReapsTrackedChild`, `testChildSubreaperWrapperReportsENOSYSOffLinux` and `testRunRecordStatesSubreaperSetOnLinux` (K3) |
+| Wall and idle limits | Kept. | `testStepWallLimitStopsTheTree` (K3) |
+| Exit status is the shell's | Kept. | `testExitMinusOneReads255` (K3) |
+| Drain grace of 5 seconds | Kept. | `testDescendantHoldingStdoutIsStoppedAfterDrainGrace` (K3) |
+| Stderr keeps its last 4 MB | Kept. | `testStderrKeepsItsLastFourMegabytes` (K3) |
+| Lines are framed at 64 KB | Kept. | `testLinesAreFramedAt64KB` (K3) |
+| Raw bytes with backpressure | Changed. SIGPIPE is ignored for the whole process in place of `F_SETNOSIGPIPE`, so a tool that stops reading ends the write with an error and never kills the executor. | `testReaderGoneEndsWriteWithoutSIGPIPE` and `testMultiMemberBGZFReadsEveryRecordThroughLinuxLauncher` (K3) |
+| Output into a descriptor you own | Kept. | `testDescriptorOutputKeepsTheFileIdentity` (K3) |
+| Registered for app quit | Not applicable. The executor has no app to quit, and its own signal handler stops every child. | `testSIGTERMReachesGroupAndSetsidDescendantThenSIGKILLAfterGrace` (K3) |
 
 ## Signals in the CLI
 
