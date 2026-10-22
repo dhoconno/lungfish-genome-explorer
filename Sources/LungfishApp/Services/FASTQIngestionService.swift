@@ -493,7 +493,9 @@ public enum FASTQIngestionService {
         }
         guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
         // The legacy built-in VSP2 recipe runs as the merged recipe's VSP2 preset. It is matched by its id and
-        // passed as a preset id, never matched by a recipe's name (ruling BIO-PRESET P3).
+        // passed as a preset id, never matched by a recipe's name (ruling BIO-PRESET P3). `ProcessingRecipe.id`
+        // defaults to `UUID()` and the static is built without one, so each launch has its own id. The compare
+        // holds for that instance, and a copy decoded from a file another launch wrote no longer maps to the preset.
         if recipe.id == ProcessingRecipe.illuminaVSP2TargetEnrichment.id {
             return "vsp2-target-enrichment"
         }
