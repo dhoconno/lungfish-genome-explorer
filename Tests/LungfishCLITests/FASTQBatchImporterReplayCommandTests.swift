@@ -177,11 +177,15 @@ final class FASTQBatchImporterReplayCommandTests: XCTestCase {
     }
 
     /// A record written before lane C2-SHEETFIX names no `--pairing`. Its replay goes out as recorded, so `import fastq`
-    /// runs its default, `auto`, and detects the pairing again as the run that wrote the record did.
+    /// runs its default, `auto`, and detects the pairing again as the run that wrote the record did. The command is
+    /// written out as the earlier builder wrote it, so the test does not depend on the builder it freezes against.
     func testAnOldRecordThatNamesNoPairingReplaysAsRecorded() throws {
-        var old = command(pairedSample, .auto, durable: true)
-        let index = try XCTUnwrap(old.firstIndex(of: "--pairing"))
-        old.removeSubrange(index...(index + 1))
+        let old = [
+            "lungfish-cli", "import", "fastq", "/data/S1_R1.fastq.gz", "/data/S1_R2.fastq.gz",
+            "--project", "/data/Project.lungfish", "--platform", "illumina", "--recipe", "none",
+            "--quality-binning", "illumina4", "--clumping-tool", "bbtools", "--compression", "balanced",
+            "--threads", "4",
+        ]
 
         XCTAssertEqual(QualityBinningReplay.arguments(old, stated: nil), old, "the replay adds no option")
         XCTAssertEqual(try parsedPairing(old), "auto")
