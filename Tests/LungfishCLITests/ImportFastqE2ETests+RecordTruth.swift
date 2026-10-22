@@ -206,6 +206,25 @@ extension ImportFastqE2ETests {
         zip(argv, argv.dropFirst()).contains { $0 == flag && $1 == value }
     }
 
+    /// An import that names neither platform nor pairing, as the Import FASTQ sheet launches one it leaves untouched,
+    /// records `auto` for both in `argv`, what was asked, and in its durable command the platform it detected and
+    /// `paired` for the R1/R2 pair, so a replay runs what this run ran whatever detection does then (lane C2-SHEETFIX).
+    func testAnUntouchedImportRecordsAutoAndReplaysThePlatformAndPairingThatRan() async throws {
+        try await recordTruthRequire(.clumpify)
+        let (envelope, metadata) = try recordTruthImport([
+            "--no-optimize-storage", "--compression", "fast", "--quality-binning", "none",
+        ])
+        let durable = try XCTUnwrap(envelope.durableReplayArgv, "the record holds no durable command")
+        let durablePlatform = zip(durable, durable.dropFirst()).first { $0.0 == "--platform" }?.1
+
+        XCTAssertEqual(metadata?.ingestion?.pairingMode, .interleaved, "the pair was imported paired")
+        XCTAssertTrue(recordTruthNames(envelope.argv, "--platform", "auto"), "\(envelope.argv)")
+        XCTAssertTrue(recordTruthNames(envelope.argv, "--pairing", "auto"), "\(envelope.argv)")
+        XCTAssertNotNil(durablePlatform, "\(durable)")
+        XCTAssertNotEqual(durablePlatform, "auto", "the durable command names the detected platform: \(durable)")
+        XCTAssertTrue(recordTruthNames(durable, "--pairing", "paired"), "\(durable)")
+    }
+
     // MARK: - M2, recipe identity
 
     /// The record names the recipe file that ran by the SHA-256 of its bytes and its format version, beside the id

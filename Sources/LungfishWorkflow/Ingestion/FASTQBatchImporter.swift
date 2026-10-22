@@ -592,6 +592,7 @@ public enum FASTQBatchImporter {
                 r1: processingPair.r1,
                 hasR2: processingPair.r2 != nil
             )
+            let importedPairing = recordedPairing // what the durable command names, ``durablePairing``
             // Filled in when a recipe merged pairs: the bundle then holds
             // merged reads and adjacent pairs, which the sidecar records by
             // count so consumers do not take "interleaved" at face value.
@@ -910,6 +911,7 @@ public enum FASTQBatchImporter {
                 materializationSteps: materialization.provenanceSteps + (unpairedReads.map { [$0.step] } ?? []),
                 unpairedReads: unpairedReads,
                 config: config,
+                importedPairing: importedPairing,
                 stagingBundleURL: stagingBundleURL,
                 stagingBundleFASTQURL: stagingBundleFASTQURL,
                 publishedBundleURL: bundleURL,
@@ -1123,6 +1125,7 @@ public enum FASTQBatchImporter {
         materializationSteps: [StepExecution],
         unpairedReads: UnpairedReadsLayout?,
         config: ImportConfig,
+        importedPairing: RecordedPairing,
         stagingBundleURL: URL,
         stagingBundleFASTQURL: URL,
         publishedBundleURL: URL,
@@ -1165,7 +1168,7 @@ public enum FASTQBatchImporter {
             id: importStepID,
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: reproducibleImportCommand(pair: pair, config: config, durable: true),
+            command: reproducibleImportCommand(pair: pair, config: config, durable: true, imported: importedPairing),
             inputs: originalInputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: provenanceFormat(for: $0), role: .input)
             }
@@ -1198,7 +1201,9 @@ public enum FASTQBatchImporter {
 
         let completedAt = runClock.now
         let command = reproducibleImportCommand(pair: pair, config: config)
-        let durableCommand = reproducibleImportCommand(pair: pair, config: config, durable: true)
+        let durableCommand = reproducibleImportCommand(
+            pair: pair, config: config, durable: true, imported: importedPairing
+        )
         var builder = ProvenanceRunBuilder(
             workflowName: "lungfish import fastq",
             workflowVersion: WorkflowRun.currentAppVersion,
@@ -1876,38 +1881,19 @@ public enum FASTQBatchImporter {
         }
     }
 
-    /// The import command line. `durable` names the resolved platform instead
-    /// of what was asked for, so a replay never depends on the detector.
-    static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig, durable: Bool = false) -> [String] {
+    /// The import command line. `argv` names what was asked. `durable` names the platform the sample resolved to and
+    /// the pairing it ran with (``durablePairing(pair:config:imported:)``), so a replay never depends on the detector.
+    static func reproducibleImportCommand(
+        pair: SamplePair, config: ImportConfig, durable: Bool = false, imported: RecordedPairing? = nil
+    ) -> [String] {
         let platform = durable ? config.sequencingPlatform.importCLIValue : config.platformRequest.cliValue
-        if let sampleSheetURL = pair.sampleSheetURL {
-            var command = [
-                CLICommandIdentity.executableName, "import", "fastq",
-                "--samplesheet", sampleSheetURL.path,
-                "--project", config.projectDirectory.path,
-                "--platform", platform,
-                "--recipe", config.newRecipe?.requestedName ?? config.recipe?.name ?? "none",
-                "--quality-binning", config.qualityBinning.rawValue,
-                "--clumping-tool", config.clumpingTool.rawValue,
-                "--compression", config.compressionLevel.rawValue,
-                "--threads", String(config.threads),
-            ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
-            command += config.newRecipe?.switchOptionArguments ?? []
-            if !config.optimizeStorage {
-                command.append("--no-optimize-storage")
-            }
-            if config.forceReimport {
-                command.append("--force")
-            }
-            return command
-        }
-
-        var command = [
-            CLICommandIdentity.executableName, "import", "fastq",
-        ] + pair.inputFiles.map(\.path)
+        let pairing = durable ? durablePairing(pair: pair, config: config, imported: imported) : config.pairing.rawValue
+        var command = [CLICommandIdentity.executableName, "import", "fastq"]
+            + (pair.sampleSheetURL.map { ["--samplesheet", $0.path] } ?? pair.inputFiles.map(\.path))
         command += [
             "--project", config.projectDirectory.path,
             "--platform", platform,
+            "--pairing", pairing,
             "--recipe", config.newRecipe?.requestedName ?? config.recipe?.name ?? "none",
             "--quality-binning", config.qualityBinning.rawValue,
             "--clumping-tool", config.clumpingTool.rawValue,
@@ -1922,6 +1908,18 @@ public enum FASTQBatchImporter {
             command.append("--force")
         }
         return command
+    }
+
+    /// The pairing a durable command names: a choice the user made as given, `paired` for an R1/R2 pair, and
+    /// `interleaved` for a lone file whose records alternate mates. A lone file detected single-end names `auto`, so a
+    /// replay keeps its single-end detected, not final (``FASTQPairingMetadataHints/recordsExplicitSingleEnd``). A
+    /// sample sheet's command replays every sample with one value, so a lone file there names `auto`, since
+    /// `interleaved` would split the sheet's R1/R2 pairs.
+    static func durablePairing(pair: SamplePair, config: ImportConfig, imported: RecordedPairing?) -> String {
+        guard config.pairing == .auto else { return config.pairing.rawValue }
+        if pair.r2 != nil { return ImportPairing.paired.rawValue }
+        let alternates = pair.sampleSheetURL == nil && imported?.mode == .interleaved
+        return (alternates ? ImportPairing.interleaved : ImportPairing.auto).rawValue
     }
 
     // MARK: - Recipe Execution

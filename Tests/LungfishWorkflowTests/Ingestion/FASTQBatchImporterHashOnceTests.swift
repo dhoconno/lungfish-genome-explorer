@@ -154,6 +154,7 @@ final class FASTQBatchImporterHashOnceTests: XCTestCase {
             materializationSteps: [],
             unpairedReads: nil,
             config: fixture.config,
+            importedPairing: .init(mode: .interleaved, source: .detected),
             stagingBundleURL: staging.bundle,
             stagingBundleFASTQURL: staging.fastq,
             publishedBundleURL: fixture.publishedBundle,

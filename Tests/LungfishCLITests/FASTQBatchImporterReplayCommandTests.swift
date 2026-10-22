@@ -102,4 +102,88 @@ final class FASTQBatchImporterReplayCommandTests: XCTestCase {
         XCTAssertEqual(vsp2["recipeSwitch.removeDuplicates"], .string("on (preset)"))
         XCTAssertEqual(vsp2["recipeSwitch.removeRibosomalRNA"], .string("off (preset)"))
     }
+
+    // MARK: - Lane C2-SHEETFIX, the pairing a record states
+
+    private let pairedSample = SamplePair(
+        sampleName: "S1", r1: URL(fileURLWithPath: "/data/S1_R1.fastq.gz"), r2: URL(fileURLWithPath: "/data/S1_R2.fastq.gz")
+    )
+    private let loneSample = SamplePair(sampleName: "S2", r1: URL(fileURLWithPath: "/data/S2.fastq.gz"), r2: nil)
+
+    private func command(
+        _ pair: SamplePair, _ pairing: FASTQBatchImporter.ImportPairing, durable: Bool = false
+    ) -> [String] {
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: URL(fileURLWithPath: "/data/Project.lungfish"),
+            platform: ImportPlatformRequest.given(.illumina),
+            pairing: pairing
+        )
+        return FASTQBatchImporter.reproducibleImportCommand(pair: pair, config: config, durable: durable)
+    }
+
+    /// The pairing `import fastq` itself parses from `arguments`.
+    private func parsedPairing(_ arguments: [String]) throws -> String {
+        try ImportCommand.FastqSubcommand.parse(Array(arguments.dropFirst(3))).pairing
+    }
+
+    /// An R1/R2 pair imported with no `--pairing` ran paired. The record's `argv` keeps what was asked, `auto`, and its
+    /// durable command names `paired`, so a replay pairs the files whatever detection does then.
+    func testAnR1R2PairUnderAutoRecordsAutoAndReplaysPaired() throws {
+        let asked = command(pairedSample, .auto)
+        let durable = command(pairedSample, .auto, durable: true)
+
+        XCTAssertEqual(optionValue("--pairing", in: asked), "auto", "argv keeps what was asked: \(asked)")
+        XCTAssertEqual(optionValue("--pairing", in: durable), "paired", "\(durable)")
+        XCTAssertEqual(try parsedPairing(asked), "auto")
+        XCTAssertEqual(try parsedPairing(durable), "paired")
+    }
+
+    /// A pairing the user chose is recorded as given, in `argv` and in the durable command.
+    func testAPairingTheUserChoseIsRecordedAsGiven() throws {
+        for pairing in [FASTQBatchImporter.ImportPairing.single, .interleaved, .paired] {
+            for durable in [false, true] {
+                let arguments = command(loneSample, pairing, durable: durable)
+                XCTAssertEqual(optionValue("--pairing", in: arguments), pairing.rawValue, "\(arguments)")
+                XCTAssertEqual(try parsedPairing(arguments), pairing.rawValue)
+            }
+        }
+    }
+
+    /// A lone file imported with no `--pairing` names `interleaved` in the durable command when its records alternate
+    /// mates and `auto` when they read single-end, so a replay keeps that single-end detected, not final. A sample
+    /// sheet's command names `auto` for it, since one value replays every sample of the sheet.
+    func testALoneFileUnderAutoReplaysWhatItsRecordsShowed() throws {
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: URL(fileURLWithPath: "/data/Project.lungfish"), platform: ImportPlatformRequest.given(.illumina)
+        )
+        let alternating = FASTQBatchImporter.RecordedPairing(mode: .interleaved, source: .detected)
+        let single = FASTQBatchImporter.RecordedPairing(mode: .singleEnd, source: .detected)
+        let sheetSample = SamplePair(
+            sampleName: "S3", r1: URL(fileURLWithPath: "/data/S3.fastq.gz"), r2: nil,
+            sampleSheetURL: URL(fileURLWithPath: "/data/samples.csv")
+        )
+        func durable(_ pair: SamplePair, _ imported: FASTQBatchImporter.RecordedPairing) -> [String] {
+            FASTQBatchImporter.reproducibleImportCommand(pair: pair, config: config, durable: true, imported: imported)
+        }
+
+        XCTAssertEqual(optionValue("--pairing", in: durable(loneSample, alternating)), "interleaved")
+        XCTAssertEqual(optionValue("--pairing", in: durable(loneSample, single)), "auto")
+        XCTAssertEqual(optionValue("--pairing", in: durable(sheetSample, alternating)), "auto")
+        XCTAssertEqual(try parsedPairing(durable(loneSample, alternating)), "interleaved")
+        XCTAssertEqual(
+            optionValue("--pairing", in: FASTQBatchImporter.reproducibleImportCommand(pair: loneSample, config: config)),
+            "auto", "argv keeps what was asked"
+        )
+    }
+
+    /// A record written before lane C2-SHEETFIX names no `--pairing`. Its replay goes out as recorded, so `import fastq`
+    /// runs its default, `auto`, and detects the pairing again as the run that wrote the record did.
+    func testAnOldRecordThatNamesNoPairingReplaysAsRecorded() throws {
+        var old = command(pairedSample, .auto, durable: true)
+        let index = try XCTUnwrap(old.firstIndex(of: "--pairing"))
+        old.removeSubrange(index...(index + 1))
+
+        XCTAssertEqual(QualityBinningReplay.arguments(old, stated: nil), old, "the replay adds no option")
+        XCTAssertEqual(try parsedPairing(old), "auto")
+    }
 }
