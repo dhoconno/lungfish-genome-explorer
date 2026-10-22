@@ -3,12 +3,15 @@
 #
 # What it does, in order:
 #   1. Cross-builds lungfish-htc for aarch64-swift-linux-musl with the swift.org toolchain and its Static Linux SDK.
-#   2. Runs the XCTest hello tests of LungfishPortableTests and LungfishHTCTests in an arm64 Swift container pinned by
-#      digest. The Static Linux SDK ships neither XCTest nor Swift Testing, so no test target can be cross-built for
+#   2. Resolves the packages of a generated test package in an arm64 Swift container pinned by digest (network on), then
+#      runs the XCTest hello tests of LungfishPortableTests and LungfishHTCTests in a second container with the network
+#      closed. The Static Linux SDK ships neither XCTest nor Swift Testing, so no test target can be cross-built for
 #      musl. The tests build and run on glibc inside the container instead.
-#   3. Runs the static aarch64 binary in an arm64 Debian container pinned by digest, on a file whose SHA-256 it must
-#      reproduce. Debian is glibc, so a binary that quietly needs the musl loader or the Swift runtime fails there.
-#   4. Cross-builds the x86_64 release binary, prints its file type, size and SHA-256 and writes a tier record.
+#   3. Probes PID 1, the user and the kernel inside the arm64 Debian container (step container-probe) and stops when the
+#      process under test would be PID 1.
+#   4. Runs the static aarch64 binary in that Debian container, on a file whose SHA-256 it must reproduce. Debian is
+#      glibc, so a binary that quietly needs the musl loader or the Swift runtime fails there.
+#   5. Cross-builds the x86_64 release binary, prints its file type, size and SHA-256 and writes a tier record.
 #
 # Containers run under Apple `container` when it is installed and its system answers (`container system status`), and
 # under `docker` when that answers (`docker info`). With neither the tier stops with a message naming both. The Apple
@@ -18,11 +21,18 @@
 # The tier assumes no scheduler. It builds and checks a generic static Linux binary, and the HTCondor test job of a
 # landing is submitted by hand.
 #
-# Evidence: record.json names the runtime and its version, the kernel seen inside each container, the toolchain and SDK
-# with their checksums, the XCTest binary's SHA-256, the artifacts' SHA-256, the commit and whether the tree was clean.
-# The tier builds the working tree, so a landing runs it on a clean checkout of the named commit. Landing evidence
-# counts only when the last line of the output reads `commit <sha> clean`. A run that ends in `commit <sha> DIRTY` is a
-# development run and proves nothing about that commit.
+# Hardening. Every container runs under one flag list: an init process (--init), so the process under test is never
+# PID 1 and an orphan that a test leaves behind goes to the init and not to the test; a non-root user (--user 1000:1000);
+# a tmpfs on /tmp with HOME there; and no home folder and no socket mounted. The Debian containers mount their folder
+# read-only. Only the resolve container has a network, and only because it fetches the packages. The Apple container
+# reference lists no flag that closes a container's network (--network takes a network name), so on that branch
+# --offline prints a note and record.json says closedNetwork false.
+#
+# Evidence: record.json names the runtime and its version, the kernel seen inside each container, the probe of PID 1 and
+# the user, the toolchain and SDK with their checksums, the XCTest binary's SHA-256, the artifacts' SHA-256, the commit
+# and whether the tree was clean. The tier builds the working tree, so a landing runs it on a clean checkout of the named
+# commit. Landing evidence counts only when the last line of the output reads `commit <sha> clean`. A run that ends in
+# `commit <sha> DIRTY` is a development run and proves nothing about that commit.
 #
 # Usage: bash scripts/linux/portable-tier.sh            run the tier
 #        bash scripts/linux/portable-tier.sh --install  install the pinned toolchain and SDK at user level, no sudo
@@ -86,6 +96,9 @@ fi
 
 [ -x "$swift_bin" ] || die "toolchain $toolchain_name is not installed. Run: bash scripts/linux/portable-tier.sh --install"
 "$swift_bin" sdk list | grep -qx "$sdk_id" || die "Static Linux SDK $sdk_id is not installed. Run: bash scripts/linux/portable-tier.sh --install"
+case "$work" in
+  *,*) die "the checkout path holds a comma, which the container --mount option cannot take: $work" ;;
+esac
 
 # Pick the container runtime once. Apple container counts only when its system answers, so an installed but stopped
 # container system falls back to Docker. With neither answering the tier stops, so it never reports a pass with no run.
@@ -116,12 +129,36 @@ state_start="$(tree_state)" || die "cannot read the git state of $repo"
 xctest_image="$(pin containers.xctest.image)@$(pin containers.xctest.digest)"
 smoke_image="$(pin containers.smoke.image)@$(pin containers.smoke.digest)"
 
-# run_arm64 <image reference> <host directory> <command...>: runs in an arm64 container with the directory at /work.
-# One flag list serves both runtimes. Both CLIs take run, --rm, --platform, --volume and --workdir.
+# run_arm64 [--ro] [--offline] <image reference> <host directory> <command...>: runs in an arm64 container with the
+# directory at /work. One flag list serves both runtimes. Both CLIs take run, --rm, --init, --platform, --user, --tmpfs,
+# --env, --mount and --workdir. --ro mounts the directory read-only. --offline closes the network, which only Docker can
+# do (--network none).
 run_arm64() {
-  local image="$1" host="$2"
+  local mount_extra="" image host tmpfs
+  local network=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --ro) mount_extra=",readonly"; shift ;;
+      --offline)
+        if [ "$runtime" = docker ]; then
+          network=(--network none)
+        else
+          echo "note: the Apple container reference lists no flag that closes the network, so this container keeps it" >&2
+        fi
+        shift ;;
+      *) break ;;
+    esac
+  done
+  image="$1"
+  host="$2"
   shift 2
-  "$runtime" run --rm --platform linux/arm64 --volume "$host:/work" --workdir /work "$image" "$@"
+  # Docker mounts a tmpfs noexec, and SwiftPM runs the compiled manifest from the temporary directory, so Docker gets
+  # the exec option. The Apple container reference takes a bare path for --tmpfs.
+  tmpfs=/tmp
+  [ "$runtime" != docker ] || tmpfs=/tmp:rw,exec,nosuid,nodev,size=2g
+  "$runtime" run --rm --init --platform linux/arm64 --user 1000:1000 --tmpfs "$tmpfs" --env HOME=/tmp \
+    ${network[@]+"${network[@]}"} \
+    --mount "type=bind,source=$host,target=/work$mount_extra" --workdir /work "$image" "$@"
 }
 
 # step <name> <command...>: runs one command, keeps its output in logs/<name>.log and shows the tail if it fails.
@@ -176,39 +213,63 @@ let package = Package(
 PY
 }
 
-smoke_static_binary() {   # smoke_static_binary <bin directory>
+# The probe of PID 1. Under an init process /proc/1/comm names the init. When the container command itself is PID 1 the
+# name is sh, swift, swift-test or lungfish-htc, and a test process in that place would inherit the orphaned descendant
+# of a setsid child and have to reap it. K3 runs the same probe on a machine that has Apple container before it writes a
+# signal test, and records what it printed.
+container_probe() {   # container_probe <host directory>
+  local probe pid1 uid
+  probe="$(run_arm64 --ro --offline "$smoke_image" "$1" sh -c 'echo "pid1=$(cat /proc/1/comm)"; echo "uid=$(id -u)"; echo "kernel=$(uname -r)"')" || return 1
+  echo "$probe"
+  pid1="$(printf '%s\n' "$probe" | sed -n 's/^pid1=//p')"
+  uid="$(printf '%s\n' "$probe" | sed -n 's/^uid=//p')"
+  [ -n "$pid1" ] || { echo "the probe printed no PID 1 name" >&2; return 1; }
+  [ "$uid" = 1000 ] || { echo "the probe ran as uid $uid and not 1000" >&2; return 1; }
+  case "$pid1" in
+    sh|swift|swift-test|lungfish-htc)
+      echo "PID 1 is $pid1, so the container has no init process and the process under test would be PID 1" >&2
+      return 1 ;;
+  esac
+}
+
+smoke_static_binary() {   # runs the static binary on abc.txt in the read-only smoke folder and compares its digest
   local smoke="$work/smoke" output expected
-  mkdir -p "$smoke"
-  printf abc > "$smoke/abc.txt"
-  cp "$1/lungfish-htc" "$smoke/lungfish-htc"
-  output="$(run_arm64 "$smoke_image" "$smoke" ./lungfish-htc abc.txt)"
+  output="$(run_arm64 --ro --offline "$smoke_image" "$smoke" ./lungfish-htc abc.txt)"
   echo "$output"
   expected="$(sha256_of "$smoke/abc.txt")"
   [ "$(printf '%s\n' "$output" | sed -n 2p | cut -d' ' -f1)" = "$expected" ] || die "the container's digest differs from shasum ($expected)"
 }
 
-mkdir -p "$logs" "$artifacts"
+mkdir -p "$logs" "$artifacts" "$work/smoke"
 
 step cross-build-aarch64 cross_build aarch64-swift-linux-musl
 aarch64_dir="$(bin_dir aarch64-swift-linux-musl)"
 cp "$aarch64_dir/lungfish-htc" "$artifacts/lungfish-htc-aarch64-linux-musl"
 
 prepare_view_package
-step xctest-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift test
+step resolve-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift package resolve
+step xctest-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" swift test --disable-automatic-resolution
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container.log"
 test_binary="$(find "$pkg/.build" -type f -name '*PackageTests.xctest' | sort | sed -n 1p)"
 [ -n "$test_binary" ] || die "swift test left no *PackageTests.xctest file under $pkg/.build"
 
-step static-binary-in-arm64-debian-container smoke_static_binary "$aarch64_dir"
+printf abc > "$work/smoke/abc.txt"
+cp "$aarch64_dir/lungfish-htc" "$work/smoke/lungfish-htc"
+step container-probe container_probe "$work/smoke"
+cat "$logs/container-probe.log"
+step static-binary-in-arm64-debian-container smoke_static_binary
 cat "$logs/static-binary-in-arm64-debian-container.log"
 
 # The kernel each image ran on. Docker Desktop and Apple container both run containers in a Linux VM, so this is the
 # VM's kernel and not the Mac's.
-step kernel-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" uname -r
-step kernel-in-arm64-debian-container run_arm64 "$smoke_image" "$work/smoke" uname -r
+step kernel-in-arm64-swift-container run_arm64 --ro --offline "$xctest_image" "$pkg" uname -r
+step kernel-in-arm64-debian-container run_arm64 --ro --offline "$smoke_image" "$work/smoke" uname -r
 kernel_xctest="$(tail -n 1 "$logs/kernel-in-arm64-swift-container.log")"
 kernel_smoke="$(tail -n 1 "$logs/kernel-in-arm64-debian-container.log")"
 echo "kernel xctest $kernel_xctest, smoke $kernel_smoke"
+probe_pid1="$(sed -n 's/^pid1=//p' "$logs/container-probe.log")"
+probe_uid="$(sed -n 's/^uid=//p' "$logs/container-probe.log")"
+probe_kernel="$(sed -n 's/^kernel=//p' "$logs/container-probe.log")"
 
 step cross-build-x86_64 cross_build x86_64-swift-linux-musl
 x86_dir="$(bin_dir x86_64-swift-linux-musl)"
@@ -229,11 +290,14 @@ else
   tree_clean=false
   verdict=DIRTY
 fi
+closed_network=false
+[ "$runtime" != docker ] || closed_network=true
 
 python3 -I - "$work/record.json" "$repo" "$artifacts" \
   "commit=$commit" "treeClean=$tree_clean" "wallSeconds=$SECONDS" \
-  "runtime.name=$runtime" "runtime.version=$runtime_version_text" \
+  "runtime.name=$runtime" "runtime.version=$runtime_version_text" "closedNetwork=$closed_network" \
   "kernel.xctest=$kernel_xctest" "kernel.smoke=$kernel_smoke" \
+  "containerProbe.pid1=$probe_pid1" "containerProbe.uid=$probe_uid" "containerProbe.kernel=$probe_kernel" \
   "toolchain.name=$toolchain_name" "toolchain.identifier=$(pin toolchain.identifier)" \
   "toolchain.sha256=$(pin toolchain.sha256)" "toolchain.swiftVersion=$swift_version" \
   "staticSDK.id=$sdk_id" "staticSDK.sha256=$(pin staticSDK.sha256)" \
@@ -260,7 +324,7 @@ def put(tree, dotted, value):
         tree = tree.setdefault(key, {})
     tree[keys[-1]] = value
 
-numbers, flags = {"testBinary.bytes", "wallSeconds"}, {"treeClean", "closedNetwork"}
+numbers, flags = {"testBinary.bytes", "wallSeconds", "containerProbe.uid"}, {"treeClean", "closedNetwork"}
 pins = json.load(open(os.path.join(repo, "scripts/linux/toolchain.json")))
 out = {"tool": "scripts/linux/portable-tier.sh", "argv": script_argv, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
 for pair in pairs:
