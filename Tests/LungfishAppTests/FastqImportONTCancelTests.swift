@@ -17,6 +17,11 @@
 // The first test signals the CLI alone, as `CLISIGTERMHarness.cancel` does. The second cancels through
 // `CLIProcessLauncher` and `CLIRunCancellation`, which signal the command's group and tree at once, as the
 // window does. These tests live with the app because the transport belongs to LungfishKit.
+//
+// The third test (lane C2-ONTBIN review fix 1) cancels a default import in its chunk binning phase. A chunked
+// import bins each stored chunk with `reformat.sh` once the importer ends, one launch per chunk, so twelve plain
+// chunks keep the phase open for seconds. The test signals the command when the stream first names a chunk being
+// binned. It asserts the same cancel and rollback, and that no process keeps the test's folder in its command line.
 
 import Darwin
 import Foundation
@@ -169,7 +174,81 @@ final class FastqImportONTCancelTests: XCTestCase {
         Self.assertRolledBack(scene.output)
     }
 
+    // MARK: - During the chunk binning phase
+
+    /// A default import bins each stored chunk with `reformat.sh` once the importer ends, one launch per chunk. A
+    /// SIGTERM there stops the loop, the workflow rolls its staging folder back and the stream ends cancelled.
+    func testSIGTERMDuringChunkBinningCancelsTheImportAndLeavesNothingBehind() async throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: .reformat)
+        } catch {
+            try ToolAvailability.skipOrFail("Binning needs the managed BBTools reformat.sh: \(error)")
+        }
+        let source = root.appendingPathComponent("fastq_pass", isDirectory: true)
+        let barcode = source.appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcode, withIntermediateDirectories: true)
+        // Twelve plain chunks of four reads: each chunk is one reformat.sh launch, so the phase stays open for seconds.
+        for chunk in 0..<12 {
+            let reads = (0..<4).map { read in
+                "@barcode01-chunk_\(chunk)-\(read) runid=test barcode=barcode01\nACGTACGT\n+\nIIIIIIII\n"
+            }.joined()
+            try reads.write(to: barcode.appendingPathComponent("chunk_\(chunk).fastq"), atomically: true, encoding: .utf8)
+        }
+        let output = root.appendingPathComponent("imported", isDirectory: true)
+        let standardOutput = root.appendingPathComponent("stdout.txt")
+        let standardError = root.appendingPathComponent("stderr.txt")
+        let run = try CLISIGTERMHarness.launch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "exec \"$0\" \"$@\" >\"$ONT_STDOUT\" 2>\"$ONT_STDERR\"", cli.path] + [
+                "fastq", "import-ont", source.path, "--output", output.path,
+                "--concurrency", "1", "--threads", "1", "--format", "json",
+            ],
+            environment: CLISIGTERMHarness.childEnvironment(
+                overriding: ["ONT_STDOUT": standardOutput.path, "ONT_STDERR": standardError.path]
+            )
+        )
+        defer { run.stop() }
+
+        // The detail names the chunk before its launch, so the loop is open when the signal lands.
+        guard await Self.waitForText("binning quality scores of", in: standardOutput) else {
+            let stop = await CLISIGTERMHarness.cancel(run)
+            return XCTFail("The import never reached the chunk binning phase.\(stop.diagnostics) \(Self.text(of: standardOutput).suffix(1_000))")
+        }
+        let stop = await CLISIGTERMHarness.cancel(run)
+
+        CLISIGTERMHarness.assertCancelledExit(stop)
+        CLISIGTERMHarness.assertRecordCancelled { Self.streamStatus(Self.text(of: standardOutput)) }
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        Self.assertRolledBack(output)
+        // Every reformat.sh launch names a path under the test's folder, so none may outlive the command.
+        let marker = root.lastPathComponent
+        await waitUntil(timeout: CLISIGTERMHarness.operationGrace, pollInterval: .milliseconds(100)) {
+            Self.commandLines(containing: marker)?.isEmpty ?? false
+        }
+        let remaining = try XCTUnwrap(Self.commandLines(containing: marker), "ps -axo command could not run")
+        XCTAssertEqual(remaining, [], "no process keeps the cancelled import's folder in its command line")
+    }
+
     // MARK: - Helpers
+
+    /// The command lines of the processes running now that contain `marker`, read with `ps -axo command`, or nil
+    /// when `ps` cannot run, so a check that reads nothing never passes.
+    private static func commandLines(containing marker: String) -> [String]? {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-axo", "command"]
+        let pipe = Pipe()
+        ps.standardOutput = pipe
+        ps.standardError = FileHandle.nullDevice
+        do { try ps.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        ps.waitUntilExit()
+        guard ps.terminationStatus == 0 else { return nil }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init).filter { $0.contains(marker) }
+    }
 
     /// The status the stream records: the terminal event, `cancelled` for the failed event that says so.
     private static func streamStatus(_ standardOutput: String) -> String? {
