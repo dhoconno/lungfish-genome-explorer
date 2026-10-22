@@ -184,6 +184,35 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         )
     }
 
+    /// An update whose install record cannot be written leaves the installed index and its record as they were, since
+    /// the old index is the user's working copy and the new one is only a candidate.
+    func testFailedRecordDuringUpdateKeepsTheInstalledIndexAndItsRecord() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let earlier = makeRegistry(spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")))
+        let installed = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let recordURL = installed.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let recordBefore = try Data(contentsOf: recordURL)
+        let registry = makeRegistry(
+            spec: try spec(pinning: pinned, url: try serve(pinned, as: "pinned.idx")),
+            provenanceWriter: { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+
+        do {
+            _ = try await registry.updateManagedDatabase(Self.databaseID)
+            XCTFail("The update succeeded without its record")
+        } catch HumanScrubberDatabaseError.installationFailed(let databaseID, _, let reason) {
+            XCTAssertEqual(databaseID, Self.databaseID)
+            XCTAssertTrue(reason.contains("managed database install provenance"), reason)
+        }
+        XCTAssertEqual(try Data(contentsOf: installed), hostBuilt)
+        XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore)
+        XCTAssertEqual(
+            regularFileNames(under: installed.deletingLastPathComponent()),
+            [ProvenanceRecorder.provenanceFilename, "ribokmers.k31w15.idx"].sorted()
+        )
+    }
+
     /// An index whose install record cannot be written does not stay published, and a cancelled download publishes
     /// nothing.
     func testFailedRecordAndCancelledDownloadPublishNothing() async throws {

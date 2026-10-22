@@ -864,7 +864,6 @@ public actor DatabaseRegistry {
         progress?(0.02, "Preparing \(manifest.displayName)…")
         let runClock = ProvenanceRunClock()
         var downloadedURL: URL?
-        var published = false
         do {
             progress?(0.05, "Downloading \(manifest.displayName)…")
             let downloadClock = ProvenanceRunClock()
@@ -882,24 +881,6 @@ public actor DatabaseRegistry {
             )
 
             progress?(0.96, "Saving \(manifest.displayName)…")
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
-            }
-            try fileManager.moveItem(at: stagedURL, to: destinationURL)
-            published = true
-            removeSupersededDatabaseFiles(in: installDirectory, keeping: manifest.filename, databaseID: databaseID)
-            let now = Date()
-            let step = StepExecution(
-                toolName: "URLSession",
-                toolVersion: "Foundation",
-                command: ["download", sourceURL.absoluteString, "-o", destinationURL.path],
-                inputs: [remoteFileRecord(url: sourceURL, format: .unknown, role: .input)],
-                outputs: [ProvenanceRecorder.fileRecord(url: destinationURL, format: .unknown, role: .index)],
-                exitCode: 0,
-                wallTime: downloadWallTime,
-                stderr: nil,
-                startTime: now.addingTimeInterval(-downloadWallTime), endTime: now
-            )
             var extra: [String: ParameterValue] = [
                 "installSource": .string("pinned-download"),
                 "downloadUrl": .string(sourceURL.absoluteString),
@@ -911,10 +892,36 @@ public actor DatabaseRegistry {
             if let build = spec.build {
                 extra.merge(build.provenanceParameters) { _, new in new }
             }
-            try writeManagedDatabaseInstallProvenance(
-                installDirectory: installDirectory, manifest: manifest, steps: [step],
-                totalWallTime: runClock.elapsed, extraParameters: extra
+            let recordParameters = extra
+            // The checked file replaces the installed index through DurableReplace, so the name holds a complete old or
+            // new file at every step. The install record is written inside the observer, after the swap and before the
+            // old copy is retired. A record that cannot be written restores the old index and leaves its record as it
+            // was, which is what an update owes the user whose working index it replaces (C2-RIBOPIN fix 2).
+            try DurableReplace.replace(
+                named: manifest.filename,
+                in: installDirectory,
+                observe: { _ in
+                    let now = Date()
+                    let step = StepExecution(
+                        toolName: "URLSession",
+                        toolVersion: "Foundation",
+                        command: ["download", sourceURL.absoluteString, "-o", destinationURL.path],
+                        inputs: [self.remoteFileRecord(url: sourceURL, format: .unknown, role: .input)],
+                        outputs: [ProvenanceRecorder.fileRecord(url: destinationURL, format: .unknown, role: .index)],
+                        exitCode: 0,
+                        wallTime: downloadWallTime,
+                        stderr: nil,
+                        startTime: now.addingTimeInterval(-downloadWallTime), endTime: now
+                    )
+                    try self.writeManagedDatabaseInstallProvenance(
+                        installDirectory: installDirectory, manifest: manifest, steps: [step],
+                        totalWallTime: runClock.elapsed, extraParameters: recordParameters
+                    )
+                },
+                writing: { stage in try ReadFileWriters.append(stagedURL, to: stage) }
             )
+            try? fileManager.removeItem(at: stagedURL)
+            removeSupersededDatabaseFiles(in: installDirectory, keeping: manifest.filename, databaseID: databaseID)
             preferences.set(manifest.filename, forKey: overrideFilenameKey(for: databaseID))
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
@@ -922,12 +929,6 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: stagedURL)
             if let downloadedURL {
                 try? fileManager.removeItem(at: downloadedURL)
-            }
-            if published {
-                // The index was published but its record could not be written, so neither stays.
-                try? fileManager.removeItem(at: destinationURL)
-                try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-                preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
             }
             if Self.isCancellation(error) {
                 throw HumanScrubberDatabaseError.installationCancelled(databaseID: databaseID, displayName: manifest.displayName)
