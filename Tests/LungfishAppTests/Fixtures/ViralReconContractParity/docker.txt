@@ -389,7 +389,7 @@ records:
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "ad8a24e9bbf822ab9afdc6c446e55da2c6d70b8b3fee5f6d48f78e26e2f18267",
+    "managedToolLockSHA256" : "fb1bd0e3bf30b434fd21c6495d9e153f6e12de4b8a08499f07850a6d6ec0133f",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -830,7 +830,7 @@ records:
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "ad8a24e9bbf822ab9afdc6c446e55da2c6d70b8b3fee5f6d48f78e26e2f18267",
+    "managedToolLockSHA256" : "fb1bd0e3bf30b434fd21c6495d9e153f6e12de4b8a08499f07850a6d6ec0133f",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -1307,7 +1307,7 @@ records:
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "ad8a24e9bbf822ab9afdc6c446e55da2c6d70b8b3fee5f6d48f78e26e2f18267",
+    "managedToolLockSHA256" : "fb1bd0e3bf30b434fd21c6495d9e153f6e12de4b8a08499f07850a6d6ec0133f",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
@@ -1698,7 +1698,7 @@ records:
     "architecture" : "<architecture>",
     "dependencySet" : "2026.2",
     "executablePath" : "<external>/lungfish-cli",
-    "managedToolLockSHA256" : "ad8a24e9bbf822ab9afdc6c446e55da2c6d70b8b3fee5f6d48f78e26e2f18267",
+    "managedToolLockSHA256" : "fb1bd0e3bf30b434fd21c6495d9e153f6e12de4b8a08499f07850a6d6ec0133f",
     "operatingSystemVersion" : "<operatingsystemversion>"
   },
   "schemaVersion" : 2,
