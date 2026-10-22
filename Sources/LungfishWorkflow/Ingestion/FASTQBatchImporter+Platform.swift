@@ -33,6 +33,10 @@ extension FASTQBatchImporter {
         /// Gzip compression level. Defaults to `.balanced`.
         public let compressionLevel: CompressionLevel
         public let threads: Int
+        /// Whether `threads` came from `--threads` or from this host's core count.
+        public let threadsSource: ImportSettingSource
+        /// The clumpify heap `--clumpify-heap-gb` pins, in GB, or nil to size it from this host's free memory.
+        public let clumpifyHeapGB: Int?
         public let logDirectory: URL?
         /// When `true`, reimport even if a bundle already exists for the sample.
         public let forceReimport: Bool
@@ -49,6 +53,12 @@ extension FASTQBatchImporter {
         private let requestedClumpingTool: ClumpingTool?
         private let requestedCompressionLevel: CompressionLevel?
 
+        /// Whether the clumping tool came from `--clumping-tool` or `--no-optimize-storage`, or from the
+        /// platform's default.
+        public var clumpingToolSource: ImportSettingSource {
+            requestedClumpingTool != nil || requestedOptimizeStorage != nil ? .option : .default
+        }
+
         public init(
             projectDirectory: URL,
             platform: ImportPlatformRequest,
@@ -61,7 +71,9 @@ extension FASTQBatchImporter {
             threads: Int = 4,
             logDirectory: URL? = nil,
             forceReimport: Bool = false,
-            pairing: ImportPairing = .auto
+            pairing: ImportPairing = .auto,
+            threadsSource: ImportSettingSource = .option,
+            clumpifyHeapGB: Int? = nil
         ) {
             let recorded: LungfishIO.SequencingPlatform
             if case .given(let given) = platform {
@@ -73,7 +85,8 @@ extension FASTQBatchImporter {
                 projectDirectory: projectDirectory, platformRequest: platform, sequencingPlatform: recorded,
                 platformResolution: nil, recipe: recipe, newRecipe: newRecipe, qualityBinning: qualityBinning,
                 optimizeStorage: optimizeStorage, clumpingTool: clumpingTool, compressionLevel: compressionLevel,
-                threads: threads, logDirectory: logDirectory, forceReimport: forceReimport, pairing: pairing
+                threads: threads, logDirectory: logDirectory, forceReimport: forceReimport, pairing: pairing,
+                threadsSource: threadsSource, clumpifyHeapGB: clumpifyHeapGB
             )
         }
 
@@ -90,13 +103,16 @@ extension FASTQBatchImporter {
             threads: Int = 4,
             logDirectory: URL? = nil,
             forceReimport: Bool = false,
-            pairing: ImportPairing = .auto
+            pairing: ImportPairing = .auto,
+            threadsSource: ImportSettingSource = .option,
+            clumpifyHeapGB: Int? = nil
         ) {
             self.init(
                 projectDirectory: projectDirectory, platform: .given(platform.sequencingPlatform),
                 recipe: recipe, newRecipe: newRecipe, qualityBinning: qualityBinning,
                 optimizeStorage: optimizeStorage, clumpingTool: clumpingTool, compressionLevel: compressionLevel,
-                threads: threads, logDirectory: logDirectory, forceReimport: forceReimport, pairing: pairing
+                threads: threads, logDirectory: logDirectory, forceReimport: forceReimport, pairing: pairing,
+                threadsSource: threadsSource, clumpifyHeapGB: clumpifyHeapGB
             )
         }
 
@@ -114,7 +130,9 @@ extension FASTQBatchImporter {
             threads: Int,
             logDirectory: URL?,
             forceReimport: Bool,
-            pairing: ImportPairing
+            pairing: ImportPairing,
+            threadsSource: ImportSettingSource,
+            clumpifyHeapGB: Int?
         ) {
             self.projectDirectory = projectDirectory
             self.pairing = pairing
@@ -145,6 +163,8 @@ extension FASTQBatchImporter {
             self.clumpingTool = resolvedOptimizeStorage ? (clumpingTool ?? .default) : .none
             self.compressionLevel = compressionLevel ?? .balanced
             self.threads = threads
+            self.threadsSource = threadsSource
+            self.clumpifyHeapGB = clumpifyHeapGB
             self.logDirectory = logDirectory
             self.forceReimport = forceReimport
         }
@@ -158,7 +178,8 @@ extension FASTQBatchImporter {
                 recipe: recipe, newRecipe: newRecipe, qualityBinning: requestedQualityBinning,
                 optimizeStorage: requestedOptimizeStorage, clumpingTool: requestedClumpingTool,
                 compressionLevel: requestedCompressionLevel, threads: threads, logDirectory: logDirectory,
-                forceReimport: forceReimport, pairing: pairing
+                forceReimport: forceReimport, pairing: pairing,
+                threadsSource: threadsSource, clumpifyHeapGB: clumpifyHeapGB
             )
         }
     }

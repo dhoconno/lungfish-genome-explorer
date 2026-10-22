@@ -454,7 +454,8 @@ public enum FASTQBatchImporter {
             ?? FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: config.inputFiles)
         let resolution = config.clumpingTool.resolve(
             estimatedInputBytes: estimatedBytes,
-            physicalMemoryBytes: physicalMemoryBytes
+            physicalMemoryBytes: physicalMemoryBytes,
+            pinnedHeapGB: config.clumpifyHeapGB
         )
         if let message = resolution.resolved.operationNotice {
             log?(.notice(sample: sample, message: message))
@@ -750,7 +751,8 @@ public enum FASTQBatchImporter {
                 qualityBinning: config.qualityBinning,
                 skipClumpify: config.clumpingTool == .none,
                 compressionLevel: config.compressionLevel,
-                clumpingTool: config.clumpingTool
+                clumpingTool: config.clumpingTool,
+                clumpifyHeapGB: config.clumpifyHeapGB
             )
 
             // Total steps = recipe steps + clumpify + stats
@@ -1816,6 +1818,7 @@ public enum FASTQBatchImporter {
             "clumpingTool": .string(config.clumpingTool.rawValue),
             "compressionLevel": .string(config.compressionLevel.rawValue),
             "threads": .integer(config.threads),
+            "clumpifyHeapGB": config.clumpifyHeapGB.map(ParameterValue.integer) ?? .null,
             "forceReimport": .boolean(config.forceReimport),
         ]) { platform, _ in platform }.merging(unpairedReadsParameters(of: pair)) { _, unpaired in unpaired }
     }
@@ -1829,6 +1832,7 @@ public enum FASTQBatchImporter {
             "clumpingTool": .string(config.sequencingPlatform.supportsStorageClumping ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
             "compressionLevel": .string(CompressionLevel.balanced.rawValue),
             "threads": .integer(ImportConfig.hostThreadCount),
+            "clumpifyHeapGB": .null,
             "forceReimport": .boolean(false),
             "r2": .null,
             "sampleSheet": .null,
@@ -1861,7 +1865,7 @@ public enum FASTQBatchImporter {
         parameters["resolvedClumpingTool"] = .string(ingestionResult.resolvedClumpingTool.rawValue)
         parameters["clumpingEstimatedInputBytes"] = .integer(Int(ingestionResult.clumpingResolution.estimatedInputBytes))
         parameters["clumpingPhysicalMemoryBytes"] = .integer(Int(ingestionResult.clumpingResolution.physicalMemoryBytes))
-        parameters["clumpingHeapBytes"] = .integer(Int(ingestionResult.clumpingResolution.clumpifyHeapBytes))
+        parameters.merge(hostChoiceParameters(config: config, ingestionResult: ingestionResult)) { _, choice in choice }
         parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
         parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
         parameters["originalFilenames"] = .array(pair.inputFiles.map { .string($0.lastPathComponent) })
@@ -1905,7 +1909,7 @@ public enum FASTQBatchImporter {
                 "--clumping-tool", config.clumpingTool.rawValue,
                 "--compression", config.compressionLevel.rawValue,
                 "--threads", String(config.threads),
-            ]
+            ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
             if !config.optimizeStorage {
                 command.append("--no-optimize-storage")
             }
@@ -1926,7 +1930,7 @@ public enum FASTQBatchImporter {
             "--clumping-tool", config.clumpingTool.rawValue,
             "--compression", config.compressionLevel.rawValue,
             "--threads", String(config.threads),
-        ]
+        ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
         if !config.optimizeStorage {
             command.append("--no-optimize-storage")
         }

@@ -60,6 +60,8 @@ struct FASTQImportRun {
     var name: String?
     var recursive = false
     var threads: Int?
+    /// The clumpify heap `--clumpify-heap-gb` pins, in GB.
+    var clumpifyHeapGB: Int?
     var quiet = false
     var useColors = false
 
@@ -278,6 +280,10 @@ struct FASTQImportRun {
             )
         }
 
+        if let clumpifyHeapGB, clumpifyHeapGB < 1 {
+            throw reporter.fail("--clumpify-heap-gb must be at least 1.", detail: nil, exitCode: .inputError)
+        }
+
         // MARK: Build config
 
         let projectURL = URL(fileURLWithPath: project)
@@ -299,7 +305,9 @@ struct FASTQImportRun {
             threads: threadCount,
             logDirectory: logDirURL,
             forceReimport: force,
-            pairing: pairingChoice
+            pairing: pairingChoice,
+            threadsSource: threads == nil ? .host : .option,
+            clumpifyHeapGB: clumpifyHeapGB
         )
 
         // A storage tool that cannot store the recipe's output fails only

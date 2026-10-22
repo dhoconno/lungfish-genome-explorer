@@ -189,4 +189,48 @@ final class ImportFastqRecordTruthTests: XCTestCase {
             if case .string(let digest) = $0 { return digest } else { return nil }
         })
     }
+
+    // MARK: - M3, host choices
+
+    /// The `-Xmx` value of the record step whose argv sets the Java heap, in GB.
+    private func heapInArgv(of envelope: ProvenanceEnvelope) -> Int? {
+        envelope.steps.lazy.flatMap(\.argv).first { $0.hasPrefix("-Xmx") && $0.hasSuffix("g") }
+            .flatMap { Int($0.dropFirst(4).dropLast()) }
+    }
+
+    /// Run with neither `--threads` nor `--clumpify-heap-gb`, the record says the threads, the clumpify heap and the
+    /// automatic clumping choice came from the host, and names the heap clumpify's argv ran with.
+    func testRecordNamesTheHostAsTheSourceOfEachChoiceItMade() throws {
+        let (envelope, _) = try importFixturePair(["--platform", "illumina", "--compression", "fast"])
+        let resolved = envelope.options.resolvedDefaults
+        let ranHeap = try XCTUnwrap(heapInArgv(of: envelope), "clumpify ran and its argv sets the heap")
+
+        XCTAssertEqual(resolved["threadsSource"], .string("host"))
+        XCTAssertEqual(resolved["clumpifyHeapGB"], .integer(ranHeap), "the record names the heap that ran")
+        XCTAssertEqual(resolved["clumpingHeapBytes"], .integer(ranHeap * 1_073_741_824))
+        XCTAssertEqual(resolved["clumpifyHeapSource"], .string("host"))
+        XCTAssertEqual(resolved["resolvedClumpingTool"], .string("bbtools"))
+        XCTAssertEqual(resolved["resolvedClumpingToolSource"], .string("host"))
+    }
+
+    /// `--threads`, `--clumping-tool` and `--clumpify-heap-gb` pin each choice. The record names each as the
+    /// option's, clumpify runs with the pinned heap, and the replay command pins it again.
+    func testOptionsPinEachHostChoiceAndTheRecordSaysSo() throws {
+        let (envelope, _) = try importFixturePair([
+            "--platform", "illumina", "--compression", "fast",
+            "--threads", "2", "--clumping-tool", "bbtools", "--clumpify-heap-gb", "2",
+        ])
+        let resolved = envelope.options.resolvedDefaults
+
+        XCTAssertEqual(heapInArgv(of: envelope), 2, "clumpify must run with the pinned heap")
+        XCTAssertEqual(resolved["threadsSource"], .string("option"))
+        XCTAssertEqual(resolved["threads"], .integer(2))
+        XCTAssertEqual(resolved["clumpifyHeapGB"], .integer(2))
+        XCTAssertEqual(resolved["clumpingHeapBytes"], .integer(2 * 1_073_741_824))
+        XCTAssertEqual(resolved["clumpifyHeapSource"], .string("option"))
+        XCTAssertEqual(resolved["resolvedClumpingToolSource"], .string("option"))
+        XCTAssertEqual(envelope.options.explicit["clumpifyHeapGB"], .integer(2))
+        XCTAssertTrue(envelope.reproducibleCommand.contains("--clumpify-heap-gb 2"),
+                      "the replay command must pin the heap: \(envelope.reproducibleCommand)")
+    }
 }

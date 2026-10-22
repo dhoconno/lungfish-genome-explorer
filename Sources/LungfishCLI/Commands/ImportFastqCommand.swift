@@ -121,6 +121,12 @@ extension ImportCommand {
         )
         var recursive: Bool = false
 
+        @Option(
+            name: .customLong("clumpify-heap-gb"),
+            help: "Java heap for BBTools clumpify in GB (default: sized from this host's free memory)"
+        )
+        var clumpifyHeapGB: Int?
+
         @OptionGroup var globalOptions: GlobalOptions
 
         /// Thread count sourced from the shared `--threads` / `-t` global option.
@@ -142,6 +148,7 @@ extension ImportCommand {
                 qualityBinning: qualityBinning, logDir: logDir, dryRun: dryRun, platform: platform,
                 pairing: pairing, noOptimizeStorage: noOptimizeStorage, clumpingTool: clumpingTool,
                 compression: compression, force: force, name: name, recursive: recursive, threads: threads,
+                clumpifyHeapGB: clumpifyHeapGB,
                 quiet: globalOptions.quiet, useColors: globalOptions.useColors
             )
             guard let result = try await importRun.run(reporter: reporter, cancellation: .installsSIGTERMHandler) else {

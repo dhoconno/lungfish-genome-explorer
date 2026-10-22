@@ -48,72 +48,6 @@ public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
     }
 }
 
-// MARK: - FASTQIngestionConfig
-
-/// Configuration for the FASTQ ingestion pipeline.
-public struct FASTQIngestionConfig: Sendable {
-
-    /// Pairing mode for the input files.
-    public enum PairingMode: String, Sendable {
-        case singleEnd
-        case pairedEnd
-        case interleaved
-    }
-
-    /// Input FASTQ files. For paired-end, provide [R1, R2].
-    public let inputFiles: [URL]
-
-    /// Pairing mode.
-    public let pairingMode: PairingMode
-
-    /// Output directory where the processed file will be written.
-    public let outputDirectory: URL
-
-    /// Number of threads for pigz compression.
-    public let threads: Int
-
-    /// Whether to delete original files after successful ingestion.
-    public let deleteOriginals: Bool
-
-    /// Quality binning scheme for compression optimization.
-    public let qualityBinning: QualityBinningScheme
-
-    /// Gzip compression level for tool output when supported.
-    public let compressionLevel: CompressionLevel
-
-    /// Requested storage optimization tool. `.auto` resolves after recipe execution
-    /// against the actual files that will be optimized.
-    public let clumpingTool: ClumpingTool
-
-    /// Whether to skip storage optimization. Preserved for older call sites.
-    public var skipClumpify: Bool { clumpingTool == .none }
-
-    public init(
-        inputFiles: [URL],
-        pairingMode: PairingMode = .singleEnd,
-        outputDirectory: URL,
-        threads: Int = 4,
-        deleteOriginals: Bool = true,
-        // Quality binning is off by default everywhere.
-        // It is opt-in at import only, named correctly and recorded in
-        // provenance; it must never be applied silently to downloads or
-        // derived operation outputs.
-        qualityBinning: QualityBinningScheme = .none,
-        skipClumpify: Bool = false,
-        compressionLevel: CompressionLevel = .balanced,
-        clumpingTool: ClumpingTool = .default
-    ) {
-        self.inputFiles = inputFiles
-        self.pairingMode = pairingMode
-        self.outputDirectory = outputDirectory
-        self.threads = threads
-        self.deleteOriginals = deleteOriginals
-        self.qualityBinning = qualityBinning
-        self.compressionLevel = compressionLevel
-        self.clumpingTool = skipClumpify ? .none : clumpingTool
-    }
-}
-
 // MARK: - FASTQIngestionResult
 
 /// Result of the FASTQ ingestion pipeline.
@@ -146,6 +80,8 @@ public struct FASTQIngestionResult: Sendable {
     public let processingCommandLine: String?
     /// Provenance records for external tool steps run by this pipeline.
     public let provenanceSteps: [StepExecution]
+    /// The Java heap clumpify ran with, in GB, nil when clumpify did not run.
+    public let clumpifyHeapGB: Int?
 
     public init(
         outputFile: URL,
@@ -161,7 +97,8 @@ public struct FASTQIngestionResult: Sendable {
         processingTool: String? = nil,
         processingToolVersion: String? = nil,
         processingCommandLine: String? = nil,
-        provenanceSteps: [StepExecution] = []
+        provenanceSteps: [StepExecution] = [],
+        clumpifyHeapGB: Int? = nil
     ) {
         self.outputFile = outputFile
         self.wasClumpified = wasClumpified
@@ -178,6 +115,7 @@ public struct FASTQIngestionResult: Sendable {
         self.processingToolVersion = processingToolVersion
         self.processingCommandLine = processingCommandLine
         self.provenanceSteps = provenanceSteps
+        self.clumpifyHeapGB = clumpifyHeapGB
     }
 }
 
@@ -277,9 +215,10 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
             return total + (attrs?[.size] as? Int64 ?? 0)
         }
+        var clumpifyHeapGB: Int?
         let estimatedInputBytes = Self.estimatedUncompressedInputBytes(for: config.inputFiles)
         let clumpingResolution = suppliedClumpingResolution
-            ?? config.clumpingTool.resolve(estimatedInputBytes: estimatedInputBytes)
+            ?? config.clumpingTool.resolve(estimatedInputBytes: estimatedInputBytes, pinnedHeapGB: config.clumpifyHeapGB)
         precondition(
             clumpingResolution.requested == config.clumpingTool,
             "Clumping resolution must preserve the requested tool"
@@ -355,9 +294,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             wasClumpified = false
         case .bbtools:
             progress(0.0, "Sorting reads by k-mer similarity...")
+            // Heap sizing lives in ManagedJavaHeapPolicy so an import never plans to use memory a
+            // concurrently running classifier already holds, unless --clumpify-heap-gb pins it.
+            let heapGB = config.clumpifyHeapGB ?? ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
+            clumpifyHeapGB = heapGB
             do {
                 let record = try await clumpify(
                     config: config,
+                    heapGB: heapGB,
                     outputFile: outputFile,
                     progress: { fraction, msg in
                         progress(fraction * 0.5, msg)
@@ -477,7 +421,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             processingTool: processingRecord?.tool,
             processingToolVersion: processingRecord?.toolVersion,
             processingCommandLine: processingRecord?.commandLine,
-            provenanceSteps: provenanceSteps
+            provenanceSteps: provenanceSteps,
+            clumpifyHeapGB: clumpifyHeapGB
         )
     }
 
@@ -561,6 +506,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     /// then checked against the input before anything is deleted.
     private func clumpify(
         config: FASTQIngestionConfig,
+        heapGB: Int,
         outputFile: URL,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQProcessingRecord {
@@ -577,10 +523,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // whitespace-bearing argument for every BBTools script in one place,
         // so this site does not carry its own symlink handling.
         let fm = FileManager.default
-
-        // Heap sizing lives in ManagedJavaHeapPolicy so an import never plans
-        // to use memory a concurrently running classifier already holds.
-        let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 4)
 
         // Override any JAVA_TOOL_OPTIONS that might constrain heap below our calculated value.
         // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.

@@ -44,12 +44,17 @@ public enum ClumpingTool: String, Codable, Sendable, CaseIterable {
         self != .none
     }
 
+    /// The tool this request runs for an input of `estimatedInputBytes`. A heap `--clumpify-heap-gb` pins
+    /// (`pinnedHeapGB`) replaces the host's in the automatic choice, so a plan that pins it decides the same
+    /// on every host.
     public func resolve(
         estimatedInputBytes: Int64,
-        physicalMemoryBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory)
+        physicalMemoryBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory),
+        pinnedHeapGB: Int? = nil
     ) -> ClumpingToolResolution {
         let memoryBytes = max(0, physicalMemoryBytes)
-        let heapBytes = Self.clumpifyHeapBytes(physicalMemoryBytes: memoryBytes)
+        let heapBytes = pinnedHeapGB.map { Int64(max(1, $0)) * 1_073_741_824 }
+            ?? Self.clumpifyHeapBytes(physicalMemoryBytes: memoryBytes)
         let thresholdBytes = max(0, heapBytes / 2)
 
         let resolved: ClumpingTool
