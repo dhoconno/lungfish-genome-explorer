@@ -109,24 +109,29 @@ final class FASTQBatchImporterCancellationTests: XCTestCase {
     /// `clumpifyFailed`. The sample is still a cancel, so a single-sample
     /// import exits 125 and not with a workflow error.
     func testACancelWhileTheStorageToolRunsIsACancelNotAFailure() async throws {
-        let files = try writeRun("SRR9100005")
-        let config = config(optimizeStorage: true, clumpingTool: .bbtools)
-        let events = EventLog()
-        let result = await Task.detached {
-            await FASTQBatchImporter.runBatchImport(
-                pairs: FASTQBatchImporter.detectPairs(from: files),
-                config: config,
-                log: { event in
-                    events.append(event)
-                    if case .stepStart(_, let step, _, _) = event, step == "Optimize storage + Compress" {
-                        withUnsafeCurrentTask { $0?.cancel() }
+        // Each storage tool runs the same import. Trim Galore's route wraps its tool's error as the bbtools route does
+        // (review fix 5 of lane C2-TRIMGALORE), and each import gets its own download folder.
+        let storageTools: [(run: String, tool: ClumpingTool)] = [("SRR9100005", .bbtools), ("SRR9100010", .trimGalore)]
+        for (run, tool) in storageTools {
+            let files = try writeRun(run)
+            let config = config(optimizeStorage: true, clumpingTool: tool)
+            let events = EventLog()
+            let result = await Task.detached {
+                await FASTQBatchImporter.runBatchImport(
+                    pairs: FASTQBatchImporter.detectPairs(from: files),
+                    config: config,
+                    log: { event in
+                        events.append(event)
+                        if case .stepStart(_, let step, _, _) = event, step == "Optimize storage + Compress" {
+                            withUnsafeCurrentTask { $0?.cancel() }
+                        }
                     }
-                }
-            )
-        }.value
+                )
+            }.value
 
-        assertCancelNotFailure(result, events)
-        try assertNothingLeft()
+            assertCancelNotFailure(result, events)
+            try assertNothingLeft()
+        }
     }
 
     /// Re-review finding S7-B1, step failed first. The window's process-tree

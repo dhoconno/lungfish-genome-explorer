@@ -7,7 +7,9 @@
 // one single-end call and failed on such a file after the whole recipe had run (2026-10-20, owner direction O7).
 
 import XCTest
+import Synchronization
 @testable import LungfishWorkflow
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 
@@ -162,5 +164,69 @@ final class FASTQIngestionTrimGaloreMixedTests: XCTestCase {
         } catch {}
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the failed check removed the output")
         XCTAssertThrowsError(try FASTQIngestionPipeline.readTrimGaloreReport(in: root), "no report fails closed")
+    }
+
+    /// Review fix 5. The mixed route launches `trim_galore`, `reformat.sh`, `trim_galore` and the compressor in turn
+    /// over scratch folders in the output directory. A cancel at the first call's launch and a cancel after the pairs
+    /// are interleaved must each end the run before the second Trim Galore call is launched, and leave the input as it
+    /// was, no scratch folder and no process of the run. The pipeline's other cancel tests use bbtools only.
+    func testACancelBetweenTheTwoTrimGaloreCallsLeavesNoScratchAndNoProcess() async throws {
+        try await requireTools()
+        let root = try makeRoot()
+        let input = root.appendingPathComponent("mixed.fastq")
+        try MixedStorageFASTQ.writeMixed(to: input, pairs: 6, merged: 5)
+        let original = try Data(contentsOf: input)
+        let secondCall = "Launching Trim Galore --clumpify on unpaired reads..."
+
+        for (index, trigger) in ["Launching Trim Galore --clumpify on mate pairs...", "Interleaving complete"].enumerated() {
+            let directory = root.appendingPathComponent("cancelled-\(index)-out", isDirectory: true)
+            let config = FASTQIngestionConfig(
+                inputFiles: [input],
+                pairingMode: .interleaved,
+                outputDirectory: directory,
+                threads: 2,
+                deleteOriginals: false,
+                clumpingTool: .trimGalore
+            )
+            let messages = Mutex<[String]>([])
+
+            let failure = await Task.detached { () -> (any Error)? in
+                do {
+                    _ = try await FASTQIngestionPipeline().run(config: config, progress: { _, message in
+                        messages.withLock { $0.append(message) }
+                        if message == trigger { withUnsafeCurrentTask { $0?.cancel() } }
+                    })
+                    return nil
+                } catch {
+                    return error
+                }
+            }.value
+
+            let seen = messages.withLock { $0 }
+            XCTAssertTrue(seen.contains(trigger), "the run reached '\(trigger)': \(seen)")
+            XCTAssertNotNil(failure, "a run cancelled at '\(trigger)' does not store the file")
+            XCTAssertFalse(seen.contains(secondCall), "the unpaired call is never launched after a cancel at '\(trigger)': \(seen)")
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            XCTAssertEqual(
+                entries.filter { $0.hasPrefix(".trim-galore-split") || $0.hasPrefix("trim-galore-") }, [],
+                "no scratch folder is left after a cancel at '\(trigger)'"
+            )
+            XCTAssertEqual(entries, [], "nothing at all is left in the output directory after a cancel at '\(trigger)'")
+            XCTAssertEqual(try Data(contentsOf: input), original, "the input is intact after a cancel at '\(trigger)'")
+            let gone = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(20)) {
+                await Self.pids(holding: directory.path).isEmpty
+            }
+            XCTAssertTrue(gone, "a process of the run outlived a cancel at '\(trigger)'")
+        }
+    }
+
+    /// The pids of every process whose command line holds `fragment`, found with the real `pgrep`. Every launch of the
+    /// run holds its output directory in its command line, and so does a child of a tool that a cancel killed.
+    private static func pids(holding fragment: String) async -> [Int32] {
+        let pattern = NSRegularExpression.escapedPattern(for: fragment)
+        guard let result = try? await SystemToolProbe.run("pgrep", ["-f", pattern], stdout: .capture()) else {
+            return []
+        }
+        return result.stdoutText.split(whereSeparator: \.isNewline).compactMap { Int32($0) }
     }
 }
