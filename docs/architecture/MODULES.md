@@ -29,7 +29,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortable | library | Sources/LungfishPortable | 16 | 1676 | 12 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 267526 | 1550 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 979 | 267570 | 1550 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15616 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -57,7 +57,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortableTests | Tests/LungfishPortableTests | 2 | 69 | LungfishPortable |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 722 | 228521 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 723 | 228692 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## CLungfishExecutor
 
@@ -1903,7 +1903,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 979, lines 267526
+- Swift files. 979, lines 267570
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1920,7 +1920,7 @@ None.
 | Assembly | 23 | 6087 |
 | Bundles | 13 | 3404 |
 | CLIEvents | 5 | 1146 |
-| Conda | 31 | 8743 |
+| Conda | 31 | 8787 |
 | Containers | 9 | 3557 |
 | Databases | 5 | 1970 |
 | DemoProjects | 5 | 1053 |
@@ -2650,7 +2650,7 @@ None.
 - `LocalWorkflowRunRequest` struct, `Sources/LungfishWorkflow/LocalWorkflowRunBundle.swift:150`
 - `LocalWorkflowRunStatusEvent` struct, `Sources/LungfishWorkflow/LocalWorkflowRunBundle.swift:23`
 - `LocalWorkflowRuntimeEvidence` struct, `Sources/LungfishWorkflow/LocalWorkflowRuntimeEvidence.swift:4`
-- `LockedCondaPackage` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:116`
+- `LockedCondaPackage` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:120`
 - `LocusEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift:173`
 - `LogEntry` struct, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:320`
 - `LogLevel` enum, `Sources/LungfishWorkflow/Containers/ContainerLogStreamer.swift:395`
@@ -2682,7 +2682,7 @@ None.
 - `ManagedSavontProcessRunner` struct, `Sources/LungfishWorkflow/Savont/SavontClusteringPipeline.swift:37`
 - `ManagedStorageAvailability` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:191`
 - `ManagedStorageCoordinator` actor, `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:4`
-- `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:147`
+- `ManagedToolLock` struct, `Sources/LungfishWorkflow/Conda/ManagedToolLock.swift:151`
 - `ManagedToolLockEntry` struct, `Sources/LungfishWorkflow/Dependencies/ManagedToolLock+Entry.swift:12`
 - `ManagedToolLockIdentity` struct, `Sources/LungfishWorkflow/Dependencies/ManagedToolLockIdentity.swift:12`
 - `ManagedToolSourceFileSystem` struct, `Sources/LungfishWorkflow/Conda/ManagedToolSourceFileSystem.swift:8`

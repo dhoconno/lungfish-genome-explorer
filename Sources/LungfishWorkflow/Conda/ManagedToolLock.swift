@@ -22,15 +22,19 @@ public struct ManagedCondaExplicitLockSpec: Sendable, Codable, Hashable, Identif
         self.sha256 = sha256.lowercased()
     }
 
+    /// The platforms an explicit lock may name. The Mac lock holds only `osx-arm64` locks and its
+    /// linux-64 sibling (`third-party-tools-lock.linux-64.json`) only `linux-64` ones.
+    static let supportedPlatforms: Set<String> = ["osx-arm64", "linux-64"]
+
     func validateIdentity() throws {
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        guard !packID.isEmpty, !toolID.isEmpty, platform == "osx-arm64",
+        guard !packID.isEmpty, !toolID.isEmpty, Self.supportedPlatforms.contains(platform),
               resource == URL(fileURLWithPath: resource).lastPathComponent,
-              resource.hasSuffix("-osx-arm64-explicit.txt"),
+              resource.hasSuffix("-\(platform)-explicit.txt"),
               resource.unicodeScalars.allSatisfy(safe.contains),
               sha256.count == 64, sha256.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
             throw CondaLockfileError.invalidSpecification(
-                "Explicit conda lock requires a safe bundled osx-arm64 resource and SHA-256.")
+                "Explicit conda lock requires a safe bundled osx-arm64 or linux-64 resource named for its platform, and a SHA-256.")
         }
     }
 
@@ -371,7 +375,11 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         }
         for lock in explicitLocks {
             try lock.validateIdentity()
-            guard packTools.contains(where: { $0.packID == lock.packID && $0.toolID == lock.toolID }) else {
+            // A lock installs a pack tool's environment, or an environment of this pack's own `tools`
+            // (the linux-64 lock puts several tools in one environment and names its lock by it).
+            let installsPackTool = packTools.contains { $0.packID == lock.packID && $0.toolID == lock.toolID }
+            let installsToolEnvironment = lock.packID == packID && tools.contains { $0.environment == lock.toolID }
+            guard installsPackTool || installsToolEnvironment else {
                 throw CondaLockfileError.invalidSpecification(
                     "Explicit conda lock '\(lock.id)' has no matching pack tool.")
             }
@@ -390,10 +398,15 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         explicitLocks.first { $0.packID == packID && $0.toolID == toolID }
     }
 
-    /// The explicit lock that installs an environment, if one does.
+    /// The explicit lock that installs an environment, if one does. A pack tool's environment
+    /// is found through its pack tool, and an environment of this lock's own `tools` through the
+    /// lock named by that environment in this lock's pack.
     public func explicitLock(forEnvironment environment: String) -> ManagedCondaExplicitLockSpec? {
-        guard let tool = packTools.first(where: { $0.environment == environment }) else { return nil }
-        return explicitLock(packID: tool.packID, toolID: tool.toolID)
+        if let tool = packTools.first(where: { $0.environment == environment }) {
+            return explicitLock(packID: tool.packID, toolID: tool.toolID)
+        }
+        guard tools.contains(where: { $0.environment == environment }) else { return nil }
+        return explicitLock(packID: packID, toolID: environment)
     }
 
     /// Environment name -> every package its explicit lock installs. A lock whose bundled
@@ -405,6 +418,11 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                   let packages = try? lock.lockedPackages() else { continue }
             result[tool.environment] = packages
         }
+        for tool in tools where result[tool.environment] == nil {
+            guard let lock = explicitLock(packID: packID, toolID: tool.environment),
+                  let packages = try? lock.lockedPackages() else { continue }
+            result[tool.environment] = packages
+        }
         return result
     }
 
@@ -412,6 +430,26 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         let url = try resourceURL()
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(ManagedToolLock.self, from: data)
+    }
+
+    /// The file name of the linux-64 sibling lock, the tool set of the CHTC image. It mirrors the
+    /// Mac lock's tool versions with the build strings of the linux-64 packages, is its own lock
+    /// and never merges into `bundled`.
+    public static let linux64ResourceName = "third-party-tools-lock.linux-64.json"
+
+    public static func loadLinux64FromBundle() throws -> ManagedToolLock {
+        let data = try Data(contentsOf: resourceURL(named: linux64ResourceName))
+        return try JSONDecoder().decode(ManagedToolLock.self, from: data)
+    }
+
+    /// The linux-64 lock and its bytes from a single read, shared by `bundledLinux64Identity`.
+    static let bundledLinux64Resource: (lock: ManagedToolLock, data: Data)? =
+        readResource(at: try? resourceURL(named: linux64ResourceName))
+
+    /// The identity of the linux-64 lock file, the SHA-256 of its exact bytes with its version and
+    /// dependency set. Nil when the resource cannot be read or decoded, never the hash of empty data.
+    public static let bundledLinux64Identity: ManagedToolLockIdentity? = bundledLinux64Resource.map {
+        ManagedToolLockIdentity(lock: $0.lock, lockData: $0.data)
     }
 
     /// The lock decoded from one read of `url`, with the bytes it was decoded from.
@@ -426,8 +464,14 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
     static let bundledResource: (lock: ManagedToolLock, data: Data)? = readResource(at: try? resourceURL())
 
     static func resourceURL() throws -> URL {
+        try resourceURL(named: "third-party-tools-lock.json")
+    }
+
+    /// The bundled lock file called `name`, from the workflow resources, or from the source tree in
+    /// a debug build.
+    static func resourceURL(named name: String) throws -> URL {
         if let url = RuntimeResourceLocator.path(
-            "ManagedTools/third-party-tools-lock.json",
+            "ManagedTools/\(name)",
             in: .workflow
         ) {
             return url
@@ -436,7 +480,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Resources/ManagedTools/third-party-tools-lock.json")
+            .appendingPathComponent("Resources/ManagedTools/\(name)")
         if FileManager.default.fileExists(atPath: sourceURL.path) {
             return sourceURL
         }
@@ -445,7 +489,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
         throw NSError(
             domain: "ManagedToolLock",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Managed tool lock manifest not found in workflow resources."]
+            userInfo: [NSLocalizedDescriptionKey: "Managed tool lock manifest \(name) not found in workflow resources."]
         )
     }
 }
