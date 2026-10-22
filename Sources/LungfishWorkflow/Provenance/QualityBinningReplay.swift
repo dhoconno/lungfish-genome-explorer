@@ -39,6 +39,11 @@ public enum QualityBinningReplay {
         return argv + [flag, value.rawValue]
     }
 
+    /// ``arguments(_:stated:)`` with the value `step` states, else `recorded`, the value its record states.
+    static func arguments(_ argv: [String], step: StepExecution, recorded: String?) -> [String] {
+        arguments(argv, stated: statedValue(in: step.resolvedOptions) ?? recorded)
+    }
+
     /// The binning `options` state, under `qualityBinning` or under `fastq ingest`'s `binning`.
     public static func statedValue(in options: [String: ParameterValue]?) -> String? {
         guard let options else { return nil }

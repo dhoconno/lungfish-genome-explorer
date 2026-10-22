@@ -135,7 +135,7 @@ final class FastqIngestPublishDurabilityTests: XCTestCase {
         FileManager.default.delegate = probe
         defer { FileManager.default.delegate = nil }
 
-        try await runRoot(["fastq", "ingest", input.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+        try await runRoot(["fastq", "ingest", input.path, "--skip-clumpify", "--delete-originals", "--binning", "none", "--quiet"])
 
         XCTAssertEqual(
             probe.moments,
@@ -157,7 +157,7 @@ final class FastqIngestPublishDurabilityTests: XCTestCase {
         XCTAssertFalse(ingestion.isClumpified, "--skip-clumpify")
         XCTAssertTrue(ingestion.isCompressed)
         XCTAssertEqual(ingestion.pairingMode, .singleEnd)
-        XCTAssertEqual(ingestion.qualityBinning, QualityBinningScheme.none.rawValue, "binning is off unless it is asked for")
+        XCTAssertEqual(ingestion.qualityBinning, QualityBinningScheme.none.rawValue, "binning is off when --binning none asks for it")
         XCTAssertEqual(ingestion.originalFilenames, ["reads.fastq"])
         XCTAssertEqual(ingestion.originalSizeBytes, Int64(originalSize))
 

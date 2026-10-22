@@ -113,7 +113,7 @@ final class ONTImportRouteFreezeTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"))
         XCTAssertEqual(envelope.argv, [
             CLICommandIdentity.executableName, "fastq", "import-ont",
-            source.path, "--output", output.path, "--include-unclassified", "--concurrency", "2", "--format", "json",
+            source.path, "--output", output.path, "--include-unclassified", "--concurrency", "2", "--quality-binning", "illumina4", "--format", "json",
         ])
         XCTAssertEqual(envelope.reproducibleCommand, item.cliCommand, "the provenance records the command the row shows")
     }

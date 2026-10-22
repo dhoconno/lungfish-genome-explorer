@@ -316,7 +316,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         let expected = [
             CLICommandIdentity.executableName, "fastq", "import-ont",
-            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--format", "json",
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--quality-binning", "illumina4", "--format", "json",
         ]
         XCTAssertEqual(envelope.argv, expected)
         XCTAssertEqual(envelope.reproducibleCommand, expected.map(shellEscape).joined(separator: " "))

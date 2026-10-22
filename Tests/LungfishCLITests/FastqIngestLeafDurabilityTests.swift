@@ -435,7 +435,7 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         let output = root.appendingPathComponent("reads.fastq.gz")
         try Data("an older output".utf8).write(to: output)
 
-        try await execute([input.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+        try await execute([input.path, "--skip-clumpify", "--delete-originals", "--binning", "none", "--quiet"])
 
         var lines: [String] = []
         try output.forEachLineAutoDecompressing { lines.append($0) }
@@ -479,7 +479,7 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: input)
         let digest = try ProvenanceFileHasher.sha256(of: input)
 
-        try await execute([input.path, "--skip-clumpify", "--delete-originals", "--quiet"])
+        try await execute([input.path, "--skip-clumpify", "--delete-originals", "--binning", "none", "--quiet"])
 
         XCTAssertEqual(try Data(contentsOf: input), Data([0x1f, 0x8b, 0x08, 0x00]), "the input is the output, so it stays")
         let ingestion = try XCTUnwrap(FASTQMetadataStore.load(for: input)?.ingestion)

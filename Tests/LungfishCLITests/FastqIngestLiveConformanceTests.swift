@@ -64,7 +64,7 @@ final class FastqIngestLiveConformanceTests: XCTestCase {
         FileManager.default.delegate = probe
         defer { FileManager.default.delegate = nil }
 
-        let command = try FastqIngestSubcommand.parse([input.path, "--delete-originals", "--quiet"])
+        let command = try FastqIngestSubcommand.parse([input.path, "--delete-originals", "--binning", "none", "--quiet"])
         try await command.execute(emit: { _ in })
 
         XCTAssertEqual(
