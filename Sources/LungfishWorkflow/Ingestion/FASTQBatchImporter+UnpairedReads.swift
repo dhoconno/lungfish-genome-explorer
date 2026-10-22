@@ -433,17 +433,11 @@ extension FASTQBatchImporter {
         /// The first reads do not bear out the join of the third file. Only
         /// a caller that skipped ``checkingUnpairedReads(_:)`` reaches this.
         case notJoinable(String)
-        /// Trim Galore was asked to store the sample.
-        case trimGaloreLeavesUnpairedReadsOut(sample: String, file: String)
 
         var errorDescription: String? {
             switch self {
             case .notJoinable(let reason):
                 return "\(reason). Import the pair without it."
-            case .trimGaloreLeavesUnpairedReadsOut(let sample, let file):
-                return "Trim Galore cannot optimize storage for sample '\(sample)', because \(file) holds reads whose "
-                    + "mate is missing, and Trim Galore reads only pairs or only single reads. Choose BBTools "
-                    + "clumpify or skip storage optimization to keep every read."
             }
         }
     }
@@ -452,7 +446,6 @@ extension FASTQBatchImporter {
     /// with every read, run before any work.
     static func validateImportKeepsUnpairedReads(pair: SamplePair, config: ImportConfig) throws {
         try validateRecipeKeepsUnpairedReads(pair: pair, config: config)
-        try validateStorageKeepsUnpairedReads(pair: pair, config: config)
     }
 
     /// A recipe reads pairs or single reads, not both, so a sample that also
@@ -467,19 +460,6 @@ extension FASTQBatchImporter {
             sample: pair.sampleName,
             reason: "\(unpaired.lastPathComponent) holds reads whose mate is missing, and a recipe reads only "
                 + "pairs or only single reads. Import the run with no recipe to keep every read."
-        )
-    }
-
-    /// Trim Galore reads pairs or single reads, not both, so it would store
-    /// such a sample only by leaving reads out. The import refuses it up
-    /// front and names the file, as it refuses a recipe, where the pipeline
-    /// refused it only after the join with a message that named neither the
-    /// run nor the file (finding F9-N2). `auto` never picks Trim Galore.
-    static func validateStorageKeepsUnpairedReads(pair: SamplePair, config: ImportConfig) throws {
-        guard let unpaired = pair.unpaired, config.clumpingTool == .trimGalore else { return }
-        throw UnpairedReadsImportError.trimGaloreLeavesUnpairedReadsOut(
-            sample: pair.sampleName,
-            file: unpaired.lastPathComponent
         )
     }
 

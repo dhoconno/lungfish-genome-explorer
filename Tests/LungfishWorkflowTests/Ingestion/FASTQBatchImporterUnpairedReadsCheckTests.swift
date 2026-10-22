@@ -11,8 +11,8 @@ import LungfishTestSupport
 /// `_2` pair by file name (lane F9). These tests cover the check that keeps
 /// the join only when the first reads bear it out (findings F9-S1 and
 /// F9-N1), and what the import does with a joined sample. Trim Galore
-/// cannot store it without leaving reads out, and failed deep in the
-/// pipeline with a message that named neither the run nor the file (F9-N2).
+/// once failed on it deep in the pipeline (F9-N2) and now stores it the
+/// way clumpify does (lane C2-TRIMGALORE, review fix 3).
 /// The per-sample log and the `sampleStart` event named only the pair
 /// (F9-N3). An interleaved copy of the pair that starts at another pair
 /// still joined (F10-N1), and the warning promised that the pair imports
@@ -435,10 +435,17 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports/SRR6.lungfishfastq").path))
     }
 
-    // MARK: - Trim Galore (F9-N2)
+    // MARK: - Trim Galore (F9-N2, C2-TRIMGALORE review fix 3)
 
-    func testTrimGaloreRefusesARunWithReadsWithoutAMateAndNamesTheFile() async throws {
-        let files = try writeRun("SRR9000007", pairedSpots: [1, 2], unpairedSpots: [3])
+    /// Until 2026-10-22 the import refused Trim Galore for a run with a joined third file (F9-N2). The storage step
+    /// now splits the importer's file of pairs then unpaired reads by mate name, as clumpify does, so the run imports
+    /// through it. The pairs come first, the third file's reads are the unpaired reads, and the sidecar counts the
+    /// stored file. The third file's 12-base read falls under Trim Galore's length cutoff of 20, so the stored file and
+    /// its sidecar hold one unpaired read fewer than the run (review fix 2).
+    func testTrimGaloreStoresARunWithReadsWithoutAMateAndTheSidecarCountsTheStoredFile() async throws {
+        _ = try await ToolAvailability.require("trim_galore", environment: "trim_galore")
+        _ = try await ToolAvailability.require("reformat.sh", environment: "bbtools")
+        let files = try writeLongRun("SRR9000007", pairedSpots: [1, 2, 3, 4], unpairedSpots: [5, 6, 7], shortSpot: 8)
 
         let result = await FASTQBatchImporter.runBatchImport(
             pairs: FASTQBatchImporter.detectPairs(from: files),
@@ -452,18 +459,17 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.completed, 0)
-        XCTAssertEqual(result.failed, 1, "Trim Galore would leave the reads without a mate out")
-        let error = try XCTUnwrap(result.errors.first?.error)
-        XCTAssertEqual(
-            error,
-            "Trim Galore cannot optimize storage for sample 'SRR9000007', because SRR9000007.fastq holds reads whose "
-                + "mate is missing, and Trim Galore reads only pairs or only single reads. Choose BBTools clumpify or "
-                + "skip storage optimization to keep every read."
-        )
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: project.appendingPathComponent("Imports/SRR9000007.lungfishfastq").path
-        ))
+        XCTAssertEqual(result.failed, 0, "\(result.errors)")
+        XCTAssertEqual(result.completed, 1)
+        let fastq = project.appendingPathComponent("Imports/SRR9000007.lungfishfastq/SRR9000007.fastq.gz")
+        let layout = try MixedStorageFASTQ.layout(of: fastq)
+        XCTAssertEqual(layout.pairs, 4, "every pair is kept with its mate")
+        XCTAssertEqual(layout.unpaired, 3, "the third file's reads less the one under the length cutoff")
+        XCTAssertTrue(layout.pairsBeforeUnpaired, "pairs first, as clumpify stores them")
+        XCTAssertFalse(layout.names.contains("SRR9000007.8"), "the 12-base read is the one removed")
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: fastq))
+        XCTAssertEqual(metadata.readClassification?.pairedReadCount, layout.pairs * 2, "the sidecar counts the stored pairs")
+        XCTAssertEqual(metadata.readClassification?.unpairedReadCount, layout.unpaired, "and the stored unpaired reads")
     }
 
     // MARK: - What the import logs (F9-N3)
@@ -547,6 +553,28 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
 
     /// Writes files into their own folder and returns them. A name ending
     /// in `.gz` is gzip compressed.
+    /// A run of 100-base reads, long enough for Trim Galore's length cutoff of 20, whose third file ends with one
+    /// 12-base read at `shortSpot`.
+    private func writeLongRun(_ run: String, pairedSpots: [Int], unpairedSpots: [Int], shortSpot: Int) throws -> [URL] {
+        let folder = root.appendingPathComponent("download-\(run)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func record(_ spot: Int, seed: UInt64, length: Int) -> String {
+            let bases = InterleavedFASTQFixture.deterministicSequence(seed: seed, length: length)
+            return "@\(run).\(spot) \(spot) length=\(length)\n\(bases)\n+\n\(String(repeating: "I", count: length))\n"
+        }
+        func write(_ name: String, _ records: [String]) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            try Data(records.joined().utf8).write(to: url)
+            return url
+        }
+        return [
+            try write("\(run)_1.fastq", pairedSpots.map { record($0, seed: UInt64(10_000 + $0), length: 100) }),
+            try write("\(run)_2.fastq", pairedSpots.map { record($0, seed: UInt64(20_000 + $0), length: 100) }),
+            try write("\(run).fastq", unpairedSpots.map { record($0, seed: UInt64(30_000 + $0), length: 100) }
+                + [record(shortSpot, seed: 40_000, length: 12)]),
+        ]
+    }
+
     private func writeFiles(_ folderName: String, _ files: [String: String]) throws -> [URL] {
         let folder = root.appendingPathComponent(folderName, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
