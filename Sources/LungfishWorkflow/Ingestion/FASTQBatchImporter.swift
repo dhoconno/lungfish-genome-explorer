@@ -1909,7 +1909,7 @@ public enum FASTQBatchImporter {
 
     /// The import command line. `durable` names the resolved platform instead
     /// of what was asked for, so a replay never depends on the detector.
-    private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig, durable: Bool = false) -> [String] {
+    static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig, durable: Bool = false) -> [String] {
         let platform = durable ? config.sequencingPlatform.importCLIValue : config.platformRequest.cliValue
         if let sampleSheetURL = pair.sampleSheetURL {
             var command = [
