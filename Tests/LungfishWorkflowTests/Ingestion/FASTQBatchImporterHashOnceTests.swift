@@ -218,4 +218,36 @@ final class FASTQBatchImporterHashOnceTests: XCTestCase {
             sha256Hex(fixture.metadataBytes)
         )
     }
+
+    func testRunBatchImportRunsUnderOneFreshDigestCachePerCommand() async throws {
+        let fixture = try makeFixture()
+        let log = DigestCacheLog()
+
+        // An empty batch still logs .importStart inside the command's scope and needs no tool.
+        for _ in 0..<2 {
+            _ = await FASTQBatchImporter.runBatchImport(
+                pairs: [], config: fixture.config,
+                log: { _ in log.append(ProvenanceDigestCache.current) }
+            )
+        }
+
+        let seen = log.all
+        XCTAssertFalse(seen.isEmpty, "the command logs from inside its scope")
+        XCTAssertTrue(seen.allSatisfy { $0 != nil }, "the command runs with a cache bound")
+        var distinct: [ProvenanceDigestCache] = []
+        for cache in seen.compactMap({ $0 }) where !distinct.contains(where: { $0 === cache }) {
+            distinct.append(cache)
+        }
+        XCTAssertEqual(distinct.count, 2, "no cache is shared between commands")
+        XCTAssertNil(ProvenanceDigestCache.current, "nothing outlives the command")
+    }
+}
+
+/// Keeps, in order, the cache each log event of a command saw. It holds them strongly, so no address is reused.
+private final class DigestCacheLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [ProvenanceDigestCache?] = []
+
+    func append(_ cache: ProvenanceDigestCache?) { lock.withLock { seen.append(cache) } }
+    var all: [ProvenanceDigestCache?] { lock.withLock { seen } }
 }
