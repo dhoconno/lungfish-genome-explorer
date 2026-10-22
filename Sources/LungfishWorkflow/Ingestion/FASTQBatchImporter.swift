@@ -1975,7 +1975,7 @@ public enum FASTQBatchImporter {
                     var args = [
                         "in1=\(currentR1.path)", "in2=\(r2.path)",
                         "out1=\(outR1.path)", "out2=\(outR2.path)",
-                        "-Xmx\(heapGB)g", "dedupe=t",
+                        "-Xmx\(heapGB)g", BBToolsOutOfMemory.flag, "dedupe=t",
                         "subs=\(step.deduplicateSubstitutions ?? 0)", "ow=t",
                         "threads=\(config.threads)",
                     ]
@@ -1983,6 +1983,10 @@ public enum FASTQBatchImporter {
                         args += ["optical=t", "dupedist=\(step.deduplicateOpticalDistance ?? 2500)"]
                     }
                     let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentR1, r2]))
+                    if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
+                        throw FASTQIngestionError.outOfMemory(
+                            BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: args, optionPinsHeap: false))
+                    }
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("paired dedup failed: \(String(result.stderr.suffix(500)))")
                     }
@@ -2102,6 +2106,7 @@ public enum FASTQBatchImporter {
                 let dedupeArgs = [
                     "in=\(currentURL.path)",
                     "out=\(outputURL.path)",
+                    BBToolsOutOfMemory.flag,
                     "dedupe=t",
                     "optical=\(step.deduplicateOptical == true ? "t" : "f")",
                     "threads=\(config.threads)",
@@ -2111,6 +2116,10 @@ public enum FASTQBatchImporter {
                     currentIsInterleaved ? "interleaved=t" : "interleaved=f",
                 ]
                 let result = try await runner.run(.clumpify, arguments: dedupeArgs, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentURL]))
+                if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
+                    throw FASTQIngestionError.outOfMemory(
+                        BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: dedupeArgs, optionPinsHeap: false))
+                }
                 guard result.isSuccess else {
                     throw BatchImportError.unknownRecipe("clumpify dedupe failed: \(result.stderr.suffix(500))")
                 }

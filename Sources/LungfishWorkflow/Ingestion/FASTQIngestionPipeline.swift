@@ -149,6 +149,8 @@ public enum FASTQIngestionError: Error, LocalizedError {
     case pairedOutputVerificationFailed(String)
     case compressionFailed(String)
     case toolNotFound(String)
+    /// A BBTools JVM ran out of heap. The sentence is already plain, so it is shown as it is.
+    case outOfMemory(String)
 
     public var errorDescription: String? {
         switch self {
@@ -168,6 +170,8 @@ public enum FASTQIngestionError: Error, LocalizedError {
             return "Compression failed: \(msg)"
         case .toolNotFound(let tool):
             return "Required tool not found: \(tool)"
+        case .outOfMemory(let sentence):
+            return sentence
         }
     }
 }
@@ -326,7 +330,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 wasClumpified = true
                 verifyPairedRecordCount = config.pairingMode == .pairedEnd
             } catch {
-                // Clumpify is mandatory for imported FASTQ workflows.
+                // Clumpify is mandatory for imported FASTQ workflows. The out-of-memory sentence is already plain.
+                if case .outOfMemory? = error as? FASTQIngestionError { throw error }
                 throw FASTQIngestionError.clumpifyFailed(error.localizedDescription)
             }
         case .trimGalore:
@@ -495,6 +500,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             "in=\(input.path)",
             "out=\(output.path)",
             "-Xmx\(heapGB)g",
+            BBToolsOutOfMemory.flag,
             "ow=t",
             "reorder",
             "groups=auto",
@@ -656,6 +662,10 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
         let stepCompletedAt = stepClock.now
 
+        if BBToolsOutOfMemory.isOutOfMemory(exitCode: result.exitCode) {
+            throw FASTQIngestionError.outOfMemory(
+                BBToolsOutOfMemory.message(tool: "clumpify.sh", arguments: args, optionPinsHeap: true))
+        }
         guard result.isSuccess else {
             let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
             throw FASTQIngestionError.clumpifyFailed(
