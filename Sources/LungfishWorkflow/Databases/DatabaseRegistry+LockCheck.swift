@@ -10,8 +10,8 @@ extension DatabaseRegistry {
 
     /// Reports the install's check step and, when the lock pins the database's bytes with `sha256` and
     /// `sizeBytes`, refuses a staged index that does not match them, before it replaces the installed file. An
-    /// entry without `sha256`, such as `deacon-ribokmers`, which each install builds on its host, is not checked
-    /// (CHTC lane L5-RECORDS M2). `lock` finds the entry, in the bundled lock unless a test hands the registry
+    /// entry without `sha256` is not checked (CHTC lane L5-RECORDS M2). `deacon-ribokmers` is pinned as a hosted
+    /// download since C2-RIBOPIN. `lock` finds the entry, in the bundled lock unless a test hands the registry
     /// a lookup that pins its own fixture.
     nonisolated static func checkStagedIndexAgainstLock(
         _ stagedURL: URL,

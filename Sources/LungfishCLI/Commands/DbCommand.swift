@@ -201,6 +201,11 @@ extension DbCommand {
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let managedID = DatabaseRegistry.canonicalDatabaseID(for: name)
+            if DatabaseRegistry.knownIDs.contains(managedID) {
+                try await Self.printManagedStatus(managedID, formatter: formatter)
+                return
+            }
             let registry = MetagenomicsDatabaseRegistry.shared
 
             guard let db = try await registry.database(named: name) else {
@@ -229,6 +234,23 @@ extension DbCommand {
                 ("Disk size", LungfishFormatters.formatBytes(size)),
                 ("Recommended RAM", LungfishFormatters.formatBytes(db.recommendedRAM)),
                 ("Description", db.description),
+            ]))
+        }
+
+        /// A managed database such as `deacon-ribokmers`, with how its installed copy compares with the lock's pin.
+        private static func printManagedStatus(_ id: String, formatter: TerminalFormatter) async throws {
+            let registry = DatabaseRegistry.shared
+            let manifest = await registry.requiredDatabaseManifest(for: id)
+            let path = await registry.effectiveDatabasePath(for: id)
+            let status = try await registry.pinStatus(for: id)
+            print(formatter.header("Database: \(manifest?.displayName ?? id)"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Identifier", id),
+                ("Tool", manifest?.tool ?? "unknown"),
+                ("Pinned version", manifest?.version ?? "unknown"),
+                ("Status", status.summary(databaseID: id)),
+                ("Location", path?.path ?? "not installed"),
             ]))
         }
 
@@ -490,6 +512,13 @@ extension DbCommand {
             guard yes else {
                 throw refuse("Updating a database replaces the installed copy; re-run with --yes to confirm", .usage)
             }
+            if let catalogID, DatabaseRegistry.knownIDs.contains(DatabaseRegistry.canonicalDatabaseID(for: catalogID)) {
+                try await updateManaged(
+                    DatabaseRegistry.canonicalDatabaseID(for: catalogID),
+                    events: events, say: say, formatter: formatter, eventsOn: eventsOn, quiet: quiet
+                )
+                return
+            }
 
             let targets = try await resolveTargets(registry: registry)
             let storageRoot = ManagedToolLeaf.currentStorageRoot()
@@ -628,6 +657,65 @@ extension DbCommand {
                 outputs: updatedPaths.isEmpty ? [storageRoot.path] : updatedPaths,
                 message: "Updated \(log.succeeded.count) database(s): \(log.succeeded.joined(separator: ", "))"
             )
+        }
+
+        /// `db update <managed id>` brings a managed database such as `deacon-ribokmers` to the lock's pin. The registry
+        /// replaces the installed copy only after the new file passes the lock check, and the run is recorded under
+        /// `<storage root>/provenance/databases` (CHTC lane C2-RIBOPIN).
+        private func updateManaged(
+            _ id: String,
+            events: CLIEventEmitter,
+            say: @escaping @Sendable (String) -> Void,
+            formatter: TerminalFormatter,
+            eventsOn: Bool,
+            quiet: Bool
+        ) async throws {
+            let registry = DatabaseRegistry.shared
+            let startedAt = Date()
+            events.emitStart("Updating \(id)...")
+            say(formatter.header("Updating \(id)"))
+            if let before = try? await registry.pinStatus(for: id) {
+                say(formatter.info("Installed copy: \(before.summary(databaseID: id))"))
+            }
+            var failure: String?
+            var installed: URL?
+            do {
+                installed = try await registry.updateManagedDatabase(id) { fraction, message in
+                    if eventsOn {
+                        events.emitProgress(min(max(fraction, 0), 1), message: message)
+                    } else if !quiet {
+                        print("\r\(formatter.info("[\(Int((fraction * 100).rounded()))%] \(message)"))", terminator: "")
+                    }
+                }
+            } catch {
+                failure = error.localizedDescription
+            }
+            ManagedToolLeaf.writeRecord(
+                ManagedToolLeaf.Record(
+                    workflowName: "conda-database-update",
+                    folder: "databases",
+                    label: id,
+                    argv: ["lungfish-cli", "conda", "db", "update", id, "--yes"],
+                    explicit: ["databases": .array([.string(id)])],
+                    pluginPack: nil,
+                    steps: [ManagedToolLeaf.Step(id: id, version: "unknown", failure: failure)],
+                    status: failure == nil ? .completed : .failed,
+                    failure: failure,
+                    startedAt: startedAt,
+                    endedAt: Date()
+                ),
+                storageRoot: ManagedToolLeaf.currentStorageRoot()
+            )
+            say("")
+            if let failure {
+                events.emitFailed("Failed '\(id)': \(failure)")
+                say(formatter.error("Failed '\(id)': \(failure)"))
+                throw CLIExitCode.failure.exitCode
+            }
+            if let after = try? await registry.pinStatus(for: id) {
+                say(formatter.success("Database '\(id)' \(after.summary(databaseID: id))"))
+            }
+            events.emitComplete(outputs: installed.map { [$0.path] } ?? [], message: "Updated \(id)")
         }
 
         /// The database identifiers this invocation should update.

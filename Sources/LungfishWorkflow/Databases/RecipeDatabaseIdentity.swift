@@ -22,9 +22,10 @@ public enum RecipeDatabaseIdentityError: Error, LocalizedError, Sendable, Equata
 /// Resolves the ``RecipeDatabaseRecord`` of a database file a recipe step reads, before the step's tool runs.
 ///
 /// A lock entry that carries `sha256` pins the file, and its `sizeBytes` is then the file's exact size. A file that
-/// does not match a pin throws ``RecipeDatabaseIdentityError``. An entry without `sha256`, such as
-/// `deacon-ribokmers`, which each install builds on its own host, is recorded by its actual digest with the build
-/// inputs its install record names. Each file is hashed once per process, keyed by its path, size and modification
+/// does not match a pin throws ``RecipeDatabaseIdentityError``, unless the entry pins a hosted build (`build`), as
+/// `deacon-ribokmers` does, whose earlier host-built copies may differ. Such a file, and a file of an entry without
+/// `sha256`, is recorded by its actual digest with the build inputs its install record names (C2-RIBOPIN). Each
+/// file is hashed once per process, keyed by its path, size and modification
 /// date, so a command that imports many samples hashes each database once (CHTC lane L5-RECORDS M2).
 public actor RecipeDatabaseIdentity {
     public static let shared = RecipeDatabaseIdentity()
@@ -67,15 +68,19 @@ public actor RecipeDatabaseIdentity {
         func mismatch(_ field: String, _ expected: String, _ actual: String) -> RecipeDatabaseIdentityError {
             .lockMismatch(databaseID: databaseID, path: url.path, field: field, expected: expected, actual: actual)
         }
-        if pinnedSHA256 != nil, let pinnedSize = spec?.sizeBytes, pinnedSize != size {
+        // A hosted build pins what an install downloads. An index an earlier install built on its own host may
+        // differ from it, and it is recorded by its real digest, never refused (C2-RIBOPIN).
+        let refusesMismatch = spec?.build == nil
+        if refusesMismatch, pinnedSHA256 != nil, let pinnedSize = spec?.sizeBytes, pinnedSize != size {
             throw mismatch("size", "\(pinnedSize) bytes", "\(size) bytes")
         }
         let digest = try digest(of: url, key: key)
-        if let pinnedSHA256, pinnedSHA256 != digest {
+        if refusesMismatch, let pinnedSHA256, pinnedSHA256 != digest {
             throw mismatch("SHA-256", pinnedSHA256, digest)
         }
         let header = Self.deaconIndexHeader(at: url, sizeBytes: size)
-        let build = pinnedSHA256 == nil ? builtFrom(indexAt: url, key: key, indexSHA256: digest) : nil
+        let lockPinned = pinnedSHA256 == digest
+        let build = lockPinned ? nil : builtFrom(indexAt: url, key: key, indexSHA256: digest)
         return RecipeDatabaseRecord(
             id: databaseID,
             version: spec?.version ?? "unknown",
@@ -86,7 +91,7 @@ public actor RecipeDatabaseIdentity {
             sha256: digest,
             sizeBytes: size,
             path: url.path,
-            lockPinned: pinnedSHA256 != nil,
+            lockPinned: lockPinned,
             buildSourceSHA256: build?.sourceSHA256,
             buildSourceSizeBytes: build?.sourceSizeBytes,
             buildToolVersion: build?.toolVersion

@@ -237,7 +237,7 @@ public actor DatabaseRegistry {
     private let userDatabasesRootProvider: @Sendable () -> URL?
     private let managedDatabaseDownloader: ManagedDatabaseDownloader?
     private let managedDatabaseToolRunner: ManagedDatabaseToolRunner?
-    private let managedDatabaseLockLookup: ManagedDatabaseLockLookup
+    let managedDatabaseLockLookup: ManagedDatabaseLockLookup
     private let managedDatabaseProvenanceWriter: ManagedDatabaseProvenanceWriter
     /// Other channels' `databases/` directories on this volume, given this
     /// registry's database root. An identical verified file there is cloned
@@ -511,7 +511,7 @@ public actor DatabaseRegistry {
                 progress: progress
             )
         case DeaconRibokmersDatabaseInstaller.databaseID:
-            return try await installDeaconRibokmersDatabase(
+            return try await installPinnedDownloadDatabase(
                 databaseID: resolvedID,
                 manifest: manifest,
                 progress: progress
@@ -830,37 +830,30 @@ public actor DatabaseRegistry {
         }
     }
 
-    private func installDeaconRibokmersDatabase(
+    /// Installs a database the lock pins as one hosted file, such as `deacon-ribokmers` (CHTC lane C2-RIBOPIN). The
+    /// file is downloaded and checked against the lock's size and SHA-256 before it replaces anything, and the install
+    /// record names the download, the published file's real digest and the build the lock records. A refused or
+    /// failed download leaves an installed index and its record as they were.
+    func installPinnedDownloadDatabase(
         databaseID: String,
         manifest: BundledDatabase,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        func failure(_ reason: String) -> HumanScrubberDatabaseError {
+            .installationFailed(databaseID: databaseID, displayName: manifest.displayName, reason: reason)
+        }
         guard let installDirectory = managedDatabaseDirectory(for: databaseID) else {
-            throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: databaseID,
-                displayName: manifest.displayName,
-                reason: "No writable database storage location is configured"
-            )
+            throw failure("No writable database storage location is configured")
         }
-        guard let sourceURL = URL(string: manifest.sourceUrl) else {
-            throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: databaseID,
-                displayName: manifest.displayName,
-                reason: "Invalid source URL: \(manifest.sourceUrl)"
-            )
+        guard let spec = managedDatabaseLockLookup(databaseID), let pinnedSHA256 = spec.sha256?.lowercased(),
+              let sourceURL = spec.url.flatMap({ URL(string: $0) }) else {
+            throw failure("The bundled lock pins no download for this database")
         }
-
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true, attributes: nil)
-
         let destinationURL = installDirectory.appendingPathComponent(manifest.filename)
-        let tempOutputURL = installDirectory.appendingPathComponent("\(manifest.filename).partial")
-        let referenceURL = installDirectory.appendingPathComponent("ribokmers.fa.gz")
-        let tempReferenceURL = installDirectory.appendingPathComponent("ribokmers.fa.gz.download")
-
-        try? fileManager.removeItem(at: tempOutputURL)
-        try? fileManager.removeItem(at: tempReferenceURL)
-
+        let stagedURL = installDirectory.appendingPathComponent("\(manifest.filename).partial")
+        try? fileManager.removeItem(at: stagedURL)
         if let cloned = await cloneManagedDatabaseFromSibling(
             databaseID: databaseID, manifest: manifest, installDirectory: installDirectory,
             expectedMD5: nil, progress: progress
@@ -870,139 +863,79 @@ public actor DatabaseRegistry {
 
         progress?(0.02, "Preparing \(manifest.displayName)…")
         let runClock = ProvenanceRunClock()
-        var downloadWallTime: TimeInterval = 0
-        let downloadExitCode: Int32 = 0
-        let buildArgs = [
-            "index", "build",
-            "-k", "31",
-            "-w", "15",
-            referenceURL.path,
-            "-o", tempOutputURL.path,
-            "-t", "0",
-        ]
-
+        var downloadedURL: URL?
+        var published = false
         do {
-            progress?(0.08, "Downloading \(manifest.displayName)…")
+            progress?(0.05, "Downloading \(manifest.displayName)…")
             let downloadClock = ProvenanceRunClock()
             let downloaded = try await downloadManagedDatabaseFile(from: sourceURL) { fraction, bytesWritten, totalBytes in
-                let scaled = 0.08 + (fraction * 0.52)
                 progress?(
-                    scaled,
+                    0.05 + (fraction * 0.8),
                     "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
                 )
             }
-            downloadWallTime = downloaded.wallTime > 0 ? downloaded.wallTime : downloadClock.elapsed
-
-            if fileManager.fileExists(atPath: referenceURL.path) {
-                try fileManager.removeItem(at: referenceURL)
-            }
-            try fileManager.moveItem(at: downloaded.fileURL, to: tempReferenceURL)
-            try fileManager.moveItem(at: tempReferenceURL, to: referenceURL)
-
-            progress?(0.64, "Building \(manifest.displayName)…")
-            let buildResult = try await runManagedDatabaseTool(
-                name: "deacon",
-                arguments: buildArgs,
-                environment: "deacon",
-                timeout: 7200
-            )
-            guard buildResult.exitCode == 0 else {
-                let message = buildResult.stderr.isEmpty ? buildResult.stdout : buildResult.stderr
-                throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: databaseID,
-                    displayName: manifest.displayName,
-                    reason: message.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }
-
-            guard fileManager.fileExists(atPath: tempOutputURL.path) else {
-                throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: databaseID,
-                    displayName: manifest.displayName,
-                    reason: "Deacon did not create the ribokmers index"
-                )
-            }
-
+            downloadedURL = downloaded.fileURL
+            let downloadWallTime = downloaded.wallTime > 0 ? downloaded.wallTime : downloadClock.elapsed
+            try fileManager.moveItem(at: downloaded.fileURL, to: stagedURL)
             try Self.checkStagedIndexAgainstLock(
-                tempOutputURL, manifest: manifest, lock: managedDatabaseLockLookup, progress: progress
+                stagedURL, manifest: manifest, lock: managedDatabaseLockLookup, progress: progress
             )
-            let infoResult = try await runManagedDatabaseTool(
-                name: "deacon",
-                arguments: ["index", "info", tempOutputURL.path],
-                environment: "deacon",
-                timeout: 300
-            )
-            guard infoResult.exitCode == 0 else {
-                throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: databaseID,
-                    displayName: manifest.displayName,
-                    reason: infoResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }
 
             progress?(0.96, "Saving \(manifest.displayName)…")
             if fileManager.fileExists(atPath: destinationURL.path) {
                 try fileManager.removeItem(at: destinationURL)
             }
-            try fileManager.moveItem(at: tempOutputURL, to: destinationURL)
+            try fileManager.moveItem(at: stagedURL, to: destinationURL)
+            published = true
+            removeSupersededDatabaseFiles(in: installDirectory, keeping: manifest.filename, databaseID: databaseID)
+            let now = Date()
+            let step = StepExecution(
+                toolName: "URLSession",
+                toolVersion: "Foundation",
+                command: ["download", sourceURL.absoluteString, "-o", destinationURL.path],
+                inputs: [remoteFileRecord(url: sourceURL, format: .unknown, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: destinationURL, format: .unknown, role: .index)],
+                exitCode: 0,
+                wallTime: downloadWallTime,
+                stderr: nil,
+                startTime: now.addingTimeInterval(-downloadWallTime), endTime: now
+            )
+            var extra: [String: ParameterValue] = [
+                "installSource": .string("pinned-download"),
+                "downloadUrl": .string(sourceURL.absoluteString),
+                "pinnedSHA256": .string(pinnedSHA256),
+            ]
+            if let pinnedSize = spec.sizeBytes {
+                extra["pinnedSizeBytes"] = .integer(Int(pinnedSize))
+            }
+            if let build = spec.build {
+                extra.merge(build.provenanceParameters) { _, new in new }
+            }
             try writeManagedDatabaseInstallProvenance(
-                installDirectory: installDirectory,
-                manifest: manifest,
-                steps: try ribokmersManagedDatabaseInstallSteps(
-                    buildResult: buildResult, infoResult: infoResult,
-                    sourceURL: sourceURL,
-                    referenceURL: referenceURL,
-                    indexURL: destinationURL,
-                    buildArgs: buildArgs,
-                    infoArgs: ["index", "info", tempOutputURL.path],
-                    durableInfoArgs: ["index", "info", destinationURL.path],
-                    downloadExitCode: downloadExitCode,
-                    downloadWallTime: downloadWallTime
-                ),
-                totalWallTime: runClock.elapsed,
-                extraParameters: [
-                    "kmerLength": .integer(31),
-                    "windowSize": .integer(15),
-                    "condaEnvironment": .string("deacon"),
-                ]
+                installDirectory: installDirectory, manifest: manifest, steps: [step],
+                totalWallTime: runClock.elapsed, extraParameters: extra
             )
-            preferences.set(
-                manifest.filename,
-                forKey: overrideFilenameKey(for: databaseID)
-            )
+            preferences.set(manifest.filename, forKey: overrideFilenameKey(for: databaseID))
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
-        } catch let error where Self.isCancellation(error) {
-            try? fileManager.removeItem(at: tempOutputURL)
-            try? fileManager.removeItem(at: tempReferenceURL)
-            try? fileManager.removeItem(at: referenceURL)
-            try? fileManager.removeItem(at: destinationURL)
-            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
-            throw HumanScrubberDatabaseError.installationCancelled(
-                databaseID: databaseID,
-                displayName: manifest.displayName
-            )
-        } catch let error as HumanScrubberDatabaseError {
-            try? fileManager.removeItem(at: tempOutputURL)
-            try? fileManager.removeItem(at: tempReferenceURL)
-            try? fileManager.removeItem(at: referenceURL)
-            try? fileManager.removeItem(at: destinationURL)
-            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
-            throw error
         } catch {
-            try? fileManager.removeItem(at: tempOutputURL)
-            try? fileManager.removeItem(at: tempReferenceURL)
-            try? fileManager.removeItem(at: referenceURL)
-            try? fileManager.removeItem(at: destinationURL)
-            try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
-            preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
-            throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: databaseID,
-                displayName: manifest.displayName,
-                reason: error.localizedDescription
-            )
+            try? fileManager.removeItem(at: stagedURL)
+            if let downloadedURL {
+                try? fileManager.removeItem(at: downloadedURL)
+            }
+            if published {
+                // The index was published but its record could not be written, so neither stays.
+                try? fileManager.removeItem(at: destinationURL)
+                try? fileManager.removeItem(at: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+                preferences.removeObject(forKey: overrideFilenameKey(for: databaseID))
+            }
+            if Self.isCancellation(error) {
+                throw HumanScrubberDatabaseError.installationCancelled(databaseID: databaseID, displayName: manifest.displayName)
+            }
+            if let error = error as? HumanScrubberDatabaseError {
+                throw error
+            }
+            throw failure(error.localizedDescription)
         }
     }
 
@@ -1053,6 +986,7 @@ public actor DatabaseRegistry {
             let siblingDirectory = candidate.deletingLastPathComponent()
             let siblingStorageRoot = siblingDirectory.deletingLastPathComponent().deletingLastPathComponent()
             guard let recorded = recordedSHA256(inSiblingInstallDirectory: siblingDirectory, filename: manifest.filename) else { continue }
+            if let pinned = managedDatabaseLockLookup(manifest.id)?.sha256?.lowercased(), pinned != recorded { continue }
             progress?(0.05, "Checking \(manifest.displayName) in \(siblingStorageRoot.lastPathComponent)…")
             let cloneClock = ProvenanceRunClock()
             guard (try? FileDigest.sha256(of: candidate)) == recorded else { continue }
@@ -1326,54 +1260,6 @@ public actor DatabaseRegistry {
             try infoResult.provenanceStep(arguments: infoArgs, durableArguments: durableInfoArgs,
                 inputs: finalOutputRecords, outputs: []),
         ]
-    }
-
-    private func ribokmersManagedDatabaseInstallSteps(
-        buildResult: ManagedDatabaseToolResult, infoResult: ManagedDatabaseToolResult,
-        sourceURL: URL,
-        referenceURL: URL,
-        indexURL: URL,
-        buildArgs: [String],
-        infoArgs: [String],
-        durableInfoArgs: [String],
-        downloadExitCode: Int32,
-        downloadWallTime: TimeInterval
-    ) throws -> [StepExecution] {
-        let now = Date()
-        var steps: [StepExecution] = [
-            StepExecution(
-                toolName: "URLSession",
-                toolVersion: "Foundation",
-                command: ["download", sourceURL.absoluteString, "-o", referenceURL.path],
-                inputs: [
-                    remoteFileRecord(
-                        url: sourceURL,
-                        format: .fasta,
-                        role: .reference
-                    ),
-                ],
-                outputs: FileManager.default.fileExists(atPath: referenceURL.path)
-                    ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
-                    : [],
-                exitCode: downloadExitCode,
-                wallTime: downloadWallTime,
-                stderr: nil,
-                startTime: now, endTime: now
-            ),
-        ]
-
-        let durableBuildArgs = buildArgs.map { argument in
-            argument == indexURL.path + ".partial" ? indexURL.path : argument
-        }
-        steps.append(try buildResult.provenanceStep(arguments: buildArgs, durableArguments: durableBuildArgs,
-            inputs: FileManager.default.fileExists(atPath: referenceURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)] : [],
-            outputs: FileManager.default.fileExists(atPath: indexURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)] : []))
-        steps.append(try infoResult.provenanceStep(arguments: infoArgs, durableArguments: durableInfoArgs,
-            inputs: FileManager.default.fileExists(atPath: indexURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)] : [], outputs: []))
-        return steps
     }
 
     func writeManagedDatabaseInstallProvenance(

@@ -1,0 +1,317 @@
+// RibokmersPinnedDownloadTests.swift - The ribokmers index installs as one hosted download the lock pins
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import CryptoKit
+import LungfishIO
+import LungfishTestSupport
+import Synchronization
+import XCTest
+@testable import LungfishWorkflow
+
+/// `deacon-ribokmers` is built once with the pinned deacon, hosted on the LGE large-files folder, and pinned by
+/// SHA-256 and size in the lock (CHTC lane C2-RIBOPIN, owner answer Q10). Every test serves the index from a local
+/// file URL through the registry's download seam, so none touches the network.
+final class RibokmersPinnedDownloadTests: XCTestCase {
+    private static let databaseID = "deacon-ribokmers"
+    private static let hostedURL = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/"
+        + "deacon-ribokmers/k31w15-deacon0.16.0-2026-10-22/ribokmers.k31w15.idx"
+
+    private var tempDir: URL!
+    private var preferencesSuite: TestDefaultsSuite!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ribokmers-pin-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        preferencesSuite = makeTestDefaultsSuite(prefix: "RibokmersPinnedDownloadTests")
+    }
+
+    override func tearDown() async throws {
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        try await super.tearDown()
+    }
+
+    /// A fresh install downloads the file the lock names, checks it, publishes it and writes an install record that
+    /// names the download, the file's real digest and the build the lock records. No tool runs.
+    func testFreshInstallDownloadsThePinnedFileAndRecordsTheBuild() async throws {
+        let payload = Data("pinned-ribokmers-index\n".utf8)
+        let served = try serve(payload, as: "served.idx")
+        let requests = RibokmersSeamLog<URL>()
+        let tools = RibokmersSeamLog<String>()
+        let registry = makeRegistry(spec: try spec(pinning: payload, url: served), requests: requests, tools: tools)
+
+        let installed = try await registry.installManagedDatabase(Self.databaseID, reinstall: true)
+
+        XCTAssertEqual(try Data(contentsOf: installed), payload)
+        XCTAssertEqual(installed.lastPathComponent, "ribokmers.k31w15.idx")
+        XCTAssertEqual(requests.values, [served], "The install must download the URL the lock names")
+        XCTAssertEqual(tools.values, [], "A pinned download builds nothing")
+        let resolved = await registry.effectiveDatabasePath(for: Self.databaseID)
+        XCTAssertEqual(resolved?.standardizedFileURL, installed.standardizedFileURL)
+
+        let run = try installRecord(beside: installed)
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertEqual(run.parameters["databaseID"]?.stringValue, Self.databaseID)
+        XCTAssertEqual(run.parameters["installSource"]?.stringValue, "pinned-download")
+        XCTAssertEqual(run.parameters["downloadUrl"]?.stringValue, served.absoluteString)
+        XCTAssertEqual(run.parameters["pinnedSHA256"]?.stringValue, Self.sha256(payload))
+        XCTAssertEqual(run.parameters["buildToolVersion"]?.stringValue, "0.16.0")
+        XCTAssertEqual(run.parameters["buildSourceUrl"]?.stringValue, "https://bbmap.org/resources/ribokmers.fa.gz")
+        XCTAssertEqual(run.parameters["buildSourceSHA256"]?.stringValue, String(repeating: "a", count: 64))
+        XCTAssertEqual(run.parameters["buildArgv"], .array(Self.buildArgv.map { .string($0) }))
+        XCTAssertEqual(run.steps.map(\.toolName), ["URLSession"])
+        let output = try XCTUnwrap(run.steps.first?.outputs.first)
+        XCTAssertEqual(output.path, installed.path)
+        XCTAssertEqual(output.sha256, Self.sha256(payload), "The record names the real digest of the published file")
+        XCTAssertEqual(output.sizeBytes, UInt64(payload.count))
+        XCTAssertEqual(run.steps.first?.inputs.first?.path, served.absoluteString)
+    }
+
+    /// A downloaded file that is not the pinned one, by size or by digest, is refused with the install error, and
+    /// the install publishes nothing: no index, partial file or record.
+    func testInstallRefusesADownloadThatIsNotThePinnedFileAndPublishesNothing() async throws {
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let sameSize = Data("PINNED-RIBOKMERS-INDEX\n".utf8)
+        let otherSize = Data("a shorter index\n".utf8)
+        let cases: [(Data, String)] = [
+            (sameSize, "The index's SHA-256 is \(Self.sha256(sameSize)), and the bundled lock pins \(Self.sha256(pinned))."),
+            (otherSize, "The index is \(otherSize.count) bytes, and the bundled lock pins \(pinned.count) bytes."),
+        ]
+        for (index, (servedBytes, expectedReason)) in cases.enumerated() {
+            let served = try serve(servedBytes, as: "served-\(index).idx")
+            let userRoot = tempDir.appendingPathComponent("user-databases-\(index)", isDirectory: true)
+            let registry = makeRegistry(spec: try spec(pinning: pinned, url: served), userRoot: userRoot)
+
+            do {
+                _ = try await registry.installManagedDatabase(Self.databaseID, reinstall: true)
+                XCTFail("The install published a file the lock does not pin")
+            } catch HumanScrubberDatabaseError.installationFailed(let databaseID, _, let reason) {
+                XCTAssertEqual(databaseID, Self.databaseID)
+                XCTAssertEqual(reason, expectedReason)
+            }
+            XCTAssertEqual(regularFileNames(under: userRoot), [], "A refused install must publish nothing")
+            let resolved = await registry.effectiveDatabasePath(for: Self.databaseID)
+            XCTAssertNil(resolved)
+        }
+    }
+
+    /// An index that an earlier install built on its own host differs from the hosted build's pin. A recipe step
+    /// that reads it is not refused, and its record names the file's real digest as not lock-pinned.
+    func testRecipeRecordOfAnIndexThatDiffersFromTheHostedPinIsNotRefused() async throws {
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let spec = try spec(pinning: pinned, url: URL(string: Self.hostedURL)!)
+        let hostBuiltURL = try serve(hostBuilt, as: "host-built.idx")
+        let pinnedURL = try serve(pinned, as: "pinned.idx")
+        let identity = RecipeDatabaseIdentity()
+
+        let differing = try await identity.record(databaseID: Self.databaseID, spec: spec, at: hostBuiltURL)
+        XCTAssertEqual(differing.sha256, Self.sha256(hostBuilt))
+        XCTAssertEqual(differing.sizeBytes, Int64(hostBuilt.count))
+        XCTAssertFalse(differing.lockPinned)
+
+        let matching = try await identity.record(databaseID: Self.databaseID, spec: spec, at: pinnedURL)
+        XCTAssertEqual(matching.sha256, Self.sha256(pinned))
+        XCTAssertTrue(matching.lockPinned)
+    }
+
+    /// The bundled lock names the hosted file, its SHA-256 and size, as a pinned HTTPS download.
+    func testBundledLockPinsTheHostedRibokmersBuild() throws {
+        let spec = try XCTUnwrap(ManagedToolLock.bundled.database(id: Self.databaseID))
+        XCTAssertEqual(spec.url, Self.hostedURL)
+        XCTAssertEqual(spec.sha256, "40f207f3dc73057ad52e6e92659f205b35944f9fcbe6de56d99c4ffc4ed9e6ca")
+        XCTAssertEqual(spec.sizeBytes, 10_107_947)
+        XCTAssertEqual(spec.filename, "ribokmers.k31w15.idx")
+        XCTAssertEqual(spec.effectiveSourcePolicy, .pinnedArchive)
+        XCTAssertNoThrow(try spec.validateSourceIdentity())
+    }
+
+    /// An index an earlier install built on its own host is reported as differing from the pinned build and stays
+    /// usable. An update replaces it with the pinned file, after which the status reports a match.
+    func testStatusReportsAnIndexThatDiffersFromThePinAndUpdateReplacesIt() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let earlier = makeRegistry(spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")))
+        let earlierInstall = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let registry = makeRegistry(spec: try spec(pinning: pinned, url: try serve(pinned, as: "pinned.idx")))
+
+        let before = try await registry.pinStatus(for: Self.databaseID)
+        XCTAssertEqual(before, .differsFromPin(installedSHA256: Self.sha256(hostBuilt), pinnedSHA256: Self.sha256(pinned)))
+        XCTAssertTrue(before.summary(databaseID: Self.databaseID).contains("differs from the pinned build"))
+        let resolved = await registry.effectiveDatabasePath(for: Self.databaseID)
+        XCTAssertEqual(resolved?.standardizedFileURL, earlierInstall.standardizedFileURL, "A differing index stays usable")
+
+        let updated = try await registry.updateManagedDatabase(Self.databaseID)
+
+        XCTAssertEqual(try Data(contentsOf: updated), pinned)
+        let after = try await registry.pinStatus(for: Self.databaseID)
+        XCTAssertEqual(after, .matchesPin(sha256: Self.sha256(pinned)))
+        XCTAssertEqual(try installRecord(beside: updated).steps.first?.outputs.first?.sha256, Self.sha256(pinned))
+    }
+
+    /// An update whose download is not the pinned file is refused, and the installed index and its record stay.
+    func testRefusedUpdateLeavesTheInstalledIndexInPlace() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let earlier = makeRegistry(spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")))
+        let installed = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let recordURL = installed.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let recordBefore = try Data(contentsOf: recordURL)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let wrong = try serve(Data("PINNED-RIBOKMERS-INDEX\n".utf8), as: "wrong.idx")
+        let registry = makeRegistry(spec: try spec(pinning: pinned, url: wrong))
+
+        do {
+            _ = try await registry.updateManagedDatabase(Self.databaseID)
+            XCTFail("The update published a file the lock does not pin")
+        } catch HumanScrubberDatabaseError.installationFailed(let databaseID, _, _) {
+            XCTAssertEqual(databaseID, Self.databaseID)
+        }
+        XCTAssertEqual(try Data(contentsOf: installed), hostBuilt)
+        XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore)
+        XCTAssertEqual(
+            regularFileNames(under: installed.deletingLastPathComponent()),
+            [ProvenanceRecorder.provenanceFilename, "ribokmers.k31w15.idx"].sorted()
+        )
+    }
+
+    /// An index whose install record cannot be written does not stay published, and a cancelled download publishes
+    /// nothing.
+    func testFailedRecordAndCancelledDownloadPublishNothing() async throws {
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let served = try serve(pinned, as: "pinned.idx")
+        let userRoot = tempDir.appendingPathComponent("user-databases", isDirectory: true)
+        let failingRecord = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            provenanceWriter: { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+        do {
+            _ = try await failingRecord.installManagedDatabase(Self.databaseID, reinstall: true)
+            XCTFail("The install succeeded without its record")
+        } catch HumanScrubberDatabaseError.installationFailed(_, _, let reason) {
+            XCTAssertTrue(reason.contains("managed database install provenance"), reason)
+        }
+        XCTAssertEqual(regularFileNames(under: userRoot), [])
+        XCTAssertNil(preferencesSuite.defaults.string(forKey: "database.deacon-ribokmers.overrideFilename"))
+
+        let cancelled = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            downloader: { _, _ in throw CancellationError() }
+        )
+        do {
+            _ = try await cancelled.installManagedDatabase(Self.databaseID, reinstall: true)
+            XCTFail("A cancelled download installed an index")
+        } catch HumanScrubberDatabaseError.installationCancelled(let databaseID, _) {
+            XCTAssertEqual(databaseID, Self.databaseID)
+        }
+        XCTAssertEqual(regularFileNames(under: userRoot), [])
+    }
+
+    /// The bundled lock keeps how the hosted file was built as data.
+    func testBundledLockKeepsTheHostedBuildProvenance() throws {
+        let build = try XCTUnwrap(ManagedToolLock.bundled.database(id: Self.databaseID)?.build)
+        XCTAssertEqual(build.tool, "deacon")
+        XCTAssertEqual(build.toolVersion, "0.16.0")
+        XCTAssertEqual(build.sourceUrl, "https://bbmap.org/resources/ribokmers.fa.gz")
+        XCTAssertEqual(build.sourceSha256, "38607351140350d33c868919eb01aaa438c9b729470a094ab2eed55f8056fbf1")
+        XCTAssertEqual(build.sourceSizeBytes, 9_548_991)
+        XCTAssertEqual(build.argv, Self.buildArgv)
+    }
+
+    // MARK: - Helpers
+
+    private static let buildArgv = [
+        "deacon", "index", "build", "-k", "31", "-w", "15", "ribokmers.fa.gz", "-o", "ribokmers.k31w15.idx", "-t", "0",
+    ]
+
+    static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Writes `data` to a file the download seam serves by its file URL.
+    func serve(_ data: Data, as name: String) throws -> URL {
+        let directory = tempDir.appendingPathComponent("served", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(name)
+        try data.write(to: url)
+        return url
+    }
+
+    /// The lock entry of a hosted ribokmers build that pins `payload` and names `url` as its download.
+    func spec(pinning payload: Data, url: URL) throws -> DatabaseSpec {
+        let json: [String: Any] = [
+            "id": Self.databaseID, "sourcePolicy": "pinnedArchive", "tool": "deacon",
+            "displayName": "Ribosomal RNA Removal Data", "version": "fixture-1", "filename": "ribokmers.k31w15.idx",
+            "indexFormat": 3, "url": url.absoluteString, "sizeBytes": payload.count, "sha256": Self.sha256(payload),
+            "build": [
+                "tool": "deacon", "toolVersion": "0.16.0", "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz",
+                "sourceSha256": String(repeating: "a", count: 64), "sourceSizeBytes": 12, "argv": Self.buildArgv,
+            ] as [String: Any],
+        ]
+        return try JSONDecoder().decode(DatabaseSpec.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    /// A registry rooted under the test folder whose lock lookup returns `spec`, whose downloader copies a file URL
+    /// and logs it, and whose tool runner logs any tool and fails it.
+    func makeRegistry(
+        spec: DatabaseSpec,
+        userRoot: URL? = nil,
+        requests: RibokmersSeamLog<URL>? = nil,
+        tools: RibokmersSeamLog<String>? = nil,
+        downloader: ManagedDatabaseDownloader? = nil,
+        provenanceWriter: ManagedDatabaseProvenanceWriter? = nil
+    ) -> DatabaseRegistry {
+        let downloads = tempDir.appendingPathComponent("downloads", isDirectory: true)
+        let fileDownloader: ManagedDatabaseDownloader = { url, progress in
+            requests?.append(url)
+            try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+            let output = downloads.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            try FileManager.default.copyItem(at: url, to: output)
+            let size = Int64(try Data(contentsOf: output).count)
+            progress(1.0, size, size)
+            return ManagedDatabaseDownloadResult(fileURL: output, wallTime: 0.125)
+        }
+        let toolRunner: ManagedDatabaseToolRunner = { name, arguments, _, _, _ in
+            tools?.append(([name] + arguments).joined(separator: " "))
+            return ManagedDatabaseToolResult(stdout: "", stderr: "no tool may run", exitCode: 1, wallTime: 0)
+        }
+        let pinned = spec
+        return DatabaseRegistry(
+            bundledDatabasesRoot: tempDir.appendingPathComponent("bundled-databases", isDirectory: true),
+            userDatabasesRoot: userRoot ?? tempDir.appendingPathComponent("user-databases", isDirectory: true),
+            managedDatabaseDownloader: downloader ?? fileDownloader,
+            managedDatabaseToolRunner: toolRunner,
+            managedDatabaseLockLookup: { $0 == Self.databaseID ? pinned : nil },
+            managedDatabaseProvenanceWriter: provenanceWriter,
+            preferences: preferencesSuite.makeDefaults()
+        )
+    }
+
+    func installRecord(beside installed: URL) throws -> WorkflowRun {
+        let url = installed.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        return try ProvenanceEnvelopeReader.decodeCanonical(Data(contentsOf: url)).legacyWorkflowRun()
+    }
+
+    func regularFileNames(under root: URL) -> [String] {
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return []
+        }
+        var names: [String] = []
+        while let url = enumerator.nextObject() as? URL {
+            if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                names.append(url.lastPathComponent)
+            }
+        }
+        return names.sorted()
+    }
+}
+
+/// What a seam was asked for, readable after the install.
+final class RibokmersSeamLog<Value: Sendable>: Sendable {
+    private let storage = Mutex<[Value]>([])
+    func append(_ value: Value) { storage.withLock { $0.append(value) } }
+    var values: [Value] { storage.withLock { $0 } }
+}

@@ -120,8 +120,8 @@ final class RecipeDatabaseIdentityTests: XCTestCase {
         XCTAssertEqual(record.buildSourceSizeBytes, 9_548_991)
     }
 
-    /// The panhuman install refuses a fetched index that is not the pinned file, and the ribokmers install, which
-    /// has no pin, accepts any index it built.
+    /// The panhuman install refuses a fetched index that is not the pinned file, and since C2-RIBOPIN, when the lock
+    /// began to pin the hosted ribokmers build, the ribokmers install refuses a downloaded one in the same way.
     func testTheInstallCheckRefusesAStagedIndexThatIsNotThePinnedFile() throws {
         let staged = try writeIndex(named: "staged.idx", minimizers: 1)
         func manifest(_ id: String) -> BundledDatabase {
@@ -139,9 +139,15 @@ final class RecipeDatabaseIdentityTests: XCTestCase {
             }
             XCTAssertEqual(id, "deacon-panhuman")
         }
-        XCTAssertNoThrow(
+        XCTAssertThrowsError(
             try DatabaseRegistry.checkStagedIndexAgainstLock(staged.url, manifest: manifest("deacon-ribokmers"), progress: nil)
-        )
+        ) { error in
+            guard case HumanScrubberDatabaseError.installationFailed(let id, _, let reason) = error else {
+                return XCTFail("unexpected error \(error)")
+            }
+            XCTAssertEqual(id, "deacon-ribokmers")
+            XCTAssertEqual(reason, "The index is 19 bytes, and the bundled lock pins 10107947 bytes.")
+        }
     }
 
     /// The refusal tells the user what a reinstall does to the copy they have.

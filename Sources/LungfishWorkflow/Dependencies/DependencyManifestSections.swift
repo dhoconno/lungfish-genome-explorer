@@ -244,6 +244,8 @@ public struct DatabaseSpec: Sendable, Codable, Hashable, Identifiable {
     public let collection: String?
 
     public var sourcePolicy: DatabaseSourcePolicy? = nil
+    /// How LGE built the file this entry pins, when LGE hosts it (``DatabaseBuildSpec``).
+    public var build: DatabaseBuildSpec? = nil
 
     public var effectiveSourcePolicy: DatabaseSourcePolicy {
         sourcePolicy ?? ((sha256 != nil || md5 != nil) ? .pinnedArchive : (url != nil ? .unpinnedArchive : .localBuild))
