@@ -99,6 +99,34 @@ final class ImportOutputSpellingProvenanceTests: XCTestCase {
         }
     }
 
+    /// Review fix 2 of C2-PROVPATH. `fastq ingest` builds its output in a hidden `lungfish-ingest-...` folder and moves the
+    /// pipeline's steps to the published file with `StepExecution.relocated`, which replaced one spelling of the hidden
+    /// file's path. The record sits in the input's folder.
+    func testTheFastqIngestRecordsItsStepsForEverySpelling() async throws {
+        _ = try await ToolAvailability.require("clumpify.sh", environment: "bbtools")
+        try await assertEverySpellingRecordsTheSameSteps(
+            route: "fastq ingest", tool: "clumpify", count: 1,
+            // The run reads its input from the hidden folder, so only the outputs are read back.
+            inputsRemain: false,
+            // The durable publish refuses a folder with a link in it (`DurableReplace.ReplaceError.unsafeDirectory`), so
+            // the route has the system temp and the real spelling.
+            linkedFolder: false
+        ) { folder in
+            let input = folder.appendingPathComponent("SRR9_1.fastq")
+            try Self.ingestReads.write(to: input, atomically: true, encoding: .utf8)
+            try await FastqIngestSubcommand.parse([input.path, "--binning", "none", "--quiet"]).execute(emit: { _ in })
+            return folder
+        }
+    }
+
+    /// Four single-end reads, none a duplicate, so clumpify drops none (the fixture of `FastqIngestLiveConformanceTests`).
+    private static let ingestReads = [
+        "@SRR9.1 a/1\nACGTACGTACGTAAAC\n+\nIIIIIIIIIIIIIIII\n",
+        "@SRR9.2 b/1\nTTGGCCAATTGGCCAA\n+\nIIIIIIIIIIIIIIII\n",
+        "@SRR9.3 c/1\nGGGGCCCCAAAATTTT\n+\nIIIIIIIIIIIIIIII\n",
+        "@SRR9.4 d/1\nCATGCATGCATGCATG\n+\nIIIIIIIIIIIIIIII\n",
+    ].joined()
+
     // MARK: - Assertions
 
     /// Runs `importInto` once for each spelling and checks each bundle record it returns. `tool` names the step the
@@ -108,12 +136,13 @@ final class ImportOutputSpellingProvenanceTests: XCTestCase {
         tool: String,
         count: Int,
         inputsRemain: Bool = true,
+        linkedFolder: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line,
         importInto: (URL) async throws -> URL
     ) async throws {
         var stepNamesBySpelling: [(label: String, names: [String])] = []
-        for spelling in try spellings() {
+        for spelling in try spellings() where linkedFolder || !spelling.label.hasPrefix("linked") {
             let bundle = try await importInto(spelling.folder)
             let recordURL = bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename)
             let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: Data(contentsOf: recordURL))
@@ -126,6 +155,11 @@ final class ImportOutputSpellingProvenanceTests: XCTestCase {
 
             let toolSteps = envelope.steps.filter { $0.toolName.lowercased().contains(tool) }
             XCTAssertEqual(toolSteps.count, count, "\(context) records each \(tool) step, it records \(names)", file: file, line: line)
+            XCTAssertTrue(
+                toolSteps.allSatisfy { $0.outputs.contains { $0.checksumSHA256 != nil } },
+                "\(context): each \(tool) step records the digest of an output, so the digest check below compares one",
+                file: file, line: line
+            )
             for step in envelope.steps {
                 for descriptor in step.outputs + (inputsRemain ? step.inputs : []) {
                     let path = PortablePath.resolve(path: descriptor.path, context: portable)
@@ -160,7 +194,7 @@ final class ImportOutputSpellingProvenanceTests: XCTestCase {
                 // The replayed command and the named files leave the staging folder. A step's own argv keeps the
                 // command as it ran, which may name the staging folder.
                 for path in step.inputs.map(\.path) + step.outputs.map(\.path) + (step.durableReplayArgv ?? step.argv)
-                    where path.contains(".ont-import-staging-") || path.contains(".building-") {
+                    where path.contains(".ont-import-staging-") || path.contains(".building-") || path.contains("lungfish-ingest-") {
                     XCTFail("\(context): the \(step.toolName) step names the staging folder in \(path)", file: file, line: line)
                 }
             }

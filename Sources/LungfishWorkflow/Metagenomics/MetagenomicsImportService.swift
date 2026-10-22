@@ -1485,17 +1485,17 @@ private func naoMgsRewriteRelocatedPathReferences(
     return rewritten
 }
 
-private func naoMgsPathCandidates(for url: URL) -> Set<String> {
-    var candidates = Set([
-        url.path,
-        url.standardizedFileURL.path,
-        url.resolvingSymlinksInPath().path,
-    ])
+/// Every spelling of `url` a record may hold: the path as given, standardized and resolved, and for the folders macOS
+/// links under `/private` (`/var` and `/tmp`) the spelling with and without it.
+func naoMgsPathCandidates(for url: URL) -> Set<String> {
+    var candidates: Set = [url.path, url.standardizedFileURL.path, url.resolvingSymlinksInPath().path]
     for candidate in candidates {
-        if candidate.hasPrefix("/var/") {
-            candidates.insert("/private" + candidate)
-        } else if candidate.hasPrefix("/private/var/") {
-            candidates.insert(String(candidate.dropFirst("/private".count)))
+        for folder in ["/var/", "/tmp/"] {
+            if candidate.hasPrefix(folder) {
+                candidates.insert("/private" + candidate)
+            } else if candidate.hasPrefix("/private" + folder) {
+                candidates.insert(String(candidate.dropFirst("/private".count)))
+            }
         }
     }
     return candidates

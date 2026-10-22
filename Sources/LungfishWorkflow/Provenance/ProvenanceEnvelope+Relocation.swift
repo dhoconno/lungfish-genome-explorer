@@ -9,8 +9,9 @@ extension ProvenanceEnvelope {
     /// names a place. A run that builds a bundle in a staging folder and publishes it by rename calls
     /// this once the bundle is in its final place, so the record names the files where they now are
     /// (Phase 2.10 lane A45, ruling A45-M3 section 3). The builder keeps the spelling of the path it was
-    /// given and a reader may resolve it, so the replaced spellings are the path as given, the path with
-    /// its symbolic links resolved and the path under `/private`, the longest first.
+    /// given and a reader may resolve it, so the replaced spellings are the ones ``StagedBundlePlace``
+    /// takes whether or not the staged folder still exists: the path as given, the path through its
+    /// deepest existing ancestor (`/tmp`) and its real path (`/private/tmp`), the longest first.
     ///
     /// Replaced, as text and with no encoder: the run's argument vector, replay argument vector and
     /// command, the options through `ParameterValue.rewritingPaths`, the files, the output and the
@@ -20,7 +21,7 @@ extension ProvenanceEnvelope {
     /// statuses are not touched. The copy goes through ``with(_:)``, so its signatures are cleared and
     /// the parameters of a nested run are rewritten with the options.
     public func relocated(from staged: URL, to final: URL) -> ProvenanceEnvelope {
-        let place = ProvenancePlaceRelocation(from: staged, to: final)
+        let place = StagedBundlePlace(staged: staged, final: final)
         return with { copy in
             copy.argv = copy.argv.map(place.relocating)
             copy.durableReplayArgv = copy.durableReplayArgv?.map(place.relocating)
@@ -42,44 +43,8 @@ extension ProvenanceEnvelope {
     }
 }
 
-/// The text replacement `ProvenanceEnvelope.relocated(from:to:)` applies to each field it covers.
-private struct ProvenancePlaceRelocation {
-    /// Every spelling of the staged folder, the longest first, so `/private/var/x` goes whole before
-    /// `/var/x` is looked for. Equal lengths keep a fixed order.
-    let spellings: [String]
-    let target: String
-
-    init(from staged: URL, to final: URL) {
-        let candidates: Set<String> = [
-            staged.path,
-            staged.resolvingSymlinksInPath().path,
-            "/private" + staged.path,
-        ]
-        spellings = candidates
-            .filter { !$0.isEmpty }
-            .sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
-        target = final.path
-    }
-
-    func relocating(_ text: String) -> String {
-        spellings.reduce(text) { $0.replacingOccurrences(of: $1, with: target) }
-    }
-
-    func relocating(_ values: [String: ParameterValue]) -> [String: ParameterValue] {
-        values.mapValues { $0.rewritingPaths(relocating) }
-    }
-
-    func relocating(_ descriptor: ProvenanceFileDescriptor) -> ProvenanceFileDescriptor {
-        ProvenanceFileDescriptor(
-            path: relocating(descriptor.path),
-            checksumSHA256: descriptor.checksumSHA256,
-            fileSize: descriptor.fileSize,
-            format: descriptor.format,
-            role: descriptor.role,
-            originPath: descriptor.originPath.map(relocating),
-            sourceProvenancePath: descriptor.sourceProvenancePath.map(relocating))
-    }
-
+/// The relocation of a step and of the observation of its launch, which hold more places than a file does.
+private extension StagedBundlePlace {
     func relocating(_ step: ProvenanceStep) -> ProvenanceStep {
         step.with { copy in
             copy.argv = step.argv.map(relocating)

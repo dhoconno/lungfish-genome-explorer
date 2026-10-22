@@ -37,59 +37,21 @@ extension ONTImportWorkflow {
     }
 
     /// `step` with each spelling of the staged bundle's folder replaced by the published bundle's, in its argument
-    /// vectors, its command, its files and its options.
+    /// vectors, its command, its files and its options. The published bundle is named by its stable spelling, the one
+    /// the record holds its other paths in. ``StagedBundlePlace`` owns the spellings.
     func remapOptimizationStep(
         _ step: ProvenanceStep,
         from stagedBundleURL: URL,
         to finalBundleURL: URL
     ) -> ProvenanceStep {
-        let place = StagedBundlePlace(staged: stagedBundleURL, final: finalBundleURL)
+        let place = StagedBundlePlace(staged: stagedBundleURL, final: Self.stableCanonicalURL(finalBundleURL))
         return step.with { copy in
             copy.argv = step.argv.map(place.relocating)
             copy.durableReplayArgv = step.durableReplayArgv?.map(place.relocating)
             copy.reproducibleCommand = place.relocating(step.reproducibleCommand)
             copy.inputs = step.inputs.map(place.relocating)
             copy.outputs = step.outputs.map(place.relocating)
-            copy.resolvedOptions = step.resolvedOptions.mapValues { $0.rewritingPaths(place.relocating) }
+            copy.resolvedOptions = place.relocating(step.resolvedOptions)
         }
-    }
-}
-
-/// The spellings of a staged bundle's folder that a tool step may name, and the published bundle's folder that
-/// replaces them.
-///
-/// A step names its files the way the run spelled the staged bundle, and a tool may name them by their real path. So
-/// the spelling given, the stable spelling and the real path (links resolved, `/private` kept) are each replaced, the
-/// longest first, so `/private/var/x` goes whole before `/var/x` is looked for.
-private struct StagedBundlePlace {
-    let spellings: [String]
-    let target: String
-
-    init(staged: URL, final: URL) {
-        let candidates: Set<String> = [
-            staged.standardizedFileURL.path,
-            ONTImportWorkflow.stableCanonicalURL(staged).path,
-            CanonicalFilePath.path(for: staged),
-        ]
-        spellings = candidates
-            .filter { !$0.isEmpty }
-            .sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
-        target = ONTImportWorkflow.stableCanonicalURL(final).path
-    }
-
-    func relocating(_ text: String) -> String {
-        spellings.reduce(text) { $0.replacingOccurrences(of: $1, with: target) }
-    }
-
-    func relocating(_ descriptor: ProvenanceFileDescriptor) -> ProvenanceFileDescriptor {
-        ProvenanceFileDescriptor(
-            path: relocating(descriptor.path),
-            checksumSHA256: descriptor.checksumSHA256,
-            fileSize: descriptor.fileSize,
-            format: descriptor.format,
-            role: descriptor.role,
-            originPath: descriptor.originPath.map(relocating),
-            sourceProvenancePath: descriptor.sourceProvenancePath.map(relocating)
-        )
     }
 }
