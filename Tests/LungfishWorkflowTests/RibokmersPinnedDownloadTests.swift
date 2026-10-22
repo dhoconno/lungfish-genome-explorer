@@ -15,7 +15,7 @@ import XCTest
 final class RibokmersPinnedDownloadTests: XCTestCase {
     private static let databaseID = "deacon-ribokmers"
     private static let hostedURL = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/"
-        + "deacon-ribokmers/k31w15-deacon0.16.0-2026-10-22/ribokmers.k31w15.idx"
+        + "deacon-ribokmers/k31w15-deacon0.16.0-1thread-2026-10-22/ribokmers.k31w15.idx"
 
     private var tempDir: URL!
     private var preferencesSuite: TestDefaultsSuite!
@@ -123,7 +123,7 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
     func testBundledLockPinsTheHostedRibokmersBuild() throws {
         let spec = try XCTUnwrap(ManagedToolLock.bundled.database(id: Self.databaseID))
         XCTAssertEqual(spec.url, Self.hostedURL)
-        XCTAssertEqual(spec.sha256, "40f207f3dc73057ad52e6e92659f205b35944f9fcbe6de56d99c4ffc4ed9e6ca")
+        XCTAssertEqual(spec.sha256, "f88286f607bc062ef872b55cac9aff1d447f7106068cafefef72a3ba8e49ede6")
         XCTAssertEqual(spec.sizeBytes, 10_107_947)
         XCTAssertEqual(spec.filename, "ribokmers.k31w15.idx")
         XCTAssertEqual(spec.effectiveSourcePolicy, .pinnedArchive)
@@ -210,7 +210,8 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(regularFileNames(under: userRoot), [])
     }
 
-    /// The bundled lock keeps how the hosted file was built as data.
+    /// The bundled lock keeps how the hosted file was built as data, a one-thread build that two runs gave with
+    /// equal digests.
     func testBundledLockKeepsTheHostedBuildProvenance() throws {
         let build = try XCTUnwrap(ManagedToolLock.bundled.database(id: Self.databaseID)?.build)
         XCTAssertEqual(build.tool, "deacon")
@@ -219,12 +220,13 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(build.sourceSha256, "38607351140350d33c868919eb01aaa438c9b729470a094ab2eed55f8056fbf1")
         XCTAssertEqual(build.sourceSizeBytes, 9_548_991)
         XCTAssertEqual(build.argv, Self.buildArgv)
+        XCTAssertEqual(build.byteReproducible, true)
     }
 
     // MARK: - Helpers
 
     private static let buildArgv = [
-        "deacon", "index", "build", "-k", "31", "-w", "15", "ribokmers.fa.gz", "-o", "ribokmers.k31w15.idx", "-t", "0",
+        "deacon", "index", "build", "-k", "31", "-w", "15", "ribokmers.fa.gz", "-o", "ribokmers.k31w15.idx", "-t", "1",
     ]
 
     static func sha256(_ data: Data) -> String {

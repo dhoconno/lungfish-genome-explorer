@@ -7,10 +7,13 @@ import Foundation
 /// How LGE built a database file that it hosts and the lock pins by SHA-256 and size.
 ///
 /// `deacon-ribokmers` is built once with the pinned deacon from BBMap's `ribokmers.fa.gz` and hosted on the LGE
-/// large-files folder, and every install downloads those bytes (CHTC lane C2-RIBOPIN, owner answer Q10). A deacon
-/// build with more than one thread writes the same minimizers in a different order on each run, so a build on the
-/// user's Mac could never match a pinned digest. An entry with a build pins what an install downloads, and an index
-/// that an earlier install built on its own host is reported as differing from the pin, never refused at run time.
+/// large-files folder, and every install downloads those bytes (CHTC lane C2-RIBOPIN, owner answers Q10 and
+/// option B). A deacon build with more than one thread writes the same minimizers in a different order on each
+/// run, so a build on the user's Mac with the registry's old `-t 0` argv could never match a pinned digest. The
+/// pinned file is a one-thread build, which writes the same bytes on every run, so the lock's `argv` rebuilds the
+/// pinned file from its source (`byteReproducible`). An entry with a build pins what an install downloads, and an
+/// index that an earlier install built on its own host is reported as differing from the pin, never refused at
+/// run time.
 public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
     /// The tool that built the file, such as `deacon`.
     public let tool: String
@@ -24,6 +27,9 @@ public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
     public let sourceSizeBytes: Int64?
     /// The build's argv, with the source and output named by their file names.
     public let argv: [String]
+    /// True when the same tool, source and `argv` write the same bytes on every run, so anyone can rebuild the
+    /// pinned file. The lock sets it only for a build that two runs gave with equal digests.
+    public let byteReproducible: Bool?
 
     /// The build as install-record parameters.
     var provenanceParameters: [String: ParameterValue] {
@@ -36,6 +42,9 @@ public struct DatabaseBuildSpec: Sendable, Codable, Hashable {
         ]
         if let sourceSizeBytes {
             parameters["buildSourceSizeBytes"] = .integer(Int(sourceSizeBytes))
+        }
+        if let byteReproducible {
+            parameters["buildByteReproducible"] = .boolean(byteReproducible)
         }
         return parameters
     }
