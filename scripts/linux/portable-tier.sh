@@ -18,6 +18,12 @@
 # The tier assumes no scheduler. It builds and checks a generic static Linux binary, and the HTCondor test job of a
 # landing is submitted by hand.
 #
+# Evidence: record.json names the runtime and its version, the kernel seen inside each container, the toolchain and SDK
+# with their checksums, the XCTest binary's SHA-256, the artifacts' SHA-256, the commit and whether the tree was clean.
+# The tier builds the working tree, so a landing runs it on a clean checkout of the named commit. Landing evidence
+# counts only when the last line of the output reads `commit <sha> clean`. A run that ends in `commit <sha> DIRTY` is a
+# development run and proves nothing about that commit.
+#
 # Usage: bash scripts/linux/portable-tier.sh            run the tier
 #        bash scripts/linux/portable-tier.sh --install  install the pinned toolchain and SDK at user level, no sudo
 
@@ -46,6 +52,13 @@ PY
 
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 size_of() { wc -c < "$1" | tr -d ' '; }
+
+tree_state() {   # prints "<commit> clean" or "<commit> DIRTY". Untracked files do not count.
+  local sha changes
+  sha="$(git rev-parse HEAD)" || return 1
+  changes="$(git status --porcelain --untracked-files=no)" || return 1
+  if [ -z "$changes" ]; then echo "$sha clean"; else echo "$sha DIRTY"; fi
+}
 
 toolchain_name="$(pin toolchain.name)"
 swift_bin="$HOME/Library/Developer/Toolchains/$toolchain_name.xctoolchain/usr/bin/swift"
@@ -84,7 +97,24 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 else
   die "no container runtime answered. Tried Apple container ('container system status') and Docker ('docker info')"
 fi
-echo "runtime $runtime"
+
+runtime_version() {
+  case "$runtime" in
+    container) container --version ;;
+    docker) docker version --format '{{.Server.Version}}' ;;
+  esac
+}
+runtime_version_text="$(runtime_version | sed -n 1p)" || die "could not read the version of $runtime"
+[ -n "$runtime_version_text" ] || die "$runtime printed no version"
+echo "runtime $runtime $runtime_version_text"
+
+swift_version="$("$swift_bin" --version 2>&1 | sed -n 1p)" || die "could not read the Swift version of $swift_bin"
+
+# The commit and the tree state at the start. The record counts as clean only when the end state is the same.
+state_start="$(tree_state)" || die "cannot read the git state of $repo"
+
+xctest_image="$(pin containers.xctest.image)@$(pin containers.xctest.digest)"
+smoke_image="$(pin containers.smoke.image)@$(pin containers.smoke.digest)"
 
 # run_arm64 <image reference> <host directory> <command...>: runs in an arm64 container with the directory at /work.
 # One flag list serves both runtimes. Both CLIs take run, --rm, --platform, --volume and --workdir.
@@ -151,7 +181,7 @@ smoke_static_binary() {   # smoke_static_binary <bin directory>
   mkdir -p "$smoke"
   printf abc > "$smoke/abc.txt"
   cp "$1/lungfish-htc" "$smoke/lungfish-htc"
-  output="$(run_arm64 "$(pin containers.smoke.image)@$(pin containers.smoke.digest)" "$smoke" ./lungfish-htc abc.txt)"
+  output="$(run_arm64 "$smoke_image" "$smoke" ./lungfish-htc abc.txt)"
   echo "$output"
   expected="$(sha256_of "$smoke/abc.txt")"
   [ "$(printf '%s\n' "$output" | sed -n 2p | cut -d' ' -f1)" = "$expected" ] || die "the container's digest differs from shasum ($expected)"
@@ -164,11 +194,21 @@ aarch64_dir="$(bin_dir aarch64-swift-linux-musl)"
 cp "$aarch64_dir/lungfish-htc" "$artifacts/lungfish-htc-aarch64-linux-musl"
 
 prepare_view_package
-step xctest-in-arm64-swift-container run_arm64 "$(pin containers.xctest.image)@$(pin containers.xctest.digest)" "$pkg" swift test
+step xctest-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift test
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container.log"
+test_binary="$(find "$pkg/.build" -type f -name '*PackageTests.xctest' | sort | sed -n 1p)"
+[ -n "$test_binary" ] || die "swift test left no *PackageTests.xctest file under $pkg/.build"
 
 step static-binary-in-arm64-debian-container smoke_static_binary "$aarch64_dir"
 cat "$logs/static-binary-in-arm64-debian-container.log"
+
+# The kernel each image ran on. Docker Desktop and Apple container both run containers in a Linux VM, so this is the
+# VM's kernel and not the Mac's.
+step kernel-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" uname -r
+step kernel-in-arm64-debian-container run_arm64 "$smoke_image" "$work/smoke" uname -r
+kernel_xctest="$(tail -n 1 "$logs/kernel-in-arm64-swift-container.log")"
+kernel_smoke="$(tail -n 1 "$logs/kernel-in-arm64-debian-container.log")"
+echo "kernel xctest $kernel_xctest, smoke $kernel_smoke"
 
 step cross-build-x86_64 cross_build x86_64-swift-linux-musl
 x86_dir="$(bin_dir x86_64-swift-linux-musl)"
@@ -180,25 +220,60 @@ for arch in x86_64 aarch64; do
   echo "$arch: $(size_of "$file_path") bytes, sha256 $(sha256_of "$file_path")"
 done
 
-python3 -I - "$work/record.json" "$repo" "$toolchain_name" "$sdk_id" "$runtime" "$artifacts" <<'PY'
-import hashlib, json, os, subprocess, sys, time
-record, repo, toolchain, sdk, runtime, artifacts = sys.argv[1:7]
+state_end="$(tree_state)" || die "cannot read the git state of $repo"
+commit="${state_start%% *}"
+if [ "$state_start" = "$state_end" ] && [ "${state_end##* }" = "clean" ]; then
+  tree_clean=true
+  verdict=clean
+else
+  tree_clean=false
+  verdict=DIRTY
+fi
+
+python3 -I - "$work/record.json" "$repo" "$artifacts" \
+  "commit=$commit" "treeClean=$tree_clean" "wallSeconds=$SECONDS" \
+  "runtime.name=$runtime" "runtime.version=$runtime_version_text" \
+  "kernel.xctest=$kernel_xctest" "kernel.smoke=$kernel_smoke" \
+  "toolchain.name=$toolchain_name" "toolchain.identifier=$(pin toolchain.identifier)" \
+  "toolchain.sha256=$(pin toolchain.sha256)" "toolchain.swiftVersion=$swift_version" \
+  "staticSDK.id=$sdk_id" "staticSDK.sha256=$(pin staticSDK.sha256)" \
+  "testBinary.path=${test_binary#"$repo"/}" "testBinary.bytes=$(size_of "$test_binary")" \
+  "testBinary.sha256=$(sha256_of "$test_binary")" \
+  :: "$0" "$@" <<'PY'
+import hashlib, json, os, sys, time
+
+args = sys.argv[1:]
+mark = args.index("::")
+record, repo, artifacts = args[:3]
+pairs, script_argv = args[3:mark], args[mark + 1:]
+
 def digest(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+def put(tree, dotted, value):
+    keys = dotted.split(".")
+    for key in keys[:-1]:
+        tree = tree.setdefault(key, {})
+    tree[keys[-1]] = value
+
+numbers, flags = {"testBinary.bytes", "wallSeconds"}, {"treeClean", "closedNetwork"}
 pins = json.load(open(os.path.join(repo, "scripts/linux/toolchain.json")))
-out = {
-    "tool": "scripts/linux/portable-tier.sh",
-    "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    "commit": subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
-    "toolchain": toolchain, "staticSDK": sdk, "containerRuntime": runtime,
-    "containers": pins["containers"], "exitStatus": 0,
-    "artifacts": {name: {"bytes": os.path.getsize(os.path.join(artifacts, name)), "sha256": digest(os.path.join(artifacts, name))}
-                  for name in sorted(os.listdir(artifacts))},
-}
-json.dump(out, open(record, "w"), indent=2)
+out = {"tool": "scripts/linux/portable-tier.sh", "argv": script_argv, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+for pair in pairs:
+    key, _, value = pair.partition("=")
+    put(out, key, int(value) if key in numbers else (value == "true") if key in flags else value)
+out["containers"] = pins["containers"]
+out["artifacts"] = {name: {"bytes": os.path.getsize(os.path.join(artifacts, name)),
+                           "sha256": digest(os.path.join(artifacts, name))}
+                    for name in sorted(os.listdir(artifacts))}
+out["exitStatus"] = 0
+with open(record, "w") as handle:
+    json.dump(out, handle, indent=2)
+    handle.write("\n")
 PY
 echo "== tier passed, record at $work/record.json"
+echo "commit $commit $verdict"
