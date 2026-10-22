@@ -761,6 +761,9 @@ features:
       - Tests/LungfishCLITests/FastqImportONTEventsTests.swift
       - Tests/LungfishAppTests/FastqIngestRouteSigningReplayTests.swift
       - Tests/LungfishAppTests/FASTQImportSheetRecipeSwitchTests.swift
+      - Tests/LungfishAppTests/FASTQImportQualityBinningDefaultTests.swift
+      - Tests/LungfishCLITests/QualityBinningDefaultRouteTests.swift
+      - Tests/LungfishWorkflowTests/Ingestion/QualityBinningDefaultTests.swift
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
@@ -790,7 +793,13 @@ features:
       A FASTQ file copied into a project is ingested in place by running
       lungfish-cli fastq ingest --delete-originals --format json, which
       removes the original last. The ONT import of a run folder runs
-      lungfish-cli fastq import-ont --format json.
+      lungfish-cli fastq import-ont --format json. Every import route bins
+      quality scores with illumina4 (Illumina 7-level) on every platform
+      unless the user picks eightLevel or none, and the sheet's Quality
+      Binning popup starts at Illumina (7-level). Binning saves space and is
+      lossy. A recipe's declared binning applies when no option names one.
+      Every recorded command names its binning, and the import record states
+      its source as option, recipe or default.
   viewport.fastq-dataset:
     title: FASTQ dataset dashboard
     entry_points:

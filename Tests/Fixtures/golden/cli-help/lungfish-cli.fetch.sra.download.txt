@@ -47,10 +47,13 @@ OPTIONS:
         mate is detected. interleaved imports every file on its own and records
         it as interleaved mates.
   --quality-binning <quality-binning>
-                          Quality binning: illumina4 (7 quality levels),
-                          eightLevel (~21 quality levels), none. Binning is
-                          lossy and irreversible once originals are removed —
-                          opt in explicitly. (default: none)
+                          Quality binning: illumina4 (7 quality levels, the
+                          default), eightLevel (~21 quality levels), none
+        Every import bins quality scores with illumina4 on every platform
+        unless this option or the recipe names another value. Binning saves
+        space and is lossy. The original scores cannot be recovered once the
+        original files are removed. Pass --quality-binning none to keep every
+        score as the reads have it.
   --compression <compression>
                           Compression level: fast, balanced, maximum (default:
                           balanced)

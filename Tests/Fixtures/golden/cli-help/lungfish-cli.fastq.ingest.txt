@@ -13,8 +13,9 @@ that names each original file with its SHA-256. Only after that does
 --delete-originals remove the original files. A cancel (SIGTERM) or a
 failure leaves the originals in place.
 
-Quality binning is off unless --binning asks for it. With --format json the
-command prints progress as events.
+Quality scores are binned with illumina4 unless --binning names eightLevel or
+none. Binning is lossy. With --format json the command prints progress as
+events.
 
 Examples:
   lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals
@@ -27,8 +28,9 @@ ARGUMENTS:
 
 OPTIONS:
   --pair <pair>           Optional R2 FASTQ file for paired-end mode
-  --binning <binning>     Quality binning scheme (values: illumina4,
-                          eightLevel, none; default: none)
+  --binning <binning>     Quality binning: illumina4 (the default), eightLevel
+                          or none (values: illumina4, eightLevel, none;
+                          default: illumina4)
   --skip-clumpify         Skip read clumpification step
   --delete-originals      Delete the original FASTQ file(s) once the output,
                           its sidecar and its record are written
