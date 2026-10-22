@@ -45,6 +45,9 @@ final class ONTSplitVirtualInputProvenanceTests: XCTestCase {
         ]).run()
 
         try assertRecordsTheBundle(input, in: output)
+        // The split stores one exemplar per distinct insert and bins no score, and the record says so (lane C2-ONTBIN).
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: output))
+        XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string("none"))
     }
 
     func testPacBioBarcodeDemuxRecordsTheVirtualBundleNotItsPreview() async throws {

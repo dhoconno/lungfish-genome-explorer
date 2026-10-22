@@ -140,7 +140,7 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             "Creates one counted .lungfishfastq bundle per sample using a Fluidigm barcode sample sheet.",
             "Workflow: detect CS1-CS2 insert \u{2192} assign Fluidigm sample barcode \u{2192} write counted sample FASTQ bundles",
             "Input: ONT run folder",
-            "Quality scores: kept as the reads have them, so Quality Binning is off"
+            "Quality scores: not binned, because each distinct insert is stored once with its read count, so Quality Binning is off"
         ].joined(separator: "\n"),
         requiresBarcodeDefinition: true,
         usesDemultiplexOutputFolder: true

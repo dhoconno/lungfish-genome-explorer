@@ -146,9 +146,12 @@ struct FastqONTFluidigmSamplesSubcommand: AsyncParsableCommand {
                 "uniqueSequenceCount": .integer(result.uniqueSequenceCount),
                 "unassignedReadCount": .integer(result.unassignedReadCount),
                 "unextractedReadCount": .integer(result.unextractedReadCount),
+                // Each distinct insert is stored once with its read count, so no score is binned (lane C2-ONTBIN).
+                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
             ],
             defaults: [
                 "threads": .integer(1),
+                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
                 "force": .boolean(false),
                 "forwardPrimer": .string(ONTFluidigmAmpliconMaterializer.defaultForwardPrimer),
                 "reversePrimer": .string(ONTFluidigmAmpliconMaterializer.defaultReversePrimer),
