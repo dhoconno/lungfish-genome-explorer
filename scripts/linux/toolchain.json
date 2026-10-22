@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "description": "Pins for the Linux tier (scripts/linux/portable-tier.sh): the swift.org macOS toolchain, its Static Linux SDK and the arm64 containers that run the cross-built binary and the XCTest hello tests. Xcode's Swift cannot use the Static Linux SDK, so the tier builds with the swift.org toolchain of the SDK's exact version.",
+  "swift": {
+    "release": "6.4.0",
+    "tag": "swift-6.4.0-RELEASE",
+    "xcodeRelease": "Xcode 27.0 (swiftlang-6.4.0.34.1), the Swift release of the Xcode on the development Mac",
+    "newerPatchRelease": "6.4.1 (2026-10-12) also has a macOS toolchain and a Static Linux SDK. 6.4.0 is pinned because Xcode ships the same compiler"
+  },
+  "toolchain": {
+    "identifier": "org.swift.640202609131a",
+    "name": "swift-6.4.0-RELEASE",
+    "url": "https://download.swift.org/swift-6.4.0-release/xcode/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE-osx.pkg",
+    "sha256": "8fd03185b98fe27f54a54631c2449decf75d5b466ce8e34abbd414141063c6aa",
+    "bytes": 1590830585,
+    "checksumSource": "Computed from the download on 2026-10-22, because swift.org publishes no checksum for the macOS package. pkgutil --check-signature reports Developer ID Installer: Swift Open Source (V9AUD2URP3), notarized.",
+    "install": "installer -pkg <downloaded pkg> -target CurrentUserHomeDirectory",
+    "installedAt": "~/Library/Developer/Toolchains/swift-6.4.0-RELEASE.xctoolchain"
+  },
+  "staticSDK": {
+    "id": "swift-6.4.0-RELEASE_static-linux-0.1.0",
+    "url": "https://download.swift.org/swift-6.4.0-release/static-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz",
+    "sha256": "47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e",
+    "checksumSource": "swift.org install API (https://www.swift.org/api/v1/install/releases.json), verified by swift sdk install --checksum",
+    "install": "swift sdk install <url> --checksum <sha256>",
+    "triples": ["x86_64-swift-linux-musl", "aarch64-swift-linux-musl"],
+    "selectorNote": "Select the SDK by id with --swift-sdk <id> --triple <triple>. The bare triple matches every installed Static Linux SDK and SwiftPM refuses it when two are installed.",
+    "testFrameworks": "none. The SDK ships neither XCTest nor Swift Testing, so no test target can be cross-built for musl."
+  },
+  "containers": {
+    "platform": "linux/arm64",
+    "runtimes": ["container", "docker"],
+    "smoke": {
+      "image": "debian",
+      "tag": "trixie-slim",
+      "digest": "sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
+      "note": "A glibc image on purpose. A static musl binary that secretly needs the musl loader or the Swift runtime fails here."
+    },
+    "xctest": {
+      "image": "swift",
+      "tag": "6.4.0-noble",
+      "digest": "sha256:31d14d727f4451f25e29bac9c42563a098c39ac66415e8bad970f48038e38aca",
+      "note": "The official Swift image of the pinned release. It carries XCTest on glibc, which the Static Linux SDK lacks."
+    }
+  }
+}
