@@ -40,3 +40,4 @@
 @_exported import struct Foundation.UUID
 @_exported import struct Foundation.URL
 @_exported import struct Foundation.Date
+@_exported import LungfishPortable

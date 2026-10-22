@@ -183,6 +183,7 @@ let package = Package(
         .target(
             name: "LungfishCore",
             dependencies: [
+                "LungfishPortable",
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
             ],

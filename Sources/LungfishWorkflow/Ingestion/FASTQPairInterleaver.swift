@@ -538,7 +538,13 @@ public enum FASTQPairInterleaver {
     /// `CancellationError` at the next chunk, and `close()` stops and reaps
     /// the `gzip -dc` child.
     public static func countRecords(in url: URL) throws -> Int {
-        let reader = try FASTQRawLineReader(url: url)
+        try countRecords(in: url, launcher: ToolProcessChildLauncher())
+    }
+
+    /// ``countRecords(in:)`` with the launcher that starts `gzip -dc` for a
+    /// gzip file.
+    static func countRecords(in url: URL, launcher: any PortableChildLauncher) throws -> Int {
+        let reader = try FASTQRawLineReader(url: url, launcher: launcher)
         defer { reader.close() }
         var lines = 0
         var lastByte: UInt8 = 0x0A
@@ -635,18 +641,10 @@ public enum FASTQPairInterleaver {
     }
 }
 
-extension ToolProcessOutputStream {
-    /// Reads until `count` bytes arrived or the stream ended, as `FileHandle.readData(ofLength:)` does, so a
-    /// caller that sized its chunks for a file handle sees the same chunks. Fewer than `count` bytes mean the
-    /// end. Never call it on the main thread.
-    func readUntilFull(_ count: Int) -> Data {
-        var data = Data()
-        while data.count < count {
-            let piece = read(upTo: count - data.count)
-            if piece.isEmpty { break }
-            data.append(piece)
-        }
-        return data
+extension FASTQRawLineReader {
+    /// A reader that starts `gzip -dc` through ``ToolProcess`` for a gzip file.
+    convenience init(url: URL) throws {
+        try self.init(url: url, launcher: ToolProcessChildLauncher())
     }
 }
 
@@ -654,17 +652,19 @@ extension ToolProcessOutputStream {
 ///
 /// Gzip input is decompressed through `/usr/bin/gzip -dc`, the same route
 /// `GzipLineSource` takes, because it handles concatenated BGZF members.
+/// `launcher` starts that child, so the reader names no launcher of one
+/// platform.
 final class FASTQRawLineReader {
     private let url: URL
     private let handle: FileHandle?
-    private let run: ToolProcessRun?
+    private let child: (any PortableChild)?
     private var buffer: [UInt8] = []
     private var position = 0
     private var reachedEnd = false
     private var closed = false
     private let chunkSize = 1_048_576
 
-    init(url: URL) throws {
+    init(url: URL, launcher: any PortableChildLauncher) throws {
         self.url = url
         guard let probe = FileHandle(forReadingAtPath: url.path) else {
             throw FASTQPairInterleaver.InterleaveError.unreadableInput(file: url.lastPathComponent, reason: "file not found or not readable")
@@ -673,18 +673,16 @@ final class FASTQRawLineReader {
         let isGzip = magic.count == 2 && magic[magic.startIndex] == 0x1F && magic[magic.startIndex + 1] == 0x8B
         if isGzip {
             try? probe.close()
-            self.run = try ToolProcess.start(ToolProcessSpec(
+            self.child = try launcher.start(PortableChildRequest(
                 executableURL: URL(fileURLWithPath: "/usr/bin/gzip"),
                 arguments: ["-dc", url.path],
                 environment: ["PATH": "/usr/bin:/bin"],
-                stdout: .stream,
-                stderr: .discard,
                 label: "gzip -dc"
             ))
             self.handle = nil
         } else {
             try probe.seek(toOffset: 0)
-            self.run = nil
+            self.child = nil
             self.handle = probe
         }
     }
@@ -727,17 +725,17 @@ final class FASTQRawLineReader {
         guard !closed else { return }
         closed = true
         try? handle?.close()
-        if let run {
-            run.cancel()
+        if let child {
+            child.cancel()
             // Reaps gzip before returning, as terminate and wait did. The main thread never waits.
-            if !Thread.isMainThread { _ = try? run.waitBlocking() }
+            if !Thread.isMainThread { _ = try? child.waitForExit() }
         }
     }
 
     /// The next piece of input, empty at the end. A plain file gives up to a chunk, and gzip gives a whole
     /// chunk unless its output ends.
     private func readNext() throws -> Data {
-        if let run { return run.stdout.readUntilFull(chunkSize) }
+        if let child { return child.readStdout(filling: chunkSize) }
         return try handle?.read(upToCount: chunkSize) ?? Data()
     }
 
@@ -768,10 +766,10 @@ final class FASTQRawLineReader {
 
     private func finishInput() throws {
         reachedEnd = true
-        guard let run else { return }
-        let result: ToolProcessResult
+        guard let child else { return }
+        let result: PortableChildExit
         do {
-            result = try run.waitBlocking()
+            result = try child.waitForExit()
         } catch {
             throw FASTQPairInterleaver.InterleaveError.unreadableInput(
                 file: url.lastPathComponent, reason: "gzip decompression failed (\(error.localizedDescription))"
