@@ -26,9 +26,9 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 969 | 267553 | 1548 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 970 | 267794 | 1549 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 74 | 15529 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 74 | 15547 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
 ## Test targets
 
@@ -52,7 +52,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | 4 | 1037 | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 714 | 227198 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 715 | 227389 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## Lungfish
 
@@ -1837,7 +1837,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 969, lines 267553
+- Swift files. 970, lines 267794
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1865,7 +1865,7 @@ None.
 | Extraction | 35 | 10689 |
 | FASTQ | 1 | 259 |
 | Geneious | 10 | 2386 |
-| Ingestion | 42 | 11623 |
+| Ingestion | 43 | 11864 |
 | MSA | 14 | 2641 |
 | Mapping | 30 | 9768 |
 | Metagenomics | 76 | 23491 |
@@ -2377,8 +2377,8 @@ None.
 - `FASTQGzipProvenanceResult` struct, `Sources/LungfishWorkflow/Ingestion/FastpPairedRunner.swift:401`
 - `FASTQImportEventStream` struct, `Sources/LungfishWorkflow/Ingestion/FASTQImportEventStream.swift:19`
 - `FASTQIngestionConfig` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionConfig.swift:13`
-- `FASTQIngestionError` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:132`
-- `FASTQIngestionPipeline` class, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:179`
+- `FASTQIngestionError` enum, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:139`
+- `FASTQIngestionPipeline` class, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:187`
 - `FASTQIngestionResult` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift:54`
 - `FASTQLengthFilterPlan` struct, `Sources/LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift:16`
 - `FASTQMixedLayoutHint` enum, `Sources/LungfishWorkflow/Extraction/FASTQMixedLayoutHint.swift:20`
@@ -2395,6 +2395,7 @@ None.
 - `FASTQSourceResolver` class, `Sources/LungfishWorkflow/Extraction/FASTQSourceResolver.swift:31`
 - `FASTQSplitByNameRunError` struct, `Sources/LungfishWorkflow/Ingestion/FASTQSplitByNameRunner.swift:22`
 - `FASTQSplitByNameRunner` enum, `Sources/LungfishWorkflow/Ingestion/FASTQSplitByNameRunner.swift:32`
+- `FASTQStorageReadRemoval` struct, `Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline+TrimGaloreReport.swift:11`
 - `FileFormat` struct, `Sources/LungfishWorkflow/Provenance/FileFormat.swift:18`
 - `FileRecord` struct, `Sources/LungfishWorkflow/Provenance/FileRecord.swift:12`
 - `FileRole` struct, `Sources/LungfishWorkflow/Provenance/FileRole.swift:18`
@@ -3480,7 +3481,7 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 74, lines 15529
+- Swift files. 74, lines 15547
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport

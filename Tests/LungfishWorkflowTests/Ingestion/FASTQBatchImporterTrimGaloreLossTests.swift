@@ -78,7 +78,8 @@ final class FASTQBatchImporterTrimGaloreLossTests: XCTestCase {
             if case let .notice(_, message) = event { return message }
             return nil
         }
-        let notice = try XCTUnwrap(notices.first { $0.contains("Trim Galore") }, "\(notices)")
+        // The importer's earlier notice that Trim Galore also trims is not this one, which counts what it removed.
+        let notice = try XCTUnwrap(notices.first { $0.contains("Trim Galore") && $0.contains(" removed ") }, "\(notices)")
         for phrase in ["Trim Galore 2.3.0", "quality 20", "shorter than 20 bases", "1 of 12 pairs", "no Trim Galore 2.3.0 option"] {
             XCTAssertTrue(notice.contains(phrase), "'\(phrase)' in: \(notice)")
         }
