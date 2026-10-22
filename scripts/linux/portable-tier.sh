@@ -10,8 +10,13 @@
 #      reproduce. Debian is glibc, so a binary that quietly needs the musl loader or the Swift runtime fails there.
 #   4. Cross-builds the x86_64 release binary, prints its file type, size and SHA-256 and writes a tier record.
 #
-# Containers run under Apple `container` when it is installed and under `docker` otherwise. Every pin (toolchain, SDK,
+# Containers run under Apple `container` when it is installed and its system answers (`container system status`), and
+# under `docker` when that answers (`docker info`). With neither the tier stops with a message naming both. The Apple
+# container branch is UNTESTED: it is not installed on the development Mac, and its flags come from the published
+# `container run` reference (https://github.com/apple/container, docs/command-reference.md). Every pin (toolchain, SDK,
 # images) lives in scripts/linux/toolchain.json. Output goes to build/linux-tier/ (logs, artifacts, record.json).
+# The tier assumes no scheduler. It builds and checks a generic static Linux binary, and the HTCondor test job of a
+# landing is submitted by hand.
 #
 # Usage: bash scripts/linux/portable-tier.sh            run the tier
 #        bash scripts/linux/portable-tier.sh --install  install the pinned toolchain and SDK at user level, no sudo
@@ -69,21 +74,24 @@ fi
 [ -x "$swift_bin" ] || die "toolchain $toolchain_name is not installed. Run: bash scripts/linux/portable-tier.sh --install"
 "$swift_bin" sdk list | grep -qx "$sdk_id" || die "Static Linux SDK $sdk_id is not installed. Run: bash scripts/linux/portable-tier.sh --install"
 
-if command -v container >/dev/null 2>&1; then
+# Pick the container runtime once. Apple container counts only when its system answers, so an installed but stopped
+# container system falls back to Docker. With neither answering the tier stops, so it never reports a pass with no run.
+runtime=""
+if command -v container >/dev/null 2>&1 && container system status >/dev/null 2>&1; then
   runtime=container
-else
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   runtime=docker
-  docker info >/dev/null 2>&1 || die "neither Apple container nor a running Docker was found"
+else
+  die "no container runtime answered. Tried Apple container ('container system status') and Docker ('docker info')"
 fi
+echo "runtime $runtime"
 
 # run_arm64 <image reference> <host directory> <command...>: runs in an arm64 container with the directory at /work.
+# One flag list serves both runtimes. Both CLIs take run, --rm, --platform, --volume and --workdir.
 run_arm64() {
   local image="$1" host="$2"
   shift 2
-  case "$runtime" in
-    container) container run --rm --arch arm64 --volume "$host:/work" --workdir /work "$image" "$@" ;;
-    docker) docker run --rm --platform linux/arm64 --volume "$host:/work" --workdir /work "$image" "$@" ;;
-  esac
+  "$runtime" run --rm --platform linux/arm64 --volume "$host:/work" --workdir /work "$image" "$@"
 }
 
 # step <name> <command...>: runs one command, keeps its output in logs/<name>.log and shows the tail if it fails.
