@@ -71,11 +71,12 @@ final class RecipeIntegrationTests: XCTestCase {
         let wastewater = try XCTUnwrap((try? RecipeResolver.resolve("wastewater-metagenomics", in: recipes)))
         let engine = RecipeEngine()
 
-        XCTAssertEqual(wastewater.name, "Wastewater metagenomics")
+        XCTAssertEqual(wastewater.resolution?.preset?.name, "Wastewater metagenomics")
         XCTAssertNoThrow(try engine.validate(recipe: wastewater, inputFormat: .pairedR1R2))
-        XCTAssertFalse(
-            wastewater.steps.contains { $0.type == "fastp-dedup" },
-            "Wastewater metagenomics should preserve abundance by default instead of deduplicating reads"
+        // Owner answer O12 makes duplicate removal the wastewater default.
+        XCTAssertTrue(
+            wastewater.activeSteps.contains { $0.type == "fastp-dedup" },
+            "The wastewater-metagenomics preset removes duplicate reads"
         )
     }
 
@@ -86,15 +87,16 @@ final class RecipeIntegrationTests: XCTestCase {
         let plan = try engine.plan(recipe: wastewater, inputFormat: .pairedR1R2)
 
         XCTAssertEqual(plan.count, 6)
-        XCTAssertGreaterThan(wastewater.steps.count, 2)
-        XCTAssertEqual(wastewater.steps[2].type, "deacon-ribo-filter")
-        XCTAssertEqual(wastewater.steps[2].params?["database"]?.stringValue, "deacon-ribokmers")
+        let steps = wastewater.activeSteps
+        XCTAssertGreaterThan(steps.count, 3)
+        XCTAssertEqual(steps[3].type, "deacon-ribo-filter")
+        XCTAssertEqual(steps[3].params?["database"]?.stringValue, "deacon-ribokmers")
 
         guard case .singleStep(let riboFilter, let riboLabel) = plan[2] else {
             return XCTFail("Expected paired Deacon rRNA filter at plan index 2, got \(plan[2])")
         }
         XCTAssertTrue(riboFilter is DeaconRiboFilterStep)
-        XCTAssertEqual(riboLabel, "Remove ribosomal RNA")
+        XCTAssertEqual(riboLabel, "Remove ribosomal RNA reads")
 
         guard case .singleStep(let merge, _) = plan[3] else {
             return XCTFail("Expected merge after Deacon rRNA filter, got \(plan[3])")

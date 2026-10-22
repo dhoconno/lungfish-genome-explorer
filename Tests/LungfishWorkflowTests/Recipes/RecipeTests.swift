@@ -187,9 +187,10 @@ struct RecipeTests {
         #expect(recipe.platforms == [IngestionPlatform.illumina])
         #expect(recipe.requiredInput == Recipe.InputRequirement.paired)
         #expect(recipe.qualityBinning == QualityBinningScheme.illumina4)
-        #expect(recipe.steps.count == 5)
+        #expect(recipe.steps.count == 6)
 
-        let stepTypes = recipe.steps.map { $0.type }
+        // The vsp2 preset keeps ribosomal RNA reads, so its run leaves the rRNA filter out.
+        let stepTypes = steps.map { $0.type }
         #expect(stepTypes == [
             "fastp-dedup",
             "fastp-trim",
