@@ -223,11 +223,13 @@ and the landings' test runs stand in for it.
 | L7-HASHONCE | One digest per file per import through a cache keyed by path, size, inode and modification date, with recorded digests unchanged | Landed |
 | C2-MERGED | One recipe file at `formatVersion` 2 with `removeDuplicates` and `removeRibosomalRNA` switches and the two old ids as presets, preset P1 (869,933 pairs and 242,843,520 bases on the slice at one thread), records of the name, preset, switches and turned-off steps, the Inspector's "Not run" rows, help goldens with predictions | Landed, review fix 3 open |
 
-After landing 3 the program branch `chtc-program` is at `e4574e5a7`, 45 commits past `8190b9000`. Landing 3 ran 2,270
+After the C2-SHEET fixes the program branch `chtc-program` is at `fc6576f39`, 51 commits past `8190b9000`, and the
+sheet's 31 test classes passed (341 tests). After landing 3 it was at `e4574e5a7`, 45 commits past `8190b9000`. Landing 3 ran 2,270
 XCTest cases and 453 Swift Testing tests. The only failures were three cases in `ConformanceFixtures.swift:81` that
 need a deacon-panhuman install receipt this laptop lacks. The seven ratchets, the module map check and
 `predictions.py check` passed.
 | C2-TRIMGALORE | Trim Galore storage with the clumpify split and join, and the refusal of `453a98a8c` removed | Held for Q12 |
+| C2-SHEET | The Import FASTQ sheet lists the two presets and shows a checkbox for each switch, passes an option only when a box differs from the preset, keeps the Tab order and layout, and the description follows the boxes | Landed, GUI walk with Computer Use still owed |
 
 The review of C2-TRIMGALORE ran Trim Galore 2.3.0 with LGE's storage arguments and found the storage route lossy
 before this lane too. It adapter- and quality-trims and drops reads under 20 bp after trimming, a pair as a unit, and
@@ -243,7 +245,15 @@ no 2.3.0 option set makes it lossless. The plain paired and single-end branches 
 | Q11 | Allow `lungfish-cli conda db update kraken2-viral --yes` with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage` on this laptop, so the golden compare can run here, or leave the compare to the Mac Studio's Golden workflow at merge? The owner's rule reserves writes there to `provision` |
 | Q12 | Keep Trim Galore as a storage choice with exact read accounting and a plain warning that it trims, or remove it as a storage tool so that storage stays lossless? |
 
+The SWIFT and ARCH design inventory for C3 is `~/lungfish-phase-records/chtc-program/c3/inv/C3-design.md`. It moves
+the tail's byte code by pure moves into a new bottom target, `LungfishPortable`, has the storage step call tools through
+a launcher protocol, and gives a static musl `lungfish-htc` its own POSIX launcher, so no Core, IO or Workflow file has
+to build on Linux. It plans six lanes, K0 to K5, and leaves nine open questions, two for the owner. Q-C3-3 asks whether
+agents may install the swift.org toolchain and Static Linux SDK on both Macs. Q-C3-4 asks whether swift-crypto may join
+`Package.swift`, or a pure-Swift SHA-256 should be used.
+
 ## Next step
 
-Landing 3, then C2's open items (fix 3 of the merged recipe, the sheet's switch controls, Q12), then C3. The handoff
-for another account is `~/lungfish-phase-records/chtc-program/CONTINUE.md`.
+C2's open items (fix 3 of the merged recipe's review, the sheet's GUI walk, Q12), then C3 from its design inventory.
+The weekly quota read 95% on 2026-10-22 at 05:00 CDT, so the first session stopped there. The handoff for another
+account is `~/lungfish-phase-records/chtc-program/CONTINUE.md`.
