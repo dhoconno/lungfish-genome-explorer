@@ -26,22 +26,6 @@ public struct ProvenanceFileStamp: Hashable, Sendable {
         modifiedSeconds = Int64(info.st_mtimespec.tv_sec)
         modifiedNanoseconds = Int64(info.st_mtimespec.tv_nsec)
     }
-
-    /// The same file object: a rename or a hard link keeps the device, inode, size and modification time.
-    fileprivate struct Identity: Hashable, Sendable {
-        let device: UInt64
-        let inode: UInt64
-        let size: UInt64
-        let modifiedSeconds: Int64
-        let modifiedNanoseconds: Int64
-    }
-
-    fileprivate var identity: Identity {
-        Identity(
-            device: device, inode: inode, size: size,
-            modifiedSeconds: modifiedSeconds, modifiedNanoseconds: modifiedNanoseconds
-        )
-    }
 }
 
 /// The SHA-256 of each file one import command described in its record, taken once.
@@ -55,9 +39,8 @@ public struct ProvenanceFileStamp: Hashable, Sendable {
 ///
 /// A digest is kept with the ``ProvenanceFileStamp`` the file had when it was read. A file whose path, size, inode or
 /// modification time differs from the stamp is read again, and a file that changed while it was being read is not
-/// kept. A file renamed inside the command, such as the payload moved from the import workspace into the staged
-/// bundle, matches by its device, inode, size and modification time and is not read again. Two callers that ask
-/// for the same new file at the same moment may both read it. The cache never holds a digest of other bytes.
+/// kept. A file renamed inside the command is a new path and is read again. Two callers that ask for the same new
+/// file at the same moment may both read it. The cache never holds a digest of other bytes.
 public final class ProvenanceDigestCache: Sendable {
     /// Reads a file and returns its lowercase hex SHA-256. The cancellation check runs between chunks.
     package typealias DigestReader = @Sendable (URL, () throws -> Void) throws -> String
@@ -69,7 +52,6 @@ public final class ProvenanceDigestCache: Sendable {
 
     private struct State: Sendable {
         var byPath: [String: Entry] = [:]
-        var byIdentity: [ProvenanceFileStamp.Identity: String] = [:]
         var reads = 0
         var readsByPath: [String: Int] = [:]
     }
@@ -108,10 +90,6 @@ public final class ProvenanceDigestCache: Sendable {
         }
         let cached: String? = state.withLock { state in
             if let entry = state.byPath[stamp.resolvedPath], entry.stamp == stamp { return entry.sha256 }
-            if let sha256 = state.byIdentity[stamp.identity] {
-                state.byPath[stamp.resolvedPath] = Entry(stamp: stamp, sha256: sha256)
-                return sha256
-            }
             return nil
         }
         if let cached { return cached }
@@ -121,10 +99,7 @@ public final class ProvenanceDigestCache: Sendable {
         state.withLock { state in
             state.reads += 1
             state.readsByPath[stamp.resolvedPath, default: 0] += 1
-            if unchanged {
-                state.byPath[stamp.resolvedPath] = Entry(stamp: stamp, sha256: sha256)
-                state.byIdentity[stamp.identity] = sha256
-            }
+            if unchanged { state.byPath[stamp.resolvedPath] = Entry(stamp: stamp, sha256: sha256) }
         }
         return sha256
     }

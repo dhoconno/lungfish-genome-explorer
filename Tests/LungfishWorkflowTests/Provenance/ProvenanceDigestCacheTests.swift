@@ -68,7 +68,7 @@ final class ProvenanceDigestCacheTests: XCTestCase {
         XCTAssertEqual(cache.readCount(of: file), 3)
     }
 
-    func testARenamedFileIsNotReadAgainAndACopyIs() throws {
+    func testARenamedFileAndACopyAreEachReadForTheirOwnPath() throws {
         let file = try write("ACGT\n", to: "workspace.fastq")
         let cache = ProvenanceDigestCache()
         let digest = try cache.sha256(of: file)
@@ -76,12 +76,12 @@ final class ProvenanceDigestCacheTests: XCTestCase {
         let moved = tempDir.appendingPathComponent("staged.fastq")
         try FileManager.default.moveItem(at: file, to: moved)
         XCTAssertEqual(try cache.sha256(of: moved), digest)
-        XCTAssertEqual(cache.readCount, 1, "the same file under a new name")
+        XCTAssertEqual(cache.readCount, 2, "a file renamed inside the command is a new path and is read again")
 
         let copy = tempDir.appendingPathComponent("copy.fastq")
         try FileManager.default.copyItem(at: moved, to: copy)
         XCTAssertEqual(try cache.sha256(of: copy), digest)
-        XCTAssertEqual(cache.readCount, 2, "a copy is another file, read for itself")
+        XCTAssertEqual(cache.readCount, 3, "a copy is another file, read for itself")
     }
 
     func testAFileThatChangesDuringTheReadIsNotKept() throws {
