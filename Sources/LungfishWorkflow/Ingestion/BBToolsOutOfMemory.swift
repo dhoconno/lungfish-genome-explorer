@@ -67,8 +67,9 @@ enum BBToolsOutOfMemory {
     ///   - tool: The script that ran, such as `clumpify.sh`.
     ///   - arguments: The argv it ran with, which names the heap that ran.
     ///   - optionPinsHeap: True when `--clumpify-heap-gb` sets this launch's heap. The recipe steps size their own.
+    ///     Only `import fastq` has the option, so the sentence names that command.
     static func message(tool: String, arguments: [String], optionPinsHeap: Bool) -> String {
-        let kept = "so nothing was imported and the original files were kept."
+        let kept = "so this sample was not imported and its original files were kept."
         guard let heap = heapGB(in: arguments) else {
             return "\(tool) ran out of memory with the heap BBTools sized from this Mac's free memory, \(kept) "
                 + "Close other apps or import fewer samples at a time, then import again."
@@ -78,6 +79,6 @@ enum BBToolsOutOfMemory {
                 + "Close other apps or import fewer samples at a time, then import again."
         }
         return "\(tool) ran out of memory with a \(heap) GB heap, \(kept) "
-            + "Import again with a larger heap, for example --clumpify-heap-gb \(heap * 2)."
+            + "Import again with a larger heap, for example using import fastq --clumpify-heap-gb \(heap * 2)."
     }
 }
