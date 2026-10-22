@@ -153,8 +153,11 @@ struct FastqONTPacBioBarcodeDemuxSubcommand: AsyncParsableCommand {
                 "unassignedReadCount": .integer(result.unassignedReadCount),
                 "payloadRepresentation": .string("gzip-compressed full demultiplexed FASTQ"),
                 "cutadaptCommands": .string(cutadaptArgv),
+                // The demultiplexed reads keep every score (lane C2-ONTBIN).
+                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
             ],
             defaults: [
+                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
                 "threads": .integer(1),
                 "chunkJobs": .integer(ONTPacBioBarcodeDemuxMaterializationRequest.defaultChunkJobs),
                 "force": .boolean(false),

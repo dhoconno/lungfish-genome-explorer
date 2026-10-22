@@ -53,7 +53,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning for --optimize-storage: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels) or none. Binning is lossy. Pass none to keep every score.")
+            help: "Quality binning: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels) or none. A chunked import bins each chunk with reformat.sh and --optimize-storage bins with clumpify. Binning is lossy. Pass none to keep every score.")
     var qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault
 
     @OptionGroup var globalOptions: GlobalOptions

@@ -482,7 +482,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     // MARK: - Helpers
 
     /// Generates a preview FASTQ from the first N reads across chunk files.
-    private func generatePreview(
+    public func generatePreview(
         fromChunks chunks: [URL],
         to outputURL: URL,
         maxReads: Int

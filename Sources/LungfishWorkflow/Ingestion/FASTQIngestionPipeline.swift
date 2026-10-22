@@ -944,7 +944,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     /// Uses the same `quantize=` values `clumpify.sh` takes, so a binned
     /// import looks the same whether or not it was clumped. Paired input is
     /// written as one interleaved file, as every other paired path does.
-    private func reformatQuantize(
+    func reformatQuantize(
         config: FASTQIngestionConfig,
         outputFile: URL,
         progress: @escaping @Sendable (Double, String) -> Void

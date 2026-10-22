@@ -372,6 +372,7 @@ public struct ONTImportWorkflow: Sendable {
         resolved["storageMode"] = .string(config.storageMode.rawValue)
         resolved["optimizeStorage"] = .boolean(optimization.optimizeStorage)
         resolved["qualityBinning"] = .string(optimization.qualityBinning.rawValue)
+        resolved["qualityBinningApplied"] = .boolean(Self.appliesQualityBinning(storageMode: config.storageMode, optimization: optimization))
         resolved["useVirtualConcatenation"] = .boolean(config.useVirtualConcatenation)
         resolved["caller"] = .string(context.caller.rawValue)
         resolved["barcodeDirectoryCount"] = .integer(layout.barcodeDirectories.count)
@@ -581,7 +582,9 @@ public struct ONTImportWorkflow: Sendable {
         optimization: OptimizationConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> [String: [ProvenanceStep]] {
-        guard optimization.optimizeStorage else { return [:] }
+        guard optimization.optimizeStorage else {
+            return try await Self.binChunkedPayloads(bundleURLs: bundleURLs, config: config, optimization: optimization, progress: progress)
+        }
         guard config.storageMode == .flattened else {
             throw ImportError.optimizationRequiresFlattenedStorage
         }

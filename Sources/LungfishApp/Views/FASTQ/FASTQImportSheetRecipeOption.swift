@@ -139,7 +139,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         presentationText: [
             "Creates one counted .lungfishfastq bundle per sample using a Fluidigm barcode sample sheet.",
             "Workflow: detect CS1-CS2 insert \u{2192} assign Fluidigm sample barcode \u{2192} write counted sample FASTQ bundles",
-            "Input: ONT run folder"
+            "Input: ONT run folder",
+            "Quality scores: kept as the reads have them, so Quality Binning is off"
         ].joined(separator: "\n"),
         requiresBarcodeDefinition: true,
         usesDemultiplexOutputFolder: true
@@ -151,7 +152,8 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         presentationText: [
             "Splits ONT FASTQ chunks with a PacBio barcode-pair sample sheet.",
             "Workflow: validate PacBio bc* pairs \u{2192} exact barcode demux \u{2192} write per-sample FASTQ bundles",
-            "Input: ONT run folder"
+            "Input: ONT run folder",
+            "Quality scores: kept as the reads have them, so Quality Binning is off"
         ].joined(separator: "\n"),
         requiresBarcodeDefinition: true,
         usesDemultiplexOutputFolder: true

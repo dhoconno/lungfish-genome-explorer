@@ -76,6 +76,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     private var pairingProposalTask: Task<Void, Never>?
     /// Set once the user picks a Platform item. Until then the import runs with `--platform auto`.
     private var platformChosenByUser = false
+    /// The binning item a barcode recipe replaced with None, given back when the recipe is left.
+    private var binningIndexBeforeBarcodeRecipe = 0
 
     // MARK: - Init
 
@@ -815,6 +817,14 @@ public final class FASTQImportConfigSheet: NSViewController {
             demultiplexFolderField.stringValue = Self.defaultDemultiplexFolderName(for: sourceURL)
         }
 
+        // A barcode recipe writes its reads with every score kept, so its popup reads None and is off, and the
+        // recipe's description says so. Leaving the recipe gives back the item it held (lane C2-ONTBIN).
+        if requiresBarcodeDefinition == binningPopup.isEnabled {
+            if requiresBarcodeDefinition { binningIndexBeforeBarcodeRecipe = binningPopup.indexOfSelectedItem }
+            binningPopup.selectItem(at: requiresBarcodeDefinition
+                ? Self.binningChoices.firstIndex(of: QualityBinningScheme.none) ?? 0 : binningIndexBeforeBarcodeRecipe)
+            binningPopup.isEnabled = !requiresBarcodeDefinition
+        }
         if requiresBarcodeDefinition {
             barcodeDefinitionPopup.isEnabled = !barcodeDefinitionCandidates.isEmpty
             chooseBarcodeDefinitionButton.isEnabled = true
