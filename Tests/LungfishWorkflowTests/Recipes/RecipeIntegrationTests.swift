@@ -444,7 +444,7 @@ final class RecipeIntegrationTests: XCTestCase {
         let data = try Data(contentsOf: summaryURL)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["deplete"] as? Bool, true)
-        XCTAssertEqual(json["seqs_in"] as? Int, 200)
+        XCTAssertEqual(json["seqs_in"] as? Int, 198, "fastp, fused ahead of Deacon with -q 15 -u 40 -n 5 -l 15 and adapter trimming, drops two of the 200 fixture reads")
         XCTAssertNotNil(json["seqs_removed"])
     }
 }
