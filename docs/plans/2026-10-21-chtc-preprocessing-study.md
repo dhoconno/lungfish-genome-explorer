@@ -185,10 +185,24 @@ BIO ruled and UX and QA reviewed, so each row is BIO's ruling with the two revie
 | P1 | The merged recipe's trim is fastp `--detect_adapter_for_pe -g --poly_g_min_len 10 -q 15 -u 40 -n 5 -l 15 -W 5 --cut_tail -M 20`, every value written out, with `--dedup --dup_calc_accuracy 3` when duplicates are removed. Tail cutting keeps 869,933 pairs on the slice against 834,778 for `--cut_right` | 3 to 0. QA agreed with changes, which were to freeze exact one-thread values and to time the exact argv |
 | P2 | rRNA removal is off by default, since removed reads come back only by a reimport and the filter took 78% of this sample's pairs. The wastewater preset turns it on | 3 to 0. UX agreed with changes, which were to show the switch states in the sheet and correct the wastewater description |
 | P3 | One recipe file at `formatVersion` 2 with `removeDuplicates` (default on) and `removeRibosomalRNA` (default off) switches, and presets `vsp2-target-enrichment` and `wastewater-metagenomics`. A build refuses a version it does not know. Records hold the name passed, the preset, the recipe digest, each switch's value and source, and a step result for each step a switch turned off | 3 to 0. UX and QA agreed with changes on words, display and tests |
-| P4 | Open. fastp with adapter and quality work took about 23 s on the slice against 1.6 s for today's call. M1 fits the time on three slice sizes to tell a fixed startup cost from a per-read one before C2 lands P1 | Timing in M1 |
+| P4 | Settled by M1. The extra cost of P1 is a fixed 20.5 s per fastp call from adapter detection, not a cost per read. On 1, 3 and 5 million pairs the ruled argv fits 20.5 s plus 0.70 microseconds a pair (R² 0.99992), and the cost vanishes with `-A` or without `--detect_adapter_for_pe`. Threads above 8 do not pay | `lanes/C0-M1/C0-M1.md` |
 
 Q8 is settled by P2 and Q9 by P1. Q4 stays open, with the manager's note that the sample's qualities already hold four values (Q2, Q9, Q24 and Q41), so `illumina4` binning saves little here and still rewrites them.
 
+## M1 results and corrections (2026-10-21)
+
+M1 ran `import fastq --recipe vsp2 --threads 14 --clumping-tool bbtools` on the full C079876_S1 sample (217,928,172 pairs) with a release `lungfish-cli` built by `swift build -c release` from `f1ac4f6b2`. Its report is `lanes/C0-M1/C0-M1.md`.
+
+| Finding | Evidence |
+|---|---|
+| The import failed after 5,677.9 s with exit 64, "Tool 'pigz' timed out after 300 seconds", in the human scrub step. The pigz compress calls of the legacy import path run under `NativeToolRunner`'s 300 s default (`NativeToolRunner.swift:137`, called from `FASTQBatchImporter.swift:2299` and `:2346` at `f1ac4f6b2`), and that path also left 479 GB of uncompressed temporary FASTQ. Any sample above about 100 GB uncompressed fails this way | `C0-M1.md`, `status.json` |
+| The bare release build loads none of the recipe files. Its `import fastq --help` lists only `vsp2, wgs, hifi`, while the debug build and the shipped Preview 2026.10.21 CLI list all three recipe files. With no file to match, the alias `vsp2` fell through to the legacy `ProcessingRecipe` "Illumina VSP2 Target Enrichment" (`ImportFastqCommand.swift:199-214`, `FASTQBatchImporter.swift:289`) and said nothing. M1 therefore timed the legacy six-pass chain (BBTools dedupe, fastp adapter trim, fastp Q15 trim, deacon, a BBTools merge, length filter), not the recipe file | `--help` of the three binaries, the slice bundle's `recipeApplied` |
+| The correction to earlier statements. The shipped app and CLI run the recipe file `vsp2-target-enrichment`, whose fused fastp call trims no adapters, so O11 stands. The legacy chain does trim adapters. The 2026-10-20 import that took nearly three hours ran `--recipe wastewater-metagenomics`, not VSP2 | `/Volumes/sandbox/32748/32748.lungfish/Imports/C079876_S1.lungfishfastq/.lungfish-provenance.json` |
+| At full scale the work outside the tools is about as large as the tools. The 2026-10-20 record has 8,890.8 s of wall time, 4,338.9 s in tools and 4,551.8 s outside them (2,223.3 s inside the storage step and 2,328.6 s in stages the record does not itemize). On the 5M-pair slice the share was 7.7% of tool CPU, so the slice understates it. This supports O4, the tail on CHTC | the same record, `C0-M1.md` |
+| The records stage took 2.4 s on the 5M slice and was 86% SHA-256 hashing. The full-sample records stage of O10 is still unmeasured, and C1 measures it on the program branch, which holds 2.13's lookup fix | `records.sample.txt` |
+
+New rows for C1. The legacy path's compress timeout. Refusing a recipe name that matches no recipe file instead of falling back to another recipe. The recipe files' resource lookup in a bare release build, which the Linux executor of C3 must not repeat.
+
 ## Next step
 
-M1, the full-sample timing on an idle Mac, then the C0 close and C1.
+C0 is closed except the full-sample records stage, which moves to C1. The weekly quota read 87% at the end of C0 on 2026-10-21, 2.13's launch line, so C1 starts after the reset of 2026-10-25 and after 2.13 has resumed.
