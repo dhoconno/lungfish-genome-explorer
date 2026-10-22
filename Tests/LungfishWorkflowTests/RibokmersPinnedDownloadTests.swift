@@ -36,13 +36,19 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
     }
 
     /// A fresh install downloads the file the lock names, checks it, publishes it and writes an install record that
-    /// names the download, the file's real digest and the build the lock records. No tool runs.
+    /// names the download, the file's real digest and the build the lock records, with the build's reproducibility,
+    /// minimizer count, set digest, set method and note. No tool runs.
     func testFreshInstallDownloadsThePinnedFileAndRecordsTheBuild() async throws {
-        let payload = Data("pinned-ribokmers-index\n".utf8)
+        let words: [UInt64] = [5, 90, 17, 1_000_000, 42]
+        let payload = Self.deaconIndex(words: words)
         let served = try serve(payload, as: "served.idx")
         let requests = RibokmersSeamLog<URL>()
         let tools = RibokmersSeamLog<String>()
-        let registry = makeRegistry(spec: try spec(pinning: payload, url: served), requests: requests, tools: tools)
+        let registry = makeRegistry(
+            spec: try spec(pinning: payload, url: served, minimizerSet: (words.count, Self.setDigest(of: words))),
+            requests: requests,
+            tools: tools
+        )
 
         let installed = try await registry.installManagedDatabase(Self.databaseID, reinstall: true)
 
@@ -63,6 +69,11 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(run.parameters["buildSourceUrl"]?.stringValue, "https://bbmap.org/resources/ribokmers.fa.gz")
         XCTAssertEqual(run.parameters["buildSourceSHA256"]?.stringValue, String(repeating: "a", count: 64))
         XCTAssertEqual(run.parameters["buildArgv"], .array(Self.buildArgv.map { .string($0) }))
+        XCTAssertEqual(run.parameters["buildByteReproducible"], .boolean(true))
+        XCTAssertEqual(run.parameters["buildMinimizerCount"], .integer(5))
+        XCTAssertEqual(run.parameters["buildMinimizerSetSHA256"]?.stringValue, Self.setDigest(of: words))
+        XCTAssertEqual(run.parameters["buildMinimizerSetMethod"]?.stringValue, Self.fixtureMinimizerSetMethod)
+        XCTAssertEqual(run.parameters["buildNote"]?.stringValue, Self.fixtureBuildNote)
         XCTAssertEqual(run.steps.map(\.toolName), ["URLSession"])
         let output = try XCTUnwrap(run.steps.first?.outputs.first)
         XCTAssertEqual(output.path, installed.path)
@@ -477,11 +488,18 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         return url
     }
 
-    /// The lock entry of a hosted ribokmers build that pins `payload` and names `url` as its download.
+    /// Fixed strings the fixture's lock row carries for the build facts beyond the argv, so a test can tell that the
+    /// install record copied them from the lock.
+    static let fixtureMinimizerSetMethod = "fixture method: SHA-256 of the sorted little-endian minimizers"
+    static let fixtureBuildNote = "fixture note: a one-thread build"
+
+    /// The lock entry of a hosted ribokmers build that pins `payload` and names `url` as its download. The row carries
+    /// `byteReproducible`, the set method and the note, and the minimizer count and set digest when `minimizerSet` is given.
     func spec(pinning payload: Data, url: URL, minimizerSet: (count: Int, sha256: String)? = nil) throws -> DatabaseSpec {
         var build: [String: Any] = [
             "tool": "deacon", "toolVersion": "0.16.0", "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz",
             "sourceSha256": String(repeating: "a", count: 64), "sourceSizeBytes": 12, "argv": Self.buildArgv,
+            "byteReproducible": true, "minimizerSetMethod": Self.fixtureMinimizerSetMethod, "note": Self.fixtureBuildNote,
         ]
         if let minimizerSet {
             build["minimizerCount"] = minimizerSet.count
