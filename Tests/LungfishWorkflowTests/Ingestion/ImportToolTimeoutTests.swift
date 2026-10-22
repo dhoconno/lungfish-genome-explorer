@@ -12,6 +12,7 @@
 import XCTest
 import Darwin
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ImportToolTimeoutTests: XCTestCase {
@@ -53,8 +54,8 @@ final class ImportToolTimeoutTests: XCTestCase {
     }
 
     func testTheSizeIsTheSumOfTheInputFilesAndAMissingFileAddsNothing() throws {
-        let root = try makeRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "import-timeout")
+        defer { TestTempDirectory.cleanup(root) }
         let r1 = root.appendingPathComponent("R1.fastq.gz")
         let r2 = root.appendingPathComponent("R2.fastq.gz")
         // Sparse files, so the sizes are read from the file system and nothing is written.
@@ -77,8 +78,8 @@ final class ImportToolTimeoutTests: XCTestCase {
     /// The user's own URLs reach the legacy import path unresolved, so a source
     /// that is a symbolic link must be sized by the file it points at.
     func testASymlinkedInputIsSizedByItsTarget() throws {
-        let root = try makeRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "import-timeout")
+        defer { TestTempDirectory.cleanup(root) }
         let target = root.appendingPathComponent("target.fastq.gz")
         // A sparse file, so the size is read from the file system and nothing is written.
         XCTAssertTrue(FileManager.default.createFile(atPath: target.path, contents: nil))
@@ -101,8 +102,8 @@ final class ImportToolTimeoutTests: XCTestCase {
     /// The cancel must end the tool and a helper that ignores SIGTERM inside
     /// the termination grace, as it does for a call that has a limit.
     func testCancellingAnUnlimitedWholeSamplePigzRunEndsTheToolTreeInsideItsGrace() async throws {
-        let root = try makeRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
+        let root = try TestTempDirectory.make(prefix: "import-timeout")
+        defer { TestTempDirectory.cleanup(root) }
         let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .debug)
         let bin = CoreToolLocator.environmentURL(named: "pigz", homeDirectory: root, appIdentity: .debug)
             .appendingPathComponent("bin", isDirectory: true)
@@ -144,13 +145,6 @@ final class ImportToolTimeoutTests: XCTestCase {
     }
 
     // MARK: Helpers
-
-    private func makeRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-import-timeout-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return root
-    }
 
     private func waitForPID(_ url: URL) async throws -> Int32 {
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
