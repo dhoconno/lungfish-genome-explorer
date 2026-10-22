@@ -31,7 +31,9 @@ public struct FASTQQualityFractions: Sendable, Equatable {
     public var q30Percentage: Double {
         baseCount > 0 ? Double(q30Count) / Double(baseCount) * 100 : 0
     }
+}
 
+extension FASTQQualityFractions {
     /// Counts every base of every record in `urls`, each file with its own
     /// detected encoding. The bytes are counted as they stream past rather
     /// than parsed into records, which ran at about 50 MB/s and kept a

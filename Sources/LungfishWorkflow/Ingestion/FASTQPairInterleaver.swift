@@ -12,6 +12,12 @@ extension FASTQPairInterleaver {
         public let r1Records: Int
         public let r2Records: Int
         public let writtenRecords: Int
+
+        package init(r1Records: Int, r2Records: Int, writtenRecords: Int) {
+            self.r1Records = r1Records
+            self.r2Records = r2Records
+            self.writtenRecords = writtenRecords
+        }
     }
 
     /// Writes R1 and R2 records alternately to `sink`.
@@ -24,37 +30,25 @@ extension FASTQPairInterleaver {
     /// throws ``InterleaveError/mateNameMismatch(recordNumber:r1File:r1Name:r2File:r2Name:)``,
     /// which is how a caller relying on two files being in lockstep (fastp's
     /// unmerged outputs) finds out they are not.
-    public static func interleave(
+    package static func interleave(
         r1: URL,
         r2: URL,
         to sink: FileHandle,
-        requireMates: Bool = false
+        requireMates: Bool = false,
+        launcher: any PortableChildLauncher
     ) throws -> Counts {
         var output = BufferedSink(handle: sink)
-        return try interleave(r1: r1, r2: r2, into: &output, requireMates: requireMates)
+        return try interleave(r1: r1, r2: r2, into: &output, requireMates: requireMates, launcher: launcher)
     }
 
-    /// ``interleave(r1:r2:to:requireMates:)`` into the stage file of a
-    /// ``DurableReplace`` publication, so a failed write is a thrown error and
-    /// the name holds the interleaved file only when it is whole and synced
-    /// (Phase 2.10 lane S31).
-    static func interleave(
-        r1: URL,
-        r2: URL,
-        to stage: DurableReplace.StageWriter,
-        requireMates: Bool = false
-    ) throws -> Counts {
-        var output = BufferedSink(stage: stage)
-        return try interleave(r1: r1, r2: r2, into: &output, requireMates: requireMates)
-    }
-
-    private static func interleave(
+    package static func interleave(
         r1: URL,
         r2: URL,
         into output: inout BufferedSink,
-        requireMates: Bool
+        requireMates: Bool,
+        launcher: any PortableChildLauncher
     ) throws -> Counts {
-        let counts = try interleave(r1: r1, r2: r2, requireMates: requireMates) { record1, record2 in
+        let counts = try interleave(r1: r1, r2: r2, requireMates: requireMates, launcher: launcher) { record1, record2 in
             try output.write(record1)
             try output.write(record2)
         }
@@ -98,31 +92,23 @@ extension FASTQPairInterleaver {
     /// paired by position and counted, so the caller can warn. Files that
     /// hold different numbers of records throw. A legacy bundle whose mates
     /// are named `x.1` and `x.2` threw before this rule (final review A, N2).
-    public static func interleaveRecordedPair(r1: URL, r2: URL, to sink: FileHandle) throws -> RecordedPairCounts {
-        var output = BufferedSink(handle: sink)
-        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output)
-    }
-
-    /// `interleaveRecordedPair(r1:r2:to:)` with a file handle, into the stage
-    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
-    static func interleaveRecordedPair(
-        r1: URL,
-        r2: URL,
-        to stage: DurableReplace.StageWriter
+    package static func interleaveRecordedPair(
+        r1: URL, r2: URL, to sink: FileHandle, launcher: any PortableChildLauncher
     ) throws -> RecordedPairCounts {
-        var output = BufferedSink(stage: stage)
-        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output)
+        var output = BufferedSink(handle: sink)
+        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output, launcher: launcher)
     }
 
-    private static func interleaveRecordedPair(
+    package static func interleaveRecordedPair(
         r1: URL,
         r2: URL,
-        into output: inout BufferedSink
+        into output: inout BufferedSink,
+        launcher: any PortableChildLauncher
     ) throws -> RecordedPairCounts {
         var recordNumber = 0
         var pairedByPosition = 0
         var firstPairedByPosition: [String]?
-        let counts = try interleave(r1: r1, r2: r2, requireMates: false) { record1, record2 in
+        let counts = try interleave(r1: r1, r2: r2, requireMates: false, launcher: launcher) { record1, record2 in
             recordNumber += 1
             let name1 = headerText(record1[0])
             let name2 = headerText(record2[0])
@@ -186,11 +172,12 @@ extension FASTQPairInterleaver {
         r1: URL,
         r2: URL,
         requireMates: Bool,
+        launcher: any PortableChildLauncher,
         onPair: ([[UInt8]], [[UInt8]]) throws -> Void
     ) throws -> (r1Records: Int, r2Records: Int) {
-        let reader1 = try FASTQRawLineReader(url: r1)
+        let reader1 = try FASTQRawLineReader(url: r1, launcher: launcher)
         defer { reader1.close() }
-        let reader2 = try FASTQRawLineReader(url: r2)
+        let reader2 = try FASTQRawLineReader(url: r2, launcher: launcher)
         defer { reader2.close() }
 
         var r1Count = 0
@@ -244,16 +231,17 @@ extension FASTQPairInterleaver {
     /// is validated record by record on the way through. Any of the inputs
     /// may be plain or gzip-compressed; `sink` receives plain FASTQ. With no
     /// unmerged files only the merged reads are copied.
-    public static func writeMergedThenPairs(
+    package static func writeMergedThenPairs(
         merged: URL,
         unmergedR1: URL?,
         unmergedR2: URL?,
-        to sink: FileHandle
+        to sink: FileHandle,
+        launcher: any PortableChildLauncher
     ) throws -> MergedThenPairsCounts {
         var output = BufferedSink(handle: sink)
         var mergedCount = 0
         do {
-            let reader = try FASTQRawLineReader(url: merged)
+            let reader = try FASTQRawLineReader(url: merged, launcher: launcher)
             defer { reader.close() }
             let file = merged.lastPathComponent
             while let record = try readRecord(from: reader, file: file, recordNumber: mergedCount + 1) {
@@ -264,7 +252,9 @@ extension FASTQPairInterleaver {
         }
         var pairCount = 0
         if let unmergedR1, let unmergedR2 {
-            let pairs = try interleave(r1: unmergedR1, r2: unmergedR2, requireMates: true) { record1, record2 in
+            let pairs = try interleave(
+                r1: unmergedR1, r2: unmergedR2, requireMates: true, launcher: launcher
+            ) { record1, record2 in
                 try output.write(record1)
                 try output.write(record2)
             }
@@ -292,32 +282,23 @@ extension FASTQPairInterleaver {
     /// `inspect` sees each record's header without its `@` and its 1-based
     /// number before the record is written, so a caller can refuse the file
     /// by throwing. Plain or gzip input, plain output.
-    static func copyRecords(
+    package static func copyRecords(
         of file: URL,
         to sink: FileHandle,
+        launcher: any PortableChildLauncher,
         inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
     ) throws -> Int {
         var output = BufferedSink(handle: sink)
-        return try copyRecords(of: file, into: &output, inspecting: inspect)
+        return try copyRecords(of: file, into: &output, launcher: launcher, inspecting: inspect)
     }
 
-    /// `copyRecords(of:to:inspecting:)` with a file handle, into the stage
-    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
-    static func copyRecords(
-        of file: URL,
-        to stage: DurableReplace.StageWriter,
-        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
-    ) throws -> Int {
-        var output = BufferedSink(stage: stage)
-        return try copyRecords(of: file, into: &output, inspecting: inspect)
-    }
-
-    private static func copyRecords(
+    package static func copyRecords(
         of file: URL,
         into output: inout BufferedSink,
+        launcher: any PortableChildLauncher,
         inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
     ) throws -> Int {
-        let reader = try FASTQRawLineReader(url: file)
+        let reader = try FASTQRawLineReader(url: file, launcher: launcher)
         defer { reader.close() }
         var count = 0
         while let record = try readRecord(from: reader, file: file.lastPathComponent, recordNumber: count + 1) {
@@ -344,8 +325,10 @@ extension FASTQPairInterleaver {
     /// record count means the file is not a whole set of pairs and throws;
     /// nothing checks read names because the caller has already classified
     /// the layout with `FASTQReadLayoutClassifier`.
-    public static func deinterleave(interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle) throws -> Counts {
-        let reader = try FASTQRawLineReader(url: interleaved)
+    package static func deinterleave(
+        interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle, launcher: any PortableChildLauncher
+    ) throws -> Counts {
+        let reader = try FASTQRawLineReader(url: interleaved, launcher: launcher)
         defer { reader.close() }
         var output1 = BufferedSink(handle: sink1)
         var output2 = BufferedSink(handle: sink2)
@@ -397,17 +380,19 @@ extension FASTQPairInterleaver {
     /// Every other record goes to `unpaired` in its original order. Records
     /// are copied byte for byte. A strictly interleaved file comes out with
     /// an empty unpaired stream, so callers may use this for both layouts.
-    public static func partitionMixed(
+    package static func partitionMixed(
         interleaved: URL,
         r1 sink1: FileHandle,
         r2 sink2: FileHandle,
-        unpaired sinkUnpaired: FileHandle
+        unpaired sinkUnpaired: FileHandle,
+        launcher: any PortableChildLauncher
     ) throws -> MixedCounts {
         var output1 = BufferedSink(handle: sink1)
         var output2 = BufferedSink(handle: sink2)
         var outputUnpaired = BufferedSink(handle: sinkUnpaired)
         let counts = try partitionMixed(
             interleaved: interleaved,
+            launcher: launcher,
             onPair: { first, second in
                 try output1.write(first)
                 try output2.write(second)
@@ -426,15 +411,17 @@ extension FASTQPairInterleaver {
     /// The pairs file is strictly interleaved, so a tool that pairs by
     /// position (`bbmerge interleaved=t`, `reformat interleaved=t`) can run on
     /// it safely; the unpaired reads pass around that tool untouched.
-    public static func partitionMixed(
+    package static func partitionMixed(
         interleaved: URL,
         pairs sinkPairs: FileHandle,
-        unpaired sinkUnpaired: FileHandle
+        unpaired sinkUnpaired: FileHandle,
+        launcher: any PortableChildLauncher
     ) throws -> MixedCounts {
         var outputPairs = BufferedSink(handle: sinkPairs)
         var outputUnpaired = BufferedSink(handle: sinkUnpaired)
         let counts = try partitionMixed(
             interleaved: interleaved,
+            launcher: launcher,
             onPair: { first, second in
                 try outputPairs.write(first)
                 try outputPairs.write(second)
@@ -452,16 +439,17 @@ extension FASTQPairInterleaver {
     /// `unpaired == 0` means every record is followed by its mate (strictly
     /// interleaved, so the record count is even); `pairs == 0` means no
     /// record has its mate next to it.
-    public static func countMixed(interleaved: URL) throws -> MixedCounts {
-        try partitionMixed(interleaved: interleaved, onPair: { _, _ in }, onUnpaired: { _ in })
+    package static func countMixed(interleaved: URL, launcher: any PortableChildLauncher) throws -> MixedCounts {
+        try partitionMixed(interleaved: interleaved, launcher: launcher, onPair: { _, _ in }, onUnpaired: { _ in })
     }
 
     private static func partitionMixed(
         interleaved: URL,
+        launcher: any PortableChildLauncher,
         onPair: ([[UInt8]], [[UInt8]]) throws -> Void,
         onUnpaired: ([[UInt8]]) throws -> Void
     ) throws -> MixedCounts {
-        let reader = try FASTQRawLineReader(url: interleaved)
+        let reader = try FASTQRawLineReader(url: interleaved, launcher: launcher)
         defer { reader.close() }
         let file = interleaved.lastPathComponent
         var total = 0
@@ -492,32 +480,23 @@ extension FASTQPairInterleaver {
         }
         return MixedCounts(pairs: pairs, unpaired: unpaired)
     }
-}
 
-extension FASTQPairInterleaver {
-
-    /// ``countRecords(in:launcher:)`` with the launcher that starts `gzip -dc`
-    /// through ``ToolProcess``.
-    public static func countRecords(in url: URL) throws -> Int {
-        try countRecords(in: url, launcher: ToolProcessChildLauncher())
-    }
-
-    private struct BufferedSink {
+    /// Buffers whole records and hands them to `emit` about 4 MiB at a time.
+    package struct BufferedSink {
         private let emit: ([UInt8]) throws -> Void
         var buffer: [UInt8] = []
         var recordsWritten = 0
         private let flushThreshold = 4 * 1_048_576
 
-        init(handle: FileHandle) {
-            emit = { try handle.write(contentsOf: $0) }
+        /// A sink that hands each full buffer to `emit`, which reports a
+        /// failed write as a thrown error.
+        package init(emit: @escaping ([UInt8]) throws -> Void) {
+            self.emit = emit
             buffer.reserveCapacity(flushThreshold + 65_536)
         }
 
-        /// A sink into the stage file of a ``DurableReplace`` publication,
-        /// which reports a failed write as a thrown error.
-        init(stage: DurableReplace.StageWriter) {
-            emit = { bytes in try bytes.withUnsafeBytes { try stage.write($0) } }
-            buffer.reserveCapacity(flushThreshold + 65_536)
+        init(handle: FileHandle) {
+            self.init(emit: { try handle.write(contentsOf: $0) })
         }
 
         mutating func write(_ lines: [[UInt8]]) throws {
@@ -534,6 +513,140 @@ extension FASTQPairInterleaver {
             try emit(buffer)
             buffer.removeAll(keepingCapacity: true)
         }
+    }
+}
+
+extension FASTQPairInterleaver {
+
+    /// ``interleave(r1:r2:to:requireMates:launcher:)`` with the launcher that
+    /// starts `gzip -dc` through ``ToolProcess``.
+    public static func interleave(
+        r1: URL,
+        r2: URL,
+        to sink: FileHandle,
+        requireMates: Bool = false
+    ) throws -> Counts {
+        try interleave(r1: r1, r2: r2, to: sink, requireMates: requireMates, launcher: ToolProcessChildLauncher())
+    }
+
+    /// ``interleave(r1:r2:to:requireMates:)`` into the stage file of a
+    /// ``DurableReplace`` publication, so a failed write is a thrown error and
+    /// the name holds the interleaved file only when it is whole and synced
+    /// (Phase 2.10 lane S31).
+    static func interleave(
+        r1: URL,
+        r2: URL,
+        to stage: DurableReplace.StageWriter,
+        requireMates: Bool = false
+    ) throws -> Counts {
+        var output = BufferedSink(stage: stage)
+        return try interleave(
+            r1: r1, r2: r2, into: &output, requireMates: requireMates, launcher: ToolProcessChildLauncher()
+        )
+    }
+
+    /// ``interleaveRecordedPair(r1:r2:to:launcher:)`` with the launcher that
+    /// starts `gzip -dc` through ``ToolProcess``.
+    public static func interleaveRecordedPair(r1: URL, r2: URL, to sink: FileHandle) throws -> RecordedPairCounts {
+        try interleaveRecordedPair(r1: r1, r2: r2, to: sink, launcher: ToolProcessChildLauncher())
+    }
+
+    /// `interleaveRecordedPair(r1:r2:to:)` with a file handle, into the stage
+    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
+    static func interleaveRecordedPair(
+        r1: URL,
+        r2: URL,
+        to stage: DurableReplace.StageWriter
+    ) throws -> RecordedPairCounts {
+        var output = BufferedSink(stage: stage)
+        return try interleaveRecordedPair(r1: r1, r2: r2, into: &output, launcher: ToolProcessChildLauncher())
+    }
+
+    /// ``writeMergedThenPairs(merged:unmergedR1:unmergedR2:to:launcher:)``
+    /// with the launcher that starts `gzip -dc` through ``ToolProcess``.
+    public static func writeMergedThenPairs(
+        merged: URL,
+        unmergedR1: URL?,
+        unmergedR2: URL?,
+        to sink: FileHandle
+    ) throws -> MergedThenPairsCounts {
+        try writeMergedThenPairs(
+            merged: merged, unmergedR1: unmergedR1, unmergedR2: unmergedR2, to: sink,
+            launcher: ToolProcessChildLauncher()
+        )
+    }
+
+    /// ``copyRecords(of:to:launcher:inspecting:)`` with the launcher that
+    /// starts `gzip -dc` through ``ToolProcess``.
+    static func copyRecords(
+        of file: URL,
+        to sink: FileHandle,
+        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
+    ) throws -> Int {
+        try copyRecords(of: file, to: sink, launcher: ToolProcessChildLauncher(), inspecting: inspect)
+    }
+
+    /// `copyRecords(of:to:inspecting:)` with a file handle, into the stage
+    /// file of a ``DurableReplace`` publication (Phase 2.10 lane S31).
+    static func copyRecords(
+        of file: URL,
+        to stage: DurableReplace.StageWriter,
+        inspecting inspect: (_ header: String, _ recordNumber: Int) throws -> Void
+    ) throws -> Int {
+        var output = BufferedSink(stage: stage)
+        return try copyRecords(of: file, into: &output, launcher: ToolProcessChildLauncher(), inspecting: inspect)
+    }
+
+    /// ``deinterleave(interleaved:r1:r2:launcher:)`` with the launcher that
+    /// starts `gzip -dc` through ``ToolProcess``.
+    public static func deinterleave(interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle) throws -> Counts {
+        try deinterleave(interleaved: interleaved, r1: sink1, r2: sink2, launcher: ToolProcessChildLauncher())
+    }
+
+    /// ``partitionMixed(interleaved:r1:r2:unpaired:launcher:)`` with the
+    /// launcher that starts `gzip -dc` through ``ToolProcess``.
+    public static func partitionMixed(
+        interleaved: URL,
+        r1 sink1: FileHandle,
+        r2 sink2: FileHandle,
+        unpaired sinkUnpaired: FileHandle
+    ) throws -> MixedCounts {
+        try partitionMixed(
+            interleaved: interleaved, r1: sink1, r2: sink2, unpaired: sinkUnpaired,
+            launcher: ToolProcessChildLauncher()
+        )
+    }
+
+    /// ``partitionMixed(interleaved:pairs:unpaired:launcher:)`` with the
+    /// launcher that starts `gzip -dc` through ``ToolProcess``.
+    public static func partitionMixed(
+        interleaved: URL,
+        pairs sinkPairs: FileHandle,
+        unpaired sinkUnpaired: FileHandle
+    ) throws -> MixedCounts {
+        try partitionMixed(
+            interleaved: interleaved, pairs: sinkPairs, unpaired: sinkUnpaired, launcher: ToolProcessChildLauncher()
+        )
+    }
+
+    /// ``countMixed(interleaved:launcher:)`` with the launcher that starts
+    /// `gzip -dc` through ``ToolProcess``.
+    public static func countMixed(interleaved: URL) throws -> MixedCounts {
+        try countMixed(interleaved: interleaved, launcher: ToolProcessChildLauncher())
+    }
+
+    /// ``countRecords(in:launcher:)`` with the launcher that starts `gzip -dc`
+    /// through ``ToolProcess``.
+    public static func countRecords(in url: URL) throws -> Int {
+        try countRecords(in: url, launcher: ToolProcessChildLauncher())
+    }
+}
+
+extension FASTQPairInterleaver.BufferedSink {
+    /// A sink into the stage file of a ``DurableReplace`` publication,
+    /// which reports a failed write as a thrown error.
+    init(stage: DurableReplace.StageWriter) {
+        self.init(emit: { bytes in try bytes.withUnsafeBytes { try stage.write($0) } })
     }
 }
 

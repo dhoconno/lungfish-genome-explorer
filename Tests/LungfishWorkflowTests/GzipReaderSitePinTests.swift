@@ -62,7 +62,7 @@ final class GzipReaderSitePinTests: XCTestCase {
         XCTAssertEqual(pipeline.countReadsInFASTQ(url: fake), 0, "gzcat refuses a file that is not gzip")
     }
 
-    // MARK: - FASTQPairInterleaver.swift FASTQRawLineReader
+    // MARK: - Sources/LungfishPortable/FASTQ/FASTQRawLineReader.swift FASTQRawLineReader
 
     func testRawLineReaderHandsOverTheSameBytesForPlainAndGzipInputs() throws {
         let raw = Self.fastq(records: 30_000)

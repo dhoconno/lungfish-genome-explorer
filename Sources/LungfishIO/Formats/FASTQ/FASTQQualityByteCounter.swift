@@ -15,7 +15,7 @@ import Foundation
 /// counts at Q20 when its byte is at least the encoding's offset plus 20.
 /// The one difference: no line-length limit, where the reader refused lines
 /// over 1,000,000 characters.
-struct FASTQQualityByteCounter {
+package struct FASTQQualityByteCounter {
     private enum State {
         case header
         case sequence
@@ -37,7 +37,9 @@ struct FASTQQualityByteCounter {
     private var q20Count: Int64 = 0
     private var q30Count: Int64 = 0
 
-    mutating func consume(_ bytes: UnsafeRawBufferPointer) throws {
+    package init() {}
+
+    package mutating func consume(_ bytes: UnsafeRawBufferPointer) throws {
         guard let base = bytes.baseAddress else { return }
         var start = 0
         while start < bytes.count {
@@ -58,7 +60,7 @@ struct FASTQQualityByteCounter {
         }
     }
 
-    mutating func finish() throws -> FASTQQualityFractions {
+    package mutating func finish() throws -> FASTQQualityFractions {
         if !pendingLine.isEmpty {
             let held = pendingLine
             pendingLine.removeAll()

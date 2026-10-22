@@ -395,7 +395,7 @@ extension QualityEncoding {
     }
 
     /// The same test on raw quality bytes.
-    static func detect(fromBytes bytes: [UInt8]) -> QualityEncoding {
+    package static func detect(fromBytes bytes: [UInt8]) -> QualityEncoding {
         guard !bytes.isEmpty else {
             return .phred33
         }

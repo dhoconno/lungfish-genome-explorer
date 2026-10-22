@@ -117,9 +117,6 @@ public struct FASTQReadLayoutClassification: Codable, Sendable, Equatable {
 /// BBTools and SRA convention). The scan is bounded by ``defaultRecordLimit``.
 public enum FASTQReadLayoutClassifier {
 
-    /// Default number of records scanned. Even, so a limit never splits a pair.
-    public static let defaultRecordLimit = 100_000
-
     // MARK: Pairing rule
 
     /// Returns true when `second` is the read-2 mate of `first`.
@@ -155,6 +152,12 @@ public enum FASTQReadLayoutClassifier {
         }
         return trimmed
     }
+}
+
+extension FASTQReadLayoutClassifier {
+
+    /// Default number of records scanned. Even, so a limit never splits a pair.
+    public static let defaultRecordLimit = 100_000
 
     // MARK: Pure classification
 
