@@ -78,6 +78,30 @@ final class ExecutorLaunchTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: "\(folder)/ran"))
     }
 
+    func testOutOfRangeGraceOrDeadlineIsRefusedNotCrashed() throws {
+        // A value that `Int` cannot hold must end as a refusal with a record. `--grace 1e300` trapped while the refusal text
+        // was built, and `--deadline 1e300` trapped after the tool had started, with no sweep and no record.
+        let tool = ["/bin/sh", "-c", "echo ran > \"$DIR/ran\""]
+        var runs: [(option: String, folder: String, record: StepRecord?)] = []
+        for option in ["--grace", "--deadline"] {
+            let folder = try Support.scratchFolder()
+            let pid = try Support.startStep(folder: folder, options: [option, "1e300"], tool)
+            let exit = try XCTUnwrap(Support.waitForExit(pid, timeout: 30))
+            XCTAssertEqual(exit.termination, .exited(code: ExecutorExitCode.refused), "\(option) 1e300")
+            runs.append((option, folder, try? Support.record(in: folder)))
+        }
+        let grace = try XCTUnwrap(runs[0].record, "--grace 1e300 left no record")
+        XCTAssertEqual(grace.outcome, "refused")
+        XCTAssertEqual(grace.reason, "The grace of 1e+300 seconds is outside 0 to 120 seconds. No tool ran.")
+        XCTAssertNil(grace.toolPID)
+
+        let deadline = try XCTUnwrap(runs[1].record, "--deadline 1e300 left no record")
+        XCTAssertEqual(deadline.outcome, "refused")
+        XCTAssertEqual(deadline.reason, "The deadline of 1e+300 seconds is above 31536000 seconds. No tool ran.")
+        XCTAssertNil(deadline.toolPID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(runs[1].folder)/ran"))
+    }
+
     func testChildSubreaperWrapperReportsENOSYSOffLinux() {
         #if os(Linux)
         // The test process never calls the setter (tally-r2 K3-1), so the getter reads 0 here.

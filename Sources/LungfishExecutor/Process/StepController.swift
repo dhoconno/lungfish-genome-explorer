@@ -292,7 +292,9 @@ final class StepController: Sendable {
         return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
     }
 
+    /// A whole number without a fraction, and any other value as Swift prints it. A value `Int` cannot hold, such as the
+    /// 1e300 a flag may carry, keeps its exponent form, since `Int(seconds)` traps there.
     static func format(_ seconds: Double) -> String {
-        seconds == seconds.rounded() ? String(Int(seconds)) : String(seconds)
+        seconds == seconds.rounded() && abs(seconds) < 1e15 ? String(Int(seconds)) : String(seconds)
     }
 }

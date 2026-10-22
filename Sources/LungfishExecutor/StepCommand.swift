@@ -14,6 +14,9 @@ enum StepCommand {
     /// The plan's default grace and the most a plan may ask for (C3 design section 4).
     static let defaultGraceSeconds = 30.0
     static let maximumGraceSeconds = 120.0
+    /// The longest deadline a plan may ask for, one year. A longer one is refused before any tool starts, so the controller's
+    /// millisecond arithmetic cannot overflow once the tool is running.
+    static let maximumDeadlineSeconds = 31_536_000.0
 
     struct Options: Equatable {
         var record = ""
@@ -97,6 +100,9 @@ enum StepCommand {
         }
         if !options.program[0].hasPrefix("/") {
             return "The program \(options.program[0]) is not an absolute path. No tool ran."
+        }
+        if let deadline = options.deadline, deadline > maximumDeadlineSeconds {
+            return "The deadline of \(StepController.format(deadline)) seconds is above 31536000 seconds. No tool ran."
         }
         return nil
     }
