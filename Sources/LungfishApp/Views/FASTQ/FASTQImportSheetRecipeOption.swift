@@ -36,8 +36,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
     public let switches: [FASTQImportSheetSwitch]
     /// The recipe the option runs, kept so the Workflow line can follow the checkboxes (``descriptionText(switchValues:)``).
     private let switchRecipe: Recipe?
-    /// The first lines of the description, before the Workflow line.
-    private let purpose: String?
 
     public init(
         id: String,
@@ -55,8 +53,7 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             usesDemultiplexOutputFolder: usesDemultiplexOutputFolder,
             outputMixesMergedReadsAndPairs: outputMixesMergedReadsAndPairs,
             switches: [],
-            switchRecipe: nil,
-            purpose: nil
+            switchRecipe: nil
         )
     }
 
@@ -68,8 +65,7 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         usesDemultiplexOutputFolder: Bool,
         outputMixesMergedReadsAndPairs: Bool,
         switches: [FASTQImportSheetSwitch],
-        switchRecipe: Recipe?,
-        purpose: String?
+        switchRecipe: Recipe?
     ) {
         self.id = id
         self.name = name
@@ -79,7 +75,6 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         self.outputMixesMergedReadsAndPairs = outputMixesMergedReadsAndPairs
         self.switches = switches
         self.switchRecipe = switchRecipe
-        self.purpose = purpose
     }
 
     /// The option for a recipe. A recipe the resolver resolved to a preset is that preset's option: it carries the
@@ -98,8 +93,7 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
             usesDemultiplexOutputFolder: false,
             outputMixesMergedReadsAndPairs: recipe.outputMixesMergedReadsAndPairs,
             switches: switches,
-            switchRecipe: switches.isEmpty ? nil : recipe,
-            purpose: purpose
+            switchRecipe: switches.isEmpty ? nil : recipe
         )
     }
 
@@ -112,14 +106,19 @@ public struct FASTQImportSheetRecipeOption: Sendable, Equatable {
         return presetOptions.isEmpty ? [FASTQImportSheetRecipeOption(recipe: recipe)] : presetOptions
     }
 
-    /// The description with the Workflow line of the steps that run when the switches have `values` (switch id to
-    /// value, and a switch not named keeps the preset's value). The sheet shows this while the checkboxes change.
+    /// The description when the switches have `values` (switch id to value, and a switch not named keeps the preset's
+    /// value). At the preset's own values it is ``presentationText``. When a switch differs, the preset's sentence no
+    /// longer says what runs, so a plain "<name>, with <switch label> on." sentence takes its place above the Workflow
+    /// line of the steps that run. The sheet shows this while the checkboxes change.
     public func descriptionText(switchValues values: [String: Bool]) -> String {
         guard let switchRecipe, !values.isEmpty,
               let resolved = try? RecipeResolver.resolve(id, in: [switchRecipe], switchOptions: values) else {
             return presentationText
         }
-        return Self.makeDescription(purpose: purpose, recipe: resolved)
+        let changed = switches.filter { gate in values[gate.id].map { $0 != gate.presetValue } ?? false }
+        guard !changed.isEmpty else { return presentationText }
+        let changes = changed.map { "\($0.label) \(values[$0.id] == true ? "on" : "off")" }
+        return Self.makeDescription(purpose: "\(name), with \(changes.joined(separator: " and ")).", recipe: resolved)
     }
 
     private static func makeDescription(purpose: String?, recipe: Recipe) -> String {

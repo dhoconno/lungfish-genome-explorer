@@ -199,6 +199,53 @@ final class FASTQImportSheetRecipeSwitchTests: XCTestCase {
         XCTAssertEqual(withoutRiboLine, line([Self.dedup, trim, human, merge, short]))
     }
 
+    // MARK: - The description does not claim a step a switch turned off
+
+    @MainActor
+    func testTheDescriptionDoesNotClaimAStepASwitchTurnedOff() throws {
+        let options = FASTQImportSheetRecipeOption.options(for: try XCTUnwrap(
+            RecipeRegistryV2.builtinRecipes().first { $0.id == "illumina-paired-cleanup" }
+        ))
+        let wastewater = try XCTUnwrap(options.first { $0.name == Self.wastewater })
+        let vsp2 = try XCTUnwrap(options.first { $0.name == Self.vsp2 })
+        func workflow(_ text: String) throws -> String {
+            try XCTUnwrap(text.components(separatedBy: "\n").first { $0.hasPrefix("Workflow: ") }, text)
+        }
+        let withoutRibo = "Workflow: " + [
+            Self.dedup, "Adapter + quality trim", "Remove human reads", "Merge overlapping pairs", "Remove short reads",
+        ].joined(separator: Self.arrow)
+
+        // The preset's own sentence says the step runs, so it is the sentence the label must drop once the box is cleared.
+        XCTAssertTrue(wastewater.presentationText.contains("removes ribosomal RNA reads"), wastewater.presentationText)
+        let wastewaterWithoutRibo = wastewater.descriptionText(switchValues: ["removeRibosomalRNA": false])
+        XCTAssertFalse(wastewaterWithoutRibo.contains("removes ribosomal RNA reads"), wastewaterWithoutRibo)
+        XCTAssertTrue(
+            wastewaterWithoutRibo.hasPrefix("Wastewater metagenomics, with Remove ribosomal RNA reads off."),
+            wastewaterWithoutRibo
+        )
+        XCTAssertEqual(try workflow(wastewaterWithoutRibo), withoutRibo)
+
+        XCTAssertTrue(vsp2.presentationText.contains("Removes duplicate reads"), vsp2.presentationText)
+        let vsp2WithoutDedup = vsp2.descriptionText(switchValues: ["removeDuplicates": false])
+        XCTAssertFalse(vsp2WithoutDedup.contains("Removes duplicate reads"), vsp2WithoutDedup)
+        XCTAssertTrue(vsp2WithoutDedup.hasPrefix("VSP2 target enrichment, with Remove duplicate reads off."), vsp2WithoutDedup)
+
+        // At each preset's own values the text is the preset's.
+        for option in options {
+            let own = Dictionary(uniqueKeysWithValues: option.switches.map { ($0.id, $0.presetValue) })
+            XCTAssertEqual(option.descriptionText(switchValues: own), option.presentationText, option.name)
+        }
+
+        // Through the sheet, a click changes the sentence and a second click returns the preset's.
+        let run = SheetRun(r1: r1, r2: r2)
+        try run.choose(Self.wastewater)
+        XCTAssertEqual(run.descriptionText(), wastewater.presentationText)
+        try run.clickSwitch(Self.ribo)
+        XCTAssertEqual(run.descriptionText(), wastewaterWithoutRibo)
+        try run.clickSwitch(Self.ribo)
+        XCTAssertEqual(run.descriptionText(), wastewater.presentationText)
+    }
+
     // MARK: - A recipe without switches
 
     @MainActor
@@ -334,6 +381,13 @@ private final class SheetRun {
         sheet.view.recipeSwitchTestDescendants(of: NSTextField.self)
             .flatMap { $0.stringValue.components(separatedBy: "\n") }
             .first { $0.hasPrefix("Workflow: ") }
+    }
+
+    /// The whole description under the picker, as the sheet shows it now.
+    func descriptionText() -> String? {
+        sheet.view.recipeSwitchTestDescendants(of: NSTextField.self)
+            .map(\.stringValue)
+            .first { $0.components(separatedBy: "\n").contains { $0.hasPrefix("Workflow: ") } }
     }
 }
 
