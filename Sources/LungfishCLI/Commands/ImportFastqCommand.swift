@@ -196,6 +196,13 @@ extension ImportCommand {
             return ids.sorted()
         }
 
+        /// Resolves a `--recipe` value to the recipe file or the legacy recipe it names.
+        ///
+        /// Only the names in ``legacyRecipeNames`` resolve to a legacy `ProcessingRecipe`.
+        /// A name that stands for a recipe file, such as the `vsp2` alias, never falls back to
+        /// a legacy recipe of the same short name, because that ran a different chain than the
+        /// one asked for and said nothing. When no recipe file matches, the import stops with
+        /// ``RecipeFileUnavailable``, which says what to do.
         static func resolveImportRecipe(
             named name: String,
             recipes: [Recipe] = RecipeRegistryV2.allRecipes()
@@ -209,9 +216,48 @@ extension ImportCommand {
             if let recipe = recipes.first(where: { $0.id.lowercased() == recipeID }) {
                 return (recipe, nil)
             }
-
-            return (nil, try FASTQBatchImporter.resolveRecipe(named: name))
+            if legacyRecipeNames.contains(normalized) {
+                return (nil, try FASTQBatchImporter.resolveRecipe(named: normalized))
+            }
+            // An alias stands for a recipe file, and with no recipe file loaded no name can be
+            // told from a recipe file's ID, so both stop here instead of guessing.
+            if v2RecipeAliases[normalized] != nil || recipes.isEmpty {
+                throw RecipeFileUnavailable(
+                    requested: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                    recipeID: recipeID,
+                    loaded: recipes.map(\.id)
+                )
+            }
+            // Not a recipe file and not a legacy name. The legacy resolver words the refusal
+            // for "amplicon" and for unknown names, and nothing it accepts is used here.
+            _ = try FASTQBatchImporter.resolveRecipe(named: name)
+            throw BatchImportError.unknownRecipe(name)
         }
+
+        /// A recipe file the import asked for did not load. The import stops here, because
+        /// running another recipe in its place would change the science silently.
+        struct RecipeFileUnavailable: Error, LocalizedError {
+            let requested: String
+            let recipeID: String
+            let loaded: [String]
+
+            var errorDescription: String? {
+                let subject = requested.lowercased() == recipeID
+                    ? "Recipe '\(recipeID)'"
+                    : "Recipe '\(recipeID)' (asked for as '\(requested)')"
+                let lead = "\(subject) is not available, and no other recipe was run in its place."
+                guard !loaded.isEmpty else {
+                    return "\(lead) \(FastqSubcommand.noRecipeFilesNotice) \(FastqSubcommand.noRecipeFilesAdvice) Nothing was imported."
+                }
+                let found = loaded.joined(separator: ", ")
+                return "\(lead) The recipe files this lungfish-cli loaded are \(found). The file for \(recipeID) may be missing or damaged. Reinstall Lungfish or use one of those names. Nothing was imported."
+            }
+        }
+
+        /// Why no recipe file loads, shared by the refusal and the help. The recipe files ship
+        /// inside Lungfish.app, and a standalone lungfish-cli trusts no other location.
+        static let noRecipeFilesNotice = "This lungfish-cli found no recipe files. They ship inside Lungfish.app, so a lungfish-cli that runs outside the app, such as a bare 'swift build -c release' binary, cannot load them."
+        static let noRecipeFilesAdvice = "Run the lungfish-cli at Lungfish.app/Contents/MacOS/lungfish-cli, or a debug build, and try again."
 
         /// What the storage flags ask for, or nil when they ask nothing.
         /// `--no-optimize-storage` and `--clumping-tool` are requests, and the
@@ -255,7 +301,9 @@ extension ImportCommand {
             for recipe in recipes where !names.contains(recipe.id) {
                 names.append(recipe.id)
             }
-            for alias in v2RecipeAliases.keys.sorted() where !names.contains(alias) {
+            // An alias is listed only while the recipe file it stands for is loaded.
+            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key })
+            where !names.contains(alias) && recipes.contains(where: { $0.id.lowercased() == target }) {
                 names.append(alias)
             }
             for legacy in legacyRecipeNames where !names.contains(legacy) {
@@ -273,11 +321,16 @@ extension ImportCommand {
             for recipe in recipes {
                 lines.append("\(recipe.id): \(recipe.name)")
             }
-            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key }) {
+            for (alias, target) in v2RecipeAliases.sorted(by: { $0.key < $1.key })
+            where recipes.contains(where: { $0.id.lowercased() == target }) {
                 lines.append("\(alias): alias of \(target)")
             }
             lines.append("wgs: the built-in Illumina whole-genome recipe")
             lines.append("hifi: the built-in PacBio HiFi recipe")
+            if recipes.isEmpty {
+                let usable = legacyRecipeNames.joined(separator: " and ")
+                lines.append("\(noRecipeFilesNotice) Only \(usable) run from it. \(noRecipeFilesAdvice)")
+            }
             return lines.joined(separator: "\n")
         }
 

@@ -327,6 +327,61 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertNil(resolved.legacyRecipe)
     }
 
+    // C0 found a bare release lungfish-cli that loaded no recipe files. `--recipe vsp2` then
+    // fell back to the legacy "Illumina VSP2 Target Enrichment" chain and said nothing.
+    // A name that stands for a recipe file must never run a different recipe than the one asked for.
+    func testVSP2AliasNeverFallsBackToLegacyRecipe() {
+        XCTAssertThrowsError(
+            try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2", recipes: [])
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("vsp2-target-enrichment"), error.localizedDescription)
+        }
+    }
+
+    func testRecipeFileNamesNeverResolveToALegacyRecipeWhenNoRecipeFileLoads() throws {
+        for name in ["vsp2", "VSP2", " vsp2 ", "vsp2-target-enrichment", "illumina-amplicon-merge"] {
+            XCTAssertThrowsError(
+                try ImportCommand.FastqSubcommand.resolveImportRecipe(named: name, recipes: []),
+                name
+            ) { error in
+                let message = error.localizedDescription
+                XCTAssertTrue(message.contains("found no recipe files"), "\(name): \(message)")
+                XCTAssertTrue(message.contains("Lungfish.app"), "\(name): \(message)")
+            }
+        }
+        for name in ImportCommand.FastqSubcommand.legacyRecipeNames {
+            let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: name, recipes: [])
+            XCTAssertNil(resolved.newRecipe, name)
+            XCTAssertNotNil(resolved.legacyRecipe, name)
+        }
+    }
+
+    func testMissingRecipeFileNamesTheRecipeFilesThatDidLoad() throws {
+        let loaded = RecipeRegistryV2.builtinRecipes().filter { $0.id != "vsp2-target-enrichment" }
+        XCTAssertFalse(loaded.isEmpty, "the other bundled recipe files should load")
+        XCTAssertThrowsError(
+            try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "vsp2", recipes: loaded)
+        ) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("vsp2-target-enrichment"), message)
+            for recipe in loaded {
+                XCTAssertTrue(message.contains(recipe.id), message)
+            }
+        }
+    }
+
+    func testRecipeHelpListsOnlyNamesThatResolveWhenNoRecipeFileLoads() throws {
+        let names = ImportCommand.FastqSubcommand.availableRecipeNames(recipes: [])
+        XCTAssertEqual(names, ["wgs", "hifi"])
+        for name in names {
+            let resolved = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: name, recipes: [])
+            XCTAssertNotNil(resolved.legacyRecipe, "\(name) is listed in the help but does not resolve")
+        }
+        let discussion = ImportCommand.FastqSubcommand.recipeHelpDiscussion(recipes: [])
+        XCTAssertFalse(discussion.contains("alias of"), discussion)
+        XCTAssertTrue(discussion.contains("found no recipe files"), discussion)
+    }
+
     func testResolveImportRecipeRejectsBareAmpliconAlias() throws {
         XCTAssertThrowsError(try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "amplicon")) { error in
             guard case BatchImportError.unsupportedRecipe(let name, let reason) = error else {

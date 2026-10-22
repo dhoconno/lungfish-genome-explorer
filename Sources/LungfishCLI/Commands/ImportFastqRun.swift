@@ -233,6 +233,8 @@ struct FASTQImportRun {
                 let resolvedRecipe = try ImportCommand.FastqSubcommand.resolveImportRecipe(named: recipe)
                 newRecipe = resolvedRecipe.newRecipe
                 oldRecipe = resolvedRecipe.legacyRecipe
+            } catch let unavailable as ImportCommand.FastqSubcommand.RecipeFileUnavailable {
+                throw reporter.fail(unavailable.localizedDescription, detail: nil, exitCode: .inputError)
             } catch let batchError as BatchImportError {
                 throw reporter.fail(batchError.errorDescription ?? batchError.localizedDescription, detail: nil, exitCode: .inputError)
             } catch {
