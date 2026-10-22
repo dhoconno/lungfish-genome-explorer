@@ -84,6 +84,31 @@ final class ProvenanceDigestCacheTests: XCTestCase {
         XCTAssertEqual(cache.readCount, 3, "a copy is another file, read for itself")
     }
 
+    func testAFileReplacedAtTheSamePathWithTheSameSizeAndModificationTimeIsReadAgain() throws {
+        let file = try write("ACGT\n", to: "reads.fastq")
+        let cache = ProvenanceDigestCache()
+        XCTAssertEqual(try cache.sha256(of: file), sha256Hex("ACGT\n"))
+
+        // Other bytes of the same size in a second file, stamped with the first file's times to the nanosecond.
+        let replacement = try write("ACGA\n", to: "replacement.fastq")
+        var original = stat()
+        let statResult = stat(file.path, &original)
+        XCTAssertEqual(statResult, 0)
+        var times = [original.st_atimespec, original.st_mtimespec]
+        let timesResult = utimensat(AT_FDCWD, replacement.path, &times, 0)
+        XCTAssertEqual(timesResult, 0)
+
+        // A pure rename: the first file's inode goes and the second file's inode takes its path.
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.moveItem(at: replacement, to: file)
+
+        XCTAssertEqual(
+            try cache.sha256(of: file), sha256Hex("ACGA\n"),
+            "a replaced file is not served the digest of the file it replaced"
+        )
+        XCTAssertEqual(cache.readCount(of: file), 2)
+    }
+
     func testAFileThatChangesDuringTheReadIsNotKept() throws {
         let file = try write("ACGT\n", to: "growing.fastq")
         let cache = ProvenanceDigestCache(reader: { url, _ in
