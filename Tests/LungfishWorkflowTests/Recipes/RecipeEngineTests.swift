@@ -4,6 +4,7 @@
 
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 private final class RecipeProgressCollector: @unchecked Sendable {
@@ -37,6 +38,54 @@ final class RecipeEngineTests: XCTestCase {
             requiredInput: requiredInput,
             steps: steps
         )
+    }
+
+    // MARK: - Step read counts
+
+    /// A step with no report count is counted from its lines. That count must stop where the caller is
+    /// cancelled and take its `gzip -dc` child with it. It ran in a detached task that never saw the
+    /// caller's cancel, so the whole step output was read first.
+    func testStepCountForwardsTheCallersCancel() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecipeEngineStepCountCancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // gzip reads a file of members one after another, so 120 copies of the fixture's one member are a
+        // 4 GB FASTQ in a few MB of disk: seconds of counting, far longer than finding gzip takes.
+        let fixture = try LargeFASTQFixture(in: folder)
+        let member = try Data(contentsOf: fixture.gzipURL)
+        let gzipURL = folder.appendingPathComponent("members.fastq.gz")
+        XCTAssertTrue(FileManager.default.createFile(atPath: gzipURL.path, contents: nil))
+        let writer = try FileHandle(forWritingTo: gzipURL)
+        for _ in 0..<120 { try writer.write(contentsOf: member) }
+        try writer.close()
+        XCTAssertGreaterThanOrEqual(fixture.decompressedBytes * 120, 300 * 1_048_576)
+        let command = "gzip -dc \(gzipURL.path)"
+
+        let counting = Task {
+            try await RecipeEngine.countReadsForRecipeStep(StepOutput(r1: gzipURL, format: .single))
+        }
+        let started = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(5)) {
+            ((try? GzipPin.processCommands()) ?? "").contains(command)
+        }
+        let cancelledAt = ContinuousClock.now
+        counting.cancel()
+        let outcome = await counting.result
+        let stopped = cancelledAt.duration(to: ContinuousClock.now)
+
+        XCTAssertTrue(started, "gzip -dc never started on \(gzipURL.lastPathComponent)")
+        switch outcome {
+        case .success(let records):
+            XCTFail("a cancelled step count returned \(records) records instead of throwing CancellationError")
+        case .failure(let error):
+            XCTAssertTrue(error is CancellationError, "expected CancellationError, got \(error)")
+        }
+        XCTAssertLessThan(stopped, .seconds(5), "the count kept reading after the cancel")
+        let reaped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(50)) {
+            guard let commands = try? GzipPin.processCommands() else { return false }
+            return !commands.contains(command)
+        }
+        XCTAssertTrue(reaped, "gzip -dc outlived the cancelled step count")
     }
 
     // MARK: - Validation tests

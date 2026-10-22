@@ -67,6 +67,10 @@ extension RecipeEngine {
     /// Records in a step's files, counted from their lines rather than parsed:
     /// pairs for R1/R2, the records of one stream, and every record of a merged
     /// layout. Only for a step whose tool reports no count.
+    ///
+    /// The count runs off the cooperative pool and forwards the caller's cancel
+    /// to it, so a cancelled import stops at the next chunk and its `gzip -dc`
+    /// child is reaped, as the count in the caller's own task did at the base.
     static func countReadsForRecipeStep(_ output: StepOutput) async throws -> Int {
         let files: [URL]
         switch output.format {
@@ -75,10 +79,10 @@ extension RecipeEngine {
         case .merged:
             files = [output.r1, output.r2, output.r3].compactMap { $0 }
         }
-        return try await Task.detached(priority: .utility) {
+        return try await FASTQIngestionPipeline.detachedWork {
             try files.reduce(0) { total, file in
                 total + (try FASTQPairInterleaver.countRecords(in: file))
             }
-        }.value
+        }
     }
 }

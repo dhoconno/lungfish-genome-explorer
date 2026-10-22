@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class FASTQPairInterleaverTests: XCTestCase {
@@ -238,6 +239,33 @@ final class FASTQPairInterleaverTests: XCTestCase {
                 return XCTFail("Expected malformedRecord, got \(error)")
             }
         }
+    }
+
+    // MARK: - Cancel
+
+    /// A count the caller cancels must stop at its next chunk and reap its `gzip -dc` child. The count never
+    /// polled for a cancel, so a cancelled import kept reading a whole step output to its end.
+    func testCountRecordsThrowsCancellationErrorAndReapsGzipWhenTheTaskIsCancelled() async throws {
+        let fixture = try LargeFASTQFixture(in: root)
+        let gzipURL = fixture.gzipURL
+        let counting = Task { () -> Result<Int, any Error> in
+            while !Task.isCancelled { await Task.yield() }
+            return Result { try FASTQPairInterleaver.countRecords(in: gzipURL) }
+        }
+        counting.cancel()
+
+        switch await counting.value {
+        case .success(let records):
+            XCTFail("a cancelled count returned \(records) records instead of throwing CancellationError")
+        case .failure(let error):
+            XCTAssertTrue(error is CancellationError, "expected CancellationError, got \(error)")
+        }
+        let command = "gzip -dc \(gzipURL.path)"
+        let reaped = await waitUntil(timeout: .seconds(30), pollInterval: .milliseconds(50)) {
+            guard let commands = try? GzipPin.processCommands() else { return false }
+            return !commands.contains(command)
+        }
+        XCTAssertTrue(reaped, "gzip -dc outlived the cancelled count")
     }
 
     // MARK: - Deinterleave

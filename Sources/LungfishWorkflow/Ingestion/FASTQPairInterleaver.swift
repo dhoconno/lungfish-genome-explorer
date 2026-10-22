@@ -533,6 +533,10 @@ public enum FASTQPairInterleaver {
     ///
     /// Throws when the line count is not a multiple of four, which is the
     /// signature of a truncated write.
+    ///
+    /// Polls for a cancel at every chunk. A cancelled caller gets
+    /// `CancellationError` at the next chunk, and `close()` stops and reaps
+    /// the `gzip -dc` child.
     public static func countRecords(in url: URL) throws -> Int {
         let reader = try FASTQRawLineReader(url: url)
         defer { reader.close() }
@@ -540,6 +544,7 @@ public enum FASTQPairInterleaver {
         var lastByte: UInt8 = 0x0A
         var sawBytes = false
         while let chunk = try reader.readChunk() {
+            try Task.checkCancellation()
             if chunk.isEmpty { continue }
             sawBytes = true
             lines += newlineCount(in: chunk)
