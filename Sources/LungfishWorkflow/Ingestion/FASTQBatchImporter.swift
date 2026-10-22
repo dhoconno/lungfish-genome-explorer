@@ -843,7 +843,7 @@ public enum FASTQBatchImporter {
             var metadata = PersistedFASTQMetadata()
             metadata.ingestion = ingestion
             metadata.readClassification = Self.readClassification(
-                forMixedLayout: recipeMixedLayout,
+                forMixedLayout: Self.storedMixedLayout(recipeMixedLayout, removing: ingestionResult.readsRemovedByStorage),
                 bundleFASTQName: bundleFASTQName
             )
             applyPlatformMetadata(to: &metadata, config: config)

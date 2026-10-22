@@ -75,4 +75,42 @@ final class FASTQBatchImporterStorageToolTests: XCTestCase {
         let layout = try MixedStorageFASTQ.layout(of: try XCTUnwrap(trimGalore.stored))
         XCTAssertEqual(layout, referenceLayout, "the same pairs and merged reads, pairs first, as the bbtools route stores them")
     }
+
+    /// Review fix 2. The sidecar counts the stored file. Trim Galore can remove pairs and reads without a mate while
+    /// it stores them, so the counts the recipe left lose what storage removed: merged reads when the layout has
+    /// them, unpaired reads otherwise.
+    func testTheSidecarCountsFollowTheReadsStorageRemoved() throws {
+        let name = "s.fastq.gz"
+        let merged = FASTQBatchImporter.storedMixedLayout(
+            RecipeMixedLayoutCounts(mergedReads: 6, pairs: 8, unpairedReads: 0),
+            removing: FASTQStorageReadRemoval(pairsRead: 8, pairs: 1, unpairedReadsRead: 6, unpairedReads: 1)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.readClassification(forMixedLayout: merged, bundleFASTQName: name),
+            ReadClassification(files: [
+                ReadClassification.FileEntry(filename: name, role: .merged, readCount: 5),
+                ReadClassification.FileEntry(filename: name, role: .pairedR1, readCount: 7),
+                ReadClassification.FileEntry(filename: name, role: .pairedR2, readCount: 7),
+            ])
+        )
+
+        let unpaired = FASTQBatchImporter.storedMixedLayout(
+            RecipeMixedLayoutCounts(mergedReads: 0, pairs: 4, unpairedReads: 4),
+            removing: FASTQStorageReadRemoval(pairsRead: 4, pairs: 0, unpairedReadsRead: 4, unpairedReads: 1)
+        )
+        XCTAssertEqual(
+            FASTQBatchImporter.readClassification(forMixedLayout: unpaired, bundleFASTQName: name),
+            ReadClassification(files: [
+                ReadClassification.FileEntry(filename: name, role: .pairedR1, readCount: 4),
+                ReadClassification.FileEntry(filename: name, role: .pairedR2, readCount: 4),
+                ReadClassification.FileEntry(filename: name, role: .unpaired, readCount: 3),
+            ])
+        )
+
+        let kept = RecipeMixedLayoutCounts(mergedReads: 6, pairs: 8)
+        XCTAssertEqual(FASTQBatchImporter.storedMixedLayout(kept, removing: nil), kept, "a tool that keeps every read")
+        XCTAssertNil(FASTQBatchImporter.storedMixedLayout(
+            nil, removing: FASTQStorageReadRemoval(pairsRead: 4, pairs: 1, unpairedReadsRead: 0, unpairedReads: 0)
+        ))
+    }
 }

@@ -183,3 +183,21 @@ extension FASTQIngestionPipeline {
         )
     }
 }
+
+extension FASTQBatchImporter {
+    /// The layout of the stored file once storage removed `removal`, which the sidecar records (review fix 2). Pairs
+    /// lose the pairs removed. The reads without a mate lose the unpaired reads removed, as merged reads when the
+    /// layout has merged reads and as unpaired reads otherwise: a recipe refuses a joined third file, so the two are
+    /// never both above zero. The layout is unchanged when the storage tool keeps every read.
+    static func storedMixedLayout(
+        _ layout: RecipeMixedLayoutCounts?, removing removal: FASTQStorageReadRemoval?
+    ) -> RecipeMixedLayoutCounts? {
+        guard let layout, let removal else { return layout }
+        let merged = layout.mergedReads > 0
+        return RecipeMixedLayoutCounts(
+            mergedReads: merged ? max(0, layout.mergedReads - removal.unpairedReads) : 0,
+            pairs: max(0, layout.pairs - removal.pairs),
+            unpairedReads: merged ? layout.unpairedReads : max(0, layout.unpairedReads - removal.unpairedReads)
+        )
+    }
+}
