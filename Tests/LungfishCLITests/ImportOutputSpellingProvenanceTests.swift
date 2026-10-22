@@ -135,6 +135,28 @@ final class ImportOutputSpellingProvenanceTests: XCTestCase {
                         file: file, line: line
                     )
                 }
+                // BIO 6. An output that records a digest or a size describes the file that is there. Inputs are left
+                // out, since a step such as clumpify replaces the file it reads.
+                for descriptor in step.outputs {
+                    let path = PortablePath.resolve(path: descriptor.path, context: portable)
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
+                    let recordedFile = URL(fileURLWithPath: path)
+                    if let recorded = descriptor.checksumSHA256 {
+                        XCTAssertEqual(
+                            try ProvenanceFileHasher.sha256(of: recordedFile, cancellationCheck: { try Task.checkCancellation() }), recorded,
+                            "\(context): the \(step.toolName) step records a digest the file does not have",
+                            file: file, line: line
+                        )
+                    }
+                    if let recorded = descriptor.fileSize {
+                        XCTAssertEqual(
+                            try ProvenanceFileHasher.fileSize(of: recordedFile), recorded,
+                            "\(context): the \(step.toolName) step records a size the file does not have",
+                            file: file, line: line
+                        )
+                    }
+                }
                 // The replayed command and the named files leave the staging folder. A step's own argv keeps the
                 // command as it ran, which may name the staging folder.
                 for path in step.inputs.map(\.path) + step.outputs.map(\.path) + (step.durableReplayArgv ?? step.argv)
