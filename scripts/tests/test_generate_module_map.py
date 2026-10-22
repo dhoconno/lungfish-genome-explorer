@@ -151,6 +151,36 @@ def test_render_reports_counts_subdirectories_and_test_targets(repo: Path):
     assert "| Support | library | Tests/Support/Support |" in text
 
 
+C_TARGET_MANIFEST = textwrap.dedent(
+    """\
+    // swift-tools-version: 6.2
+    import PackageDescription
+
+    let package = Package(
+        name: "Fixture",
+        targets: [
+            .executableTarget(name: "Tool", dependencies: ["CTool"], path: "Sources/Tool"),
+            .target(name: "CTool", path: "Sources/CTool"),
+        ]
+    )
+    """
+)
+
+
+def test_render_lists_c_files_in_the_target_section_only(tmp_path: Path, repo: Path):
+    ctree = tmp_path / "ctree"  # The repo fixture owns tmp_path itself.
+    write(ctree, "Package.swift", C_TARGET_MANIFEST)
+    write(ctree, "Sources/Tool/main.swift", "print(1)\n")
+    write(ctree, "Sources/CTool/include/CTool.h", "#pragma once\nint tool_call(void);\n")
+    write(ctree, "Sources/CTool/tool.c", '#include "CTool.h"\nint tool_call(void) {\n    return 0;\n}\n')
+    text = gen.render(ctree)
+    assert "| CTool | library | Sources/CTool | 0 | 0 | 0 | none |" in text
+    section = text.split("## CTool\n", 1)[1].split("\n## ", 1)[0]
+    assert "- Swift files. 0, lines 0\n- C files. 2, lines 6\n" in section
+    assert "- C files." not in text.split("## Tool\n", 1)[1]
+    assert "- C files." not in gen.render(repo)
+
+
 def test_generation_is_idempotent(repo: Path):
     assert gen.main(["--root", str(repo)]) == 0
     output = repo / "docs/architecture/MODULES.md"
