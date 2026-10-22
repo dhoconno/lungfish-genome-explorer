@@ -728,6 +728,8 @@ features:
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportOperationBegin.swift
       - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImportBatch.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfiguration.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportSheetSwitchControls.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportSheetRecipeOption.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand.swift
       - Sources/LungfishCLI/Commands/ImportFastqCommand+Events.swift
       - Sources/LungfishCLI/Commands/FastqMaterializeSubcommand.swift
@@ -758,6 +760,7 @@ features:
       - Tests/LungfishCLITests/FastqIngestInPlacePinTests.swift
       - Tests/LungfishCLITests/FastqImportONTEventsTests.swift
       - Tests/LungfishAppTests/FastqIngestRouteSigningReplayTests.swift
+      - Tests/LungfishAppTests/FASTQImportSheetRecipeSwitchTests.swift
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
@@ -765,7 +768,12 @@ features:
       vsp2-target-enrichment (also vsp2) and wastewater-metagenomics. The
       options --remove-duplicates and --remove-ribosomal-rna, each with a
       --no- form, replace the preset's setting, and the record names the
-      preset and each switch's value and source. The platform is inferred per
+      preset and each switch's value and source. In the Import FASTQ sheet the
+      recipe picker lists each preset by its name. Under it, a checkbox for
+      Remove duplicate reads and one for Remove ribosomal RNA reads start at
+      the chosen preset's values. The import command gains an option only for
+      a checkbox the user changed, and the Workflow line lists the steps that
+      run. The platform is inferred per
       sample from the read headers, or a
       BAM's @RG PL, DS and @PG lines, and the sheet shows the evidence under
       its summary. An untouched Platform popup imports with --platform auto,
