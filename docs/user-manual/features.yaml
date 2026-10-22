@@ -793,11 +793,15 @@ features:
       A FASTQ file copied into a project is ingested in place by running
       lungfish-cli fastq ingest --delete-originals --format json, which
       removes the original last. The ONT import of a run folder runs
-      lungfish-cli fastq import-ont --format json. Every import route bins
-      quality scores with illumina4 (Illumina 7-level) on every platform
-      unless the user picks eightLevel or none, and the sheet's Quality
-      Binning popup starts at Illumina (7-level). Binning saves space and is
-      lossy. A recipe's declared binning applies when no option names one.
+      lungfish-cli fastq import-ont --format json. Imports bin quality scores
+      with illumina4 (Illumina 7-level) unless the user picks eightLevel or
+      none, and the sheet's Quality Binning popup starts at Illumina
+      (7-level). A chunked ONT run folder import bins each stored chunk with
+      reformat.sh, and Optimize Storage bins with clumpify. A flattened ONT
+      import without Optimize Storage keeps every score. The two barcode
+      recipes keep every score, so the popup reads None and is off for them.
+      Binning saves space and is lossy. A recipe's declared binning applies
+      when no option names one.
       Every recorded command names its binning, and the import record states
       its source as option, recipe or default.
   viewport.fastq-dataset:
