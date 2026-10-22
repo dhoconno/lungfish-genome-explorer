@@ -25,12 +25,10 @@ final class StepExecutorTests: XCTestCase {
 
     func testFastpDedupArgs() throws {
         let step = try FastpDedupStep(params: nil)
-        let args = step.fastpArgs()
-        XCTAssertTrue(args.contains("--dedup"), "Expected --dedup in \(args)")
-        XCTAssertTrue(args.contains("-A"),      "Expected -A in \(args)")
-        XCTAssertTrue(args.contains("-G"),      "Expected -G in \(args)")
-        XCTAssertTrue(args.contains("-Q"),      "Expected -Q in \(args)")
-        XCTAssertTrue(args.contains("-L"),      "Expected -L in \(args)")
+        // A fused call takes only the dedup flags, so the trim step's adapter, poly-G, quality and length flags
+        // apply (ruling BIO-PRESET P1). A dedup step run alone adds -A -G -Q -L (FastpTrimStepTests).
+        XCTAssertEqual(step.fastpArgs(), ["--dedup", "--dup_calc_accuracy", "3"])
+        XCTAssertEqual(FastpDedupStep.dedupOnlyArgs, ["-A", "-G", "-Q", "-L"])
     }
 
     // MARK: - FastpTrimStep

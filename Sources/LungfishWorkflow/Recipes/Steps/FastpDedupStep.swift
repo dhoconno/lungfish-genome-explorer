@@ -24,9 +24,15 @@ public struct FastpDedupStep: FastpFusible {
 
     // MARK: - FastpFusible
 
+    /// The dedup flags a fused call takes. Accuracy 3 is fastp's dedup default, written out so that a new default
+    /// cannot move it. The fused call no longer turns adapter, poly-G, quality and length processing off, because
+    /// the trim step beside it names each of them (ruling BIO-PRESET P1, owner answer O11).
     public func fastpArgs() -> [String] {
-        ["--dedup", "-A", "-G", "-Q", "-L"]
+        ["--dedup", "--dup_calc_accuracy", "3"]
     }
+
+    /// What a dedup step run alone adds, so that it removes duplicates and nothing else.
+    public static let dedupOnlyArgs = ["-A", "-G", "-Q", "-L"]
 
     // MARK: - Execute
 
@@ -45,7 +51,7 @@ public struct FastpDedupStep: FastpFusible {
             "-o", outR1.path,
             "-O", outR2.path,
         ]
-        args += fastpArgs()
+        args += fastpArgs() + Self.dedupOnlyArgs
         args += [
             "-w", "\(context.threads)",
             "-j", "/dev/null",

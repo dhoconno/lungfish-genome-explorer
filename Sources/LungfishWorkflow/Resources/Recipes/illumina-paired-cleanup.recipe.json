@@ -29,7 +29,7 @@
     ],
     "steps": [
         { "type": "fastp-dedup", "label": "Remove duplicate reads" },
-        { "type": "fastp-trim", "label": "Adapter + quality trim", "params": { "detectAdapter": true, "quality": 15, "window": 5, "cutMode": "right" } },
+        { "type": "fastp-trim", "label": "Adapter + quality trim", "params": { "detectAdapter": true, "trimPolyG": true, "polyGMinLength": 10, "qualifiedQuality": 15, "unqualifiedPercent": 40, "nBaseLimit": 5, "minLength": 15, "window": 5, "cutMode": "tail", "cutMeanQuality": 20 } },
         { "type": "deacon-scrub", "label": "Remove human reads", "params": { "database": "deacon-panhuman" } },
         { "type": "deacon-ribo-filter", "label": "Remove ribosomal RNA reads", "params": { "database": "deacon-ribokmers", "absoluteThreshold": 1, "relativeThreshold": 0 } },
         { "type": "fastp-merge", "label": "Merge overlapping pairs", "params": { "minOverlap": 15 } },
