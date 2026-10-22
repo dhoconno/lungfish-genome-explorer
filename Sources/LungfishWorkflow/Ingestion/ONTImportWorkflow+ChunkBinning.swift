@@ -74,7 +74,7 @@ extension ONTImportWorkflow {
                     maxReads: chunkedPreviewReadCount
                 )
             }
-            stepsByBundle[bundleURL.standardizedFileURL.resolvingSymlinksInPath().path] = steps
+            stepsByBundle[stableCanonicalURL(bundleURL).path] = steps
         }
         return stepsByBundle
     }

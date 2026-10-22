@@ -516,68 +516,6 @@ public struct ONTImportWorkflow: Sendable {
         try? fm.removeItem(at: plan.stagingOutputDirectory)
     }
 
-    private func remapOptimizationStepsByBundle(
-        _ stepsByStagedBundle: [String: [ProvenanceStep]],
-        from stagedBundleURLs: [URL],
-        to finalBundleURLs: [URL]
-    ) -> [String: [ProvenanceStep]] {
-        var remapped: [String: [ProvenanceStep]] = [:]
-        for (stagedBundleURL, finalBundleURL) in zip(stagedBundleURLs, finalBundleURLs) {
-            let stagedKey = canonicalURL(stagedBundleURL).path
-            let finalKey = canonicalURL(finalBundleURL).path
-            remapped[finalKey] = (stepsByStagedBundle[stagedKey] ?? []).map {
-                remapOptimizationStep($0, from: stagedBundleURL, to: finalBundleURL)
-            }
-        }
-        return remapped
-    }
-
-    func remapOptimizationStep(
-        _ step: ProvenanceStep,
-        from stagedBundleURL: URL,
-        to finalBundleURL: URL
-    ) -> ProvenanceStep {
-        step.with { copy in
-            copy.argv = step.argv.map { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) }
-            copy.durableReplayArgv = step.durableReplayArgv?.map {
-                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
-            }
-            copy.reproducibleCommand = remapPathString(step.reproducibleCommand, from: stagedBundleURL, to: finalBundleURL)
-            copy.inputs = step.inputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
-            copy.outputs = step.outputs.map { remapDescriptor($0, from: stagedBundleURL, to: finalBundleURL) }
-            copy.resolvedOptions = step.resolvedOptions.mapValues {
-                $0.rewritingPaths { remapPathString($0, from: stagedBundleURL, to: finalBundleURL) }
-            }
-        }
-    }
-
-    private func remapDescriptor(
-        _ descriptor: ProvenanceFileDescriptor,
-        from stagedBundleURL: URL,
-        to finalBundleURL: URL
-    ) -> ProvenanceFileDescriptor {
-        ProvenanceFileDescriptor(
-            path: remapPathString(descriptor.path, from: stagedBundleURL, to: finalBundleURL),
-            checksumSHA256: descriptor.checksumSHA256,
-            fileSize: descriptor.fileSize,
-            format: descriptor.format,
-            role: descriptor.role,
-            originPath: descriptor.originPath.map {
-                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
-            },
-            sourceProvenancePath: descriptor.sourceProvenancePath.map {
-                remapPathString($0, from: stagedBundleURL, to: finalBundleURL)
-            }
-        )
-    }
-
-    private func remapPathString(_ value: String, from stagedBundleURL: URL, to finalBundleURL: URL) -> String {
-        value.replacingOccurrences(
-            of: canonicalURL(stagedBundleURL).path,
-            with: canonicalURL(finalBundleURL).path
-        )
-    }
-
     private func optimizeImportedBundlesIfNeeded(
         bundleURLs: [URL],
         config: ONTImportConfig,
@@ -707,7 +645,7 @@ public struct ONTImportWorkflow: Sendable {
     }
 
     private func canonicalURL(_ url: URL) -> URL {
-        url.standardizedFileURL.resolvingSymlinksInPath()
+        Self.stableCanonicalURL(url)
     }
 
     private func provenanceFormat(for url: URL) -> FileFormat {
