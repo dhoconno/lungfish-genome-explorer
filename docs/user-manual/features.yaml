@@ -734,6 +734,8 @@ features:
       - Sources/LungfishIO/Formats/FASTQ/PlatformInference.swift
       - Sources/LungfishWorkflow/Ingestion/ImportPlatformRequest.swift
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift
+      - Sources/LungfishWorkflow/Recipes/RecipeSwitches.swift
+      - Sources/LungfishWorkflow/Resources/Recipes/illumina-paired-cleanup.recipe.json
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+SameBatch.swift
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+UnpairedReads.swift
       - Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter+PairDetection.swift
@@ -759,7 +761,12 @@ features:
     notes: >-
       Batch-imports paired-end or single-end FASTQ at any size with virtual
       previews that keep the UI responsive while operations run on the full
-      file. The platform is inferred per sample from the read headers, or a
+      file. The Illumina paired-end cleanup recipe has two presets,
+      vsp2-target-enrichment (also vsp2) and wastewater-metagenomics. The
+      options --remove-duplicates and --remove-ribosomal-rna, each with a
+      --no- form, replace the preset's setting, and the record names the
+      preset and each switch's value and source. The platform is inferred per
+      sample from the read headers, or a
       BAM's @RG PL, DS and @PG lines, and the sheet shows the evidence under
       its summary. An untouched Platform popup imports with --platform auto,
       and the sidecar's platformAssignment keeps the source, evidence and

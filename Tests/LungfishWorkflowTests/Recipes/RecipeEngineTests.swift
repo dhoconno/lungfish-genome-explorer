@@ -461,6 +461,52 @@ final class RecipeEngineTests: XCTestCase {
         )
     }
 
+    /// Keeping duplicates records the dedup step as turned off by its switch, where it would have run, ahead of the
+    /// trim that ran alone (QA review point 9).
+    func testExecuteRecordsTurnedOffStepWhereItWouldHaveRun() async throws {
+        let root = try makeTemporaryDirectory(prefix: "RecipeEngineTurnedOff")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let (r1, r2) = try writePairedFASTQ(in: root)
+        let runner = try makeFakeFastpRunner(in: root, report: .valid)
+        var recipe = makeRecipe(steps: [
+            RecipeStep(type: "fastp-dedup"),
+            RecipeStep(type: "fastp-trim"),
+        ])
+        recipe.switches = [RecipeSwitch(
+            id: "removeDuplicates", label: "Remove duplicate reads", defaultValue: true, gates: "fastp-dedup"
+        )]
+        let kept = RecipeSwitchSetting(
+            id: "removeDuplicates", label: "Remove duplicate reads", value: false, source: .option
+        )
+        recipe.resolution = RecipeResolution(requestedName: "test", preset: nil, switchSettings: [kept])
+
+        let result = try await RecipeEngine().execute(
+            recipe: recipe,
+            input: StepInput(r1: r1, r2: r2, format: .pairedR1R2),
+            context: StepContext(
+                workspace: workspace,
+                threads: 2,
+                sampleName: "sample",
+                runner: runner,
+                progress: { _, _ in }
+            )
+        )
+
+        XCTAssertEqual(result.stepRecords.count, 2)
+        let turnedOff = try XCTUnwrap(result.stepRecords.first)
+        XCTAssertEqual(turnedOff.stepName, FastpDedupStep.displayName)
+        XCTAssertEqual(turnedOff.turnedOffBy, kept)
+        XCTAssertEqual(turnedOff.tool, "none")
+        XCTAssertNil(turnedOff.commandArguments)
+        let trim = try XCTUnwrap(result.stepRecords.last)
+        XCTAssertNil(trim.turnedOffBy)
+        XCTAssertEqual(trim.tool, "fastp")
+        XCTAssertFalse(try XCTUnwrap(trim.commandArguments).contains("--dedup"))
+        XCTAssertFalse(result.stepRecords.contains(where: \.didApplyDeduplication))
+    }
+
     func testExecuteFusedFastpRejectsSuccessfulProcessWithoutValidJSONReport() async throws {
         for report in [FakeFastpReport.missing, .invalid] {
             let root = try makeTemporaryDirectory(prefix: "RecipeEngineFusedFastp")

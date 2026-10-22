@@ -478,10 +478,21 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         // parsing the reads again. The first step read every input pair, each
         // step read what the one before it wrote, and the last step wrote
         // every record the bundle holds.
-        let countedSteps = (ingestion.recipeApplied?.stepResults ?? []).filter {
+        let recordedSteps = (ingestion.recipeApplied?.stepResults ?? []).filter {
             $0.stepName != pairFilter.stepName && $0.tool != "clumpify.sh"
         }
-        XCTAssertEqual(countedSteps.map(\.tool), ["fastp", "deacon", "fastp", "seqkit"])
+        // The vsp2 preset keeps ribosomal RNA, so its step is recorded as turned off, where it would have run.
+        XCTAssertEqual(recordedSteps.map(\.tool), ["fastp", "deacon", "none", "fastp", "seqkit"])
+        let turnedOff = try XCTUnwrap(recordedSteps.first { !$0.didRun })
+        XCTAssertEqual(turnedOff.stepName, "Remove ribosomal RNA reads")
+        XCTAssertEqual(turnedOff.turnedOffBy?.id, "removeRibosomalRNA")
+        XCTAssertEqual(turnedOff.turnedOffBy?.source, .preset)
+        XCTAssertEqual(ingestion.recipeApplied?.presetID, "vsp2-target-enrichment")
+        XCTAssertEqual(
+            ingestion.recipeApplied?.switchSettings?.map { "\($0.id)=\($0.value) \($0.source.rawValue)" },
+            ["removeDuplicates=true preset", "removeRibosomalRNA=false preset"]
+        )
+        let countedSteps = recordedSteps.filter(\.didRun)
         XCTAssertEqual(countedSteps.first?.inputReadCount, try FASTQPairInterleaver.countRecords(in: pair.r1))
         for (previous, step) in zip(countedSteps, countedSteps.dropFirst()) {
             XCTAssertEqual(step.inputReadCount, previous.outputReadCount, "\(step.stepName) reads what \(previous.stepName) wrote")

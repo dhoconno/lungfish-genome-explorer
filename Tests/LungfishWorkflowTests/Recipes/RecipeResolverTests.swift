@@ -172,4 +172,21 @@ struct RecipeResolverTests {
         }
         #expect(first is FastpTrimStep)
     }
+
+    /// A turned-off step keeps its place in the recipe: rRNA removal turned off comes after the three steps that run
+    /// before it, so the record shows it after human read removal.
+    @Test func test_turnedOffStepsKeepTheirPlace() throws {
+        let recipes = try builtins()
+        let vsp2 = try #require(try RecipeResolver.resolve("vsp2", in: recipes))
+        #expect(vsp2.turnedOffSteps.map(\.step.type) == ["deacon-ribo-filter"])
+        #expect(vsp2.turnedOffSteps.map(\.activeStepsBefore) == [3])
+        #expect(vsp2.turnedOffSteps.first?.setting.source == .preset)
+
+        let bare = try #require(try RecipeResolver.resolve(
+            Self.mergedID, in: recipes, switchOptions: ["removeDuplicates": false]
+        ))
+        #expect(bare.turnedOffSteps.map(\.step.type) == ["fastp-dedup", "deacon-ribo-filter"])
+        #expect(bare.turnedOffSteps.map(\.activeStepsBefore) == [0, 2])
+        #expect(bare.turnedOffSteps.map(\.setting.source) == [.option, .recipeDefault])
+    }
 }

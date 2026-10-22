@@ -60,6 +60,14 @@ public struct RecipeAppliedInfo: Codable, Sendable {
     public let recipeSHA256: String?
     /// The recipe's `formatVersion`, nil for a legacy recipe or a sidecar written before 2026-10-21.
     public let recipeFormatVersion: Int?
+    /// The `--recipe` value the run was given, such as `vsp2`. Nil for a record written before 2026-10-22, which
+    /// the Inspector shows as Not recorded.
+    public let requestedName: String?
+    /// The preset the name resolved to, nil when it named the recipe itself or the record predates presets.
+    public let presetID: String?
+    public let presetName: String?
+    /// Each switch's value and where it came from, nil for a recipe without switches or an older record.
+    public let switchSettings: [RecipeSwitchSetting]?
 
     public init(
         recipeID: String,
@@ -67,7 +75,11 @@ public struct RecipeAppliedInfo: Codable, Sendable {
         appliedDate: Date = Date(),
         stepResults: [RecipeStepResult],
         recipeSHA256: String? = nil,
-        recipeFormatVersion: Int? = nil
+        recipeFormatVersion: Int? = nil,
+        requestedName: String? = nil,
+        presetID: String? = nil,
+        presetName: String? = nil,
+        switchSettings: [RecipeSwitchSetting]? = nil
     ) {
         self.recipeID = recipeID
         self.recipeName = recipeName
@@ -75,12 +87,18 @@ public struct RecipeAppliedInfo: Codable, Sendable {
         self.stepResults = stepResults
         self.recipeSHA256 = recipeSHA256
         self.recipeFormatVersion = recipeFormatVersion
+        self.requestedName = requestedName
+        self.presetID = presetID
+        self.presetName = presetName
+        self.switchSettings = switchSettings
     }
 
-    /// Total reads removed across all steps (input of step 0 minus output of last step).
+    /// Total reads removed across the steps that ran (input of the first minus output of the last). A step a
+    /// switch turned off holds no counts and is skipped.
     public var totalReadsRemoved: Int? {
-        guard let first = stepResults.first?.inputReadCount,
-              let last = stepResults.last?.outputReadCount else { return nil }
+        let ran = stepResults.filter(\.didRun)
+        guard let first = ran.first?.inputReadCount,
+              let last = ran.last?.outputReadCount else { return nil }
         return first - last
     }
 
@@ -136,7 +154,7 @@ public struct RecipeAppliedInfo: Codable, Sendable {
     private func readDeltaSummary(
         matching predicate: (RecipeStepResult) -> Bool
     ) -> ReadDeltaSummary? {
-        guard let step = stepResults.first(where: predicate),
+        guard let step = stepResults.first(where: { $0.didRun && predicate($0) }),
               let input = step.inputReadCount,
               let output = step.outputReadCount else {
             return nil

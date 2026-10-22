@@ -863,7 +863,11 @@ public enum FASTQBatchImporter {
                     recipeName: recipe.name,
                     appliedDate: Date(),
                     stepResults: recipeStepResults,
-                    recipeSHA256: recipe.sourceSHA256, recipeFormatVersion: recipe.formatVersion
+                    recipeSHA256: recipe.sourceSHA256, recipeFormatVersion: recipe.formatVersion,
+                    requestedName: recipe.requestedName,
+                    presetID: recipe.resolution?.preset?.id,
+                    presetName: recipe.resolution?.preset?.name,
+                    switchSettings: recipe.switches.isEmpty ? nil : recipe.switchSettings
                 )
             } else if let recipe = config.recipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
@@ -1450,7 +1454,8 @@ public enum FASTQBatchImporter {
         publishedBundleURL: URL? = nil
     ) -> [StepExecution] {
         recipeStepResults.compactMap { result in
-            guard result.stepName != "Compute statistics",
+            guard result.didRun,
+                  result.stepName != "Compute statistics",
                   !result.stepName.localizedCaseInsensitiveContains("Clumpify"),
                   !result.stepName.localizedCaseInsensitiveContains("Compress") else {
                 return nil
@@ -1890,6 +1895,7 @@ public enum FASTQBatchImporter {
         if let recipe = config.newRecipe {
             parameters["recipeSHA256"] = recipe.sourceSHA256.map(ParameterValue.string) ?? .null
             parameters["recipeFormatVersion"] = .integer(recipe.formatVersion)
+            parameters.merge(recipe.resolutionParameters) { _, resolved in resolved }
         }
         return parameters
     }
@@ -1911,12 +1917,13 @@ public enum FASTQBatchImporter {
                 "--samplesheet", sampleSheetURL.path,
                 "--project", config.projectDirectory.path,
                 "--platform", platform,
-                "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
+                "--recipe", config.newRecipe?.requestedName ?? config.recipe?.name ?? "none",
                 "--quality-binning", config.qualityBinning.rawValue,
                 "--clumping-tool", config.clumpingTool.rawValue,
                 "--compression", config.compressionLevel.rawValue,
                 "--threads", String(config.threads),
             ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
+            command += config.newRecipe?.switchOptionArguments ?? []
             if !config.optimizeStorage {
                 command.append("--no-optimize-storage")
             }
@@ -1932,12 +1939,13 @@ public enum FASTQBatchImporter {
         command += [
             "--project", config.projectDirectory.path,
             "--platform", platform,
-            "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
+            "--recipe", config.newRecipe?.requestedName ?? config.recipe?.name ?? "none",
             "--quality-binning", config.qualityBinning.rawValue,
             "--clumping-tool", config.clumpingTool.rawValue,
             "--compression", config.compressionLevel.rawValue,
             "--threads", String(config.threads),
         ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
+        command += config.newRecipe?.switchOptionArguments ?? []
         if !config.optimizeStorage {
             command.append("--no-optimize-storage")
         }

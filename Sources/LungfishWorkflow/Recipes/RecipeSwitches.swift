@@ -141,6 +141,21 @@ extension Recipe {
         steps.filter { turnedOffSetting(for: $0) == nil }
     }
 
+    /// The steps a switch turned off, in recipe order, each with its setting and the number of steps that run
+    /// before it, so a run records the step where it would have run (QA review point 9).
+    var turnedOffSteps: [(activeStepsBefore: Int, step: RecipeStep, setting: RecipeSwitchSetting)] {
+        var result: [(activeStepsBefore: Int, step: RecipeStep, setting: RecipeSwitchSetting)] = []
+        var active = 0
+        for step in steps {
+            if let setting = turnedOffSetting(for: step) {
+                result.append((active, step, setting))
+            } else {
+                active += 1
+            }
+        }
+        return result
+    }
+
     /// The options a replay passes after `--recipe` so the run's switches read the same: one for each switch an
     /// option set, never one for a preset's or the recipe's own value.
     public var switchOptionArguments: [String] {
@@ -152,6 +167,21 @@ extension Recipe {
     /// The `--recipe` value a replay passes, the name the run was given.
     public var requestedName: String {
         resolution?.requestedName ?? id
+    }
+
+    /// The provenance parameters of the name passed, its preset and each switch, such as
+    /// `recipeSwitch.removeDuplicates` = "on (preset)".
+    var resolutionParameters: [String: ParameterValue] {
+        var parameters: [String: ParameterValue] = [
+            "recipeRequestedName": .string(requestedName),
+            "recipePreset": resolution?.preset.map { .string($0.id) } ?? .null,
+        ]
+        for setting in switches.isEmpty ? [] : switchSettings {
+            parameters["recipeSwitch.\(setting.id)"] = .string(
+                "\(setting.value ? "on" : "off") (\(setting.source.displayName))"
+            )
+        }
+        return parameters
     }
 
     /// The info lines a run prints: the preset a name resolved to, then one line per switch, such as
@@ -189,6 +219,46 @@ extension Recipe {
                 throw RecipeSwitchError("Preset '\(preset.id)' of recipe '\(id)' sets unknown switch '\(switchID)'.")
             }
         }
+    }
+}
+
+/// Hands out the result of each step a switch turned off, where the step would have run, as a run records the steps
+/// that ran (QA review point 9).
+struct TurnedOffStepRecords {
+    private let entries: [(activeStepsBefore: Int, result: RecipeStepResult)]
+    private var next = 0
+    private var activeStepsRecorded = 0
+
+    init(recipe: Recipe, stepTypes: [String: any RecipeStepExecutor.Type]) {
+        entries = recipe.turnedOffSteps.map { entry in
+            let name = entry.step.label ?? stepTypes[entry.step.type]?.displayName ?? entry.step.type
+            return (entry.activeStepsBefore, RecipeStepResult.turnedOff(stepName: name, by: entry.setting))
+        }
+    }
+
+    /// The results that go before `plannedStep`'s record. A fused fastp call covers one recipe step per component.
+    mutating func before(_ plannedStep: PlannedStep) -> [RecipeStepResult] {
+        let results = taking(through: activeStepsRecorded)
+        if case .fusedFastp(_, _, _, let components) = plannedStep {
+            activeStepsRecorded += components.count
+        } else {
+            activeStepsRecorded += 1
+        }
+        return results
+    }
+
+    /// The results left after the last step that ran.
+    mutating func remaining() -> [RecipeStepResult] {
+        taking(through: .max)
+    }
+
+    private mutating func taking(through activeCount: Int) -> [RecipeStepResult] {
+        var results: [RecipeStepResult] = []
+        while next < entries.count, entries[next].activeStepsBefore <= activeCount {
+            results.append(entries[next].result)
+            next += 1
+        }
+        return results
     }
 }
 

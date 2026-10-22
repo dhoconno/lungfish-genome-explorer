@@ -54,15 +54,29 @@ OPTIONS:
   --compression <compression>
                           Compression level: fast, balanced, maximum (default:
                           balanced)
-  --recipe <recipe>       Processing recipe: vsp2-target-enrichment,
-                          wastewater-metagenomics, illumina-amplicon-merge,
-                          vsp2, wgs, hifi, or none (default: none)
-        vsp2-target-enrichment: VSP2 Target Enrichment
-        wastewater-metagenomics: Wastewater metagenomics
+  --recipe <recipe>       Processing recipe: illumina-amplicon-merge,
+                          illumina-paired-cleanup, vsp2-target-enrichment,
+                          wastewater-metagenomics, vsp2, wgs, hifi, or none
+                          (default: none)
         illumina-amplicon-merge: Illumina Amplicon Merge
+        illumina-paired-cleanup: Illumina paired-end cleanup (Remove duplicate
+        reads on, Remove ribosomal RNA reads off)
+        vsp2-target-enrichment: VSP2 target enrichment, a preset of
+        illumina-paired-cleanup (Remove duplicate reads on, Remove ribosomal
+        RNA reads off)
+        wastewater-metagenomics: Wastewater metagenomics, a preset of
+        illumina-paired-cleanup (Remove duplicate reads on, Remove ribosomal
+        RNA reads on)
         vsp2: alias of vsp2-target-enrichment
         wgs: the built-in Illumina whole-genome recipe
         hifi: the built-in PacBio HiFi recipe
+  --remove-duplicates/--no-remove-duplicates
+                          Remove duplicate reads. Replaces the recipe's setting.
+  --remove-ribosomal-rna/--no-remove-ribosomal-rna
+                          Remove ribosomal RNA reads. Replaces the recipe's
+                          setting.
+        Removal is final for a stored import. Only a reimport from the raw
+        files brings the removed reads back.
   --no-optimize-storage   Skip read reordering for storage optimization
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,

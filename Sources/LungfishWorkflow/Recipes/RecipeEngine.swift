@@ -243,6 +243,7 @@ public final class RecipeEngine: Sendable {
         // is never read just to count it. On 2026-10-20 a 30 GB `.gz` R1 was
         // still being counted 21 minutes in, before fastp had started.
         var previousReadCount: Int?
+        var turnedOff = TurnedOffStepRecords(recipe: recipe, stepTypes: stepTypes)
 
         for plannedStep in steps {
             let stepInput = StepInput(
@@ -344,6 +345,7 @@ public final class RecipeEngine: Sendable {
                     executionOutputFiles = []
                 }
 
+                stepRecords += turnedOff.before(plannedStep)
                 stepRecords.append(RecipeStepResult(
                     stepName: stepLabel,
                     tool: toolName,
@@ -407,7 +409,7 @@ public final class RecipeEngine: Sendable {
             }
         }
 
-        return RecipeExecutionResult(output: currentOutput, stepRecords: stepRecords)
+        return RecipeExecutionResult(output: currentOutput, stepRecords: stepRecords + turnedOff.remaining())
     }
 
     private static func reportableStepCount(in steps: [PlannedStep]) -> Int {

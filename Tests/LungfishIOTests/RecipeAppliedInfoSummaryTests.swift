@@ -58,6 +58,52 @@ final class RecipeAppliedInfoSummaryTests: XCTestCase {
         XCTAssertEqual(before, after)
     }
 
+    /// A run that kept duplicates records the dedup step as turned off by its switch, then the trim alone without
+    /// `--dedup`. Neither reads as deduplication (QA review point 9), and the read totals skip the step that did not
+    /// run.
+    func test_gatedOffDedupReadsAsNotApplied() throws {
+        let json = Data("""
+        {"appliedDate":782000000,"recipeFormatVersion":2,"recipeID":"illumina-paired-cleanup",\
+        "recipeName":"Illumina paired-end cleanup","stepResults":[{"durationSeconds":0,\
+        "stepName":"Remove duplicate reads","tool":"none","turnedOffBy":{"id":"removeDuplicates",\
+        "label":"Remove duplicate reads","source":"option","value":false}},{"commandArguments":["fastp",\
+        "--detect_adapter_for_pe","-g","--poly_g_min_len","10","-q","15","-u","40","-n","5","-l","15","-W","5",\
+        "--cut_tail","-M","20"],"durationSeconds":2.5,"inputReadCount":1000,"outputReadCount":900,\
+        "stepName":"Adapter + quality trim","tool":"fastp"}]}
+        """.utf8)
+        let info = try JSONDecoder().decode(RecipeAppliedInfo.self, from: json)
+        XCTAssertFalse(info.didApplyDeduplication)
+        XCTAssertNil(info.deduplicationSummary)
+        XCTAssertFalse(info.deduplicationPerformedInCombinedPass)
+        XCTAssertEqual(info.totalReadsRemoved, 100)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let rewritten = try encoder.encode(info)
+        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? NSDictionary)
+        let after = try XCTUnwrap(JSONSerialization.jsonObject(with: rewritten) as? NSDictionary)
+        XCTAssertEqual(before, after, "the turned-off result keeps the switch that turned it off")
+    }
+
+    /// A record keeps the name the run was given, the preset it resolved to and each switch's value with its source.
+    func test_switchRecordFieldsRoundTrip() throws {
+        let json = Data("""
+        {"appliedDate":782000000,"presetID":"wastewater-metagenomics","presetName":"Wastewater metagenomics",\
+        "recipeFormatVersion":2,"recipeID":"illumina-paired-cleanup","recipeName":"Illumina paired-end cleanup",\
+        "requestedName":"wastewater-metagenomics","stepResults":[{"durationSeconds":1,"stepName":"Remove human reads",\
+        "tool":"deacon"}],"switchSettings":[{"id":"removeDuplicates","label":"Remove duplicate reads",\
+        "source":"option","value":false},{"id":"removeRibosomalRNA","label":"Remove ribosomal RNA reads",\
+        "source":"preset","value":true}]}
+        """.utf8)
+        let info = try JSONDecoder().decode(RecipeAppliedInfo.self, from: json)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let rewritten = try encoder.encode(info)
+        let before = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? NSDictionary)
+        let after = try XCTUnwrap(JSONSerialization.jsonObject(with: rewritten) as? NSDictionary)
+        XCTAssertEqual(before, after)
+    }
+
     func testDeduplicationSummaryUsesDedupStepCounts() throws {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",

@@ -46,6 +46,9 @@ public struct RecipeStepResult: Codable, Sendable {
     public let completedAt: Date?
     /// Database files the step read, by their identity, before its tool ran.
     public let databases: [RecipeDatabaseRecord]
+    /// The switch whose value turned this step off, so that it did not run. Nil for a step that ran and for every
+    /// record written before 2026-10-22 (CHTC lane C2-MERGED, QA review point 9).
+    public let turnedOffBy: RecipeSwitchSetting?
 
     private enum CodingKeys: String, CodingKey {
         case stepName
@@ -65,6 +68,7 @@ public struct RecipeStepResult: Codable, Sendable {
         case startedAt
         case completedAt
         case databases
+        case turnedOffBy
     }
 
     private static let deduplicationComponentID = "fastp-dedup"
@@ -88,7 +92,8 @@ public struct RecipeStepResult: Codable, Sendable {
         stderr: String? = nil,
         startedAt: Date? = nil,
         completedAt: Date? = nil,
-        databases: [RecipeDatabaseRecord] = []
+        databases: [RecipeDatabaseRecord] = [],
+        turnedOffBy: RecipeSwitchSetting? = nil
     ) {
         self.init(
             stepName: stepName,
@@ -107,7 +112,8 @@ public struct RecipeStepResult: Codable, Sendable {
             keepingStderr: ProvenanceStderr.normalized(stderr),
             startedAt: startedAt,
             completedAt: completedAt,
-            databases: databases
+            databases: databases,
+            turnedOffBy: turnedOffBy
         )
     }
 
@@ -131,7 +137,8 @@ public struct RecipeStepResult: Codable, Sendable {
         keepingStderr stderr: String?,
         startedAt: Date?,
         completedAt: Date?,
-        databases: [RecipeDatabaseRecord]
+        databases: [RecipeDatabaseRecord],
+        turnedOffBy: RecipeSwitchSetting?
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -150,6 +157,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.startedAt = startedAt
         self.completedAt = completedAt
         self.databases = databases
+        self.turnedOffBy = turnedOffBy
     }
 
     public init(from decoder: any Decoder) throws {
@@ -180,6 +188,7 @@ public struct RecipeStepResult: Codable, Sendable {
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         databases = try container.decodeIfPresent([RecipeDatabaseRecord].self, forKey: .databases) ?? []
+        turnedOffBy = try container.decodeIfPresent(RecipeSwitchSetting.self, forKey: .turnedOffBy)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -211,6 +220,7 @@ public struct RecipeStepResult: Codable, Sendable {
         if !databases.isEmpty {
             try container.encode(databases, forKey: .databases)
         }
+        try container.encodeIfPresent(turnedOffBy, forKey: .turnedOffBy)
     }
 
     public func replacingAuxiliaryOutputs(
@@ -234,7 +244,8 @@ public struct RecipeStepResult: Codable, Sendable {
             keepingStderr: stderr,
             startedAt: startedAt,
             completedAt: completedAt,
-            databases: databases
+            databases: databases,
+            turnedOffBy: turnedOffBy
         )
     }
 
@@ -245,8 +256,18 @@ public struct RecipeStepResult: Codable, Sendable {
         return completedAt.timeIntervalSince(startedAt)
     }
 
-    /// Whether this physical step includes a deduplication operation.
+    /// The result of a step that a switch turned off: it names the switch, ran no tool and took no time.
+    public static func turnedOff(stepName: String, by setting: RecipeSwitchSetting) -> RecipeStepResult {
+        RecipeStepResult(stepName: stepName, tool: "none", durationSeconds: 0, turnedOffBy: setting)
+    }
+
+    /// Whether the step ran, false for a step a switch turned off.
+    public var didRun: Bool { turnedOffBy == nil }
+
+    /// Whether this physical step includes a deduplication operation. A step a switch turned off never does, whatever
+    /// its name says.
     public var didApplyDeduplication: Bool {
+        guard didRun else { return false }
         if !logicalComponents.isEmpty {
             return logicalComponentTypeIDs.contains(Self.deduplicationComponentID)
         }
@@ -260,6 +281,7 @@ public struct RecipeStepResult: Codable, Sendable {
 
     /// Whether this physical step combines deduplication with trimming or filtering.
     public var didApplyDeduplicationAndTrimmingInCombinedPass: Bool {
+        guard didRun else { return false }
         if !logicalComponents.isEmpty {
             return logicalComponentTypeIDs.contains(Self.deduplicationComponentID)
                 && logicalComponentTypeIDs.contains(Self.trimmingComponentID)
