@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import Testing
 @testable import LungfishApp
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -496,6 +497,98 @@ struct FASTQImportConfigurationTests {
         )
 
         #expect(outputURL.lastPathComponent == "Run 42-2")
+    }
+
+    // MARK: - Lane C2-SHEETFIX (GUI walk 3, findings 1 and 3)
+
+    private static let walkPair = FASTQFilePair(
+        r1: URL(fileURLWithPath: "/data/test_1.fastq.gz"),
+        r2: URL(fileURLWithPath: "/data/test_2.fastq.gz")
+    )
+
+    /// The popup that lists `title`, picked the way a user picks it, with the popup's action sent.
+    @MainActor
+    private static func pick(_ title: String, in view: NSView) throws {
+        let popup = try #require(view.fastqImportDescendants(of: NSPopUpButton.self).first { $0.itemTitles.contains(title) })
+        popup.selectItem(withTitle: title)
+        if let action = popup.action, let target = popup.target { _ = popup.sendAction(action, to: target) }
+    }
+
+    @MainActor
+    private static func popup(listing title: String, in view: NSView) -> NSPopUpButton? {
+        view.fastqImportDescendants(of: NSPopUpButton.self).first { $0.itemTitles.contains(title) }
+    }
+
+    @MainActor
+    @Test("A Platform change through Oxford Nanopore and back gives back the detected Paired-end")
+    func platformRoundTripThroughNanoporeKeepsTheDetectedPairing() throws {
+        var captured: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(pairs: [Self.walkPair], detectedPlatform: .illumina, onImport: { captured = $0 })
+        sheet.loadViewIfNeeded()
+        let pairingPopup = try #require(Self.popup(listing: "Paired-end", in: sheet.view))
+        #expect(pairingPopup.selectedItem?.title == "Paired-end")
+
+        try Self.pick("Oxford Nanopore", in: sheet.view)
+        #expect(pairingPopup.isHidden)
+        try Self.pick("Illumina", in: sheet.view)
+        #expect(!pairingPopup.isHidden)
+        #expect(pairingPopup.selectedItem?.title == "Paired-end")
+        try Self.pick("Ultima Genomics", in: sheet.view)
+        #expect(pairingPopup.selectedItem?.title == "Paired-end")
+
+        sheet.view.fastqImportDescendants(of: NSButton.self).first { $0.title == "Import" }?.performClick(nil)
+        #expect(captured?.pairingMode == .pairedEnd)
+        #expect(captured?.pairingModeIsUserChoice == false)
+        #expect(captured?.cliPairingMode == nil)
+    }
+
+    @MainActor
+    @Test("A Pairing the user chose comes back after a Platform change through Oxford Nanopore")
+    func platformRoundTripThroughNanoporeKeepsAChosenPairing() throws {
+        var captured: FASTQImportConfiguration?
+        let sheet = FASTQImportConfigSheet(pairs: [Self.walkPair], detectedPlatform: .illumina, onImport: { captured = $0 })
+        sheet.loadViewIfNeeded()
+        try Self.pick("Interleaved", in: sheet.view)
+        try Self.pick("Oxford Nanopore", in: sheet.view)
+        try Self.pick("Illumina", in: sheet.view)
+        #expect(Self.popup(listing: "Paired-end", in: sheet.view)?.selectedItem?.title == "Interleaved")
+
+        sheet.view.fastqImportDescendants(of: NSButton.self).first { $0.title == "Import" }?.performClick(nil)
+        #expect(captured?.pairingMode == .interleaved)
+        #expect(captured?.cliPairingMode == .interleaved)
+    }
+
+    @MainActor
+    @Test("An Oxford Nanopore detection that the user changes to Illumina shows the detected Paired-end")
+    func nanoporeDetectionChangedToIlluminaShowsTheDetectedPairing() throws {
+        let sheet = FASTQImportConfigSheet(pairs: [Self.walkPair], detectedPlatform: .oxfordNanopore)
+        sheet.loadViewIfNeeded()
+        try Self.pick("Illumina", in: sheet.view)
+        #expect(Self.popup(listing: "Paired-end", in: sheet.view)?.selectedItem?.title == "Paired-end")
+    }
+
+    @MainActor
+    @Test("Each pop-up of the sheet names its visible label to an accessibility reader")
+    func popupsCarryTheirVisibleLabelsForAccessibility() throws {
+        let recipe = FASTQImportSheetRecipeOption.ontPacBioBarcodeDemux
+        let sheet = FASTQImportConfigSheet(pairs: [Self.walkPair], detectedPlatform: .illumina, recipeOptions: [recipe])
+        sheet.loadViewIfNeeded()
+        let expected: [(item: String, label: String)] = [
+            ("Oxford Nanopore", "Platform"),
+            ("Paired-end", "Pairing"),
+            (QualityBinningScheme.none.displayName, "Quality Binning"),
+            (ClumpingTool.bbtools.displayName, "Compression Tool"),
+            ("Maximum", "Compression Level"),
+            (recipe.name, "Processing Recipe"),
+        ]
+        for (item, label) in expected {
+            let popup = try #require(Self.popup(listing: item, in: sheet.view), "a popup lists \(item)")
+            #expect(popup.accessibilityLabel() == label, "the popup that lists \(item)")
+        }
+        let visibleLabels = sheet.view.fastqImportDescendants(of: NSTextField.self).map(\.stringValue)
+        for label in expected.map(\.label).dropLast() {
+            #expect(visibleLabels.contains(label + ":"), "the sheet shows \(label):")
+        }
     }
 
     private static let gib: Int64 = 1_073_741_824

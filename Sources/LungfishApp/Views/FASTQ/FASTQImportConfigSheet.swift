@@ -72,6 +72,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     /// Set once the user picks a Pairing item. Until then the popup shows the
     /// sheet's proposal and the import runs with `--pairing auto`.
     private var pairingChosenByUser = false
+    /// The Pairing item an Oxford Nanopore platform hid, given back when a platform that pairs reads shows the popup.
+    private var pairingIndexBeforeHiding: Int?
     /// The read of a lone file that proposes the Pairing popup's item, cancelled when the sheet closes.
     private var pairingProposalTask: Task<Void, Never>?
     /// Set once the user picks a Platform item. Until then the import runs with `--platform auto`.
@@ -517,6 +519,15 @@ public final class FASTQImportConfigSheet: NSViewController {
             cancelButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
 
+        // Each popup names its visible label to an accessibility reader (GUI walk 3, finding 3).
+        let labelledPopups = [(platformPopup, platformLabel), (pairingPopup, pairingLabel), (binningPopup, binningLabel),
+                              (clumpingToolPopup, clumpingToolLabel), (compressionPopup, compressionLabel),
+                              (barcodeDefinitionPopup, barcodeDefinitionLabel)]
+        for (popup, label) in labelledPopups {
+            popup.setAccessibilityLabel(label.stringValue.trimmingCharacters(in: CharacterSet(charactersIn: ":")))
+        }
+        recipePopup.setAccessibilityLabel("Processing Recipe")
+
         populateBarcodeDefinitions()
         updateRecipeControls()
         updateClumpingToolControls()
@@ -651,14 +662,14 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     /// Settles the Pairing popup on the proposal for a lone file once the file has been read, off the main actor.
-    /// The proposal is not a choice, and the hidden popup of an ONT run is left alone.
+    /// The proposal is not a choice. The hidden popup of an ONT run keeps it for a platform that shows the popup.
     private func proposePairingOffMainActor() {
         guard !pairs.contains(where: { $0.isPaired }) else { return }
         let lone = pairs
         pairingProposalTask = Task { [weak self] in
             let index = await Task.detached(priority: .userInitiated) { Self.proposedPairingIndex(for: lone) }.value
-            guard let self, !Task.isCancelled, !self.pairingChosenByUser, !self.pairingPopup.isHidden else { return }
-            self.pairingPopup.selectItem(at: index)
+            guard let self, !Task.isCancelled, !self.pairingChosenByUser else { return }
+            if self.pairingPopup.isHidden { self.pairingIndexBeforeHiding = index } else { self.pairingPopup.selectItem(at: index) }
         }
     }
 
@@ -689,8 +700,14 @@ public final class FASTQImportConfigSheet: NSViewController {
         pairingPopup.isHidden = !showPairingControls
         binningBelowPairingConstraint?.isActive = showPairingControls
         binningBelowPlatformConstraint?.isActive = !showPairingControls
+        // An ONT run imports single-end. The item the popup held, the detection or the user's pick, comes back with
+        // a platform that pairs reads (GUI walk 3, finding 1).
         if !showPairingControls {
+            if pairingIndexBeforeHiding == nil { pairingIndexBeforeHiding = pairingPopup.indexOfSelectedItem }
             pairingPopup.selectItem(at: 0)
+        } else if let index = pairingIndexBeforeHiding {
+            pairingPopup.selectItem(at: index)
+            pairingIndexBeforeHiding = nil
         }
     }
 
