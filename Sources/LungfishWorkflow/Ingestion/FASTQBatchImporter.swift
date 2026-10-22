@@ -1461,7 +1461,7 @@ public enum FASTQBatchImporter {
                 runtimeIdentity: recipeRuntimeIdentity(for: result, command: command),
                 inputs: originalInputURLs.map {
                     ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-                },
+                } + recipeDatabaseInputRecords(for: result),
                 outputs: recipePrimaryOutputRecords(
                     for: result,
                     legacyBundleFASTQURL: bundleFASTQURL
@@ -1533,15 +1533,16 @@ public enum FASTQBatchImporter {
     }
 
     private static func recipeResolvedOptions(for result: RecipeStepResult) -> [String: ParameterValue]? {
-        guard !result.logicalComponents.isEmpty else { return nil }
-        return [
-            "recipeLogicalComponents": .array(result.logicalComponents.map { component in
+        var options = recipeDatabaseOptions(for: result)
+        if !result.logicalComponents.isEmpty {
+            options["recipeLogicalComponents"] = .array(result.logicalComponents.map { component in
                 .dictionary([
                     "typeID": .string(component.typeID),
                     "displayName": .string(component.displayName),
                 ])
             })
-        ]
+        }
+        return options.isEmpty ? nil : options
     }
 
     private static func durableRecipeStepArguments(

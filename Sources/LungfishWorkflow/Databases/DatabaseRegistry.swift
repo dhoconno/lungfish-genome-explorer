@@ -762,7 +762,7 @@ public actor DatabaseRegistry {
                 )
             }
 
-            progress?(0.88, "Checking \(manifest.displayName)…")
+            try Self.checkStagedIndexAgainstLock(tempOutputURL, manifest: manifest, progress: progress)
             let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: infoArgs,
@@ -928,7 +928,7 @@ public actor DatabaseRegistry {
                 )
             }
 
-            progress?(0.88, "Checking \(manifest.displayName)…")
+            try Self.checkStagedIndexAgainstLock(tempOutputURL, manifest: manifest, progress: progress)
             let infoResult = try await runManagedDatabaseTool(
                 name: "deacon",
                 arguments: ["index", "info", tempOutputURL.path],

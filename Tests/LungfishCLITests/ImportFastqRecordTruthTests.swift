@@ -124,4 +124,69 @@ final class ImportFastqRecordTruthTests: XCTestCase {
         XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeSHA256, expected, "the sidecar must name it too")
         XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeFormatVersion, 1)
     }
+
+    // MARK: - M2, database identity
+
+    /// The `databases` entry and the index input of the record's step whose argv names `fileName`.
+    private func databaseEvidence(
+        in envelope: ProvenanceEnvelope,
+        fileName: String
+    ) throws -> (entry: [String: ParameterValue], input: ProvenanceFileDescriptor?) {
+        let step = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "deacon" && $0.argv.contains { $0.hasSuffix(fileName) } },
+            "the record has no deacon step that read \(fileName)"
+        )
+        guard case .array(let databases)? = step.resolvedOptions["databases"],
+              case .dictionary(let entry)? = databases.first else {
+            XCTFail("the deacon step that read \(fileName) names no database in its resolved options")
+            return ([:], nil)
+        }
+        return (entry, step.inputs.first { $0.path.hasSuffix(fileName) })
+    }
+
+    /// A wastewater import names each Deacon index it read by id, version, file name, index format, SHA-256 and
+    /// size, and lists it as a step input with that digest. The panhuman index is the file the lock pins. The
+    /// ribokmers index, which each install builds, names the source file and Deacon version its install record
+    /// gives.
+    func testRecordNamesEachDatabaseARecipeStepReadByItsDigest() async throws {
+        let registry = DatabaseRegistry.shared
+        guard let panhuman = try? await registry.requiredDatabasePath(for: "deacon-panhuman"),
+              let ribokmers = try? await registry.requiredDatabasePath(for: "deacon-ribokmers") else {
+            throw XCTSkip("deacon-panhuman and deacon-ribokmers must be installed")
+        }
+        let (envelope, _) = try importFixturePair([
+            "--platform", "illumina",
+            "--recipe", "wastewater-metagenomics",
+            "--no-optimize-storage",
+            "--compression", "fast",
+        ])
+
+        let scrub = try databaseEvidence(in: envelope, fileName: panhuman.lastPathComponent)
+        let pin = try XCTUnwrap(ManagedToolLock.bundled.databases.first { $0.id == "deacon-panhuman" })
+        XCTAssertEqual(scrub.entry["id"], .string("deacon-panhuman"))
+        XCTAssertEqual(scrub.entry["version"], .string(pin.version))
+        XCTAssertEqual(scrub.entry["fileName"], .string("panhuman-1.k31w15.idx"))
+        XCTAssertEqual(scrub.entry["indexFormat"], .integer(3))
+        XCTAssertEqual(scrub.entry["lockPinned"], .boolean(true), "the lock must pin the panhuman index")
+        let pinnedSHA256 = try XCTUnwrap(pin.sha256, "the lock must pin the panhuman index's SHA-256")
+        XCTAssertEqual(scrub.entry["sha256"], .string(pinnedSHA256))
+        XCTAssertEqual(scrub.entry["sizeBytes"], pin.sizeBytes.map { .integer(Int($0)) })
+        XCTAssertEqual(scrub.input?.checksumSHA256, pinnedSHA256, "the index is a step input with its digest")
+
+        let ribo = try databaseEvidence(in: envelope, fileName: ribokmers.lastPathComponent)
+        let size = try XCTUnwrap(
+            try FileManager.default.attributesOfItem(atPath: ribokmers.path)[.size] as? NSNumber
+        )
+        XCTAssertEqual(ribo.entry["id"], .string("deacon-ribokmers"))
+        XCTAssertEqual(ribo.entry["lockPinned"], .boolean(false), "each install builds the ribokmers index")
+        XCTAssertEqual(ribo.entry["sizeBytes"], .integer(size.intValue))
+        XCTAssertEqual(ribo.entry["indexFormat"], .integer(3))
+        XCTAssertEqual(ribo.entry["kmerLength"], .integer(31))
+        XCTAssertEqual(ribo.entry["windowSize"], .integer(15))
+        XCTAssertNotNil(ribo.entry["buildToolVersion"], "the record names the Deacon that built the index")
+        XCTAssertNotNil(ribo.entry["buildSourceSHA256"], "the record names the source the index was built from")
+        XCTAssertEqual(ribo.input?.checksumSHA256, ribo.entry["sha256"].flatMap {
+            if case .string(let digest) = $0 { return digest } else { return nil }
+        })
+    }
 }

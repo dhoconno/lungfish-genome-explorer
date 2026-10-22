@@ -71,6 +71,7 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
         } catch {
             throw RecipeEngineError.databaseNotFound(id: databaseID, step: Self.typeID)
         }
+        let database = try await RecipeDatabaseIdentity.shared.record(databaseID: databaseID, at: dbPath)
 
         let outR1 = context.workspace.appendingPathComponent(
             "\(context.sampleName)_norrna_R1.fastq.gz"
@@ -118,7 +119,8 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
             inputReadCount: counts?.input,
             tool: .deacon,
             arguments: result.arguments,
-            auxiliaryOutputs: [summary]
+            auxiliaryOutputs: [summary],
+            databases: [database]
         )
     }
 }

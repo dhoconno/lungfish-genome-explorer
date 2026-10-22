@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishCore
 
 // MARK: - RecipeFileFormat
@@ -148,6 +149,8 @@ public struct StepOutput: Sendable {
     public let mixedLayout: RecipeMixedLayoutCounts?
     /// Further tool processes this step ran beside its primary one.
     public let supplementaryInvocations: [RecipeSupplementaryInvocation]
+    /// Database files the step read, by their identity, checked against the lock before its tool ran.
+    public let databases: [RecipeDatabaseRecord]
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
@@ -157,7 +160,8 @@ public struct StepOutput: Sendable {
                 stderr: String? = nil, startedAt: Date? = nil,
                 completedAt: Date? = nil,
                 mixedLayout: RecipeMixedLayoutCounts? = nil,
-                supplementaryInvocations: [RecipeSupplementaryInvocation] = []) {
+                supplementaryInvocations: [RecipeSupplementaryInvocation] = [],
+                databases: [RecipeDatabaseRecord] = []) {
         self.r1 = r1
         self.r2 = r2
         self.r3 = r3
@@ -173,6 +177,7 @@ public struct StepOutput: Sendable {
         self.completedAt = completedAt
         self.mixedLayout = mixedLayout
         self.supplementaryInvocations = supplementaryInvocations
+        self.databases = databases
     }
 }
 

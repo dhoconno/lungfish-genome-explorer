@@ -47,6 +47,7 @@ public struct DeaconScrubStep: RecipeStepExecutor {
         } catch {
             throw RecipeEngineError.databaseNotFound(id: databaseID, step: Self.typeID)
         }
+        let database = try await RecipeDatabaseIdentity.shared.record(databaseID: databaseID, at: dbPath)
 
         let outR1 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R1.fq.gz")
         let outR2 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R2.fq.gz")
@@ -82,7 +83,8 @@ public struct DeaconScrubStep: RecipeStepExecutor {
             inputReadCount: counts?.input,
             tool: .deacon,
             arguments: result.arguments,
-            auxiliaryOutputs: [summary]
+            auxiliaryOutputs: [summary],
+            databases: [database]
         )
     }
 }

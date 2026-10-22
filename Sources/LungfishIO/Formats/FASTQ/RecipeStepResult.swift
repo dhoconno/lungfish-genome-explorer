@@ -44,6 +44,8 @@ public struct RecipeStepResult: Codable, Sendable {
     public let startedAt: Date?
     /// Actual process completion timestamp, when captured.
     public let completedAt: Date?
+    /// Database files the step read, by their identity, before its tool ran.
+    public let databases: [RecipeDatabaseRecord]
 
     private enum CodingKeys: String, CodingKey {
         case stepName
@@ -62,6 +64,7 @@ public struct RecipeStepResult: Codable, Sendable {
         case stderr
         case startedAt
         case completedAt
+        case databases
     }
 
     private static let deduplicationComponentID = "fastp-dedup"
@@ -84,7 +87,8 @@ public struct RecipeStepResult: Codable, Sendable {
         exitStatus: Int? = nil,
         stderr: String? = nil,
         startedAt: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        databases: [RecipeDatabaseRecord] = []
     ) {
         self.init(
             stepName: stepName,
@@ -102,7 +106,8 @@ public struct RecipeStepResult: Codable, Sendable {
             exitStatus: exitStatus,
             keepingStderr: ProvenanceStderr.normalized(stderr),
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            databases: databases
         )
     }
 
@@ -125,7 +130,8 @@ public struct RecipeStepResult: Codable, Sendable {
         exitStatus: Int?,
         keepingStderr stderr: String?,
         startedAt: Date?,
-        completedAt: Date?
+        completedAt: Date?,
+        databases: [RecipeDatabaseRecord]
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -143,6 +149,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.stderr = stderr
         self.startedAt = startedAt
         self.completedAt = completedAt
+        self.databases = databases
     }
 
     public init(from decoder: any Decoder) throws {
@@ -172,6 +179,7 @@ public struct RecipeStepResult: Codable, Sendable {
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        databases = try container.decodeIfPresent([RecipeDatabaseRecord].self, forKey: .databases) ?? []
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -200,6 +208,9 @@ public struct RecipeStepResult: Codable, Sendable {
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        if !databases.isEmpty {
+            try container.encode(databases, forKey: .databases)
+        }
     }
 
     public func replacingAuxiliaryOutputs(
@@ -222,7 +233,8 @@ public struct RecipeStepResult: Codable, Sendable {
             exitStatus: exitStatus,
             keepingStderr: stderr,
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            databases: databases
         )
     }
 
