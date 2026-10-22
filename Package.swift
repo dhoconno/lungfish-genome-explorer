@@ -20,6 +20,16 @@ let package = Package(
             targets: ["LungfishCLIExecutable"]
         ),
         .library(name: "LungfishCLILibrary", targets: ["LungfishCLI"]),
+        // Portable layer below LungfishCore: no internal dependency, builds for macOS and for static Linux (musl)
+        .library(
+            name: "LungfishPortable",
+            targets: ["LungfishPortable"]
+        ),
+        // Static Linux executor for CHTC jobs, built with the swift.org toolchain and the Static Linux SDK
+        .executable(
+            name: "lungfish-htc",
+            targets: ["LungfishHTC"]
+        ),
         // Core library for sequence data models and services
         .library(
             name: "LungfishCore",
@@ -105,6 +115,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.2.0"),
         // Swift System for low-level file operations
         .package(url: "https://github.com/apple/swift-system.git", from: "1.3.0"),
+        // SHA-256 for LungfishPortable on Linux only (macOS uses CryptoKit). Already resolved as a
+        // transitive dependency of grpc-swift and containerization.
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.15.1"),
         // Swift Async Algorithms for async sequence processing
         .package(url: "https://github.com/apple/swift-async-algorithms.git", from: "1.0.0"),
         // Pin transitive plugin providers to releases that are clean under Swift 6.2.
@@ -135,6 +148,32 @@ let package = Package(
                 "LungfishWorkflow",
             ],
             path: "Tests/Support/LungfishTestSupport"
+        ),
+
+        // MARK: - LungfishPortable (portable layer, no internal dependency)
+        .target(
+            name: "LungfishPortable",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
+            ],
+            path: "Sources/LungfishPortable"
+        ),
+        .testTarget(
+            name: "LungfishPortableTests",
+            dependencies: ["LungfishPortable"],
+            path: "Tests/LungfishPortableTests"
+        ),
+
+        // MARK: - LungfishHTC (static Linux executor for CHTC jobs)
+        .executableTarget(
+            name: "LungfishHTC",
+            dependencies: ["LungfishPortable"],
+            path: "Sources/LungfishHTC"
+        ),
+        .testTarget(
+            name: "LungfishHTCTests",
+            dependencies: ["LungfishHTC"],
+            path: "Tests/LungfishHTCTests"
         ),
 
         // MARK: - LungfishCore

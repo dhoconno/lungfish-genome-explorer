@@ -12,6 +12,7 @@ Modules form a strict stack. Each row may import only the rows above it.
 
 | Layer | Targets | Role |
 |---|---|---|
+| Portable | LungfishPortable, LungfishHTC | Code with no internal dependency that builds for macOS and for static Linux, and the static executor that CHTC jobs run. Neither target declares resources |
 | Core | LungfishCore | Models, bundle manifests, project storage, metadata, notification names |
 | IO | LungfishIO | File-format readers and writers, indexes, bundle and analysis folder readers, SQLite stores |
 | Workflow | LungfishWorkflow | Tool execution, conda and container runtimes, pipelines, provenance, CLI event protocol |
