@@ -98,6 +98,26 @@ LUNGFISH_REQUIRE_TOOLS=1 swift test --filter 'IVarConverterViralReconParity|Read
 The internal conformance gate runs the whole suite this way and additionally
 fails if any tool/database skip is recorded within the conformance suites.
 
+### Running the recipe tests against a scratch database root
+
+`RecipeIntegrationTests` and `FASTQBatchImporterRecipeIntegrationTests` run the merged recipe with the real tools and the real Deacon indexes. They read each index and its `.lungfish-provenance.json` receipt from the managed database root. A machine whose installed copy has no receipt fails them in `ConformanceFixtures.swift` with a plain file-not-found error. Do not write a receipt into a real root to get past it. Point the tests at a scratch root and install the databases there.
+
+1. Pick a scratch folder. Its path has no space, it sits in no `*.lungfish` folder or `*.app`, and its nearest existing parent is writable. Never name the golden root (`/Users/Shared/lungfish-golden`) or a user's Stable root (`~/.lungfish-stable`) as the scratch.
+2. Set `LUNGFISH_STORAGE_ROOT` to the scratch folder. A valid value wins over the saved preference (`Sources/LungfishCore/Storage/ManagedStorageConfigStore.swift` lines 155 to 166), and the databases go under `<scratch>/databases`. A value that fails validation is ignored with a log line and the process falls back to another root, so read the destination path in the first install's output before you trust the setting.
+3. Set `LUNGFISH_CONDA_ROOT` to the managed conda root of an installed channel, for example `~/.lungfish-stable/conda`. Tools follow the storage root to `<scratch>/conda` by default, which is empty, and a valid `LUNGFISH_CONDA_ROOT` wins over that (`ManagedStorageConfigStore.swift` lines 185 to 196). The tests read the tools from this root and write nothing to it.
+4. Install the databases into the scratch root with a `lungfish-cli` built at or after the commit under test. `lungfish-cli conda db update deacon-ribokmers --yes` installs the pinned index. `lungfish-cli conda db install-managed deacon-panhuman` clones the index from another channel root on the same volume when that copy matches the pinned SHA-256 and downloads about 3.3 GB otherwise.
+5. Run each class with an anchored filter, since `RecipeIntegrationTests` is also a substring of `FASTQBatchImporterRecipeIntegrationTests`. Delete the scratch folder afterwards.
+
+```bash
+export LUNGFISH_REQUIRE_TOOLS=1
+export LUNGFISH_STORAGE_ROOT=/path/to/scratch
+export LUNGFISH_CONDA_ROOT=$HOME/.lungfish-stable/conda
+.build/debug/lungfish-cli conda db update deacon-ribokmers --yes
+.build/debug/lungfish-cli conda db install-managed deacon-panhuman
+swift test --skip-update --filter '(^|\.)RecipeIntegrationTests/'
+swift test --skip-update --filter '(^|\.)FASTQBatchImporterRecipeIntegrationTests/'
+```
+
 ## Landing site
 
 The public landing page at
