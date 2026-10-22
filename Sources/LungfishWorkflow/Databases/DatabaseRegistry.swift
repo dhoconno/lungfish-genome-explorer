@@ -854,7 +854,7 @@ public actor DatabaseRegistry {
         let destinationURL = installDirectory.appendingPathComponent(manifest.filename)
         let stagedURL = installDirectory.appendingPathComponent("\(manifest.filename).partial")
         try? fileManager.removeItem(at: stagedURL)
-        if let cloned = await cloneManagedDatabaseFromSibling(
+        if !fileManager.fileExists(atPath: destinationURL.path), let cloned = await cloneManagedDatabaseFromSibling(
             databaseID: databaseID, manifest: manifest, installDirectory: installDirectory,
             expectedMD5: nil, progress: progress
         ) {

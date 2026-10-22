@@ -293,6 +293,73 @@ final class RibokmersPinnedDownloadTests: XCTestCase {
         XCTAssertEqual(try installRecord(beside: installed).parameters["installSource"]?.stringValue, "sibling-root-clone")
     }
 
+    /// An update replaces an index the user already has, so it downloads the pinned file and publishes it through the
+    /// durable swap even when another channel holds the pinned file. Only an install with nothing at the name clones.
+    func testUpdateOfADifferingIndexDownloadsWhenASiblingHoldsThePinnedFile() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let served = try serve(pinned, as: "pinned.idx")
+        let siblingRoot = tempDir.appendingPathComponent("stable-root/databases", isDirectory: true)
+        let previewRoot = tempDir.appendingPathComponent("preview-root/databases", isDirectory: true)
+        let sibling = makeRegistry(spec: try spec(pinning: pinned, url: served), userRoot: siblingRoot)
+        _ = try await sibling.installManagedDatabase(Self.databaseID, reinstall: true)
+        let earlier = makeRegistry(
+            spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")), userRoot: previewRoot
+        )
+        _ = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let requests = RibokmersSeamLog<URL>()
+        let registry = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            userRoot: previewRoot,
+            requests: requests,
+            siblingDatabaseRoots: [siblingRoot]
+        )
+
+        let updated = try await registry.updateManagedDatabase(Self.databaseID)
+
+        XCTAssertEqual(requests.values, [served], "An update replaces an installed index, so it downloads and never clones")
+        XCTAssertEqual(try Data(contentsOf: updated), pinned)
+        XCTAssertEqual(try installRecord(beside: updated).parameters["installSource"]?.stringValue, "pinned-download")
+    }
+
+    /// An update whose install record cannot be written keeps the installed index and its record when another channel
+    /// holds the pinned file, since the clone route must not remove the user's working copy either.
+    func testFailedRecordDuringUpdateWithASiblingCopyKeepsTheInstalledIndex() async throws {
+        let hostBuilt = Data("host-built-ribokmers-index\n".utf8)
+        let pinned = Data("pinned-ribokmers-index\n".utf8)
+        let served = try serve(pinned, as: "pinned.idx")
+        let siblingRoot = tempDir.appendingPathComponent("stable-root/databases", isDirectory: true)
+        let previewRoot = tempDir.appendingPathComponent("preview-root/databases", isDirectory: true)
+        let sibling = makeRegistry(spec: try spec(pinning: pinned, url: served), userRoot: siblingRoot)
+        _ = try await sibling.installManagedDatabase(Self.databaseID, reinstall: true)
+        let earlier = makeRegistry(
+            spec: try spec(pinning: hostBuilt, url: try serve(hostBuilt, as: "host-built.idx")), userRoot: previewRoot
+        )
+        let installed = try await earlier.installManagedDatabase(Self.databaseID, reinstall: true)
+        let recordURL = installed.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let recordBefore = try Data(contentsOf: recordURL)
+        let registry = makeRegistry(
+            spec: try spec(pinning: pinned, url: served),
+            userRoot: previewRoot,
+            provenanceWriter: { _, _ in throw CocoaError(.fileWriteNoPermission) },
+            siblingDatabaseRoots: [siblingRoot]
+        )
+
+        do {
+            _ = try await registry.updateManagedDatabase(Self.databaseID)
+            XCTFail("The update succeeded without its record")
+        } catch HumanScrubberDatabaseError.installationFailed(let databaseID, _, let reason) {
+            XCTAssertEqual(databaseID, Self.databaseID)
+            XCTAssertTrue(reason.contains("managed database install provenance"), reason)
+        }
+        XCTAssertEqual(try Data(contentsOf: installed), hostBuilt)
+        XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore)
+        XCTAssertEqual(
+            regularFileNames(under: installed.deletingLastPathComponent()),
+            [ProvenanceRecorder.provenanceFilename, "ribokmers.k31w15.idx"].sorted()
+        )
+    }
+
     /// The bundled lock keeps how the hosted file was built as data, a one-thread build that two runs gave with
     /// equal digests.
     func testBundledLockKeepsTheHostedBuildProvenance() throws {
