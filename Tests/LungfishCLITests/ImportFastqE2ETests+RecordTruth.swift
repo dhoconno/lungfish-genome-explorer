@@ -273,8 +273,9 @@ extension ImportFastqE2ETests {
 
     /// A wastewater import names each Deacon index it read by id, version, file name, index format, SHA-256 and
     /// size, and lists it as a step input with that digest. The panhuman index is the file the lock pins. The
-    /// ribokmers index, which each install builds, names the source file and Deacon version its install record
-    /// gives.
+    /// ribokmers index is the lock's hosted download on a fresh install, so `lockPinned` is true and the source file
+    /// and Deacon version come from the lock. An index that an earlier install built on its own host has another
+    /// digest, so `lockPinned` is false and those two come from its install record.
     func testRecordNamesEachDatabaseARecipeStepReadByItsDigest() async throws {
         try await recordTruthRequire(.fastp, .seqkit, .deacon)
         let registry = DatabaseRegistry.shared
@@ -307,17 +308,25 @@ extension ImportFastqE2ETests {
         let size = try XCTUnwrap(
             try FileManager.default.attributesOfItem(atPath: ribokmers.path)[.size] as? NSNumber
         )
+        let riboPin = try XCTUnwrap(ManagedToolLock.bundled.databases.first { $0.id == "deacon-ribokmers" })
+        let riboPinnedSHA256 = try XCTUnwrap(riboPin.sha256, "the lock must pin the ribokmers index's SHA-256").lowercased()
+        let riboDigest: String? = ribo.entry["sha256"].flatMap {
+            if case .string(let digest) = $0 { return digest } else { return nil }
+        }
+        XCTAssertNotNil(riboDigest, "the record names the ribokmers index's SHA-256")
         XCTAssertEqual(ribo.entry["id"], .string("deacon-ribokmers"))
-        XCTAssertEqual(ribo.entry["lockPinned"], .boolean(false), "each install builds the ribokmers index")
+        XCTAssertEqual(
+            ribo.entry["lockPinned"], .boolean(riboDigest == riboPinnedSHA256),
+            "lockPinned is true when the recorded digest is the lock's pin, as for a fresh install, "
+                + "and false for an index that an earlier install built on its own host"
+        )
         XCTAssertEqual(ribo.entry["sizeBytes"], .integer(size.intValue))
         XCTAssertEqual(ribo.entry["indexFormat"], .integer(3))
         XCTAssertEqual(ribo.entry["kmerLength"], .integer(31))
         XCTAssertEqual(ribo.entry["windowSize"], .integer(15))
         XCTAssertNotNil(ribo.entry["buildToolVersion"], "the record names the Deacon that built the index")
         XCTAssertNotNil(ribo.entry["buildSourceSHA256"], "the record names the source the index was built from")
-        XCTAssertEqual(ribo.input?.checksumSHA256, ribo.entry["sha256"].flatMap {
-            if case .string(let digest) = $0 { return digest } else { return nil }
-        })
+        XCTAssertEqual(ribo.input?.checksumSHA256, riboDigest)
     }
 
     // MARK: - M3, host choices
