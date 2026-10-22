@@ -246,7 +246,9 @@ final class FASTQPairInterleaverTests: XCTestCase {
     /// A count the caller cancels must stop at its next chunk and reap its `gzip -dc` child. The count never
     /// polled for a cancel, so a cancelled import kept reading a whole step output to its end.
     func testCountRecordsThrowsCancellationErrorAndReapsGzipWhenTheTaskIsCancelled() async throws {
-        let fixture = try LargeFASTQFixture(in: root)
+        // About 4 MB of reads, more than the 1 MiB first chunk, so `gzip -dc` is still running when the
+        // count's first poll throws and the reap check has something to reap.
+        let fixture = try LargeFASTQFixture(in: root, recordsPerBlock: 4_096, blocks: 5)
         let gzipURL = fixture.gzipURL
         let counting = Task { () -> Result<Int, any Error> in
             while !Task.isCancelled { await Task.yield() }
