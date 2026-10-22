@@ -89,22 +89,19 @@ extension FASTQIngestionPipeline {
         return halves
     }
 
-    /// Counts the stored output against the reads the scan found and removes the output when the count is wrong, so
-    /// the originals stay the only copy. Clumpify keeps every read, so its count must match exactly. Trim Galore
-    /// removes reads shorter than its length cutoff, which the import sheet says, so its output may hold fewer reads
-    /// than the scan found, never more and never none.
+    /// Counts the stored output against the reads the storage tool kept and removes the output when the count is
+    /// wrong, so the originals stay the only copy. Clumpify keeps every read the scan found. Trim Galore keeps the
+    /// reads its trimming reports say it wrote, which the route checks against the scan. Both counts are exact.
     static func verifyStoredRecordCount(
         in output: URL,
         expected: Int,
-        tool: String,
-        mayRemoveReads: Bool
+        tool: String
     ) async throws {
         let records = try await detachedWork { try FASTQPairInterleaver.countRecords(in: output) }
-        let consistent = mayRemoveReads ? (records > 0 && records <= expected) : records == expected
-        guard consistent else {
+        guard records == expected else {
             try? FileManager.default.removeItem(at: output)
             throw FASTQIngestionError.clumpifyFailed(
-                "expected \(mayRemoveReads ? "at most " : "")\(expected) reads after \(tool) but \(output.lastPathComponent) holds \(records); originals were kept"
+                "expected \(expected) reads after \(tool) but \(output.lastPathComponent) holds \(records); originals were kept"
             )
         }
     }

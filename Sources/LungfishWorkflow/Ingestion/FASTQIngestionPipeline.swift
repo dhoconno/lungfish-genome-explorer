@@ -82,6 +82,9 @@ public struct FASTQIngestionResult: Sendable {
     public let provenanceSteps: [StepExecution]
     /// The Java heap clumpify ran with, in GB, nil when clumpify did not run.
     public let clumpifyHeapGB: Int?
+    /// The reads Trim Galore removed while it stored the file, from its trimming reports. Nil for every other
+    /// tool, which keeps every read.
+    public let readsRemovedByStorage: FASTQStorageReadRemoval?
 
     public init(
         outputFile: URL,
@@ -97,6 +100,7 @@ public struct FASTQIngestionResult: Sendable {
         processingTool: String? = nil,
         processingToolVersion: String? = nil,
         processingCommandLine: String? = nil,
+        readsRemovedByStorage: FASTQStorageReadRemoval? = nil,
         provenanceSteps: [StepExecution] = [],
         clumpifyHeapGB: Int? = nil
     ) {
@@ -116,6 +120,7 @@ public struct FASTQIngestionResult: Sendable {
         self.processingCommandLine = processingCommandLine
         self.provenanceSteps = provenanceSteps
         self.clumpifyHeapGB = clumpifyHeapGB
+        self.readsRemovedByStorage = readsRemovedByStorage
     }
 }
 
@@ -125,6 +130,8 @@ struct FASTQProcessingRecord: Sendable {
     let toolVersion: String?
     let commandLine: String
     let steps: [StepExecution]
+    /// The reads a Trim Galore storage run removed, nil for a tool that keeps every read.
+    var readsRemovedByStorage: FASTQStorageReadRemoval? = nil
 }
 
 // MARK: - FASTQIngestionError
@@ -173,7 +180,8 @@ public enum FASTQIngestionError: Error, LocalizedError {
 /// When clumping is off, paired input is still normalized to one interleaved
 /// file: `reformat.sh quantize=` when quality binning is requested, otherwise
 /// the tool-free ``FASTQPairInterleaver`` piped through bgzip/pigz. Every
-/// paired path except Trim Galore is verified to hold R1 + R2 records.
+/// paired path except Trim Galore is verified to hold R1 + R2 records, and
+/// Trim Galore's output is checked against each call's trimming report.
 ///
 /// Original files are deleted only after successful, verified processing.
 public final class FASTQIngestionPipeline: @unchecked Sendable {
@@ -242,12 +250,13 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // step 2 must not compress (or pass through) an input file instead.
         var stepOneWroteFinalOutput = false
         // Paired inputs must come out as one interleaved file holding every
-        // R1 and R2 record. Every paired path except Trim Galore (which
-        // filters reads) is verified against the input counts before any
-        // original is deleted.
+        // R1 and R2 record. Every paired path except Trim Galore is verified
+        // against the input counts before any original is deleted. Trim Galore
+        // filters reads, so its route checks each call against its report.
         var verifyPairedRecordCount = false
         var processingRecord: FASTQProcessingRecord?
         var provenanceSteps: [StepExecution] = []
+        var readsRemovedByStorage: FASTQStorageReadRemoval?
 
         switch clumpingResolution.resolved {
         case .none:
@@ -329,6 +338,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 clumpifiedFile = record.url
                 processingRecord = record
                 provenanceSteps.append(contentsOf: record.steps)
+                readsRemovedByStorage = record.readsRemovedByStorage
                 wasClumpified = true
             } catch {
                 throw (error as? FASTQIngestionError) ?? FASTQIngestionError.clumpifyFailed(error.localizedDescription)
@@ -421,6 +431,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             processingTool: processingRecord?.tool,
             processingToolVersion: processingRecord?.toolVersion,
             processingCommandLine: processingRecord?.commandLine,
+            readsRemovedByStorage: readsRemovedByStorage,
             provenanceSteps: provenanceSteps,
             clumpifyHeapGB: clumpifyHeapGB
         )
@@ -616,7 +627,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         progress(0.95, "Verifying read count...")
         try await Self.verifyStoredRecordCount(
-            in: outputFile, expected: expectedRecords, tool: "clumpify.sh", mayRemoveReads: false
+            in: outputFile, expected: expectedRecords, tool: "clumpify.sh"
         )
         return try await clumpifyRecord(outputFile: outputFile, steps: steps, config: config, progress: progress)
     }
@@ -688,137 +699,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             toolVersion: evidence.version,
             commandLine: commandLine,
             steps: steps
-        )
-    }
-
-    /// Runs Trim Galore's `--clumpify` mode for final-stage FASTQ storage optimization.
-    ///
-    /// Trim Galore writes paired-end data as two files, while Lungfish bundles store
-    /// paired imports as one interleaved FASTQ. For paired inputs, this method uses
-    /// BBTools `reformat.sh` only as a streaming interleaver after Trim Galore.
-    private func trimGaloreClumpify(
-        config: FASTQIngestionConfig,
-        outputFile: URL,
-        progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> FASTQProcessingRecord {
-        let fm = FileManager.default
-        _ = try await runner.toolPath(for: .trimGalore)
-        let trimOutputDirectory = config.outputDirectory.appendingPathComponent(
-            "trim-galore-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fm.createDirectory(at: trimOutputDirectory, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: trimOutputDirectory) }
-
-        let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
-
-        // An interleaved single file runs in Trim Galore's single-end mode
-        // otherwise, which clumps and filters each mate on its own and splits
-        // the pairs. Split it into R1/R2 first and run --paired; the paired
-        // outputs are interleaved again below.
-        var trimInputs = config.inputFiles
-        var trimPairing = config.pairingMode
-        if config.pairingMode == .interleaved, config.inputFiles.count == 1 {
-            let interleavedInput = config.inputFiles[0]
-            let counts = try await Self.detachedWork {
-                try FASTQPairInterleaver.countMixed(interleaved: interleavedInput)
-            }
-            switch Self.singleFileClumpPlan(for: counts) {
-            case .unpaired:
-                trimPairing = .singleEnd
-            case .interleaved:
-                let splitDirectory = trimOutputDirectory.appendingPathComponent("input", isDirectory: true)
-                try fm.createDirectory(at: splitDirectory, withIntermediateDirectories: true)
-                let stem = Self.deriveBaseName(from: interleavedInput)
-                let r1 = splitDirectory.appendingPathComponent("\(stem)_R1.fastq")
-                let r2 = splitDirectory.appendingPathComponent("\(stem)_R2.fastq")
-                try await Self.detachedWork {
-                    FileManager.default.createFile(atPath: r1.path, contents: nil)
-                    FileManager.default.createFile(atPath: r2.path, contents: nil)
-                    let r1Handle = try FileHandle(forWritingTo: r1)
-                    defer { try? r1Handle.close() }
-                    let r2Handle = try FileHandle(forWritingTo: r2)
-                    defer { try? r2Handle.close() }
-                    _ = try FASTQPairInterleaver.deinterleave(interleaved: interleavedInput, r1: r1Handle, r2: r2Handle)
-                }
-                trimInputs = [r1, r2]
-                trimPairing = .pairedEnd
-            case .splitMixed:
-                // Merged reads beside read pairs: the split, per-half run and join clumpify uses.
-                return try await trimGaloreStoreMixed(
-                    config: config, input: interleavedInput, counts: counts, outputFile: outputFile, progress: progress
-                )
-            }
-        }
-
-        let args = Self.trimGaloreClumpifyArguments(
-            inputFiles: trimInputs,
-            outputDirectory: trimOutputDirectory,
-            pairingMode: trimPairing,
-            threads: config.threads,
-            compressionLevel: config.compressionLevel,
-            memoryBytes: ClumpingTool.clumpifyHeapBytes(
-                physicalMemoryBytes: Int64(clamping: ProcessInfo.processInfo.physicalMemory)
-            )
-        )
-
-        progress(0.05, "Launching Trim Galore --clumpify...")
-        let (trimStep, evidence) = try await runTrimGalore(
-            arguments: args,
-            inputs: config.inputFiles,
-            outputDirectory: trimOutputDirectory,
-            config: config,
-            timeout: timeoutSeconds
-        )
-
-        if trimPairing == .pairedEnd {
-            let pairedOutputs = try Self.trimGalorePairedOutputs(in: trimOutputDirectory)
-            let interleaveRecord = try await interleavePairedFASTQ(
-                r1: pairedOutputs.r1,
-                r2: pairedOutputs.r2,
-                outputFile: outputFile,
-                config: config,
-                progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
-            )
-            return FASTQProcessingRecord(
-                url: interleaveRecord.url,
-                tool: "trim_galore",
-                toolVersion: evidence.version,
-                commandLine: "trim_galore \(args.joined(separator: " ")) && \(interleaveRecord.commandLine)",
-                steps: [trimStep] + interleaveRecord.steps
-            )
-        }
-
-        let trimmedOutput = try Self.trimGaloreSingleOutput(in: trimOutputDirectory)
-        try? fm.removeItem(at: outputFile)
-        // Trim Galore --clumpify writes plain FASTQ for plain input (its
-        // --gzip is ignored in that mode), so compress it instead of moving.
-        var compressionSteps: [StepExecution] = []
-        var compressionCommand = ""
-        if Self.isGzipCompressed(trimmedOutput) {
-            try fm.moveItem(at: trimmedOutput, to: outputFile)
-        } else {
-            let compressed = try await compress(
-                inputFile: trimmedOutput,
-                outputFile: outputFile,
-                threads: config.threads,
-                progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
-            )
-            compressionSteps = compressed.steps
-            compressionCommand = " && " + compressed.commandLine
-        }
-
-        guard fm.fileExists(atPath: outputFile.path) else {
-            throw FASTQIngestionError.clumpifyFailed("trim_galore completed without producing output")
-        }
-
-        progress(1.0, "Trim Galore complete")
-        return FASTQProcessingRecord(
-            url: outputFile,
-            tool: "trim_galore",
-            toolVersion: evidence.version,
-            commandLine: "trim_galore \(args.joined(separator: " "))" + compressionCommand,
-            steps: [trimStep] + compressionSteps
         )
     }
 

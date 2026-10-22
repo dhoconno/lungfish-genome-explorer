@@ -110,8 +110,8 @@ final class FASTQIngestionTrimGaloreMixedTests: XCTestCase {
         XCTAssertEqual(commandLine.components(separatedBy: "trim_galore ").count - 1, 2, commandLine)
     }
 
-    /// Trim Galore removes reads shorter than its length cutoff, which the import sheet tells the user. Such a read
-    /// is not lost data, so the stored file may hold fewer reads than the scan found and never more.
+    /// Trim Galore removes the reads its trim leaves under the length cutoff. Its trimming report counts them, so the
+    /// stored file holds exactly the reads the reports say were written and the result names what was removed.
     func testAReadTrimGaloreFiltersOutIsNotMistakenForLoss() async throws {
         try await requireTools()
         let root = try makeRoot()
@@ -125,5 +125,42 @@ final class FASTQIngestionTrimGaloreMixedTests: XCTestCase {
         XCTAssertEqual(stored.unpaired, 5, "only the 12-base merged read is filtered out")
         XCTAssertFalse(stored.names.contains("short1"))
         XCTAssertTrue(stored.pairsBeforeUnpaired)
+        // Each call's step carries the effective parameters its trimming report names (review fix 1).
+        let calls = trimGalore.result.provenanceSteps.filter { $0.toolName == "trim_galore" }
+        XCTAssertEqual(calls.count, 2)
+        for call in calls {
+            XCTAssertEqual(call.resolvedOptions?["length_cutoff"], .integer(20), "\(call.command)")
+        }
+        let removal = try XCTUnwrap(trimGalore.result.readsRemovedByStorage)
+        XCTAssertEqual(removal.pairs, 0, "no pair falls under the cutoff")
+        XCTAssertEqual(removal.unpairedReads, 1, "the 12-base merged read is counted as removed")
+        XCTAssertEqual(removal.recordsStored, try FASTQPairInterleaver.countRecords(in: trimGalore.result.outputFile))
+    }
+
+    /// Review fix 1. A shortfall the report does not explain fails: an output that holds one record fewer than the
+    /// report says were written, or a report that read fewer records than the input holds. The failed check removes
+    /// the output, so the originals stay the only copy, and a call that left no readable report fails too.
+    func testAShortfallTheReportDoesNotExplainFailsAndRemovesTheOutput() async throws {
+        let report = TrimGaloreReport(paired: true, totalReads: 12, readsWritten: 11, version: "2.3.0", parameters: [:])
+        XCTAssertNoThrow(try FASTQIngestionPipeline.verifyTrimGaloreAccounting(reported: report, scanned: 24, counted: 22))
+        XCTAssertThrowsError(
+            try FASTQIngestionPipeline.verifyTrimGaloreAccounting(reported: report, scanned: 24, counted: 21),
+            "one record fewer than the report says were written"
+        )
+        XCTAssertThrowsError(
+            try FASTQIngestionPipeline.verifyTrimGaloreAccounting(reported: report, scanned: 26, counted: 22),
+            "the report read fewer records than the input holds"
+        )
+
+        let root = try makeRoot()
+        let output = root.appendingPathComponent("stored.fastq")
+        try MixedStorageFASTQ.writeMixed(to: output, pairs: 2, merged: 0)
+        let single = TrimGaloreReport(paired: false, totalReads: 4, readsWritten: 4, version: nil, parameters: [:])
+        do {
+            try await FASTQIngestionPipeline.verifyTrimGaloreOutput(output, reported: single, scanned: 5)
+            XCTFail("the input held a record the report did not read")
+        } catch {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the failed check removed the output")
+        XCTAssertThrowsError(try FASTQIngestionPipeline.readTrimGaloreReport(in: root), "no report fails closed")
     }
 }

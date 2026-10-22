@@ -783,13 +783,13 @@ public enum FASTQBatchImporter {
                 step: clumpifyLabel,
                 durationSeconds: Date().timeIntervalSince(clumpifyClock.startedAt)
             ))
+            if let removal = ingestionResult.readsRemovedByStorage { log?(.notice(sample: pair.sampleName, message: removal.notice)) }
             recipeStepResults.append(RecipeStepResult(
                 stepName: clumpifyLabel,
                 tool: ingestionResult.processingTool ?? (config.optimizeStorage ? ingestionResult.resolvedClumpingTool.rawValue : "compression"),
-                toolVersion: ingestionResult.processingToolVersion,
-                commandLine: ingestionResult.processingCommandLine,
-                inputReadCount: nil,
-                outputReadCount: nil,
+                toolVersion: ingestionResult.processingToolVersion, commandLine: ingestionResult.processingCommandLine,
+                inputReadCount: ingestionResult.readsRemovedByStorage?.recordsRead,
+                outputReadCount: ingestionResult.readsRemovedByStorage?.recordsStored,
                 durationSeconds: clumpifyClock.elapsed
             ))
             printProgress("  \u{2192} \(clumpifyLabel)... done (\(Int(Date().timeIntervalSince(clumpifyClock.startedAt)))s)")
