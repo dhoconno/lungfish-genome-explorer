@@ -391,8 +391,11 @@ extension QualityEncoding {
     /// - Parameter ascii: Sample of ASCII quality characters
     /// - Returns: Detected encoding
     public static func detect(from ascii: String) -> QualityEncoding {
-        let bytes = Array(ascii.utf8)
+        detect(fromBytes: Array(ascii.utf8))
+    }
 
+    /// The same test on raw quality bytes.
+    static func detect(fromBytes bytes: [UInt8]) -> QualityEncoding {
         guard !bytes.isEmpty else {
             return .phred33
         }

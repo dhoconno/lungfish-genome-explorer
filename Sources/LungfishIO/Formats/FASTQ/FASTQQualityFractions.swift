@@ -32,24 +32,23 @@ public struct FASTQQualityFractions: Sendable, Equatable {
         baseCount > 0 ? Double(q30Count) / Double(baseCount) * 100 : 0
     }
 
-    /// Counts every base of every record in `urls`.
+    /// Counts every base of every record in `urls`, each file with its own
+    /// detected encoding. The bytes are counted as they stream past rather
+    /// than parsed into records, which ran at about 50 MB/s and kept a
+    /// 100 GB import busy for half an hour.
     public static func scan(_ urls: [URL]) async throws -> FASTQQualityFractions {
         var baseCount: Int64 = 0
         var q20Count: Int64 = 0
         var q30Count: Int64 = 0
-        let reader = FASTQReader(validateSequence: false)
         for url in urls {
-            for try await record in reader.records(from: url) {
-                let quality = record.quality
-                baseCount += Int64(quality.count)
-                for index in 0..<quality.count {
-                    let q = quality.qualityAt(index)
-                    if q >= 20 {
-                        q20Count += 1
-                        if q >= 30 { q30Count += 1 }
-                    }
-                }
+            var counter = FASTQQualityByteCounter()
+            try url.forEachChunkAutoDecompressing { chunk in
+                try chunk.withUnsafeBytes { try counter.consume($0) }
             }
+            let file = try counter.finish()
+            baseCount += file.baseCount
+            q20Count += file.q20Count
+            q30Count += file.q30Count
         }
         return FASTQQualityFractions(baseCount: baseCount, q20Count: q20Count, q30Count: q30Count)
     }
