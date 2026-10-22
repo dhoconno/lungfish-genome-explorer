@@ -63,6 +63,9 @@ final class FASTQImportSheetSwitchControls: NSStackView {
         for row in rows { row.checkbox.isHidden = !showing }
         topConstraint?.constant = showing ? 6 : 0
         collapsedHeight?.isActive = !showing
+        // The checkboxes appear after the window is on screen, and AppKit builds a window's key view loop once, so a
+        // checkbox made or shown later can be left out of Tab order unless the loop is recalculated.
+        window?.recalculateKeyViewLoop()
     }
 
     /// Every switch's value now, by switch id.
