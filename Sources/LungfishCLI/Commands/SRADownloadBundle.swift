@@ -12,7 +12,8 @@ import LungfishWorkflow
 struct SRADownloadImportSettings: Sendable {
     var platform = "auto"
     var pairing = "auto"
-    var qualityBinning = "none"
+    /// The `--quality-binning` value, or nil to take the recipe's declared value or the import default.
+    var qualityBinning: String?
     var compression = "balanced"
     var recipe = "none"
     /// The recipe switches an option set, by switch id.
@@ -234,7 +235,7 @@ struct SRADownloadBundleRun: Sendable {
             bundleURL: bundle,
             platform: settings.platform,
             recipeName: settings.recipe == "none" ? nil : settings.recipe,
-            qualityBinning: settings.qualityBinning,
+            qualityBinning: metadata.ingestion?.qualityBinning ?? settings.qualityBinning ?? QualityBinningScheme.importDefault.rawValue,
             optimizeStorage: !settings.noOptimizeStorage && settings.clumpingTool != "none",
             compressionLevel: settings.compression,
             cliBinaryPath: { nil },

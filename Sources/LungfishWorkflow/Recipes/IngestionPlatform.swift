@@ -84,13 +84,9 @@ public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Default quality binning scheme for this platform.
-    ///
-    /// Quality binning is off by default everywhere. It is
-    /// opt-in only, at import time, via an explicit user choice — never
-    /// applied silently to downloads or derived operation outputs.
+    /// Default quality binning scheme for this platform, `QualityBinningScheme.importDefault` on every platform.
     public var defaultQualityBinning: QualityBinningScheme {
-        .none
+        QualityBinningScheme.importDefault
     }
 
     /// Default compression level. All platforms use `.balanced`.

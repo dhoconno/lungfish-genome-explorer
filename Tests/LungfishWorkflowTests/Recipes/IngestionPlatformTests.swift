@@ -15,7 +15,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Illumina")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .none)  // binning off by default everywhere
+        #expect(platform.defaultQualityBinning == .illumina4)  // illumina4 on every platform (lane C2-BINNING)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -24,7 +24,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Oxford Nanopore")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == .none)
+        #expect(platform.defaultQualityBinning == .illumina4)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -33,7 +33,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "PacBio")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == .none)
+        #expect(platform.defaultQualityBinning == .illumina4)
     }
 
     @Test func testUltimaDefaults() {
@@ -41,7 +41,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Ultima Genomics")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .none)  // binning off by default everywhere
+        #expect(platform.defaultQualityBinning == .illumina4)  // illumina4 on every platform (lane C2-BINNING)
     }
 
     @Test func testAutoDetectIllumina() {

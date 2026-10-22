@@ -91,7 +91,7 @@ public actor CLIImportRunner {
     ///   - recipeName: Optional recipe name (e.g. "vsp2").
     ///   - recipeSwitchOptions: Switch id to value for each recipe switch the user changed from the preset. Each is
     ///     passed as the CLI's own option after `--recipe`, and none is passed without a recipe.
-    ///   - qualityBinning: Whether to enable quality score binning.
+    ///   - qualityBinning: The quality binning the import runs, always passed as `--quality-binning`.
     ///   - optimizeStorage: Whether to optimize storage (omitted flag means enabled).
     ///   - clumpingTool: Storage optimization tool selection.
     ///   - pairingMode: The Import sheet's Pairing choice; `nil` leaves the

@@ -26,10 +26,14 @@ public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
     /// a typical 0-40 Phred range yields roughly 21 levels, not 8.
     /// The raw value is kept as "eightLevel" for backward compatibility.
     case eightLevel
-    /// No binning — preserve original quality scores exactly. This is the
-    /// default everywhere: binning is opt-in only, at
-    /// import time, never applied silently to downloads or derived outputs.
+    /// No binning, which keeps every quality score as the reads have it. A user picks it at import, and a derived
+    /// operation output is re-imported with it, so an output is never binned twice.
     case none
+
+    /// The binning an import applies when the user names none, `illumina4` on every platform and every import route
+    /// (owner answer Q4, 2026-10-22, lane C2-BINNING). Binning saves space and is lossy. `none` and `eightLevel` stay
+    /// selectable. Every route reads this one value, so the routes cannot drift apart.
+    public static let importDefault: QualityBinningScheme = .illumina4
 
     /// The user-visible name. The raw values are historical identifiers and are
     /// never shown in the UI (the import sheet and the Inspector both use this).

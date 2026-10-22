@@ -56,7 +56,7 @@ public final class ONTImportOperationCoordinator {
         concurrency: Int = 4,
         storageMode: ONTImportStorageMode = .chunked,
         optimizeStorage: Bool = false,
-        qualityBinning: QualityBinningScheme = .none,
+        qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault,
         routeContext: OperationRouteContext?
     ) async throws -> (bundleURLs: [URL], detail: String) {
         let outputURL = try Self.resolvedOutputDirectory(
@@ -223,7 +223,7 @@ public final class ONTImportOperationCoordinator {
         concurrency: Int,
         storageMode: ONTImportStorageMode = .chunked,
         optimizeStorage: Bool = false,
-        qualityBinning: QualityBinningScheme = .none
+        qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault
     ) -> [String] {
         var args = [
             sourceURL.path,
@@ -241,9 +241,8 @@ public final class ONTImportOperationCoordinator {
         if optimizeStorage {
             args.append("--optimize-storage")
         }
-        if qualityBinning != .none {
-            args += ["--quality-binning", qualityBinning.rawValue]
-        }
+        // The binning is always named, as the command records it (lane C2-BINNING).
+        args += ["--quality-binning", qualityBinning.rawValue]
         return args
     }
 }

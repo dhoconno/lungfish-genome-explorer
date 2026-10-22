@@ -56,9 +56,17 @@ struct ImportFastqOptions: ParsableArguments {
 
     @Option(
         name: .customLong("quality-binning"),
-        help: "Quality binning: illumina4 (7 quality levels), eightLevel (~21 quality levels), none. Binning is lossy and irreversible once originals are removed — opt in explicitly."
+        help: ArgumentHelp(
+            "Quality binning: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels), none",
+            discussion: """
+            Every import bins quality scores with illumina4 on every platform unless \
+            this option or the recipe names another value. Binning saves space and is \
+            lossy. The original scores cannot be recovered once the original files are \
+            removed. Pass --quality-binning none to keep every score as the reads have it.
+            """
+        )
     )
-    var qualityBinning: String = "none"
+    var qualityBinning: String?
 
     @Option(
         name: .customLong("compression"),
@@ -74,6 +82,19 @@ struct ImportFastqOptions: ParsableArguments {
         )
     )
     var recipe: String = "none"
+
+    /// The binning the import runs, as `--quality-binning` names it. The option comes first, then the recipe's
+    /// declared value, then the import default. A command that records this value replays the same whatever the
+    /// default is (lane C2-BINNING).
+    var resolvedQualityBinning: String {
+        if let qualityBinning { return qualityBinning }
+        if recipe.lowercased() != "none",
+           let resolved = try? ImportCommand.FastqSubcommand.resolveImportRecipe(named: recipe, switchOptions: switchOptions),
+           let declared = resolved.newRecipe?.qualityBinning {
+            return declared.rawValue
+        }
+        return QualityBinningScheme.importDefault.rawValue
+    }
 
     @Flag(
         name: .customLong("remove-duplicates"),

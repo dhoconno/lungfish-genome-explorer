@@ -50,7 +50,8 @@ struct FASTQImportRun {
     var recipe = "none"
     /// The recipe switches an option set, by switch id, such as `removeDuplicates`.
     var switchOptions: [String: Bool] = [:]
-    var qualityBinning = "none"
+    /// The `--quality-binning` value, or nil to take the recipe's declared value or the import default.
+    var qualityBinning: String?
     var logDir: String?
     var dryRun = false
     var platform = "auto"
@@ -263,17 +264,20 @@ struct FASTQImportRun {
 
         // MARK: Resolve quality binning
 
-        let binningScheme: QualityBinningScheme
-        switch qualityBinning.lowercased() {
+        // No option leaves the binning to the recipe's declared value, then to the import default.
+        let binningScheme: QualityBinningScheme?
+        switch qualityBinning?.lowercased() {
+        case nil:
+            binningScheme = nil
         case "illumina4":
-            binningScheme = .illumina4
+            binningScheme = QualityBinningScheme.illumina4
         case "eightlevel", "eight_level", "eight-level":
-            binningScheme = .eightLevel
+            binningScheme = QualityBinningScheme.eightLevel
         case "none":
-            binningScheme = .none
+            binningScheme = QualityBinningScheme.none
         default:
             throw reporter.fail(
-                "Unknown quality-binning value '\(qualityBinning)'. Valid: illumina4, eightLevel, none", detail: nil, exitCode: .inputError
+                "Unknown quality-binning value '\(qualityBinning ?? "")'. Valid: illumina4, eightLevel, none", detail: nil, exitCode: .inputError
             )
         }
 

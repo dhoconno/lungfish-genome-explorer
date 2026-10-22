@@ -80,7 +80,7 @@ final class ONTImportOperationCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(command.concurrency, 1)
         XCTAssertEqual(command.storageMode, .flattened)
         XCTAssertFalse(command.optimizeStorage)
-        XCTAssertEqual(command.qualityBinning, .none)
+        XCTAssertEqual(command.qualityBinning, .illumina4)
     }
 
     func testEveryImportOptionReachesTheRecordedCommand() throws {

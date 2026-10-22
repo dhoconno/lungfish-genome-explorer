@@ -53,8 +53,8 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning for --optimize-storage: none, illumina4 (7 quality levels), or eightLevel (~21 quality levels)")
-    var qualityBinning: QualityBinningScheme = .none
+            help: "Quality binning for --optimize-storage: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels) or none. Binning is lossy. Pass none to keep every score.")
+    var qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -110,7 +110,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                         "concurrency": .integer(4),
                         "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
                         "optimizeStorage": .boolean(false),
-                        "qualityBinning": .string(QualityBinningScheme.none.rawValue),
+                        "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
                         "sourceKind": .string("raw-ont-directory")
                     ],
                     resolvedOptions: [
@@ -187,7 +187,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                     "concurrency": .integer(4),
                     "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
                     "optimizeStorage": .boolean(false),
-                    "qualityBinning": .string(QualityBinningScheme.none.rawValue),
+                    "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
                     "useVirtualConcatenation": .boolean(true)
                 ],
                 resolvedOptions: [
@@ -258,9 +258,8 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         if optimizeStorage {
             cliArguments.append("--optimize-storage")
         }
-        if qualityBinning != .none {
-            cliArguments += ["--quality-binning", qualityBinning.rawValue]
-        }
+        // The binning is always named, so the record replays the same whatever the default is (lane C2-BINNING).
+        cliArguments += ["--quality-binning", qualityBinning.rawValue]
         // The window launches the leaf with this option and its row records the argv it ran, so the record
         // names the same command (CLI-EQUIVALENCE, same provenance).
         if globalOptions.outputFormat == .json {

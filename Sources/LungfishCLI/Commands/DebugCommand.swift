@@ -389,7 +389,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         name: .customLong("binning"),
         help: "Quality binning scheme (illumina4, eightLevel, none)"
     )
-    var binning: String = QualityBinningScheme.illumina4.rawValue
+    var binning: String = QualityBinningScheme.importDefault.rawValue
 
     @Flag(name: .customLong("skip-clumpify"), help: "Skip read clumpification step")
     var skipClumpify: Bool = false
@@ -560,7 +560,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             "outputDirectory": .file(URL(fileURLWithPath: ".")),
             "pair": .null,
             "pairingMode": .string(FASTQIngestionConfig.PairingMode.singleEnd.rawValue),
-            "binning": .string(QualityBinningScheme.illumina4.rawValue),
+            "binning": .string(QualityBinningScheme.importDefault.rawValue),
             "skipClumpify": .boolean(false),
             "deleteOriginals": .boolean(false),
             "stats": .boolean(false),
@@ -594,9 +594,7 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
             argv += ["--pair", pair]
         }
         argv += ["--output-dir", outputDir]
-        if binning != QualityBinningScheme.illumina4.rawValue {
-            argv += ["--binning", binning]
-        }
+        argv += ["--binning", binning]
         if skipClumpify {
             argv.append("--skip-clumpify")
         }

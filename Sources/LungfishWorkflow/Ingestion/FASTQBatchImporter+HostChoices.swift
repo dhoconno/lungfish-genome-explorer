@@ -5,12 +5,13 @@
 import Foundation
 import LungfishIO
 
-/// Where an import setting's value came from: an option the command was given, the command's fixed default, or this
-/// host (its core count or its free memory).
+/// Where an import setting's value came from: an option the command was given, the command's fixed default, this
+/// host (its core count or its free memory), or the recipe that ran (its declared quality binning).
 public enum ImportSettingSource: String, Sendable, Codable {
     case option
     case `default`
     case host
+    case recipe
 }
 
 extension FASTQBatchImporter {
@@ -18,7 +19,8 @@ extension FASTQBatchImporter {
     /// `threadsSource`, the clumpify heap that ran (`clumpifyHeapGB`, `clumpingHeapBytes`, null when clumpify did not
     /// run) with `clumpifyHeapSource`, the heap the automatic tool choice planned with (`clumpingPlanHeapBytes`) and
     /// `resolvedClumpingToolSource`. An automatic choice is the host's unless `--clumpify-heap-gb` pins the heap it
-    /// plans with.
+    /// plans with. `qualityBinningSource` says whether the binning came from the option, the recipe or the default
+    /// (lane C2-BINNING).
     static func hostChoiceParameters(
         config: ImportConfig,
         ingestionResult: FASTQIngestionResult
@@ -34,6 +36,7 @@ extension FASTQBatchImporter {
             "clumpingHeapBytes": ranHeapGB.map { .integer($0 * gib) } ?? .null,
             "clumpingPlanHeapBytes": .integer(Int(ingestionResult.clumpingResolution.clumpifyHeapBytes)),
             "resolvedClumpingToolSource": .string(toolSource.rawValue),
+            "qualityBinningSource": .string(config.qualityBinningSource.rawValue),
         ]
     }
 }

@@ -187,12 +187,13 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
         return command
     }
 
-    /// The import settings that differ from the defaults, as the flags that give them.
+    /// The import settings that differ from the defaults, as the flags that give them, and the binning, which the
+    /// command always names so its record replays the same whatever the default is (lane C2-BINNING).
     private var importOptionArguments: [String] {
         var arguments: [String] = []
         if importOptions.platform != "auto" { arguments += ["--platform", importOptions.platform] }
         if importOptions.pairing != "auto" { arguments += ["--pairing", importOptions.pairing] }
-        if importOptions.qualityBinning != "none" { arguments += ["--quality-binning", importOptions.qualityBinning] }
+        arguments += ["--quality-binning", importOptions.resolvedQualityBinning]
         if importOptions.compression != "balanced" { arguments += ["--compression", importOptions.compression] }
         if importOptions.recipe != "none" { arguments += ["--recipe", importOptions.recipe] }
         arguments += importOptions.switchOptionArguments

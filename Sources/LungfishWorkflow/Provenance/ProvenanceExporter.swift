@@ -1500,10 +1500,11 @@ public struct ProvenanceExporter: Sendable {
             && step.durableReplayArgv?.first == "/bin/cp"
     }
 
-    /// Audit command fields remain unchanged. Renderers share this replay selection.
+    /// Audit command fields remain unchanged. Renderers share this replay selection, ``QualityBinningReplay`` included.
     private func replayArguments(_ step: StepExecution) -> [String]? {
         let recorded = step.durableReplayArgv ?? step.command
-        let args = isRetainedSelectionReplay(step) ? recorded : replay?.arguments(recorded) ?? recorded
+        let relocated = isRetainedSelectionReplay(step) ? recorded : replay?.arguments(recorded) ?? recorded
+        let args = QualityBinningReplay.arguments(relocated, stated: QualityBinningReplay.statedValue(in: step.resolvedOptions) ?? replay?.qualityBinning)
         guard let executable = args.first, !executable.isEmpty else { return nil }
         return ProvenanceAppStep.isAppStep(args) ? nil : args
     }

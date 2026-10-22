@@ -225,7 +225,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         // roughly 21 levels over a typical 0-40 Phred range — not 4 or 8.
         // The persisted raw values keep the old names (illumina4/eightLevel)
         // for backward compatibility; only the user-visible label changes.
-        binningPopup.addItems(withTitles: [QualityBinningScheme.illumina4, .eightLevel, .none].map(\.displayName))
+        binningPopup.addItems(withTitles: Self.binningChoices.map(\.displayName))
         binningPopup.selectItem(at: defaultBinningIndex(for: detectedPlatform))
         binningPopup.font = .systemFont(ofSize: 12)
         binningPopup.translatesAutoresizingMaskIntoConstraints = false
@@ -572,8 +572,12 @@ public final class FASTQImportConfigSheet: NSViewController {
     /// Quality binning defaults to "None" for every platform.
     /// Binning is lossy and irreversible once originals are deleted, so it is
     /// opt-in only — the user must explicitly choose a binning level here.
+    /// The binning popup's items, in order.
+    private static let binningChoices: [QualityBinningScheme] = [.illumina4, .eightLevel, .none]
+
+    /// The import default on every platform (lane C2-BINNING).
     private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {
-        2  // none
+        Self.binningChoices.firstIndex(of: QualityBinningScheme.importDefault) ?? 0
     }
 
     private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
@@ -615,11 +619,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     }
 
     private func selectedBinning() -> QualityBinningScheme {
-        switch binningPopup.indexOfSelectedItem {
-        case 0: return .illumina4
-        case 1: return .eightLevel
-        default: return .none
-        }
+        let index = binningPopup.indexOfSelectedItem
+        return Self.binningChoices.indices.contains(index) ? Self.binningChoices[index] : QualityBinningScheme.importDefault
     }
 
     private func selectedClumpingTool() -> ClumpingTool {

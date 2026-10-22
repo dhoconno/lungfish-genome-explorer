@@ -57,10 +57,9 @@ public struct FASTQIngestionConfig: Sendable {
         outputDirectory: URL,
         threads: Int = 4,
         deleteOriginals: Bool = true,
-        // Quality binning is off by default everywhere.
-        // It is opt-in at import only, named correctly and recorded in
-        // provenance; it must never be applied silently to downloads or
-        // derived operation outputs.
+        // The pipeline bins only when its caller asks. Each import route passes
+        // `QualityBinningScheme.importDefault` when the user names no binning,
+        // and a derived operation output is re-imported with `.none`.
         qualityBinning: QualityBinningScheme = .none,
         skipClumpify: Bool = false,
         compressionLevel: CompressionLevel = .balanced,

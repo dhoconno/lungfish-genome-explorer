@@ -33,11 +33,11 @@ public struct ONTImportWorkflow: Sendable {
         public let qualityBinning: QualityBinningScheme
         public let threads: Int
 
-        public static let disabled = OptimizationConfig(optimizeStorage: false)
+        public static let disabled = OptimizationConfig(optimizeStorage: false, qualityBinning: .none)
 
         public init(
             optimizeStorage: Bool,
-            qualityBinning: QualityBinningScheme = .none,
+            qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault,
             threads: Int = 4
         ) {
             self.optimizeStorage = optimizeStorage
@@ -359,7 +359,7 @@ public struct ONTImportWorkflow: Sendable {
             "concurrency": .integer(4),
             "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
             "optimizeStorage": .boolean(false),
-            "qualityBinning": .string(QualityBinningScheme.none.rawValue),
+            "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
             "useVirtualConcatenation": .boolean(true),
         ]
         defaults.merge(context.defaultOptions) { _, contextValue in contextValue }

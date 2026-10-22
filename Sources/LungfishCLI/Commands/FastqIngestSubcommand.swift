@@ -41,8 +41,9 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
             --delete-originals remove the original files. A cancel (SIGTERM) or a
             failure leaves the originals in place.
 
-            Quality binning is off unless --binning asks for it. With --format json the
-            command prints progress as events.
+            Quality scores are binned with illumina4 unless --binning names eightLevel or
+            none. Binning is lossy. With --format json the command prints progress as
+            events.
 
             Examples:
               lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals
@@ -56,8 +57,8 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("pair"), help: "Optional R2 FASTQ file for paired-end mode")
     var pair: String?
 
-    @Option(name: .customLong("binning"), help: "Quality binning scheme")
-    var binning: QualityBinningScheme = .none
+    @Option(name: .customLong("binning"), help: "Quality binning: illumina4 (the default), eightLevel or none")
+    var binning: QualityBinningScheme = QualityBinningScheme.importDefault
 
     @Flag(name: .customLong("skip-clumpify"), help: "Skip read clumpification step")
     var skipClumpify: Bool = false
@@ -157,9 +158,8 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         if let pair {
             argv += ["--pair", pair]
         }
-        if binning != .none {
-            argv += ["--binning", binning.rawValue]
-        }
+        // The binning is always named, so the record replays the same whatever the default is (lane C2-BINNING).
+        argv += ["--binning", binning.rawValue]
         if skipClumpify {
             argv.append("--skip-clumpify")
         }
@@ -197,7 +197,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         [
             "pair": .null,
             "pairingMode": .string(FASTQIngestionConfig.PairingMode.singleEnd.rawValue),
-            "binning": .string(QualityBinningScheme.none.rawValue),
+            "binning": .string(QualityBinningScheme.importDefault.rawValue),
             "skipClumpify": .boolean(false),
             "deleteOriginals": .boolean(false),
             "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),

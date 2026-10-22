@@ -28,19 +28,23 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
     public let outputs: Set<String>
     public let recordFolder: String?
     public let project: String?
+    /// The quality binning the record's options state, which ``QualityBinningReplay`` names for a step that states none.
+    public let qualityBinning: String?
 
     public init(
         relocation: [ProvenanceFolderRename],
         inputs: [String: String?],
         outputs: Set<String>,
         recordFolder: URL?,
-        projectURL: URL?
+        projectURL: URL?,
+        qualityBinning: String? = nil
     ) {
         self.relocation = relocation
         self.inputs = inputs
         self.outputs = outputs
         self.recordFolder = recordFolder?.standardizedFileURL.path
         self.project = projectURL?.standardizedFileURL.path
+        self.qualityBinning = qualityBinning
     }
 
     /// The rule of `envelope`, read at `recordURL` (its relocation and folder). With no record URL nothing moves and
@@ -55,7 +59,9 @@ public struct ProvenanceReplayArguments: Sendable, Equatable {
             inputs: inputs,
             outputs: Set(descriptors.filter { $0.role == .output }.map { Self.standardized($0.path) }),
             recordFolder: recordURL?.deletingLastPathComponent(),
-            projectURL: recordURL.flatMap { PortablePath.anchors(for: $0).project }
+            projectURL: recordURL.flatMap { PortablePath.anchors(for: $0).project },
+            qualityBinning: QualityBinningReplay.statedValue(in: envelope.options.resolvedDefaults)
+                ?? QualityBinningReplay.statedValue(in: envelope.options.explicit)
         )
     }
 

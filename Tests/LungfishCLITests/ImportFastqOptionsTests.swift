@@ -33,7 +33,7 @@ final class ImportFastqOptionsTests: XCTestCase {
         let options = try ImportFastqOptions.parse([])
         XCTAssertEqual(options.platform, "auto")
         XCTAssertEqual(options.pairing, "auto")
-        XCTAssertEqual(options.qualityBinning, "none")
+        XCTAssertNil(options.qualityBinning)
         XCTAssertEqual(options.compression, "balanced")
         XCTAssertEqual(options.recipe, "none")
         XCTAssertFalse(options.noOptimizeStorage)

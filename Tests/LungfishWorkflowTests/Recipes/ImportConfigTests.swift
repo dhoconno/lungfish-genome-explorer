@@ -15,7 +15,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertEqual(config.sequencingPlatform, .illumina)
         XCTAssertTrue(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .auto)
-        XCTAssertEqual(config.qualityBinning, .none)
+        XCTAssertEqual(config.qualityBinning, .illumina4)
         XCTAssertEqual(config.compressionLevel, .balanced)
         XCTAssertNil(config.newRecipe)
         XCTAssertFalse(config.forceReimport)
@@ -28,7 +28,7 @@ final class ImportConfigTests: XCTestCase {
         )
         XCTAssertFalse(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .none)
-        XCTAssertEqual(config.qualityBinning, QualityBinningScheme.none)
+        XCTAssertEqual(config.qualityBinning, .illumina4)
     }
 
     func testImportConfigExplicitOverrides() {
@@ -65,7 +65,7 @@ final class ImportConfigTests: XCTestCase {
             projectDirectory: URL(fileURLWithPath: "/tmp/test.lungfish"),
             platform: .pacbio
         )
-        XCTAssertEqual(config.qualityBinning, .none, "PacBio platform default is .none")
+        XCTAssertEqual(config.qualityBinning, .illumina4, "PacBio takes the import default, illumina4")
         XCTAssertFalse(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .none)
     }
@@ -96,7 +96,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertNil(config.newRecipe)
         // Default platform is .illumina
         XCTAssertEqual(config.sequencingPlatform, .illumina)
-        XCTAssertEqual(config.qualityBinning, .none)
+        XCTAssertEqual(config.qualityBinning, .illumina4)
     }
 
     func testIlluminaAmpliconMergeRecipeIsAvailableBeforeGenotyping() throws {

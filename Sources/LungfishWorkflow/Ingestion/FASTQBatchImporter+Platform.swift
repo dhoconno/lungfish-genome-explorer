@@ -41,9 +41,9 @@ extension FASTQBatchImporter {
         /// When `true`, reimport even if a bundle already exists for the sample.
         public let forceReimport: Bool
 
-        /// The binning `import fastq` runs when `--quality-binning` is not given. A recipe's `qualityBinning` does
-        /// not change it, so the record names this value as the default (CHTC lane L5-RECORDS M1).
-        public static let commandDefaultQualityBinning = QualityBinningScheme.none
+        /// The binning `import fastq` runs when neither `--quality-binning` nor the recipe names one, which the record
+        /// names as the default (CHTC lane L5-RECORDS M1, lane C2-BINNING).
+        public static let commandDefaultQualityBinning = QualityBinningScheme.importDefault
 
         /// The thread count `import fastq` runs when `--threads` is not given, every core this host reports.
         public static var hostThreadCount: Int { ProcessInfo.processInfo.activeProcessorCount }
@@ -57,6 +57,12 @@ extension FASTQBatchImporter {
         /// platform's default.
         public var clumpingToolSource: ImportSettingSource {
             requestedClumpingTool != nil || requestedOptimizeStorage != nil ? .option : .default
+        }
+
+        /// Whether the binning came from `--quality-binning`, from the recipe's declared value or from the default.
+        public var qualityBinningSource: ImportSettingSource {
+            if requestedQualityBinning != nil { return .option }
+            return newRecipe?.qualityBinning != nil ? .recipe : .default
         }
 
         public init(
@@ -145,8 +151,8 @@ extension FASTQBatchImporter {
             self.requestedOptimizeStorage = optimizeStorage
             self.requestedClumpingTool = clumpingTool
             self.requestedCompressionLevel = compressionLevel
-            // Default resolution: explicit value > recipe suggestion > platform default
-            self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? .none
+            // An explicit value wins, then the recipe's declared value, then the import default.
+            self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? Self.commandDefaultQualityBinning
             // Short reads are reordered for storage unless asked not to.
             // Unknown reads only when asked (optimizeStorage or a clumping
             // tool), since they may be long. Long reads never are.

@@ -80,7 +80,7 @@ extension ImportCommand {
         @OptionGroup var importOptions: ImportFastqOptions
 
         var recipe: String { importOptions.recipe }
-        var qualityBinning: String { importOptions.qualityBinning }
+        var qualityBinning: String? { importOptions.qualityBinning }
         var platform: String { importOptions.platform }
         var pairing: String { importOptions.pairing }
         var noOptimizeStorage: Bool { importOptions.noOptimizeStorage }

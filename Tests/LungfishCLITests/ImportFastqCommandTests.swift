@@ -125,7 +125,7 @@ final class ImportFastqCommandTests: XCTestCase {
             "/data/fastq_dir",
             "--project", "/projects/Test.lungfish",
         ])
-        XCTAssertEqual(command.qualityBinning, "none")
+        XCTAssertNil(command.qualityBinning, "no option leaves the binning to the recipe, then to the import default")
     }
 
     func testParseShortProjectFlag() throws {
