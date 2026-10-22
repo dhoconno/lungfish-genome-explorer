@@ -167,9 +167,12 @@ let package = Package(
         // MARK: - LungfishExecutor (static Linux executor for CHTC jobs)
         .executableTarget(
             name: "LungfishExecutor",
-            dependencies: ["LungfishPortable"],
+            dependencies: ["CLungfishExecutor", "LungfishPortable"],
             path: "Sources/LungfishExecutor"
         ),
+        // The executor's C wrapper of the Linux child subreaper call. Only LungfishExecutor lists it, and
+        // scripts/ratchets/portable-imports.sh refuses any argument beyond the name and the path.
+        .target(name: "CLungfishExecutor", path: "Sources/CLungfishExecutor"),
         .testTarget(
             name: "LungfishExecutorTests",
             dependencies: ["LungfishExecutor"],

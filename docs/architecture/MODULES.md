@@ -9,6 +9,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 
 | Target | Kind | Path | Swift files | Lines | Public types | Internal dependencies |
 |---|---|---|---|---|---|---|
+| CLungfishExecutor | library | Sources/CLungfishExecutor | 0 | 0 | 0 | none |
 | Lungfish | executable | Sources/Lungfish | 1 | 87 | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishApp | library | Sources/LungfishApp | 639 | 212336 | 171 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
@@ -17,7 +18,7 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 180 | 46253 | 333 | none |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishExecutor | executable | Sources/LungfishExecutor | 2 | 51 | 0 | LungfishPortable |
+| LungfishExecutor | executable | Sources/LungfishExecutor | 2 | 51 | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 142 | 52208 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 412 | 104963 | 660 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 85 | 18465 | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -57,6 +58,20 @@ Counts cover Swift files only. Public types are top-level `public` or `open` dec
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
 | LungfishWorkflowTests | Tests/LungfishWorkflowTests | 721 | 228343 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+
+## CLungfishExecutor
+
+- Kind. library
+- Path. Sources/CLungfishExecutor
+- Swift files. 0, lines 0
+- Depends on. none
+- External products. none
+- Used by. LungfishExecutor
+- Test target. none
+
+### Public types
+
+None.
 
 ## Lungfish
 
@@ -781,7 +796,7 @@ None.
 - Kind. executable
 - Path. Sources/LungfishExecutor
 - Swift files. 2, lines 51
-- Depends on. LungfishPortable
+- Depends on. CLungfishExecutor, LungfishPortable
 - External products. none
 - Used by. none
 - Test target. LungfishExecutorTests

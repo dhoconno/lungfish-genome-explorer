@@ -181,11 +181,11 @@ bin_dir() {   # bin_dir <triple>
 }
 
 # The root package cannot build the two test targets alone, because a Linux test product holds every test target of
-# its package. This view package declares only the Portable and Executor targets, cut from the root Package.swift so the
+# its package. This view package declares only the Portable, Executor and CLungfishExecutor targets, cut from the root Package.swift so the
 # two never drift, next to copies of their sources and tests.
 prepare_view_package() {
   local dir
-  for dir in Sources/LungfishPortable Sources/LungfishExecutor Tests/LungfishPortableTests Tests/LungfishExecutorTests; do
+  for dir in Sources/LungfishPortable Sources/LungfishExecutor Sources/CLungfishExecutor Tests/LungfishPortableTests Tests/LungfishExecutorTests; do
     mkdir -p "$pkg/$dir"
     rsync -a --delete "$repo/$dir/" "$pkg/$dir/"
   done
