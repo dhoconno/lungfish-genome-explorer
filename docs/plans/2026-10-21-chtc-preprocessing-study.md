@@ -203,6 +203,47 @@ M1 ran `import fastq --recipe vsp2 --threads 14 --clumping-tool bbtools` on the 
 
 New rows for C1. The legacy path's compress timeout. Refusing a recipe name that matches no recipe file instead of falling back to another recipe. The recipe files' resource lookup in a bare release build, which the Linux executor of C3 must not repeat.
 
+## C1 and the start of C2 (2026-10-21 to 22)
+
+The owner said on 2026-10-21 "Keep going until 97% then give a prompt to continue in another account", so C1 ran at
+once and C2 began in the same session. The manager's records are `c1/notes.md` and `c2/notes.md` in
+`~/lungfish-phase-records/chtc-program/`, beside the briefs, lane reports, reviews and landing reports. The program
+branch is `chtc-program`, cut from `origin/main` at `8190b9000` and not pushed. Each lane got one review of the fields
+it touches, a fix agent for the numbered fixes, and a landing. The fix rounds got no separate re-review, to save quota,
+and the landings' test runs stand in for it.
+
+| Lane | What it does | State |
+|---|---|---|
+| L1-CARRY | Last night's four import commits, carried over 2.13's ToolProcess routing in `GzipSupport.swift` and `FASTQPairInterleaver.swift`, plus cancel of the step count and lean cancel tests | Landed |
+| L2-COPYCHECK | A bundle copy refuses a FASTQ payload whose SHA-256 or size differs from the source record, or that is missing, and publishes nothing | Landed |
+| L3-RECIPEREF | A recipe name that matches no recipe file is refused (exit 3), never run as a legacy recipe. A bare CLI finds recipe files only through a debug `#filePath` fallback, and `RuntimeResourceLocator` trusts only an app bundle, which C3's Linux executor must solve | Landed |
+| L4-PIGZ | Whole-sample tool calls on the import paths take the recipe engine's size rule instead of the 300 s default | Landed |
+| L5-RECORDS | Records state the true defaults, the recipe file's SHA-256, each deacon database's id, version, index format, SHA-256 and size, and each host choice with its source. `--clumpify-heap-gb` pins the heap, and the recorded heap is the one that ran. The lock pins panhuman (a fresh deacon 0.16.0 fetch matched), and no existing install is refused | Landed |
+| L6-O10 | The full-sample measurement of owner answer O10. The records stage took 660.7 s, opened no provenance file (2.13's lookup fix holds), and hashed R1 and R2 8 times each and the payload 6 times, 506.9 GB read for 64 GB. The import took 5,541 s against 8,890.8 s on 2026-10-20 | Measured |
+| L7-HASHONCE | One digest per file per import through a cache keyed by path, size, inode and modification date, with recorded digests unchanged | Landed |
+| C2-MERGED | One recipe file at `formatVersion` 2 with `removeDuplicates` and `removeRibosomalRNA` switches and the two old ids as presets, preset P1 (869,933 pairs and 242,843,520 bases on the slice at one thread), records of the name, preset, switches and turned-off steps, the Inspector's "Not run" rows, help goldens with predictions | Landed, review fix 3 open |
+
+After landing 3 the program branch `chtc-program` is at `e4574e5a7`, 45 commits past `8190b9000`. Landing 3 ran 2,270
+XCTest cases and 453 Swift Testing tests. The only failures were three cases in `ConformanceFixtures.swift:81` that
+need a deacon-panhuman install receipt this laptop lacks. The seven ratchets, the module map check and
+`predictions.py check` passed.
+| C2-TRIMGALORE | Trim Galore storage with the clumpify split and join, and the refusal of `453a98a8c` removed | Held for Q12 |
+
+The review of C2-TRIMGALORE ran Trim Galore 2.3.0 with LGE's storage arguments and found the storage route lossy
+before this lane too. It adapter- and quality-trims and drops reads under 20 bp after trimming, a pair as a unit, and
+no 2.3.0 option set makes it lossless. The plain paired and single-end branches have no count check.
+
+## Open owner questions (2026-10-22)
+
+| Id | Question |
+|---|---|
+| Q4 | Should imports bin qualities as a recipe says, or keep the CLI's `none`? |
+| Q5 | For CHTC staff. May LGE submit over a reused SSH session, does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? |
+| Q10 | Host one pinned ribokmers index (on the LGE large-files folder) so every install and CHTC use the same bytes, or pin a deacon 0.16.0 build and reinstall? A 0.16.0 rebuild gives `3a7b6728…0d11`, while the installed 0.15.0-built index is `1c9eb9f6…68c3` |
+| Q11 | Allow `lungfish-cli conda db update kraken2-viral --yes` with `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage` on this laptop, so the golden compare can run here, or leave the compare to the Mac Studio's Golden workflow at merge? The owner's rule reserves writes there to `provision` |
+| Q12 | Keep Trim Galore as a storage choice with exact read accounting and a plain warning that it trims, or remove it as a storage tool so that storage stays lossless? |
+
 ## Next step
 
-C0 is closed except the full-sample records stage, which moves to C1. The weekly quota read 87% at the end of C0 on 2026-10-21, 2.13's launch line, so C1 starts after the reset of 2026-10-25 and after 2.13 has resumed.
+Landing 3, then C2's open items (fix 3 of the merged recipe, the sheet's switch controls, Q12), then C3. The handoff
+for another account is `~/lungfish-phase-records/chtc-program/CONTINUE.md`.
