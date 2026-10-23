@@ -22,6 +22,12 @@ public enum PortableDigest {
     public static func sha256Hex(ofFileAt url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        return try sha256Hex(reading: handle)
+    }
+
+    /// The lowercase hexadecimal SHA-256 of what `handle` reads from its offset to its end, in chunks. The caller keeps
+    /// the handle, so a file checked with `fstat` is hashed through the same descriptor.
+    package static func sha256Hex(reading handle: FileHandle) throws -> String {
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: fileChunkSize), !chunk.isEmpty {
             hasher.update(data: chunk)
