@@ -135,7 +135,7 @@ struct RunPlanFixture {
 
     /// Runs `lungfish-executor run --plan <plan>` with `arguments` after it and `environment` plus a PATH, and reads the
     /// run record it left.
-    func run(_ plan: String, _ arguments: [String], environment: [String: String] = [:]) throws -> Run {
+    func run(_ plan: String, _ arguments: [String], environment: [String: String] = [:], byBareName: Bool = false) throws -> Run {
         try? FileManager.default.removeItem(atPath: planFolder + "/" + ExecutorRunRecord.fileName)
         let stdin = try ExecutorSpawn.openNullForReading()
         let stdout = try ExecutorSpawn.openForWriting(root + "/executor.out")
@@ -147,8 +147,12 @@ struct RunPlanFixture {
                 close(stdout)
                 close(stderr)
             }
+            // A launch by bare name goes through env, which finds the binary on the PATH it sets and starts it with
+            // argv[0] the bare name (UX fix 5 of the K4 part C review).
+            let launcher = byBareName
+                ? ["PATH=" + (binary as NSString).deletingLastPathComponent, (binary as NSString).lastPathComponent] : []
             pid = try ExecutorSpawn.spawn(
-                executable: binary, arguments: ["run", "--plan", plan] + arguments,
+                executable: byBareName ? "/usr/bin/env" : binary, arguments: launcher + ["run", "--plan", plan] + arguments,
                 environment: environment.merging(["PATH": "/usr/bin:/bin"]) { current, _ in current },
                 stdin: stdin, stdout: stdout, stderr: stderr
             )
@@ -301,6 +305,35 @@ final class RunPlanTests: XCTestCase {
         XCTAssertEqual(record.inputs, [])
         XCTAssertEqual(record.steps, [])
         XCTAssertFalse(fixture.exists("out/R1.fastq"))
+    }
+
+    /// UX fix 5 of the K4 part C review. Off Linux the self-check reads the file that argv[0] names, so a launch by bare
+    /// name is refused with the hint to start the executor by its path. On Linux it reads the kernel's /proc/self/exe,
+    /// so the same launch passes the self-check.
+    func testBareNameLaunchIsRefusedWithTheHintToStartByPath() throws {
+        var fixture = try RunPlanFixture()
+        let copy = try fixture.addTool("copy-reads", "cat \"$1\" > \"$2\"")
+        let manifest = try fixture.writeManifest()
+        let plan = try fixture.writePlan(
+            [RunPlanFixture.step("copy", copy, ["inputs/R1.fastq", "out/R1.fastq"])], manifestPin: manifest.pin
+        )
+        let run = try fixture.run(plan, ["--image-manifest", manifest.path], byBareName: true)
+        let record = try XCTUnwrap(run.record, run.stderr)
+        #if os(Linux)
+        XCTAssertEqual(record.executor.sha256, fixture.executorEntry.sha256)
+        XCTAssertNotEqual(record.refusedField, "entries[0]", record.reason ?? "")
+        #else
+        XCTAssertEqual(run.status, ExecutorExitCode.refused, run.stderr)
+        XCTAssertEqual(record.outcome, .refused)
+        XCTAssertEqual(record.refusedField, "entries[0]")
+        XCTAssertEqual(
+            record.reason,
+            "The executor could not read its own binary to check it against the plan's executor entry. Start the executor "
+                + "by its path, since a launch by bare name has no path to check. No tool ran."
+        )
+        XCTAssertEqual(record.steps, [])
+        XCTAssertFalse(fixture.exists("out/R1.fastq"))
+        #endif
     }
 
     func testPlanStepFailureWritesFailedRecord() throws {

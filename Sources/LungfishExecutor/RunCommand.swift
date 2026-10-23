@@ -232,9 +232,16 @@ enum RunCommand {
         let executorIndex = plan.entries.firstIndex { $0.role == .executor } ?? 0
         let pinned = plan.entries[executorIndex]
         guard let running = RunFiles.runningExecutorDigest() else {
+            // Off Linux a launch by bare name is the usual cause, since argv[0] then holds no path (UX fix 5 of the K4
+            // part C review).
+            #if os(Linux)
+            let hint = ""
+            #else
+            let hint = " Start the executor by its path, since a launch by bare name has no path to check."
+            #endif
             throw RunRefusal(
                 field: "entries[\(executorIndex)]",
-                reason: "The executor could not read its own binary to check it against the plan's executor entry. No tool ran."
+                reason: "The executor could not read its own binary to check it against the plan's executor entry.\(hint) No tool ran."
             )
         }
         record.executor.sha256 = running.sha256
