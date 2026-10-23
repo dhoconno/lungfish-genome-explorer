@@ -1,7 +1,7 @@
 # CHTC preprocessing study, panel decisions (2026-10-21)
 
 This record holds the panel's decisions on running Lungfish Genome Explorer (LGE) FASTQ preprocessing recipes on CHTC
-HTCondor execute nodes. It is a design study, and no code has been written. The briefs, the six inventories
+HTCondor execute nodes. It began as a design study. The program's code landed on branch `chtc-program` and reached `main` with C3 on 2026-10-23. The briefs, the six inventories
 `inv/<FIELD>.md` and the six memos `memos/<FIELD>.md` are kept in
 `~/Documents/lungfish-branch-archive/chtc-preprocessing-study-2026-10-21/` on the owner's laptop, with the published
 report. Code facts in them cite `path:line` at `ab548cd878a51c7c3643538700dc293ba3a5061a`, plus the four import commits
@@ -419,7 +419,7 @@ still unobserved.
 ## C3 progress (2026-10-22)
 
 The lanes are K0 to K5 of the inventory, run as `lge-worker` agents and reviewed by the seats the tally names. The state
-below is the manager's STATE block of 17:35 CDT. K0 is the only C3 lane on the program branch so far.
+below is the manager's STATE block of 17:35 CDT on 2026-10-22, and the section K4 and the close of C3 below supersedes it. K0 is the only C3 lane on the program branch so far.
 
 | Lane | What it does | State |
 |---|---|---|
@@ -431,32 +431,91 @@ below is the manager's STATE block of 17:35 CDT. K0 is the only C3 lane on the p
 | K4 | The plan, the run record and the parity tests | Not started. OQ-8, the OQ-9 vote and UX's N7 ruling for C4 are open |
 | K6 | The statistics builder that both the Mac import and the adopt call | Proposed by ARCH, not started |
 
-## Open questions that remain (2026-10-22)
+## Owner answers of 2026-10-23
 
-Q4, Q10, Q11, Q12, Q-C3-3 and Q-C3-4 are answered (O14 to O21), so these four remain. The lanes also hold open items that
-are not the owner's, such as OQ-8, the OQ-9 vote and the N7 ruling.
+Session 3 ran on the owner's laptop on 2026-10-23, after the owner tried to continue the program on the Mac Studio and
+found the program branch and its records only on the laptop.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O28 | Q-C3-11, the retirement time of group jobs on the group's own slots | "We still have a 72 hour limit on oconnor machines" | The bound that C4-06 checks is 72 hours on the `oconnor` machines. The CHTC seat found that no C4 condition changes |
+| O29 | Q5 first part, may LGE submit over a reused SSH session | "its fine to reuse SSH connections" | The C4 lane may submit, read the job log and fetch outputs over one reused SSH session. The Globus and quota parts of Q5 stay open |
+| O30 | The session's scope | "Finish this work, merge, and push so I can continue building the next phase on the Mac Studio." | Session 3 finishes C3 with K4, records it, merges the program into `main` and pushes. C4 and C5 run on the Mac Studio |
+
+## C3 round 3 (2026-10-23)
+
+Six memos (`c3/memos/<FIELD>-r3.md`, Opus 5.5 at effort xhigh, the CHTC seat as `general-purpose`) voted three questions
+and gave the field rulings the K4 brief needed. The manager's tally is `c3/votes/tally-r3.md`.
+
+| Id | Decision | Vote |
+|---|---|---|
+| K1.3-A | A. Tally row K1.3 is amended as SWIFT's ruling 1 of the K3B review reads. A reader's pipe is made with `pipe()`, marked close-on-exec and handed to its child under the one spawn lock, since macOS declares `pipe2` only from version 27. CHTC's condition is one spawn lock per process | 4 to 0, BIO and UX abstained |
+| XC-14 | A. The V15 comparison of record lines lives in C4 only. K4's parity test compares E0 to E3, reports E4, and checks that the run record's counts equal its own payload's | 6 to 0 |
+| OQ-9 | A. V5 holds. A per-sample `request_disk` is a submit-side sample-sheet value that never reaches `plan.json`, an argv or the child environment. Any other size-derived submit value needs its own decision (ARCH) | 3 to 3, the tie went to A, the smaller change |
+
+| Id | Ruling | By |
+|---|---|---|
+| OQ-8, first half | With `auto` requested, the plan's clumping entry stores `auto`, the resolved `bbtools` and the source `default`. A named tool takes `option` | ARCH |
+| Placements | Plan types, the image tool manifest and `PlanResourceResolver` in `Sources/LungfishPortable/Plan/`, run record types in `Sources/LungfishPortable/RunRecord/`, the emitter in `Sources/LungfishWorkflow/ExecutorPlan/`, `run --plan` in `Sources/LungfishExecutor/`, format pages `docs/formats/executor-run-record.md` and `docs/formats/executor-plan.md`, the record written last as `run-record.json` | ARCH |
+| OQ-8, second half | K4's N2 set is four tests, N2-T1 to N2-T4, and the fill tests move to C4 | QA |
+| OQ-4 for K4 | The plan's clumping reason is "The automatic clumping choice names BBTools clumpify for every sample, at the plan's heap and with no size estimate, because clumpify's groups=auto compares its memory estimate for each input with the memory available in that heap and splits a large input into more groups." | UX |
+| Q-K4-1 | `/opt/lungfish/image-manifest.json` stays the compiled-in path, and `run --plan` gains `--image-manifest <absolute file>`. The plan pins the manifest's digest and size with no path, and the record states the digest, size and source (`image` or `argument`) | SWIFT, ARCH consulted |
+| Parity | `testVSP2PlanReplayMatchesInProcessImport` runs the merged recipe as VSP2 with rRNA removal off and as wastewater with rRNA removal on, on the 1,000,000-pair slice pinned by SHA-256, at threads 1 with bbtools, a 4 GB heap, `illumina4` and `bgzip` | BIO |
+| Q-K4-2 | Refused, a third function in the C target. Swift's Musl module imports `posix_spawn_file_actions_addchdir_np`, so the executor calls it directly (`c3/rulings/ARCH-K4.md`) | ARCH |
+| Q-K4-3 | A step's `PATH` is the manifest's tool folders in manifest order, then a fixed `/usr/bin:/bin`, with nothing inherited. Java comes only from the manifest. The record states the search path and the runtimes (`c3/rulings/SWIFT-K4.md`) | SWIFT |
+| QK2 | Moved to the first C4 lane that touches `ExecutorSpawn.swift`. QA asked that the spawn rule be made structural. The vote's condition, one spawn lock per process, is met | The manager |
+
+## K4 and the close of C3 (2026-10-23)
+
+K4 ran as milestones of one `lge-worker` each (Opus 5.5 at effort xhigh, fixes at effort max), with two in parallel where
+their files did not overlap. The manager merged each pair, and two rounds of four reviews (SWIFT, ARCH, BIO and QA, Sonnet
+5.5 at effort max) read the work. The reports are `c3/lanes/K4/` and the reviews `c3/reviews/K4A-*.md` and `K4B-*.md`.
+
+| Part | What it does |
+|---|---|
+| M1 | Moves `ImportSettingSource` into `LungfishPortable` by a pure move and adds `plan`. Adds the plan types and decoder, `PlanResourceResolver`, the run record types and the image tool manifest with its `conda-meta` builder |
+| M2 | Adds the plan emitter and folder writer from the engine's own steps, the N2 tests, and plan forms for the deacon scrub, the deacon rRNA filter, the length filter and a named Trim Galore |
+| M3 | Adds `lungfish-executor run --plan` with its self-check, manifest read, preflight, site facts, refusals, stderr tail and exit codes |
+| M4 and M4b | Run the storage step on every route, the merged-to-mixed step and the full passes (record count, the exact Q20 and Q30 counts, `seqkit stats -a -T`), and write the two format pages |
+| M5 | Adds `lungfish-executor image-manifest`, the plan replay parity test and the CHTC job |
+| Fixes | 28 numbered fixes of part A, 23 of part B and 22 of part C (the last round added UX for the words), among them a NUL byte past the resolver's path check, symlinks staged by the folder writer, overflow in heap and deadline values, an unpinned `gzip`, a lost deadline reason, an abort when stderr is closed, and the child `PATH` of Q-K4-3 |
+
+The results that close C3, each on the composed head of K4.
+
+| Check | Result |
+|---|---|
+| The Mac replay, `testVSP2PlanReplayMatchesInProcessImport` | Both cases pass on the 1,000,000-pair slice with the real tools and a scratch storage root. E0 to E3 are equal, and E4 is equal in stored order. The VSP2 case keeps 950,309 records (153,874,043 bases, 100,191 pairs and 749,927 merged reads) in 79.0 s in process and 72.6 s replayed. The wastewater case keeps 196,598 records in 45.9 s and 41.7 s. Clumpify made 1 group on both routes |
+| CHTC job 1, cluster 592725 | `lungfish-executor image-manifest` ran on `e2469` (AlmaLinux 10, Apptainer 1.5.4, HTCondor 26.1.0) in the C0 image and listed 520 tools, manifest SHA-256 `4b0c0fd1...2b54`. The panhuman index on `/staging`, hashed on the node, equals the plan's pin `a1577a10...71e6` |
+| CHTC job 2, cluster 592726 | `lungfish-executor run --plan` ran the VSP2 case on `e2613` (CentOS Stream 9, `x86_64-v3`) in 188 s with binary `f5e36c51...b882b`. Its record count (950,309), Q20 (151,987,498) and Q30 (145,075,205) counts, every recipe step's read counts and the E2 and E3 digests equal the Mac replay of the same plan, and the decompressed streams are byte-identical (E4) |
+| Golden compare | Passes at `cd3345e4a` (cli-help 321 files, mapping 9, classifiers 24, genotype 133) |
+| Gates | All 14 ratchets at or below their baselines, the module map current, and the Linux tier passing, as the landing record states |
+
+Moved out of K4 into C4 or later, each with its reason in `c3/lanes/K4/`:
+
+- QK2, the spawn rule made structural (the manager's decision above).
+- The CHTC job script's check for `dirname`, `basename` and `readlink`, which C4's submit template carries.
+- The plan folder writer copies the executor and each database into every sample's folder (ARCH's note on the 3.3 GB index on an external volume).
+- `testClumpifySplitsIntoGroupsUnderPlanHeap` on real data, replaced in K4 by QA's N2-T4 with an injected launcher.
+- RiboDetector, an unfused fastp, the interleaved-to-paired conversion and the storage route `none` for two files or a gzip input without binning, which the plan writer refuses with a named error.
+
+## Open questions that remain (2026-10-23)
 
 | Id | Question | Who answers |
 |---|---|---|
-| Q5 | May LGE submit over a reused SSH session, does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? | CHTC staff, asked by the owner |
-| Q-C3-11 | Do the 30 s and 0 s `MaxJobRetirementTime` values on owned slots apply to guest jobs only, and does the group's own `oconnor` hardware give group jobs the 72 h retirement? The answer sets how often a batch is vacated and retried and does not change the design | CHTC staff, asked by the owner, and it may join Q5 |
-| MO-S1 | The Mac's own `auto` skips clumping above half the heap, though `groups=auto` keeps such an input in the heap. Making the Mac follow the plan's rule changes the stored bytes of large Mac imports, so C3 changes no Mac resolution | The owner, after C3 |
-| MO-B2 | Clumpify fixes `zl=4`, and the bgzip and pigz steps pass no level, so the user's level takes effect only on the `reformat.sh` and Trim Galore routes. Should clumpify follow the user's level? That changes compressed bytes. C4's effective-level field makes the record true meanwhile | The owner, after C3 |
+| Q5 | Does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? | CHTC staff, asked by the owner |
+| MO-S1 | Should the Mac's own `auto` follow the plan's rule? It changes the stored bytes of large Mac imports | The owner |
+| MO-B2 | Should clumpify follow the user's compression level? It changes compressed bytes | The owner |
+| OQ-1, OQ-2, OQ-5, OQ-6 | The Provenance tab's runtime lines (N7), ARCH's concurrence with QA's QC18 text, the label for `siteFacts`, and the V15 list's conflicts XC-1 to XC-13 | The panel, before the C4 brief |
 
 ## Next step
 
-C2 is complete and C3 is in progress. The program branch `chtc-program` is at
-`beec05eea45a0a53fc8aed634c43ca346758bebe`, 120 commits past `8190b9000` and not pushed. Session 2 started at 07:00 CDT on
-2026-10-22 with the weekly quota at 0%, the account changed mid-session, and the quota read 15% at 16:25 CDT. The manager's
-state is the STATE block of `c2/notes.md` and `c2/state-s2.md` in `~/lungfish-phase-records/chtc-program/`, beside the older
-handoff `CONTINUE.md`.
+C3 is complete, and the program is merged into `main`. C4 (the CHTC runner and the adopt) and C5 (batches and the lab's
+commands) run on the Mac Studio, one sub-phase per session. The handoff is `CONTINUE.md` in
+`~/lungfish-phase-records/chtc-program/`, copied to the Mac Studio with the whole records folder.
 
 | Step | Work |
 |---|---|
-| 1 | Review K1 when continuation 2 lands, then land K1, K3 and K5 as landing 8 |
-| 2 | Continue K3 with the pigz child over K1's seam (K3.1 and K3.2) |
-| 3 | Run K2, the storage step with the Trim Galore route, with the N3 words of BIO's ruling, ARCH's conditions of round 2 and UX's words of round 2 |
-| 4 | Run K4, the plan, the run record and the parity tests, once OQ-8, the OQ-9 vote and UX's N7 ruling for C4 are settled |
-| 5 | Ask CHTC staff Q5 and Q-C3-11 through the owner, and ask the owner MO-S1 and MO-B2 after C3 |
-| 6 | Finish what the GUI walk left open, which is the sheet's Tab order, the labels of its four pop-ups in Accessibility Inspector, and the ONT barcode recipe pop-up with an ONT run folder |
-| 7 | Merge the program into `main` after 2.13 lands |
+| 1 | Settle OQ-1, OQ-2, OQ-5 and OQ-6 and write the C4 brief from `c3/votes/tally-r2.md` section 4.6 and the Moved out rows above |
+| 2 | C4 lanes: plan template and fill, the Apptainer image with `/opt/lungfish/image-manifest.json` built by `lungfish-executor image-manifest`, the submit file and DAG, status from the job event log, the adopt mode of `import fastq`, and QK2 |
+| 3 | One C079876 sample run on CHTC and adopted, equal at E0 to E3 |
+| 4 | C5, a batch of 32748, then a wastewater batch, the lab's commands, plain FASTQ with `samples.tsv` |
