@@ -39,6 +39,17 @@ package struct ExecutorPlanSourceFile: Sendable, Equatable {
     }
 }
 
+/// A database index file the plan folder will hold, with the identity its `database` entry carries.
+package struct ExecutorPlanDatabaseFile: Sendable, Equatable {
+    package var file: ExecutorPlanSourceFile
+    package var identity: PlanDatabaseIdentity
+
+    package init(file: ExecutorPlanSourceFile, identity: PlanDatabaseIdentity) {
+        self.file = file
+        self.identity = identity
+    }
+}
+
 /// The storage values the user's import settled, before the plan writer fixes the clumping tool.
 package struct ExecutorPlanStorageRequest: Sendable, Equatable {
     package var requestedClumpingTool: ClumpingTool
@@ -105,13 +116,17 @@ package struct ExecutorPlanRequest: Sendable {
     package var imageManifest: PlanImageManifestPin
     package var imageTools: [PlanToolPin]
     package var deadlines: ExecutorPlanDeadlines
+    /// Each database a recipe step reads, by the step's database id, such as the Deacon panhuman and ribokmers indexes.
+    package var databases: [String: ExecutorPlanDatabaseFile]
 
     package init(
         sample: PlanSampleValues, inputs: [ExecutorPlanSourceFile], inputFormat: RecipeFileFormat,
         recipe: PlanRecipeIdentity?, recipeFile: ExecutorPlanSourceFile?, plannedSteps: [PlannedStep],
         storage: ExecutorPlanStorageRequest, executorFile: ExecutorPlanSourceFile, executorBuild: PlanExecutorBuild,
-        imageManifest: PlanImageManifestPin, imageTools: [PlanToolPin], deadlines: ExecutorPlanDeadlines
+        imageManifest: PlanImageManifestPin, imageTools: [PlanToolPin], deadlines: ExecutorPlanDeadlines,
+        databases: [String: ExecutorPlanDatabaseFile] = [:]
     ) {
+        self.databases = databases
         self.sample = sample
         self.inputs = inputs
         self.inputFormat = inputFormat
@@ -152,8 +167,6 @@ package struct ExecutorPlanEmission: Sendable {
 package enum ExecutorPlanEmitter {
     /// UX's round 3 sentence, the reason of every automatic clumping choice, never composed per sample.
     package static let automaticClumpingReason = "The automatic clumping choice names BBTools clumpify for every sample, at the plan's heap and with no size estimate, because clumpify's groups=auto compares its memory estimate for each input with the memory available in that heap and splits a large input into more groups."
-    /// Tally K4.9, refused before any plan or batch.
-    package static let trimGaloreRefusal = "Trim Galore storage does not run on CHTC yet. Choose Automatic, BBTools clumpify or Skip for a run on CHTC."
     /// The stem of every work file, so the plans of two samples differ only in their sample values and digests.
     package static let workStem = "sample"
     package static let executorPath = "bin/lungfish-executor"
@@ -163,7 +176,8 @@ package enum ExecutorPlanEmitter {
     static let workspace = root.appendingPathComponent("work", isDirectory: true)
 
     /// The clumping entry. `auto` names `bbtools` at the plan's heap with no estimate and source `default`. A named
-    /// `bbtools` or `none` goes through the Mac's own `ClumpingTool.resolve` at the pinned heap, source `option`.
+    /// `bbtools`, `trim-galore` or `none` goes through the Mac's own `ClumpingTool.resolve` at the pinned heap, source
+    /// `option`, and Trim Galore's entry carries the notice the local import logs before its storage step (ARCH A5).
     package static func clumpingChoice(
         requested: ClumpingTool, heapGB: Int, host: ExecutorPlanHostFacts
     ) throws -> PlanClumpingChoice {
@@ -173,9 +187,7 @@ package enum ExecutorPlanEmitter {
                 requested: .auto, resolved: .bbtools, resolvedSource: .default,
                 heapBytes: Int64(heapGB) * 1_073_741_824, reason: automaticClumpingReason
             )
-        case .trimGalore:
-            throw ExecutorPlanError(field: "storage.clumpingTool", reason: trimGaloreRefusal)
-        case .bbtools, .none:
+        case .bbtools, .trimGalore, .none:
             // A named tool reads no estimate, so 0 decides nothing and the plan carries none of it.
             let resolution = requested.resolve(
                 estimatedInputBytes: 0, physicalMemoryBytes: host.physicalMemoryBytes, pinnedHeapGB: heapGB
@@ -186,7 +198,8 @@ package enum ExecutorPlanEmitter {
             }
             return PlanClumpingChoice(
                 requested: request, resolved: resolved, resolvedSource: .option,
-                heapBytes: resolution.clumpifyHeapBytes, reason: resolution.reason
+                heapBytes: resolution.clumpifyHeapBytes, reason: resolution.reason,
+                operationNotice: resolution.resolved.operationNotice
             )
         }
     }
@@ -222,22 +235,41 @@ package enum ExecutorPlanEmitter {
         )
         var tools = ToolPins(available: request.imageTools)
         var steps: [PlanStep] = []
+        var databaseURLs: [String: URL] = [:]
         for (index, planned) in request.plannedSteps.enumerated() {
-            let id = "recipe-\(index + 1)"
-            let built = try recipeStep(planned, id: id, input: current, threads: settings.threads)
-            let pin = try tools.pin(built.toolID, stepID: id)
-            steps.append(PlanStep(
-                id: id, title: built.title, kind: built.kind, tool: pin, arguments: built.arguments.map(relative),
-                deadlineSeconds: request.deadlines.recipeStepSeconds, inputs: files(of: current),
-                outputs: files(of: built.output) + built.auxiliary.map { relative($0.path) }
-            ))
+            if case .singleStep(let executor, _) = planned, let plannable = executor as? any RecipePlannableStep {
+                for databaseID in plannable.plannedDatabaseIDs where databaseURLs[databaseID] == nil {
+                    guard let database = request.databases[databaseID] else {
+                        throw ExecutorPlanError(field: "entries", reason: "The recipe step \(type(of: executor).typeID) reads the database \(databaseID), which the plan request does not hold.")
+                    }
+                    let path = "databases/\(databaseID)/\(database.file.url.lastPathComponent)"
+                    entries.append(PlanEntry(role: .database, relativePath: path, sha256: database.file.sha256,
+                                             size: database.file.size, database: database.identity))
+                    sources[path] = database.file.url
+                    databaseURLs[databaseID] = root.appendingPathComponent(path)
+                }
+            }
+            let built = try recipeStep(planned, input: current, threads: settings.threads, databases: databaseURLs)
+            for (runIndex, run) in built.runs.enumerated() {
+                // A step with a second process (the length filter's pair pass) gets one plan step per process, as
+                // the in-process run gets one record per process.
+                let id = runIndex == 0 ? "recipe-\(index + 1)" : "recipe-\(index + 1)-\(runIndex + 1)"
+                steps.append(PlanStep(
+                    id: id, title: run.title, kind: run.kind, tool: try tools.pin(run.toolID, stepID: id),
+                    arguments: run.arguments.map(relative), deadlineSeconds: request.deadlines.recipeStepSeconds,
+                    inputs: run.inputs, outputs: run.outputs
+                ))
+            }
             current = built.output
         }
         let storageTool: String
         switch clumping.resolved {
         case .bbtools: storageTool = NativeTool.clumpify.executableName
         case .none: storageTool = settings.qualityBinning == .none ? settings.compressor.rawValue : NativeTool.reformat.executableName
-        case .trimGalore: throw ExecutorPlanError(field: "storage.clumpingTool", reason: trimGaloreRefusal)
+        case .trimGalore:
+            storageTool = NativeTool.trimGalore.executableName
+            // The Trim Galore route interleaves a paired output with reformat.sh (PortableStorageStep+TrimGalore).
+            _ = try tools.pin(NativeTool.reformat.executableName, stepID: "storage")
         }
         let heapOption = PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx\(settings.clumpifyHeapGB)g")
         // The executor builds the storage argv on the node through PortableStorageStep, the builder the Mac uses,
@@ -250,7 +282,9 @@ package enum ExecutorPlanEmitter {
         steps.append(PlanStep(
             id: "statistics", title: "Compute statistics", kind: .statistics,
             tool: try tools.pin(NativeTool.seqkit.executableName, stepID: "statistics"),
-            arguments: ["stats", "-a", "-T", "-j", "\(settings.statisticsThreads)", payloadPath],
+            // The Mac's own call, `FASTQBatchImporter.computeAndCacheStatistics`, passes no `-j`, so neither does the
+            // plan, and seqkit's own default starts one worker for the one file.
+            arguments: ["stats", "-a", "-T", payloadPath],
             deadlineSeconds: request.deadlines.statisticsSeconds, inputs: [payloadPath], outputs: [],
             standardOutput: statisticsPath
         ))
@@ -275,24 +309,59 @@ package enum ExecutorPlanEmitter {
         return ExecutorPlanEmission(plan: plan, sources: sources)
     }
 
-    private struct BuiltStep {
+    /// One process of a recipe step, as one plan step.
+    private struct BuiltRun {
         var title: String
         var kind: PlanStepKind
         var toolID: String
         var arguments: [String]
-        var output: StepInput
-        var auxiliary: [URL] = []
+        /// Paths relative to the work root.
+        var inputs: [String]
+        /// The reads it leaves, then its reports, relative to the work root.
+        var outputs: [String]
+
+        init(title: String, kind: PlanStepKind, toolID: String, arguments: [String], input: StepInput,
+             output: StepInput, auxiliary: [URL] = []) {
+            self.init(title: title, kind: kind, toolID: toolID, arguments: arguments,
+                      inputs: ExecutorPlanEmitter.files(of: input),
+                      outputs: ExecutorPlanEmitter.files(of: output) + auxiliary.map { ExecutorPlanEmitter.relative($0.path) })
+        }
+
+        init(title: String, kind: PlanStepKind, toolID: String, arguments: [String], inputs: [String], outputs: [String]) {
+            self.title = title
+            self.kind = kind
+            self.toolID = toolID
+            self.arguments = arguments
+            self.inputs = inputs
+            self.outputs = outputs
+        }
     }
 
-    private static func recipeStep(_ planned: PlannedStep, id: String, input: StepInput, threads: Int) throws -> BuiltStep {
+    private struct BuiltStep {
+        var runs: [BuiltRun]
+        var output: StepInput
+    }
+
+    private static func recipeStep(
+        _ planned: PlannedStep, input: StepInput, threads: Int, databases: [String: URL]
+    ) throws -> BuiltStep {
         switch planned {
         case .singleStep(let executor, let label):
             guard let plannable = executor as? any RecipePlannableStep else {
                 throw ExecutorPlanError(field: "steps", reason: "The recipe step \(type(of: executor).typeID) has no plan form yet, so this recipe cannot run from a plan.")
             }
-            let run = try plannable.plannedInvocation(input: input, workspace: workspace, sampleName: workStem, threads: threads)
-            return BuiltStep(title: label, kind: .recipe, toolID: run.tool.executableName, arguments: run.arguments,
-                             output: run.output, auxiliary: run.auxiliaryOutputs)
+            let run = try plannable.plannedRun(
+                input: input, workspace: workspace, sampleName: workStem, threads: threads, databases: databases
+            )
+            let runs = run.invocations.map { invocation in
+                BuiltRun(
+                    title: invocation.label.map { "\(label) (\($0))" } ?? label, kind: .recipe,
+                    toolID: invocation.tool.executableName, arguments: invocation.arguments,
+                    inputs: invocation.inputs.map { relative($0.path) },
+                    outputs: files(of: invocation.output) + invocation.auxiliaryOutputs.map { relative($0.path) }
+                )
+            }
+            return BuiltStep(runs: runs, output: run.output)
         case .fusedFastp(let extraArgs, _, let label, _):
             guard let r2 = input.r2 else {
                 throw RecipeEngineError.formatMismatch(expected: .pairedR1R2, got: input.format, step: "fused-fastp")
@@ -302,24 +371,30 @@ package enum ExecutorPlanEmitter {
             let arguments = RecipeEngine.fusedFastpArguments(
                 extraArgs: extraArgs, r1: input.r1, r2: r2, outR1: outR1, outR2: outR2, report: report, threads: threads
             )
-            return BuiltStep(title: label, kind: .recipe, toolID: NativeTool.fastp.executableName, arguments: arguments,
-                             output: StepInput(r1: outR1, r2: outR2, format: .pairedR1R2), auxiliary: [report])
+            let output = StepInput(r1: outR1, r2: outR2, format: .pairedR1R2)
+            return BuiltStep(runs: [BuiltRun(
+                title: label, kind: .recipe, toolID: NativeTool.fastp.executableName, arguments: arguments,
+                input: input, output: output, auxiliary: [report]
+            )], output: output)
         case .formatConversion(.pairedR1R2, .interleaved):
             guard let r2 = input.r2 else {
                 throw RecipeEngineError.formatMismatch(expected: .pairedR1R2, got: input.format, step: "format-conversion")
             }
-            let output = RecipeEngine.interleavedOutput(workspace: workspace, sampleName: workStem)
-            return BuiltStep(
+            let file = RecipeEngine.interleavedOutput(workspace: workspace, sampleName: workStem)
+            let output = StepInput(r1: file, format: .interleaved)
+            return BuiltStep(runs: [BuiltRun(
                 title: "Format conversion (pairedR1R2 → interleaved)", kind: .interleave,
                 toolID: NativeTool.reformat.executableName,
-                arguments: RecipeEngine.pairedToInterleavedArguments(r1: input.r1, r2: r2, output: output, threads: threads),
-                output: StepInput(r1: output, format: .interleaved)
-            )
+                arguments: RecipeEngine.pairedToInterleavedArguments(r1: input.r1, r2: r2, output: file, threads: threads),
+                input: input, output: output
+            )], output: output)
         case .formatConversion(.merged, .mixed):
             // The executor writes the mixed file with PortableMixedLayout, which reads each input through `gzip -dc`.
-            let output = RecipeEngine.mixedOutput(workspace: workspace, sampleName: workStem)
-            return BuiltStep(title: "Format conversion (merged → mixed)", kind: .interleave, toolID: "gzip",
-                             arguments: [], output: StepInput(r1: output, format: .mixed))
+            let output = StepInput(r1: RecipeEngine.mixedOutput(workspace: workspace, sampleName: workStem), format: .mixed)
+            return BuiltStep(runs: [BuiltRun(
+                title: "Format conversion (merged → mixed)", kind: .interleave, toolID: "gzip", arguments: [],
+                input: input, output: output
+            )], output: output)
         case .formatConversion(let from, let to):
             throw ExecutorPlanError(field: "steps", reason: "The conversion from \(from.rawValue) to \(to.rawValue) has no plan form yet, so this recipe cannot run from a plan.")
         }

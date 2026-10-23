@@ -145,26 +145,17 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
         input: StepInput,
         context: StepContext
     ) async throws -> StepOutput {
-        let suffix = input.format == .merged ? "_lengthfilter_merged" : "_lengthfilter"
-        let output = context.workspace.appendingPathComponent(
-            "\(context.sampleName)\(suffix).fq.gz")
-
-        var args = [
-            "seq",
-            "-j", "\(context.threads)",
-            "-m", "\(minLength)",
-        ]
-
-        if let max = maxLength {
-            args += ["-M", "\(max)"]
-        }
-
-        args += [source.path, "-o", output.path]
+        // The argv an executor plan names too (RecipePlannedInvocation.swift).
+        let invocation = singleStreamInvocation(
+            source, inputFormat: input.format, workspace: context.workspace, sampleName: context.sampleName,
+            threads: context.threads
+        )
+        let output = invocation.output.r1
 
         let seqkitClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .seqkit,
-            arguments: args,
+            arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .seqkit, inputURLs: [source])
         )
         let completedAt = seqkitClock.now
@@ -222,20 +213,21 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
     ) async throws -> (
         r1: URL, r2: URL, invocation: RecipeSupplementaryInvocation, counts: (input: Int, output: Int)?
     ) {
-        let prefix = input.format == .merged ? "_lengthfilter_unmerged" : "_lengthfilter"
-        let outR1 = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_R1.fq.gz")
-        let outR2 = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_R2.fq.gz")
-        let report = context.workspace.appendingPathComponent("\(context.sampleName)\(prefix)_fastp_report.json")
-
-        let args = Self.fastpPairArguments(
-            r1: r1, r2: r2, outR1: outR1, outR2: outR2, report: report,
-            minLength: minLength, maxLength: maxLength, threads: context.threads
+        // The argv an executor plan names too (RecipePlannedInvocation.swift).
+        let planned = pairInvocation(
+            r1: r1, r2: r2, inputFormat: input.format, workspace: context.workspace, sampleName: context.sampleName,
+            threads: context.threads, label: label
         )
+        let outR1 = planned.output.r1
+        guard let outR2 = planned.output.r2 else {
+            throw RecipeEngineError.formatMismatch(expected: .pairedR1R2, got: planned.output.format, step: Self.typeID)
+        }
+        let report = planned.auxiliaryOutputs[0]
 
         let fastpClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .fastp,
-            arguments: args,
+            arguments: planned.arguments,
             timeout: context.recipeToolTimeout(for: .fastp, inputURLs: [r1, r2])
         )
         let completedAt = fastpClock.now
