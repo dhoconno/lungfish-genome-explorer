@@ -432,6 +432,9 @@ package enum ExecutorPlanEmitter {
                 throw ExecutorPlanError(field: "tools", reason: "The image's tool manifest lists no \(id), which step \(stepID) runs.")
             }
             if !used.contains(pin) { used.append(pin) }
+            // A BBTools wrapper finds its Java through PATH, so the plan pins the manifest's java beside it, and an image
+            // with none is refused before a plan is written (SWIFT Q-K4-3).
+            if id.hasSuffix(".sh") { _ = try self.pin("java", stepID: stepID) }
             return pin
         }
 

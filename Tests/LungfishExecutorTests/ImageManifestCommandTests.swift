@@ -108,4 +108,51 @@ final class ImageManifestCommandTests: XCTestCase {
         XCTAssertEqual(ImageManifestCommand.parse(["--conda-prefix", "/a", "--conda-prefix", "/b", "--output", "/m.json"]),
                        .success(ImageManifestCommand.Options(condaPrefixes: ["/a", "/b"], output: "/m.json")))
     }
+
+    /// An `openjdk` environment whose one package record lists `files`, each an executable script.
+    private func makeJavaPrefix(_ files: [String]) throws -> String {
+        let prefix = "\(folder)/jdk"
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: "\(prefix)/conda-meta", withIntermediateDirectories: true)
+        let list = files.map { "\"\($0)\"" }.joined(separator: ",")
+        try Data("{\"name\":\"openjdk\",\"version\":\"25.0.2\",\"build\":\"h1602c4f_26\",\"files\":[\(list)]}".utf8)
+            .write(to: URL(fileURLWithPath: "\(prefix)/conda-meta/openjdk-25.0.2-h1602c4f_26.json"))
+        for file in files {
+            let path = "\(prefix)/\(file)"
+            try manager.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try Data("#!/bin/sh\necho java\n".utf8).write(to: URL(fileURLWithPath: path))
+            try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        }
+        return prefix
+    }
+
+    /// Runs the mode on `prefix` and returns the manifest's tools, or nil on a host the builder knows no platform for.
+    private func manifestTools(of prefix: String, name: String) throws -> [ImageTool]? {
+        let output = "\(folder)/\(name).json"
+        let run = try runExecutor(["image-manifest", "--conda-prefix", prefix, "--output", output], name: name)
+        guard ImageToolPlatform.current != nil else {
+            XCTAssertEqual(run.code, ExecutorExitCode.refused)
+            return nil
+        }
+        XCTAssertEqual(run.code, ExecutorExitCode.succeeded, run.err)
+        return try ImageToolManifest.decode(Data(contentsOf: URL(fileURLWithPath: output))).tools
+    }
+
+    /// SWIFT ruling Q-K4-3: a prefix whose Java lives only under lib/jvm/bin, as in the Mac's bbtools environment, still
+    /// names its java, with that record's version and build, and no other lib/jvm/bin program.
+    func testJavaUnderLibJvmBinIsListedWhenBinHasNone() throws {
+        let prefix = try makeJavaPrefix(["lib/jvm/bin/java", "lib/jvm/bin/keytool"])
+        guard let tools = try manifestTools(of: prefix, name: "jvm") else { return }
+        XCTAssertEqual(tools, [ImageTool(id: "java", version: "25.0.2", build: "h1602c4f_26",
+                                         path: "\(prefix)/lib/jvm/bin/java", condaPackage: "openjdk")])
+    }
+
+    /// SWIFT ruling Q-K4-3: a prefix with both lists one java, the one in bin/, so a manifest such as Job 1's keeps its
+    /// bytes.
+    func testBinJavaWinsOverLibJvmJava() throws {
+        let prefix = try makeJavaPrefix(["bin/java", "lib/jvm/bin/java"])
+        guard let tools = try manifestTools(of: prefix, name: "both") else { return }
+        XCTAssertEqual(tools, [ImageTool(id: "java", version: "25.0.2", build: "h1602c4f_26",
+                                         path: "\(prefix)/bin/java", condaPackage: "openjdk")])
+    }
 }

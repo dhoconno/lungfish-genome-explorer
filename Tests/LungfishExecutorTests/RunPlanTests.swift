@@ -66,9 +66,18 @@ struct RunPlanFixture {
         return PlanToolPin(id: id, version: "1.0", build: "t0")
     }
 
-    /// Writes the tool manifest and returns its path and the pin a plan names it by.
+    /// Writes the tool manifest and returns its path and the pin a plan names it by. A manifest that lists a BBTools
+    /// wrapper (an id ending in `.sh`) also lists a `java` in tools/, as the image does, since `run --plan` refuses a
+    /// wrapper plan whose manifest names no Java (SWIFT ruling Q-K4-3). `tools` keeps its order.
     func writeManifest() throws -> (path: String, pin: PlanImageManifestPin) {
-        let data = try ImageToolManifest(platform: ImageToolPlatform.current ?? .linux64, tools: tools).encoded()
+        var listed = tools
+        if listed.contains(where: { $0.id.hasSuffix(".sh") }), !listed.contains(where: { $0.id == "java" }) {
+            let java = toolsFolder + "/java"
+            try Self.write("#!/bin/sh\necho 'openjdk 25.0.2'\n", to: java)
+            guard chmod(java, 0o755) == 0 else { throw ExecutorTestSupport.Failure(description: "cannot chmod \(java)") }
+            listed.append(ImageTool(id: "java", version: "25.0.2", build: "t0", path: java, condaPackage: "test-openjdk"))
+        }
+        let data = try ImageToolManifest(platform: ImageToolPlatform.current ?? .linux64, tools: listed).encoded()
         let path = toolsFolder + "/image-manifest.json"
         try data.write(to: URL(fileURLWithPath: path))
         return (path, PlanImageManifestPin(sha256: PortableDigest.sha256Hex(of: data), size: Int64(data.count)))
