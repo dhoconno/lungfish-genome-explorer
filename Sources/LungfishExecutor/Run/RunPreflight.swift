@@ -96,10 +96,9 @@ enum RunFiles {
         } catch {
             switch (error, source) {
             case (.missing, .image):
-                // SWIFT's draft until UX words it (tally-r3 Q-K4-1).
-                throw RunRefusal(field: field, reason: "No tool manifest at \(ImageToolManifest.imagePath). Outside a Lungfish image, pass --image-manifest with the manifest the plan pins.")
+                throw RunRefusal(field: field, reason: "The tool manifest is missing at \(ImageToolManifest.imagePath). Outside a Lungfish tool image, pass --image-manifest with the absolute path of the manifest the plan pins. No tool ran.")
             case (.missing, .argument):
-                throw RunRefusal(field: field, reason: "No tool manifest at the file --image-manifest names. Pass the manifest the plan pins. No tool ran.")
+                throw RunRefusal(field: field, reason: "The file that --image-manifest names is missing. Name the tool manifest the plan pins. No tool ran.")
             case (.tooLarge(let size), _):
                 throw RunRefusal(field: field, reason: "The tool manifest is \(size) bytes, over the limit of \(ImageToolManifest.maximumSize). No tool ran.")
             default:
