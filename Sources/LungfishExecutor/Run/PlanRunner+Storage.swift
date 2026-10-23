@@ -22,7 +22,7 @@ extension PlanRunner {
         let started = ContinuousClock.now
         let childLauncher = ExecutorChildLauncher(
             controller: controller, decompressor: prepared.decompressor ?? (tool.id == "gzip" ? tool.path : nil),
-            graceSeconds: prepared.plan.graceSeconds
+            allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
         )
         let launcher = ExecutorToolLauncher(
             stepID: step.id, tools: prepared.storageTools, manifestTools: prepared.manifest.tools, controller: controller,

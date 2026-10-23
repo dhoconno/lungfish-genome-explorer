@@ -20,7 +20,8 @@ struct PreparedRun {
     var tools: [String: ImageTool]
     /// The manifest's tool for each storage tool the plan pins (`PlanRunner.storageTools`).
     var storageTools: [PortableStorageTool: ImageTool] = [:]
-    /// The plan's pinned `gzip`, else `pigz`, which reads gzip input in place of `/usr/bin/gzip`.
+    /// The plan's pinned `gzip`, else `pigz`, else `bgzip`, which reads gzip input in place of `/usr/bin/gzip`. A plan
+    /// with a step the executor reads itself and none of the three is refused.
     var decompressor: String?
 }
 
@@ -296,9 +297,18 @@ enum RunCommand {
             guard let storageTool = PlanRunner.storageTools[pin.id], let tool = manifest.tool(matching: pin) else { continue }
             prepared.storageTools[storageTool] = tool
         }
-        prepared.decompressor = ["gzip", "pigz"].lazy.compactMap { id in
+        prepared.decompressor = ["gzip", "pigz", "bgzip"].lazy.compactMap { id in
             plan.tools.first { $0.id == id }.flatMap { manifest.tool(matching: $0) }?.path
         }.first
+        // A step the executor reads itself reads gzip files only through a program the plan pins, so the host's
+        // /usr/bin/gzip never runs (SWIFT fix 2 of the K4 part B review).
+        if prepared.decompressor == nil,
+           let reader = plan.steps.first(where: { $0.kind == .qualityCount || PlanRunner.runsOwnStep($0) }) {
+            throw RunRefusal(
+                field: "tools",
+                reason: "Step \(reader.id) reads gzip files, and the plan pins no gzip, pigz or bgzip to read them. No tool ran."
+            )
+        }
         return prepared
     }
 

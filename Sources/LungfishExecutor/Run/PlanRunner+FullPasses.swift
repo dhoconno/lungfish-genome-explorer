@@ -76,7 +76,8 @@ extension PlanRunner {
         )
         let started = ContinuousClock.now
         let launcher = ExecutorChildLauncher(
-            controller: controller, decompressor: prepared.decompressor, graceSeconds: prepared.plan.graceSeconds
+            controller: controller, decompressor: prepared.decompressor,
+            allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
         )
         do {
             guard step.inputs.count == 1, let input = step.inputs.first else {
