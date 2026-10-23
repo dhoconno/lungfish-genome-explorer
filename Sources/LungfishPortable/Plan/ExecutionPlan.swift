@@ -15,6 +15,10 @@ package struct ExecutionPlan: Codable, Sendable, Equatable {
     package static let currentSchemaVersion = 1
     /// The longest grace a plan may give a step between SIGTERM and SIGKILL (inventory section 4).
     package static let maximumGraceSeconds: Double = 120
+    /// The longest deadline a plan may give a step, one leap year, so the controller's millisecond count cannot trap.
+    package static let maximumDeadlineSeconds: Double = 31_622_400
+    /// The largest clumpify heap a plan may name, 64 TiB, so the heap in bytes cannot overflow.
+    package static let maximumClumpifyHeapGB = 65_536
 
     package var schemaVersion: Int
     package var entries: [PlanEntry]

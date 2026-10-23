@@ -99,4 +99,17 @@ final class PlanResourceResolverTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("new.tsv").path))
         XCTAssertThrowsError(try resolver.openOutput("../escape.tsv"))
     }
+
+    /// SWIFT fix 3 of the K4 part A review: `openat` reads a component `..\0x` as `..`, so the resolver refuses any path
+    /// that holds a NUL byte and creates nothing in the work root's parent.
+    func testResolverRefusesNulInPath() throws {
+        let root = try makeRoot()
+        let resolver = try PlanResourceResolver(workRoot: root.appendingPathComponent("work"))
+        XCTAssertNotNil(PlanResourceResolver.refusal(forRelativePath: "..\u{0}/x"))
+        XCTAssertNotNil(PlanResourceResolver.refusal(forRelativePath: "out/a\u{0}b.tsv"))
+        XCTAssertThrowsError(try resolver.openOutput("..\u{0}/victim.txt"))
+        XCTAssertThrowsError(try resolver.makeDirectory("..\u{0}/folder"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("victim.txt").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("folder").path))
+    }
 }

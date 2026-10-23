@@ -153,6 +153,9 @@ extension ExecutionPlan {
         guard storage.clumpifyHeapGB > 0 else {
             throw PlanDecodeError(field: "storage.clumpifyHeapGB", reason: "This plan names a clumpify heap of \(storage.clumpifyHeapGB) GB. A plan must name a positive heap, since no value may mean the host's memory.")
         }
+        guard storage.clumpifyHeapGB <= Self.maximumClumpifyHeapGB else {
+            throw PlanDecodeError(field: "storage.clumpifyHeapGB", reason: "This plan names a clumpify heap of \(storage.clumpifyHeapGB) GB. A plan names at most \(Self.maximumClumpifyHeapGB) GB.")
+        }
         guard (1...9).contains(storage.compressionLevel) else {
             throw PlanDecodeError(field: "storage.compressionLevel", reason: "This plan names compression level \(storage.compressionLevel). A plan names a level from 1 to 9.")
         }
@@ -174,7 +177,8 @@ extension ExecutionPlan {
         guard clumping.resolved == storage.clumpingTool else {
             throw PlanDecodeError(field: "clumping.resolved", reason: "This plan's clumping choice resolves to \(clumping.resolved.rawValue), and its storage names \(storage.clumpingTool.rawValue).")
         }
-        guard clumping.heapBytes == Int64(storage.clumpifyHeapGB) * 1_073_741_824 else {
+        let pinnedHeap = Int64(storage.clumpifyHeapGB).multipliedReportingOverflow(by: 1_073_741_824)
+        guard !pinnedHeap.overflow, clumping.heapBytes == pinnedHeap.partialValue else {
             throw PlanDecodeError(field: "clumping.heapBytes", reason: "This plan's clumping choice used a heap of \(clumping.heapBytes) bytes, and its storage pins \(storage.clumpifyHeapGB) GB.")
         }
         if clumping.requested != .auto, clumping.requested.rawValue != clumping.resolved.rawValue {
@@ -203,6 +207,9 @@ extension ExecutionPlan {
             guard step.deadlineSeconds.isFinite, step.deadlineSeconds > 0 else {
                 throw PlanDecodeError(field: "\(field).deadlineSeconds", reason: "Step \(step.id) has no positive deadline.")
             }
+            guard step.deadlineSeconds <= Self.maximumDeadlineSeconds else {
+                throw PlanDecodeError(field: "\(field).deadlineSeconds", reason: "Step \(step.id) has a deadline of \(step.deadlineSeconds) seconds. A plan's deadline is at most \(Int(Self.maximumDeadlineSeconds)) seconds, one leap year.")
+            }
             switch (step.kind, step.tool) {
             case (.qualityCount, nil):
                 break
@@ -217,6 +224,9 @@ extension ExecutionPlan {
                 }
             }
             try Self.validateEnvironment(step.environment, field: "\(field).environment", stepID: step.id)
+            for (position, argument) in step.arguments.enumerated() where argument.utf8.contains(0) {
+                throw PlanDecodeError(field: "\(field).arguments[\(position)]", reason: "Step \(step.id) has an argument that holds a NUL, which would end the argument a tool reads.")
+            }
             let paths = step.inputs.map { ("inputs", $0) } + step.outputs.map { ("outputs", $0) }
                 + (step.standardOutput.map { [("standardOutput", $0)] } ?? [])
             for (name, path) in paths {

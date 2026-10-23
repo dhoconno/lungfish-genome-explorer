@@ -188,4 +188,39 @@ final class ExecutionPlanTests: XCTestCase {
         longGrace.graceSeconds = 121
         assertRefused(try longGrace.encoded(), field: "graceSeconds")
     }
+
+    /// SWIFT fix 2 of the K4 part A review: a deadline or heap whose product would trap the controller or the decoder is
+    /// refused by its field, so the run ends with a named error and a record (tally K4.5).
+    func testPlanDecodeRefusesNumbersThatWouldTrap() throws {
+        var longDeadline = samplePlan()
+        longDeadline.steps[0].deadlineSeconds = 1e300
+        assertRefused(try longDeadline.encoded(), field: "steps[0].deadlineSeconds")
+        var leapYear = samplePlan()
+        leapYear.steps[0].deadlineSeconds = 31_622_400
+        XCTAssertNoThrow(try ExecutionPlan.decode(leapYear.encoded()))
+        leapYear.steps[0].deadlineSeconds = 31_622_401
+        assertRefused(try leapYear.encoded(), field: "steps[0].deadlineSeconds")
+
+        var atCap = samplePlan()
+        atCap.storage.clumpifyHeapGB = 65_536
+        atCap.clumping.heapBytes = 65_536 * 1_073_741_824
+        XCTAssertNoThrow(try ExecutionPlan.decode(atCap.encoded()))
+        atCap.storage.clumpifyHeapGB = 65_537
+        atCap.clumping.heapBytes = 65_537 * 1_073_741_824
+        assertRefused(try atCap.encoded(), field: "storage.clumpifyHeapGB")
+        var hugeHeap = samplePlan()
+        hugeHeap.storage.clumpifyHeapGB = 10_000_000_000
+        assertRefused(try hugeHeap.encoded(), field: "storage.clumpifyHeapGB")
+    }
+
+    /// SWIFT fix 3 of the K4 part A review: a NUL byte in a step path or argument is refused, since the C string a tool
+    /// or `openat` reads ends there, so `..\0/x` would name the parent folder.
+    func testPlanDecodeRefusesNulInStepPathOrArgument() throws {
+        var nulOutput = samplePlan()
+        nulOutput.steps[0].standardOutput = "..\u{0}/x"
+        assertRefused(try nulOutput.encoded(), field: "steps[0].standardOutput")
+        var nulArgument = samplePlan()
+        nulArgument.steps[0].arguments.append("out=out/reads.fastq.gz\u{0}--extra")
+        assertRefused(try nulArgument.encoded(), field: "steps[0].arguments[2]")
+    }
 }

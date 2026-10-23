@@ -88,11 +88,13 @@ package struct PlanResourceResolver: Sendable {
         workRoot = String(cString: real)
     }
 
-    /// The lexical rules of a plan path: relative, no empty, `.` or `..` component, and a first component that does not
-    /// begin with `-`. Nil when the path passes.
+    /// The lexical rules of a plan path: relative, no NUL byte, no empty, `.` or `..` component, and a first component
+    /// that does not begin with `-`. Nil when the path passes. `openat` reads a name only up to a NUL, so `..\0x` would
+    /// name `..`, and a path that holds one is refused with the `..` words.
     package static func refusal(forRelativePath path: String) -> PlanResourceRefusal? {
         guard !path.isEmpty else { return .emptyPath }
         guard !path.hasPrefix("/") else { return .absolutePath(path) }
+        if path.utf8.contains(0) { return .dotComponent(path) }
         let components = path.split(separator: "/", omittingEmptySubsequences: false)
         if components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) { return .dotComponent(path) }
         if components[0].hasPrefix("-") { return .leadingDash(path) }
@@ -137,11 +139,22 @@ package struct PlanResourceResolver: Sendable {
         let directory = try openDirectoryWalk(components.dropLast(), path: relativePath)
         defer { close(directory) }
         let name = components[components.count - 1]
-        let fd = openat(directory, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        var fd = openat(directory, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0o644)
         guard fd >= 0 else {
             let code = errno
             if code == ELOOP { throw PlanResourceRefusal.linkInOutputPath(path: relativePath, component: name) }
             throw PlanResourceRefusal.systemError(path: relativePath, operation: "create", code: code)
+        }
+        // A descriptor on 0, 1 or 2 keeps close-on-exec through the spawn's dup2 onto the same number, so the tool's
+        // output would close at exec. It moves above 2, as K3's ExecutorSpawn.openDescriptor does (SWIFT review fix 6).
+        if fd < 3 {
+            let moved = fcntl(fd, F_DUPFD_CLOEXEC, 3)
+            let code = errno
+            close(fd)
+            guard moved >= 0 else {
+                throw PlanResourceRefusal.systemError(path: relativePath, operation: "move the descriptor of", code: code)
+            }
+            fd = moved
         }
         var status = stat()
         guard fstat(fd, &status) == 0, (status.st_mode & S_IFMT) == S_IFREG else {
