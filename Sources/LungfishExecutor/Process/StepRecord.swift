@@ -32,20 +32,9 @@ enum StepReason {
 /// The run record's schema belongs to lane K4, which nests or renames these fields. The keys `orphanSweep` (values
 /// `subreaper` and `parentWalkOnly`) and the subreaper state are UX's and QA's (tally-r2 K3-6, K3-8, XC-20).
 struct StepRecord: Codable, Equatable, Sendable {
-    struct Subreaper: Codable, Equatable, Sendable {
-        /// `set` when the getter read 1 after the setter, `notSet` on Linux otherwise, `unavailable` off Linux.
-        var state: String
-        var setterResult: Int32
-        var setterResultName: String
-        var getterResult: Int32
-        var getterValue: Int32?
-    }
-
-    struct Output: Codable, Equatable, Sendable {
-        var path: String
-        var bytes: UInt64
-        var sha256: String
-    }
+    /// The Portable types with the same keys, so `run --plan` and the Mac read the step mode's fields (ARCH-r3 ruling 2).
+    typealias Subreaper = ExecutorStepRecord.Subreaper
+    typealias Output = ExecutorStepRecord.Output
 
     var recordVersion = 1
     var executorVersion: String

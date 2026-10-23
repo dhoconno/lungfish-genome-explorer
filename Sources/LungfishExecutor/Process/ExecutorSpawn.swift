@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CLungfishExecutor
 import Foundation
 #if canImport(Glibc)
 import Glibc
@@ -136,13 +137,15 @@ enum ExecutorSpawn {
 
     /// Starts `executable` as the leader of its own process group, with an empty signal mask, default dispositions for
     /// `defaultedSignals`, the three descriptors given as 0, 1 and 2 and exactly `environment`. No PATH lookup is made.
+    /// A `workingDirectory` is set by the spawn's file actions, never by a process-wide `chdir` (SWIFT ruling N8).
     static func spawn(
         executable: String,
         arguments: [String],
         environment: [String: String],
         stdin: Int32,
         stdout: Int32,
-        stderr: Int32
+        stderr: Int32,
+        workingDirectory: String? = nil
     ) throws(Failure) -> pid_t {
         #if os(Linux)
         var attributes = posix_spawnattr_t()
@@ -171,6 +174,16 @@ enum ExecutorSpawn {
         posix_spawn_file_actions_adddup2(&actions, stdin, 0)
         posix_spawn_file_actions_adddup2(&actions, stdout, 1)
         posix_spawn_file_actions_adddup2(&actions, stderr, 2)
+        if let workingDirectory {
+            #if os(Linux)
+            let added = lungfish_spawn_file_actions_addchdir(&actions, workingDirectory)
+            #else
+            let added = posix_spawn_file_actions_addchdir(&actions, workingDirectory)
+            #endif
+            guard added == 0 else {
+                throw Failure(reason: "Could not start \(executable) in its working folder. \(String(cString: strerror(added)))")
+            }
+        }
 
         let argv = ([executable] + arguments).map { strdup($0) }
         let envp = environment.keys.sorted().map { strdup("\($0)=\(environment[$0] ?? "")") }

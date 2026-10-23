@@ -28,6 +28,12 @@ struct StepSpec: Sendable {
     var deadlineSeconds: Double?
     /// How often the run reaps adopted orphans that have exited while the tool runs.
     var sweepIntervalSeconds: Double
+    /// The child's working folder, set in the spawn. Nil keeps the executor's.
+    var workingDirectory: String? = nil
+    /// Descriptors the caller opened for stdout and stderr and keeps open, used in place of the two paths. The controller
+    /// never closes them (RUNNING-A-TOOL.md, Output into a descriptor you own).
+    var ownedStdout: Int32? = nil
+    var ownedStderr: Int32? = nil
 }
 
 /// How one step ended.
@@ -85,12 +91,13 @@ final class StepController: Sendable {
         environment: [String: String],
         stdin: Int32,
         stdout: Int32,
-        stderr: Int32
+        stderr: Int32,
+        workingDirectory: String? = nil
     ) throws(ExecutorSpawn.Failure) -> pid_t {
         try state.withLock { (current: inout State) throws(ExecutorSpawn.Failure) -> pid_t in
             let pid = try ExecutorSpawn.spawn(
                 executable: executable, arguments: arguments, environment: environment,
-                stdin: stdin, stdout: stdout, stderr: stderr
+                stdin: stdin, stdout: stdout, stderr: stderr, workingDirectory: workingDirectory
             )
             current.tracked.insert(pid)
             return pid
@@ -228,11 +235,19 @@ final class StepController: Sendable {
         let pid: pid_t
         do throws(ExecutorSpawn.Failure) {
             descriptors.append(try ExecutorSpawn.openNullForReading())
-            descriptors.append(try ExecutorSpawn.openForWriting(spec.stdoutPath))
-            descriptors.append(try ExecutorSpawn.openForWriting(spec.stderrPath))
+            var stdout = spec.ownedStdout ?? -1
+            if spec.ownedStdout == nil {
+                stdout = try ExecutorSpawn.openForWriting(spec.stdoutPath)
+                descriptors.append(stdout)
+            }
+            var stderr = spec.ownedStderr ?? -1
+            if spec.ownedStderr == nil {
+                stderr = try ExecutorSpawn.openForWriting(spec.stderrPath)
+                descriptors.append(stderr)
+            }
             pid = try spawnTracked(
                 executable: spec.executable, arguments: spec.arguments, environment: spec.environment,
-                stdin: descriptors[0], stdout: descriptors[1], stderr: descriptors[2]
+                stdin: descriptors[0], stdout: stdout, stderr: stderr, workingDirectory: spec.workingDirectory
             )
         } catch {
             result.reason = error.reason
