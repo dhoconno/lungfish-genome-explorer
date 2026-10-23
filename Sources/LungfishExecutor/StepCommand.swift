@@ -1,5 +1,6 @@
 import Dispatch
 import Foundation
+import LungfishPortable
 
 /// `lungfish-executor step`, one tool run under the launcher with its record. Lane K4's `run --plan` replaces it as the
 /// executor's command, and keeps it as the unit the plan's steps run through.

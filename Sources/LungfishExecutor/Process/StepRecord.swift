@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishPortable
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -11,15 +12,9 @@ import Musl
 import Darwin
 #endif
 
-/// The executor's exit codes. A refused run has a code of its own, distinct from a failed and an interrupted run, so the
-/// orchestration layer can retry by code (tally-r2 K3-4).
-enum ExecutorExitCode {
-    static let succeeded: Int32 = 0
-    static let failed: Int32 = 1
-    static let refused: Int32 = 2
-    static let interrupted: Int32 = 3
-    static let usage: Int32 = 64
-}
+/// The exit codes live in Portable beside the run record (ARCH-r3 ruling 2). The alias keeps the name in this module,
+/// so the executor's tests, which import only the executor, still reach them.
+typealias ExecutorExitCode = LungfishPortable.ExecutorExitCode
 
 /// The words a record carries. They become frozen strings when the lane lands (UX 1).
 enum StepReason {
