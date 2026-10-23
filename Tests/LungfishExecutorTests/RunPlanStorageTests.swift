@@ -96,7 +96,11 @@ extension RunPlanTests {
         XCTAssertEqual(step.outputs, [])
         XCTAssertNil(step.outputReadCount)
         XCTAssertTrue(step.stderrTail.contains("Terminating due to java.lang.OutOfMemoryError: Java heap space"), step.stderrTail)
-        XCTAssertTrue(step.reason?.contains("ran out of memory in its 1 GB Java heap") == true, step.reason ?? "")
+        XCTAssertEqual(
+            step.reason,
+            "clumpify.sh ran out of memory in its 1 GB Java heap and stopped with status \(BBToolsOutOfMemory.exitStatus). "
+                + "The plan's clumpifyHeapGB sets that heap. The record keeps no payload."
+        )
         XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
     }
 }

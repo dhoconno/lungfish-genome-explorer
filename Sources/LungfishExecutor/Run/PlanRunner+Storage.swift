@@ -204,11 +204,13 @@ extension PlanRunner {
     }
 
     /// The record's sentence for a storage failure. An out-of-memory clumpify never falls back to another route (K4-09).
+    /// The sentence states what the record keeps, since a partial output may stay in the work root (UX fix 4 and BIO
+    /// fix 1 (c) of the K4 part C review).
     static func sentence(for error: any Error, heapGB: Int) -> String {
         switch error {
         case PortableStorageError.outOfMemory(let tool, _):
             return "\(tool) ran out of memory in its \(heapGB) GB Java heap and stopped with status \(BBToolsOutOfMemory.exitStatus). "
-                + "The plan's clumpifyHeapGB sets that heap. No output was kept."
+                + "The plan's clumpifyHeapGB sets that heap. The record keeps no payload."
         case PortableStorageError.storageFailed(let text): return "The storage step failed. \(text)"
         case PortableStorageError.compressionFailed(let text): return "The compressor failed. \(text)"
         case PortableStorageError.compressorNotFound: return "The storage step had to compress and the plan names no compressor."
