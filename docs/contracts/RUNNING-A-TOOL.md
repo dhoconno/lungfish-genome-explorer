@@ -64,7 +64,7 @@ Every run, from any entry point, keeps these guarantees. Do not rebuild one of t
 
 ## The Linux executor's launcher
 
-`lungfish-executor` runs a plan's tools on Linux, where `ToolProcess` does not build, through its own POSIX launcher in `Sources/LungfishExecutor/Process/`. Each guarantee of What the primitive guarantees is kept, changed or not applicable there. A later change to a `ToolProcess` guarantee updates this table in the same commit. Lane K3 of the CHTC program writes the launcher and the tests marked K3, and corrects in its own commit any name it changes.
+`lungfish-executor` runs a plan's tools on Linux, where `ToolProcess` does not build, through its own POSIX launcher in `Sources/LungfishExecutor/Process/`. Each guarantee of What the primitive guarantees is kept, changed or not applicable there. A later change to a `ToolProcess` guarantee updates this table in the same commit. Lane K3 of the CHTC program writes the launcher and the tests marked K3, and corrects in its own commit any name it changes. Lane K4 writes the tests marked K4.
 
 | Guarantee | On the executor | Test that pins it |
 |---|---|---|
@@ -78,10 +78,10 @@ Every run, from any entry point, keeps these guarantees. Do not rebuild one of t
 | Wall and idle limits | Kept. | `testStepWallLimitStopsTheTree` (K3) |
 | Exit status is the shell's | Kept. | `testExitMinusOneReads255` (K3) |
 | Drain grace of 5 seconds | Kept. | `testDescendantHoldingStdoutIsStoppedAfterDrainGrace` (K3) |
-| Stderr keeps its last 4 MB | Kept. | `testStderrKeepsItsLastFourMegabytes` (K3) |
-| Lines are framed at 64 KB | Kept. | `testLinesAreFramedAt64KB` (K3) |
+| Stderr keeps its last 4 MB | Not yet. A step's stderr goes to a file with no bound and the run record holds no tail. K4 adds the last 4 MiB and `stderrTruncated` to the record (K4.2). | `testStderrKeepsItsLastFourMegabytes` (K4) |
+| Lines are framed at 64 KB | Not applicable. The executor delivers no line events. It writes each stream to a file, and the adopt frames the stored tail on the Mac (C4). | None. K4 adds `testLinesAreFramedAt64KB` only if it adds a line reader |
 | Raw bytes with backpressure | Changed. SIGPIPE is ignored for the whole process in place of `F_SETNOSIGPIPE`, so a tool that stops reading ends the write with an error and never kills the executor. | `testReaderGoneEndsWriteWithoutSIGPIPE` and `testMultiMemberBGZFReadsEveryRecordThroughLinuxLauncher` (K3) |
-| Output into a descriptor you own | Kept. | `testDescriptorOutputKeepsTheFileIdentity` (K3) |
+| Output into a descriptor you own | Not yet. A step opens its stdout and stderr by path, truncates them and follows a symlink at the path. K4's work-root resolver opens each output through a no-follow directory descriptor and hands the step the descriptor. | `testDescriptorOutputKeepsTheFileIdentity` (K4) |
 | Registered for app quit | Not applicable. The executor has no app to quit, and its own signal handler stops every child. | `testSIGTERMReachesGroupAndSetsidDescendantThenSIGKILLAfterGrace` (K3) |
 
 ## Signals in the CLI
