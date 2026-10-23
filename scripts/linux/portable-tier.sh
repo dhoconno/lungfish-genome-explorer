@@ -286,7 +286,7 @@ done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so
 static_name=lungfish-executor-static-musl
 cp "$aarch64_dir/lungfish-executor" "$pkg/$static_name"
 step xctest-static-binary-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" sh -c \
-  "$with_pigz && LUNGFISH_EXECUTOR_BINARY=/work/$static_name swift test --disable-automatic-resolution --filter ExecutorSignalTests --filter ExecutorLaunchTests --filter ExecutorReaderTests --filter RunPlanTests"
+  "$with_pigz && LUNGFISH_EXECUTOR_BINARY=/work/$static_name swift test --disable-automatic-resolution --filter ExecutorSignalTests --filter ExecutorLaunchTests --filter ExecutorReaderTests --filter RunPlanTests --filter ImageManifestCommandTests"
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-static-binary-in-arm64-swift-container.log"
 test_binary_args+=("testBinary.staticExecutor=$static_name|$(size_of "$pkg/$static_name")|$(sha256_of "$pkg/$static_name")")
 

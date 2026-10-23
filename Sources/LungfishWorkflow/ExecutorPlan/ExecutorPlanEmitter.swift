@@ -273,7 +273,7 @@ package enum ExecutorPlanEmitter {
                 // the in-process run gets one record per process.
                 let id = runIndex == 0 ? "recipe-\(index + 1)" : "recipe-\(index + 1)-\(runIndex + 1)"
                 steps.append(PlanStep(
-                    id: id, title: run.title, kind: run.kind, tool: try tools.pin(run.toolID, stepID: id),
+                    id: id, title: run.title, kind: run.kind, tool: try (run.toolID == "gzip" ? tools.pinDecompressor(stepID: id) : tools.pin(run.toolID, stepID: id)),
                     arguments: run.arguments.map(withoutPlanRoot), deadlineSeconds: request.deadlines.recipeStepSeconds,
                     inputs: run.inputs, outputs: run.outputs
                 ))
@@ -433,6 +433,13 @@ package enum ExecutorPlanEmitter {
             }
             if !used.contains(pin) { used.append(pin) }
             return pin
+        }
+
+        /// The merged-to-mixed step reads its inputs through `<decompressor> -dc`. The executor takes the manifest's
+        /// gzip, else its pigz (`RunCommand`), so the plan pins the same tool. The C0 image and the Mac's managed
+        /// environments hold pigz and no conda gzip (lane K4, M5b).
+        mutating func pinDecompressor(stepID: String) throws -> PlanToolPin {
+            try pin(available.contains { $0.id == "gzip" } ? "gzip" : "pigz", stepID: stepID)
         }
     }
 
