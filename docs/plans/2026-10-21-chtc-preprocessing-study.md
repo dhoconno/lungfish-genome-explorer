@@ -487,8 +487,9 @@ The results that close C3, each on the composed head of K4.
 | The Mac replay, `testVSP2PlanReplayMatchesInProcessImport` | Both cases pass on the 1,000,000-pair slice with the real tools and a scratch storage root. E0 to E3 are equal, and E4 is equal in stored order. The VSP2 case keeps 950,309 records (153,874,043 bases, 100,191 pairs and 749,927 merged reads) in 79.0 s in process and 72.6 s replayed. The wastewater case keeps 196,598 records in 45.9 s and 41.7 s. Clumpify made 1 group on both routes |
 | CHTC job 1, cluster 592725 | `lungfish-executor image-manifest` ran on `e2469` (AlmaLinux 10, Apptainer 1.5.4, HTCondor 26.1.0) in the C0 image and listed 520 tools, manifest SHA-256 `4b0c0fd1...2b54`. The panhuman index on `/staging`, hashed on the node, equals the plan's pin `a1577a10...71e6` |
 | CHTC job 2, cluster 592726 | `lungfish-executor run --plan` ran the VSP2 case on `e2613` (CentOS Stream 9, `x86_64-v3`) in 188 s with binary `f5e36c51...b882b`. Its record count (950,309), Q20 (151,987,498) and Q30 (145,075,205) counts, every recipe step's read counts and the E2 and E3 digests equal the Mac replay of the same plan, and the decompressed streams are byte-identical (E4) |
+| CHTC job 2 again, cluster 592727 | The same plan with the landing head's binary `2b005db7...9aaa` (`57f70bd9e`) ran on `e4075` in 125 s, and the Mac replay of it in 118 s. Every count, every recipe step's read counts and E2 to E4 are equal, and equal to cluster 592726 |
 | Golden compare | Passes at `cd3345e4a` (cli-help 321 files, mapping 9, classifiers 24, genotype 133) |
-| Gates | All 14 ratchets at or below their baselines, the module map current, and the Linux tier passing, as the landing record states |
+| Gates | At the landing head `57f70bd9e`, 27 test classes (255 tests) pass, the executor's timing tests pass with every core busy, all 14 ratchets are at or below their baselines, the module map is current, and the Linux tier passes on a clean commit (`c3/land/land-10.md`) |
 
 Moved out of K4 into C4 or later, each with its reason in `c3/lanes/K4/`:
 
