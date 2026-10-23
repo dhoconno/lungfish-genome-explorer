@@ -8,6 +8,9 @@ let executorArguments = Array(CommandLine.arguments.dropFirst())
 if executorArguments.first == "step" {
     exit(StepCommand.main(Array(executorArguments.dropFirst())))
 }
+if executorArguments.first == "read-fastq" {
+    exit(ReadCommand.main(Array(executorArguments.dropFirst())))
+}
 ExecutorSignals.unblock()
 if let mode = executorArguments.first, ProcessProbes.modes.contains(mode) {
     exit(ProcessProbes.main(executorArguments))

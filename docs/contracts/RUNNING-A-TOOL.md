@@ -68,7 +68,7 @@ Every run, from any entry point, keeps these guarantees. Do not rebuild one of t
 
 | Guarantee | On the executor | Test that pins it |
 |---|---|---|
-| Spawned with posix_spawn | Changed. The child leads its own process group with default signal dispositions and an empty signal mask. Spawn hygiene uses an `FD_CLOEXEC` sweep of `/proc/self/fd` at start and `pipe2(O_CLOEXEC)` in place of `POSIX_SPAWN_CLOEXEC_DEFAULT`, so a tool still has only stdin, stdout and stderr open. | `testChildSeesOnlyStandardDescriptors` (K3) |
+| Spawned with posix_spawn | Changed. The child leads its own process group with default signal dispositions and an empty signal mask. Spawn hygiene uses an `FD_CLOEXEC` sweep of `/proc/self/fd` at start, and a reader's pipe made and marked close-on-exec under the spawn lock, in place of `POSIX_SPAWN_CLOEXEC_DEFAULT`, so a tool still has only stdin, stdout and stderr open. | `testChildSeesOnlyStandardDescriptors` (K3) |
 | Stdin is `/dev/null` by default | Kept. | `testChildStdinReadsEndOfFile` (K3) |
 | The environment is complete | Kept. The plan's step gives the whole environment. | `testChildEnvironmentIsTheStepEnvironmentOnly` (K3) |
 | Both streams are drained while the process runs | Kept. | `testChildWritingPastThePipeBufferDoesNotBlock` (K3) |

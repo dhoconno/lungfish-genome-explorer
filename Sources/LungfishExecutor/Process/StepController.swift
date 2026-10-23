@@ -97,15 +97,53 @@ final class StepController: Sendable {
         }
     }
 
-    /// Starts the dedicated thread that marks `pid` exited, without reaping it.
-    private func watchExit(of pid: pid_t) {
+    /// Spawns a child whose stdout is the write end of a new pipe and adds it to the tracked set, all under the one lock,
+    /// and returns its PID with the read end. The write end is closed once the child holds it, so the reader sees the end
+    /// of the stream when the child and whatever inherited the pipe have closed it.
+    func spawnTrackedReadingStdout(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        stdin: Int32,
+        stderr: Int32
+    ) throws(ExecutorSpawn.Failure) -> (pid: pid_t, stdout: Int32) {
+        try state.withLock { (current: inout State) throws(ExecutorSpawn.Failure) -> (pid: pid_t, stdout: Int32) in
+            let pipe = try ExecutorSpawn.openPipe()
+            defer { close(pipe.write) }
+            do throws(ExecutorSpawn.Failure) {
+                let pid = try ExecutorSpawn.spawn(
+                    executable: executable, arguments: arguments, environment: environment,
+                    stdin: stdin, stdout: pipe.write, stderr: stderr
+                )
+                current.tracked.insert(pid)
+                return (pid, pipe.read)
+            } catch {
+                close(pipe.read)
+                throw error
+            }
+        }
+    }
+
+    /// Starts the dedicated thread that marks `pid` exited, without reaping it, and then calls `exited`.
+    func watchExit(of pid: pid_t, then exited: @escaping @Sendable () -> Void = {}) {
         let thread = Thread { [self] in
             ExecutorSpawn.waitForExitWithoutReaping(pid)
             state.withLock { _ = $0.exited.insert(pid) }
             wake.signal()
+            exited()
         }
         thread.name = "lungfish-executor wait \(pid)"
         thread.start()
+    }
+
+    /// Reaps a tracked child whose exit the watch thread saw and drops it from the tracked set.
+    func reapTracked(_ pid: pid_t) -> ChildExit? {
+        let exit = ExecutorSpawn.reap(pid)
+        state.withLock {
+            $0.tracked.remove(pid)
+            $0.exited.remove(pid)
+        }
+        return exit
     }
 
     /// Reaps every adopted orphan that has exited. Holds the spawn lock so a new child is never taken for one.
@@ -132,7 +170,7 @@ final class StepController: Sendable {
 
     /// Sends SIGTERM to every tracked group and every live candidate, waits up to `grace` for them to end while it
     /// reaps adopted orphans, then sends SIGKILL to whatever is left. Returns once nothing is left or SIGKILL had 10 s.
-    private func stopTree(grace: Double, into result: inout StepResult) {
+    func stopTree(grace: Double, into result: inout StepResult) {
         let tracked = state.withLock { $0.tracked }
         var signaled: Set<pid_t> = []
         func send(_ signal: Int32) {

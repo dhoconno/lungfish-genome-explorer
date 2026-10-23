@@ -9,7 +9,8 @@
 #      musl. The tests build and run on glibc inside the container instead. The launcher tests start the built
 #      lungfish-executor as a child, so that first run names the glibc debug build. A second run of ExecutorSignalTests and
 #      ExecutorLaunchTests (step xctest-static-binary-in-arm64-swift-container) names the static musl binary of step 1
-#      instead, the bytes that ship, and record.json holds that binary's SHA-256 beside the XCTest files'.
+#      instead, the bytes that ship, and record.json holds that binary's SHA-256 beside the XCTest files'. Both runs unpack
+#      the pinned arm64 pigz package (readerTools in toolchain.json) for the decompression tests of ExecutorReaderTests.
 #   3. Probes PID 1, the user and the kernel inside the arm64 Debian container (step container-probe) and stops when the
 #      process under test would be PID 1.
 #   4. Runs the static aarch64 binary in that Debian container, on a file whose SHA-256 it must reproduce. Debian is
@@ -250,11 +251,25 @@ aarch64_dir="$(bin_dir aarch64-swift-linux-musl)"
 cp "$aarch64_dir/lungfish-executor" "$artifacts/lungfish-executor-aarch64-linux-musl"
 
 prepare_view_package
+
+# The decompression tests of ExecutorReaderTests need a pigz, which the Swift container lacks (lane K3B). The tier fetches
+# the pinned arm64 package once, checks its SHA-256 and puts it in the package folder. Each test container unpacks it under
+# its /tmp and runs the tests with LUNGFISH_PIGZ and LUNGFISH_REQUIRE_TOOLS=1, so a missing pigz fails and never skips.
+pigz_deb="$(pin readerTools.pigz.package)"
+pigz_sha="$(pin readerTools.pigz.sha256)"
+mkdir -p "$work/downloads" "$pkg/tools"
+if [ ! -f "$work/downloads/$pigz_deb" ] || [ "$(sha256_of "$work/downloads/$pigz_deb")" != "$pigz_sha" ]; then
+  curl -fL --retry 3 -o "$work/downloads/$pigz_deb" "$(pin readerTools.pigz.url)"
+fi
+[ "$(sha256_of "$work/downloads/$pigz_deb")" = "$pigz_sha" ] || die "the pigz package differs from the pinned checksum"
+cp "$work/downloads/$pigz_deb" "$pkg/tools/$pigz_deb"
+with_pigz="dpkg-deb -x /work/tools/$pigz_deb /tmp/pigz-root && export LUNGFISH_PIGZ=$(pin readerTools.pigz.unpackedPath) LUNGFISH_REQUIRE_TOOLS=1 && \$LUNGFISH_PIGZ --version"
+
 step resolve-in-arm64-swift-container run_arm64 "$xctest_image" "$pkg" swift package resolve
 # The launcher's tests start the built lungfish-executor as a child (tally-r2 K3-1), so the container builds the product
 # first and names it to the tests.
 step xctest-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" sh -c \
-  'swift build --disable-automatic-resolution --product lungfish-executor && LUNGFISH_EXECUTOR_BINARY="$(swift build --disable-automatic-resolution --show-bin-path)/lungfish-executor" swift test --disable-automatic-resolution'
+  "$with_pigz && "'swift build --disable-automatic-resolution --product lungfish-executor && LUNGFISH_EXECUTOR_BINARY="$(swift build --disable-automatic-resolution --show-bin-path)/lungfish-executor" swift test --disable-automatic-resolution'
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container.log"
 # SwiftPM 6.4 builds a Linux test target as a test runner plus a shared library (<Target>-test-runner and <Target>.so
 # under .build/out/Products). Older layouts build one .xctest file. Every one of these files goes into the record.
@@ -271,7 +286,7 @@ done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so
 static_name=lungfish-executor-static-musl
 cp "$aarch64_dir/lungfish-executor" "$pkg/$static_name"
 step xctest-static-binary-in-arm64-swift-container run_arm64 --offline "$xctest_image" "$pkg" sh -c \
-  "LUNGFISH_EXECUTOR_BINARY=/work/$static_name swift test --disable-automatic-resolution --filter ExecutorSignalTests --filter ExecutorLaunchTests"
+  "$with_pigz && LUNGFISH_EXECUTOR_BINARY=/work/$static_name swift test --disable-automatic-resolution --filter ExecutorSignalTests --filter ExecutorLaunchTests --filter ExecutorReaderTests"
 grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-static-binary-in-arm64-swift-container.log"
 test_binary_args+=("testBinary.staticExecutor=$static_name|$(size_of "$pkg/$static_name")|$(sha256_of "$pkg/$static_name")")
 
@@ -361,6 +376,7 @@ for pair in pairs:
         continue
     put(out, key, int(value) if key in numbers else (value == "true") if key in flags else value)
 out["containers"] = pins["containers"]
+out["readerTools"] = pins["readerTools"]
 out["artifacts"] = {name: {"bytes": os.path.getsize(os.path.join(artifacts, name)),
                            "sha256": digest(os.path.join(artifacts, name))}
                     for name in sorted(os.listdir(artifacts))}

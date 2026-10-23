@@ -42,5 +42,17 @@
       "digest": "sha256:31d14d727f4451f25e29bac9c42563a098c39ac66415e8bad970f48038e38aca",
       "note": "The official Swift image of the pinned release. It carries XCTest on glibc, which the Static Linux SDK lacks."
     }
+  },
+  "readerTools": {
+    "pigz": {
+      "package": "pigz_2.8-1_arm64.deb",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/universe/p/pigz/pigz_2.8-1_arm64.deb",
+      "sha256": "8d3bce5fd98ea04be1343dab5669c4a0b92422bf1b3c38cb4b0403b44bf66f5d",
+      "bytes": 60694,
+      "version": "pigz 2.8",
+      "checksumSource": "Computed from the download on 2026-10-22 (lane K3B).",
+      "unpackedPath": "/tmp/pigz-root/usr/bin/pigz",
+      "note": "The decompression tests of ExecutorReaderTests need a pigz, which the arm64 Swift container lacks. The tier fetches Ubuntu noble's arm64 pigz 2.8, checks this checksum and unpacks it with dpkg-deb inside each test container, which then runs with LUNGFISH_PIGZ and LUNGFISH_REQUIRE_TOOLS=1. The C0 image carries conda-forge's x86_64 pigz 2.8 at /opt/lge/env/bin/pigz, the decompressor of a CHTC run."
+    }
   }
 }

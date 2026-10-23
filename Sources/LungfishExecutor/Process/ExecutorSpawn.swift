@@ -74,6 +74,48 @@ enum ExecutorSpawn {
         try openDescriptor(path, flags: O_WRONLY | O_CREAT | O_TRUNC, mode: 0o644)
     }
 
+    /// Opens `/dev/null` for writing, close-on-exec, above the standard descriptors.
+    static func openNullForWriting() throws(Failure) -> Int32 {
+        try openDescriptor("/dev/null", flags: O_WRONLY, mode: 0)
+    }
+
+    /// Makes a pipe whose two ends are close-on-exec and above the standard descriptors. The caller holds the spawn lock
+    /// (`StepController.spawnTrackedReadingStdout`), so no spawn of this process sees an end before its flag is set, which
+    /// is what `pipe2(O_CLOEXEC)` gives on Linux, on every platform.
+    static func openPipe() throws(Failure) -> (read: Int32, write: Int32) {
+        var ends: [Int32] = [-1, -1]
+        guard pipe(&ends) == 0 else {
+            throw Failure(reason: "Could not make a pipe. \(String(cString: strerror(errno)))")
+        }
+        let read: Int32
+        do throws(Failure) {
+            read = try closeOnExecAboveStandard(ends[0])
+        } catch {
+            close(ends[1])
+            throw error
+        }
+        do throws(Failure) {
+            return (read, try closeOnExecAboveStandard(ends[1]))
+        } catch {
+            close(read)
+            throw error
+        }
+    }
+
+    /// Sets `FD_CLOEXEC` on `fd` and moves a standard descriptor (0, 1 or 2) to the lowest free number from 3 up. Closes
+    /// `fd` when the result is another descriptor or the call failed.
+    private static func closeOnExecAboveStandard(_ fd: Int32) throws(Failure) -> Int32 {
+        let result = fd >= 3 ? (fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 ? fd : -1) : fcntl(fd, F_DUPFD_CLOEXEC, 3)
+        let saved = errno
+        if result != fd {
+            close(fd)
+        }
+        guard result >= 0 else {
+            throw Failure(reason: "Could not mark a pipe end close-on-exec. \(String(cString: strerror(saved)))")
+        }
+        return result
+    }
+
     private static func openDescriptor(_ path: String, flags: Int32, mode: mode_t) throws(Failure) -> Int32 {
         let fd = open(path, flags | O_CLOEXEC, mode)
         guard fd >= 0 else {
