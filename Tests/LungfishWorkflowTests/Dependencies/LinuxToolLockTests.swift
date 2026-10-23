@@ -14,13 +14,13 @@ final class LinuxToolLockTests: XCTestCase {
     /// changes this literal in the same commit, and the linux-64 lock follows for the tools it carries.
     private static let macLockSHA256 = "586edb75c2f2402e2eb845526051cc39c7542291036d638927ab6289cfc37e26"
 
-    /// The SHA-256 of C0's explicit file, the 87-package environment that slice 0's argv replay and
-    /// deacon check ran on. A change to the image's tool set is a lane of its own that reruns both (K5.1).
-    private static let sliceZeroEnvironmentSHA256 = "9bb6e82dd3516d28a8ebac4dafee930842b798c77e13b11a3104bbbb2cdec414"
+    /// The SHA-256 of the 87-package explicit file that slice 0's argv replay and deacon check ran on. It is C0's file
+    /// with a home path removed from line 2. A change to the tool set is a lane of its own that reruns both (K5.1).
+    private static let sliceZeroEnvironmentSHA256 = "e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5"
 
     /// The SHA-256 of the Trim Galore environment's explicit file. This is the build whose engine the K5
     /// review read. A change reruns that read and FC-B1's experiment inside the image.
-    private static let trimGaloreEnvironmentSHA256 = "6a6b0d237bc37c871cd5cd6b466e97340c6f6268752ec96368ecead6901c0a99"
+    private static let trimGaloreEnvironmentSHA256 = "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a"
 
     /// The Mac lock's tools the CHTC image does not carry. A tool added to the Mac lock fails the
     /// mirror test until it is named here or added to the linux-64 lock.

@@ -1,5 +1,5 @@
 # LGE CHTC program, lane K5, linux-64 explicit lock of the trim_galore environment, resolved 2026-10-22
-# micromamba 2.9.0 (/Users/dho/.lungfish/conda/bin/micromamba) create --dry-run --json --no-rc --platform linux-64
+# micromamba 2.9.0 (<micromamba binary>) create --dry-run --json --no-rc --platform linux-64
 #   --override-channels -c conda-forge -c bioconda --channel-priority strict -n trim_galore, CONDA_OVERRIDE_GLIBC=2.28
 #   specs: trim-galore=2.3.0
 # 5 packages. Comment lines give name, version, build string, channel and sha256; each URL line carries #md5.

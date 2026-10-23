@@ -14,7 +14,7 @@
     { "id": "pigz", "environment": "lge-tools", "packageSpec": "conda-forge::pigz=2.8=h421ea60_2", "executables": ["pigz"], "version": "2.8", "license": "Zlib", "sourceUrl": "https://github.com/madler/pigz" }
   ],
   "explicitLocks": [
-    { "packID": "lungfish-tools", "id": "lge-tools", "platform": "linux-64", "resource": "lge-tools-linux-64-explicit.txt", "sha256": "9bb6e82dd3516d28a8ebac4dafee930842b798c77e13b11a3104bbbb2cdec414" },
-    { "packID": "lungfish-tools", "id": "trim_galore", "platform": "linux-64", "resource": "trim_galore-linux-64-explicit.txt", "sha256": "6a6b0d237bc37c871cd5cd6b466e97340c6f6268752ec96368ecead6901c0a99" }
+    { "packID": "lungfish-tools", "id": "lge-tools", "platform": "linux-64", "resource": "lge-tools-linux-64-explicit.txt", "sha256": "e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5" },
+    { "packID": "lungfish-tools", "id": "trim_galore", "platform": "linux-64", "resource": "trim_galore-linux-64-explicit.txt", "sha256": "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a" }
   ]
 }
