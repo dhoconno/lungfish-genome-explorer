@@ -82,6 +82,7 @@ enum ExecutorSpawn {
     /// Makes a pipe whose two ends are close-on-exec and above the standard descriptors. The caller holds the spawn lock
     /// (`StepController.spawnTrackedReadingStdout`), so no spawn of this process sees an end before its flag is set, which
     /// is what `pipe2(O_CLOEXEC)` gives on Linux, on every platform.
+    /// Call it only from `StepController.spawnTrackedReadingStdout`, which holds the lock.
     static func openPipe() throws(Failure) -> (read: Int32, write: Int32) {
         var ends: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else {

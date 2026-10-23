@@ -1,6 +1,7 @@
 import Dispatch
 import Foundation
 import LungfishPortable
+import Synchronization
 import XCTest
 @testable import LungfishExecutor
 #if canImport(Glibc)
@@ -360,5 +361,64 @@ final class ExecutorReaderTests: XCTestCase {
             XCTAssertEqual(mask & (UInt64(1) << UInt64(signal - 1)), 0, "signal \(signal) is ignored in the child")
         }
         #endif
+    }
+
+    // MARK: - No pipe end reaches a child (the spawn lock)
+
+    /// What threads of one test collect.
+    private final class Collected: Sendable {
+        private let items = Mutex<[String]>([])
+
+        func append(_ item: String) {
+            items.withLock { $0.append(item) }
+        }
+
+        var all: [String] { items.withLock { $0 } }
+    }
+
+    /// The trimmed stdout of `program` started through `launcher`, or a note when it did not start or did not succeed.
+    private static func output(of program: String, _ arguments: [String], through launcher: ExecutorChildLauncher) -> String {
+        do {
+            let child = try launcher.start(PortableChildRequest(
+                executableURL: URL(fileURLWithPath: program), arguments: arguments, environment: [:], label: arguments.first ?? program
+            ))
+            let data = child.readStdout(filling: 1 << 16)
+            guard try child.waitForExit().isSuccess else { return "\(program) did not succeed" }
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return "\(program) did not start: \(error)"
+        }
+    }
+
+    func testLauncherChildrenInheritNoPipeEnds() throws {
+        let binary = try Support.executorBinary()
+        // As the executor's start does, so a descriptor the test runner opened without O_CLOEXEC stays out of the probe.
+        ExecutorSpawn.markInheritedDescriptorsCloseOnExec()
+        let launcher = ExecutorChildLauncher(controller: StepController())
+
+        // Part one: a reader child's read end is open in this process while the probe starts.
+        let sleeper = try launcher.start(PortableChildRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], environment: [:], label: "sleeper"
+        ))
+        XCTAssertEqual(Self.output(of: binary, ["list-fds"], through: launcher), "0 1 2")
+        sleeper.cancel()
+        XCTAssertFalse(try sleeper.waitForExit().isSuccess)
+
+        // Part two: four threads start the probe 25 times each while a fifth starts and finishes 25 reader children, all
+        // on one controller and so under its one spawn lock. A tripwire, since a broken lock shows only now and then.
+        let listed = Collected()
+        let read = Collected()
+        DispatchQueue.concurrentPerform(iterations: 5) { thread in
+            for _ in 0..<25 {
+                if thread < 4 {
+                    listed.append(Self.output(of: binary, ["list-fds"], through: launcher))
+                } else {
+                    read.append(Self.output(of: "/bin/echo", ["ok"], through: launcher))
+                }
+            }
+        }
+        XCTAssertEqual(listed.all.count, 100)
+        XCTAssertEqual(Set(listed.all), ["0 1 2"])
+        XCTAssertEqual(read.all, Array(repeating: "ok", count: 25))
     }
 }
