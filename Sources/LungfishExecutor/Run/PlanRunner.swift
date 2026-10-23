@@ -87,6 +87,7 @@ struct PlanRunner {
         record.searchPath = searchFolders
         record.runtimes = Self.runtimes(of: prepared)
         var adoptedSoFar = 0
+        var readCounts: [String: Int64] = [:]
         for step in prepared.plan.steps {
             if let signal = controller.interruptSignal {
                 record.outcome = .interrupted
@@ -96,7 +97,7 @@ struct PlanRunner {
                 record.reason = "The executor received \(ExecutorSignals.name(signal)) before step \(step.id) started."
                 return
             }
-            let stepRecord: ExecutorStepRecord
+            var stepRecord: ExecutorStepRecord
             if step.kind == .qualityCount {
                 stepRecord = runQualityCount(step, run: record)
             } else if let tool = prepared.tools[step.id] {
@@ -106,6 +107,9 @@ struct PlanRunner {
                 record.failedStepID = step.id
                 record.reason = "Step \(step.id) has no tool from the manifest."
                 return
+            }
+            if step.kind == .recipe, stepRecord.outcome == .succeeded {
+                countReads(of: step, into: &stepRecord, counted: &readCounts)
             }
             record.steps.append(stepRecord)
             record.payloads += Self.payloads(of: stepRecord)
