@@ -260,12 +260,28 @@ package struct ExecutorStorageLaunch: Codable, Sendable, Equatable {
     package var clumpifyGroups: Int?
     package var clumpifyMemoryEstimateLine: String?
     package var clumpifyMemoryAvailableLine: String?
+    /// The executor's sentence for a launch that did not succeed, such as the deadline that stopped it, each path in it
+    /// relative to the work root. Nil for a launch that succeeded and in a record written before C3.
+    package var reason: String?
+    /// True when a process of the launch outlived the grace and was sent SIGKILL. Nil in a record written before C3.
+    package var escalatedToSIGKILL: Bool?
+    /// The processes the executor signalled other than the tool. Nil in a record written before C3.
+    package var stoppedProcesses: [Int32]?
+    /// The launch's peak resident memory in bytes, from the `wait4` that reaped the tool, which counts the children it
+    /// waited for, such as clumpify's JVM (tally K4.2). Nil in a record written before C3.
+    package var peakResidentBytes: UInt64?
 
     package init(
         tool: ExecutorToolRecord, argv: [String], environmentNames: [String], outcome: ExecutorRunOutcome,
         toolExitCode: Int32? = nil, toolSignal: Int32? = nil, wallSeconds: Double, stderrPath: String,
-        clumpifyGroups: Int? = nil, clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil
+        clumpifyGroups: Int? = nil, clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil,
+        reason: String? = nil, escalatedToSIGKILL: Bool? = nil, stoppedProcesses: [Int32]? = nil,
+        peakResidentBytes: UInt64? = nil
     ) {
+        self.reason = reason
+        self.escalatedToSIGKILL = escalatedToSIGKILL
+        self.stoppedProcesses = stoppedProcesses
+        self.peakResidentBytes = peakResidentBytes
         self.tool = tool
         self.argv = argv
         self.environmentNames = environmentNames

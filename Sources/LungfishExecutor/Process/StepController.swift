@@ -52,6 +52,9 @@ struct StepResult: Sendable {
     var adoptedOrphansReaped = 0
     var outputs: [StepRecord.Output] = []
     var wallSeconds: Double = 0
+    /// True when the executor ended the tool, at its deadline, for a termination signal or for a process left running,
+    /// so `reason` holds the executor's words and not only how the tool exited.
+    var stoppedByExecutor = false
 }
 
 /// The launcher's state for one run: the tracked children and the cancel path.
@@ -287,13 +290,16 @@ final class StepController: Sendable {
             result.outcome = .interrupted
             result.signal = signal
             result.reason = "The executor received \(ExecutorSignals.name(signal)) and stopped the step."
+            result.stoppedByExecutor = true
         case .deadline:
             stopTree(grace: spec.graceSeconds, into: &result)
             result.reason = "The tool ran past its deadline of \(Self.format(spec.deadlineSeconds ?? 0)) seconds. The executor stopped it."
+            result.stoppedByExecutor = true
         case .exited:
             if !liveCandidates().isEmpty {
                 lingering = true
                 stopTree(grace: spec.graceSeconds, into: &result)
+                result.stoppedByExecutor = true
             }
         }
         result.exit = ExecutorSpawn.reap(pid)

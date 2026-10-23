@@ -13,9 +13,13 @@ extension PlanRunner {
     ]
 
     /// Runs a step the executor builds itself: a storage step through `PortableStorageStep` (M2 decision 2), or an
-    /// `interleave` step with no argv through `PortableMixedLayout` (M2 decision 3). The record keeps every launch, and a
-    /// step that fails keeps no output digest.
-    func runOwnStep(_ step: PlanStep, tool: ImageTool, environment: [String: String], record: ExecutorStepRecord) -> ExecutorStepRecord {
+    /// `interleave` step with no argv through `PortableMixedLayout` (M2 decision 3). The record keeps every launch, the
+    /// largest peak memory of its launches and the orphans the run reaped since `adoptedSoFar`, and a step that fails
+    /// keeps no output digest.
+    func runOwnStep(
+        _ step: PlanStep, tool: ImageTool, environment: [String: String], record: ExecutorStepRecord,
+        adoptedSoFar: inout Int
+    ) -> ExecutorStepRecord {
         var record = record
         record.argv = []
         let root = URL(fileURLWithPath: resolver.workRoot)
@@ -75,6 +79,16 @@ extension PlanRunner {
                 record.stderrTruncated = tail.truncated
             }
         }
+        // The step states what its launches state: the largest peak memory, any SIGKILL, every process stopped, and the
+        // orphans the run reaped since the step before it, as an argv step does (tally K4.2, BIO fix 4 of the K4 part B
+        // review).
+        record.peakResidentBytes = launches.compactMap(\.peakResidentBytes).max()
+        record.escalatedToSIGKILL = launches.contains { $0.escalatedToSIGKILL == true }
+        record.stoppedProcesses = launches.flatMap { $0.stoppedProcesses ?? [] }
+        if let reaped = launcher.adoptedOrphansReaped {
+            record.adoptedOrphansReaped = reaped - adoptedSoFar
+            adoptedSoFar = reaped
+        }
         switch outcome {
         case .success(let counts):
             record.inputReadCount = counts.input
@@ -89,7 +103,12 @@ extension PlanRunner {
             if record.outcome == .failed { record.reason = "Step \(step.id) left an output missing." }
         case .failure(let error):
             record.outcome = .failed
-            record.reason = Self.sentence(for: error, heapGB: plan.storage.clumpifyHeapGB)
+            // The controller's words for a launch the executor ended come first, so a deadline is never lost behind a
+            // tool that printed nothing, and no path of the work root stays in the reason (SWIFT fix 3 of the K4 part B
+            // review, ruling N8).
+            let sentence = Self.sentence(for: error, heapGB: plan.storage.clumpifyHeapGB)
+            record.reason = [launcher.lastStopReason, sentence].compactMap { $0 }.joined(separator: " ")
+                .replacingOccurrences(of: resolver.workRoot + "/", with: "")
         }
         if let signal = controller.interruptSignal {
             record.outcome = .interrupted
