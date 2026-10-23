@@ -47,7 +47,7 @@ A refused run whose plan folder cannot be resolved also writes no record, and sa
 | `recipe` | object or absent | The plan's recipe identity, `id`, `name`, `requestedName`, `formatVersion`, `sourceSHA256`, `presetID`, `presetName`, `switches` of `{id, label, value, source}` and `turnedOffSteps` of `{stepType, label, activeStepsBefore, switchID}`. It is set as soon as the plan decodes, so a refused run that decoded its plan names it too |
 | `imageManifest` | object or absent | `sha256`, `size` and `source` of the tool manifest the run read. `source` is `image` for the image's own manifest and `argument` for a file `--image-manifest` named, as in a replay on the Mac. The path is never stated |
 | `searchPath` | array of strings or absent | The folders of every tool's `PATH` in order, below. Absent for a refused run and in a record written before C3 |
-| `runtimes` | array or absent | The runtime a BBTools wrapper needs, the manifest's first `java` as `id`, `version`, `build` and `path`, when the plan pins a tool whose id ends in `.sh`, and else an empty array. Absent for a refused run and in a record written before C3 |
+| `runtimes` | array or absent | The runtime a BBTools wrapper needs, the manifest's first `java` as `id`, `version`, `build`, `path` and `versionSource`, when the plan pins a tool whose id ends in `.sh`, and else an empty array. Absent for a refused run and in a record written before C3 |
 | `runtimeIdentity` | object | What the executor observed of the machine, below |
 | `siteFacts` | array of `{key, value}` | The `--site-fact KEY=VALUE` arguments in the order given |
 | `inputs` | array of plan entries | Each plan entry but the executor's, which `executor` states, with the digest and size the executor read |
