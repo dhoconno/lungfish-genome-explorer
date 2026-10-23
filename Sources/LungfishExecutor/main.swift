@@ -15,6 +15,9 @@ if executorArguments.first == "read-fastq" {
     exit(ReadCommand.main(Array(executorArguments.dropFirst())))
 }
 ExecutorSignals.unblock()
+if executorArguments.first == "image-manifest" {
+    exit(ImageManifestCommand.main(Array(executorArguments.dropFirst())))
+}
 if let mode = executorArguments.first, ProcessProbes.modes.contains(mode) {
     exit(ProcessProbes.main(executorArguments))
 }
