@@ -191,4 +191,38 @@ extension RunPlanTests {
         XCTAssertEqual(atBound.status, ExecutorExitCode.succeeded, atBound.stderr)
         XCTAssertEqual(atBound.record?.siteFacts, [PlanKeyValue(key: key64, value: "v")])
     }
+
+    /// BIO fix 1 (c) of the K4 part A review (BIO-r3 R8): the record states the plan's recipe identity, with the step a
+    /// switch turned off and that switch, after a succeeded run and after a refusal that came once the plan was read.
+    func testRunRecordStatesRecipeAndTurnedOffSteps() throws {
+        let (fixture, plan, manifest) = try RunPlanFixture.copyReads()
+        var decoded = try ExecutionPlan.decode(Data(contentsOf: URL(fileURLWithPath: plan)))
+        let recipeBytes = Data("{\"id\":\"illumina-paired-cleanup\"}\n".utf8)
+        try FileManager.default.createDirectory(atPath: fixture.planFolder + "/recipe", withIntermediateDirectories: true)
+        try recipeBytes.write(to: URL(fileURLWithPath: fixture.planFolder + "/recipe/illumina-paired-cleanup.recipe.json"))
+        let digest = PortableDigest.sha256Hex(of: recipeBytes)
+        decoded.entries.append(PlanEntry(
+            role: .recipe, relativePath: "recipe/illumina-paired-cleanup.recipe.json", sha256: digest, size: Int64(recipeBytes.count)
+        ))
+        decoded.recipe = PlanRecipeIdentity(
+            id: "illumina-paired-cleanup", name: "Illumina paired cleanup", requestedName: "vsp2-target-enrichment",
+            formatVersion: 2, sourceSHA256: digest, presetID: "vsp2-target-enrichment", presetName: "VSP2 target enrichment",
+            switches: [
+                PlanRecipeSwitch(id: "removeDuplicates", label: "Remove duplicate reads", value: true, source: "preset"),
+                PlanRecipeSwitch(id: "removeRibosomalRNA", label: "Remove ribosomal RNA reads", value: false, source: "preset"),
+            ],
+            turnedOffSteps: [
+                PlanTurnedOffStep(stepType: "deacon-ribo-filter", label: nil, activeStepsBefore: 2, switchID: "removeRibosomalRNA"),
+            ]
+        )
+        try decoded.encoded().write(to: URL(fileURLWithPath: plan))
+        let run = try fixture.run(plan, ["--image-manifest", manifest])
+        XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)
+        XCTAssertEqual(run.record?.recipe, decoded.recipe)
+        XCTAssertEqual(run.record?.recipe?.turnedOffSteps.map(\.switchID), ["removeRibosomalRNA"])
+        XCTAssertEqual(run.record?.inputs.map(\.relativePath), ["inputs/R1.fastq", "recipe/illumina-paired-cleanup.recipe.json"])
+        let refused = try fixture.run(plan, ["--image-manifest", fixture.root + "/absent.json"])
+        XCTAssertEqual(refused.record?.refusedField, "imageManifest")
+        XCTAssertEqual(refused.record?.recipe, decoded.recipe)
+    }
 }

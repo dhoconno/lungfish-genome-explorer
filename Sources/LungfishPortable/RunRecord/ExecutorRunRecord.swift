@@ -36,6 +36,9 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
     package var executor: ExecutorBinaryIdentity
     /// The plan file the run read, nil when the run was refused before it could read one.
     package var plan: ExecutorFileDigest?
+    /// The plan's recipe identity, with each step a switch turned off and that switch (BIO-r3 R8). Nil for a plan with
+    /// no recipe and for a run refused before it decoded the plan.
+    package var recipe: PlanRecipeIdentity?
     /// The tool manifest the run read, nil when the run was refused before it read one.
     package var imageManifest: ExecutorImageManifestRecord?
     /// What the executor observed of the machine itself. It never reads a scheduler's variable or file.
@@ -55,7 +58,7 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
     package init(
         schemaVersion: Int = ExecutorRunRecord.currentSchemaVersion, outcome: ExecutorRunOutcome, reason: String? = nil,
         refusedField: String? = nil, failedStepID: String? = nil, signal: Int32? = nil, signalName: String? = nil,
-        executorArguments: [String], executor: ExecutorBinaryIdentity, plan: ExecutorFileDigest?,
+        executorArguments: [String], executor: ExecutorBinaryIdentity, plan: ExecutorFileDigest?, recipe: PlanRecipeIdentity? = nil,
         imageManifest: ExecutorImageManifestRecord?, runtimeIdentity: ExecutorRuntimeIdentity,
         siteFacts: [PlanKeyValue] = [], inputs: [PlanEntry] = [], payloads: [ExecutorPayloadRecord] = [],
         steps: [ExecutorStepRecord] = [], startedAt: String, endedAt: String, wallSeconds: Double
@@ -71,6 +74,7 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
         self.executorArguments = executorArguments
         self.executor = executor
         self.plan = plan
+        self.recipe = recipe
         self.imageManifest = imageManifest
         self.runtimeIdentity = runtimeIdentity
         self.siteFacts = siteFacts

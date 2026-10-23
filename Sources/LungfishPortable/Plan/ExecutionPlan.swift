@@ -101,18 +101,68 @@ package struct PlanKeyValue: Codable, Sendable, Equatable {
     }
 }
 
-/// The recipe identity the in-process route records (tally K4.8). Its `recipe` entry's SHA-256 equals `sourceSHA256`.
+/// The recipe identity the in-process route records (tally K4.8, BIO-r3 R8): the recipe, the name the run was given,
+/// the preset it resolved to, each switch's value and source, and each step a switch turned off with that switch, as the
+/// Mac's import record holds them. Its `recipe` entry's SHA-256 equals `sourceSHA256`.
 package struct PlanRecipeIdentity: Codable, Sendable, Equatable {
     package var id: String
+    package var name: String
+    /// The name the run was given, such as a preset's id or alias.
+    package var requestedName: String
+    package var formatVersion: Int
     package var sourceSHA256: String
-    package var preset: String?
-    package var switches: [PlanKeyValue]
+    package var presetID: String?
+    package var presetName: String?
+    package var switches: [PlanRecipeSwitch]
+    /// The steps a switch turned off, in recipe order. The engine plans only the steps that run.
+    package var turnedOffSteps: [PlanTurnedOffStep]
 
-    package init(id: String, sourceSHA256: String, preset: String? = nil, switches: [PlanKeyValue] = []) {
+    package init(
+        id: String, name: String, requestedName: String, formatVersion: Int, sourceSHA256: String,
+        presetID: String? = nil, presetName: String? = nil, switches: [PlanRecipeSwitch] = [],
+        turnedOffSteps: [PlanTurnedOffStep] = []
+    ) {
         self.id = id
+        self.name = name
+        self.requestedName = requestedName
+        self.formatVersion = formatVersion
         self.sourceSHA256 = sourceSHA256
-        self.preset = preset
+        self.presetID = presetID
+        self.presetName = presetName
         self.switches = switches
+        self.turnedOffSteps = turnedOffSteps
+    }
+}
+
+/// One switch of the recipe, with its value and the source that set it: `recipeDefault`, `preset` or `option`.
+package struct PlanRecipeSwitch: Codable, Sendable, Equatable {
+    package var id: String
+    package var label: String
+    package var value: Bool
+    package var source: String
+
+    package init(id: String, label: String, value: Bool, source: String) {
+        self.id = id
+        self.label = label
+        self.value = value
+        self.source = source
+    }
+}
+
+/// A recipe step a switch turned off, with the number of steps that run before it, so a record states the step as not
+/// run where it would have run, with the switch that turned it off.
+package struct PlanTurnedOffStep: Codable, Sendable, Equatable {
+    package var stepType: String
+    /// The recipe's own label for the step, when it gives one.
+    package var label: String?
+    package var activeStepsBefore: Int
+    package var switchID: String
+
+    package init(stepType: String, label: String?, activeStepsBefore: Int, switchID: String) {
+        self.stepType = stepType
+        self.label = label
+        self.activeStepsBefore = activeStepsBefore
+        self.switchID = switchID
     }
 }
 

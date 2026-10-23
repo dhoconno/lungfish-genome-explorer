@@ -27,7 +27,7 @@ final class ExecutionPlanTests: XCTestCase {
             ),
             imageManifest: PlanImageManifestPin(sha256: digest, size: 512),
             tools: [Self.clumpify, Self.reformat, Self.seqkit],
-            recipe: PlanRecipeIdentity(id: "vsp2", sourceSHA256: digest),
+            recipe: PlanRecipeIdentity(id: "vsp2", name: "VSP2", requestedName: "vsp2", formatVersion: 2, sourceSHA256: digest),
             sample: PlanSampleValues(sampleName: "S1", originalFilenames: ["S1_R1.fastq.gz"], originalSizeBytes: 20),
             storage: PlanStorageSettings(
                 clumpingTool: clumpingTool, compressor: compressor, qualityBinning: .illumina4, threads: 4,

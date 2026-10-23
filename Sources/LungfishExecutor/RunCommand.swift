@@ -226,6 +226,7 @@ enum RunCommand {
             throw RunRefusal(field: "--plan", reason: "The plan file \(planName) cannot be read. No tool ran.")
         }
         record.executor.buildPin = plan.executor
+        record.recipe = plan.recipe
 
         // The self-check, before any file past the plan is read (tally K4.4). The plan pins exactly one executor entry.
         let executorIndex = plan.entries.firstIndex { $0.role == .executor } ?? 0

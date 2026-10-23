@@ -13,16 +13,37 @@ package enum PlanEntryRole: String, Codable, Sendable, CaseIterable {
     case executor
 }
 
-/// The identity a database index file carries beside its digest (C1 lane L5).
+/// The identity a database index file carries beside its digest (C1 lane L5): the fields of the engine's own
+/// `RecipeDatabaseRecord`, so the plan states what the in-process record states (BIO review fix 5 of K4 part A).
 package struct PlanDatabaseIdentity: Codable, Sendable, Equatable {
     package var id: String
     package var version: String
+    /// The index format the file's header or the lock gives, as text, or `unknown`.
     package var format: String
+    /// The k-mer length and minimizer window the index header gives, the parameters of a scrub that passes neither.
+    package var kmerLength: Int?
+    package var windowSize: Int?
+    /// Whether the bundled lock pins the file's SHA-256 and size, so the Mac checked it before the plan was written.
+    package var lockPinned: Bool?
+    /// The source and tool version the index was built from, from the lock or the install record.
+    package var buildSourceSHA256: String?
+    package var buildSourceSizeBytes: Int64?
+    package var buildToolVersion: String?
 
-    package init(id: String, version: String, format: String) {
+    package init(
+        id: String, version: String, format: String, kmerLength: Int? = nil, windowSize: Int? = nil,
+        lockPinned: Bool? = nil, buildSourceSHA256: String? = nil, buildSourceSizeBytes: Int64? = nil,
+        buildToolVersion: String? = nil
+    ) {
         self.id = id
         self.version = version
         self.format = format
+        self.kmerLength = kmerLength
+        self.windowSize = windowSize
+        self.lockPinned = lockPinned
+        self.buildSourceSHA256 = buildSourceSHA256
+        self.buildSourceSizeBytes = buildSourceSizeBytes
+        self.buildToolVersion = buildToolVersion
     }
 }
 

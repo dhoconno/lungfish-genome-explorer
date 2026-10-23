@@ -35,6 +35,15 @@ enum ExecutorPlanTestSupport {
         return [r1, r2]
     }
 
+    /// A stand-in for a recipe's file, which a plan pins as its `recipe` entry.
+    static func recipeSource(root: URL) throws -> ExecutorPlanSourceFile {
+        let file = root.appendingPathComponent("recipe-source.json")
+        if !FileManager.default.fileExists(atPath: file.path) {
+            try Data("{\"recipe\":\"stand-in\"}\n".utf8).write(to: file)
+        }
+        return try ExecutorPlanSourceFile.measuring(file)
+    }
+
     static func request(
         root: URL, _ sample: String, inputs: [URL], clumping: ClumpingTool, compressor: PlanCompressor = .bgzip,
         recipe: Recipe? = nil
@@ -47,8 +56,8 @@ enum ExecutorPlanTestSupport {
         return ExecutorPlanRequest(
             sample: PlanSampleValues(sampleName: sample, originalFilenames: inputs.map(\.lastPathComponent),
                                      originalSizeBytes: files.reduce(0) { $0 + $1.size }),
-            inputs: files, inputFormat: .pairedR1R2, recipe: nil, recipeFile: nil,
-            plannedSteps: try recipe.map { try RecipeEngine().plan(recipe: $0, inputFormat: .pairedR1R2) } ?? [],
+            inputs: files, inputFormat: .pairedR1R2, recipe: recipe,
+            recipeFile: try recipe.map { _ in try recipeSource(root: root) },
             storage: ExecutorPlanStorageRequest(
                 requestedClumpingTool: clumping, clumpifyHeapGB: 4, threads: 1, statisticsThreads: 1,
                 compressor: compressor, qualityBinning: .illumina4, compressionLevel: 4, threadsSource: .option,

@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+import LungfishIO
 import LungfishPortable
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -62,8 +63,8 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         return ExecutorPlanRequest(
             sample: PlanSampleValues(sampleName: sample, originalFilenames: inputs.map(\.lastPathComponent),
                                      originalSizeBytes: files.reduce(0) { $0 + $1.size }),
-            inputs: files, inputFormat: .pairedR1R2, recipe: nil, recipeFile: nil,
-            plannedSteps: try RecipeEngine().plan(recipe: chosen ?? recipe(), inputFormat: .pairedR1R2),
+            inputs: files, inputFormat: .pairedR1R2, recipe: chosen ?? recipe(),
+            recipeFile: try ExecutorPlanTestSupport.recipeSource(root: root),
             storage: ExecutorPlanStorageRequest(
                 requestedClumpingTool: clumping, clumpifyHeapGB: heapGB, threads: 1, statisticsThreads: 1,
                 compressor: .bgzip, qualityBinning: .illumina4, compressionLevel: 4, threadsSource: .option,
@@ -207,90 +208,17 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(inputEntries.map(\.size), [629_145_600, 629_145_600])
     }
 
-    /// Stand-ins for fastp, deacon and seqkit that copy each input to its output (gzipping a plain one) and write the
-    /// reports. deacon and seqkit take their inputs as the arguments just before `-o`.
+    /// The shared stand-ins of `RecipeToolFakes` (QA review fix 1 of K4 part A).
     private func fakeRunner() throws -> NativeToolRunner {
-        let put = #"put() { if /usr/bin/gzip -t "$1" 2>/dev/null; then /bin/cp "$1" "$2"; else /usr/bin/gzip -c "$1" > "$2"; fi; }"#
-        let scripts: [(env: String, name: String, body: String)] = [
-            ("fastp", "fastp", """
-            if [ "${1:-}" = "--version" ]; then echo "fastp 1.0.1"; exit 0; fi
-            in1=""; in2=""; o1=""; o2=""; m=""; report=""
-            while [ "$#" -gt 0 ]; do
-              case "$1" in
-                -i) in1="$2"; shift 2 ;; -I) in2="$2"; shift 2 ;;
-                -o|--out1) o1="$2"; shift 2 ;; -O|--out2) o2="$2"; shift 2 ;;
-                --merged_out) m="$2"; shift 2 ;; -j) report="$2"; shift 2 ;;
-                *) shift ;;
-              esac
-            done
-            [ -n "$o1" ] && put "$in1" "$o1"
-            [ -n "$o2" ] && put "$in2" "$o2"
-            [ -n "$m" ] && put "$in1" "$m"
-            printf '%s\\n' '{"summary":{"before_filtering":{"total_reads":4}}}' > "$report"
-            """),
-            ("deacon", "deacon", """
-            case "${1:-}" in --version|-V) echo "deacon 0.13.2"; exit 0 ;; esac
-            p2=""; p1=""; in1=""; in2=""; o1=""; o2=""; summary=""
-            while [ "$#" -gt 0 ]; do
-              case "$1" in
-                -o) in1="$p2"; in2="$p1"; o1="$2"; shift 2 ;; -O) o2="$2"; shift 2 ;;
-                --summary) summary="$2"; shift 2 ;;
-                *) p2="$p1"; p1="$1"; shift ;;
-              esac
-            done
-            put "$in1" "$o1"; put "$in2" "$o2"; printf '{}\\n' > "$summary"
-            """),
-            ("seqkit", "seqkit", """
-            case "${1:-}" in version|--version) echo "seqkit v2.10.0"; exit 0 ;; esac
-            p1=""; src=""; out=""
-            while [ "$#" -gt 0 ]; do
-              case "$1" in
-                -o) src="$p1"; out="$2"; shift 2 ;;
-                *) p1="$1"; shift ;;
-              esac
-            done
-            put "$src" "$out"
-            """),
-        ]
-        for script in scripts {
-            let bin = root.appendingPathComponent(".lungfish/conda/envs/\(script.env)/bin", isDirectory: true)
-            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-            let executable = bin.appendingPathComponent(script.name)
-            try "#!/bin/sh\nset -eu\n\(put)\n\(script.body)\n".write(to: executable, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        }
-        return NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
+        try RecipeToolFakes.runner(root: root)
     }
 
-    /// `root/inputs/R1.fastq` and `R2.fastq`, copies of S's pair, and an empty `root/work`.
     private func layOutWorkRoot(_ pair: [URL]) throws -> (input: StepInput, work: URL) {
-        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
-        let work = root.appendingPathComponent("work", isDirectory: true)
-        try? FileManager.default.removeItem(at: work)
-        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
-        let r1 = inputs.appendingPathComponent("R1.fastq")
-        let r2 = inputs.appendingPathComponent("R2.fastq")
-        if !FileManager.default.fileExists(atPath: r1.path) {
-            try FileManager.default.copyItem(at: pair[0], to: r1)
-            try FileManager.default.copyItem(at: pair[1], to: r2)
-        }
-        return (StepInput(r1: r1, r2: r2, format: .pairedR1R2), work)
+        try RecipeToolFakes.layOutWorkRoot(root: root, pair)
     }
 
-    /// Each recorded tool run's argv with the tool's path dropped, the root removed and the fused report's
-    /// per-run UUID taken out, after asserting its pattern.
     private func recordedArguments(_ result: RecipeExecutionResult) -> [[String]] {
-        result.stepRecords.compactMap(\.commandArguments).map { recorded in
-            var argv = recorded
-            if argv.first?.hasPrefix("/") == true { argv.removeFirst() }
-            return argv.map { argument in
-                let relative = argument.replacingOccurrences(of: root.path + "/", with: "")
-                guard relative.hasPrefix("work/sample_fused_fastp_report_") else { return relative }
-                XCTAssertNotNil(relative.range(of: #"^work/sample_fused_fastp_report_[0-9A-F-]{36}\.json$"#, options: .regularExpression))
-                return "work/sample_fused_fastp_report.json"
-            }
-        }
+        RecipeToolFakes.recordedArguments(result, root: root)
     }
 
     func testEmittedPlanMatchesRecordedArgvOfInProcessRun() async throws {
@@ -321,10 +249,7 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             let index = folder.appendingPathComponent(name)
             try Data("deacon index \(id)".utf8).write(to: index)
             indexes[id] = index
-            databases[id] = ExecutorPlanDatabaseFile(
-                file: try ExecutorPlanSourceFile.measuring(index),
-                identity: PlanDatabaseIdentity(id: id, version: "test", format: "deacon-index")
-            )
+            databases[id] = ExecutorPlanDatabaseFile(record: try await RecipeDatabaseIdentity().record(databaseID: id, at: index))
         }
         let runner = try fakeRunner()
         let builtin = RecipeRegistryV2.builtinRecipes()
@@ -365,6 +290,23 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             XCTAssertEqual(plan.storage.qualityBinning, .illumina4)
             XCTAssertEqual(plan.storage.threads, 1)
             XCTAssertEqual(plan.steps.first { $0.kind == .statistics }?.arguments, ["stats", "-a", "-T", "out/sample.fastq.gz"])
+            // BIO fix 1: the plan states the resolved recipe as the Mac's record does, with the step a switch turned off.
+            let identity = try XCTUnwrap(plan.recipe, name)
+            XCTAssertEqual(identity.id, "illumina-paired-cleanup", name)
+            XCTAssertEqual(identity.name, merged.name, name)
+            XCTAssertEqual(identity.requestedName, name)
+            XCTAssertEqual(identity.formatVersion, 2, name)
+            XCTAssertEqual(identity.sourceSHA256, plan.entries.first { $0.role == .recipe }?.sha256, name)
+            XCTAssertEqual(identity.presetID, name)
+            XCTAssertEqual(identity.switches, merged.switchSettings.map {
+                PlanRecipeSwitch(id: $0.id, label: $0.label, value: $0.value, source: "\($0.source)")
+            }, name)
+            XCTAssertEqual(identity.switches.first { $0.id == "removeDuplicates" }?.value, true, name)
+            XCTAssertEqual(identity.switches.first { $0.id == "removeRibosomalRNA" }?.value, removesRibosomalRNA, name)
+            XCTAssertEqual(identity.turnedOffSteps.map(\.switchID), removesRibosomalRNA ? [] : ["removeRibosomalRNA"], name)
+            XCTAssertEqual(identity.turnedOffSteps.map(\.stepType),
+                           merged.steps.filter { merged.turnedOffSetting(for: $0) != nil }.map(\.type), name)
+            XCTAssertEqual(entries.map(\.database?.lockPinned), ids.map { _ in false }, name)
 
             let file = try ExecutorPlanFolderWriter.write(emission, into: root.appendingPathComponent("plan-\(name)", isDirectory: true))
             XCTAssertEqual(try ExecutionPlan.decode(Data(contentsOf: file)), plan, name)
@@ -391,5 +333,71 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             XCTAssertEqual((error as? ExecutorPlanError)?.reason, ExecutorPlanFolderWriter.signingKeyRefusal)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// BIO fix 1 (b) of the K4 part A review: a request gives the recipe and its file together, or neither.
+    func testPlanRequestGivesRecipeAndFileTogether() throws {
+        let pair = try writePair("S")
+        var lone = try request("S", inputs: pair, clumping: .bbtools)
+        lone.recipeFile = nil
+        XCTAssertThrowsError(try ExecutorPlanEmitter.emit(lone, host: Self.mac24)) { error in
+            XCTAssertEqual((error as? ExecutorPlanError)?.field, "recipe")
+        }
+        lone.recipe = nil
+        XCTAssertNil(try ExecutorPlanEmitter.emit(lone, host: Self.mac24).recipe)
+    }
+
+    /// BIO fix 5 of the K4 part A review: the plan's database entry is the engine's own database record, made through
+    /// the lock check, so a file the lock pins with other bytes is refused before any plan exists, and a hosted build
+    /// is pinned by the file's real digest with lockPinned false.
+    func testPlanDatabaseEntryIsTheEngineDatabaseRecord() async throws {
+        let pair = try writePair("S")
+        let folder = root.appendingPathComponent("databases/test-panhuman", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let index = folder.appendingPathComponent("panhuman-1.k31w15.idx")
+        let bytes = Data("deacon index stand-in".utf8)
+        try bytes.write(to: index)
+        let digest = PortableDigest.sha256Hex(of: bytes)
+        let zeros = String(repeating: "0", count: 64)
+        func spec(sha256: String, build: String = "") throws -> DatabaseSpec {
+            try JSONDecoder().decode(DatabaseSpec.self, from: Data("""
+                {"id":"test-panhuman","tool":"deacon","displayName":"Test panhuman","version":"panhuman-test",\
+                "sha256":"\(sha256)","sizeBytes":\(bytes.count)\(build)}
+                """.utf8))
+        }
+        let record = try await RecipeDatabaseIdentity().record(databaseID: "test-panhuman", spec: spec(sha256: digest), at: index)
+        XCTAssertTrue(record.lockPinned)
+        var merged = try XCTUnwrap(RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes()))
+        for step in merged.steps.indices where merged.steps[step].type == "deacon-scrub" {
+            merged.steps[step].params?["database"] = .string("test-panhuman")
+        }
+        let plan = try ExecutorPlanEmitter.emit(
+            request("S", inputs: pair, clumping: .bbtools, recipe: merged,
+                    databases: ["test-panhuman": ExecutorPlanDatabaseFile(record: record)]),
+            host: Self.mac24
+        )
+        let entry = try XCTUnwrap(plan.entries.first { $0.role == .database })
+        XCTAssertEqual(entry.sha256, record.sha256)
+        XCTAssertEqual(entry.size, record.sizeBytes)
+        XCTAssertEqual(entry.database?.id, record.id)
+        XCTAssertEqual(entry.database?.version, "panhuman-test")
+        XCTAssertEqual(entry.database?.kmerLength, record.kmerLength)
+        XCTAssertEqual(entry.database?.windowSize, record.windowSize)
+        XCTAssertEqual(entry.database?.lockPinned, true)
+
+        do {
+            _ = try await RecipeDatabaseIdentity().record(databaseID: "test-panhuman", spec: spec(sha256: zeros), at: index)
+            XCTFail("a file whose digest differs from the lock's pin is refused")
+        } catch let error as RecipeDatabaseIdentityError {
+            guard case .lockMismatch(_, _, let field, _, _) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(field, "SHA-256")
+        }
+
+        let build = #","build":{"tool":"deacon","toolVersion":"0.13.2","sourceUrl":"https://example.org/source.fa.gz","sourceSha256":"\#(zeros)","argv":["index","build"]}"#
+        let hosted = try await RecipeDatabaseIdentity().record(databaseID: "test-panhuman", spec: spec(sha256: zeros, build: build), at: index)
+        XCTAssertEqual(hosted.sha256, digest)
+        XCTAssertFalse(hosted.lockPinned)
+        XCTAssertEqual(ExecutorPlanDatabaseFile(record: hosted).identity.lockPinned, false)
+        XCTAssertEqual(ExecutorPlanDatabaseFile(record: hosted).file.sha256, digest)
     }
 }

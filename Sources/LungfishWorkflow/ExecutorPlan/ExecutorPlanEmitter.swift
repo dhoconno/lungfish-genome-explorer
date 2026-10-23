@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishPortable
 
 /// The host's facts the plan writer is handed. It has no default that reads `ProcessInfo`, so a test can show that two
@@ -39,14 +40,21 @@ package struct ExecutorPlanSourceFile: Sendable, Equatable {
     }
 }
 
-/// A database index file the plan folder will hold, with the identity its `database` entry carries.
+/// A database index file the plan folder will hold, with the identity its `database` entry carries. It is made only
+/// from the engine's `RecipeDatabaseRecord`, which `RecipeDatabaseIdentity.record(databaseID:at:)` checks against the
+/// bundled lock, so a stale or stand-in index under a pinned id is refused before any plan exists (BIO review fix 5).
 package struct ExecutorPlanDatabaseFile: Sendable, Equatable {
     package var file: ExecutorPlanSourceFile
     package var identity: PlanDatabaseIdentity
 
-    package init(file: ExecutorPlanSourceFile, identity: PlanDatabaseIdentity) {
-        self.file = file
-        self.identity = identity
+    package init(record: RecipeDatabaseRecord) {
+        file = ExecutorPlanSourceFile(url: URL(fileURLWithPath: record.path), sha256: record.sha256, size: record.sizeBytes)
+        identity = PlanDatabaseIdentity(
+            id: record.id, version: record.version, format: record.indexFormat.map { String($0) } ?? "unknown",
+            kmerLength: record.kmerLength, windowSize: record.windowSize, lockPinned: record.lockPinned,
+            buildSourceSHA256: record.buildSourceSHA256, buildSourceSizeBytes: record.buildSourceSizeBytes,
+            buildToolVersion: record.buildToolVersion
+        )
     }
 }
 
@@ -106,10 +114,11 @@ package struct ExecutorPlanRequest: Sendable {
     /// R1 then R2, or the one file.
     package var inputs: [ExecutorPlanSourceFile]
     package var inputFormat: RecipeFileFormat
-    package var recipe: PlanRecipeIdentity?
+    /// The resolved recipe, with the switches and preset `RecipeResolver` set, or nil for an import with no recipe.
+    /// The emitter plans it with the engine's own `RecipeEngine.plan(recipe:inputFormat:)` and states its identity.
+    package var recipe: Recipe?
+    /// The recipe's file, which the plan pins as its `recipe` entry. It is given with `recipe` or not at all.
     package var recipeFile: ExecutorPlanSourceFile?
-    /// The engine's own plan, `RecipeEngine.plan(recipe:inputFormat:)`, or none for an import with no recipe.
-    package var plannedSteps: [PlannedStep]
     package var storage: ExecutorPlanStorageRequest
     package var executorFile: ExecutorPlanSourceFile
     package var executorBuild: PlanExecutorBuild
@@ -121,7 +130,7 @@ package struct ExecutorPlanRequest: Sendable {
 
     package init(
         sample: PlanSampleValues, inputs: [ExecutorPlanSourceFile], inputFormat: RecipeFileFormat,
-        recipe: PlanRecipeIdentity?, recipeFile: ExecutorPlanSourceFile?, plannedSteps: [PlannedStep],
+        recipe: Recipe?, recipeFile: ExecutorPlanSourceFile?,
         storage: ExecutorPlanStorageRequest, executorFile: ExecutorPlanSourceFile, executorBuild: PlanExecutorBuild,
         imageManifest: PlanImageManifestPin, imageTools: [PlanToolPin], deadlines: ExecutorPlanDeadlines,
         databases: [String: ExecutorPlanDatabaseFile] = [:]
@@ -132,7 +141,6 @@ package struct ExecutorPlanRequest: Sendable {
         self.inputFormat = inputFormat
         self.recipe = recipe
         self.recipeFile = recipeFile
-        self.plannedSteps = plannedSteps
         self.storage = storage
         self.executorFile = executorFile
         self.executorBuild = executorBuild
@@ -212,10 +220,22 @@ package enum ExecutorPlanEmitter {
     package static func emission(_ request: ExecutorPlanRequest, host: ExecutorPlanHostFacts) throws -> ExecutorPlanEmission {
         let settings = request.storage
         let clumping = try clumpingChoice(requested: settings.requestedClumpingTool, heapGB: settings.clumpifyHeapGB, host: host)
+        let plannedSteps: [PlannedStep]
+        let recipeIdentity: PlanRecipeIdentity?
+        switch (request.recipe, request.recipeFile) {
+        case (nil, nil):
+            plannedSteps = []
+            recipeIdentity = nil
+        case (let recipe?, let file?):
+            plannedSteps = try RecipeEngine().plan(recipe: recipe, inputFormat: request.inputFormat)
+            recipeIdentity = PlanRecipeIdentity(recipe: recipe, sourceSHA256: file.sha256)
+        default:
+            throw ExecutorPlanError(field: "recipe", reason: "A plan request gives a recipe and its file together, or neither.")
+        }
         var sources: [String: URL] = [executorPath: request.executorFile.url]
         var entries = [PlanEntry(role: .executor, relativePath: executorPath, sha256: request.executorFile.sha256, size: request.executorFile.size)]
-        if let recipe = request.recipe, let file = request.recipeFile {
-            let path = "recipe/\(recipe.id).recipe.json"
+        if let recipeIdentity, let file = request.recipeFile {
+            let path = "recipe/\(recipeIdentity.id).recipe.json"
             entries.append(PlanEntry(role: .recipe, relativePath: path, sha256: file.sha256, size: file.size))
             sources[path] = file.url
         }
@@ -236,7 +256,7 @@ package enum ExecutorPlanEmitter {
         var tools = ToolPins(available: request.imageTools)
         var steps: [PlanStep] = []
         var databaseURLs: [String: URL] = [:]
-        for (index, planned) in request.plannedSteps.enumerated() {
+        for (index, planned) in plannedSteps.enumerated() {
             if case .singleStep(let executor, _) = planned, let plannable = executor as? any RecipePlannableStep {
                 for databaseID in plannable.plannedDatabaseIDs where databaseURLs[databaseID] == nil {
                     guard let database = request.databases[databaseID] else {
@@ -299,7 +319,7 @@ package enum ExecutorPlanEmitter {
         ))
         let plan = ExecutionPlan(
             entries: entries, executor: request.executorBuild, imageManifest: request.imageManifest, tools: tools.used,
-            recipe: request.recipe, sample: request.sample,
+            recipe: recipeIdentity, sample: request.sample,
             storage: PlanStorageSettings(
                 clumpingTool: clumping.resolved, compressor: settings.compressor, qualityBinning: settings.qualityBinning,
                 threads: settings.threads, clumpifyHeapGB: settings.clumpifyHeapGB, compressionLevel: settings.compressionLevel,
@@ -436,5 +456,24 @@ package enum ExecutorPlanEmitter {
             return suffix
         }
         return ".fastq"
+    }
+}
+
+extension PlanRecipeIdentity {
+    /// The identity of the resolved `recipe` as the Mac's import record states it: the name passed, the preset, each
+    /// switch's value and source, and each step a switch turned off (BIO-r3 R8, BIO review fix 1 of K4 part A).
+    init(recipe: Recipe, sourceSHA256: String) {
+        self.init(
+            id: recipe.id, name: recipe.name, requestedName: recipe.requestedName, formatVersion: recipe.formatVersion,
+            sourceSHA256: sourceSHA256, presetID: recipe.resolution?.preset?.id, presetName: recipe.resolution?.preset?.name,
+            switches: recipe.switchSettings.map {
+                PlanRecipeSwitch(id: $0.id, label: $0.label, value: $0.value, source: "\($0.source)")
+            },
+            turnedOffSteps: recipe.turnedOffSteps.map {
+                PlanTurnedOffStep(
+                    stepType: $0.step.type, label: $0.step.label, activeStepsBefore: $0.activeStepsBefore, switchID: $0.setting.id
+                )
+            }
+        )
     }
 }
