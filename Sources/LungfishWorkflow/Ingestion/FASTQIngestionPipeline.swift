@@ -414,7 +414,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         PortableStoragePlan.singleFileClumpPlan(for: counts)
     }
 
-    /// The storage argv of ``PortableStoragePlan``, with ``BBToolsOutOfMemory/flag`` as its out-of-memory flag.
+    /// The storage argv of ``PortableStoragePlan/clumpifyArguments(input:input2:output:interleaved:heapGB:threads:qualityBinning:)``.
     static func clumpifyArguments(
         input: URL,
         input2: URL? = nil,
@@ -426,7 +426,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ) -> [String] {
         PortableStoragePlan.clumpifyArguments(
             input: input, input2: input2, output: output, interleaved: interleaved, heapGB: heapGB, threads: threads,
-            qualityBinning: qualityBinning, outOfMemoryFlag: BBToolsOutOfMemory.flag
+            qualityBinning: qualityBinning
         )
     }
 

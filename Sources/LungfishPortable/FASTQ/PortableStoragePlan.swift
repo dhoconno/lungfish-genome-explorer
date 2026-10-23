@@ -47,8 +47,8 @@ public enum PortableStoragePlan {
     ///
     /// `interleaved=` is always stated (see ``SingleFileClumpPlan``). A second
     /// input is an R2 file, which always means `interleaved=t` output.
-    /// `outOfMemoryFlag` is the BBTools flag that ends the JVM at once when its heap runs out. The caller names it,
-    /// since the out-of-memory contract of every BBTools launch lives with the launches.
+    /// ``BBToolsOutOfMemory/flag`` follows the heap, so the JVM ends at once when its heap runs out. The flag is
+    /// defined once here, so the Mac import and the executor give every storage launch the same argv.
     package static func clumpifyArguments(
         input: URL,
         input2: URL? = nil,
@@ -56,14 +56,13 @@ public enum PortableStoragePlan {
         interleaved: Bool,
         heapGB: Int,
         threads: Int,
-        qualityBinning: QualityBinningScheme,
-        outOfMemoryFlag: String
+        qualityBinning: QualityBinningScheme
     ) -> [String] {
         var args = [
             "in=\(input.path)",
             "out=\(output.path)",
             "-Xmx\(heapGB)g",
-            outOfMemoryFlag,
+            BBToolsOutOfMemory.flag,
             "ow=t",
             "reorder",
             "groups=auto",
