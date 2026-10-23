@@ -93,19 +93,13 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         }
 
         // SWIFT's Q-K4-1 ruling: the Mac replay's manifest comes from the managed environments the in-process import
-        // runs, so the two routes run the same executables.
+        // runs, so the two routes run the same executables. ARCH-r3 ruling 3: the plan writer gets the builder's manifest
+        // as it is. The interleave step reads each merged-step output through the manifest's pigz, as the node does, so
+        // no host program reads it and /usr/bin stays after the managed Java on PATH (ARCH fix 1 of the K4 part C review).
         let prefixes = Set(toolPaths.values.map { $0.deletingLastPathComponent().deletingLastPathComponent().path })
-        let managed = try ImageToolManifest.build(condaPrefixes: prefixes.sorted().map { URL(fileURLWithPath: $0) })
-        // The interleave step reads each merged-step output through `gzip -dc`, which the Mac runs from the system and
-        // no managed environment holds, so the replay's manifest names the system gzip beside the managed tools.
-        let manifest = ImageToolManifest(
-            platform: managed.platform,
-            tools: (managed.tools + [ImageTool(id: "gzip", version: "system", build: "macos", path: "/usr/bin/gzip", condaPackage: "gzip")])
-                .sorted { ($0.id, $0.path) < ($1.id, $1.path) }
-        )
+        let manifest = try ImageToolManifest.build(condaPrefixes: prefixes.sorted().map { URL(fileURLWithPath: $0) })
         let manifestData = try manifest.encoded()
         var pins: [PlanToolPin] = []
-        pins.append(PlanToolPin(id: "gzip", version: "system", build: "macos"))
         for (tool, path) in toolPaths {
             let entry = try XCTUnwrap(manifest.tools.first {
                 $0.path == path.path || URL(fileURLWithPath: $0.path).resolvingSymlinksInPath() == path.resolvingSymlinksInPath()
@@ -245,6 +239,16 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         XCTAssertEqual(record.recipe, emission.plan.recipe, name)
         XCTAssertEqual(record.imageManifest?.source, .argument, name)
         XCTAssertEqual(record.imageManifest?.sha256, Self.sha256(shared.manifestData), name)
+        // ARCH fix 1 of the K4 part C review. The fixed folders come once and last, after the folder of the manifest's
+        // Java that clumpify finds through PATH.
+        let searchPath = try XCTUnwrap(record.searchPath, name)
+        XCTAssertEqual(Array(searchPath.suffix(2)), ["/usr/bin", "/bin"], name)
+        XCTAssertEqual(searchPath.filter { $0 == "/usr/bin" }.count, 1, name)
+        let java = try XCTUnwrap(record.runtimes?.first { $0.id == "java" }, "\(name) states the manifest's Java")
+        let javaFolder = try XCTUnwrap(
+            searchPath.firstIndex(of: (java.path as NSString).deletingLastPathComponent), "\(name) \(java.path)"
+        )
+        XCTAssertLessThan(javaFolder, searchPath.count - 2, name)
         // The in-process import has no compressor option, so it must have resolved bgzip and never pigz.
         let bundle = config.projectDirectory.appendingPathComponent("Imports/\(Self.sampleName).lungfishfastq", isDirectory: true)
         let provenanceURL = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
