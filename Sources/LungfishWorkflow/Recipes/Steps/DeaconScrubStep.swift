@@ -34,39 +34,25 @@ public struct DeaconScrubStep: RecipeStepExecutor {
     // MARK: - Execute
 
     public func execute(input: StepInput, context: StepContext) async throws -> StepOutput {
-        guard let r2 = input.r2 else {
+        guard input.r2 != nil else {
             throw RecipeEngineError.formatMismatch(
                 expected: .pairedR1R2, got: input.format, step: Self.typeID)
         }
 
-        let dbPath: URL
-        do {
-            dbPath = try await DatabaseRegistry.shared.requiredDatabasePath(for: databaseID)
-        } catch let error as HumanScrubberDatabaseError {
-            throw error
-        } catch {
-            throw RecipeEngineError.databaseNotFound(id: databaseID, step: Self.typeID)
-        }
+        let dbPath = try await context.recipeDatabasePath(for: databaseID, step: Self.typeID)
         let database = try await RecipeDatabaseIdentity.shared.record(databaseID: databaseID, at: dbPath)
 
-        let outR1 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R1.fq.gz")
-        let outR2 = context.workspace.appendingPathComponent("\(context.sampleName)_scrubbed_R2.fq.gz")
-        let summary = context.workspace.appendingPathComponent("\(context.sampleName)_deacon_summary.json")
-
-        let args = [
-            "filter",
-            "-d", dbPath.path,
-            input.r1.path,
-            r2.path,
-            "-o", outR1.path,
-            "-O", outR2.path,
-            "--summary", summary.path,
-            "-t", "\(context.threads)",
-        ]
+        // The argv an executor plan names too (RecipePlannedInvocation.swift).
+        let invocation = try plannedInvocation(
+            input: input, databasePath: dbPath, workspace: context.workspace, sampleName: context.sampleName,
+            threads: context.threads
+        )
+        let (outR1, outR2) = (invocation.output.r1, invocation.output.r2)
+        let summary = invocation.auxiliaryOutputs[0]
 
         let result = try await context.runner.run(
             .deacon,
-            arguments: args,
+            arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .deacon, input: input)
         )
         if result.exitCode != 0 {

@@ -20,6 +20,8 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         PlanToolPin(id: "seqkit", version: "2.10.0", build: "h9ee0642_0"),
         PlanToolPin(id: "gzip", version: "1.13", build: "h8359307_0"),
         PlanToolPin(id: "bgzip", version: "1.21", build: "h3ff9d97_0"),
+        PlanToolPin(id: "deacon", version: "0.13.2", build: "h4349ce8_0"),
+        PlanToolPin(id: "trim_galore", version: "2.3.0", build: "h48b4a6d_0"),
     ]
 
     private var root: URL!
@@ -48,7 +50,10 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         return [r1, r2]
     }
 
-    private func request(_ sample: String, inputs: [URL], clumping: ClumpingTool, heapGB: Int = 4) throws -> ExecutorPlanRequest {
+    private func request(
+        _ sample: String, inputs: [URL], clumping: ClumpingTool, heapGB: Int = 4, recipe chosen: Recipe? = nil,
+        databases: [String: ExecutorPlanDatabaseFile] = [:]
+    ) throws -> ExecutorPlanRequest {
         let executor = root.appendingPathComponent("lungfish-executor")
         if !FileManager.default.fileExists(atPath: executor.path) {
             try Data("executor stand-in".utf8).write(to: executor)
@@ -58,7 +63,7 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             sample: PlanSampleValues(sampleName: sample, originalFilenames: inputs.map(\.lastPathComponent),
                                      originalSizeBytes: files.reduce(0) { $0 + $1.size }),
             inputs: files, inputFormat: .pairedR1R2, recipe: nil, recipeFile: nil,
-            plannedSteps: try RecipeEngine().plan(recipe: recipe(), inputFormat: .pairedR1R2),
+            plannedSteps: try RecipeEngine().plan(recipe: chosen ?? recipe(), inputFormat: .pairedR1R2),
             storage: ExecutorPlanStorageRequest(
                 requestedClumpingTool: clumping, clumpifyHeapGB: heapGB, threads: 1, statisticsThreads: 1,
                 compressor: .bgzip, qualityBinning: .illumina4, compressionLevel: 4, threadsSource: .option,
@@ -71,7 +76,8 @@ final class ExecutorPlanEmitterTests: XCTestCase {
                 staticLinuxSDKID: "swift-6.2-static-linux", staticLinuxSDKSHA256: Self.digest
             ),
             imageManifest: PlanImageManifestPin(sha256: Self.digest, size: 4096), imageTools: Self.pins,
-            deadlines: ExecutorPlanDeadlines(recipeStepSeconds: 3600, storageSeconds: 7200, statisticsSeconds: 1800, graceSeconds: 30)
+            deadlines: ExecutorPlanDeadlines(recipeStepSeconds: 3600, storageSeconds: 7200, statisticsSeconds: 1800, graceSeconds: 30),
+            databases: databases
         )
     }
 
@@ -114,15 +120,34 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             XCTAssertEqual(namedPlan.clumping.resolved.rawValue, named.rawValue)
             XCTAssertEqual(namedPlan.clumping.resolvedSource, .option)
             XCTAssertEqual(namedPlan.clumping.reason, "explicit clumping tool selection")
+            XCTAssertNil(namedPlan.clumping.operationNotice)
         }
+    }
 
-        let folder = root.appendingPathComponent("trim-galore-plan", isDirectory: true)
-        XCTAssertThrowsError(try ExecutorPlanFolderWriter.write(
-            ExecutorPlanEmitter.emission(request("S", inputs: pair, clumping: .trimGalore), host: Self.mac24), into: folder
-        )) { error in
-            XCTAssertEqual((error as? ExecutorPlanError)?.reason, ExecutorPlanEmitter.trimGaloreRefusal)
-        }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("plan.json").path))
+    /// ARCH A5 withdrew K4.9's refusal: a named Trim Galore is planned as the Mac resolves it, with its notice.
+    func testPlanNamesTrimGaloreWithItsOperationNotice() throws {
+        let pair = try writePair("S")
+        let emission = try ExecutorPlanEmitter.emission(request("S", inputs: pair, clumping: .trimGalore), host: Self.mac24)
+        let plan = emission.plan
+        XCTAssertEqual(plan.clumping.requested, .trimGalore)
+        XCTAssertEqual(plan.clumping.resolved, .trimGalore)
+        XCTAssertEqual(plan.storage.clumpingTool, .trimGalore)
+        XCTAssertEqual(plan.clumping.resolvedSource, .option)
+        XCTAssertEqual(plan.storage.clumpingToolSource, .option)
+        XCTAssertEqual(plan.clumping.reason, "explicit clumping tool selection")
+        XCTAssertEqual(plan.clumping.heapBytes, 4_294_967_296)
+        XCTAssertEqual(plan.clumping.operationNotice, ClumpingTool.trimGalore.operationNotice)
+        XCTAssertEqual(plan.clumping.operationNotice, "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads.")
+        let storage = try XCTUnwrap(plan.steps.first { $0.kind == .storage })
+        XCTAssertEqual(storage.tool?.id, "trim_galore")
+        XCTAssertEqual(storage.arguments, [])
+        XCTAssertEqual(storage.environment, [])
+        XCTAssertTrue(plan.tools.contains { $0.id == "reformat.sh" }, "the Trim Galore route interleaves pairs with reformat.sh")
+
+        let file = try ExecutorPlanFolderWriter.write(emission, into: root.appendingPathComponent("trim-galore-plan", isDirectory: true))
+        let decoded = try ExecutionPlan.decode(Data(contentsOf: file))
+        XCTAssertEqual(decoded.clumping.operationNotice, ClumpingTool.trimGalore.operationNotice)
+        XCTAssertEqual(decoded.storage.clumpingTool, .trimGalore)
     }
 
     /// N2-T2.
@@ -182,66 +207,168 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(inputEntries.map(\.size), [629_145_600, 629_145_600])
     }
 
-    /// A fastp stand-in that copies each input to its output (gzipping a plain one) and writes a report.
-    private func fakeFastpRunner() throws -> NativeToolRunner {
-        let bin = root.appendingPathComponent(".lungfish/conda/envs/fastp/bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-        let script = """
-        #!/bin/sh
-        set -eu
-        if [ "${1:-}" = "--version" ]; then echo "fastp 1.0.1"; exit 0; fi
-        in1=""; in2=""; o1=""; o2=""; m=""; report=""
-        while [ "$#" -gt 0 ]; do
-          case "$1" in
-            -i) in1="$2"; shift 2 ;; -I) in2="$2"; shift 2 ;;
-            -o|--out1) o1="$2"; shift 2 ;; -O|--out2) o2="$2"; shift 2 ;;
-            --merged_out) m="$2"; shift 2 ;; -j) report="$2"; shift 2 ;;
-            *) shift ;;
-          esac
-        done
-        put() { if /usr/bin/gzip -t "$1" 2>/dev/null; then /bin/cp "$1" "$2"; else /usr/bin/gzip -c "$1" > "$2"; fi; }
-        [ -n "$o1" ] && put "$in1" "$o1"
-        [ -n "$o2" ] && put "$in2" "$o2"
-        [ -n "$m" ] && put "$in1" "$m"
-        printf '%s\\n' '{"summary":{"before_filtering":{"total_reads":4}}}' > "$report"
-        """
-        let executable = bin.appendingPathComponent("fastp")
-        try script.write(to: executable, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    /// Stand-ins for fastp, deacon and seqkit that copy each input to its output (gzipping a plain one) and write the
+    /// reports. deacon and seqkit take their inputs as the arguments just before `-o`.
+    private func fakeRunner() throws -> NativeToolRunner {
+        let put = #"put() { if /usr/bin/gzip -t "$1" 2>/dev/null; then /bin/cp "$1" "$2"; else /usr/bin/gzip -c "$1" > "$2"; fi; }"#
+        let scripts: [(env: String, name: String, body: String)] = [
+            ("fastp", "fastp", """
+            if [ "${1:-}" = "--version" ]; then echo "fastp 1.0.1"; exit 0; fi
+            in1=""; in2=""; o1=""; o2=""; m=""; report=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -i) in1="$2"; shift 2 ;; -I) in2="$2"; shift 2 ;;
+                -o|--out1) o1="$2"; shift 2 ;; -O|--out2) o2="$2"; shift 2 ;;
+                --merged_out) m="$2"; shift 2 ;; -j) report="$2"; shift 2 ;;
+                *) shift ;;
+              esac
+            done
+            [ -n "$o1" ] && put "$in1" "$o1"
+            [ -n "$o2" ] && put "$in2" "$o2"
+            [ -n "$m" ] && put "$in1" "$m"
+            printf '%s\\n' '{"summary":{"before_filtering":{"total_reads":4}}}' > "$report"
+            """),
+            ("deacon", "deacon", """
+            case "${1:-}" in --version|-V) echo "deacon 0.13.2"; exit 0 ;; esac
+            p2=""; p1=""; in1=""; in2=""; o1=""; o2=""; summary=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -o) in1="$p2"; in2="$p1"; o1="$2"; shift 2 ;; -O) o2="$2"; shift 2 ;;
+                --summary) summary="$2"; shift 2 ;;
+                *) p2="$p1"; p1="$1"; shift ;;
+              esac
+            done
+            put "$in1" "$o1"; put "$in2" "$o2"; printf '{}\\n' > "$summary"
+            """),
+            ("seqkit", "seqkit", """
+            case "${1:-}" in version|--version) echo "seqkit v2.10.0"; exit 0 ;; esac
+            p1=""; src=""; out=""
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                -o) src="$p1"; out="$2"; shift 2 ;;
+                *) p1="$1"; shift ;;
+              esac
+            done
+            put "$src" "$out"
+            """),
+        ]
+        for script in scripts {
+            let bin = root.appendingPathComponent(".lungfish/conda/envs/\(script.env)/bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+            let executable = bin.appendingPathComponent(script.name)
+            try "#!/bin/sh\nset -eu\n\(put)\n\(script.body)\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
         return NativeToolRunner(toolsDirectory: nil, homeDirectory: root, appIdentity: .preview)
+    }
+
+    /// `root/inputs/R1.fastq` and `R2.fastq`, copies of S's pair, and an empty `root/work`.
+    private func layOutWorkRoot(_ pair: [URL]) throws -> (input: StepInput, work: URL) {
+        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
+        let work = root.appendingPathComponent("work", isDirectory: true)
+        try? FileManager.default.removeItem(at: work)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let r1 = inputs.appendingPathComponent("R1.fastq")
+        let r2 = inputs.appendingPathComponent("R2.fastq")
+        if !FileManager.default.fileExists(atPath: r1.path) {
+            try FileManager.default.copyItem(at: pair[0], to: r1)
+            try FileManager.default.copyItem(at: pair[1], to: r2)
+        }
+        return (StepInput(r1: r1, r2: r2, format: .pairedR1R2), work)
+    }
+
+    /// Each recorded tool run's argv with the tool's path dropped, the root removed and the fused report's
+    /// per-run UUID taken out, after asserting its pattern.
+    private func recordedArguments(_ result: RecipeExecutionResult) -> [[String]] {
+        result.stepRecords.compactMap(\.commandArguments).map { recorded in
+            var argv = recorded
+            if argv.first?.hasPrefix("/") == true { argv.removeFirst() }
+            return argv.map { argument in
+                let relative = argument.replacingOccurrences(of: root.path + "/", with: "")
+                guard relative.hasPrefix("work/sample_fused_fastp_report_") else { return relative }
+                XCTAssertNotNil(relative.range(of: #"^work/sample_fused_fastp_report_[0-9A-F-]{36}\.json$"#, options: .regularExpression))
+                return "work/sample_fused_fastp_report.json"
+            }
+        }
     }
 
     func testEmittedPlanMatchesRecordedArgvOfInProcessRun() async throws {
         let pair = try writePair("S")
-        let inputs = root.appendingPathComponent("inputs", isDirectory: true)
-        let work = root.appendingPathComponent("work", isDirectory: true)
-        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        let r1 = inputs.appendingPathComponent("R1.fastq")
-        let r2 = inputs.appendingPathComponent("R2.fastq")
-        try FileManager.default.copyItem(at: pair[0], to: r1)
-        try FileManager.default.copyItem(at: pair[1], to: r2)
-
+        let (input, work) = try layOutWorkRoot(pair)
         let result = try await RecipeEngine().execute(
-            recipe: recipe(), input: StepInput(r1: r1, r2: r2, format: .pairedR1R2),
+            recipe: recipe(), input: input,
             context: StepContext(workspace: work, threads: 1, sampleName: ExecutorPlanEmitter.workStem,
-                                 runner: try fakeFastpRunner(), progress: { _, _ in })
+                                 runner: try fakeRunner(), progress: { _, _ in })
         )
-        let recorded: [[String]] = try result.stepRecords.map { record in
-            var argv = try XCTUnwrap(record.commandArguments)
-            if argv.first?.hasSuffix("/fastp") == true { argv.removeFirst() }
-            return argv.map { $0.replacingOccurrences(of: root.path + "/", with: "") }
-        }
+        let recorded = recordedArguments(result)
         XCTAssertEqual(recorded.count, 2, "the fused fastp run and the merge run")
-        var fused = try XCTUnwrap(recorded.first)
-        let reportIndex = try XCTUnwrap(fused.firstIndex(of: "-j")) + 1
-        XCTAssertNotNil(fused[reportIndex].range(of: #"^work/sample_fused_fastp_report_[0-9A-F-]{36}\.json$"#, options: .regularExpression))
-        fused[reportIndex] = "work/sample_fused_fastp_report.json"
 
         let plan = try ExecutorPlanEmitter.emit(request("S", inputs: pair, clumping: .auto), host: Self.mac24)
-        let planned = plan.steps.filter { $0.kind == .recipe }.map(\.arguments)
-        XCTAssertEqual(planned, [fused, recorded[1]])
+        XCTAssertEqual(plan.steps.filter { $0.kind == .recipe }.map(\.arguments), recorded)
         XCTAssertEqual(plan.steps.map(\.kind), [.recipe, .recipe, .interleave, .storage, .statistics, .qualityCount])
+    }
+
+    /// BIO's two parity cases of tally-r3: the merged recipe as VSP2 (rRNA removal off) and as wastewater (on), at
+    /// threads 1, bbtools, a 4 GB heap, illumina4 and bgzip. Every recipe step's argv equals the in-process run's.
+    func testMergedRecipeEmitsCompletePlanForBothRRNASettings() async throws {
+        let pair = try writePair("S")
+        var indexes: [String: URL] = [:]
+        var databases: [String: ExecutorPlanDatabaseFile] = [:]
+        for (id, name) in [("test-panhuman", "panhuman-1.k31w15.idx"), ("deacon-ribokmers", "ribokmers.k31w15.idx")] {
+            let folder = root.appendingPathComponent("databases/\(id)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let index = folder.appendingPathComponent(name)
+            try Data("deacon index \(id)".utf8).write(to: index)
+            indexes[id] = index
+            databases[id] = ExecutorPlanDatabaseFile(
+                file: try ExecutorPlanSourceFile.measuring(index),
+                identity: PlanDatabaseIdentity(id: id, version: "test", format: "deacon-index")
+            )
+        }
+        let runner = try fakeRunner()
+        let builtin = RecipeRegistryV2.builtinRecipes()
+        for (name, removesRibosomalRNA) in [("vsp2-target-enrichment", false), ("wastewater-metagenomics", true)] {
+            var merged = try XCTUnwrap(RecipeResolver.resolve(name, in: builtin), name)
+            // The bundled lock pins the 3.3 GB panhuman index by size and SHA-256, and the in-process run checks the
+            // index against it, so the scrub reads a stand-in under an id the lock does not hold. Its argv is unchanged.
+            for index in merged.steps.indices where merged.steps[index].type == "deacon-scrub" {
+                merged.steps[index].params?["database"] = .string("test-panhuman")
+            }
+            XCTAssertEqual(merged.id, "illumina-paired-cleanup")
+            XCTAssertEqual(merged.switchSettings.first { $0.id == "removeRibosomalRNA" }?.value, removesRibosomalRNA)
+            let (input, work) = try layOutWorkRoot(pair)
+            let result = try await RecipeEngine().execute(
+                recipe: merged, input: input,
+                context: StepContext(workspace: work, threads: 1, sampleName: ExecutorPlanEmitter.workStem,
+                                     runner: runner, databasePaths: indexes, progress: { _, _ in })
+            )
+            let recorded = recordedArguments(result)
+
+            let emission = try ExecutorPlanEmitter.emission(
+                request("S", inputs: pair, clumping: .bbtools, recipe: merged, databases: databases), host: Self.mac24
+            )
+            let plan = emission.plan
+            let recipeSteps = plan.steps.filter { $0.kind == .recipe }
+            XCTAssertEqual(recipeSteps.map(\.arguments), recorded, name)
+            XCTAssertEqual(recipeSteps.map { $0.tool?.id }, ["fastp", "deacon"] + (removesRibosomalRNA ? ["deacon"] : []) + ["fastp", "seqkit", "fastp"], name)
+            XCTAssertEqual(Array(plan.steps.map(\.kind).suffix(4)), [.interleave, .storage, .statistics, .qualityCount], name)
+            let ids = ["test-panhuman"] + (removesRibosomalRNA ? ["deacon-ribokmers"] : [])
+            let entries = plan.entries.filter { $0.role == .database }
+            XCTAssertEqual(entries.map(\.relativePath), ids.map { "databases/\($0)/\(indexes[$0]!.lastPathComponent)" }, name)
+            XCTAssertEqual(entries.map(\.sha256), ids.map { databases[$0]!.file.sha256 }, name)
+            XCTAssertEqual(entries.compactMap(\.database?.id), ids, name)
+            XCTAssertTrue(recipeSteps[1].inputs.contains(entries[0].relativePath), "the scrub step reads its index")
+            XCTAssertEqual(plan.storage.clumpingTool, .bbtools)
+            XCTAssertEqual(plan.storage.clumpifyHeapGB, 4)
+            XCTAssertEqual(plan.storage.compressor, .bgzip)
+            XCTAssertEqual(plan.storage.qualityBinning, .illumina4)
+            XCTAssertEqual(plan.storage.threads, 1)
+            XCTAssertEqual(plan.steps.first { $0.kind == .statistics }?.arguments, ["stats", "-a", "-T", "out/sample.fastq.gz"])
+
+            let file = try ExecutorPlanFolderWriter.write(emission, into: root.appendingPathComponent("plan-\(name)", isDirectory: true))
+            XCTAssertEqual(try ExecutionPlan.decode(Data(contentsOf: file)), plan, name)
+        }
     }
 
     func testEmittedPlanCarriesNoSigningKey() throws {

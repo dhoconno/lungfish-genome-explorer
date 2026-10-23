@@ -195,6 +195,9 @@ public struct StepContext: Sendable {
     public let runner: NativeToolRunner
     /// Progress callback: fraction (0–1) and descriptive status message.
     public let progress: @Sendable (Double, String) -> Void
+    /// Index files by database id that replace `DatabaseRegistry.shared`'s, so a test runs a database step on a
+    /// file it made (CHTC lane K4). Empty for every import.
+    package let databasePaths: [String: URL]
 
     public init(
         workspace: URL,
@@ -203,11 +206,37 @@ public struct StepContext: Sendable {
         runner: NativeToolRunner,
         progress: @escaping @Sendable (Double, String) -> Void
     ) {
+        self.init(workspace: workspace, threads: threads, sampleName: sampleName, runner: runner,
+                  databasePaths: [:], progress: progress)
+    }
+
+    package init(
+        workspace: URL,
+        threads: Int,
+        sampleName: String,
+        runner: NativeToolRunner,
+        databasePaths: [String: URL],
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) {
         self.workspace = workspace
         self.threads = threads
         self.sampleName = sampleName
         self.runner = runner
+        self.databasePaths = databasePaths
         self.progress = progress
+    }
+
+    /// The index file of `databaseID` for `step`: the context's own, else the registry's, with the registry's
+    /// install-required error and the engine's not-found error as before.
+    func recipeDatabasePath(for databaseID: String, step: String) async throws -> URL {
+        if let path = databasePaths[databaseID] { return path }
+        do {
+            return try await DatabaseRegistry.shared.requiredDatabasePath(for: databaseID)
+        } catch let error as HumanScrubberDatabaseError {
+            throw error
+        } catch {
+            throw RecipeEngineError.databaseNotFound(id: databaseID, step: step)
+        }
     }
 
     func recipeToolTimeout(for tool: NativeTool, input: StepInput) -> TimeInterval {
