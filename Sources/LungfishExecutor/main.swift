@@ -9,7 +9,7 @@ if executorArguments.first == "step" {
     exit(StepCommand.main(Array(executorArguments.dropFirst())))
 }
 if executorArguments.first == "run" {
-    exit(RunCommand.main(Array(executorArguments.dropFirst())))
+    exit(RunCommand.main(Array(executorArguments.dropFirst()), commandLine: executorArguments))
 }
 if executorArguments.first == "read-fastq" {
     exit(ReadCommand.main(Array(executorArguments.dropFirst())))

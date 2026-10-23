@@ -29,7 +29,9 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
     /// The termination signal that interrupted the run.
     package var signal: Int32?
     package var signalName: String?
-    /// The executor's own argv, byte for byte as run (tally-r2 3.1).
+    /// The executor's argv after its own path, with the `--plan` value cut to its file name and the `--image-manifest`
+    /// value stated as `(not recorded)`, so the record holds no path of the machine (SWIFT rulings N8 and Q-K4-1). The
+    /// `--site-fact` pairs are verbatim (tally-r2 3.1).
     package var executorArguments: [String]
     package var executor: ExecutorBinaryIdentity
     /// The plan file the run read, nil when the run was refused before it could read one.

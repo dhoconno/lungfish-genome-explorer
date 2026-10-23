@@ -114,8 +114,34 @@ enum RunCommand {
         return scalars.allSatisfy { letter($0) || ("0"..."9").contains($0) || $0 == "_" }
     }
 
+    /// The text the record states in place of the `--image-manifest` value.
+    static let notRecorded = "(not recorded)"
+
+    /// The argv the record states: `commandLine`, the executor's argv after its own path, with the `--plan` value cut
+    /// to its file name and the `--image-manifest` value stated as `(not recorded)`, so the record holds no path of the
+    /// machine that ran it (SWIFT rulings N8 and Q-K4-1). The `--site-fact` pairs stay verbatim (tally-r2 3.1).
+    static func recordedArguments(_ commandLine: [String]) -> [String] {
+        var recorded = commandLine
+        var index = 0
+        while index < recorded.count {
+            let flag = recorded[index]
+            guard ["--plan", "--image-manifest", "--site-fact"].contains(flag), index + 1 < recorded.count else {
+                index += 1
+                continue
+            }
+            if flag == "--plan" {
+                recorded[index + 1] = URL(fileURLWithPath: recorded[index + 1]).lastPathComponent
+            } else if flag == "--image-manifest" {
+                recorded[index + 1] = notRecorded
+            }
+            index += 2
+        }
+        return recorded
+    }
+
     /// Runs the mode. Called from `main` after the termination signals are blocked and before any thread exists.
-    static func main(_ arguments: [String], commandLine: [String] = CommandLine.arguments) -> Int32 {
+    /// `commandLine` is the executor's argv after its own path, which the record states through `recordedArguments`.
+    static func main(_ arguments: [String], commandLine: [String] = Array(CommandLine.arguments.dropFirst())) -> Int32 {
         let options: Options
         switch parse(arguments) {
         case .success(let parsed): options = parsed
@@ -143,7 +169,7 @@ enum RunCommand {
             controller.interrupt(signal)
         }
         var record = ExecutorRunRecord(
-            outcome: .refused, executorArguments: commandLine,
+            outcome: .refused, executorArguments: recordedArguments(commandLine),
             executor: ExecutorBinaryIdentity(sha256: nil, size: nil, buildPin: nil), plan: nil, imageManifest: nil,
             runtimeIdentity: RuntimeObservation.identity(subreaper: subreaper),
             startedAt: ExecutorRunRecord.timestamp(started), endedAt: "", wallSeconds: 0
