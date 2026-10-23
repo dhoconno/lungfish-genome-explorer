@@ -185,6 +185,8 @@ final class ExecutorReaderTests: XCTestCase {
         ))
         XCTAssertEqual(result.outcome, .interrupted)
         XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        // The step's tree stop has ended the reader child before the reader runs its own stop.
+        XCTAssertNotEqual(ProcessTable.snapshot().first { $0.pid == readerPID }?.isLive, true, "the reader child outlived the step")
         XCTAssertThrowsError(try reader.nextLine())
         XCTAssertTrue(Support.isGone(readerPID))
     }
@@ -209,6 +211,71 @@ final class ExecutorReaderTests: XCTestCase {
         XCTAssertEqual(report.signal, SIGTERM)
         XCTAssertEqual(report.decompressorVersion, "fake-pigz 0.0")
         XCTAssertTrue(report.children.contains { $0.pid == readerPID && $0.stopped && !$0.isSuccess }, "\(report.children)")
+        XCTAssertTrue(Support.isGone(readerPID))
+    }
+
+    func testReaderChildIgnoringSIGTERMIsKilledAfterGrace() throws {
+        let folder = try Support.scratchFolder()
+        let fake = try fakeDecompressor(in: folder, "trap '' TERM\n\(pidFileBody(folder, "r"))\nwhile :; do sleep 1; done")
+        let executor = try Support.spawn(
+            try Support.executorBinary(),
+            ["read-fastq", "--decompressor", fake, "--grace", "2", try gzipLookingFile(in: folder).path],
+            folder: folder, name: "read"
+        )
+        let readerPID = try Support.pid(in: folder, "r.pid")
+        let started = Date()
+        XCTAssertEqual(kill(executor, SIGTERM), 0)
+        let exit = Support.waitForExit(executor, timeout: 30)
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertEqual(exit?.termination, .exited(code: ExecutorExitCode.interrupted))
+        XCTAssertGreaterThanOrEqual(elapsed, 2, "the grace is 2 s")
+        XCTAssertLessThan(elapsed, 10)
+        let report = try readReport(folder)
+        XCTAssertTrue(
+            report.children.contains { $0.pid == readerPID && $0.escalatedToSIGKILL && $0.stopped }, "\(report.children)"
+        )
+        XCTAssertTrue(Support.isGone(readerPID))
+    }
+
+    func testReaderChildLeftRunningFailsTheStepWithTheLingeringReason() throws {
+        let folder = try Support.scratchFolder()
+        let fake = try fakeDecompressor(in: folder, "\(pidFileBody(folder, "r")); exec sleep 60")
+        let controller = StepController()
+        let reader = try FASTQRawLineReader(
+            url: try gzipLookingFile(in: folder),
+            launcher: ExecutorChildLauncher(controller: controller, decompressor: fake, graceSeconds: 2)
+        )
+        let readerPID = try Support.pid(in: folder, "r.pid")
+        let result = controller.run(StepSpec(
+            executable: "/bin/sh", arguments: ["-c", "exit 0"], environment: [:], stdoutPath: "\(folder)/tool.out",
+            stderrPath: "\(folder)/tool.err", outputs: ["\(folder)/tool.out"], graceSeconds: 2, deadlineSeconds: nil,
+            sweepIntervalSeconds: 0.05
+        ))
+        XCTAssertEqual(result.outcome, .failed)
+        XCTAssertEqual(result.reason, StepReason.lingeringProcess)
+        XCTAssertTrue(result.outputs.isEmpty, "\(result.outputs)")
+        XCTAssertNotEqual(ProcessTable.snapshot().first { $0.pid == readerPID }?.isLive, true, "the reader child is still live")
+        XCTAssertThrowsError(try reader.nextLine())
+        XCTAssertTrue(Support.isGone(readerPID))
+    }
+
+    func testSweepNeverReapsATrackedReaderChild() throws {
+        let folder = try Support.scratchFolder()
+        let fake = try fakeDecompressor(in: folder, "\(pidFileBody(folder, "r")); echo ok")
+        let controller = StepController()
+        let reader = try FASTQRawLineReader(
+            url: try gzipLookingFile(in: folder), launcher: ExecutorChildLauncher(controller: controller, decompressor: fake)
+        )
+        let readerPID = try Support.pid(in: folder, "r.pid")
+        // The child has exited and waits, unreaped, for the reader before the step starts.
+        XCTAssertTrue(Support.waitUntil(timeout: 10) { ProcessTable.snapshot().first { $0.pid == readerPID }?.isLive != true })
+        let result = controller.run(StepSpec(
+            executable: "/bin/sleep", arguments: ["1"], environment: [:], stdoutPath: "\(folder)/tool.out",
+            stderrPath: "\(folder)/tool.err", outputs: [], graceSeconds: 2, deadlineSeconds: nil, sweepIntervalSeconds: 0.05
+        ))
+        XCTAssertEqual(result.outcome, .succeeded, result.reason ?? "")
+        XCTAssertEqual(try reader.nextLine(), Array("ok".utf8))
+        XCTAssertNil(try reader.nextLine())
         XCTAssertTrue(Support.isGone(readerPID))
     }
 
