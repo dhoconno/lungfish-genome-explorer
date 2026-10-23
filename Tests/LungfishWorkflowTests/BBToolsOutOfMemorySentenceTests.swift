@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 /// `import fastq` goes on to the next sample after one fails, so earlier samples can already be imported when this

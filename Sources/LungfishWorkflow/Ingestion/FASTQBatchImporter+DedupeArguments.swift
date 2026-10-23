@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 extension FASTQBatchImporter {
     /// The `clumpify.sh` argv of a recipe dedupe step on separate R1 and R2 files. It pins the heap and carries
