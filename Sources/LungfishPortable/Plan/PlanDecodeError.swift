@@ -219,8 +219,10 @@ extension ExecutionPlan {
             switch (step.kind, step.tool) {
             case (.qualityCount, nil):
                 break
-            case (.qualityCount, .some), (_, nil):
-                throw PlanDecodeError(field: "\(field).tool", reason: "Step \(step.id) names a tool only when the step runs one.")
+            case (.qualityCount, .some):
+                throw PlanDecodeError(field: "\(field).tool", reason: "Step \(step.id) is the executor's own Q20 and Q30 count, which names no tool.")
+            case (_, nil):
+                throw PlanDecodeError(field: "\(field).tool", reason: "Step \(step.id) runs a tool and names none.")
             case (_, .some(let tool)):
                 guard pinned.contains(tool) else {
                     throw PlanDecodeError(field: "\(field).tool", reason: "Step \(step.id) runs \(tool.id) \(tool.version) build \(tool.build), which the plan's tools do not pin.")

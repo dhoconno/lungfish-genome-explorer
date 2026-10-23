@@ -247,6 +247,20 @@ final class ExecutionPlanTests: XCTestCase {
         assertRefused(try longGrace.encoded(), field: "graceSeconds")
     }
 
+    /// UX fix 6 of the K4 part C review. The count step that names a tool and a tool step that names none are refused
+    /// with a sentence each, so the reader knows which fault to fix.
+    func testPlanRefusesCountStepWithAToolAndToolStepWithNone() throws {
+        var counted = samplePlan()
+        counted.steps[2].tool = Self.seqkit
+        assertRefused(
+            try counted.encoded(), field: "steps[2].tool",
+            reason: "Step q20 is the executor's own Q20 and Q30 count, which names no tool."
+        )
+        var toolless = samplePlan()
+        toolless.steps[1].tool = nil
+        assertRefused(try toolless.encoded(), field: "steps[1].tool", reason: "Step stats runs a tool and names none.")
+    }
+
     /// SWIFT fix 2 of the K4 part A review: a deadline or heap whose product would trap the controller or the decoder is
     /// refused by its field, so the run ends with a named error and a record (tally K4.5).
     func testPlanDecodeRefusesNumbersThatWouldTrap() throws {
