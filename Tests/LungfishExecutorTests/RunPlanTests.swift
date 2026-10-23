@@ -402,11 +402,18 @@ final class RunPlanTests: XCTestCase {
         let wrongPin = PlanImageManifestPin(sha256: RunPlanFixture.zeros, size: 5)
         let copyStep = RunPlanFixture.step("copy", PlanToolPin(id: "copy-reads", version: "1.0", build: "t0"))
         let mismatched = try fixture.run(try fixture.writePlan([copyStep], manifestPin: wrongPin), ["--image-manifest", manifest])
+        XCTAssertEqual(mismatched.status, ExecutorExitCode.refused, mismatched.stderr)
         let record = try XCTUnwrap(mismatched.record)
         XCTAssertEqual(record.refusedField, "imageManifest")
         XCTAssertEqual(record.imageManifest?.source, .argument)
         XCTAssertTrue(record.reason?.contains(RunPlanFixture.zeros) ?? false)
         XCTAssertTrue(record.reason?.contains(record.imageManifest?.sha256 ?? "-") ?? false)
+        // ARCH fix 2 of the K4 part C review. The refused run started no step, so no tool made a folder of the work root.
+        XCTAssertEqual(record.steps, [])
+        XCTAssertNil(record.searchPath)
+        for folder in ["tmp", "home", "logs"] {
+            XCTAssertFalse(fixture.exists(folder), folder)
+        }
 
         let pin = try RunPlanFixture.timeless(fixture.run(fixture.writePlan([copyStep], manifestPin: try fixture.writeManifest().pin), ["--image-manifest", manifest]).record)
         XCTAssertEqual(pin?.outcome, .succeeded)
@@ -414,6 +421,45 @@ final class RunPlanTests: XCTestCase {
         let refused = try fixture.run(try fixture.writePlan([unlisted], manifestPin: try fixture.writeManifest().pin), ["--image-manifest", manifest])
         XCTAssertEqual(refused.record?.refusedField, "steps[0].tool")
         XCTAssertEqual(refused.record?.steps, [])
+    }
+
+    /// ARCH-r3 ruling 3 (ARCH fix 2 of the K4 part C review). A manifest one byte longer than the one the plan pins, and
+    /// a pin one byte over the manifest's size, are refused before any tool with a record that names the field, states
+    /// the digest, size and source it read and holds no step.
+    func testImageManifestArgumentWithWrongDigestRefusesBeforeAnyTool() throws {
+        let (fixture, plan, manifest) = try copyPlan()
+        let pinned = try Data(contentsOf: URL(fileURLWithPath: manifest))
+        let pin = PlanImageManifestPin(sha256: PortableDigest.sha256Hex(of: pinned), size: Int64(pinned.count))
+        let longer = pinned + Data("\n".utf8)
+        let longerPath = fixture.root + "/longer-image-manifest.json"
+        try longer.write(to: URL(fileURLWithPath: longerPath))
+        let digestOff = try fixture.run(plan, ["--image-manifest", longerPath])
+
+        let sizeOff = PlanImageManifestPin(sha256: pin.sha256, size: pin.size + 1)
+        let copyStep = RunPlanFixture.step("copy", PlanToolPin(id: "copy-reads", version: "1.0", build: "t0"))
+        let sizeRun = try fixture.run(try fixture.writePlan([copyStep], manifestPin: sizeOff), ["--image-manifest", manifest])
+
+        for (label, run, read, planPin) in [("one byte appended", digestOff, longer, pin), ("size one over", sizeRun, pinned, sizeOff)] {
+            XCTAssertEqual(run.status, ExecutorExitCode.refused, "\(label): \(run.stderr)")
+            let record = try XCTUnwrap(run.record, label)
+            XCTAssertEqual(record.outcome, .refused, label)
+            XCTAssertEqual(record.refusedField, "imageManifest", label)
+            let digest = PortableDigest.sha256Hex(of: read)
+            XCTAssertEqual(
+                record.imageManifest, ExecutorImageManifestRecord(sha256: digest, size: Int64(read.count), source: .argument), label
+            )
+            XCTAssertEqual(
+                record.reason,
+                "The tool manifest has SHA-256 \(digest) and \(read.count) bytes, and the plan pins \(planPin.sha256) and "
+                    + "\(planPin.size) bytes. No tool ran.",
+                label
+            )
+            XCTAssertEqual(record.steps, [], label)
+            XCTAssertNil(record.searchPath, label)
+        }
+        for folder in ["tmp", "home", "logs", "out"] {
+            XCTAssertFalse(fixture.exists(folder), folder)
+        }
     }
 
     func testPreflightRefusesHeapAtOrAboveObservedLimit() throws {
