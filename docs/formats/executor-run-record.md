@@ -17,7 +17,7 @@ The work root is the folder that holds the plan file. The executor writes `run-r
 
 `ExecutorRunRecord.decode` refuses a record whose `schemaVersion` is newer than the build reads, or whose `exitCode` disagrees with its `outcome`, and names the field. Every key added after the first shape of schema 1 is optional, so an older record opens and shows Not recorded for it. The record keys are sorted, and the encoder writes slashes unescaped.
 
-The record never holds a metadata sidecar, a CSV file or a provenance envelope, which the Mac writes at adopt. It never holds a path outside the work root, a scheduler's variable or file, or a rounded percentage.
+The record never holds a metadata sidecar, a CSV file or a provenance envelope, which the Mac writes at adopt. It never holds the path of the work root, a path the run read from the Mac, a scheduler's variable or file, or a rounded percentage. Every path it holds is relative to the work root, except the image's tool paths in a step's `tool.path` and the first word of its `argv`, and `/proc/self/exe` for the executor.
 
 ## Exit codes and outcomes
 
@@ -29,7 +29,7 @@ The record never holds a metadata sidecar, a CSV file or a provenance envelope, 
 | 3 | `interrupted` | A termination signal stopped the run, and `signal` and `signalName` name it |
 | 64 | none | The arguments were wrong. The executor prints its usage and writes no record |
 
-A refused run whose plan folder cannot be resolved also writes no record, and says so on standard error.
+A refused run whose plan folder cannot be resolved also writes no record, and says so on standard error. A run whose steps all succeeded but whose record cannot be written exits 1 and leaves no record.
 
 ## Top-level keys
 
@@ -41,13 +41,14 @@ A refused run whose plan folder cannot be resolved also writes no record, and sa
 | `refusedField` | string or absent | The plan field or argument a refused run names |
 | `failedStepID` | string or absent | The step a failed or interrupted run stopped at |
 | `signal`, `signalName` | integer, string, or absent | The termination signal that interrupted the run |
-| `executorArguments` | array of strings | The executor's own argv, byte for byte as run |
+| `executorArguments` | array of strings | The executor's argv after its own path, with the `--plan` value cut to the plan file's name, the `--image-manifest` value written as `(not recorded)` and each `--site-fact` pair as given |
 | `executor` | object | `sha256` and `size` of the running binary, read from `/proc/self/exe` on Linux, and `buildPin`, the plan's `executor` build, since the binary holds no version string |
 | `plan` | object or absent | `relativePath`, `sha256` and `size` of the plan file the run read |
+| `recipe` | object or absent | The plan's recipe identity, `id`, `name`, `requestedName`, `formatVersion`, `sourceSHA256`, `presetID`, `presetName`, `switches` of `{id, label, value, source}` and `turnedOffSteps` of `{stepType, label, activeStepsBefore, switchID}`. It is set as soon as the plan decodes, so a refused run that decoded its plan names it too |
 | `imageManifest` | object or absent | `sha256`, `size` and `source` of the tool manifest the run read. `source` is `image` for the image's own manifest and `argument` for a file `--image-manifest` named, as in a replay on the Mac. The path is never stated |
 | `runtimeIdentity` | object | What the executor observed of the machine, below |
 | `siteFacts` | array of `{key, value}` | The `--site-fact KEY=VALUE` arguments in the order given |
-| `inputs` | array of plan entries | Each plan entry the executor checked, with the digest and size it read |
+| `inputs` | array of plan entries | Each plan entry but the executor's, which `executor` states, with the digest and size the executor read |
 | `payloads` | array | The files the run leaves for the adopt, below |
 | `steps` | array | One record for each step that started, in plan order |
 | `startedAt`, `endedAt` | string | ISO 8601 times in UTC with milliseconds |
@@ -85,7 +86,7 @@ A run on Linux whose subreaper cannot be set is refused with `refusedField` `sub
 | `escalatedToSIGKILL`, `stoppedProcesses`, `adoptedOrphansReaped` | What the end-of-step sweep stopped and reaped |
 | `startedAt`, `endedAt`, `wallSeconds` | The step's times |
 | `outputs` | `path`, `bytes` and `sha256` of each output, written only for a step that succeeded |
-| `stderrTail`, `stderrTruncated`, `stderrBytes` | The last 4 MiB of standard error as UTF-8 with replacement, whether it was cut and every byte written |
+| `stderrTail`, `stderrTruncated`, `stderrBytes` | The last 4 MiB of standard error as UTF-8 with replacement, whether it was cut and every byte written. For a step with `storage.launches` the three keys describe the last launch, and each launch's `stderrPath` names its own file |
 | `standardOutput` | `text`, `sha256` and `size` of a kept standard output |
 | `inputFile` | `relativePath`, `sha256` and `size` of the file a `statistics` step read |
 | `inputReadCount`, `outputReadCount` | The records a step read and wrote |
@@ -102,7 +103,7 @@ Each full pass names the file it read by its path relative to the work root, its
 | `seqkit stats -a -T` | The `statistics` step | `standardOutput`, the table byte for byte with the SHA-256 and size of those bytes, and `inputFile`. Its argv, exit status, standard error, wall time and the manifest's version and build sit in the step's own keys |
 | Q20 and Q30 count | The `qualityCount` step, titled "Count Q20 and Q30 bases" | `qualityCounts` with the integer `baseCount`, `q20Count`, `q30Count` and `recordCount` and the `file` it read |
 
-The Q20 and Q30 count is the executor's own code, the counter the Mac uses, so the step names the tool `lungfish-executor` with `versionSource` `planPin`, the plan's LGE version and commit, and the SHA-256 of the running binary. Its `argv` is the executor's own, since the counter has none. A gzip payload is read through the decompressor the plan pins, `gzip` or else `pigz`. A failed count is a failed step with its reason and never a zero. The text of `standardOutput` is decoded as UTF-8 with replacement, and its SHA-256 and size are those of the bytes seqkit wrote.
+The Q20 and Q30 count is the executor's own code, the counter the Mac uses, so the step names the tool `lungfish-executor` with `versionSource` `planPin`, the plan's LGE version and commit, and the SHA-256 of the running binary. Its `argv` is the record's `executorArguments`, which start after the executor's path, since the counter has no argv of its own. A gzip payload is read through the plan's pinned `gzip`, else its pinned `pigz`. A plan that pins neither is read through the image's `/usr/bin/gzip`, which the record does not name. A failed count is a failed step with its reason and never a zero. The text of `standardOutput` is decoded as UTF-8 with replacement, and its SHA-256 and size are those of the bytes seqkit wrote.
 
 ## Payloads
 
@@ -112,9 +113,9 @@ Each entry of `payloads` has `relativePath`, `sha256` and `size`, with `recordCo
 
 | Key | Meaning |
 | --- | --- |
-| `writer` | `name` and `tool` of the program that wrote the gzip bytes, such as `bgzip`, `pigz` or `BBTools native BGZF` when no `bgzip` answered the probe |
+| `writer` | `name` and `tool` of the program that wrote the gzip bytes. It is `bgzip` or `pigz` for a compressor launch. For a `clumpify.sh` or `reformat.sh` launch it is `bgzip`, the plan's pinned bgzip that answered the probe, or `BBTools native BGZF` when it did not answer. It is absent when Trim Galore wrote the stored gzip itself |
 | `effectiveCompressionLevel` | The level the writer used, when the record knows it |
-| `clumpifyGroups`, `clumpifyMemoryEstimateLine`, `clumpifyMemoryAvailableLine` | The N of clumpify's `Set groups to N` line and its two memory lines as printed |
+| `clumpifyGroups`, `clumpifyMemoryEstimateLine`, `clumpifyMemoryAvailableLine` | The N of clumpify's `Set groups to N` line and its two memory lines as printed. When a mixed file runs clumpify twice the keys hold the launch with more groups, and `launches` keeps each launch's own |
 | `clumpingRan` | Whether clumpify or Trim Galore sorted the reads |
 | `qualityBinning` | The binning scheme that ran |
 | `inputBytes`, `outputBytes` | The sizes of the step's inputs and its output |
