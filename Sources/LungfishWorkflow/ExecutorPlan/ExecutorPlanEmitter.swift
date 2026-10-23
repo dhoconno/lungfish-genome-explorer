@@ -256,7 +256,7 @@ package enum ExecutorPlanEmitter {
                 let id = runIndex == 0 ? "recipe-\(index + 1)" : "recipe-\(index + 1)-\(runIndex + 1)"
                 steps.append(PlanStep(
                     id: id, title: run.title, kind: run.kind, tool: try tools.pin(run.toolID, stepID: id),
-                    arguments: run.arguments.map(relative), deadlineSeconds: request.deadlines.recipeStepSeconds,
+                    arguments: run.arguments.map(withoutPlanRoot), deadlineSeconds: request.deadlines.recipeStepSeconds,
                     inputs: run.inputs, outputs: run.outputs
                 ))
             }
@@ -329,7 +329,7 @@ package enum ExecutorPlanEmitter {
              output: StepInput, auxiliary: [URL] = []) {
             self.init(title: title, kind: kind, toolID: toolID, arguments: arguments,
                       inputs: ExecutorPlanEmitter.files(of: input),
-                      outputs: ExecutorPlanEmitter.files(of: output) + auxiliary.map { ExecutorPlanEmitter.relative($0.path) })
+                      outputs: ExecutorPlanEmitter.files(of: output) + auxiliary.map { ExecutorPlanEmitter.withoutPlanRoot($0.path) })
         }
 
         init(title: String, kind: PlanStepKind, toolID: String, arguments: [String], inputs: [String], outputs: [String]) {
@@ -362,8 +362,8 @@ package enum ExecutorPlanEmitter {
                 BuiltRun(
                     title: invocation.label.map { "\(label) (\($0))" } ?? label, kind: .recipe,
                     toolID: invocation.tool.executableName, arguments: invocation.arguments,
-                    inputs: invocation.inputs.map { relative($0.path) },
-                    outputs: files(of: invocation.output) + invocation.auxiliaryOutputs.map { relative($0.path) }
+                    inputs: invocation.inputs.map { withoutPlanRoot($0.path) },
+                    outputs: files(of: invocation.output) + invocation.auxiliaryOutputs.map { withoutPlanRoot($0.path) }
                 )
             }
             return BuiltStep(runs: runs, output: run.output)
@@ -420,11 +420,12 @@ package enum ExecutorPlanEmitter {
     }
 
     private static func files(of input: StepInput) -> [String] {
-        [input.r1, input.r2, input.r3].compactMap { $0 }.map { relative($0.path) }
+        [input.r1, input.r2, input.r3].compactMap { $0 }.map { withoutPlanRoot($0.path) }
     }
 
-    /// An argument with the plan's work root removed, so every path in it is relative to the root (SWIFT N8).
-    static func relative(_ argument: String) -> String {
+    /// Removes the plan's placeholder work root from an argument string, including a value such as `in=<root>/work/x`.
+    /// The root is a name that is not on disk, so no URL helper applies (SWIFT N8).
+    static func withoutPlanRoot(_ argument: String) -> String {
         argument.replacingOccurrences(of: root.path + "/", with: "")
     }
 
