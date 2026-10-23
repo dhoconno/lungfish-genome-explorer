@@ -296,6 +296,8 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         let provenanceText = String(decoding: (try? Data(contentsOf: provenanceURL)) ?? Data(), as: UTF8.self)
         let inProcessGroups = provenanceText.components(separatedBy: "Set groups to ").dropFirst().compactMap { Int($0.prefix { $0.isNumber }) }
         let storageStep = record.steps.first { $0.kind == .storage }
+        // The real probe found the managed bgzip, so the record names it as the writer (BIO fix 1 of the K4 part C review).
+        XCTAssertEqual(storageStep?.storage?.writer?.name, "bgzip", name)
         let stepWalls = record.steps.map { "\($0.id)=\(String(format: "%.1f", $0.wallSeconds))" }.joined(separator: ",")
         print("PARITY-E4 case=\(name) equalInStoredOrder=\(inProcess.e4 == replayed.e4) firstDifferingRecord=\(firstDifference.map(String.init) ?? "none") groupsInProcess=\(inProcessGroups) groupsReplay=\(storageStep?.storage?.clumpifyGroups.map(String.init) ?? "none") inProcessWallSeconds=\(String(format: "%.1f", inProcessWall)) replayWallSeconds=\(String(format: "%.1f", record.wallSeconds)) replaySteps=\(stepWalls)")
     }

@@ -203,18 +203,25 @@ extension PlanRunner {
             clumpifyGroups: chosen?.clumpifyGroups, clumpifyMemoryEstimateLine: chosen?.clumpifyMemoryEstimateLine,
             clumpifyMemoryAvailableLine: chosen?.clumpifyMemoryAvailableLine,
             clumpingRan: launches.contains { $0.tool.id == "clumpify.sh" || $0.tool.id == "trim_galore" },
-            qualityBinning: prepared.plan.storage.qualityBinning,
+            // The Trim Galore route bins nothing, as on the Mac, so the record states the binning that ran (BIO fix 1 (b)
+            // of the K4 part C review).
+            qualityBinning: prepared.plan.storage.clumpingTool == .trimGalore
+                ? QualityBinningScheme.none : prepared.plan.storage.qualityBinning,
             inputBytes: step.inputs.reduce(0) { $0 + size($1) }, outputBytes: step.outputs.first.map(size) ?? 0,
             launches: launches
         )
         // The launch that wrote the payload is the last one. A compressor writes at its own default level, which the
-        // record does not state. BBTools writes through the bgzip the probe found, else its own BGZF writer.
+        // record does not state. BBTools writes through the bgzip that answered the probe, and a step whose probe found
+        // none failed before BBTools ran (UX N3-2). A route that ran no probe, such as the Trim Galore route's
+        // reformat.sh, states no writer, since no launch showed which one BBTools took (BIO fix 1 (a) of the K4 part C
+        // review).
         guard let last = launches.last(where: { $0.argv.count > 1 && $0.argv.last != "-h" }) else { return details }
         if last.tool.id == "bgzip" || last.tool.id == "pigz" {
             details.writer = ExecutorStorageWriter(name: last.tool.id, tool: last.tool)
         } else if last.tool.id == "clumpify.sh" || last.tool.id == "reformat.sh" {
-            let probe = launches.first { $0.argv.last == "-h" && $0.outcome == .succeeded }
-            details.writer = ExecutorStorageWriter(name: probe == nil ? "BBTools native BGZF" : "bgzip", tool: probe?.tool)
+            if let answered = launches.first(where: { $0.argv.last == "-h" && $0.outcome == .succeeded }) {
+                details.writer = ExecutorStorageWriter(name: "bgzip", tool: answered.tool)
+            }
             details.effectiveCompressionLevel = last.argv.compactMap { $0.hasPrefix("zl=") ? Int($0.dropFirst(3)) : nil }.last
         }
         return details

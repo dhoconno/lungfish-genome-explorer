@@ -41,8 +41,9 @@ extension RunPlanTests {
         )
         let plan = try fixture.writePlan(
             [step], manifestPin: manifest.pin,
+            // The default binning, which the Trim Galore route does not run (BIO fix 1 of the K4 part C review).
             storage: PlanStorageSettings(
-                clumpingTool: .trimGalore, compressor: .bgzip, qualityBinning: .none, threads: 1, clumpifyHeapGB: 1,
+                clumpingTool: .trimGalore, compressor: .bgzip, qualityBinning: .illumina4, threads: 1, clumpifyHeapGB: 1,
                 compressionLevel: 4, threadsSource: .option, clumpifyHeapSource: .option, clumpingToolSource: .option,
                 compressorSource: .option, qualityBinningSource: .option
             ),
@@ -95,7 +96,10 @@ extension RunPlanTests {
 
         // The report reads two pairs and writes one, and the record counts four records in and two out.
         XCTAssertEqual(storage.clumpingRan, true)
+        // The plan names illumina4, and the route binned nothing and ran no bgzip probe, so the record states no binning
+        // and no writer (BIO fix 1 of the K4 part C review).
         XCTAssertEqual(storage.qualityBinning, QualityBinningScheme.none)
+        XCTAssertNil(storage.writer)
         XCTAssertEqual(stored.inputReadCount, 4)
         XCTAssertEqual(stored.outputReadCount, 2)
 
