@@ -9,6 +9,8 @@ extension RunPlanTests {
     private func clumpifyPlan(_ body: String) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
         let clumpify = try fixture.addTool("clumpify.sh", body)
+        // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
+        let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
         let manifest = try fixture.writeManifest()
         let step = PlanStep(
             id: "storage", title: "Store reads", kind: .storage, tool: clumpify, arguments: [],
@@ -25,7 +27,8 @@ extension RunPlanTests {
             clumping: PlanClumpingChoice(
                 requested: .bbtools, resolved: .bbtools, resolvedSource: .option, heapBytes: 1_073_741_824,
                 reason: "explicit clumping tool selection"
-            )
+            ),
+            pinning: [bgzip]
         )
         return (fixture, plan, manifest.path)
     }
@@ -61,9 +64,11 @@ extension RunPlanTests {
         XCTAssertEqual(storage.clumpifyGroups, 209)
         XCTAssertEqual(storage.clumpifyMemoryEstimateLine, "Memory Estimate: 656 MB")
         XCTAssertEqual(storage.clumpifyMemoryAvailableLine, "Memory Available: 28 MB")
-        XCTAssertEqual(storage.writer?.name, "BBTools native BGZF")
+        XCTAssertEqual(storage.writer?.name, "bgzip")
+        XCTAssertEqual(storage.writer?.tool?.id, "bgzip")
         XCTAssertEqual(storage.effectiveCompressionLevel, 4)
-        XCTAssertEqual(storage.launches?.count, 1)
+        XCTAssertEqual(storage.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
+        XCTAssertEqual(storage.launches?.first?.argv, [fixture.tools[1].path, "-h"])
         XCTAssertEqual(step.inputReadCount, 1)
         XCTAssertEqual(step.outputReadCount, 1)
         XCTAssertEqual(step.outputs.map(\.path), ["out/sample.fastq.gz"])
@@ -89,6 +94,6 @@ extension RunPlanTests {
         XCTAssertNil(step.outputReadCount)
         XCTAssertTrue(step.stderrTail.contains("Terminating due to java.lang.OutOfMemoryError: Java heap space"), step.stderrTail)
         XCTAssertTrue(step.reason?.contains("ran out of memory in its 1 GB Java heap") == true, step.reason ?? "")
-        XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["clumpify.sh"])
+        XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
     }
 }

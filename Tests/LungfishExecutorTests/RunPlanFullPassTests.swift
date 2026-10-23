@@ -102,13 +102,17 @@ extension RunPlanTests {
         printf '%s\\n' "$@" > logs/reformat.argv
         gzip -c < "$IN" > "$OUT"
         """)
+        // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
+        let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
         let manifest = try fixture.writeManifest()
         let settings = noneStorage(.illumina4)
         let step = PlanStep(
             id: "storage", title: "Store reads", kind: .storage, tool: reformat, arguments: [], deadlineSeconds: 60,
             inputs: ["inputs/R1.fastq"], outputs: ["out/sample.fastq.gz"]
         )
-        let plan = try fixture.writePlan([step], manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping)
+        let plan = try fixture.writePlan(
+            [step], manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pinning: [bgzip]
+        )
         let run = try fixture.run(plan, ["--image-manifest", manifest.path])
         XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)
         let stored = try XCTUnwrap(run.record?.steps.first)
@@ -121,7 +125,9 @@ extension RunPlanTests {
         XCTAssertEqual(stored.argv, [fixture.tools[0].path] + argv)
         XCTAssertEqual(stored.storage?.clumpingRan, false)
         XCTAssertEqual(stored.storage?.qualityBinning, .illumina4)
-        XCTAssertEqual(stored.storage?.writer?.name, "BBTools native BGZF")
+        XCTAssertEqual(stored.storage?.writer?.name, "bgzip")
+        XCTAssertEqual(stored.storage?.writer?.tool?.id, "bgzip")
+        XCTAssertEqual(stored.storage?.launches?.map(\.tool.id), ["bgzip", "reformat.sh"])
         XCTAssertEqual(stored.storage?.effectiveCompressionLevel, 4)
         XCTAssertEqual(stored.outputReadCount, 1)
         XCTAssertEqual(run.record?.payloads.first?.recordCount, 1)

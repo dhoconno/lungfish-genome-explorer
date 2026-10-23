@@ -37,6 +37,15 @@ package struct PlanDecodeError: Error, Equatable, Sendable, LocalizedError, Cust
         )
     }
 
+    /// UX's N3-1 words for a BBTools storage step under a plan that names bgzip and pins none, so no node runs the step
+    /// with BBTools' own writer while the plan names bgzip (BIO N3).
+    package static func bbtoolsStepWithoutPinnedBgzip(stepID: String, program: String) -> PlanDecodeError {
+        PlanDecodeError(
+            field: "tools",
+            reason: "This plan pins no bgzip for step \(stepID), which runs \(program). BBTools compresses its output with bgzip, so the plan must name bgzip."
+        )
+    }
+
     /// The programs that write their output through BBTools' BGZF branch (BIO N3).
     package static let bbtoolsStoragePrograms: Set<String> = ["clumpify.sh", "reformat.sh"]
 
@@ -216,8 +225,15 @@ extension ExecutionPlan {
                 guard pinned.contains(tool) else {
                     throw PlanDecodeError(field: "\(field).tool", reason: "Step \(step.id) runs \(tool.id) \(tool.version) build \(tool.build), which the plan's tools do not pin.")
                 }
-                if step.kind == .storage, storage.compressor == .pigz, PlanDecodeError.bbtoolsStoragePrograms.contains(tool.id) {
-                    throw PlanDecodeError.bbtoolsStepWithoutBgzip(stepID: step.id, program: tool.id)
+                if step.kind == .storage, PlanDecodeError.bbtoolsStoragePrograms.contains(tool.id) {
+                    if storage.compressor == .pigz {
+                        throw PlanDecodeError.bbtoolsStepWithoutBgzip(stepID: step.id, program: tool.id)
+                    }
+                    // BBTools writes through the first bgzip that answers `bgzip -h` on its PATH, and the executor
+                    // launches only a pinned tool, so the plan pins the bgzip the step writes through.
+                    guard tools.contains(where: { $0.id == "bgzip" }) else {
+                        throw PlanDecodeError.bbtoolsStepWithoutPinnedBgzip(stepID: step.id, program: tool.id)
+                    }
                 }
             }
             try Self.validateEnvironment(step.environment, field: "\(field).environment", stepID: step.id)

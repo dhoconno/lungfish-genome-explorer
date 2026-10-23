@@ -81,10 +81,11 @@ struct RunPlanFixture {
         )
     }
 
-    /// Writes plan.json for `steps`, pinning the running executor unless `executor` is given, and returns its path.
+    /// Writes plan.json for `steps`, pinning the running executor unless `executor` is given, and returns its path. The
+    /// plan pins each step's tool and each tool of `pinning`, such as the bgzip a BBTools step writes through.
     func writePlan(
         _ steps: [PlanStep], manifestPin: PlanImageManifestPin, executor: PlanEntry? = nil,
-        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil
+        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil, pinning: [PlanToolPin] = []
     ) throws -> String {
         let input = try Data(contentsOf: URL(fileURLWithPath: planFolder + "/inputs/R1.fastq"))
         let plan = ExecutionPlan(
@@ -97,7 +98,7 @@ struct RunPlanFixture {
                 toolchainSHA256: Self.zeros, staticLinuxSDKID: "test", staticLinuxSDKSHA256: Self.zeros
             ),
             imageManifest: manifestPin,
-            tools: Array(Set(steps.compactMap(\.tool))).sorted { $0.id < $1.id },
+            tools: Array(Set(steps.compactMap(\.tool) + pinning)).sorted { $0.id < $1.id },
             recipe: nil,
             sample: PlanSampleValues(sampleName: "sample", originalFilenames: ["R1.fastq"], originalSizeBytes: Int64(input.count)),
             storage: storage ?? PlanStorageSettings(

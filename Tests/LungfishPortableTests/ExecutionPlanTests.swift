@@ -11,6 +11,7 @@ final class ExecutionPlanTests: XCTestCase {
     private static let clumpify = PlanToolPin(id: "clumpify.sh", version: "40.02", build: "hdfd78af_0")
     private static let reformat = PlanToolPin(id: "reformat.sh", version: "40.02", build: "hdfd78af_0")
     private static let seqkit = PlanToolPin(id: "seqkit", version: "2.10.0", build: "h9ee0642_0")
+    private static let bgzip = PlanToolPin(id: "bgzip", version: "1.21", build: "h96c455f_0")
 
     private func samplePlan(compressor: PlanCompressor = .bgzip, clumpingTool: PlanClumpingTool = .bbtools) -> ExecutionPlan {
         let digest = Self.digest
@@ -26,7 +27,7 @@ final class ExecutionPlanTests: XCTestCase {
                 staticLinuxSDKID: "swift-6.2-static-linux", staticLinuxSDKSHA256: digest
             ),
             imageManifest: PlanImageManifestPin(sha256: digest, size: 512),
-            tools: [Self.clumpify, Self.reformat, Self.seqkit],
+            tools: [Self.clumpify, Self.reformat, Self.seqkit, Self.bgzip],
             recipe: PlanRecipeIdentity(id: "vsp2", name: "VSP2", requestedName: "vsp2", formatVersion: 2, sourceSHA256: digest),
             sample: PlanSampleValues(sampleName: "S1", originalFilenames: ["S1_R1.fastq.gz"], originalSizeBytes: 20),
             storage: PlanStorageSettings(
@@ -151,6 +152,35 @@ final class ExecutionPlanTests: XCTestCase {
             deadlineSeconds: 600, inputs: ["inputs/r1.fastq.gz"], outputs: [], standardOutput: "out/reads.fastq.gz"
         )
         XCTAssertNoThrow(try ExecutionPlan.decode(compressOnly.encoded()))
+    }
+
+    /// BIO fix 1 of the K4 part B review (N3, UX N3-1). A BBTools storage step under a plan that pins no bgzip is refused,
+    /// so the plan writer and the node refuse it with the same words, and no node runs the step with a writer the record
+    /// cannot name.
+    func testPlanRefusesBBToolsStorageStepThatPinsNoBgzip() throws {
+        var clumped = samplePlan()
+        clumped.tools.removeAll { $0.id == "bgzip" }
+        assertRefused(
+            try clumped.encoded(), field: "tools",
+            reason: "This plan pins no bgzip for step storage, which runs clumpify.sh. BBTools compresses its output with bgzip, so the plan must name bgzip."
+        )
+        var binning = samplePlan(clumpingTool: .none)
+        binning.steps[0].tool = Self.reformat
+        binning.steps[0].id = "bin-quality"
+        binning.tools.removeAll { $0.id == "bgzip" }
+        assertRefused(
+            try binning.encoded(), field: "tools",
+            reason: "This plan pins no bgzip for step bin-quality, which runs reformat.sh. BBTools compresses its output with bgzip, so the plan must name bgzip."
+        )
+        // A plan that names pigz keeps UX's N3-1 sentence whether or not it pins bgzip.
+        binning.storage.compressor = .pigz
+        assertRefused(
+            try binning.encoded(), field: "storage.compressor",
+            reason: "This plan names pigz as the compressor for step bin-quality, which runs reformat.sh. BBTools compresses its output with bgzip, so the plan must name bgzip."
+        )
+        binning.storage.compressor = .bgzip
+        binning.tools.append(Self.bgzip)
+        XCTAssertNoThrow(try ExecutionPlan.decode(binning.encoded()))
     }
 
     func testPlanDecodeRefusesHostOrPlanAsValueSource() throws {
