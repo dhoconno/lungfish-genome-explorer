@@ -51,7 +51,10 @@ extension PlanRunner {
                     merged: inputs[0], unmergedR1: inputs.count == 3 ? inputs[1] : nil,
                     unmergedR2: inputs.count == 3 ? inputs[2] : nil, to: output, launcher: childLauncher
                 )
-                return OwnStepCounts(input: nil, output: Int64(counts.writtenRecords))
+                return OwnStepCounts(
+                    input: nil, output: Int64(counts.writtenRecords),
+                    mixed: ExecutorMixedLayoutCounts(mergedReads: counts.mergedRecords, pairs: counts.pairs, unpairedReads: 0)
+                )
             }
             try await Self.store(plan: plan, step: step, inputs: inputs, output: output, root: root, environment: environment,
                                  launcher: launcher, childLauncher: childLauncher)
@@ -101,6 +104,17 @@ extension PlanRunner {
             }
             record.outcome = record.outputs.count == step.outputs.count ? .succeeded : .failed
             if record.outcome == .failed { record.reason = "Step \(step.id) left an output missing." }
+            if let mixed = counts.mixed {
+                // The merged-to-mixed step states the mixed file's counts by kind, as the recipe engine counts them
+                // (tally K4.1, BIO fix 2 of the K4 part B review).
+                let size = { (path: String) -> Int64 in
+                    (try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(path).path))?[.size] as? Int64 ?? 0
+                }
+                record.storage = ExecutorStorageDetails(
+                    clumpingRan: false, qualityBinning: .none, inputBytes: step.inputs.reduce(0) { $0 + size($1) },
+                    outputBytes: step.outputs.first.map(size) ?? 0, mixedLayout: mixed
+                )
+            }
         case .failure(let error):
             record.outcome = .failed
             // The controller's words for a launch the executor ended come first, so a deadline is never lost behind a
@@ -125,6 +139,8 @@ extension PlanRunner {
     private struct OwnStepCounts: Sendable {
         var input: Int64?
         var output: Int64
+        /// The merged, pair and unpaired counts of the file a merged-to-mixed step wrote.
+        var mixed: ExecutorMixedLayoutCounts?
     }
 
     /// Runs the storage route the plan names, with the plan's heap, threads, binning, level, compressor and deadline.
