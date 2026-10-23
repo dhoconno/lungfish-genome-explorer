@@ -105,7 +105,9 @@ extension RunPlanTests {
         XCTAssertEqual(fixture.text("out/wrapper.txt"), "clumpify.sh|../opt/clumpify.sh\nfake-java-99\n")
         XCTAssertEqual(fixture.text("out/folder.txt"), fixture.root + "/env/bin\n")
         let object = try Self.recordObject(in: fixture)
-        XCTAssertEqual(object["runtimes"] as? [[String: String]], [["id": "java", "version": "1.0", "build": "t0", "path": java.path]])
+        XCTAssertEqual(object["runtimes"] as? [[String: String]], [[
+            "id": "java", "version": "1.0", "build": "t0", "path": java.path, "versionSource": "imageManifest",
+        ]])
     }
 
     func testWrapperPlanWithoutManifestJavaIsRefusedBeforeAnyTool() throws {

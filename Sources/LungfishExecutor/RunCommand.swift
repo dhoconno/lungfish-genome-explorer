@@ -301,7 +301,7 @@ enum RunCommand {
         if let wrapper = wrappers.min(by: { $0.id < $1.id }), !manifest.tools.contains(where: { $0.id == "java" }) {
             throw RunRefusal(field: "tools", reason: "The image's tool manifest lists no java, which \(wrapper.id) needs. No tool ran.")
         }
-        prepared.decompressor =["gzip", "pigz", "bgzip"].lazy.compactMap { id in
+        prepared.decompressor = ["gzip", "pigz", "bgzip"].lazy.compactMap { id in
             plan.tools.first { $0.id == id }.flatMap { manifest.tool(matching: $0) }?.path
         }.first
         // A step the executor reads itself reads gzip files only through a program the plan pins, so the host's
