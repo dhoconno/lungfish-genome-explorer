@@ -109,7 +109,6 @@ struct RunPlanFixture {
                 requested: .none, resolved: .none, resolvedSource: .option, heapBytes: 1_073_741_824,
                 reason: "explicit clumping tool selection"
             ),
-            statistics: PlanStatisticsSettings(threads: 1),
             graceSeconds: 5,
             steps: steps
         )

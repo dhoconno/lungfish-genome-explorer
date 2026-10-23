@@ -36,6 +36,8 @@ package struct FASTQQualityByteCounter {
     private var baseCount: Int64 = 0
     private var q20Count: Int64 = 0
     private var q30Count: Int64 = 0
+    /// The records begun so far, by the reader's rules, an empty read included.
+    package private(set) var recordCount: Int64 = 0
 
     package init() {}
 
@@ -135,6 +137,7 @@ package struct FASTQQualityByteCounter {
     }
 
     private mutating func startRecord() {
+        recordCount += 1
         inRecord = true
         sequenceLength = 0
         qualityLength = 0

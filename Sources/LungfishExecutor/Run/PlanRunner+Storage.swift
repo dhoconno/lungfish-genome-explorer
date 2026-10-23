@@ -132,7 +132,10 @@ extension PlanRunner {
                 compressor: compressor, deadlineSeconds: step.deadlineSeconds
             ), progress: { _, _ in })
         case .none:
-            throw ExecutorSpawn.Failure(reason: "This executor build does not run the storage route none yet.")
+            try await storeWithoutClumping(
+                plan: plan, step: step, inputs: inputs, output: output, root: root, environment: environment,
+                storage: storage, launcher: launcher, compressor: compressor
+            )
         }
     }
 

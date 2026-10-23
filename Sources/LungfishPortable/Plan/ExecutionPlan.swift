@@ -27,7 +27,6 @@ package struct ExecutionPlan: Codable, Sendable, Equatable {
     package var sample: PlanSampleValues
     package var storage: PlanStorageSettings
     package var clumping: PlanClumpingChoice
-    package var statistics: PlanStatisticsSettings
     /// Seconds between SIGTERM and SIGKILL for every step, above 0 and at most `maximumGraceSeconds`.
     package var graceSeconds: Double
     package var steps: [PlanStep]
@@ -42,7 +41,6 @@ package struct ExecutionPlan: Codable, Sendable, Equatable {
         sample: PlanSampleValues,
         storage: PlanStorageSettings,
         clumping: PlanClumpingChoice,
-        statistics: PlanStatisticsSettings,
         graceSeconds: Double,
         steps: [PlanStep]
     ) {
@@ -55,7 +53,6 @@ package struct ExecutionPlan: Codable, Sendable, Equatable {
         self.sample = sample
         self.storage = storage
         self.clumping = clumping
-        self.statistics = statistics
         self.graceSeconds = graceSeconds
         self.steps = steps
     }
@@ -166,15 +163,6 @@ package struct PlanStorageSettings: Codable, Sendable, Equatable {
         self.clumpingToolSource = clumpingToolSource
         self.compressorSource = compressorSource
         self.qualityBinningSource = qualityBinningSource
-    }
-}
-
-/// The statistics passes' values. Threads are positive.
-package struct PlanStatisticsSettings: Codable, Sendable, Equatable {
-    package var threads: Int
-
-    package init(threads: Int) {
-        self.threads = threads
     }
 }
 

@@ -229,12 +229,8 @@ enum RunCommand {
         var tools: [String: ImageTool] = [:]
         for (index, step) in plan.steps.enumerated() {
             let field = "steps[\(index)]"
-            if step.kind == .storage && plan.storage.clumpingTool == .none {
-                throw RunRefusal(
-                    field: "storage.clumpingTool",
-                    reason: "Step \(step.id) stores with no clumping, a route this executor build does not run yet. No tool ran."
-                )
-            }
+            // The executor's own Q20 and Q30 count names no tool (BIO N6).
+            if step.kind == .qualityCount { continue }
             guard PlanRunner.runsArgv(step) || PlanRunner.runsOwnStep(step) else {
                 throw RunRefusal(
                     field: "\(field).kind",
