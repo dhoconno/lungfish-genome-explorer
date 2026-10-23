@@ -490,9 +490,11 @@ The results that close C3, each on the composed head of K4.
 | CHTC job 2 again, cluster 592727 | The same plan with the landing head's binary `2b005db7...9aaa` (`57f70bd9e`) ran on `e4075` in 125 s, and the Mac replay of it in 118 s. Every count, every recipe step's read counts and E2 to E4 are equal, and equal to cluster 592726 |
 | Golden compare | Passes at `cd3345e4a` (cli-help 321 files, mapping 9, classifiers 24, genotype 133) |
 | Gates | At the landing head `57f70bd9e`, 27 test classes (255 tests) pass, the executor's timing tests pass with every core busy, all 14 ratchets are at or below their baselines, the module map is current, and the Linux tier passes on a clean commit (`c3/land/land-10.md`) |
+| Unit tier | Red at `b649ec95b` on 3 of 22,488 tests: the ONT import transcript after C2-ONTBIN added a binning pass, a source-text test that still named the ribokmers installer C2-RIBOPIN replaced, and a K4 deadline test whose tool could not write its PID file under full parallel load. Fixed in `e789e9ef2`, `82cfabeef` and `c203ebac8`, and green at `c203ebac8` |
 
 Moved out of K4 into C4 or later, each with its reason in `c3/lanes/K4/`:
 
+- The ONT import now prints "Import complete" twice, before and after its binning pass (`Tests/Fixtures/cli-events/commands/fastq-import-ont/complete.ndjson`). UX words it in C4 or later.
 - QK2, the spawn rule made structural (the manager's decision above).
 - The CHTC job script's check for `dirname`, `basename` and `readlink`, which C4's submit template carries.
 - The plan folder writer copies the executor and each database into every sample's folder (ARCH's note on the 3.3 GB index on an external volume).
