@@ -40,10 +40,12 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     /// `efcdc7e1c` (K4-M5a.md). A lane that changes a payload on purpose updates these with a prediction.
     static let frozen: [String: PayloadLevels.Anchor] = [
         "vsp2-target-enrichment": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 0, bases: 0, pairs: 0, singles: 0), e3: ""
+            e1: PayloadLevels.E1(records: 950_309, bases: 153_874_043, pairs: 100_191, singles: 749_927),
+            e3: "f4d9a2ee74e8585c520907101952499327e34a8b83b0b36b7aa8596fc772b1f3"
         ),
         "wastewater-metagenomics": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 0, bases: 0, pairs: 0, singles: 0), e3: ""
+            e1: PayloadLevels.E1(records: 196_598, bases: 29_517_836, pairs: 11_227, singles: 174_144),
+            e3: "418ed25cea1d29bbd2c35ea9ca410df5601b71046219ae686ad5b508ebcc0e66"
         ),
     ]
 
@@ -110,6 +112,9 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
             }, "\(tool.rawValue) at \(path.path) is in the manifest")
             pins.append(PlanToolPin(id: entry.id, version: entry.version, build: entry.build))
         }
+        // SWIFT's Q-K4-3 ruling: clumpify's Java comes from the manifest, here the bbtools environment's own openjdk.
+        let java = try XCTUnwrap(manifest.tools.first { $0.id == "java" }, "The managed bbtools environment's Java is in the manifest")
+        pins.append(PlanToolPin(id: java.id, version: java.version, build: java.build))
         pins.sort { $0.id < $1.id }
 
         let root = try TestTempDirectory.make(prefix: "ExecutorPlanReplayParity")
@@ -307,11 +312,10 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The recipe file the bundled registry loads, read from the source tree the test was built from.
-    static func recipeSourceURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Recipes/illumina-paired-cleanup.recipe.json")
+    /// The recipe file the bundled registry loads, found the way the registry finds it.
+    static func recipeSourceURL() throws -> URL {
+        let folder = try XCTUnwrap(RecipeBundleAccessor.recipesDirectoryURL(), "The bundled recipes folder was not found")
+        return folder.appendingPathComponent("illumina-paired-cleanup.recipe.json")
     }
 
     /// The `lungfish-executor` built beside the test bundle, or the one `LUNGFISH_EXECUTOR_BINARY` names.
