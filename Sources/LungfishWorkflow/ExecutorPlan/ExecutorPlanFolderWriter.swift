@@ -7,8 +7,9 @@ import LungfishCore
 import LungfishPortable
 
 /// The one component that creates a plan's folder (ARCH round 3, ruling 2). It refuses a plan that names a signing
-/// key (tally K4.10) or that the decoder refuses, copies every entry's Mac file into the folder and checks its SHA-256
-/// and size, and writes `plan.json` last, so a folder with a plan file holds every file the plan pins.
+/// key (tally K4.10) or that the decoder refuses, copies every entry's Mac file into the folder, a symbolic link as the
+/// file it names, checks each copy with the node's own `PlanResourceResolver`, and writes `plan.json` last, so a folder
+/// with a plan file holds every file the plan pins as a regular file the node accepts.
 package enum ExecutorPlanFolderWriter {
     package static let planFileName = "plan.json"
     /// The prefix of `ProvenanceSigning`'s two variables. No plan, job environment or plan folder holds one.
@@ -36,14 +37,18 @@ package enum ExecutorPlanFolderWriter {
         }
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
-            for entry in plan.entries {
+            let resolver = try PlanResourceResolver(workRoot: folder)
+            for (index, entry) in plan.entries.enumerated() {
                 guard let source = emission.sources[entry.relativePath] else { continue }
                 let destination = folder.appendingPathComponent(entry.relativePath)
                 try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fileManager.copyItem(at: source, to: destination)
-                let staged = try ExecutorPlanSourceFile.measuring(destination)
-                guard staged.sha256 == entry.sha256, staged.size == entry.size else {
-                    throw ExecutorPlanError(field: "entries", reason: "The staged copy of \(entry.relativePath) differs from the SHA-256 or size the plan pins. Its Mac file changed after the plan was made.")
+                // A link is copied as the file it names, since the node refuses a link that leads out of the folder and
+                // a transfer may carry a link as a link.
+                try fileManager.copyItem(at: source.resolvingSymlinksInPath(), to: destination)
+                do {
+                    _ = try resolver.verify(entry)
+                } catch let refusal as PlanResourceRefusal {
+                    throw ExecutorPlanError(field: "entries[\(index)]", reason: refusal.reason)
                 }
             }
             try DurableReplace.replace(data, named: planFileName, in: folder)
