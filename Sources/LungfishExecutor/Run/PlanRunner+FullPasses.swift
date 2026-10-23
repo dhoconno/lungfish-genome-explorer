@@ -20,10 +20,10 @@ extension PlanRunner {
     /// The most bytes of a kept standard output the record holds. `seqkit stats -a -T` of one file prints two lines.
     static let keptStandardOutputLimit = 16 << 20
 
-    /// Where the running binary is read, the path the count step names.
-    static var runningExecutorPath: String {
-        StepCommand.isLinux ? "/proc/self/exe" : (CommandLine.arguments.first ?? "lungfish-executor")
-    }
+    /// The path the count step names for the running executor, a label on every OS (SWIFT ruling N8). The record states
+    /// the binary itself by `tool.sha256`, the digest of the file the self-check read, so a replay on the Mac never
+    /// writes the folder it started the executor from.
+    static let runningExecutorPath = "/proc/self/exe"
 
     /// The payload entries of a storage step that succeeded: each output's digest, with the record count the step's own
     /// pass took of that file (tally K4.1).
