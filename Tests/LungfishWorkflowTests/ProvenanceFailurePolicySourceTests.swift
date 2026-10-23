@@ -82,14 +82,18 @@ final class ProvenanceFailurePolicySourceTests: XCTestCase {
             contentsOf: root.appendingPathComponent("Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift"),
             encoding: .utf8
         )
+        // C2-RIBOPIN replaced installDeaconRibokmersDatabase with the pinned download and the sibling clone, which
+        // install the hosted ribokmers index and write its receipt.
         let installerMethods = [
             "installChecksummedManagedDatabase",
             "installDeaconManagedDatabase",
-            "installDeaconRibokmersDatabase",
+            "installPinnedDownloadDatabase",
+            "cloneManagedDatabaseFromSibling",
         ]
 
         for method in installerMethods {
-            let source = sourceSlice(in: text, from: "private func \(method)", to: "\n    private func ")
+            let source = sourceSlice(in: text, from: "func \(method)(", to: "\n    private func ")
+            XCTAssertFalse(source.isEmpty, "\(method) was not found in DatabaseRegistry.swift")
             XCTAssertTrue(
                 source.contains("writeManagedDatabaseInstallProvenance("),
                 "\(method) must write durable managed database install provenance before reporting success"
