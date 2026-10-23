@@ -59,7 +59,7 @@ enum ExecutorPlanTestSupport {
             inputs: files, inputFormat: .pairedR1R2, recipe: recipe,
             recipeFile: try recipe.map { _ in try recipeSource(root: root) },
             storage: ExecutorPlanStorageRequest(
-                requestedClumpingTool: clumping, clumpifyHeapGB: 4, threads: 1, statisticsThreads: 1,
+                requestedClumpingTool: clumping, clumpifyHeapGB: 4, threads: 1,
                 compressor: compressor, qualityBinning: .illumina4, compressionLevel: 4, threadsSource: .option,
                 clumpifyHeapSource: .option, compressorSource: .default, qualityBinningSource: .default
             ),
