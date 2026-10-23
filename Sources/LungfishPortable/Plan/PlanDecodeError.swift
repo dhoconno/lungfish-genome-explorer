@@ -236,6 +236,9 @@ extension ExecutionPlan {
                     }
                 }
             }
+            if step.kind == .storage, storage.clumpingTool == .none, storage.qualityBinning == .none {
+                try Self.validateStoredWithoutClumpingOrBinning(step.inputs, field: "\(field).inputs")
+            }
             try Self.validateEnvironment(step.environment, field: "\(field).environment", stepID: step.id)
             for (position, argument) in step.arguments.enumerated() where argument.utf8.contains(0) {
                 throw PlanDecodeError(field: "\(field).arguments[\(position)]", reason: "Step \(step.id) has an argument that holds a NUL, which would end the argument a tool reads.")
@@ -247,6 +250,20 @@ extension ExecutionPlan {
                     throw PlanDecodeError(field: "\(field).\(name)", reason: refusal.reason)
                 }
             }
+        }
+    }
+
+    /// With no clumping and no binning a storage step compresses one plain file. The Mac interleaves two files and keeps a
+    /// gzip file as it is in its own process, which no plan step states yet, so the plan writer and the node refuse both
+    /// with these words before any recipe step runs. The executor keeps its own guard as a second fence.
+    private static func validateStoredWithoutClumpingOrBinning(_ inputs: [String], field: String) throws {
+        let tail = " A plan for that route is not supported yet, so name a binning scheme or a clumping tool."
+        guard inputs.count == 1 else {
+            let files = inputs.count == 2 ? "two files" : "\(inputs.count) files"
+            throw PlanDecodeError(field: field, reason: "This plan stores \(files) with no clumping and no binning, which the Mac interleaves in its own process." + tail)
+        }
+        guard !inputs[0].hasSuffix(".gz") else {
+            throw PlanDecodeError(field: field, reason: "This plan stores a gzip file with no clumping and no binning, which the Mac keeps as it is." + tail)
         }
     }
 

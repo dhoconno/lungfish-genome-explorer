@@ -183,6 +183,34 @@ final class ExecutionPlanTests: XCTestCase {
         XCTAssertNoThrow(try ExecutionPlan.decode(binning.encoded()))
     }
 
+    /// ARCH fix 2 of the K4 part B review. With no clumping and no binning the node stores one plain file through the
+    /// compressor, so the decoder refuses two files or a gzip file with the words the plan writer shows.
+    func testPlanDecodeRefusesNoClumpingNoBinningForTwoFilesAndGzip() throws {
+        let tail = " A plan for that route is not supported yet, so name a binning scheme or a clumping tool."
+        var plan = samplePlan(clumpingTool: .none)
+        plan.storage.qualityBinning = .none
+        plan.steps[0].tool = Self.bgzip
+        plan.steps[0].arguments = []
+        plan.steps[0].environment = []
+        plan.steps[0].inputs = ["inputs/r1.fastq", "inputs/r2.fastq"]
+        assertRefused(
+            try plan.encoded(), field: "steps[0].inputs",
+            reason: "This plan stores two files with no clumping and no binning, which the Mac interleaves in its own process." + tail
+        )
+        plan.steps[0].inputs = ["inputs/r1.fastq.gz"]
+        assertRefused(
+            try plan.encoded(), field: "steps[0].inputs",
+            reason: "This plan stores a gzip file with no clumping and no binning, which the Mac keeps as it is." + tail
+        )
+        plan.steps[0].inputs = ["inputs/r1.fastq"]
+        XCTAssertNoThrow(try ExecutionPlan.decode(plan.encoded()))
+        // A binning scheme or a clumping tool takes either shape.
+        plan.steps[0].inputs = ["inputs/r1.fastq.gz"]
+        plan.storage.qualityBinning = .illumina4
+        plan.steps[0].tool = Self.reformat
+        XCTAssertNoThrow(try ExecutionPlan.decode(plan.encoded()))
+    }
+
     func testPlanDecodeRefusesHostOrPlanAsValueSource() throws {
         for key in ["threadsSource", "clumpifyHeapSource", "clumpingToolSource", "compressorSource"] {
             for source in ["host", "plan", "recipe"] {

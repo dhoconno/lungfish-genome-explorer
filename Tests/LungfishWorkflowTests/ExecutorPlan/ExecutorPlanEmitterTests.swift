@@ -191,6 +191,34 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertTrue(plan.tools.contains(pigz))
     }
 
+    /// ARCH fix 2 of the K4 part B review. The plan writer refuses the two shapes of the route with no clumping and no
+    /// binning that the node cannot run, with the decoder's words, before any recipe step runs on the node.
+    func testPlanEmitterRefusesPairedReadsWithNoClumpingNoBinning() throws {
+        let tail = " A plan for that route is not supported yet, so name a binning scheme or a clumping tool."
+        var paired = try request("S", inputs: try writePair("S"), clumping: .none)
+        paired.recipe = nil
+        paired.recipeFile = nil
+        paired.storage.qualityBinning = .none
+        XCTAssertThrowsError(try ExecutorPlanEmitter.emit(paired, host: Self.mac24)) { error in
+            XCTAssertEqual(error as? PlanDecodeError, PlanDecodeError(
+                field: "steps[0].inputs",
+                reason: "This plan stores two files with no clumping and no binning, which the Mac interleaves in its own process." + tail
+            ))
+        }
+
+        let gzipped = root.appendingPathComponent("S.fastq.gz")
+        try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: gzipped)
+        var single = paired
+        single.inputs = [try ExecutorPlanSourceFile.measuring(gzipped)]
+        single.inputFormat = .single
+        XCTAssertThrowsError(try ExecutorPlanEmitter.emit(single, host: Self.mac24)) { error in
+            XCTAssertEqual(error as? PlanDecodeError, PlanDecodeError(
+                field: "steps[0].inputs",
+                reason: "This plan stores a gzip file with no clumping and no binning, which the Mac keeps as it is." + tail
+            ))
+        }
+    }
+
     /// N2-T2.
     func testPlanTemplateForAutoIsEqualOnEveryMac() throws {
         let pair = try writePair("S")
