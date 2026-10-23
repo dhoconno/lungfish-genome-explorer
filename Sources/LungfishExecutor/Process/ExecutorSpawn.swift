@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import CLungfishExecutor
 import Foundation
 #if canImport(Glibc)
 import Glibc
@@ -176,7 +175,9 @@ enum ExecutorSpawn {
         posix_spawn_file_actions_adddup2(&actions, stderr, 2)
         if let workingDirectory {
             #if os(Linux)
-            let added = lungfish_spawn_file_actions_addchdir(&actions, workingDirectory)
+            // Musl gets _GNU_SOURCE from the Clang importer and glibc declares this under __USE_MISC, so the Linux
+            // modules import it with no wrapper.
+            let added = posix_spawn_file_actions_addchdir_np(&actions, workingDirectory)
             #else
             let added = posix_spawn_file_actions_addchdir(&actions, workingDirectory)
             #endif

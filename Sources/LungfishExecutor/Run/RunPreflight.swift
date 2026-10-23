@@ -56,12 +56,17 @@ enum RunFiles {
         return data
     }
 
-    /// The SHA-256 and size of the running binary, `/proc/self/exe` on Linux and the loader's path elsewhere (tally K4.4).
+    /// The SHA-256 and size of the running binary, `/proc/self/exe` on Linux and elsewhere the real path of
+    /// `CommandLine.arguments[0]` through `realpath` (tally K4.4).
+    /// A launch by bare name, an `argv[0]` with no `/`, has no path to resolve, so the self-check refuses it.
     static func runningExecutorDigest() -> (sha256: String, size: Int64)? {
         #if os(Linux)
         let path = "/proc/self/exe"
         #else
-        guard let path = Bundle.main.executablePath else { return nil }
+        guard let launched = CommandLine.arguments.first, launched.contains("/"),
+              let resolved = realpath(launched, nil) else { return nil }
+        let path = String(cString: resolved)
+        free(resolved)
         #endif
         let fd = open(path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
