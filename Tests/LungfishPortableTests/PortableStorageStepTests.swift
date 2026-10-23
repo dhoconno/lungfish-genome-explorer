@@ -167,4 +167,16 @@ final class PortableStorageStepTests: XCTestCase {
         }
         XCTAssertTrue(launcher.launches.withLock { $0 }.isEmpty)
     }
+
+    /// The plan and the step read a file's size from `attributesOfItem`. A failed cast reads 0, which would cut the
+    /// clumpify and compress deadlines to their floors for a large input, so the Linux tier checks the size is read.
+    func testEstimatedUncompressedInputBytesReadsFileSizeOnLinux() throws {
+        let root = try makeRoot()
+        let plain = root.appendingPathComponent("a.fastq")
+        let gzipped = root.appendingPathComponent("b.fastq.gz")
+        try Data(repeating: 0x41, count: 10).write(to: plain)
+        try Data(repeating: 0x42, count: 10).write(to: gzipped)
+        // A plain file counts once and a gzip file four times: 10 + 4 * 10.
+        XCTAssertEqual(PortableStoragePlan.estimatedUncompressedInputBytes(for: [plain, gzipped]), 50)
+    }
 }
