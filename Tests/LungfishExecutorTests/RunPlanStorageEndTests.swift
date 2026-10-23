@@ -23,6 +23,11 @@ extension RunPlanTests {
         return try XCTUnwrap(storage["launches"] as? [[String: Any]])
     }
 
+    /// The tool id of each launch, in the order the step started them.
+    static func toolIDs(of launches: [[String: Any]]) -> [String] {
+        launches.map { ($0["tool"] as? [String: Any])?["id"] as? String ?? "" }
+    }
+
     /// A clumpify that prints the heap line, writes its PID to tmp/ by rename (the step keeps no declared output when it
     /// fails) and then sleeps for `seconds`.
     static func hangingClumpify(seconds: Int) -> String {
@@ -30,10 +35,11 @@ extension RunPlanTests {
     }
 
     /// SWIFT fix 3 (a) and QA fix 2 of the K4 part B review (tally-r2 K4-06, K4-09): a clumpify that never exits is
-    /// stopped at the plan's 1-second deadline. The step and its launch keep the controller's deadline sentence, the step
-    /// keeps no payload, and nothing is left running.
+    /// stopped at the plan's deadline. The step and its clumpify launch keep the controller's deadline sentence, the step
+    /// keeps no payload, and nothing is left running. BBTools' `bgzip -h` probe (BIO N3, fix B2) runs first within the
+    /// same deadline and succeeds, so the step's 2 seconds leave the probe room on a loaded host.
     func testClumpifyHangEndsAtPlanDeadlineWithFailedRecord() throws {
-        let (fixture, plan, manifest) = try clumpifyPlan(Self.hangingClumpify(seconds: 30), deadline: 1)
+        let (fixture, plan, manifest) = try clumpifyPlan(Self.hangingClumpify(seconds: 30), deadline: 2)
         let run = try fixture.run(plan, ["--image-manifest", manifest])
         XCTAssertEqual(run.status, ExecutorExitCode.failed, run.stderr)
         let record = try XCTUnwrap(run.record)
@@ -47,16 +53,19 @@ extension RunPlanTests {
         XCTAssertNil(step.outputReadCount)
         XCTAssertTrue(step.stderrTail.contains("java.lang.OutOfMemoryError: Java heap space"), step.stderrTail)
         let launches = try Self.storageLaunches(in: fixture)
-        XCTAssertEqual(launches.count, 1)
-        XCTAssertTrue(launches.first?["toolSignal"] != nil || (launches.first?["toolExitCode"] as? Int ?? 0) != 0)
-        // The launch's deadline is what was left of the step's 1 second when it started (K2 review O-1).
-        let launchReason = launches.first?["reason"] as? String ?? ""
+        XCTAssertEqual(Self.toolIDs(of: launches), ["bgzip", "clumpify.sh"])
+        XCTAssertEqual(step.storage?.launches?.first?.outcome, .succeeded)
+        XCTAssertNil(step.storage?.launches?.first?.reason)
+        let clumpify = try XCTUnwrap(launches.last)
+        XCTAssertTrue(clumpify["toolSignal"] != nil || (clumpify["toolExitCode"] as? Int ?? 0) != 0)
+        // The launch's deadline is what was left of the step's 2 seconds when it started (K2 review O-1).
+        let launchReason = clumpify["reason"] as? String ?? ""
         let lead = "The tool ran past its deadline of "
         XCTAssertTrue(launchReason.hasPrefix(lead) && launchReason.hasSuffix(" seconds. The executor stopped it."), launchReason)
         let seconds = Double(launchReason.dropFirst(lead.count).prefix { $0 != " " }) ?? .infinity
-        XCTAssertLessThanOrEqual(seconds, 1, launchReason)
-        XCTAssertNotNil(launches.first?["escalatedToSIGKILL"] as? Bool)
-        XCTAssertNotNil(launches.first?["stoppedProcesses"] as? [Any])
+        XCTAssertLessThanOrEqual(seconds, 2, launchReason)
+        XCTAssertNotNil(clumpify["escalatedToSIGKILL"] as? Bool)
+        XCTAssertNotNil(clumpify["stoppedProcesses"] as? [Any])
         let reason = step.reason ?? ""
         XCTAssertTrue(reason.hasPrefix(launchReason + " The storage step failed."), reason)
         let toolPID = try ExecutorTestSupport.pid(in: fixture.planFolder + "/tmp", "pid.txt", timeout: 1)
@@ -65,7 +74,7 @@ extension RunPlanTests {
 
     /// SWIFT fix 3 (b) and QA fix 3 of the K4 part B review: SIGTERM during a storage launch crosses the thread and
     /// semaphore bridge to the controller, ends the run as interrupted at the storage step and leaves no tool and no
-    /// temporary record.
+    /// temporary record. The step keeps BBTools' `bgzip -h` probe and the one clumpify launch the signal ended.
     func testStorageStepSIGTERMWritesInterruptedRecordAndLeavesNoProcess() throws {
         let (fixture, plan, manifest) = try clumpifyPlan(Self.hangingClumpify(seconds: 60))
         let pid = try fixture.start(plan, ["--image-manifest", manifest])
@@ -88,7 +97,7 @@ extension RunPlanTests {
         let step = try XCTUnwrap(record.steps.first)
         XCTAssertEqual(step.outcome, .interrupted)
         XCTAssertEqual(step.outputs, [])
-        XCTAssertEqual(step.storage?.launches?.count, 1)
+        XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
         XCTAssertTrue(ExecutorTestSupport.isGone(toolPID, timeout: 10), "the tool \(toolPID) is still running")
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: fixture.planFolder)
             .filter { $0.hasPrefix(".run-record.json.tmp-") }
@@ -111,7 +120,8 @@ extension RunPlanTests {
     }
 
     /// QA fix 2 of the K4 part B review, the ruling's first case: a clumpify that exits 1 after printing the heap lines
-    /// fails the step with those lines and one launch, so no other route stores the reads.
+    /// fails the step with those lines. After BBTools' `bgzip -h` probe the step holds one clumpify launch, so no other
+    /// route stores the reads.
     func testClumpifyExitOneWithHeapLinesFailsWithoutFallback() throws {
         let (fixture, plan, manifest) = try clumpifyPlan("""
         echo 'java.lang.OutOfMemoryError: Java heap space' >&2
@@ -128,7 +138,8 @@ extension RunPlanTests {
         XCTAssertEqual(step.toolExitCode, 1)
         XCTAssertTrue(step.stderrTail.contains("Terminating due to java.lang.OutOfMemoryError: Java heap space"), step.stderrTail)
         XCTAssertTrue(step.reason?.hasPrefix("The storage step failed.") == true, step.reason ?? "")
-        XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["clumpify.sh"])
+        XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
+        XCTAssertEqual(step.storage?.launches?.first?.argv.last, "-h")
     }
 
     /// BIO fix 4 of the K4 part B review (tally K4.2): the storage step states the peak resident memory of its
