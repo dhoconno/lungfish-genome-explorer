@@ -44,8 +44,10 @@ extension PlanRunner {
         }
         guard inputs.count == 1 else {
             throw ExecutorSpawn.Failure(
-                reason: "Step \(step.id) stores two files with no clumping and no binning, which the Mac interleaves in its own "
-                    + "process. This executor build has no plan form for that route."
+                reason: inputs.count == 2
+                    ? "Step \(step.id) stores two files with no clumping and no binning, which the Mac interleaves in its own "
+                        + "process. This executor build has no plan form for that route."
+                    : "Step \(step.id) stores \(inputs.count) files with no clumping and no binning. That route stores one plain file."
             )
         }
         guard inputs[0].pathExtension != "gz" else {

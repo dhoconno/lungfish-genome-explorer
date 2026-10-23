@@ -197,6 +197,12 @@ final class ExecutionPlanTests: XCTestCase {
             try plan.encoded(), field: "steps[0].inputs",
             reason: "This plan stores two files with no clumping and no binning, which the Mac interleaves in its own process." + tail
         )
+        // UX fix 7 of the K4 part C review. Another count of files states no Mac route.
+        plan.steps[0].inputs = ["inputs/r1.fastq", "inputs/r2.fastq", "inputs/r3.fastq"]
+        assertRefused(
+            try plan.encoded(), field: "steps[0].inputs",
+            reason: "This plan stores 3 files with no clumping and no binning. That route stores one plain file."
+        )
         plan.steps[0].inputs = ["inputs/r1.fastq.gz"]
         assertRefused(
             try plan.encoded(), field: "steps[0].inputs",

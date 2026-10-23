@@ -261,8 +261,12 @@ extension ExecutionPlan {
     private static func validateStoredWithoutClumpingOrBinning(_ inputs: [String], field: String) throws {
         let tail = " A plan for that route is not supported yet, so name a binning scheme or a clumping tool."
         guard inputs.count == 1 else {
-            let files = inputs.count == 2 ? "two files" : "\(inputs.count) files"
-            throw PlanDecodeError(field: field, reason: "This plan stores \(files) with no clumping and no binning, which the Mac interleaves in its own process." + tail)
+            // The Mac interleaves exactly two files, so another count names no Mac route (UX fix 7 of the K4 part C
+            // review).
+            let reason = inputs.count == 2
+                ? "This plan stores two files with no clumping and no binning, which the Mac interleaves in its own process." + tail
+                : "This plan stores \(inputs.count) files with no clumping and no binning. That route stores one plain file."
+            throw PlanDecodeError(field: field, reason: reason)
         }
         guard !inputs[0].hasSuffix(".gz") else {
             throw PlanDecodeError(field: field, reason: "This plan stores a gzip file with no clumping and no binning, which the Mac keeps as it is." + tail)
