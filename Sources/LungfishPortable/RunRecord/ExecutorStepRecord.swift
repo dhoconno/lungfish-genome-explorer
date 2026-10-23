@@ -232,6 +232,42 @@ package struct ExecutorStorageWriter: Codable, Sendable, Equatable {
     }
 }
 
+/// One tool launch of a storage step, in the order the step made it (tally-r2 K4-10).
+package struct ExecutorStorageLaunch: Codable, Sendable, Equatable {
+    package var tool: ExecutorToolRecord
+    /// The argv as run, the tool's absolute path first and every other path relative to the work root.
+    package var argv: [String]
+    package var environmentNames: [String]
+    package var outcome: ExecutorRunOutcome
+    package var toolExitCode: Int32?
+    package var toolSignal: Int32?
+    package var wallSeconds: Double
+    /// The work-root path of the launch's standard error.
+    package var stderrPath: String
+    /// The N of clumpify's `Set groups to N` line and its two memory lines as printed, for a clumpify launch.
+    package var clumpifyGroups: Int?
+    package var clumpifyMemoryEstimateLine: String?
+    package var clumpifyMemoryAvailableLine: String?
+
+    package init(
+        tool: ExecutorToolRecord, argv: [String], environmentNames: [String], outcome: ExecutorRunOutcome,
+        toolExitCode: Int32? = nil, toolSignal: Int32? = nil, wallSeconds: Double, stderrPath: String,
+        clumpifyGroups: Int? = nil, clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil
+    ) {
+        self.tool = tool
+        self.argv = argv
+        self.environmentNames = environmentNames
+        self.outcome = outcome
+        self.toolExitCode = toolExitCode
+        self.toolSignal = toolSignal
+        self.wallSeconds = wallSeconds
+        self.stderrPath = stderrPath
+        self.clumpifyGroups = clumpifyGroups
+        self.clumpifyMemoryEstimateLine = clumpifyMemoryEstimateLine
+        self.clumpifyMemoryAvailableLine = clumpifyMemoryAvailableLine
+    }
+}
+
 /// What a storage step did (tally K4.1, tally-r2 K4-10, K4-14).
 package struct ExecutorStorageDetails: Codable, Sendable, Equatable {
     /// Nil in a record written before K4-14, shown as Not recorded.
@@ -248,12 +284,14 @@ package struct ExecutorStorageDetails: Codable, Sendable, Equatable {
     package var inputBytes: Int64
     package var outputBytes: Int64
     package var mixedLayout: ExecutorMixedLayoutCounts?
+    /// Every launch the step made, the writer probe's included. Nil in a record written before M4.
+    package var launches: [ExecutorStorageLaunch]?
 
     package init(
         writer: ExecutorStorageWriter? = nil, effectiveCompressionLevel: Int? = nil, clumpifyGroups: Int? = nil,
         clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil, clumpingRan: Bool,
         qualityBinning: QualityBinningScheme, inputBytes: Int64, outputBytes: Int64,
-        mixedLayout: ExecutorMixedLayoutCounts? = nil
+        mixedLayout: ExecutorMixedLayoutCounts? = nil, launches: [ExecutorStorageLaunch]? = nil
     ) {
         self.writer = writer
         self.effectiveCompressionLevel = effectiveCompressionLevel
@@ -265,5 +303,6 @@ package struct ExecutorStorageDetails: Codable, Sendable, Equatable {
         self.inputBytes = inputBytes
         self.outputBytes = outputBytes
         self.mixedLayout = mixedLayout
+        self.launches = launches
     }
 }

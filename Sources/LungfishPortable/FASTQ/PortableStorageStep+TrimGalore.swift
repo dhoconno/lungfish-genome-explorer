@@ -114,10 +114,14 @@ extension PortableStorageStep {
         package var memoryBytes: Int64
         /// The compressor plain output is written with, nil when none is installed.
         package var compressor: PortableCompressor?
+        /// The seconds each launch may run, the plan's deadline on the executor (K2 review O-1). Nil takes the Mac's
+        /// rules from the input size.
+        package var deadlineSeconds: Double?
 
         package init(
             inputs: [URL], pairing: TrimGalorePairing, output: URL, workingDirectory: URL, stem: String,
-            threads: Int, compressionLevel: Int, memoryBytes: Int64, compressor: PortableCompressor?
+            threads: Int, compressionLevel: Int, memoryBytes: Int64, compressor: PortableCompressor?,
+            deadlineSeconds: Double? = nil
         ) {
             self.inputs = inputs
             self.pairing = pairing
@@ -128,6 +132,7 @@ extension PortableStorageStep {
             self.compressionLevel = compressionLevel
             self.memoryBytes = memoryBytes
             self.compressor = compressor
+            self.deadlineSeconds = deadlineSeconds
         }
     }
 
@@ -156,7 +161,7 @@ extension PortableStorageStep {
         try fm.createDirectory(at: trimOutputDirectory, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: trimOutputDirectory) }
 
-        let timeoutSeconds = max(
+        let timeoutSeconds = run.deadlineSeconds ?? max(
             900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: run.inputs)) / 2_500_000
         )
         let childLauncher = self.childLauncher
@@ -231,7 +236,7 @@ extension PortableStorageStep {
         } else {
             records.append(try await compress(
                 input: trimmedOutput, output: run.output, compressor: run.compressor, threads: run.threads,
-                progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
+                timeout: run.deadlineSeconds, progress: { fraction, msg in progress(0.75 + fraction * 0.25, msg) }
             ))
         }
         guard fm.fileExists(atPath: run.output.path) else {
@@ -280,7 +285,8 @@ extension PortableStorageStep {
         let (pairsRecord, pairsReport) = try await launchTrimGalore(
             arguments: pairsArguments, inputs: [r1, r2], outputDirectory: pairsOutput,
             workingDirectory: run.workingDirectory,
-            timeout: max(900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 2_500_000)
+            timeout: run.deadlineSeconds
+                ?? max(900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 2_500_000)
         )
         try? fm.removeItem(at: pairsInput)
 
@@ -305,7 +311,7 @@ extension PortableStorageStep {
         let (unpairedRecord, unpairedReport) = try await launchTrimGalore(
             arguments: unpairedArguments, inputs: [halves.unpaired], outputDirectory: unpairedOutput,
             workingDirectory: run.workingDirectory,
-            timeout: max(
+            timeout: run.deadlineSeconds ?? max(
                 900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [halves.unpaired])) / 2_500_000
             )
         )
@@ -322,7 +328,7 @@ extension PortableStorageStep {
         try PortableFileJoin.appendAndRename(trimmedUnpaired, to: interleavedPairs, as: combined)
         let compressRecord = try await compress(
             input: combined, output: run.output, compressor: run.compressor, threads: run.threads,
-            progress: { fraction, message in progress(0.8 + fraction * 0.15, message) }
+            timeout: run.deadlineSeconds, progress: { fraction, message in progress(0.8 + fraction * 0.15, message) }
         )
 
         progress(0.95, "Verifying read count...")
@@ -377,7 +383,8 @@ extension PortableStorageStep {
         let args = PortableStoragePlan.trimGaloreInterleaveArguments(
             r1: r1, r2: r2, output: output, compressionLevel: run.compressionLevel, threads: run.threads
         )
-        let timeoutSeconds = max(600, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
+        let timeoutSeconds = run.deadlineSeconds
+            ?? max(600, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
         progress(0.1, "Interleaving paired Trim Galore outputs...")
         let launch = PortableToolLaunch(
             tool: .reformat, arguments: args, workingDirectory: run.workingDirectory, timeout: timeoutSeconds

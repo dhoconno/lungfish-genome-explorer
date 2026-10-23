@@ -166,10 +166,14 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
         package var environment: [String: String]
         /// The compressor a mixed file's joined halves are written with, nil when none is installed.
         package var compressor: PortableCompressor?
+        /// The seconds each launch may run, the plan's deadline on the executor (K2 review O-1, tally-r2 K4-06). Nil
+        /// takes the Mac's rule of at least 900 seconds and one second for each 2.5 MB of input.
+        package var deadlineSeconds: Double?
 
         package init(
             inputs: [URL], output: URL, workingDirectory: URL, heapGB: Int, threads: Int,
-            qualityBinning: QualityBinningScheme, environment: [String: String], compressor: PortableCompressor?
+            qualityBinning: QualityBinningScheme, environment: [String: String], compressor: PortableCompressor?,
+            deadlineSeconds: Double? = nil
         ) {
             self.inputs = inputs
             self.output = output
@@ -179,6 +183,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
             self.qualityBinning = qualityBinning
             self.environment = environment
             self.compressor = compressor
+            self.deadlineSeconds = deadlineSeconds
         }
     }
 
@@ -193,7 +198,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
         let inputFile = run.inputs[0]
         let inputFile2 = run.inputs.count > 1 ? run.inputs[1] : nil
         let inputBytes = (try? FileManager.default.attributesOfItem(atPath: inputFile.path)[.size] as? Int64) ?? 0
-        let timeoutSeconds = max(900, Double(inputBytes) / 2_500_000)
+        let timeoutSeconds = run.deadlineSeconds ?? max(900, Double(inputBytes) / 2_500_000)
 
         // Override any JAVA_TOOL_OPTIONS that might constrain heap below our calculated value.
         // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.
@@ -281,6 +286,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
                 output: run.output,
                 compressor: run.compressor,
                 threads: run.threads,
+                timeout: run.deadlineSeconds,
                 progress: { fraction, msg in progress(0.8 + fraction * 0.2, msg) }
             ))
         }
@@ -325,18 +331,20 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
         ))
     }
 
-    /// Compresses `input` into `output` with the named compressor at its default level and records the launch.
+    /// Compresses `input` into `output` with the named compressor at its default level and records the launch. A nil
+    /// `timeout` takes the Mac's rule of at least 600 seconds and one second for each 5 MB of input.
     package func compress(
         input: URL,
         output: URL,
         compressor: PortableCompressor?,
         threads: Int,
+        timeout: Double? = nil,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> Launcher.Record {
         guard let compressor else { throw PortableStorageError.compressorNotFound }
         let args = compressor.arguments(threads: threads, input: input)
         let inputSize = (try? FileManager.default.attributesOfItem(atPath: input.path)[.size] as? Int64) ?? 0
-        let timeoutSeconds = max(600, Double(inputSize) / 5_000_000)
+        let timeoutSeconds = timeout ?? max(600, Double(inputSize) / 5_000_000)
 
         progress(0.1, "Compressing with \(compressor.rawValue)...")
 

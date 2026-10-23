@@ -35,14 +35,20 @@ struct PlanRunner {
         searchPath = folders.joined(separator: ":")
     }
 
-    /// Whether the executor runs a step of `kind` by the plan's argv. The storage step, the interleave step and the Q20
-    /// and Q30 count are the executor's own work, which milestone M4 adds here. Until then `RunCommand.prepare` refuses a
-    /// plan that holds one, before any tool runs.
-    static func runsArgv(_ kind: PlanStepKind) -> Bool {
-        switch kind {
+    /// Whether the executor runs `step` by the plan's argv. An `interleave` step with an argv (paired to interleaved)
+    /// runs by it.
+    static func runsArgv(_ step: PlanStep) -> Bool {
+        switch step.kind {
         case .recipe, .compress, .statistics: return true
-        case .storage, .interleave, .qualityCount: return false
+        case .interleave: return !step.arguments.isEmpty
+        case .storage, .qualityCount: return false
         }
+    }
+
+    /// Whether the executor builds `step` itself: the storage step and the merged-to-mixed `interleave` step, which
+    /// carry no argv (`runOwnStep`). The Q20 and Q30 count is a later milestone's, so `RunCommand.prepare` refuses it.
+    static func runsOwnStep(_ step: PlanStep) -> Bool {
+        step.kind == .storage || (step.kind == .interleave && step.arguments.isEmpty)
     }
 
     /// Nil when the manifest's path is a regular file the executor may run, else the reason, naming the tool id.
@@ -112,6 +118,9 @@ struct PlanRunner {
             record.reason = reason
             record.endedAt = ExecutorRunRecord.timestamp(Date())
             return record
+        }
+        if Self.runsOwnStep(step) {
+            return runOwnStep(step, tool: tool, environment: environment, record: record)
         }
         let streams: (stdout: PlanOutputFile, stderr: PlanOutputFile)
         do {

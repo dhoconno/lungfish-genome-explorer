@@ -18,6 +18,10 @@ struct PreparedRun {
     var manifest: ImageToolManifest
     /// The manifest's tool for each step, by step id.
     var tools: [String: ImageTool]
+    /// The manifest's tool for each storage tool the plan pins (`PlanRunner.storageTools`).
+    var storageTools: [PortableStorageTool: ImageTool] = [:]
+    /// The plan's pinned `gzip`, else `pigz`, which reads gzip input in place of `/usr/bin/gzip`.
+    var decompressor: String?
 }
 
 /// `lungfish-executor run --plan <file> [--image-manifest <absolute file>] [--site-fact KEY=VALUE]...`
@@ -225,7 +229,13 @@ enum RunCommand {
         var tools: [String: ImageTool] = [:]
         for (index, step) in plan.steps.enumerated() {
             let field = "steps[\(index)]"
-            guard PlanRunner.runsArgv(step.kind) else {
+            if step.kind == .storage && plan.storage.clumpingTool == .none {
+                throw RunRefusal(
+                    field: "storage.clumpingTool",
+                    reason: "Step \(step.id) stores with no clumping, a route this executor build does not run yet. No tool ran."
+                )
+            }
+            guard PlanRunner.runsArgv(step) || PlanRunner.runsOwnStep(step) else {
                 throw RunRefusal(
                     field: "\(field).kind",
                     reason: "Step \(step.id) is a \(step.kind.rawValue) step, which this executor build does not run yet. No tool ran."
@@ -258,7 +268,15 @@ enum RunCommand {
         ) {
             throw refusal
         }
-        return PreparedRun(plan: plan, manifest: manifest, tools: tools)
+        var prepared = PreparedRun(plan: plan, manifest: manifest, tools: tools)
+        for pin in plan.tools {
+            guard let storageTool = PlanRunner.storageTools[pin.id], let tool = manifest.tool(matching: pin) else { continue }
+            prepared.storageTools[storageTool] = tool
+        }
+        prepared.decompressor = ["gzip", "pigz"].lazy.compactMap { id in
+            plan.tools.first { $0.id == id }.flatMap { manifest.tool(matching: $0) }?.path
+        }.first
+        return prepared
     }
 
     /// Writes the record and returns the run's exit code, or `failed` for a run that succeeded but left no record.

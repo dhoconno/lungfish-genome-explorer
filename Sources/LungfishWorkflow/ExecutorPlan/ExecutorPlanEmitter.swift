@@ -264,12 +264,17 @@ package enum ExecutorPlanEmitter {
         }
         let storageTool: String
         switch clumping.resolved {
-        case .bbtools: storageTool = NativeTool.clumpify.executableName
+        case .bbtools:
+            storageTool = NativeTool.clumpify.executableName
+            // A mixed file's clumped halves are joined and written by the compressor (PortableStorageStep.clumpify).
+            _ = try tools.pin(settings.compressor.rawValue, stepID: "storage")
         case .none: storageTool = settings.qualityBinning == .none ? settings.compressor.rawValue : NativeTool.reformat.executableName
         case .trimGalore:
             storageTool = NativeTool.trimGalore.executableName
-            // The Trim Galore route interleaves a paired output with reformat.sh (PortableStorageStep+TrimGalore).
+            // The Trim Galore route interleaves a paired output with reformat.sh and compresses plain or joined output
+            // with the compressor (PortableStorageStep+TrimGalore).
             _ = try tools.pin(NativeTool.reformat.executableName, stepID: "storage")
+            _ = try tools.pin(settings.compressor.rawValue, stepID: "storage")
         }
         let heapOption = PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx\(settings.clumpifyHeapGB)g")
         // The executor builds the storage argv on the node through PortableStorageStep, the builder the Mac uses,
