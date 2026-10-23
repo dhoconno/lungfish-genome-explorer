@@ -1,6 +1,6 @@
 # CHTC preprocessing study, panel decisions (2026-10-21)
 
-Status: active. C0 to C3 are complete, and C4 and C5 run next on the Mac Studio.
+Status: active. C0 to C3 are complete and the C4 pre-brief round is done. C4 and C5 run on the Mac Studio after Phase 2.14.
 
 This record holds the panel's decisions on running Lungfish Genome Explorer (LGE) FASTQ preprocessing recipes on CHTC
 HTCondor execute nodes. It began as a design study. The program's code landed on branch `chtc-program` and reached `main` with C3 on 2026-10-23. The briefs, the six inventories
@@ -503,24 +503,103 @@ Moved out of K4 into C4 or later, each with its reason in `c3/lanes/K4/`:
 - `testClumpifySplitsIntoGroupsUnderPlanHeap` on real data, replaced in K4 by QA's N2-T4 with an injected launcher.
 - RiboDetector, an unfused fastp, the interleaved-to-paired conversion and the storage route `none` for two files or a gzip input without binning, which the plan writer refuses with a named error.
 
-## Open questions that remain (2026-10-23)
+## C4 pre-brief round (2026-10-23, session 4)
+
+Session 4 ran on the Mac Studio (galah) on 2026-10-23. It settled what the C4 brief needed and wrote the C4 design
+inventory, and the owner then moved Phase 2.14 ahead of C4. The records are in `~/lungfish-phase-records/chtc-program/c4/`
+(`memos/`, `votes/tally-c4.md`, `votes/tally-c4r2.md`, `factcheck/`, `inv/C4-design.md`, `events.log`). Every seat ran on
+Opus 5.5 at effort xhigh, the CHTC seat as `general-purpose`. The fact sheet, the fact-checks and the round-1 tally ran on
+Sonnet 5.5 at effort max.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O31 | The retirement limit | "yes the 72 hour limit applies to oconnor jobs" | Confirms O28 for C4-06 |
+| O32 | Q5 | "I don't understand this question ... Have the experts answer it by consensus." | The panel answered Q5 by consensus, below |
+| O33 | The order of C4 and 2.14 | "Run Phase 2.14 first in a fresh session, then the Preview and the Phase 3 setup. C4 resumes afterwards in its own session from the pre-brief records." | C4 and C5 run after Phase 2.14 |
+| O34 | Whether galah is a Mac only the owner manages, which CHTC's login guide requires for a reused SSH session | "Yes, only I manage it" | The C4 lanes may use one reused SSH session from galah |
+
+The panel's answer to Q5, by consensus, 6 to 0 in round 2 (`c4/votes/tally-c4r2.md`).
+
+- Reused SSH session. O29 covers the C4 lane, and CHTC's login rule holds it to a Mac only the owner manages (O34). The
+  shared connection closes at each session's end. LGE's own SSH call takes the host alias and the SSH config file as
+  settings, passes `-o BatchMode=yes` and a `ConnectTimeout`, and adds no `ControlMaster`, `ControlPersist` or
+  `ControlPath` of its own. A C5 launch from LGE over SSH, the owner's or a lab member's, waits on CHTC's written
+  agreement, as V14 says.
+- Globus. LGE does not use it. The full-sample run waits on one working upload route for R1 and R2, which is the access
+  point (as C0 did, and which CHTC asks people not to use for large files), Globus to the "CHTC Staging" collection, or
+  `scp` to `transfer.chtc.wisc.edu`. The runner never moves a read file and checks each input with `stat` before it
+  submits. The executor's digest check on the node proves the files. The full-sample run's R1 and R2 leave `/staging` only
+  after the adopt passes and the E0 to E3 comparison is in the lane report.
+- Quota. The manager read it on 2026-10-23 with `get_quotas -p /staging/groups/oconnor_group`. The group folder holds
+  128,748 of 150,000 GB and 2,889,404 of 3,000,000 files, so about 21 TB and 110,000 files are free and neither C4 nor C5
+  waits on a raise. One shared copy per SHA-256 serves every job, the executor included. The full-sample run also waits
+  on the owner's confirmation that the study's data terms let the 32748 raw reads sit on `/staging`.
+
+| Id | Decision | Vote |
+|---|---|---|
+| XC-1 | A. The stored payload's SHA-256 and size are recorded on both routes and never compared, and the V15 list says so | 6 to 0 |
+| XC-2 | A. Clumpify's group count is a listed line, printed for both routes, and never fails the comparison | 6 to 0 |
+| XC-3 | A. "Digest" in N9-V15 means the digests of the inputs, recipes, databases and E0's plans, plus the payload's E2 and E3. E4 is reported and never fails | 6 to 0 |
+| XC-4 | B. A tool's path, its build string and the line that names where its version came from are route-shaped lines. Every version the plan pins must be equal | 4 to 2 |
+| XC-5 | A. The list names `siteFacts` and the `--site-fact` arguments and no site file | 6 to 0 |
+| XC-6 | B. One listed class holds the values in which the Mac differs from itself (dates, times, durations, scratch folder names, peak memory) | 5 to 1 |
+| XC-7 | B. The three basis keys are listed, null on the adopted record (C4-01) and the host's value on the Mac. The requested tool and the reason must be equal | 5 to 1 |
+| XC-8 | A. The list names the steps only one route holds, the executor's step, the counter step until MO-B1 removes it, and the adopt step | 6 to 0 |
+| XC-9 | A. The list names one route-shaped line for the `seqkit stats` output. The statistics values must be equal | 6 to 0 |
+| XC-10 | B. Each argv compares token by token after one function strips the Mac's staging root from path tokens. The executable compares by its file name | 6 to 0 |
+| XC-11 | C. The lane never widens the list. An unlisted difference fails the test, and the lane fixes the code or brings the line to the panel with both values and its reason. A removal needs only the reviews C4-16 names | 5 to 1 in a round-2 runoff, UX for B |
+| XC-12 | A. The list's baseline is BIO's V15-R as N9-V15 reads it, amended by this round | 6 to 0 |
+| XC-13 | A. On the Mac record the source keys read `option`, and on the adopted record `plan` | 6 to 0 |
+| Child environment | A. `environmentNames`, `searchPath` and `runtimes` are lines only the executor route holds | 6 to 0 in round 2 |
+
+The exact words of each row, with the conditions the winning seats attached, are in `c4/votes/tally-c4.md` section 1 and
+`c4/votes/tally-c4r2.md`.
+
+| Id | Ruling | By |
+|---|---|---|
+| OQ-1 (N7) | An adopted record shows its per-run facts once in the Runtime section, each node step gets one "Version and build" row, and everything else stays in Raw JSON | UX, ARCH consulted |
+| OQ-5 | `siteFacts` show under the label "Reported by the launcher", with UX's words for a version's source | UX |
+| OQ-2 | ARCH concurs with QA's amended QC18 text for the bundle lane and withdraws its XC-19 sentence | ARCH |
+| FC-A1 | C4-03 stands. The submit template passes node facts as `--site-fact` arguments from machine-ad macros, only for values with no space or quote, and no site-facts file is written | CHTC |
+| FC-Q2 | The executor build takes the release's prefix maps for the checkout and scratch folders, and the Linux tier strips a copy and fails on all 13 portability patterns through a new `--binary --all-labels` mode. A plain `--binary` pass is never evidence | QA |
+| Q-C4-5 | No new plan field. The image tool manifest copy and the SIF's identity become committed resources | ARCH |
+| Q-C4-6 | The parity tests adopt a Mac replay through an `ExecutorAdoptPolicy` value that is `internal`, never `package` or `public` | ARCH, QA consulted |
+| Q-C4-7 | The first job's `request_disk` is sized from a 10,000,000-pair Mac replay in GB units, and the payload lands in `/staging` | CHTC |
+| Q-C4-8 | The lane submits, and C4's code opens no SSH | ARCH, CHTC concurs |
+| Q-C4-9 | Threads 1 on both routes for the full-sample run, since fastp's dedup at 8 threads changes the kept-pair count | BIO, SWIFT consulted |
+| Q-C4-10 | Cluster and process ids reach the envelope only as site facts, and the job log's usage numbers stay in the program record | ARCH, UX consulted |
+| Q-C4-13 | RiboDetector, an unfused fastp, interleaved-to-paired and storage `none` get plan forms in C5 | BIO |
+| Placement | One shared copy per SHA-256 of the executor and each database serves every job, and no sample folder holds either | ARCH |
+
+| Fact-check | Verdict | What it changes |
+|---|---|---|
+| FC-A1, HTCondor machine-ad macros in `arguments` | Partly true | `$$(Attr)` and `$$([expr])` expand. A default form exists only for the plain form, a missing attribute holds the job, a value with a space needs single quotes and one with a quote cannot pass. The manual was read to 25.14.1, and the C4 node job checks 26.1 |
+| FC-A2, an ELF in the app bundle | True | The release Tools walk never visits `Contents/Resources/LinuxExecutor`, and the app's signature seals the ELF as a resource. Notarization of an ELF stays to be seen in the bundle lane |
+| FC-Q2, the stripped executor against the portability scan | Found | It holds 119 BoringSSL source paths in `.rodata`, which fail the app-folder scan. Clang and Swift file-prefix maps remove every one |
+
+The design inventory `c4/inv/C4-design.md` sets C4 as ten lanes, S SPAWN (QK2), I IMAGE, H HTCONDOR, F FILL, R RECORD,
+A ADOPT, P PARITY, U UI, B BUNDLE and X ACCEPT, with wave 1 of S, I, H, F, R and B. Its owner questions remain, Q-C4-1
+(the upload route for the 61.6 GB of reads), Q-C4-2 (whether the reads come to galah for the comparison import) and
+Q-C4-12 (which Mac builds the Debug app that the laptop uses).
+
+## Open questions that remain (2026-10-23, session 4)
 
 | Id | Question | Who answers |
 |---|---|---|
-| Q5 | Does the CHTC Staging Globus collection reach the group folder, and what is the group's `/staging` quota? | CHTC staff, asked by the owner |
+| Q5 owner steps | Confirm the study's data terms, try Globus to "CHTC Staging" once, say how many samples 32748 holds and their size, and send CHTC the panel's draft (upload route, agreement for launches from LGE under V14) | The owner |
+| Q-C4-1, Q-C4-2, Q-C4-12 | The upload route, the reads on galah, the Mac that builds the Debug app | The owner |
 | MO-S1 | Should the Mac's own `auto` follow the plan's rule? It changes the stored bytes of large Mac imports | The owner |
 | MO-B2 | Should clumpify follow the user's compression level? It changes compressed bytes | The owner |
-| OQ-1, OQ-2, OQ-5, OQ-6 | The Provenance tab's runtime lines (N7), ARCH's concurrence with QA's QC18 text, the label for `siteFacts`, and the V15 list's conflicts XC-1 to XC-13 | The panel, before the C4 brief |
 
 ## Next step
 
-C3 is complete, and the program is merged into `main`. C4 (the CHTC runner and the adopt) and C5 (batches and the lab's
-commands) run on the Mac Studio, one sub-phase per session. The handoff is `CONTINUE.md` in
-`~/lungfish-phase-records/chtc-program/`, copied to the Mac Studio with the whole records folder.
+C3 is complete, the program is on `main`, and the C4 pre-brief round is done. Phase 2.14 runs first (O33). C4 (the
+CHTC runner and the adopt) then runs on the Mac Studio in its own session from
+`~/lungfish-phase-records/chtc-program/CONTINUE-C4.md`, and C5 (batches and the lab's commands) in the session after.
 
 | Step | Work |
 |---|---|
-| 1 | Settle OQ-1, OQ-2, OQ-5 and OQ-6 and write the C4 brief from `c3/votes/tally-r2.md` section 4.6 and the Moved out rows above |
-| 2 | C4 lanes: plan template and fill, the Apptainer image with `/opt/lungfish/image-manifest.json` built by `lungfish-executor image-manifest`, the submit file and DAG, status from the job event log, the adopt mode of `import fastq`, and QK2 |
+| 1 | Write the C4 lane briefs from `c4/inv/C4-design.md`, `c4/votes/tally-c4.md`, `c4/votes/tally-c4r2.md` and `c3/votes/tally-r2.md` section 4.6 |
+| 2 | C4 lanes S, I, H, F, R and B in wave 1, then A, P, U and X as the inventory orders them |
 | 3 | One C079876 sample run on CHTC and adopted, equal at E0 to E3 |
 | 4 | C5, a batch of 32748, then a wastewater batch, the lab's commands, plain FASTQ with `samples.tsv` |
