@@ -68,9 +68,10 @@ struct RunPlanFixture {
 
     /// Writes the tool manifest and returns its path and the pin a plan names it by. A manifest that lists a BBTools
     /// wrapper (an id ending in `.sh`) also lists a `java` in tools/, as the image does, since `run --plan` refuses a
-    /// wrapper plan whose manifest names no Java (SWIFT ruling Q-K4-3). `tools` keeps its order.
-    func writeManifest() throws -> (path: String, pin: PlanImageManifestPin) {
-        var listed = tools
+    /// wrapper plan whose manifest names no Java (SWIFT ruling Q-K4-3). `tools` keeps its order, less the ids in
+    /// `excluded`.
+    func writeManifest(excluding excluded: Set<String> = []) throws -> (path: String, pin: PlanImageManifestPin) {
+        var listed = tools.filter { !excluded.contains($0.id) }
         if listed.contains(where: { $0.id.hasSuffix(".sh") }), !listed.contains(where: { $0.id == "java" }) {
             let java = toolsFolder + "/java"
             try Self.write("#!/bin/sh\necho 'openjdk 25.0.2'\n", to: java)

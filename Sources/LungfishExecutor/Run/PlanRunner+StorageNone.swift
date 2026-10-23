@@ -20,9 +20,10 @@ extension PlanRunner {
             guard inputs.count == 1 || inputs.count == 2 else {
                 throw ExecutorSpawn.Failure(reason: "Step \(step.id) bins one file or one pair, and the plan names \(inputs.count) files.")
             }
-            _ = try await storage.probeBBToolsWriter(
+            let probe = try await storage.probeBBToolsWriter(
                 environment: environment, compressionLevel: settings.compressionLevel, threads: settings.threads
             )
+            try requireAnsweringBgzip(probe, step: step, environment: environment)
             let arguments = reformatQuantizeArguments(
                 inputs: inputs, output: output, compressionLevel: settings.compressionLevel, threads: settings.threads,
                 quantize: quantize

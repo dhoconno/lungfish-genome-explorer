@@ -131,7 +131,7 @@ Each entry of `payloads` has `relativePath`, `sha256` and `size`, with `recordCo
 
 | Key | Meaning |
 | --- | --- |
-| `writer` | `name` and `tool` of the program that wrote the gzip bytes. It is `bgzip` or `pigz` for a compressor launch. For a `clumpify.sh` or `reformat.sh` launch it is `bgzip`, the plan's pinned bgzip that answered the probe, or `BBTools native BGZF` when it did not answer. It is absent when Trim Galore wrote the stored gzip itself |
+| `writer` | `name` and `tool` of the program that wrote the gzip bytes. It is `bgzip` or `pigz` for a compressor launch. For a `clumpify.sh` or `reformat.sh` launch it is `bgzip`, the plan's pinned bgzip that answered the probe. A BBTools step whose probe finds no bgzip that answers fails before BBTools starts, with the step's reason "Step <step id> did not run. <clumpify.sh or reformat.sh> compresses its output with bgzip, and no bgzip answered `bgzip -h` on the step's PATH (<PATH>). The tool image must hold bgzip beside the BBTools scripts." The run's `reason` is that sentence alone, and the executor never states `BBTools native BGZF`. It is absent when Trim Galore wrote the stored gzip itself |
 | `effectiveCompressionLevel` | The level the writer used, when the record knows it |
 | `clumpifyGroups`, `clumpifyMemoryEstimateLine`, `clumpifyMemoryAvailableLine` | The N of clumpify's `Set groups to N` line and its two memory lines as printed. When a mixed file runs clumpify twice the keys hold the launch with more groups, and `launches` keeps each launch's own |
 | `clumpingRan` | Whether clumpify or Trim Galore sorted the reads |

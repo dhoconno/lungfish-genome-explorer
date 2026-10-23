@@ -8,13 +8,16 @@ extension RunPlanTests {
     /// A one-step plan that stores `inputs/R1.fastq` with BBTools at a 1 GB heap, through the clumpify `body`, within
     /// the step's `deadline` in seconds. It pins the `gzip` that reads the stored payload (SWIFT fix 2 of the K4 part B
     /// review).
-    func clumpifyPlan(_ body: String, deadline: Double = 60) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
+    func clumpifyPlan(
+        _ body: String, deadline: Double = 60, bgzip bgzipBody: String = "[ \"$1\" = \"-h\" ]", manifestListsBgzip: Bool = true
+    ) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
         let clumpify = try fixture.addTool("clumpify.sh", body)
-        // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
-        let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
+        // BIO N3. The plan pins the bgzip BBTools writes through, and by default it answers `bgzip -h` as BBTools' probe
+        // asks and the manifest lists it.
+        let bgzip = try fixture.addTool("bgzip", bgzipBody)
         let gzip = try fixture.addLoggingGzip()
-        let manifest = try fixture.writeManifest()
+        let manifest = try fixture.writeManifest(excluding: manifestListsBgzip ? [] : ["bgzip"])
         let step = PlanStep(
             id: "storage", title: "Store reads", kind: .storage, tool: clumpify, arguments: [],
             environment: [PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx1g")], deadlineSeconds: deadline,
@@ -102,5 +105,32 @@ extension RunPlanTests {
                 + "The plan's clumpifyHeapGB sets that heap. The record keeps no payload."
         )
         XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip", "clumpify.sh"])
+    }
+
+    /// UX fix 1 of the K4 part C review (tally-r2 N3-2). A BBTools step whose probe finds no bgzip that answers
+    /// `bgzip -h`, because the manifest lists none or the one it lists fails, fails before clumpify starts with the
+    /// ruled sentence, so no node stores bytes from a writer the plan does not name. The run states the sentence alone.
+    func testExecutorRefusesBBToolsStepWhenBgzipProbeFails() throws {
+        for (label, bgzip, listed) in [("no bgzip listed", "[ \"$1\" = \"-h\" ]", false), ("bgzip exits 1", "exit 1", true)] {
+            let (fixture, plan, manifest) = try clumpifyPlan("echo ran > logs/clumpify.ran", bgzip: bgzip, manifestListsBgzip: listed)
+            let run = try fixture.run(plan, ["--image-manifest", manifest])
+            XCTAssertEqual(run.status, ExecutorExitCode.failed, "\(label): \(run.stderr)")
+            let record = try XCTUnwrap(run.record, label)
+            XCTAssertEqual(record.outcome, .failed, label)
+            XCTAssertEqual(record.failedStepID, "storage", label)
+            XCTAssertEqual(record.searchPath, [fixture.toolsFolder, "/usr/bin", "/bin"], label)
+            let sentence = "Step storage did not run. clumpify.sh compresses its output with bgzip, and no bgzip answered "
+                + "`bgzip -h` on the step's PATH (\((record.searchPath ?? []).joined(separator: ":"))). The tool image must "
+                + "hold bgzip beside the BBTools scripts."
+            let step = try XCTUnwrap(record.steps.first, label)
+            XCTAssertEqual(step.outcome, .failed, label)
+            XCTAssertEqual(step.reason, sentence, label)
+            XCTAssertEqual(record.reason, sentence, label)
+            XCTAssertEqual(step.outputs, [], label)
+            XCTAssertEqual(record.payloads, [], label)
+            XCTAssertFalse(step.storage?.launches?.contains { $0.tool.id == "clumpify.sh" } ?? false, label)
+            XCTAssertNil(step.storage?.writer, label)
+            XCTAssertFalse(fixture.exists("logs/clumpify.ran"), "\(label): clumpify ran")
+        }
     }
 }

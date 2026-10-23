@@ -118,7 +118,11 @@ struct PlanRunner {
                 record.failedStepID = step.id
                 record.signal = stepRecord.signal
                 record.signalName = stepRecord.signalName
-                record.reason = "Step \(step.id) (\(step.title)) did not succeed. \(stepRecord.reason ?? "")"
+                // A step that did not run names itself in its reason, so the run states that sentence alone (UX fix 1
+                // of the K4 part C review).
+                let stepReason = stepRecord.reason ?? ""
+                record.reason = stepReason.hasPrefix("Step \(step.id) did not run.")
+                    ? stepReason : "Step \(step.id) (\(step.title)) did not succeed. \(stepReason)"
                 return
             }
         }

@@ -152,8 +152,10 @@ extension PlanRunner {
         let compressor = PortableCompressor(rawValue: plan.storage.compressor.rawValue)
         switch plan.storage.clumpingTool {
         case .bbtools:
-            // The probe BBTools runs before it writes, so the record names the writer (K4-14).
-            _ = try await storage.probeBBToolsWriter(environment: environment, compressionLevel: 4, threads: plan.storage.threads)
+            // The probe BBTools runs before it writes, so the record names the writer (K4-14), and a node whose bgzip
+            // does not answer fails the step before clumpify starts (UX N3-2).
+            let probe = try await storage.probeBBToolsWriter(environment: environment, compressionLevel: 4, threads: plan.storage.threads)
+            try requireAnsweringBgzip(probe, step: step, environment: environment)
             _ = try await storage.clumpify(PortableStorageStep<ExecutorToolLauncher>.ClumpifyRun(
                 inputs: inputs, output: output, workingDirectory: root, heapGB: plan.storage.clumpifyHeapGB,
                 threads: plan.storage.threads, qualityBinning: plan.storage.qualityBinning, environment: environment,
@@ -172,6 +174,21 @@ extension PlanRunner {
                 storage: storage, launcher: launcher, compressor: compressor
             )
         }
+    }
+
+    /// UX's N3-2 words. BBTools writes through the first bgzip on its PATH that answers `bgzip -h`, else through its own
+    /// writer, and the plan pins bgzip, so a step whose probe finds no answering bgzip fails before BBTools writes a byte,
+    /// and no node stores bytes from a writer the plan does not name (tally-r2 N3-2 and N3-3b, fix 1 of the K4 part C UX
+    /// review).
+    static func requireAnsweringBgzip(
+        _ probe: PortableBBToolsWriterProbe, step: PlanStep, environment: [String: String]
+    ) throws {
+        guard probe.writer == .nativeBGZF else { return }
+        throw ExecutorSpawn.Failure(
+            reason: "Step \(step.id) did not run. \(step.tool?.id ?? "BBTools") compresses its output with bgzip, and no bgzip "
+                + "answered `bgzip -h` on the step's PATH (\(environment["PATH"] ?? "")). The tool image must hold bgzip "
+                + "beside the BBTools scripts."
+        )
     }
 
     /// The storage fields of the record: the writer and level (K4-14), clumpify's group and memory lines from its launch
