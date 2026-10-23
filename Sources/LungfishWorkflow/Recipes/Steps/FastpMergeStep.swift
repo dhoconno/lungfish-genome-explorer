@@ -36,33 +36,18 @@ public struct FastpMergeStep: RecipeStepExecutor {
     // MARK: - Execute
 
     public func execute(input: StepInput, context: StepContext) async throws -> StepOutput {
-        guard let r2 = input.r2 else {
-            throw RecipeEngineError.formatMismatch(
-                expected: .pairedR1R2, got: input.format, step: Self.typeID)
-        }
-
-        let merged    = context.workspace.appendingPathComponent("\(context.sampleName)_merged.fq.gz")
+        // The argv an executor plan names too (RecipePlannedInvocation.swift).
+        let invocation = try plannedInvocation(
+            input: input, workspace: context.workspace, sampleName: context.sampleName, threads: context.threads
+        )
+        let merged = invocation.output.r1
         let unmergedR1 = context.workspace.appendingPathComponent("\(context.sampleName)_unmerged_R1.fq.gz")
         let unmergedR2 = context.workspace.appendingPathComponent("\(context.sampleName)_unmerged_R2.fq.gz")
-        let report = context.workspace.appendingPathComponent("\(context.sampleName)_merge_fastp_report.json")
-
-        let args = [
-            "-i", input.r1.path,
-            "-I", r2.path,
-            "--merge",
-            "--merged_out", merged.path,
-            "--out1", unmergedR1.path,
-            "--out2", unmergedR2.path,
-            "--overlap_len_require", "\(minOverlap)",
-            "-A", "-G", "-Q", "-L",
-            "-w", "\(context.threads)",
-            "-j", report.path,
-            "-h", "/dev/null",
-        ]
+        let report = invocation.auxiliaryOutputs[0]
 
         let result = try await context.runner.run(
             .fastp,
-            arguments: args,
+            arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .fastp, input: input)
         )
         if result.exitCode != 0 {

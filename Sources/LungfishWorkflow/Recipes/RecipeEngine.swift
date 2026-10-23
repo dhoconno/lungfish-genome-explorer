@@ -472,10 +472,7 @@ public final class RecipeEngine: Sendable {
                 expected: .pairedR1R2, got: input.format, step: "fused-fastp")
         }
 
-        let outR1 = context.workspace.appendingPathComponent(
-            "\(context.sampleName)_fused_R1.fq.gz")
-        let outR2 = context.workspace.appendingPathComponent(
-            "\(context.sampleName)_fused_R2.fq.gz")
+        let (outR1, outR2) = Self.fusedFastpOutputs(workspace: context.workspace, sampleName: context.sampleName)
         let report = context.workspace.appendingPathComponent(
             "\(context.sampleName)_fused_fastp_report_\(UUID().uuidString).json")
         var acceptedOutputs = false
@@ -487,18 +484,10 @@ public final class RecipeEngine: Sendable {
             }
         }
 
-        var args = [
-            "-i", input.r1.path,
-            "-I", r2.path,
-            "-o", outR1.path,
-            "-O", outR2.path,
-        ]
-        args += extraArgs
-        args += [
-            "-w", "\(context.threads)",
-            "-j", report.path,
-            "-h", "/dev/null",
-        ]
+        let args = Self.fusedFastpArguments(
+            extraArgs: extraArgs, r1: input.r1, r2: r2, outR1: outR1, outR2: outR2, report: report,
+            threads: context.threads
+        )
 
         let fastpClock = ProvenanceRunClock()
         let result = try await context.runner.run(
@@ -619,18 +608,10 @@ public final class RecipeEngine: Sendable {
                 expected: .pairedR1R2, got: input.format, step: "format-conversion")
         }
 
-        let output = context.workspace.appendingPathComponent(
-            "\(context.sampleName)_interleaved.fq.gz")
+        let output = Self.interleavedOutput(workspace: context.workspace, sampleName: context.sampleName)
 
         let env = await bbToolsEnvironment()
-        let args = [
-            "in=\(input.r1.path)",
-            "in2=\(r2.path)",
-            "out=\(output.path)",
-            "interleaved=t",
-            "threads=\(context.threads)",
-            "ow=t",
-        ]
+        let args = Self.pairedToInterleavedArguments(r1: input.r1, r2: r2, output: output, threads: context.threads)
 
         let result = try await context.runner.run(
             .reformat,
@@ -709,8 +690,7 @@ public final class RecipeEngine: Sendable {
         input: StepInput,
         context: StepContext
     ) async throws -> StepOutput {
-        let output = context.workspace.appendingPathComponent(
-            "\(context.sampleName)_mixed.fastq")
+        let output = Self.mixedOutput(workspace: context.workspace, sampleName: context.sampleName)
         let counts = try await Self.writeMixedLayout(
             merged: input.r1,
             unmergedR1: input.r2,
