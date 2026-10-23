@@ -492,74 +492,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    func interleavePairedFASTQ(
-        r1: URL,
-        r2: URL,
-        outputFile: URL,
-        config: FASTQIngestionConfig,
-        progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> FASTQProcessingRecord {
-        let reformat = try await runner.toolPath(for: .reformat)
-        let args = [
-            "in1=\(r1.path)",
-            "in2=\(r2.path)",
-            "out=\(outputFile.path)",
-            "ow=t",
-            "pigz=t",
-            "zl=\(config.compressionLevel.zlValue)",
-            "threads=\(max(1, config.threads))",
-            "interleaved=t",
-        ]
-        let timeoutSeconds = max(600, Double(Self.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
-        progress(0.1, "Interleaving paired Trim Galore outputs...")
-
-        let stepClock = ProvenanceRunClock()
-        let result = try await runner.run(
-            .reformat,
-            arguments: args,
-            workingDirectory: config.outputDirectory,
-            timeout: timeoutSeconds
-        )
-        let stepCompletedAt = stepClock.now
-
-        guard result.isSuccess else {
-            throw FASTQIngestionError.clumpifyFailed(
-                String((result.stderr.isEmpty ? result.stdout : result.stderr).suffix(2_000))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        guard FileManager.default.fileExists(atPath: outputFile.path) else {
-            throw FASTQIngestionError.clumpifyFailed("reformat.sh completed without producing interleaved output")
-        }
-
-        let evidence = await versionEvidence(for: .reformat)
-        let step = StepExecution(
-            toolName: "reformat.sh",
-            toolVersion: evidence.recordedString,
-            command: [reformat.path] + args,
-            inputs: [
-                ProvenanceRecorder.fileRecord(url: r1, format: .fastq, role: .input),
-                ProvenanceRecorder.fileRecord(url: r2, format: .fastq, role: .input),
-            ],
-            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
-            exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
-            stderr: result.stderr.isEmpty ? nil : result.stderr,
-            managedToolID: NativeTool.reformat.managedToolID, toolVersionEvidence: evidence,
-            startTime: stepClock.startedAt,
-            endTime: stepCompletedAt
-        )
-
-        progress(1.0, "Interleaving complete")
-        return FASTQProcessingRecord(
-            url: outputFile,
-            tool: "reformat.sh",
-            toolVersion: evidence.version,
-            commandLine: "reformat.sh \(args.joined(separator: " "))",
-            steps: [step]
-        )
-    }
-
     /// Interleaves R1/R2 in Swift and pipes the stream through bgzip or pigz.
     ///
     /// This is the tool-free path for a paired import without storage
@@ -885,6 +817,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         PortableStoragePlan.estimatedUncompressedInputBytes(for: urls)
     }
 
+    /// ``PortableStoragePlan/trimGaloreClumpifyArguments(inputFiles:outputDirectory:paired:threads:compressionLevel:memoryBytes:)``
+    /// with `--paired` for a paired-end import.
     public static func trimGaloreClumpifyArguments(
         inputFiles: [URL],
         outputDirectory: URL,
@@ -893,56 +827,14 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         compressionLevel: CompressionLevel,
         memoryBytes: Int64
     ) -> [String] {
-        let memoryGB = max(1, memoryBytes / 1_073_741_824)
-        var args = [
-            "--clumpify",
-            "--compression", String(compressionLevel.zlValue),
-            "--cores", String(max(2, threads)),
-            "--memory", "\(memoryGB)G",
-            "--output_dir", outputDirectory.path,
-        ]
-        if pairingMode == .pairedEnd {
-            args.append("--paired")
-        }
-        args.append(contentsOf: inputFiles.map(\.path))
-        return args
-    }
-
-    static func trimGaloreSingleOutput(in directory: URL) throws -> URL {
-        let outputs = try fastqOutputs(in: directory).filter { url in
-            ["_trimmed.fq.gz", "_trimmed.fastq.gz", "_trimmed.fq", "_trimmed.fastq"]
-                .contains { url.lastPathComponent.hasSuffix($0) }
-        }
-        guard let output = outputs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else {
-            throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce a single-end clumped FASTQ")
-        }
-        return output
-    }
-
-    static func trimGalorePairedOutputs(in directory: URL) throws -> (r1: URL, r2: URL) {
-        let outputs = try fastqOutputs(in: directory)
-        // Plain input gives plain `_val_N.fq` under --clumpify; reformat.sh
-        // reads either when it interleaves them.
-        func mate(_ number: Int) -> URL? {
-            outputs.first { url in
-                ["_val_\(number).fq.gz", "_val_\(number).fq"].contains { url.lastPathComponent.hasSuffix($0) }
-            }
-        }
-        guard let r1 = mate(1), let r2 = mate(2) else {
-            throw FASTQIngestionError.clumpifyFailed("trim_galore did not produce paired clumped FASTQs")
-        }
-        return (r1, r2)
-    }
-
-    private static func fastqOutputs(in directory: URL) throws -> [URL] {
-        try FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ).filter { url in
-            let name = url.lastPathComponent.lowercased()
-            return [".fq.gz", ".fastq.gz", ".fq", ".fastq"].contains { name.hasSuffix($0) }
-        }
+        PortableStoragePlan.trimGaloreClumpifyArguments(
+            inputFiles: inputFiles,
+            outputDirectory: outputDirectory,
+            paired: pairingMode == .pairedEnd,
+            threads: threads,
+            compressionLevel: compressionLevel.zlValue,
+            memoryBytes: memoryBytes
+        )
     }
 
     /// ``PortableStoragePlan/isGzipCompressed(_:)``.

@@ -19,8 +19,9 @@ import Foundation
 /// - Carry the flag: the storage `clumpify.sh` (`FASTQIngestionPipeline.clumpifyArguments`, for a single file, an
 ///   interleaved file, R1 plus R2, and the two launches of a split mixed file) and the two recipe dedupe launches
 ///   (`FASTQBatchImporter.pairedDedupeArguments` and `interleavedDedupeArguments`).
-/// - Stream reads and do not carry it: `reformat.sh` in `FASTQIngestionPipeline` (`reformatQuantize` and
-///   `interleavePairedFASTQ`), in `FASTQBatchImporter` (`interleavePairedInput` and `deinterleavePairedInput`) and in
+/// - Stream reads and do not carry it: `reformat.sh` in `FASTQIngestionPipeline` (`reformatQuantize`), in
+///   `PortableStorageStep` (the Trim Galore interleave, `trimGaloreInterleaveArguments`), in `FASTQBatchImporter`
+///   (`interleavePairedInput` and `deinterleavePairedInput`) and in
 ///   `RecipeEngine` (the `format-conversion` interleave and deinterleave), and the recipe `bbmerge.sh` and `bbduk.sh`
 ///   steps, whose argvs build no k-mer table.
 ///

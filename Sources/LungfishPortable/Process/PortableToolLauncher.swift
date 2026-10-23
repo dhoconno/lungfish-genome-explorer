@@ -65,6 +65,9 @@ package struct PortableToolLaunch: Sendable, Equatable {
     package var timeout: Double
     /// The file the tool's stdout goes to, published only when the tool succeeds. Nil keeps stdout as text.
     package var standardOutput: URL?
+    /// The executable to start in place of the launcher's own for `tool`, such as the `bgzip` the writer probe finds
+    /// on a step's `PATH`. Nil starts the launcher's own.
+    package var executable: URL?
 
     package init(
         tool: PortableStorageTool,
@@ -72,7 +75,8 @@ package struct PortableToolLaunch: Sendable, Equatable {
         workingDirectory: URL? = nil,
         environment: [String: String]? = nil,
         timeout: Double,
-        standardOutput: URL? = nil
+        standardOutput: URL? = nil,
+        executable: URL? = nil
     ) {
         self.tool = tool
         self.arguments = arguments
@@ -80,6 +84,7 @@ package struct PortableToolLaunch: Sendable, Equatable {
         self.environment = environment
         self.timeout = timeout
         self.standardOutput = standardOutput
+        self.executable = executable
     }
 }
 
@@ -111,16 +116,21 @@ package struct PortableToolRun: Sendable {
     package var executableURL: URL
     package var outcome: PortableToolOutcome
     package var inputs: [URL]
+    /// The files the launch wrote, or for a Trim Galore call the folder it wrote into.
     package var outputs: [URL]
+    /// The trimming report of a Trim Galore call, which the record states with the reads the call removed.
+    package var report: TrimGaloreReport?
 
     package init(
-        launch: PortableToolLaunch, executableURL: URL, outcome: PortableToolOutcome, inputs: [URL], outputs: [URL]
+        launch: PortableToolLaunch, executableURL: URL, outcome: PortableToolOutcome, inputs: [URL], outputs: [URL],
+        report: TrimGaloreReport? = nil
     ) {
         self.launch = launch
         self.executableURL = executableURL
         self.outcome = outcome
         self.inputs = inputs
         self.outputs = outputs
+        self.report = report
     }
 }
 

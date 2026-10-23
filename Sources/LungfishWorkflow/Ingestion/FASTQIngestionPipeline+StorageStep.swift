@@ -48,9 +48,24 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
 
     func run(_ launch: PortableToolLaunch) async throws -> PortableToolOutcome {
         let tool = Self.nativeTool(launch.tool)
+        // Trim Galore starts by its path with no managed environment, as the import started it before the seam, and
+        // so does an executable the step names.
+        var executable = launch.executable
+        if executable == nil, launch.tool == .trimGalore {
+            executable = try await executableURL(for: .trimGalore)
+        }
         let clock = ProvenanceRunClock()
         let result: NativeToolResult
-        if let standardOutput = launch.standardOutput {
+        if let executable {
+            result = try await pipeline.runner.runProcess(
+                executableURL: executable,
+                arguments: launch.arguments,
+                workingDirectory: launch.workingDirectory,
+                environment: launch.environment,
+                timeout: launch.timeout,
+                toolName: Self.recordName(launch.tool)
+            )
+        } else if let standardOutput = launch.standardOutput {
             result = try await pipeline.runner.runWithFileOutput(
                 tool,
                 arguments: launch.arguments,
@@ -83,16 +98,20 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
             command += [">", standardOutput.path]
         }
         let outcome = run.outcome
+        // A Trim Galore call records the folder it wrote into and, from its report, the effective parameters and the
+        // reads it read, wrote and removed.
+        let outputs = run.launch.tool == .trimGalore
+            ? run.outputs.map { ProvenanceRecorder.fileOrDirectoryRecord(url: $0, format: .unknown, role: .output) }
+            : run.outputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
         let step = StepExecution(
             toolName: Self.recordName(run.launch.tool),
             toolVersion: evidence.recordedString,
             command: command,
+            resolvedOptions: run.report.map { FASTQIngestionPipeline.trimGaloreResolvedOptions($0) },
             inputs: run.inputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
             },
-            outputs: run.outputs.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
-            },
+            outputs: outputs,
             exitCode: outcome.exitCode,
             wallTime: outcome.endTime.timeIntervalSince(outcome.startTime),
             stderr: outcome.stderr.isEmpty ? nil : outcome.stderr,
@@ -140,6 +159,23 @@ extension FASTQIngestionPipeline {
         } catch let error as PortableStorageError {
             throw error.ingestionError
         }
+    }
+
+    /// Runs `body`, which does not wait, and gives a storage failure the import's own error.
+    static func mappingStorageErrorsNow<T>(_ body: () throws -> T) throws -> T {
+        do {
+            return try body()
+        } catch let error as PortableStorageError {
+            throw error.ingestionError
+        }
+    }
+
+    /// The command line a storage launch adds to the processing record, as the import wrote it before the seam.
+    static func storageCommandLine(_ record: NativeToolStorageLauncher.Record) -> String {
+        let launch = record.run.launch
+        let line = "\(NativeToolStorageLauncher.recordName(launch.tool)) \(launch.arguments.joined(separator: " "))"
+        guard let standardOutput = launch.standardOutput else { return line }
+        return "\(line) > \(standardOutput.path)"
     }
 
     /// The compressor the Mac's storage and interleave routes write with, by what is installed in today's order,
