@@ -8,7 +8,11 @@ import LungfishPortable
 
 final class ExecutorRunRecordTests: XCTestCase {
     private static let digest = String(repeating: "b", count: 64)
-    private static let k4Keys = ["writer", "effectiveCompressionLevel", "clumpifyGroups", "clumpifyMemoryEstimateLine", "clumpifyMemoryAvailableLine"]
+    /// Keys a record written before K4-14 or C3 lacks, none of which the first shape of `fullRecord()` holds.
+    private static let k4Keys = [
+        "writer", "effectiveCompressionLevel", "clumpifyGroups", "clumpifyMemoryEstimateLine", "clumpifyMemoryAvailableLine",
+        "searchPath", "runtimes", "launches", "inputFile",
+    ]
 
     private func fullRecord() -> ExecutorRunRecord {
         let digest = Self.digest
@@ -75,6 +79,56 @@ final class ExecutorRunRecordTests: XCTestCase {
             ],
             startedAt: "2026-10-23T14:00:00.000Z", endedAt: "2026-10-23T14:01:03.000Z", wallSeconds: 63
         )
+    }
+
+    /// SWIFT ruling Q-K4-3 and ARCH fix 3 of the K4 part C review. A record keeps the child's search path and the
+    /// runtimes a wrapper took, and a storage launch keeps its reason, its SIGKILL, the processes it stopped and its peak
+    /// memory. A record written before C3 holds none of those six keys and opens with each nil, since the adopt reads
+    /// records the cluster wrote weeks before.
+    func testRecordKeepsSearchPathAndRuntimesAndDecodesARecordWithoutThem() throws {
+        let bgzip = ExecutorToolRecord(id: "bgzip", version: "1.21", build: "h96c455f_0", path: "/opt/conda/envs/htslib/bin/bgzip")
+        func launch(stopped: Bool) -> ExecutorStorageLaunch {
+            ExecutorStorageLaunch(
+                tool: bgzip, argv: [bgzip.path, "-h"], environmentNames: ["HOME", "PATH", "TMPDIR"], outcome: .failed,
+                toolSignal: 9, wallSeconds: 2, stderrPath: "logs/storage.1.stderr",
+                reason: stopped ? "The tool ran past its deadline of 2 seconds. The executor stopped it." : nil,
+                escalatedToSIGKILL: stopped ? true : nil, stoppedProcesses: stopped ? [4_242, 4_243] : nil,
+                peakResidentBytes: stopped ? 1_048_576 : nil
+            )
+        }
+        var record = fullRecord()
+        record.searchPath = ["/a/bin", "/usr/bin", "/bin"]
+        record.runtimes = [ExecutorToolRecord(id: "java", version: "25.0.2", build: "h1602c4f_26", path: "/a/lib/jvm/bin/java")]
+        record.steps[0].storage?.launches = [launch(stopped: true)]
+        let bytes = try record.encoded()
+        XCTAssertEqual(try ExecutorRunRecord.decode(bytes), record)
+
+        // The same record's JSON with the six keys removed, as a record written before C3 holds it.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        XCTAssertNotNil(object.removeValue(forKey: "searchPath"))
+        XCTAssertNotNil(object.removeValue(forKey: "runtimes"))
+        var steps = try XCTUnwrap(object["steps"] as? [[String: Any]])
+        var storage = try XCTUnwrap(steps[0]["storage"] as? [String: Any])
+        var launches = try XCTUnwrap(storage["launches"] as? [[String: Any]])
+        for key in ["reason", "escalatedToSIGKILL", "stoppedProcesses", "peakResidentBytes"] {
+            XCTAssertNotNil(launches[0].removeValue(forKey: key), key)
+        }
+        storage["launches"] = launches
+        steps[0]["storage"] = storage
+        object["steps"] = steps
+        let old = try ExecutorRunRecord.decode(JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(old.searchPath)
+        XCTAssertNil(old.runtimes)
+        let oldLaunch = try XCTUnwrap(old.steps[0].storage?.launches?.first)
+        XCTAssertNil(oldLaunch.reason)
+        XCTAssertNil(oldLaunch.escalatedToSIGKILL)
+        XCTAssertNil(oldLaunch.stoppedProcesses)
+        XCTAssertNil(oldLaunch.peakResidentBytes)
+        var expected = record
+        expected.searchPath = nil
+        expected.runtimes = nil
+        expected.steps[0].storage?.launches = [launch(stopped: false)]
+        XCTAssertEqual(old, expected)
     }
 
     func testRunRecordRoundTripsAndOldRecordOpens() throws {
