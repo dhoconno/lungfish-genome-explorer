@@ -21,6 +21,7 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         PlanToolPin(id: "seqkit", version: "2.10.0", build: "h9ee0642_0"),
         PlanToolPin(id: "gzip", version: "1.13", build: "h8359307_0"),
         PlanToolPin(id: "bgzip", version: "1.21", build: "h3ff9d97_0"),
+        PlanToolPin(id: "java", version: "25.0.2", build: "h1602c4f_26"),
         PlanToolPin(id: "deacon", version: "0.13.2", build: "h4349ce8_0"),
         PlanToolPin(id: "trim_galore", version: "2.3.0", build: "h48b4a6d_0"),
     ]

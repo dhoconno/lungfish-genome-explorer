@@ -19,8 +19,14 @@ struct PlanRunner {
     let prepared: PreparedRun
     let resolver: PlanResourceResolver
     let controller: StepController
-    /// Each folder of the manifest's tools once, in the manifest's order, the child's whole `PATH` (SWIFT K3 words).
-    let searchPath: String
+    /// The two folders after the manifest's on the child's `PATH`, fixed (SWIFT Q-K4-3). BBTools' wrapper scripts call
+    /// `dirname`, `basename` and `readlink`, and no conda environment of the slice holds them. They come last, so a tool
+    /// the manifest lists always wins, and nothing is inherited. A Java is never taken from them.
+    static let systemFolders = ["/usr/bin", "/bin"]
+    /// Each folder of the manifest's tools once, in the manifest's order, then `systemFolders` unless the manifest named one.
+    let searchFolders: [String]
+    /// The child's whole `PATH`.
+    var searchPath: String { searchFolders.joined(separator: ":") }
 
     init(_ prepared: PreparedRun, resolver: PlanResourceResolver, controller: StepController) {
         self.prepared = prepared
@@ -32,7 +38,16 @@ struct PlanRunner {
             let folder = slash == tool.path.startIndex ? "/" : String(tool.path[..<slash])
             if !folders.contains(folder) { folders.append(folder) }
         }
-        searchPath = folders.joined(separator: ":")
+        for folder in Self.systemFolders where !folders.contains(folder) { folders.append(folder) }
+        searchFolders = folders
+    }
+
+    /// The manifest's first `java` as a tool record when the plan pins a BBTools wrapper, else none (SWIFT Q-K4-3).
+    static func runtimes(of prepared: PreparedRun) -> [ExecutorToolRecord] {
+        let pinned = Array(prepared.tools.values) + Array(prepared.storageTools.values)
+        guard pinned.contains(where: { $0.id.hasSuffix(".sh") }),
+              let java = prepared.manifest.tools.first(where: { $0.id == "java" }) else { return [] }
+        return [ExecutorToolRecord(id: java.id, version: java.version, build: java.build, path: java.path)]
     }
 
     /// Whether the executor runs `step` by the plan's argv. An `interleave` step with an argv (paired to interleaved)
@@ -69,7 +84,10 @@ struct PlanRunner {
             record.reason = "The executor could not make its folders in the work root. \(error.localizedDescription)"
             return
         }
+        record.searchPath = searchFolders
+        record.runtimes = Self.runtimes(of: prepared)
         var adoptedSoFar = 0
+        var readCounts: [String: Int64] = [:]
         for step in prepared.plan.steps {
             if let signal = controller.interruptSignal {
                 record.outcome = .interrupted
@@ -79,7 +97,7 @@ struct PlanRunner {
                 record.reason = "The executor received \(ExecutorSignals.name(signal)) before step \(step.id) started."
                 return
             }
-            let stepRecord: ExecutorStepRecord
+            var stepRecord: ExecutorStepRecord
             if step.kind == .qualityCount {
                 stepRecord = runQualityCount(step, run: record)
             } else if let tool = prepared.tools[step.id] {
@@ -89,6 +107,9 @@ struct PlanRunner {
                 record.failedStepID = step.id
                 record.reason = "Step \(step.id) has no tool from the manifest."
                 return
+            }
+            if step.kind == .recipe, stepRecord.outcome == .succeeded {
+                countReads(of: step, into: &stepRecord, counted: &readCounts)
             }
             record.steps.append(stepRecord)
             record.payloads += Self.payloads(of: stepRecord)

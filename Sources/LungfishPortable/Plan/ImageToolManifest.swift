@@ -175,7 +175,8 @@ extension ImageToolManifest {
 
     /// Builds a manifest from each environment's `conda-meta/*.json`: every file a package record lists directly under
     /// `bin/` that is an executable regular file becomes a tool with the package's version and build and the absolute
-    /// path `<prefix>/bin/<name>`. A prefix must be absolute with no `.` or `..` component, since its paths go into the
+    /// path `<prefix>/bin/<name>`. A Java under `lib/jvm/bin` counts as the prefix's `java` when `bin/` has none, as in
+    /// the Mac's bbtools environment, since a BBTools wrapper finds Java through PATH (SWIFT Q-K4-3). A prefix must be absolute with no `.` or `..` component, since its paths go into the
     /// manifest as written. It refuses a prefix with no `conda-meta`, a record with no name, version or build, no tool
     /// at all, and a manifest over `maximumSize`.
     package static func build(condaPrefixes: [URL], platform: ImageToolPlatform) throws -> ImageToolManifest {
@@ -217,6 +218,7 @@ extension ImageToolManifest {
             throw ImageToolManifestError(field: "condaPrefix", reason: "The environment \(prefix) has no conda-meta folder.")
         }
         var tools: [ImageTool] = []
+        var jvmJava: ImageTool?
         for name in names.sorted() where name.hasSuffix(".json") {
             let recordPath = metaFolder + "/" + name
             let record: CondaRecord
@@ -231,14 +233,18 @@ extension ImageToolManifest {
             }
             for file in record.files ?? [] {
                 let parts = file.split(separator: "/", omittingEmptySubsequences: false)
-                guard parts.count == 2, parts[0] == "bin", isFileName(String(parts[1])) else { continue }
+                let isJVMJava = parts.count == 4 && parts[0] == "lib" && parts[1] == "jvm" && parts[2] == "bin" && parts[3] == "java"
+                guard (parts.count == 2 && parts[0] == "bin" && isFileName(String(parts[1]))) || isJVMJava else { continue }
                 let path = prefix + "/" + file
                 var isDirectory: ObjCBool = false
                 guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue,
                       fileManager.isExecutableFile(atPath: path) else { continue }
-                tools.append(ImageTool(id: String(parts[1]), version: version, build: build, path: path, condaPackage: package))
+                let tool = ImageTool(id: String(parts[parts.count - 1]), version: version, build: build, path: path, condaPackage: package)
+                if isJVMJava { jvmJava = tool } else { tools.append(tool) }
             }
         }
+        // A prefix whose Java lives only under lib/jvm/bin, as the Mac's bbtools environment does, still names its Java.
+        if let jvmJava, !tools.contains(where: { $0.id == "java" }) { tools.append(jvmJava) }
         return tools
     }
 }

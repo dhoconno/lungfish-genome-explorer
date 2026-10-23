@@ -41,6 +41,10 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
     package var recipe: PlanRecipeIdentity?
     /// The tool manifest the run read, nil when the run was refused before it read one.
     package var imageManifest: ExecutorImageManifestRecord?
+    /// The folders of the child's `PATH` in order (SWIFT Q-K4-3). Nil for a run refused before it ran a step.
+    package var searchPath: [String]?
+    /// The runtime a wrapper tool needs, the manifest's `java`, else an empty array. Nil for a run refused before a step.
+    package var runtimes: [ExecutorToolRecord]?
     /// What the executor observed of the machine itself. It never reads a scheduler's variable or file.
     package var runtimeIdentity: ExecutorRuntimeIdentity
     /// The `--site-fact KEY=VALUE` arguments in the order given, recorded verbatim and never interpreted.
@@ -61,8 +65,11 @@ package struct ExecutorRunRecord: Codable, Sendable, Equatable {
         executorArguments: [String], executor: ExecutorBinaryIdentity, plan: ExecutorFileDigest?, recipe: PlanRecipeIdentity? = nil,
         imageManifest: ExecutorImageManifestRecord?, runtimeIdentity: ExecutorRuntimeIdentity,
         siteFacts: [PlanKeyValue] = [], inputs: [PlanEntry] = [], payloads: [ExecutorPayloadRecord] = [],
+        searchPath: [String]? = nil, runtimes: [ExecutorToolRecord]? = nil,
         steps: [ExecutorStepRecord] = [], startedAt: String, endedAt: String, wallSeconds: Double
     ) {
+        self.searchPath = searchPath
+        self.runtimes = runtimes
         self.schemaVersion = schemaVersion
         self.outcome = outcome
         self.exitCode = outcome.exitCode
