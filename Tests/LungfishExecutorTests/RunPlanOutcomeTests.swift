@@ -55,8 +55,7 @@ extension RunPlanTests {
     /// fails the step with K3's words (tally-r2 K4-06).
     func testPlanStepDeadlineEndsStepWithFailedRecord() throws {
         var fixture = try RunPlanFixture()
-        // The PID goes to tmp/, since the controller removes a failed step's declared outputs.
-        let slow = try fixture.addTool("slow", "echo $$ > tmp/pid.tmp\nmv tmp/pid.tmp tmp/pid.txt\nsleep 30")
+        let slow = try fixture.addTool("slow", "sleep 30")
         let manifest = try fixture.writeManifest()
         var step = RunPlanFixture.step("slow", slow)
         step.deadlineSeconds = 1
@@ -73,7 +72,9 @@ extension RunPlanTests {
         XCTAssertLessThan(record.wallSeconds, 20)
         let reason = stepRecord.reason ?? ""
         XCTAssertTrue(reason.hasPrefix("The tool ran past its deadline of 1") && reason.hasSuffix("The executor stopped it."), reason)
-        let toolPID = try ExecutorTestSupport.pid(in: fixture.planFolder + "/tmp", "pid.txt", timeout: 1)
+        // The PID the executor spawned, from its own record. Under a full unit tier the tool's shell may not reach a
+        // first line before the one-second deadline, so the test never waits on a file the tool writes.
+        let toolPID = try XCTUnwrap(stepRecord.toolPID, "the step record names the tool's PID")
         XCTAssertTrue(ExecutorTestSupport.isGone(toolPID, timeout: 10), "the tool \(toolPID) is still running")
     }
 

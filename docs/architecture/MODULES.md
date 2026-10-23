@@ -45,7 +45,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishCLITests | Tests/LungfishCLITests | 407 | 97611 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 147 | 40897 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 8 | 2106 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
-| LungfishExecutorTests | Tests/LungfishExecutorTests | 20 | 3317 | LungfishExecutor |
+| LungfishExecutorTests | Tests/LungfishExecutorTests | 20 | 3318 | LungfishExecutor |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 91 | 59261 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 230 | 76812 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 33 | 11692 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
@@ -57,7 +57,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortableTests | Tests/LungfishPortableTests | 9 | 1179 | LungfishPortable |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 731 | 230520 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 731 | 230524 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## CLungfishExecutor
 
