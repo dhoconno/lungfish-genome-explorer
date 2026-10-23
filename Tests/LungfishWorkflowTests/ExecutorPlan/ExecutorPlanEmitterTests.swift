@@ -192,6 +192,43 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertTrue(plan.tools.contains(pigz))
     }
 
+    /// QA fix 3 of the K4 part C review (`03766d33b`). The merged-to-mixed step reads its inputs through the image's gzip,
+    /// else its pigz, so an image with pigz and no gzip, as the C0 image and the Mac's managed environments are, gets a
+    /// plan that pins no gzip, and an image with neither is refused by the step that reads them.
+    func testMergedToMixedStepPinsGzipElsePigzAndRefusesWhenTheImageHasNeither() async throws {
+        let pair = try writePair("S")
+        let folder = root.appendingPathComponent("databases/test-panhuman", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let index = folder.appendingPathComponent("panhuman-1.k31w15.idx")
+        try Data("deacon index test-panhuman".utf8).write(to: index)
+        let database = try await RecipeDatabaseIdentity().record(databaseID: "test-panhuman", at: index)
+        let databases = ["test-panhuman": ExecutorPlanDatabaseFile(record: database)]
+        var merged = try XCTUnwrap(RecipeResolver.resolve("vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes()))
+        for position in merged.steps.indices where merged.steps[position].type == "deacon-scrub" {
+            merged.steps[position].params?["database"] = .string("test-panhuman")
+        }
+        let pigz = PlanToolPin(id: "pigz", version: "2.8", build: "h421ea60_1")
+        var planned = try request("S", inputs: pair, clumping: .bbtools, recipe: merged, databases: databases)
+
+        planned.imageTools = Self.pins + [pigz]
+        let withGzip = try ExecutorPlanEmitter.emit(planned, host: Self.mac24)
+        let interleave = try XCTUnwrap(withGzip.steps.first { $0.kind == .interleave })
+        XCTAssertEqual(interleave.tool?.id, "gzip")
+        XCTAssertFalse(withGzip.tools.contains(pigz), "pigz is pinned only when the image has no gzip")
+
+        planned.imageTools = Self.pins.filter { $0.id != "gzip" } + [pigz]
+        let withPigz = try ExecutorPlanEmitter.emit(planned, host: Self.mac24)
+        XCTAssertEqual(withPigz.steps.first { $0.kind == .interleave }?.tool, pigz)
+        XCTAssertFalse(withPigz.tools.contains { $0.id == "gzip" }, "\(withPigz.tools.map(\.id))")
+
+        planned.imageTools = Self.pins.filter { $0.id != "gzip" }
+        XCTAssertThrowsError(try ExecutorPlanEmitter.emit(planned, host: Self.mac24)) { error in
+            XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(
+                field: "tools", reason: "The image's tool manifest lists no pigz, which step \(interleave.id) runs."
+            ))
+        }
+    }
+
     /// ARCH fix 2 of the K4 part B review. The plan writer refuses the two shapes of the route with no clumping and no
     /// binning that the node cannot run, with the decoder's words, before any recipe step runs on the node.
     func testPlanEmitterRefusesPairedReadsWithNoClumpingNoBinning() throws {

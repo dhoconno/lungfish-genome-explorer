@@ -117,6 +117,61 @@ extension RunPlanTests {
         XCTAssertFalse(text.contains(binaryFolder), "the record names the folder \(binaryFolder)")
     }
 
+    /// QA fix 3 of the K4 part C review. The executor reads every gzip file of its own steps through the first of gzip,
+    /// pigz and bgzip that the plan pins, so the routes the node takes most, pigz for a merged plan and bgzip alone, read
+    /// the payload as the gzip route does. Each reader logs the argv of a read to logs/<id>.used and reads through the
+    /// host's gzip, and bgzip also stores the reads, since it is the step's compressor.
+    func testPayloadIsReadThroughTheFirstPinnedOfGzipPigzBgzip() throws {
+        let payload = "out/sample.fastq.gz"
+        for (readers, winner) in [(["gzip", "bgzip"], "gzip"), (["pigz", "bgzip"], "pigz"), (["bgzip"], "bgzip")] {
+            var fixture = try RunPlanFixture()
+            let folder = fixture.planFolder
+            try RunPlanFixture.write(Self.qualityReads, to: folder + "/inputs/R1.fastq")
+            var pins: [PlanToolPin] = []
+            for id in readers {
+                pins.append(try fixture.addTool(id, """
+                if [ "$1" = "-dc" ]; then printf '%s\\n' "$*" >> '\(folder)/logs/\(id).used'; exec /usr/bin/gzip -dc "$2"; fi
+                for a in "$@"; do last="$a"; done
+                gzip -c < "$last"
+                """))
+            }
+            let manifest = try fixture.writeManifest()
+            let steps = [
+                PlanStep(
+                    id: "storage", title: "Store reads", kind: .storage, tool: PlanToolPin(id: "bgzip", version: "1.0", build: "t0"),
+                    arguments: [], deadlineSeconds: 60, inputs: ["inputs/R1.fastq"], outputs: [payload]
+                ),
+                PlanStep(
+                    id: "quality-count", title: "Count Q20 and Q30 bases", kind: .qualityCount, tool: nil, arguments: [],
+                    deadlineSeconds: 60, inputs: [payload], outputs: []
+                ),
+            ]
+            let settings = noneStorage(.none)
+            let plan = try fixture.writePlan(
+                steps, manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pins: pins
+            )
+            let run = try fixture.run(plan, ["--image-manifest", manifest.path])
+            XCTAssertEqual(run.status, ExecutorExitCode.succeeded, "\(winner): \(run.stderr)")
+            let record = try XCTUnwrap(run.record, winner)
+            XCTAssertEqual(record.outcome, .succeeded, "\(winner): \(record.reason ?? "")")
+            let bytes = try Data(contentsOf: URL(fileURLWithPath: folder + "/" + payload))
+            let stored = ExecutorFileDigest(relativePath: payload, sha256: PortableDigest.sha256Hex(of: bytes), size: Int64(bytes.count))
+            XCTAssertEqual(record.payloads.first?.recordCount, 3, winner)
+            XCTAssertEqual(record.steps.first?.outputReadCount, 3, winner)
+            XCTAssertEqual(record.steps.last?.qualityCounts, ExecutorQualityCounts(
+                baseCount: 10, q20Count: 6, q30Count: 3, recordCount: 3, file: stored
+            ), winner)
+            for id in readers {
+                XCTAssertEqual(fixture.exists("logs/\(id).used"), id == winner, "\(winner) row, logs/\(id).used")
+            }
+            let used = fixture.text("logs/\(winner).used").split(separator: "\n").map(String.init)
+            XCTAssertFalse(used.isEmpty, "\(winner) never read the payload")
+            for line in used {
+                XCTAssertTrue(line.hasPrefix("-dc ") && line.hasSuffix(payload), "\(winner): \(line)")
+            }
+        }
+    }
+
     /// M4 item 1. The route `none` with a binning scheme runs `reformat.sh` with the argv of the Mac's
     /// `reformatQuantize`, after the writer probe, and records the writer, the level and the binning.
     func testStorageRouteNoneBinsWithReformatAsTheMacDoes() throws {
