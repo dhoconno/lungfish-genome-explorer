@@ -31,18 +31,30 @@ import Foundation
 /// git grep -n -E "\.(clumpify|reformat|bbmerge|bbduk|repair|tadpole)([^A-Za-z]|$)" \
 ///     -- Sources/LungfishWorkflow Sources/LungfishApp/Services
 /// ```
-enum BBToolsOutOfMemory {
+package enum BBToolsOutOfMemory {
     /// The BBTools shell flag that makes the JVM exit at once when it runs out of heap.
-    static let flag = "-eoom"
+    package static let flag = "-eoom"
 
     /// The exit status HotSpot gives `-XX:+ExitOnOutOfMemoryError`.
-    static let exitStatus: Int32 = 3
+    package static let exitStatus: Int32 = 3
 
     /// True when a launch that carried ``flag`` ended because its JVM ran out of heap.
-    static func isOutOfMemory(exitCode: Int32) -> Bool {
+    package static func isOutOfMemory(exitCode: Int32) -> Bool {
         exitCode == exitStatus
     }
 
+    /// The heap in whole gigabytes that an `-Xmx<N>g` argument asked for, or nil when none was pinned.
+    package static func heapGB(in arguments: [String]) -> Int? {
+        for argument in arguments where argument.hasPrefix("-Xmx") && argument.hasSuffix("g") {
+            if let gigabytes = Int(argument.dropFirst(4).dropLast()) { return gigabytes }
+        }
+        return nil
+    }
+}
+
+/// What a Mac import shows when a BBTools launch ran out of heap. The sentence speaks of this Mac's memory and of
+/// `import fastq --clumpify-heap-gb`, so it stays with the Mac import and a run off the Mac words its own failure.
+extension BBToolsOutOfMemory {
     /// The error an import fails with when a launch that carried ``flag`` ended because its JVM ran out of heap, or
     /// nil for any other end. Every such launch asks this one function, so the status check and the sentence stay
     /// together.
@@ -51,14 +63,6 @@ enum BBToolsOutOfMemory {
     ) -> FASTQIngestionError? {
         guard isOutOfMemory(exitCode: exitCode) else { return nil }
         return .outOfMemory(message(tool: tool, arguments: arguments, optionPinsHeap: optionPinsHeap))
-    }
-
-    /// The heap in whole gigabytes that an `-Xmx<N>g` argument asked for, or nil when none was pinned.
-    static func heapGB(in arguments: [String]) -> Int? {
-        for argument in arguments where argument.hasPrefix("-Xmx") && argument.hasSuffix("g") {
-            if let gigabytes = Int(argument.dropFirst(4).dropLast()) { return gigabytes }
-        }
-        return nil
     }
 
     /// The sentence an import fails with.
