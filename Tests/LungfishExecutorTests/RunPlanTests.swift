@@ -82,7 +82,10 @@ struct RunPlanFixture {
     }
 
     /// Writes plan.json for `steps`, pinning the running executor unless `executor` is given, and returns its path.
-    func writePlan(_ steps: [PlanStep], manifestPin: PlanImageManifestPin, executor: PlanEntry? = nil) throws -> String {
+    func writePlan(
+        _ steps: [PlanStep], manifestPin: PlanImageManifestPin, executor: PlanEntry? = nil,
+        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil
+    ) throws -> String {
         let input = try Data(contentsOf: URL(fileURLWithPath: planFolder + "/inputs/R1.fastq"))
         let plan = ExecutionPlan(
             entries: [
@@ -97,12 +100,12 @@ struct RunPlanFixture {
             tools: Array(Set(steps.compactMap(\.tool))).sorted { $0.id < $1.id },
             recipe: nil,
             sample: PlanSampleValues(sampleName: "sample", originalFilenames: ["R1.fastq"], originalSizeBytes: Int64(input.count)),
-            storage: PlanStorageSettings(
+            storage: storage ?? PlanStorageSettings(
                 clumpingTool: .none, compressor: .bgzip, qualityBinning: .illumina4, threads: 1, clumpifyHeapGB: 1,
                 compressionLevel: 4, threadsSource: .option, clumpifyHeapSource: .option, clumpingToolSource: .option,
                 compressorSource: .option, qualityBinningSource: .option
             ),
-            clumping: PlanClumpingChoice(
+            clumping: clumping ?? PlanClumpingChoice(
                 requested: .none, resolved: .none, resolvedSource: .option, heapBytes: 1_073_741_824,
                 reason: "explicit clumping tool selection"
             ),
