@@ -151,6 +151,46 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(decoded.storage.clumpingTool, .trimGalore)
     }
 
+    /// BIO fix 3 and QA fix 7 of the K4 part B review. Every storage route pins the compressor, since a BBTools step
+    /// writes through bgzip (BIO N3) and the clumpify and Trim Galore routes join or compress with it.
+    func testPlanPinsTheCompressorOnEveryStorageRoute() throws {
+        let pair = try writePair("S")
+        let routes: [(ClumpingTool, [String])] = [
+            (.bbtools, ["clumpify.sh", "bgzip"]),
+            (.trimGalore, ["trim_galore", "reformat.sh", "bgzip"]),
+            (.none, ["reformat.sh", "bgzip"]),
+        ]
+        for (clumping, expected) in routes {
+            var planned = try request("S", inputs: pair, clumping: clumping)
+            XCTAssertEqual(planned.storage.compressor, .bgzip)
+            XCTAssertEqual(planned.storage.qualityBinning, .illumina4)
+            let ids = Set(try ExecutorPlanEmitter.emit(planned, host: Self.mac24).tools.map(\.id))
+            XCTAssertTrue(ids.isSuperset(of: expected), "\(clumping): \(ids.sorted())")
+
+            planned.imageTools = Self.pins.filter { $0.id != "bgzip" }
+            XCTAssertThrowsError(try ExecutorPlanEmitter.emit(planned, host: Self.mac24), "\(clumping)") { error in
+                XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(
+                    field: "tools", reason: "The image's tool manifest lists no bgzip, which step storage runs."
+                ))
+            }
+        }
+
+        // The route none with no binning stores one plain file through the compressor alone.
+        let single = root.appendingPathComponent("S.fastq")
+        try "@read1\nACGTACGTAC\n+\nIIIIIIIIII\n".write(to: single, atomically: true, encoding: .utf8)
+        let pigz = PlanToolPin(id: "pigz", version: "2.8", build: "h421ea60_1")
+        var compressOnly = try request("S", inputs: [single], clumping: .none)
+        compressOnly.inputFormat = .single
+        compressOnly.recipe = nil
+        compressOnly.recipeFile = nil
+        compressOnly.storage.compressor = .pigz
+        compressOnly.storage.qualityBinning = .none
+        compressOnly.imageTools = Self.pins + [pigz]
+        let plan = try ExecutorPlanEmitter.emit(compressOnly, host: Self.mac24)
+        XCTAssertEqual(plan.steps.first { $0.kind == .storage }?.tool, pigz)
+        XCTAssertTrue(plan.tools.contains(pigz))
+    }
+
     /// N2-T2.
     func testPlanTemplateForAutoIsEqualOnEveryMac() throws {
         let pair = try writePair("S")

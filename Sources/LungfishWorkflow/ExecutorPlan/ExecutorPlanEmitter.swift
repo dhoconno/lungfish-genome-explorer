@@ -282,18 +282,17 @@ package enum ExecutorPlanEmitter {
         }
         let storageTool: String
         switch clumping.resolved {
-        case .bbtools:
-            storageTool = NativeTool.clumpify.executableName
-            // A mixed file's clumped halves are joined and written by the compressor (PortableStorageStep.clumpify).
-            _ = try tools.pin(settings.compressor.rawValue, stepID: "storage")
+        case .bbtools: storageTool = NativeTool.clumpify.executableName
         case .none: storageTool = settings.qualityBinning == .none ? settings.compressor.rawValue : NativeTool.reformat.executableName
         case .trimGalore:
             storageTool = NativeTool.trimGalore.executableName
-            // The Trim Galore route interleaves a paired output with reformat.sh and compresses plain or joined output
-            // with the compressor (PortableStorageStep+TrimGalore).
+            // The Trim Galore route interleaves a paired output with reformat.sh (PortableStorageStep+TrimGalore).
             _ = try tools.pin(NativeTool.reformat.executableName, stepID: "storage")
-            _ = try tools.pin(settings.compressor.rawValue, stepID: "storage")
         }
+        // Every route pins the compressor (BIO N3). clumpify.sh and reformat.sh write through bgzip, a mixed file's
+        // clumped halves are joined by it (PortableStorageStep.clumpify), the Trim Galore route compresses plain or
+        // joined output with it, and the route none with no binning stores with it alone. A repeated pin is skipped.
+        _ = try tools.pin(settings.compressor.rawValue, stepID: "storage")
         let heapOption = PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx\(settings.clumpifyHeapGB)g")
         // The executor builds the storage argv on the node through PortableStorageStep, the builder the Mac uses,
         // once it has read the layout of the recipe's output, which no plan can know.
