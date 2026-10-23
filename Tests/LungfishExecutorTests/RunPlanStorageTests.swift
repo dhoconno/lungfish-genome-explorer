@@ -5,16 +5,19 @@ import XCTest
 
 /// The storage step of `run --plan` with a `/bin/sh` clumpify in the tool manifest (lane K4, milestone M4).
 extension RunPlanTests {
-    /// A one-step plan that stores `inputs/R1.fastq` with BBTools at a 1 GB heap, through the clumpify `body`.
-    private func clumpifyPlan(_ body: String) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
+    /// A one-step plan that stores `inputs/R1.fastq` with BBTools at a 1 GB heap, through the clumpify `body`, within
+    /// the step's `deadline` in seconds. It pins the `gzip` that reads the stored payload (SWIFT fix 2 of the K4 part B
+    /// review).
+    func clumpifyPlan(_ body: String, deadline: Double = 60) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
         let clumpify = try fixture.addTool("clumpify.sh", body)
         // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
         let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
+        let gzip = try fixture.addLoggingGzip()
         let manifest = try fixture.writeManifest()
         let step = PlanStep(
             id: "storage", title: "Store reads", kind: .storage, tool: clumpify, arguments: [],
-            environment: [PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx1g")], deadlineSeconds: 60,
+            environment: [PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx1g")], deadlineSeconds: deadline,
             inputs: ["inputs/R1.fastq"], outputs: ["out/sample.fastq.gz"]
         )
         let plan = try fixture.writePlan(
@@ -28,7 +31,7 @@ extension RunPlanTests {
                 requested: .bbtools, resolved: .bbtools, resolvedSource: .option, heapBytes: 1_073_741_824,
                 reason: "explicit clumping tool selection"
             ),
-            pinning: [bgzip]
+            pins: [bgzip, gzip]
         )
         return (fixture, plan, manifest.path)
     }

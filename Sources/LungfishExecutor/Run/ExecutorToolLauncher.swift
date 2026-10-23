@@ -11,7 +11,9 @@ import Synchronization
 ///
 /// Each argv path is made relative to the work root before the spawn (SWIFT N8). The child's environment is the step's,
 /// with `_JAVA_OPTIONS` only for clumpify (tally-r2 K4-07). Stdout goes to the launch's output file or
-/// `logs/<step>.<n>.stdout`, and stderr to `logs/<step>.<n>.stderr`.
+/// `logs/<step>.<n>.stdout`, and stderr to `logs/<step>.<n>.stderr`. Each launch keeps the controller's sentence when it
+/// did not succeed, what the controller signalled to stop it and its peak resident memory (SWIFT fix 3 and BIO fix 4 of
+/// the K4 part B review).
 final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
     typealias Record = ExecutorStorageLaunch
 
@@ -27,6 +29,8 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
     let deadline: ContinuousClock.Instant
     private let made = Mutex<[ExecutorStorageLaunch]>([])
     private let tail = Mutex<(text: String, bytes: UInt64, truncated: Bool)?>(nil)
+    private let stop = Mutex<String?>(nil)
+    private let adopted = Mutex<Int?>(nil)
 
     init(
         stepID: String, tools: [PortableStorageTool: ImageTool], manifestTools: [ImageTool], controller: StepController,
@@ -47,6 +51,14 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
 
     /// The stderr tail of the last launch, the one that ended the step (tally K4.2).
     var lastStderrTail: (text: String, bytes: UInt64, truncated: Bool)? { tail.withLock { $0 } }
+
+    /// The controller's sentence for the last launch the executor itself ended, at the step's deadline, for a
+    /// termination signal or for a process left running, with each path relative to the work root. Nil when the
+    /// executor ended no launch, so a tool's own exit is stated by the storage step's sentence alone.
+    var lastStopReason: String? { stop.withLock { $0 } }
+
+    /// The run's count of adopted orphans reaped, as the controller stated it after the last launch.
+    var adoptedOrphansReaped: Int? { adopted.withLock { $0 } }
 
     /// The plan's tool id for each storage tool.
     static let toolIDs: [PortableStorageTool: String] = [
@@ -112,13 +124,21 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
         tail.withLock { $0 = stderrTail }
         let tail = stderrTail.text
         let stdoutText = launch.standardOutput == nil ? PlanRunner.stderrTail(stdout, workRoot: workRoot).text : ""
+        // A path in a reason is stated relative to the work root (SWIFT ruling N8).
+        let reason = result.outcome == .succeeded ? nil : result.reason?.replacingOccurrences(of: prefix, with: "")
+        if result.stoppedByExecutor, let reason {
+            stop.withLock { $0 = reason }
+        }
+        adopted.withLock { $0 = result.adoptedOrphansReaped }
 
         var exitCode: Int32 = -1
         var entry = ExecutorStorageLaunch(
             tool: ExecutorToolRecord(id: tool.id, version: tool.version, build: tool.build, path: tool.path),
             argv: [tool.path] + arguments, environmentNames: launchEnvironment.keys.sorted(),
             outcome: ExecutorRunOutcome(rawValue: result.outcome.rawValue) ?? .failed,
-            wallSeconds: result.wallSeconds, stderrPath: stderrPath
+            wallSeconds: result.wallSeconds, stderrPath: stderrPath, reason: reason,
+            escalatedToSIGKILL: result.escalatedToSIGKILL, stoppedProcesses: result.stoppedProcesses,
+            peakResidentBytes: result.exit?.peakResidentBytes
         )
         switch result.exit?.termination {
         case .exited(let code)?:

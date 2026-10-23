@@ -44,4 +44,32 @@ extension RunPlanTests {
         XCTAssertEqual(run.record?.steps.first?.stderrTail, "copied inputs/R1.fastq\n")
         XCTAssertEqual(fixture.text("out/R1.fastq"), "@r1\nACGT\n+\nIIII\n")
     }
+
+    /// SWIFT fix 1 of the K4 part B review: an executor whose standard error is closed, so the line that states the
+    /// reason cannot be written, still ends with the record's exit code and never by a signal. One run fails at its step
+    /// (exit 1) and one is refused for an input changed after the plan was written (exit 2).
+    func testRunPlanWithStandardDescriptorsClosedEndsWithTheRecordsExitCode() throws {
+        var fixture = try RunPlanFixture()
+        let failing = try fixture.addTool("fails", "echo failing >&2\nexit 1")
+        let manifest = try fixture.writeManifest()
+        let plan = try fixture.writePlan([RunPlanFixture.step("fails", failing)], manifestPin: manifest.pin)
+        let closed = fixture
+        func runClosed() throws -> RunPlanFixture.Run {
+            let pid = try ExecutorTestSupport.spawn(
+                "/bin/sh",
+                ["-c", "exec \"$0\" \"$@\" <&- >&- 2>&-", closed.binary, "run", "--plan", plan, "--image-manifest", manifest.path],
+                folder: closed.root, name: "closed"
+            )
+            return try closed.finish(pid, planPath: plan)
+        }
+        let failed = try runClosed()
+        XCTAssertEqual(failed.status, ExecutorExitCode.failed, "\(failed.exit)")
+        XCTAssertEqual(failed.record?.outcome, .failed)
+        XCTAssertEqual(failed.record?.failedStepID, "fails")
+        try RunPlanFixture.write("@r1\nACGA\n+\nIIII\n", to: fixture.planFolder + "/inputs/R1.fastq")
+        let refused = try runClosed()
+        XCTAssertEqual(refused.status, ExecutorExitCode.refused, "\(refused.exit)")
+        XCTAssertEqual(refused.record?.outcome, .refused)
+        XCTAssertEqual(refused.record?.refusedField, "entries[1]")
+    }
 }

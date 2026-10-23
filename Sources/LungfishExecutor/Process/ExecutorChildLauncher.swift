@@ -52,14 +52,18 @@ final class ReaderChildLog: Sendable {
 /// the seam discards it. Its environment is exactly the request's and no `PATH` lookup is made.
 ///
 /// The portable reader asks for `/usr/bin/gzip -dc <file>`, the Mac's route. With `decompressor` set the launcher starts
-/// that absolute program with the same arguments instead, the image manifest's `pigz` (K2.4). `pigz -dc` decodes
-/// concatenated members and BGZF as `gzip -dc` does (C3-facts F-A2).
+/// that absolute program with the same arguments instead, the `gzip`, `pigz` or `bgzip` of the image manifest that the
+/// plan pins (K2.4). `pigz -dc` decodes concatenated members and BGZF as `gzip -dc` does (C3-facts F-A2), and
+/// `bgzip -dc` reads both through htslib. With `allowedPrograms` set, as `run --plan` sets it to the manifest's tool
+/// paths, the launcher starts no program outside that set (SWIFT fix 2 of the K4 part B review).
 struct ExecutorChildLauncher: PortableChildLauncher {
     /// How long the stream may stay open after the child exits (`RUNNING-A-TOOL.md`, the drain grace).
     static let defaultDrainGraceSeconds = 5.0
 
     let controller: StepController
     let decompressor: String?
+    /// The only programs the launcher starts. Nil for the `step` and `read-fastq` modes, which start what they are given.
+    let allowedPrograms: Set<String>?
     let graceSeconds: Double
     let drainGraceSeconds: Double
     let log: ReaderChildLog
@@ -67,12 +71,14 @@ struct ExecutorChildLauncher: PortableChildLauncher {
     init(
         controller: StepController,
         decompressor: String? = nil,
+        allowedPrograms: Set<String>? = nil,
         graceSeconds: Double = StepCommand.defaultGraceSeconds,
         drainGraceSeconds: Double = ExecutorChildLauncher.defaultDrainGraceSeconds,
         log: ReaderChildLog = ReaderChildLog()
     ) {
         self.controller = controller
         self.decompressor = decompressor
+        self.allowedPrograms = allowedPrograms
         self.graceSeconds = graceSeconds
         self.drainGraceSeconds = drainGraceSeconds
         self.log = log
@@ -95,6 +101,9 @@ struct ExecutorChildLauncher: PortableChildLauncher {
         let program = executable(for: request)
         guard program.hasPrefix("/") else {
             throw ExecutorSpawn.Failure(reason: "The program \(program) is not an absolute path.")
+        }
+        if let allowedPrograms, !allowedPrograms.contains(program) {
+            throw ExecutorSpawn.Failure(reason: "The program \(program) is not in the tool manifest.")
         }
         let stdin = try ExecutorSpawn.openNullForReading()
         defer { close(stdin) }

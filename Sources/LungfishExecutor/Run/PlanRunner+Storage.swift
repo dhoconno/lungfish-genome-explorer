@@ -13,16 +13,20 @@ extension PlanRunner {
     ]
 
     /// Runs a step the executor builds itself: a storage step through `PortableStorageStep` (M2 decision 2), or an
-    /// `interleave` step with no argv through `PortableMixedLayout` (M2 decision 3). The record keeps every launch, and a
-    /// step that fails keeps no output digest.
-    func runOwnStep(_ step: PlanStep, tool: ImageTool, environment: [String: String], record: ExecutorStepRecord) -> ExecutorStepRecord {
+    /// `interleave` step with no argv through `PortableMixedLayout` (M2 decision 3). The record keeps every launch, the
+    /// largest peak memory of its launches and the orphans the run reaped since `adoptedSoFar`, and a step that fails
+    /// keeps no output digest.
+    func runOwnStep(
+        _ step: PlanStep, tool: ImageTool, environment: [String: String], record: ExecutorStepRecord,
+        adoptedSoFar: inout Int
+    ) -> ExecutorStepRecord {
         var record = record
         record.argv = []
         let root = URL(fileURLWithPath: resolver.workRoot)
         let started = ContinuousClock.now
         let childLauncher = ExecutorChildLauncher(
             controller: controller, decompressor: prepared.decompressor ?? (tool.id == "gzip" ? tool.path : nil),
-            graceSeconds: prepared.plan.graceSeconds
+            allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
         )
         let launcher = ExecutorToolLauncher(
             stepID: step.id, tools: prepared.storageTools, manifestTools: prepared.manifest.tools, controller: controller,
@@ -47,7 +51,10 @@ extension PlanRunner {
                     merged: inputs[0], unmergedR1: inputs.count == 3 ? inputs[1] : nil,
                     unmergedR2: inputs.count == 3 ? inputs[2] : nil, to: output, launcher: childLauncher
                 )
-                return OwnStepCounts(input: nil, output: Int64(counts.writtenRecords))
+                return OwnStepCounts(
+                    input: nil, output: Int64(counts.writtenRecords),
+                    mixed: ExecutorMixedLayoutCounts(mergedReads: counts.mergedRecords, pairs: counts.pairs, unpairedReads: 0)
+                )
             }
             try await Self.store(plan: plan, step: step, inputs: inputs, output: output, root: root, environment: environment,
                                  launcher: launcher, childLauncher: childLauncher)
@@ -75,6 +82,16 @@ extension PlanRunner {
                 record.stderrTruncated = tail.truncated
             }
         }
+        // The step states what its launches state: the largest peak memory, any SIGKILL, every process stopped, and the
+        // orphans the run reaped since the step before it, as an argv step does (tally K4.2, BIO fix 4 of the K4 part B
+        // review).
+        record.peakResidentBytes = launches.compactMap(\.peakResidentBytes).max()
+        record.escalatedToSIGKILL = launches.contains { $0.escalatedToSIGKILL == true }
+        record.stoppedProcesses = launches.flatMap { $0.stoppedProcesses ?? [] }
+        if let reaped = launcher.adoptedOrphansReaped {
+            record.adoptedOrphansReaped = reaped - adoptedSoFar
+            adoptedSoFar = reaped
+        }
         switch outcome {
         case .success(let counts):
             record.inputReadCount = counts.input
@@ -87,9 +104,25 @@ extension PlanRunner {
             }
             record.outcome = record.outputs.count == step.outputs.count ? .succeeded : .failed
             if record.outcome == .failed { record.reason = "Step \(step.id) left an output missing." }
+            if let mixed = counts.mixed {
+                // The merged-to-mixed step states the mixed file's counts by kind, as the recipe engine counts them
+                // (tally K4.1, BIO fix 2 of the K4 part B review).
+                let size = { (path: String) -> Int64 in
+                    (try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(path).path))?[.size] as? Int64 ?? 0
+                }
+                record.storage = ExecutorStorageDetails(
+                    clumpingRan: false, qualityBinning: .none, inputBytes: step.inputs.reduce(0) { $0 + size($1) },
+                    outputBytes: step.outputs.first.map(size) ?? 0, mixedLayout: mixed
+                )
+            }
         case .failure(let error):
             record.outcome = .failed
-            record.reason = Self.sentence(for: error, heapGB: plan.storage.clumpifyHeapGB)
+            // The controller's words for a launch the executor ended come first, so a deadline is never lost behind a
+            // tool that printed nothing, and no path of the work root stays in the reason (SWIFT fix 3 of the K4 part B
+            // review, ruling N8).
+            let sentence = Self.sentence(for: error, heapGB: plan.storage.clumpifyHeapGB)
+            record.reason = [launcher.lastStopReason, sentence].compactMap { $0 }.joined(separator: " ")
+                .replacingOccurrences(of: resolver.workRoot + "/", with: "")
         }
         if let signal = controller.interruptSignal {
             record.outcome = .interrupted
@@ -106,6 +139,8 @@ extension PlanRunner {
     private struct OwnStepCounts: Sendable {
         var input: Int64?
         var output: Int64
+        /// The merged, pair and unpaired counts of the file a merged-to-mixed step wrote.
+        var mixed: ExecutorMixedLayoutCounts?
     }
 
     /// Runs the storage route the plan names, with the plan's heap, threads, binning, level, compressor and deadline.

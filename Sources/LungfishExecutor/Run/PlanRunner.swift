@@ -125,7 +125,7 @@ struct PlanRunner {
             return record
         }
         if Self.runsOwnStep(step) {
-            return runOwnStep(step, tool: tool, environment: environment, record: record)
+            return runOwnStep(step, tool: tool, environment: environment, record: record, adoptedSoFar: &adoptedSoFar)
         }
         let streams: (stdout: PlanOutputFile, stderr: PlanOutputFile)
         do {

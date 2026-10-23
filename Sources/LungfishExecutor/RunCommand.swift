@@ -20,7 +20,8 @@ struct PreparedRun {
     var tools: [String: ImageTool]
     /// The manifest's tool for each storage tool the plan pins (`PlanRunner.storageTools`).
     var storageTools: [PortableStorageTool: ImageTool] = [:]
-    /// The plan's pinned `gzip`, else `pigz`, which reads gzip input in place of `/usr/bin/gzip`.
+    /// The plan's pinned `gzip`, else `pigz`, else `bgzip`, which reads gzip input in place of `/usr/bin/gzip`. A plan
+    /// with a step the executor reads itself and none of the three is refused.
     var decompressor: String?
 }
 
@@ -146,7 +147,7 @@ enum RunCommand {
         switch parse(arguments) {
         case .success(let parsed): options = parsed
         case .failure(let error):
-            FileHandle.standardError.write(Data("lungfish-executor: \(error.message)\n\(usage)".utf8))
+            say("lungfish-executor: \(error.message)\n\(usage)")
             return ExecutorExitCode.usage
         }
         // Before any thread or child exists (tally-r2 K3-1). Off Linux both calls return ENOSYS and change nothing.
@@ -157,9 +158,8 @@ enum RunCommand {
         do {
             resolver = try PlanResourceResolver(planFile: URL(fileURLWithPath: options.plan))
         } catch {
-            let message = "lungfish-executor: refused: The plan's folder cannot be resolved, so no run record can be written. "
-                + "\(error.localizedDescription) No tool ran.\n"
-            FileHandle.standardError.write(Data(message.utf8))
+            say("lungfish-executor: refused: The plan's folder cannot be resolved, so no run record can be written. "
+                + "\(error.localizedDescription) No tool ran.\n")
             return ExecutorExitCode.refused
         }
         ExecutorSignals.ignoreBrokenPipe()
@@ -296,9 +296,18 @@ enum RunCommand {
             guard let storageTool = PlanRunner.storageTools[pin.id], let tool = manifest.tool(matching: pin) else { continue }
             prepared.storageTools[storageTool] = tool
         }
-        prepared.decompressor = ["gzip", "pigz"].lazy.compactMap { id in
+        prepared.decompressor = ["gzip", "pigz", "bgzip"].lazy.compactMap { id in
             plan.tools.first { $0.id == id }.flatMap { manifest.tool(matching: $0) }?.path
         }.first
+        // A step the executor reads itself reads gzip files only through a program the plan pins, so the host's
+        // /usr/bin/gzip never runs (SWIFT fix 2 of the K4 part B review).
+        if prepared.decompressor == nil,
+           let reader = plan.steps.first(where: { $0.kind == .qualityCount || PlanRunner.runsOwnStep($0) }) {
+            throw RunRefusal(
+                field: "tools",
+                reason: "Step \(reader.id) reads gzip files, and the plan pins no gzip, pigz or bgzip to read them. No tool ran."
+            )
+        }
         return prepared
     }
 
@@ -307,12 +316,19 @@ enum RunCommand {
         do throws(ExecutorSpawn.Failure) {
             try RunRecordWriter.write(record, workRoot: workRoot)
         } catch {
-            FileHandle.standardError.write(Data("lungfish-executor: \(error.reason)\n".utf8))
+            say("lungfish-executor: \(error.reason)\n")
             return record.outcome == .succeeded ? ExecutorExitCode.failed : record.exitCode
         }
         if let reason = record.reason {
-            FileHandle.standardError.write(Data("lungfish-executor: \(record.outcome.rawValue): \(reason)\n".utf8))
+            say("lungfish-executor: \(record.outcome.rawValue): \(reason)\n")
         }
         return record.exitCode
+    }
+
+    /// Writes `text` to standard error and drops a write that fails. `FileHandle.write(_:)` raises on EBADF, EPIPE and
+    /// ENOSPC, which ended the executor by SIGABRT in place of the record's exit code (SWIFT fix 1 of the K4 part B
+    /// review). The record, written first, is the run's account, and the line only repeats it.
+    static func say(_ text: String) {
+        try? FileHandle.standardError.write(contentsOf: Data(text.utf8))
     }
 }

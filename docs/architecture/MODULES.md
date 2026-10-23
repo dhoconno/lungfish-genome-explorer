@@ -18,7 +18,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 180 | 46247 | 332 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishExecutor | executable | Sources/LungfishExecutor | 20 | 3407 | 0 | CLungfishExecutor, LungfishPortable |
+| LungfishExecutor | executable | Sources/LungfishExecutor | 20 | 3494 | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 142 | 52208 | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 409 | 104503 | 655 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 85 | 18465 | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -26,7 +26,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 5 | 3383 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 52 | 10761 | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 7 | 2504 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishPortable | library | Sources/LungfishPortable | 32 | 4801 | 13 | none |
+| LungfishPortable | library | Sources/LungfishPortable | 32 | 4817 | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 983 | 267775 | 1549 | LungfishCore, LungfishIO |
@@ -45,7 +45,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishCLITests | Tests/LungfishCLITests | 407 | 97611 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 147 | 40897 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 8 | 2106 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
-| LungfishExecutorTests | Tests/LungfishExecutorTests | 12 | 2200 | LungfishExecutor |
+| LungfishExecutorTests | Tests/LungfishExecutorTests | 16 | 2602 | LungfishExecutor |
 | LungfishGenotypeUITests | Tests/LungfishGenotypeUITests | 91 | 59261 | LungfishGenotypeUI, LungfishKit, LungfishTestSupport |
 | LungfishIOTests | Tests/LungfishIOTests | 230 | 76812 | LungfishIO, LungfishTestSupport |
 | LungfishIntegrationTests | Tests/LungfishIntegrationTests | 33 | 11692 | LungfishApp, LungfishCLI, LungfishCore, LungfishIO, LungfishTestSupport, LungfishWorkflow |
@@ -795,7 +795,7 @@ None.
 
 - Kind. executable
 - Path. Sources/LungfishExecutor
-- Swift files. 20, lines 3407
+- Swift files. 20, lines 3494
 - Depends on. CLungfishExecutor, LungfishPortable
 - External products. none
 - Used by. none
@@ -805,8 +805,8 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Process | 8 | 1434 |
-| Run | 7 | 1124 |
+| Process | 8 | 1449 |
+| Run | 7 | 1180 |
 
 ### Public types
 
@@ -1828,7 +1828,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishPortable
-- Swift files. 32, lines 4801
+- Swift files. 32, lines 4817
 - Depends on. none
 - External products. Crypto (swift-crypto)
 - Used by. LungfishCore, LungfishExecutor
@@ -1841,7 +1841,7 @@ None.
 | FASTQ | 16 | 2559 |
 | Plan | 6 | 1226 |
 | Process | 2 | 206 |
-| RunRecord | 3 | 620 |
+| RunRecord | 3 | 636 |
 
 ### Public types
 

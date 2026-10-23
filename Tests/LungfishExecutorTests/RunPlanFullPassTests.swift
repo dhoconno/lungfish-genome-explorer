@@ -9,7 +9,7 @@ extension RunPlanTests {
     /// at or above Q30 (`? I`, `?`). `4` is Q19 and `>` is Q29.
     static let qualityReads = "@a\nACGTA\n+\n5?I+!\n@b\nGG\n+\n44\n@c\nTTT\n+\n>>?\n"
 
-    private func noneStorage(_ binning: QualityBinningScheme) -> (storage: PlanStorageSettings, clumping: PlanClumpingChoice) {
+    func noneStorage(_ binning: QualityBinningScheme) -> (storage: PlanStorageSettings, clumping: PlanClumpingChoice) {
         (
             PlanStorageSettings(
                 clumpingTool: .none, compressor: .bgzip, qualityBinning: binning, threads: 1, clumpifyHeapGB: 1,
@@ -25,12 +25,15 @@ extension RunPlanTests {
 
     /// Tally K4.1, BIO N6 and BIO K4A fixes 2 and 3. The compressor alone stores the reads, and the record holds the
     /// payload with its record count, seqkit's table byte for byte with the file it read, and the executor's own exact
-    /// Q20 and Q30 count of the gzip payload, which names the executor as its tool.
+    /// Q20 and Q30 count of the gzip payload, which names the executor as its tool. SWIFT fixes 2 and 4 and BIO fix 5 of
+    /// the K4 part B review: the payload is read through the plan's pinned gzip, and the count step names the running
+    /// executor by the label `/proc/self/exe`, so the record holds no folder of the machine that started it.
     func testFullPassesRecordExactCountsOfStoredPayload() throws {
         var fixture = try RunPlanFixture()
         try RunPlanFixture.write(Self.qualityReads, to: fixture.planFolder + "/inputs/R1.fastq")
         let bgzip = try fixture.addTool("bgzip", "for a in \"$@\"; do last=\"$a\"; done\ngzip -c < \"$last\"")
         let seqkit = try fixture.addTool("seqkit", "printf 'file\\tformat\\tnum_seqs\\n%s\\tFASTQ\\t3\\n' \"$4\"\necho 'seqkit note' >&2")
+        let gzip = try fixture.addLoggingGzip()
         let manifest = try fixture.writeManifest()
         let payload = "out/sample.fastq.gz"
         let steps = [
@@ -49,7 +52,9 @@ extension RunPlanTests {
             ),
         ]
         let settings = noneStorage(.none)
-        let plan = try fixture.writePlan(steps, manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping)
+        let plan = try fixture.writePlan(
+            steps, manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pins: [gzip]
+        )
         let run = try fixture.run(plan, ["--image-manifest", manifest.path])
         XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)
         let record = try XCTUnwrap(run.record)
@@ -91,6 +96,25 @@ extension RunPlanTests {
         XCTAssertEqual(count.tool?.versionSource, .planPin)
         XCTAssertEqual(count.tool?.sha256, fixture.executorEntry.sha256)
         XCTAssertEqual(count.argv, record.executorArguments)
+
+        let used = fixture.text("logs/gzip.used").split(separator: "\n").map(String.init)
+        XCTAssertFalse(used.isEmpty, "the pinned gzip never ran")
+        for line in used {
+            XCTAssertTrue(line.hasPrefix("-dc ") && line.hasSuffix(payload), line)
+        }
+
+        XCTAssertEqual(count.tool?.path, "/proc/self/exe")
+        var withoutTails = record
+        withoutTails.steps = withoutTails.steps.map { step in
+            var step = step
+            step.stderrTail = ""
+            return step
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let text = String(decoding: try encoder.encode(withoutTails), as: UTF8.self)
+        let binaryFolder = URL(fileURLWithPath: fixture.binary).deletingLastPathComponent().path
+        XCTAssertFalse(text.contains(binaryFolder), "the record names the folder \(binaryFolder)")
     }
 
     /// M4 item 1. The route `none` with a binning scheme runs `reformat.sh` with the argv of the Mac's
@@ -104,6 +128,7 @@ extension RunPlanTests {
         """)
         // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
         let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
+        let gzip = try fixture.addLoggingGzip()
         let manifest = try fixture.writeManifest()
         let settings = noneStorage(.illumina4)
         let step = PlanStep(
@@ -111,7 +136,7 @@ extension RunPlanTests {
             inputs: ["inputs/R1.fastq"], outputs: ["out/sample.fastq.gz"]
         )
         let plan = try fixture.writePlan(
-            [step], manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pinning: [bgzip]
+            [step], manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pins: [bgzip, gzip]
         )
         let run = try fixture.run(plan, ["--image-manifest", manifest.path])
         XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)

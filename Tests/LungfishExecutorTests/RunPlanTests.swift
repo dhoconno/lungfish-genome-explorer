@@ -81,11 +81,17 @@ struct RunPlanFixture {
         )
     }
 
-    /// Writes plan.json for `steps`, pinning the running executor unless `executor` is given, and returns its path. The
-    /// plan pins each step's tool and each tool of `pinning`, such as the bgzip a BBTools step writes through.
+    /// A `gzip` that appends each argv to `logs/gzip.used` in the work root and runs the host's gzip with it, for a plan
+    /// that pins the program that reads its gzip files (SWIFT fix 2 of the K4 part B review).
+    mutating func addLoggingGzip() throws -> PlanToolPin {
+        try addTool("gzip", "printf '%s\\n' \"$*\" >> '\(planFolder)/logs/gzip.used'\nexec /usr/bin/gzip \"$@\"")
+    }
+
+    /// Writes plan.json for `steps`, pinning the running executor unless `executor` is given, and returns its path.
+    /// `pins` names the tools the plan pins beside its steps' own, such as the program that reads a gzip payload.
     func writePlan(
         _ steps: [PlanStep], manifestPin: PlanImageManifestPin, executor: PlanEntry? = nil,
-        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil, pinning: [PlanToolPin] = []
+        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil, pins: [PlanToolPin] = []
     ) throws -> String {
         let input = try Data(contentsOf: URL(fileURLWithPath: planFolder + "/inputs/R1.fastq"))
         let plan = ExecutionPlan(
@@ -98,7 +104,7 @@ struct RunPlanFixture {
                 toolchainSHA256: Self.zeros, staticLinuxSDKID: "test", staticLinuxSDKSHA256: Self.zeros
             ),
             imageManifest: manifestPin,
-            tools: Array(Set(steps.compactMap(\.tool) + pinning)).sorted { $0.id < $1.id },
+            tools: Array(Set(steps.compactMap(\.tool) + pins)).sorted { $0.id < $1.id },
             recipe: nil,
             sample: PlanSampleValues(sampleName: "sample", originalFilenames: ["R1.fastq"], originalSizeBytes: Int64(input.count)),
             storage: storage ?? PlanStorageSettings(
