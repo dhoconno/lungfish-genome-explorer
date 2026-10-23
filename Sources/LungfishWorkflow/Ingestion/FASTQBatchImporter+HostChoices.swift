@@ -5,15 +5,6 @@
 import Foundation
 import LungfishIO
 
-/// Where an import setting's value came from: an option the command was given, the command's fixed default, this
-/// host (its core count or its free memory), or the recipe that ran (its declared quality binning).
-public enum ImportSettingSource: String, Sendable, Codable {
-    case option
-    case `default`
-    case host
-    case recipe
-}
-
 extension FASTQBatchImporter {
     /// The record's account of the choices a host can make, each with its source (CHTC lane L5-RECORDS M3):
     /// `threadsSource`, the clumpify heap that ran (`clumpifyHeapGB`, `clumpingHeapBytes`, null when clumpify did not
