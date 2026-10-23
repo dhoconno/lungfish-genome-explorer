@@ -430,179 +430,43 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         )
     }
 
-    /// Sorts reads by k-mer similarity using managed BBTools `clumpify.sh`.
+    /// Sorts reads by k-mer similarity using managed BBTools `clumpify.sh`, through ``PortableStorageStep``.
     ///
     /// This writes directly to a gzip output so we can avoid an extra
     /// compression pass while keeping compatibility with `samtools fqidx`.
     /// A single input file is scanned first so mates stay adjacent and no
     /// record is lost (``SingleFileClumpPlan``); the output record count is
-    /// then checked against the input before anything is deleted.
+    /// then checked against the input before anything is deleted. The Mac
+    /// names the BBTools environment and the compressor, bgzip and then pigz.
     private func clumpify(
         config: FASTQIngestionConfig,
         heapGB: Int,
         outputFile: URL,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQProcessingRecord {
-        let inputFile = config.inputFiles[0]
-        let inputFile2 = config.pairingMode == .pairedEnd ? config.inputFiles[1] : nil
-        let timeoutSeconds = max(900, Double((try? FileManager.default.attributesOfItem(atPath: inputFile.path)[.size] as? Int64) ?? 0) / 2_500_000)
-
-        var env = CoreToolLocator.bbToolsEnvironment(
+        let environment = CoreToolLocator.bbToolsEnvironment(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         )
-
-        // Paths go to the tool unmodified: `NativeToolRunner.run` stages any
-        // whitespace-bearing argument for every BBTools script in one place,
-        // so this site does not carry its own symlink handling.
-        let fm = FileManager.default
-
-        // Override any JAVA_TOOL_OPTIONS that might constrain heap below our calculated value.
-        // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.
-        env["_JAVA_OPTIONS"] = "-Xmx\(heapGB)g"
-
-        func arguments(_ input: URL, _ output: URL, interleaved: Bool, input2: URL? = nil) -> [String] {
-            Self.clumpifyArguments(
-                input: input,
-                input2: input2,
-                output: output,
-                interleaved: interleaved,
-                heapGB: heapGB,
-                threads: config.threads,
-                qualityBinning: config.qualityBinning
-            )
-        }
-
-        if let inputFile2 {
-            progress(0.05, "Launching bbtools clumpify.sh...")
-            let step = try await runStorageClumpify(
-                arguments: arguments(inputFile, outputFile, interleaved: true, input2: inputFile2),
-                inputs: [inputFile, inputFile2],
-                output: outputFile,
-                config: config,
-                environment: env,
-                timeout: timeoutSeconds
-            )
-            return try await clumpifyRecord(outputFile: outputFile, steps: [step], config: config, progress: progress)
-        }
-
-        progress(0.02, "Checking which reads are mates...")
-        let counts = try await Self.detachedWork {
-            try FASTQPairInterleaver.countMixed(interleaved: inputFile)
-        }
-        let expectedRecords = counts.pairs * 2 + counts.unpaired
-        let plan = Self.singleFileClumpPlan(for: counts)
-        logger.info("Clumpify plan \(String(describing: plan)): \(counts.pairs) mate pairs, \(counts.unpaired) unpaired reads")
-
-        var steps: [StepExecution] = []
-        switch plan {
-        case .unpaired, .interleaved:
-            progress(0.05, "Launching bbtools clumpify.sh...")
-            steps.append(try await runStorageClumpify(
-                arguments: arguments(inputFile, outputFile, interleaved: plan == .interleaved),
-                inputs: [inputFile],
-                output: outputFile,
-                config: config,
-                environment: env,
-                timeout: timeoutSeconds
-            ))
-        case .splitMixed:
-            // Partition by name so each half gets the right flag, clump each,
-            // then compress the concatenation as one stream.
-            progress(0.04, "Separating mate pairs from unpaired reads...")
-            let halves = try await Self.splitMixedByMate(
-                inputFile, counts: counts, in: config.outputDirectory, scratchPrefix: ".clumpify-split"
-            )
-            let scratch = halves.scratch
-            defer { try? fm.removeItem(at: scratch) }
-            let pairsURL = halves.pairs
-            let unpairedURL = halves.unpaired
-
-            let clumpedPairs = scratch.appendingPathComponent("pairs.clumped.fastq")
-            let clumpedUnpaired = scratch.appendingPathComponent("unpaired.clumped.fastq")
-            progress(0.1, "Launching bbtools clumpify.sh on mate pairs...")
-            steps.append(try await runStorageClumpify(
-                arguments: arguments(pairsURL, clumpedPairs, interleaved: true), inputs: [pairsURL],
-                output: clumpedPairs, config: config, environment: env, timeout: timeoutSeconds
-            ))
-            // Each half goes once it is clumped, and the clumped unpaired
-            // reads join the end of the clumped pairs in place, so scratch
-            // never holds the split, both clumped halves and their join at
-            // once (F9 re-review N4).
-            try? fm.removeItem(at: pairsURL)
-            progress(0.5, "Launching bbtools clumpify.sh on unpaired reads...")
-            steps.append(try await runStorageClumpify(
-                arguments: arguments(unpairedURL, clumpedUnpaired, interleaved: false), inputs: [unpairedURL],
-                output: clumpedUnpaired, config: config, environment: env, timeout: timeoutSeconds
-            ))
-            try? fm.removeItem(at: unpairedURL)
-            let combined = scratch.appendingPathComponent("combined.fastq")
-            try Self.appendAndRename(clumpedUnpaired, to: clumpedPairs, as: combined)
-            let compressed = try await compress(
-                inputFile: combined,
-                outputFile: outputFile,
-                threads: config.threads,
-                progress: { fraction, msg in progress(0.8 + fraction * 0.2, msg) }
-            )
-            steps.append(contentsOf: compressed.steps)
-        }
-
-        progress(0.95, "Verifying read count...")
-        try await Self.verifyStoredRecordCount(
-            in: outputFile, expected: expectedRecords, tool: "clumpify.sh"
-        )
-        return try await clumpifyRecord(outputFile: outputFile, steps: steps, config: config, progress: progress)
-    }
-
-    /// Runs one storage `clumpify.sh` invocation and returns its provenance step.
-    private func runStorageClumpify(
-        arguments args: [String],
-        inputs: [URL],
-        output: URL,
-        config: FASTQIngestionConfig,
-        environment env: [String: String],
-        timeout: Double
-    ) async throws -> StepExecution {
-        let clumpifyScript = try await runner.toolPath(for: .clumpify)
-        let stepClock = ProvenanceRunClock()
-        let result = try await runner.run(
-            .clumpify,
-            arguments: args,
+        let inputs = config.pairingMode == .pairedEnd
+            ? [config.inputFiles[0], config.inputFiles[1]]
+            : [config.inputFiles[0]]
+        let run = PortableStorageStep<NativeToolStorageLauncher>.ClumpifyRun(
+            inputs: inputs,
+            output: outputFile,
             workingDirectory: config.outputDirectory,
-            environment: env,
-            timeout: timeout
+            heapGB: heapGB,
+            threads: config.threads,
+            qualityBinning: config.qualityBinning,
+            environment: environment,
+            compressor: await resolveCompressor()
         )
-        let stepCompletedAt = stepClock.now
-
-        if let failure = BBToolsOutOfMemory.error(
-            exitCode: result.exitCode, tool: "clumpify.sh", arguments: args, optionPinsHeap: true) {
-            throw failure
+        let step = storageStep
+        let records = try await Self.mappingStorageErrors {
+            try await step.clumpify(run, progress: progress)
         }
-        guard result.isSuccess else {
-            let stderr = result.stderr.isEmpty ? result.stdout : result.stderr
-            throw FASTQIngestionError.clumpifyFailed(
-                String(stderr.suffix(2_000)).trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        guard FileManager.default.fileExists(atPath: output.path) else {
-            throw FASTQIngestionError.clumpifyFailed("clumpify.sh completed without producing output")
-        }
-
-        let evidence = await versionEvidence(for: .clumpify)
-        return StepExecution(
-            toolName: "clumpify.sh",
-            toolVersion: evidence.recordedString,
-            command: [clumpifyScript.path] + args,
-            inputs: inputs.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-            },
-            outputs: [ProvenanceRecorder.fileRecord(url: output, format: .fastq, role: .output)],
-            exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
-            stderr: result.stderr.isEmpty ? nil : result.stderr,
-            managedToolID: NativeTool.clumpify.managedToolID, toolVersionEvidence: evidence,
-            startTime: stepClock.startedAt,
-            endTime: stepCompletedAt
+        return try await clumpifyRecord(
+            outputFile: outputFile, steps: records.map(\.step), config: config, progress: progress
         )
     }
 
@@ -709,17 +573,11 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ) async throws -> FASTQProcessingRecord {
         let r1 = config.inputFiles[0]
         let r2 = config.inputFiles[1]
-        let tool: NativeTool
-        let args: [String]
-        if (try? await runner.toolPath(for: .bgzip)) != nil {
-            tool = .bgzip
-            args = ["-@", String(max(1, config.threads)), "-c"]
-        } else if (try? await runner.toolPath(for: .pigz)) != nil {
-            tool = .pigz
-            args = ["-p", String(max(1, config.threads)), "-c"]
-        } else {
+        guard let compressor = await resolveCompressor() else {
             throw FASTQIngestionError.toolNotFound("pigz or bgzip")
         }
+        let tool = NativeToolStorageLauncher.nativeTool(compressor.tool)
+        let args = compressor.streamArguments(threads: max(1, config.threads))
         let executableURL = try await runner.findTool(tool)
         let fm = FileManager.default
         let temporaryOutput = outputFile.deletingLastPathComponent().appendingPathComponent(
@@ -972,95 +830,41 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         PortableStoragePlan.quantizeArgument(for: scheme)
     }
 
-    /// Confirms an interleaved output holds exactly R1 + R2 records.
+    /// Confirms an interleaved output holds exactly R1 + R2 records, through
+    /// ``PortableStorageChecks/verifyInterleavedRecordCount(output:r1:r2:launcher:)``.
     ///
     /// Counting streams each file once through `/usr/bin/gzip -dc`, so the
     /// check costs one extra read of the inputs and output; that is the
     /// price of never deleting a pair whose mate went missing.
     static func verifyInterleavedRecordCount(output: URL, r1: URL, r2: URL) async throws {
-        let counts = try await detachedWork { () throws -> (r1: Int, r2: Int, output: Int) in
-            let r1Count = try FASTQPairInterleaver.countRecords(in: r1)
-            try Task.checkCancellation()
-            let r2Count = try FASTQPairInterleaver.countRecords(in: r2)
-            try Task.checkCancellation()
-            let outputCount = try FASTQPairInterleaver.countRecords(in: output)
-            return (r1Count, r2Count, outputCount)
-        }
-        guard counts.r1 == counts.r2 else {
-            throw FASTQIngestionError.pairedOutputVerificationFailed(
-                "\(r1.lastPathComponent) has \(counts.r1) reads but \(r2.lastPathComponent) has \(counts.r2)"
-            )
-        }
-        guard counts.output == counts.r1 + counts.r2 else {
-            throw FASTQIngestionError.pairedOutputVerificationFailed(
-                "expected \(counts.r1 + counts.r2) interleaved reads (R1 + R2) but \(output.lastPathComponent) holds \(counts.output)"
+        try await mappingStorageErrors {
+            try await PortableStorageChecks.verifyInterleavedRecordCount(
+                output: output, r1: r1, r2: r2, launcher: ToolProcessChildLauncher()
             )
         }
     }
 
-    /// Compresses a FASTQ file with pigz (parallel gzip) or bgzip.
+    /// Compresses a FASTQ file with bgzip or pigz, by today's order, through ``PortableStorageStep``.
     func compress(
         inputFile: URL,
         outputFile: URL,
         threads: Int,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> FASTQProcessingRecord {
-        let tool: NativeTool
-        let args: [String]
-
-        if (try? await runner.toolPath(for: .bgzip)) != nil {
-            tool = .bgzip
-            args = ["-@", String(threads), "-c", inputFile.path]
-        } else if (try? await runner.toolPath(for: .pigz)) != nil {
-            tool = .pigz
-            args = ["-p", String(threads), "-c", inputFile.path]
-        } else {
-            throw FASTQIngestionError.toolNotFound("pigz or bgzip")
-        }
-
-        let inputAttrs = try? FileManager.default.attributesOfItem(atPath: inputFile.path)
-        let inputSize = (inputAttrs?[.size] as? Int64) ?? 0
-        let timeoutSeconds = max(600, Double(inputSize) / 5_000_000)
-
-        progress(0.1, "Compressing with \(tool.executableName)...")
-
-        let executableURL = try await runner.findTool(tool)
-        let stepClock = ProvenanceRunClock()
-        let result = try await runner.runWithFileOutput(
-            tool,
-            arguments: args,
-            outputFile: outputFile,
-            timeout: timeoutSeconds
-        )
-        let stepCompletedAt = stepClock.now
-
-        guard result.isSuccess else {
-            throw FASTQIngestionError.compressionFailed(
-                String(result.stderr.suffix(500)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let compressor = await resolveCompressor()
+        let step = storageStep
+        let record = try await Self.mappingStorageErrors {
+            try await step.compress(
+                input: inputFile, output: outputFile, compressor: compressor, threads: threads, progress: progress
             )
         }
-
-        progress(1.0, "Compression complete")
-        let evidence = await versionEvidence(for: tool)
-        let step = StepExecution(
-            toolName: tool.executableName,
-            toolVersion: evidence.recordedString,
-            command: [executableURL.path] + args + [">", outputFile.path],
-            inputs: [ProvenanceRecorder.fileRecord(url: inputFile, format: .fastq, role: .input)],
-            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
-            exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
-            stderr: result.stderr.isEmpty ? nil : result.stderr,
-            managedToolID: tool.managedToolID, toolVersionEvidence: evidence,
-            startTime: stepClock.startedAt,
-            endTime: stepCompletedAt
-        )
+        let arguments = record.run.launch.arguments.joined(separator: " ")
         return FASTQProcessingRecord(
             url: outputFile,
-            tool: tool.executableName,
-            toolVersion: evidence.version,
-            commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
-            steps: [step]
+            tool: record.step.toolName,
+            toolVersion: record.evidence.version,
+            commandLine: "\(record.step.toolName) \(arguments) > \(outputFile.path)",
+            steps: [record.step]
         )
     }
 

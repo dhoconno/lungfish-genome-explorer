@@ -15,57 +15,25 @@ extension FASTQIngestionPipeline {
 }
 
 /// A mixed file split by mate name into one file of whole pairs and one of unpaired reads, in a scratch folder the
-/// caller removes.
-struct MixedFileHalves: Sendable {
-    let scratch: URL
-    let pairs: URL
-    let unpaired: URL
-}
+/// caller removes (``PortableMixedFileHalves``).
+typealias MixedFileHalves = PortableMixedFileHalves
 
 extension FASTQIngestionPipeline {
 
-    /// Splits `input`, which the scan found to mix pairs with unpaired reads, into the two halves of a new scratch
-    /// folder under `parent` and checks the split against the scan. The bbtools route and the Trim Galore route both
-    /// split here, so a pair is a pair by the same rule in each (``FASTQPairInterleaver/partitionMixed(interleaved:pairs:unpaired:)``).
-    /// A failed split removes its scratch folder.
+    /// ``PortableStorageChecks/splitMixedByMate(_:counts:in:scratchPrefix:launcher:)`` with the launcher that starts
+    /// `gzip -dc` through `ToolProcess`. The bbtools route and the Trim Galore route both split here, so a pair is a
+    /// pair by the same rule in each. A failed split removes its scratch folder.
     static func splitMixedByMate(
         _ input: URL,
         counts: FASTQPairInterleaver.MixedCounts,
         in parent: URL,
         scratchPrefix: String
     ) async throws -> MixedFileHalves {
-        let fm = FileManager.default
-        let scratch = parent.appendingPathComponent("\(scratchPrefix)-\(UUID().uuidString)", isDirectory: true)
-        try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let halves = MixedFileHalves(
-            scratch: scratch,
-            pairs: scratch.appendingPathComponent("pairs.fastq"),
-            unpaired: scratch.appendingPathComponent("unpaired.fastq")
-        )
-        do {
-            try await detachedWork {
-                FileManager.default.createFile(atPath: halves.pairs.path, contents: nil)
-                FileManager.default.createFile(atPath: halves.unpaired.path, contents: nil)
-                let pairsHandle = try FileHandle(forWritingTo: halves.pairs)
-                defer { try? pairsHandle.close() }
-                let unpairedHandle = try FileHandle(forWritingTo: halves.unpaired)
-                defer { try? unpairedHandle.close() }
-                let split = try FASTQPairInterleaver.partitionMixed(
-                    interleaved: input,
-                    pairs: pairsHandle,
-                    unpaired: unpairedHandle
-                )
-                guard split == counts else {
-                    throw FASTQIngestionError.clumpifyFailed(
-                        "the pair scan found \(counts.pairs) pairs and \(counts.unpaired) unpaired reads, but the split wrote \(split.pairs) and \(split.unpaired)"
-                    )
-                }
-            }
-        } catch {
-            try? fm.removeItem(at: scratch)
-            throw error
+        try await mappingStorageErrors {
+            try await PortableStorageChecks.splitMixedByMate(
+                input, counts: counts, in: parent, scratchPrefix: scratchPrefix, launcher: ToolProcessChildLauncher()
+            )
         }
-        return halves
     }
 
     /// Counts the stored output against the reads the storage tool kept and removes the output when the count is
@@ -76,11 +44,9 @@ extension FASTQIngestionPipeline {
         expected: Int,
         tool: String
     ) async throws {
-        let records = try await detachedWork { try FASTQPairInterleaver.countRecords(in: output) }
-        guard records == expected else {
-            try? FileManager.default.removeItem(at: output)
-            throw FASTQIngestionError.clumpifyFailed(
-                "expected \(expected) reads after \(tool) but \(output.lastPathComponent) holds \(records); originals were kept"
+        try await mappingStorageErrors {
+            try await PortableStorageChecks.verifyStoredRecordCount(
+                in: output, expected: expected, tool: tool, launcher: ToolProcessChildLauncher()
             )
         }
     }
