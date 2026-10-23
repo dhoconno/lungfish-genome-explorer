@@ -36,7 +36,7 @@ extension RunPlanTests {
         XCTAssertEqual(
             decoderRefusal.record?.reason,
             "This plan pins no bgzip for step storage, which runs reformat.sh. BBTools compresses its output with bgzip, "
-                + "so the plan must name bgzip. No tool ran."
+                + "so the plan must pin bgzip in its tools. No tool ran."
         )
         XCTAssertEqual(decoderRefusal.record?.steps, [])
         XCTAssertFalse(bbtools.exists("logs/reformat.argv"))

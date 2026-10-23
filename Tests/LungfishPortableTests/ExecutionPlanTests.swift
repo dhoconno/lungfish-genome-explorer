@@ -162,7 +162,7 @@ final class ExecutionPlanTests: XCTestCase {
         clumped.tools.removeAll { $0.id == "bgzip" }
         assertRefused(
             try clumped.encoded(), field: "tools",
-            reason: "This plan pins no bgzip for step storage, which runs clumpify.sh. BBTools compresses its output with bgzip, so the plan must name bgzip."
+            reason: "This plan pins no bgzip for step storage, which runs clumpify.sh. BBTools compresses its output with bgzip, so the plan must pin bgzip in its tools."
         )
         var binning = samplePlan(clumpingTool: .none)
         binning.steps[0].tool = Self.reformat
@@ -170,7 +170,7 @@ final class ExecutionPlanTests: XCTestCase {
         binning.tools.removeAll { $0.id == "bgzip" }
         assertRefused(
             try binning.encoded(), field: "tools",
-            reason: "This plan pins no bgzip for step bin-quality, which runs reformat.sh. BBTools compresses its output with bgzip, so the plan must name bgzip."
+            reason: "This plan pins no bgzip for step bin-quality, which runs reformat.sh. BBTools compresses its output with bgzip, so the plan must pin bgzip in its tools."
         )
         // A plan that names pigz keeps UX's N3-1 sentence whether or not it pins bgzip.
         binning.storage.compressor = .pigz

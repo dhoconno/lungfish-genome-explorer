@@ -37,12 +37,12 @@ package struct PlanDecodeError: Error, Equatable, Sendable, LocalizedError, Cust
         )
     }
 
-    /// UX's N3-1 words for a BBTools storage step under a plan that names bgzip and pins none, so no node runs the step
-    /// with BBTools' own writer while the plan names bgzip (BIO N3).
+    /// UX's words for a BBTools storage step under a plan that names bgzip and pins none (fix 2 of the K4 part C UX
+    /// review), so no node runs the step with BBTools' own writer while the plan names bgzip (BIO N3).
     package static func bbtoolsStepWithoutPinnedBgzip(stepID: String, program: String) -> PlanDecodeError {
         PlanDecodeError(
             field: "tools",
-            reason: "This plan pins no bgzip for step \(stepID), which runs \(program). BBTools compresses its output with bgzip, so the plan must name bgzip."
+            reason: "This plan pins no bgzip for step \(stepID), which runs \(program). BBTools compresses its output with bgzip, so the plan must pin bgzip in its tools."
         )
     }
 
