@@ -49,11 +49,12 @@ extension RunPlanTests {
         let launches = try Self.storageLaunches(in: fixture)
         XCTAssertEqual(launches.count, 1)
         XCTAssertTrue(launches.first?["toolSignal"] != nil || (launches.first?["toolExitCode"] as? Int ?? 0) != 0)
+        // The launch's deadline is what was left of the step's 1 second when it started (K2 review O-1).
         let launchReason = launches.first?["reason"] as? String ?? ""
-        XCTAssertTrue(
-            launchReason.hasPrefix("The tool ran past its deadline of 1") && launchReason.hasSuffix("The executor stopped it."),
-            launchReason
-        )
+        let lead = "The tool ran past its deadline of "
+        XCTAssertTrue(launchReason.hasPrefix(lead) && launchReason.hasSuffix(" seconds. The executor stopped it."), launchReason)
+        let seconds = Double(launchReason.dropFirst(lead.count).prefix { $0 != " " }) ?? .infinity
+        XCTAssertLessThanOrEqual(seconds, 1, launchReason)
         XCTAssertNotNil(launches.first?["escalatedToSIGKILL"] as? Bool)
         XCTAssertNotNil(launches.first?["stoppedProcesses"] as? [Any])
         let reason = step.reason ?? ""
