@@ -63,7 +63,6 @@ package struct ExecutorPlanStorageRequest: Sendable, Equatable {
     package var requestedClumpingTool: ClumpingTool
     package var clumpifyHeapGB: Int
     package var threads: Int
-    package var statisticsThreads: Int
     package var compressor: PlanCompressor
     package var qualityBinning: QualityBinningScheme
     package var compressionLevel: Int
@@ -73,7 +72,7 @@ package struct ExecutorPlanStorageRequest: Sendable, Equatable {
     package var qualityBinningSource: ImportSettingSource
 
     package init(
-        requestedClumpingTool: ClumpingTool, clumpifyHeapGB: Int, threads: Int, statisticsThreads: Int,
+        requestedClumpingTool: ClumpingTool, clumpifyHeapGB: Int, threads: Int,
         compressor: PlanCompressor, qualityBinning: QualityBinningScheme, compressionLevel: Int,
         threadsSource: ImportSettingSource, clumpifyHeapSource: ImportSettingSource,
         compressorSource: ImportSettingSource, qualityBinningSource: ImportSettingSource
@@ -81,7 +80,6 @@ package struct ExecutorPlanStorageRequest: Sendable, Equatable {
         self.requestedClumpingTool = requestedClumpingTool
         self.clumpifyHeapGB = clumpifyHeapGB
         self.threads = threads
-        self.statisticsThreads = statisticsThreads
         self.compressor = compressor
         self.qualityBinning = qualityBinning
         self.compressionLevel = compressionLevel
@@ -327,7 +325,7 @@ package enum ExecutorPlanEmitter {
                 clumpingToolSource: clumping.resolvedSource, compressorSource: settings.compressorSource,
                 qualityBinningSource: settings.qualityBinningSource
             ),
-            clumping: clumping, statistics: PlanStatisticsSettings(threads: settings.statisticsThreads),
+            clumping: clumping,
             graceSeconds: request.deadlines.graceSeconds, steps: steps
         )
         try plan.validate()

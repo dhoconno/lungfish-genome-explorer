@@ -66,7 +66,7 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             inputs: files, inputFormat: .pairedR1R2, recipe: chosen ?? recipe(),
             recipeFile: try ExecutorPlanTestSupport.recipeSource(root: root),
             storage: ExecutorPlanStorageRequest(
-                requestedClumpingTool: clumping, clumpifyHeapGB: heapGB, threads: 1, statisticsThreads: 1,
+                requestedClumpingTool: clumping, clumpifyHeapGB: heapGB, threads: 1,
                 compressor: .bgzip, qualityBinning: .illumina4, compressionLevel: 4, threadsSource: .option,
                 clumpifyHeapSource: .option, compressorSource: .default, qualityBinningSource: .default
             ),

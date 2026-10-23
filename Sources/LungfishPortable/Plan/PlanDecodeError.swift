@@ -103,9 +103,6 @@ extension ExecutionPlan {
         }
         try validateStorage()
         try validateClumping()
-        guard statistics.threads > 0 else {
-            throw PlanDecodeError(field: "statistics.threads", reason: "This plan names \(statistics.threads) statistics threads. A plan must name a positive thread count, since no value may mean every core.")
-        }
         guard graceSeconds.isFinite, graceSeconds > 0, graceSeconds <= Self.maximumGraceSeconds else {
             throw PlanDecodeError(field: "graceSeconds", reason: "This plan gives a grace of \(graceSeconds) seconds. A plan's grace is above 0 and at most \(Int(Self.maximumGraceSeconds)) seconds.")
         }

@@ -49,8 +49,8 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
     /// The plan step's id.
     package var id: String
     package var kind: PlanStepKind
-    /// The tool as the image's manifest lists it, nil for a `qualityCount` step and for a step refused before its tool
-    /// was looked up.
+    /// The tool as the image's manifest lists it, nil for a step refused before its tool was looked up. A `qualityCount`
+    /// step names the executor itself, its build as the plan pins it and its own SHA-256 (BIO N6).
     package var tool: ExecutorToolRecord?
     package var outcome: ExecutorRunOutcome
     package var reason: String?
@@ -87,6 +87,8 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
     package var stderrBytes: UInt64
     /// The standard output the plan keeps, such as the table of `seqkit stats -a -T`, byte for byte with its digest.
     package var standardOutput: ExecutorCapturedOutput?
+    /// The file `seqkit stats -a -T` read, by its work-root path, SHA-256 and size (tally K4.1).
+    package var inputFile: ExecutorFileDigest?
     /// The read counts of a recipe step's input and output.
     package var inputReadCount: Int64?
     package var outputReadCount: Int64?
@@ -102,7 +104,8 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
         toolSignal: Int32? = nil, peakResidentBytes: UInt64? = nil, escalatedToSIGKILL: Bool = false,
         stoppedProcesses: [Int32] = [], adoptedOrphansReaped: Int = 0, startedAt: String, endedAt: String,
         wallSeconds: Double, outputs: [Output] = [], stderrTail: String = "", stderrTruncated: Bool = false,
-        stderrBytes: UInt64 = 0, standardOutput: ExecutorCapturedOutput? = nil, inputReadCount: Int64? = nil,
+        stderrBytes: UInt64 = 0, standardOutput: ExecutorCapturedOutput? = nil, inputFile: ExecutorFileDigest? = nil,
+        inputReadCount: Int64? = nil,
         outputReadCount: Int64? = nil, qualityCounts: ExecutorQualityCounts? = nil,
         storage: ExecutorStorageDetails? = nil
     ) {
@@ -132,6 +135,7 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
         self.stderrTruncated = stderrTruncated
         self.stderrBytes = stderrBytes
         self.standardOutput = standardOutput
+        self.inputFile = inputFile
         self.inputReadCount = inputReadCount
         self.outputReadCount = outputReadCount
         self.qualityCounts = qualityCounts
@@ -143,6 +147,8 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
 package enum ExecutorToolVersionSource: String, Codable, Sendable, CaseIterable {
     /// The image's tool manifest, the one source of versions on the node (tally K4.2).
     case imageManifest
+    /// A pin the plan states, because the binary holds no version string (ARCH A3). The executor's own count step.
+    case planPin
 }
 
 /// A tool a step ran, as the image's manifest lists it, with its absolute path in the image.
@@ -152,13 +158,19 @@ package struct ExecutorToolRecord: Codable, Sendable, Equatable {
     package var build: String
     package var path: String
     package var versionSource: ExecutorToolVersionSource
+    /// The SHA-256 of the binary that ran, stated for the executor itself, which reads its own (BIO N6).
+    package var sha256: String?
 
-    package init(id: String, version: String, build: String, path: String, versionSource: ExecutorToolVersionSource = .imageManifest) {
+    package init(
+        id: String, version: String, build: String, path: String, versionSource: ExecutorToolVersionSource = .imageManifest,
+        sha256: String? = nil
+    ) {
         self.id = id
         self.version = version
         self.build = build
         self.path = path
         self.versionSource = versionSource
+        self.sha256 = sha256
     }
 }
 

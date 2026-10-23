@@ -46,7 +46,7 @@ struct PlanRunner {
     }
 
     /// Whether the executor builds `step` itself: the storage step and the merged-to-mixed `interleave` step, which
-    /// carry no argv (`runOwnStep`). The Q20 and Q30 count is a later milestone's, so `RunCommand.prepare` refuses it.
+    /// carry no argv (`runOwnStep`). The Q20 and Q30 count runs no tool (`runQualityCount`).
     static func runsOwnStep(_ step: PlanStep) -> Bool {
         step.kind == .storage || (step.kind == .interleave && step.arguments.isEmpty)
     }
@@ -79,14 +79,19 @@ struct PlanRunner {
                 record.reason = "The executor received \(ExecutorSignals.name(signal)) before step \(step.id) started."
                 return
             }
-            guard let tool = prepared.tools[step.id] else {
+            let stepRecord: ExecutorStepRecord
+            if step.kind == .qualityCount {
+                stepRecord = runQualityCount(step, run: record)
+            } else if let tool = prepared.tools[step.id] {
+                stepRecord = runStep(step, tool: tool, adoptedSoFar: &adoptedSoFar)
+            } else {
                 record.outcome = .failed
                 record.failedStepID = step.id
                 record.reason = "Step \(step.id) has no tool from the manifest."
                 return
             }
-            let stepRecord = runStep(step, tool: tool, adoptedSoFar: &adoptedSoFar)
             record.steps.append(stepRecord)
+            record.payloads += Self.payloads(of: stepRecord)
             guard stepRecord.outcome == .succeeded else {
                 record.outcome = stepRecord.outcome == .interrupted ? .interrupted : .failed
                 record.failedStepID = step.id
@@ -181,6 +186,7 @@ struct PlanRunner {
         record.stderrTail = tail.text
         record.stderrBytes = tail.bytes
         record.stderrTruncated = tail.truncated
+        if step.kind == .statistics { captureStatistics(step, standardOutput: streams.stdout, into: &record) }
         record.wallSeconds = result.wallSeconds
         record.endedAt = ExecutorRunRecord.timestamp(Date())
         return record

@@ -38,7 +38,6 @@ final class ExecutionPlanTests: XCTestCase {
                 requested: .auto, resolved: clumpingTool, resolvedSource: .default, heapBytes: 8 * 1_073_741_824,
                 reason: "The plan writer's rule names BBTools clumpify at the plan's heap."
             ),
-            statistics: PlanStatisticsSettings(threads: 4),
             graceSeconds: 30,
             steps: [
                 PlanStep(
@@ -124,7 +123,8 @@ final class ExecutionPlanTests: XCTestCase {
         }
         assertRefused(try planData(["storage", "qualityBinning"], nil), field: "storage.qualityBinning")
         assertRefused(try planData(["storage", "qualityBinning"], "auto"), field: "storage.qualityBinning")
-        assertRefused(try planData(["statistics", "threads"], 0), field: "statistics.threads")
+        // BIO K4A fix 4. The plan states no statistics thread count, since `seqkit stats -a -T` takes none.
+        XCTAssertNil(try (JSONSerialization.jsonObject(with: planData(["storage", "qualityBinning"], "none")) as? [String: Any])?["statistics"])
         XCTAssertNoThrow(try ExecutionPlan.decode(planData(["storage", "qualityBinning"], "none")))
     }
 
