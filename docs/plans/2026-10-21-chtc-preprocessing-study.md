@@ -1,5 +1,7 @@
 # CHTC preprocessing study, panel decisions (2026-10-21)
 
+Status: active. C0 to C3 are complete, and C4 and C5 run next on the Mac Studio.
+
 This record holds the panel's decisions on running Lungfish Genome Explorer (LGE) FASTQ preprocessing recipes on CHTC
 HTCondor execute nodes. It began as a design study. The program's code landed on branch `chtc-program` and reached `main` with C3 on 2026-10-23. The briefs, the six inventories
 `inv/<FIELD>.md` and the six memos `memos/<FIELD>.md` are kept in
