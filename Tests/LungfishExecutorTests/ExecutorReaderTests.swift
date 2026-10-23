@@ -151,6 +151,21 @@ final class ExecutorReaderTests: XCTestCase {
         XCTAssertEqual(report.streamSHA256, try PortableDigest.sha256Hex(ofFileAt: fixtures.plain))
     }
 
+    /// The Mac's `ToolProcessResult.status` is the signal number for a signal end, so a decompressor killed by SIGKILL
+    /// reads `(exit 9)` through both launchers.
+    func testSignalEndedDecompressorGivesTheMacsReason() throws {
+        let folder = try Support.scratchFolder()
+        let fake = try fakeDecompressor(in: folder, "kill -KILL $$")
+        let input = try gzipLookingFile(in: folder)
+        let log = ReaderChildLog()
+        let failure = unreadable { try FASTQPairInterleaver.countRecords(in: input, launcher: pigzRoute(fake, log: log)) }
+        XCTAssertEqual(failure?.file, "input.fastq.gz")
+        XCTAssertEqual(failure?.reason, "gzip decompression failed (exit 9)")
+        XCTAssertEqual(log.all.count, 1)
+        XCTAssertEqual(log.all.first?.signal, SIGKILL)
+        XCTAssertEqual(log.all.first?.isSuccess, false)
+    }
+
     // MARK: - K3.1, the pigz child in the cancel path
 
     func testReaderChildStopsWithTheToolsTreeOnInterrupt() throws {

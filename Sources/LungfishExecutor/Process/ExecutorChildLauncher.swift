@@ -225,8 +225,8 @@ final class ExecutorChild: PortableChild, Sendable {
             status = code
             record.exitCode = code
         case .signaled(let signal):
-            // The shell's number for a signal end.
-            status = 128 + signal
+            // The Mac's `ToolProcessResult.status` is the signal number, so the reason text is equal.
+            status = signal
             record.signal = signal
         }
         record.isSuccess = end.termination == .exited(code: 0) && flags.endOfStream && !flags.readFailed
