@@ -76,14 +76,35 @@ enum ClassifierResultImportCLIRoute {
         )
     }
 
-    /// The folder a classifier import is told to write its result folder into (`--output-dir`) for `kind`, in the
-    /// project `projectURL`. The Import Center and the Tools menu both ask here, so the two menus cannot disagree.
-    /// A NAO-MGS result goes to Analyses and every other kind to Imports.
-    static func destination(for kind: MetagenomicsImportKind, projectURL: URL) throws -> URL {
-        if kind == .naomgs { return try AnalysesFolder.url(for: projectURL) }
-        let imports = projectURL.appendingPathComponent("Imports", isDirectory: true)
-        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
-        return imports
+    /// Why a project's Analyses folder cannot take an import.
+    enum DestinationError: LocalizedError, Equatable {
+        /// The Analyses folder resolves outside the project, so a result written there would leave it.
+        case outsideProject(URL)
+
+        var errorDescription: String? {
+            switch self {
+            case .outsideProject(let url):
+                return "The Analyses folder resolves to \(url.path), outside the project."
+            }
+        }
+    }
+
+    /// The one folder every classifier import is told to write its result folder into (`--output-dir`), whatever
+    /// the kind. It is the project's Analyses folder, where the sidebar lists a run's result. The Import Center and
+    /// the Tools menu both ask here, so the two menus cannot disagree. The result folder's name, `<kind>-<source
+    /// folder>`, is the leaf's (`MetagenomicsImportService`), which keeps a user's folder name to letters, digits,
+    /// `-` and `_`, so the result is one folder inside this one. The folder is made when the project has none, and it
+    /// must resolve to `<project>/Analyses` before anything is written, else this throws.
+    static func destination(projectURL: URL) throws -> URL {
+        let analyses = try AnalysesFolder.url(for: projectURL)
+        let project = projectURL.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let resolved = analyses.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard resolved.count == project.count + 1,
+              resolved.starts(with: project),
+              resolved.last == AnalysesFolder.directoryName else {
+            throw DestinationError.outsideProject(analyses.resolvingSymlinksInPath())
+        }
+        return analyses
     }
 
     /// Runs `arguments` for the row `operationID` and ends the row as the helper route did.

@@ -35,9 +35,9 @@ extension AppDelegate {
             return
         }
 
-        let importsDir: URL
+        let outputDir: URL
         do {
-            importsDir = try ClassifierResultImportCLIRoute.destination(for: .nvd, projectURL: projectURL)
+            outputDir = try ClassifierResultImportCLIRoute.destination(projectURL: projectURL)
         } catch {
             onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
             showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: controller.window)
@@ -47,11 +47,11 @@ extension AppDelegate {
         // The import is `lungfish-cli import nvd`, and the row shows its events (Phase 2.12 lane 12.05).
         let runner = CLIBundleBuildRunner()
         let arguments = ClassifierResultImportCLIRoute.arguments(
-            kind: .nvd, inputURL: url, outputDirectory: importsDir, preferredName: nil
+            kind: .nvd, inputURL: url, outputDirectory: outputDir, preferredName: nil
         )
         let began = Self.beginNvdImportOperation(
             sourceURL: url,
-            importsDirectory: importsDir,
+            importsDirectory: outputDir,
             routeContext: routeContext,
             onCancel: { runner.cancel() }
         ) { opID in

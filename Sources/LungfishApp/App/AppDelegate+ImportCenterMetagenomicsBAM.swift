@@ -87,7 +87,7 @@ extension AppDelegate {
 
         let outputDir: URL
         do {
-            outputDir = try ClassifierResultImportCLIRoute.destination(for: kind, projectURL: projectURL)
+            outputDir = try ClassifierResultImportCLIRoute.destination(projectURL: projectURL)
         } catch {
             onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
             showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)

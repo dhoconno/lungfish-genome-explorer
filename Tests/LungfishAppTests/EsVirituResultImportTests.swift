@@ -97,7 +97,7 @@ final class EsVirituResultImportTests: XCTestCase {
     func testImportedCLIResultIsListedAndOpens() async throws {
         let project = try makeProject()
         let input = try ClassifierImportAppFixtures.esVirituResult(in: root)
-        let destination = try ClassifierResultImportCLIRoute.destination(for: .esviritu, projectURL: project)
+        let destination = try ClassifierResultImportCLIRoute.destination(projectURL: project)
         let imported = try await importResult(.esviritu, input: input, into: destination)
 
         let sidebar = openSidebar(on: project)
@@ -128,6 +128,82 @@ final class EsVirituResultImportTests: XCTestCase {
             rows.map(\.readCount).sorted(), source.map(\.readCount).sorted(),
             "read counts of the opened result and the source folder"
         )
+    }
+
+    /// The Kraken2, TaxTriage and NVD imports move with the EsViritu import (ARCH 4, the changed route). Each result the
+    /// route's argv imports into the destination is a row of its own kind in the sidebar, as a run's result is.
+    func testKraken2TaxTriageAndNvdImportsListFromAnalysesToo() async throws {
+        let project = try makeProject()
+        let destination = try ClassifierResultImportCLIRoute.destination(projectURL: project)
+        let imported: [(MetagenomicsImportKind, URL, SidebarItemType)] = [
+            (.kraken2, try await importResult(.kraken2, input: ClassifierImportAppFixtures.kraken2Report(in: root), into: destination), .classificationResult),
+            (.taxtriage, try await importResult(.taxtriage, input: ClassifierImportAppFixtures.taxTriageResult(in: root), into: destination), .taxTriageResult),
+            (.nvd, try await importResult(.nvd, input: NaoMgsNvdAppFixtures.nvdRun(in: root), into: destination), .nvdResult),
+        ]
+
+        let sidebar = openSidebar(on: project)
+        for (kind, folder, type) in imported {
+            let row = try XCTUnwrap(self.row(for: folder, in: sidebar), "the imported \(kind.rawValue) result is not a row")
+            XCTAssertEqual(row.type, type, kind.rawValue)
+        }
+    }
+
+    /// Every kind is told to write into `<project>/Analyses`, which the destination makes when the project has none, and
+    /// the row's Copy CLI Command names it (the prediction row of the report, `--output-dir <project>/Imports` before).
+    func testTheDestinationIsTheProjectsAnalysesFolderForEveryKind() throws {
+        let project = try makeProject()
+        let destination = try ClassifierResultImportCLIRoute.destination(projectURL: project)
+
+        XCTAssertEqual(
+            destination.resolvingSymlinksInPath().path,
+            project.appendingPathComponent(AnalysesFolder.directoryName).resolvingSymlinksInPath().path
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path, isDirectory: &isDirectory) && isDirectory.boolValue)
+        let input = root.appendingPathComponent("incoming", isDirectory: true)
+        for kind in MetagenomicsImportKind.allCases {
+            let command = ClassifierResultImportCLIRoute.rowCommand(
+                kind: kind, inputURL: input, outputDirectory: destination, preferredName: nil
+            )
+            XCTAssertTrue(command.contains("--output-dir \(destination.path) "), "\(kind.rawValue): \(command)")
+            XCTAssertFalse(command.contains("/Imports"), "\(kind.rawValue): \(command)")
+        }
+        XCTAssertEqual(try listing(of: project), [AnalysesFolder.directoryName])
+    }
+
+    /// An Analyses folder that resolves outside the project is refused before anything is written (SWIFT 6).
+    func testAnAnalysesFolderThatLeavesTheProjectIsRefusedBeforeAnythingIsWritten() throws {
+        let project = try makeProject()
+        let outside = try makeFolder("Elsewhere", in: root)
+        try FileManager.default.createSymbolicLink(
+            at: project.appendingPathComponent(AnalysesFolder.directoryName), withDestinationURL: outside
+        )
+
+        XCTAssertThrowsError(try ClassifierResultImportCLIRoute.destination(projectURL: project)) { error in
+            XCTAssertEqual(
+                error as? ClassifierResultImportCLIRoute.DestinationError,
+                .outsideProject(outside.resolvingSymlinksInPath())
+            )
+        }
+        XCTAssertEqual(try listing(of: outside), [], "nothing was written outside the project")
+    }
+
+    /// A name that tries to leave the folder is kept to one folder inside Analyses by the leaf's sanitizer, which the
+    /// destination relies on (ARCH 4, SWIFT 6). The command runs with `--name ../../Escape`.
+    func testAHostileResultNameStaysInsideAnalyses() async throws {
+        let project = try makeProject()
+        let input = try ClassifierImportAppFixtures.esVirituResult(in: root)
+        let destination = try ClassifierResultImportCLIRoute.destination(projectURL: project)
+        let argv = ClassifierResultImportCLIRoute.arguments(
+            kind: .esviritu, inputURL: input, outputDirectory: destination, preferredName: "../../Escape"
+        )
+
+        let run = try await ClassifierImportAppFixtures.runCLI(argv, in: root)
+
+        XCTAssertNil(run.failure, run.lines.joined(separator: "\n"))
+        XCTAssertEqual(try listing(of: destination), ["esviritu-Escape"])
+        XCTAssertEqual(try listing(of: project), [AnalysesFolder.directoryName])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Escape").path))
     }
 
     // MARK: - Helpers
