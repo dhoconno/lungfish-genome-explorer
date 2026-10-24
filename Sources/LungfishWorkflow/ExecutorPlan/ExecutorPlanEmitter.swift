@@ -105,8 +105,9 @@ package struct ExecutorPlanDeadlines: Sendable, Equatable {
     }
 }
 
-/// Everything the plan of one sample is made from. `imageManifest` is the image tool manifest's `{sha256, size}` and
-/// `imageTools` its tools, which the caller reads from the manifest (SWIFT round 3, Q-K4-1).
+/// Everything the plan of one sample is made from, the template request of its recipe and its sample row together
+/// (`templateRequest` and `sampleRow()` in ExecutorPlanFill.swift). `imageManifest` is the image tool manifest's
+/// `{sha256, size}` and `imageTools` its tools, which the caller reads from the manifest (SWIFT round 3, Q-K4-1).
 package struct ExecutorPlanRequest: Sendable {
     package var sample: PlanSampleValues
     /// R1 then R2, or the one file.
@@ -215,7 +216,15 @@ package enum ExecutorPlanEmitter {
         try emission(request, host: host).plan
     }
 
+    /// One sample's plan: the template of the request's recipe, filled with the request's sample (ARCH-fill F5).
     package static func emission(_ request: ExecutorPlanRequest, host: ExecutorPlanHostFacts) throws -> ExecutorPlanEmission {
+        let recipeTemplate = try Self.template(request.templateRequest, host: host)
+        return try recipeTemplate.emission(for: request.sampleRow())
+    }
+
+    /// The template of one recipe for every sample of one input shape (V5): the engine's planned steps, the tool pins,
+    /// the settings and the executor, recipe and database entries, with one slot per input. It reads no input file.
+    package static func template(_ request: ExecutorPlanTemplateRequest, host: ExecutorPlanHostFacts) throws -> ExecutorPlanTemplate {
         let settings = request.storage
         let clumping = try clumpingChoice(requested: settings.requestedClumpingTool, heapGB: settings.clumpifyHeapGB, host: host)
         let plannedSteps: [PlannedStep]
@@ -237,11 +246,11 @@ package enum ExecutorPlanEmitter {
             entries.append(PlanEntry(role: .recipe, relativePath: path, sha256: file.sha256, size: file.size))
             sources[path] = file.url
         }
+        var slots: [PlanInputSlot] = []
         var inputURLs: [URL] = []
-        for (index, file) in request.inputs.enumerated() {
-            let path = "inputs/R\(index + 1)\(fastqSuffix(of: file.url.lastPathComponent))"
-            entries.append(PlanEntry(role: .input, relativePath: path, sha256: file.sha256, size: file.size))
-            sources[path] = file.url
+        for (index, suffix) in request.inputSuffixes.enumerated() {
+            let path = "inputs/R\(index + 1)\(suffix)"
+            slots.append(PlanInputSlot(relativePath: path))
             inputURLs.append(root.appendingPathComponent(path))
         }
         guard let first = inputURLs.first else {
@@ -314,9 +323,9 @@ package enum ExecutorPlanEmitter {
             id: "quality-count", title: "Count Q20 and Q30 bases", kind: .qualityCount, tool: nil, arguments: [],
             deadlineSeconds: request.deadlines.statisticsSeconds, inputs: [payloadPath], outputs: []
         ))
-        let plan = ExecutionPlan(
-            entries: entries, executor: request.executorBuild, imageManifest: request.imageManifest, tools: tools.used,
-            recipe: recipeIdentity, sample: request.sample,
+        let planTemplate = PlanTemplate(
+            entries: entries, inputs: slots, executor: request.executorBuild, imageManifest: request.imageManifest,
+            tools: tools.used, recipe: recipeIdentity, platform: request.platform,
             storage: PlanStorageSettings(
                 clumpingTool: clumping.resolved, compressor: settings.compressor, qualityBinning: settings.qualityBinning,
                 threads: settings.threads, clumpifyHeapGB: settings.clumpifyHeapGB, compressionLevel: settings.compressionLevel,
@@ -327,8 +336,8 @@ package enum ExecutorPlanEmitter {
             clumping: clumping,
             graceSeconds: request.deadlines.graceSeconds, steps: steps
         )
-        try plan.validate()
-        return ExecutorPlanEmission(plan: plan, sources: sources)
+        // The fill checks the plan by the decoder's own rules once a sample's values are in it.
+        return ExecutorPlanTemplate(template: planTemplate, sources: sources)
     }
 
     /// One process of a recipe step, as one plan step.
@@ -454,15 +463,6 @@ package enum ExecutorPlanEmitter {
     /// The root is a name that is not on disk, so no URL helper applies (SWIFT N8).
     static func withoutPlanRoot(_ argument: String) -> String {
         argument.replacingOccurrences(of: root.path + "/", with: "")
-    }
-
-    /// The FASTQ suffix of a file name, kept so a tool sees the compression it expects.
-    static func fastqSuffix(of name: String) -> String {
-        let lower = name.lowercased()
-        for suffix in [".fastq.gz", ".fq.gz", ".fastq.bgz", ".fastq", ".fq", ".gz"] where lower.hasSuffix(suffix) {
-            return suffix
-        }
-        return ".fastq"
     }
 }
 

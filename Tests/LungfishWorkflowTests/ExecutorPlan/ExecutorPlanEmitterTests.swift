@@ -248,6 +248,8 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         try Data([0x1f, 0x8b, 0x08, 0x00]).write(to: gzipped)
         var single = paired
         single.inputs = [try ExecutorPlanSourceFile.measuring(gzipped)]
+        single.sample.originalFilenames = [gzipped.lastPathComponent]
+        single.sample.originalSizeBytes = single.inputs[0].size
         single.inputFormat = .single
         XCTAssertThrowsError(try ExecutorPlanEmitter.emit(single, host: Self.mac24)) { error in
             XCTAssertEqual(error as? PlanDecodeError, PlanDecodeError(

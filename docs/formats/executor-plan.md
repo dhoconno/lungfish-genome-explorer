@@ -9,12 +9,33 @@ The folder that holds `plan.json` is the run's work root. The Mac writes the fil
 | Path | What it holds |
 | --- | --- |
 | `plan.json` | The plan |
-| `bin/lungfish-executor` | The executor the plan pins |
+| `bin/lungfish-executor` | The executor the plan pins. A shared folder holds none |
 | `recipe/<id>.recipe.json` | The recipe, when the import runs one |
 | `inputs/R1<suffix>`, `inputs/R2<suffix>` | The reads |
-| `databases/<id>/<file>` | Each database a recipe step reads |
+| `databases/<id>/<file>` | Each database a recipe step reads. A shared folder holds none |
+| `staging.json` | In a shared folder only, the files kept in the staging folder and the image |
 
 Work files use the stem `sample`. The sample's real name lives only in `sample.sampleName`, so the adopt applies the one name sanitizer.
+
+## The template and the fill
+
+The Mac plans a recipe once for every sample of one input shape. The template, `PlanTemplate` in `Sources/LungfishPortable/Plan/PlanTemplate.swift`, holds every plan key except `sample`, the platform, and one input slot per input, such as `inputs/R1.fastq.gz`, in place of the input entries. `PlanTemplate.fill` takes one sample's name, file names, sample-sheet labels and each input's SHA-256 and size, and gives that sample's plan. It sets `sample` and the input entries' `sha256` and `size` and nothing else. It puts the input entries before the first `database` entry and states the sum of the input sizes as `sample.originalSizeBytes`. It takes no parameter, so a sample cannot change a step, a tool, a setting or a deadline. It refuses a sample with field `entries` when its number of inputs differs from the template's, and with field `sample.originalFilenames` when a file name's FASTQ suffix differs from its slot's, since the steps' argv name the slot. A sample whose files take another suffix needs a template of its own. The Mac's own plan of one sample is the fill of its template, so the two have the same bytes. The fill reads no file, clock, environment or host fact, and it builds for Linux.
+
+The job's `request_disk` is a value of the Mac's sample row that only the submit side reads. It never reaches `plan.json`, an argv or a step's environment, so two sample sheets that differ only in it give the same plan bytes.
+
+## The shared folder and `staging.json`
+
+A plan folder for CHTC holds no `executor` or `database` entry. Each such file is kept once in the group's staging folder under a name that holds its SHA-256, and the job puts it at the entry's `relativePath`. The folder writer's shared mode copies every other entry, checks each copy with the node's resolver, writes `staging.json` and then writes `plan.json`, whose bytes are those of the per-sample folder. A folder written for a replay on the Mac holds every entry and no `staging.json`.
+
+`staging.json` is UTF-8 JSON with sorted keys.
+
+| Key | Meaning |
+| --- | --- |
+| `schemaVersion` | 1 |
+| `sharedFiles` | Each entry the folder does not hold, `{role, relativePath, sha256, size}`, in plan order |
+| `image` | The image the job runs in, `{fileName, sha256, size}`, as the launcher states them. The plan pins the image only by `imageManifest`, the pin the executor checks |
+
+The shared mode refuses an image whose file name is not a plain name (field `staging.image.fileName`), whose SHA-256 is not 64 lowercase hexadecimal digits (`staging.image.sha256`) or whose size is not above 0 (`staging.image.size`).
 
 ## Running a plan
 
