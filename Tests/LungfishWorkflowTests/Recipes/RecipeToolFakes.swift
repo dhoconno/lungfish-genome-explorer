@@ -15,6 +15,7 @@ enum RecipeToolFakes {
         let scripts: [(env: String, name: String, body: String)] = [
             ("fastp", "fastp", """
             if [ "${1:-}" = "--version" ]; then echo "fastp 1.0.1"; exit 0; fi
+            echo "fastp stand-in" >&2
             in1=""; in2=""; o1=""; o2=""; m=""; report=""
             while [ "$#" -gt 0 ]; do
               case "$1" in
@@ -31,6 +32,7 @@ enum RecipeToolFakes {
             """),
             ("deacon", "deacon", """
             case "${1:-}" in --version|-V) echo "deacon 0.13.2"; exit 0 ;; esac
+            echo "deacon stand-in" >&2
             p2=""; p1=""; in1=""; in2=""; o1=""; o2=""; summary=""
             while [ "$#" -gt 0 ]; do
               case "$1" in
@@ -43,6 +45,7 @@ enum RecipeToolFakes {
             """),
             ("seqkit", "seqkit", """
             case "${1:-}" in version|--version) echo "seqkit v2.10.0"; exit 0 ;; esac
+            echo "seqkit stand-in" >&2
             p1=""; src=""; out=""
             while [ "$#" -gt 0 ]; do
               case "$1" in
