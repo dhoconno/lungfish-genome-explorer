@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from scripts.tests.gate_fixtures import make_gate_fixture, make_app_smoke_fixture
+from scripts.release.linux_executor import MANIFEST_FIELDS
 from scripts.release.release_contract import load_contract
 from scripts.release.release_identity import identity_plist, prepare_identity_plist
 from scripts.tests.test_debug_artifact import executable_bytes
@@ -651,6 +652,103 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             verified = self._verify(fixture)
             self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
             self.assertEqual(verified.stdout, "PASS unsigned candidate receipt\n")
+
+    @staticmethod
+    def _add_linux_executor(fixture):
+        """Put the executor folder of a package into the fixture app: the file, and manifest.json with the eleven fields."""
+        contents = b"\x7fELF stripped static executor\n"
+        folder = fixture["app"] / "Contents/Resources/LinuxExecutor/x86_64"
+        folder.mkdir(parents=True)
+        executable = folder / "lungfish-executor"
+        executable.write_bytes(contents)
+        executable.chmod(0o755)
+        manifest = {
+            "schemaVersion": 1,
+            "relativePath": "lungfish-executor",
+            "sha256": hashlib.sha256(contents).hexdigest(),
+            "size": len(contents),
+            "lgeVersion": "2026.8.1",
+            "lgeCommit": fixture["commit"],
+            "targetTriple": "x86_64-swift-linux-musl",
+            "toolchainID": "swift-6.4.0-RELEASE",
+            "toolchainSHA256": "b" * 64,
+            "staticLinuxSDKID": "swift-6.4.0-RELEASE_static-linux-0.1.0",
+            "staticLinuxSDKSHA256": "c" * 64,
+        }
+        manifest_path = folder / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        manifest_path.chmod(0o644)
+        return executable, manifest_path, manifest
+
+    def test_receipt_states_the_linux_executor_record_of_the_app(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            _executable, _manifest_path, manifest = self._add_linux_executor(fixture)
+            self.assertEqual(set(manifest), MANIFEST_FIELDS)
+
+            result = self._create(fixture)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            receipt = json.loads(fixture["receipt"].read_bytes())
+            self.assertEqual(
+                receipt["artifacts"]["linuxExecutor"],
+                {
+                    "path": "Contents/Resources/LinuxExecutor/x86_64/lungfish-executor",
+                    "manifest": manifest,
+                },
+            )
+            verified = self._verify(fixture)
+            self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+
+    def test_verify_fails_when_the_linux_executor_changes_after_the_receipt(self):
+        def append_a_byte(executable, _manifest_path, _manifest):
+            with executable.open("ab") as handle:
+                handle.write(b"\x00")
+
+        def change_the_commit(_executable, manifest_path, manifest):
+            changed = {**manifest, "lgeCommit": "f" * 40}
+            manifest_path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+
+        for label, mutate, expected in (
+            ("a byte appended to the executor", append_a_byte, "SHA-256 or size differs"),
+            ("another lgeCommit in the manifest", change_the_commit, "receipt does not match|app smoke identity"),
+        ):
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir:
+                fixture = self._make_fixture(Path(temp_dir))
+                executable, manifest_path, manifest = self._add_linux_executor(fixture)
+                self.assertEqual(self._create(fixture).returncode, 0)
+                self.assertEqual(self._verify(fixture).returncode, 0)
+
+                mutate(executable, manifest_path, manifest)
+                result = self._verify(fixture)
+
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertRegex(result.stderr, expected)
+
+    def test_create_refuses_a_linux_executor_that_disagrees_with_its_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            executable, _manifest_path, _manifest = self._add_linux_executor(fixture)
+            with executable.open("ab") as handle:
+                handle.write(b"\x00")
+
+            result = self._create(fixture)
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("Linux executor folder is invalid", result.stderr)
+            self.assertFalse(fixture["receipt"].exists())
+
+    def test_receipt_holds_null_for_an_app_without_the_folder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = self._make_fixture(Path(temp_dir))
+            self.assertFalse((fixture["app"] / "Contents/Resources/LinuxExecutor").exists())
+
+            result = self._create(fixture)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            receipt = json.loads(fixture["receipt"].read_bytes())
+            self.assertIn("linuxExecutor", receipt["artifacts"])
+            self.assertIsNone(receipt["artifacts"]["linuxExecutor"])
 
     def test_create_binds_bootstrap_in_macos_resource_bundle_layout(self):
         with tempfile.TemporaryDirectory() as temp_dir:
