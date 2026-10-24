@@ -115,6 +115,17 @@ extension ImportCommand.FastqSubcommand {
         guard let heapGB = clumpifyHeapGB, heapGB >= 1 else {
             throw refuse("A plan fixes its clumpify heap, so pass --clumpify-heap-gb with --write-plan.")
         }
+        // The plan finds its samples by its own detection, so an option that steers the import's detection is refused
+        // with its name and never ignored (ARCH 2: one route for both surfaces).
+        guard pairing.lowercased() == "auto" else {
+            throw refuse("A plan pairs R1 and R2 files by name as --pairing auto does, so drop --pairing or import on this Mac without --write-plan.")
+        }
+        guard !recursive else {
+            throw refuse("A plan reads the files you name or the top level of one folder, so drop --recursive or name the files.")
+        }
+        guard name == nil else {
+            throw refuse("A plan names each sample from its files or its sample sheet, so drop --name.")
+        }
         do {
             let rows = try planRows()
             let template = try await planTemplateRequest(

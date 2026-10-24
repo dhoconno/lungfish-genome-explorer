@@ -66,6 +66,26 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }
 
+    /// The plan has its own detection, so `--pairing`, `--recursive` and `--name` are refused with the input error exit
+    /// code and no folder, never ignored.
+    func testWritePlanRefusesPairingRecursiveAndName() async throws {
+        let fixture = try writeFixture()
+        for (index, option) in [["--pairing", "single"], ["--recursive"], ["--name", "X"]].enumerated() {
+            let folder = root.appendingPathComponent("refused-\(index)", isDirectory: true)
+            let command = try ImportCommand.FastqSubcommand.parse(
+                fixture.reads.map(\.path) + fixture.planArguments(folder: folder)
+                    + ["--threads", "1", "--clumpify-heap-gb", "4"] + option
+            )
+            do {
+                try await command.run()
+                XCTFail("\(option) with --write-plan must be refused")
+            } catch let error as ExitCode {
+                XCTAssertEqual(error.rawValue, 3, "\(option)")
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(option)")
+        }
+    }
+
     /// The built CLI writes the submit folder with `ssh`, `scp`, `rsync` and the HTCondor submit commands replaced by
     /// stand-ins at the front of `PATH`, and no stand-in ran: the planning step opens no connection and submits nothing.
     func testWritePlanOpensNoSSH() throws {
