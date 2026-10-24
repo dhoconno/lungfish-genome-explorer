@@ -41,7 +41,7 @@ struct ExecutorAdoptedRun: Sendable {
     let payload: ExecutorPayloadRecord
     /// The payload's real path inside the folder, as the resolver checked it.
     let payloadURL: URL
-    /// `sample.sampleName` through the one name sanitizer, or the name `--name` gave.
+    /// `--name` or `sample.sampleName`, through the one name sanitizer.
     let sampleName: String
     /// The image `staging.json` names, or nil for a folder that holds none.
     let stagingImage: ExecutorAdoptStagingImage?
@@ -126,7 +126,7 @@ public enum ExecutorRunAdoption {
         let image = try stagingImage(in: resolver)
         try checkImageDigestFact(record.siteFacts, image: image)
         let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
-        let sampleName = name ?? SampleFolderNaming.sanitizedDirectoryName(for: plan.sample.sampleName)
+        let sampleName = SampleFolderNaming.sanitizedDirectoryName(for: name ?? plan.sample.sampleName)
         return ExecutorAdoptedRun(
             folder: URL(fileURLWithPath: resolver.workRoot, isDirectory: true), plan: plan, record: record,
             payload: payload, payloadURL: payloadURL, sampleName: sampleName, stagingImage: image

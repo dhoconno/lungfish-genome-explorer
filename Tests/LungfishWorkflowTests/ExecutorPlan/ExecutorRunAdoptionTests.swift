@@ -188,6 +188,22 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         XCTAssertEqual(importedEntries(), ["S.lungfishfastq"])
     }
 
+    /// SWIFT 6: a name the caller gives passes through the one name sanitizer, so no part of it reaches the bundle's path,
+    /// the staging folder beside it or the staged file, and nothing is written beside or above the project's imports.
+    func testAdoptSanitizesTheNameItIsGiven() async throws {
+        let returned = try returned(.bbtools)
+        let before = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        let bundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: returned.folder, projectDirectory: project, name: "../../Escape/x"
+        )
+        let expected = project.appendingPathComponent("Imports/Escape_x.lungfishfastq")
+        XCTAssertEqual(bundle.standardizedFileURL.path, expected.standardizedFileURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("Escape_x.fastq.gz").path))
+        XCTAssertEqual(importedEntries(), ["Escape_x.lungfishfastq"])
+        let after = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        XCTAssertEqual(after.sorted(), (before + ["Project.lungfish"]).sorted())
+    }
+
     /// C4-01, XC-7, XC-8 and XC-13 on the adopted record, for an automatic plan and for one that names the tool.
     func testAdoptedRecordOfAutoPlanNullsHostBasis() async throws {
         let physicalMemory = String(ProcessInfo.processInfo.physicalMemory)
