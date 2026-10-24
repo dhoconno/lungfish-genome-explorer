@@ -123,4 +123,44 @@ final class ViralDetectionTableIdentityTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - Exports
+
+    /// Both export sites write the fraction as the tool wrote it. The shortest round-trip text keeps every digit
+    /// (0.99699), and writes 0.0 for 0 and 1.0 for 1 (BIO, QA and SWIFT, V12).
+    func testExportKeepsTheFraction() throws {
+        let cases: [(fraction: Double, text: String)] = [(0.99699, "0.99699"), (0, "0.0"), (1, "1.0")]
+        for (fraction, text) in cases {
+            showTable(identity: fraction)
+
+            // The table's Copy Row as TSV holds Identity in field 8 of an assembly row and of a detection row.
+            for (row, kind) in [(0, "assembly"), (1, "detection")] {
+                pasteboard.clearContents()
+                outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                table.copySelectedRowAsTSV(nil)
+                let copied = try XCTUnwrap(pasteboard.string(forType: .string), "\(kind) row copy at \(fraction)")
+                let fields = copied.components(separatedBy: "\t")
+                XCTAssertEqual(fields.count, 11, "\(kind) row copy at \(fraction): \(copied)")
+                XCTAssertEqual(fields.count > 8 ? fields[8] : nil, text, "table TSV, \(kind) row at \(fraction)")
+            }
+
+            // The export that the viewer and `esviritu export detections` share writes detection rows.
+            let exported = EsVirituDetectionExport.buildDelimitedExport(
+                result: Self.result(of: Self.assembly(identity: fraction)),
+                separator: "\t", metadataHeaders: [], metadataValuesBySample: [:]
+            )
+            let lines = exported.split(separator: "\n").map(String.init)
+            XCTAssertEqual(lines.count, 3, "a header and two detection rows at \(fraction)")
+            let header = (lines.first ?? "").components(separatedBy: "\t")
+            let identityField = try XCTUnwrap(header.firstIndex(of: "Identity"), "the export header holds Identity")
+            for line in lines.dropFirst() {
+                let fields = line.components(separatedBy: "\t")
+                XCTAssertEqual(fields.count, header.count, "a detection row has a field for each header at \(fraction)")
+                XCTAssertEqual(
+                    fields.count > identityField ? fields[identityField] : nil, text,
+                    "EsVirituDetectionExport at \(fraction)"
+                )
+            }
+        }
+    }
 }
