@@ -1,6 +1,6 @@
 OVERVIEW: Batch-import sequencing reads into a Lungfish project
 
-USAGE: lungfish-cli import-fastq [<options>] [<input> ...] --project <project>
+USAGE: lungfish-cli import-fastq [<options>] [<input> ...]
 
 ARGUMENTS:
   <input>                 Directory containing sequencing reads, FASTQ paths,
@@ -10,7 +10,8 @@ OPTIONS:
   --samplesheet <samplesheet>
                           CSV sample sheet with sample,r1,r2 columns and
                           optional metadata columns
-  -p, --project <project> Path to .lungfish project directory
+  -p, --project <project> Path to .lungfish project directory, required unless
+                          --write-plan is given
   --platform <platform>   Sequencing platform: auto, illumina, ont, pacbio,
                           element, mgi, ultima, unknown (default: auto)
         auto infers each sample's platform from its read headers (and a BAM
@@ -72,6 +73,39 @@ OPTIONS:
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
                           trim-galore, none (default: platform-specific)
+  --write-plan <folder>   Write a CHTC submit folder to this new folder in
+                          place of importing
+        The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan
+        folder per sample named by its sample, each sample's plan.tar under
+        staging/, and staging-files.json, which lists each file the jobs read
+        from the staging folder with its size, its SHA-256 and the file on this
+        Mac to copy there. No file is imported and nothing is submitted, so
+        --project is not needed. A sample sheet's request_disk column gives a
+        sample's disk request in GB.
+  --executor-manifest <file>
+                          The manifest.json beside the Linux lungfish-executor,
+                          which states its SHA-256, size and build
+        Required with --write-plan. This build of the app holds no Linux
+        executor yet, so you name the manifest of one you built.
+  --image <file>          The image.json of the container image the jobs run
+                          in, which states the image's file name, SHA-256 and
+                          size and its tool manifest's SHA-256 and size
+        Required with --write-plan. This build of the app holds no image record
+        yet, so you name the one written when the image was built.
+  --image-tool-manifest <file>
+                          The image's tool manifest, the file image.json pins
+        Required with --write-plan. The plan pins each tool it runs from this
+        file.
+  --staging-folder <path> The absolute path of the group's staging folder on
+                          CHTC that the jobs read from
+        Required with --write-plan. The image is in images/, each executor and
+        database copy in shared/ under a name that starts with its SHA-256, and
+        each sample's plan tar, reads and result in batches/<submit folder
+        name>/<sample>/.
+  --plan-database <id=file>
+                          A database a recipe step reads, as <id>=<index file>,
+                          for --write-plan
+        Repeat it for each database the recipe reads.
   --log-dir <log-dir>     Directory for per-sample log files
   --dry-run               List detected pairs without importing
   --force                 Reimport samples even if bundle already exists
