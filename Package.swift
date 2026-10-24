@@ -257,6 +257,9 @@ let package = Package(
                 "LungfishTestSupport",
             ],
             path: "Tests/LungfishWorkflowTests",
+            // QA ruling QA-parity-1: the C0 Mac determinism table's excerpt sits beside the V15 list, and no test
+            // parses it.
+            exclude: ["ExecutorPlan/mac-determinism-c0.md"],
             resources: [
                 .copy("Resources")
             ]

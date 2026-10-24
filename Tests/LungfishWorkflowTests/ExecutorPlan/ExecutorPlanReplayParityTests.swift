@@ -60,18 +60,29 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     }
 
     func testVSP2PlanReplayMatchesInProcessImport() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExecutorPlanReplayParity")
+        scratch = root
+        let shared = try await Self.preparedShared()
+        for parity in Self.cases {
+            try await replay(parity, shared: shared, root: root)
+        }
+    }
+
+    /// R1, the slice's bytes checked before either route runs, then the tools, the indexes and the Mac replay's
+    /// manifest both routes run. The adopt parity tests (C4 lane P) share it.
+    static func preparedShared() async throws -> Shared {
         let environment = ProcessInfo.processInfo.environment
         guard environment["LUNGFISH_REQUIRE_TOOLS"] == "1", let sliceFolder = environment[Self.sliceVariable],
               !sliceFolder.isEmpty else {
             throw XCTSkip("The replay parity test runs with LUNGFISH_REQUIRE_TOOLS=1 and \(Self.sliceVariable) naming the slice's folder.")
         }
-        // R1. The slice's bytes are checked before either route runs, and a mismatch fails.
         var inputs: [ExecutorPlanSourceFile] = []
         for file in Self.slice {
             let measured = try ExecutorPlanSourceFile.measuring(URL(fileURLWithPath: sliceFolder).appendingPathComponent(file.name))
-            XCTAssertEqual(measured.sha256, file.sha256, file.name)
-            XCTAssertEqual(measured.size, file.size, file.name)
-            guard measured.sha256 == file.sha256, measured.size == file.size else { return }
+            guard measured.sha256 == file.sha256, measured.size == file.size else {
+                XCTFail("\(file.name) has SHA-256 \(measured.sha256) and \(measured.size) bytes, not the slice's")
+                throw XCTSkip("The slice does not match")
+            }
             inputs.append(measured)
         }
         var toolPaths: [NativeTool: URL] = [:]
@@ -110,17 +121,11 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         let java = try XCTUnwrap(manifest.tools.first { $0.id == "java" }, "The managed bbtools environment's Java is in the manifest")
         pins.append(PlanToolPin(id: java.id, version: java.version, build: java.build))
         pins.sort { $0.id < $1.id }
-
-        let root = try TestTempDirectory.make(prefix: "ExecutorPlanReplayParity")
-        scratch = root
-        let shared = Shared(
+        return Shared(
             inputs: inputs, databases: databases, manifestData: manifestData, pins: pins,
             executor: try ExecutorPlanSourceFile.measuring(Self.builtExecutor()),
             recipeFile: try ExecutorPlanSourceFile.measuring(Self.recipeSourceURL())
         )
-        for parity in Self.cases {
-            try await replay(parity, shared: shared, root: root)
-        }
     }
 
     struct Shared {
