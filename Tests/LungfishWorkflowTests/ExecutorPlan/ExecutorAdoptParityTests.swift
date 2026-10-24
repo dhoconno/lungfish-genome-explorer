@@ -5,6 +5,7 @@
 import Foundation
 import XCTest
 import LungfishIO
+import LungfishCore
 @testable import LungfishPortable
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -278,6 +279,45 @@ final class ExecutorAdoptParityTests: XCTestCase {
         return envelope["steps"] as? [[String: Any]] ?? []
     }
 
+    /// C4-3 C-2's names, each read from that route's own records (ARCH A-C2-1, QA Q-2b, Q-2e): the node's stem from its
+    /// one payload and its work folder from the emitter, the Mac's stem from its one published FASTQ, and each route's
+    /// input paths with the digests its records give them, against the plan's digest for each mate. The Mac names an
+    /// input outside the project `<external>/<name>`; its sidecar's absolute form resolves that against the slice folder.
+    /// Returns the problems, a route with no one stem among them.
+    private static func routeNames(
+        _ routes: Routes, adoptedEnvelope: [String: Any], macEnvelope: [String: Any], into comparison: inout V15Comparison
+    ) -> [String] {
+        func inputDigests(_ envelope: [String: Any]) -> [String: String] {
+            var digests: [String: String] = [:]
+            for file in envelope["files"] as? [[String: Any]] ?? [] where file["role"] as? String == "input" {
+                if let path = file["path"] as? String, let digest = file["checksumSHA256"] as? String { digests[path] = digest }
+            }
+            return digests
+        }
+        let mates = routes.plan.entries.filter { $0.role == .input }.map(\.sha256)
+        var adoptedDigests = inputDigests(adoptedEnvelope)
+        for entry in routes.record.inputs where entry.role == .input { adoptedDigests[entry.relativePath] = entry.sha256 }
+        var macDigests = inputDigests(macEnvelope)
+        let external = PortablePath.externalPlaceholder + "/"
+        if let slice = ProcessInfo.processInfo.environment["LUNGFISH_PARITY_SLICE_DIR"], !slice.isEmpty {
+            for (path, digest) in macDigests where path.hasPrefix(external) {
+                macDigests[URL(fileURLWithPath: slice).appendingPathComponent(String(path.dropFirst(external.count))).path] = digest
+            }
+        }
+        var problems: [String] = []
+        let nodeStems = routes.record.payloads.compactMap { V15RouteNames.stem(ofPayload: $0.relativePath) }
+        let macStem = ((macEnvelope["output"] as? [String: Any])?["path"] as? String).flatMap(V15RouteNames.stem(ofPayload:))
+        if nodeStems.count != 1 { problems.append("the run record names \(nodeStems.count) payload stems, and must name one (Q-2b)") }
+        if macStem == nil { problems.append("the Mac envelope names no one published FASTQ stem (Q-2b)") }
+        comparison.names = [
+            .adopted: V15RouteNames(stem: nodeStems.count == 1 ? nodeStems[0] : nil,
+                                    workFolder: ExecutorPlanEmitter.workspace.lastPathComponent,
+                                    inputs: V15RouteNames.mates(adoptedDigests, plan: mates)),
+            .mac: V15RouteNames(stem: macStem, reportUUID: true, inputs: V15RouteNames.mates(macDigests, plan: mates)),
+        ]
+        return problems
+    }
+
     private func compare(
         _ routes: Routes, envelope: Bool, sidecar: Bool, editAdoptedSteps: ((inout [[String: Any]]) -> Void)? = nil
     ) throws -> V15Comparison {
@@ -291,16 +331,26 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let adoptedSidecar = try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: adoptedFASTQ))
         let macSidecarObject = try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: macFASTQ))
         // QV-10: each route's roots, the Mac's scratch and storage folders read from its own records.
+        let macStrings = V15Comparison.strings(in: macEnvelope) + V15Comparison.strings(in: macSidecarObject)
+        let adoptedRecordStrings = V15Comparison.strings(in: adoptedEnvelope) + V15Comparison.strings(in: adoptedSidecar)
         let found = V15Comparison.routeRoots(
             project: routes.project.path, returned: routes.returned.path,
             storageRoot: ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"],
-            macStrings: V15Comparison.strings(in: macEnvelope) + V15Comparison.strings(in: macSidecarObject),
-            adoptedStrings: V15Comparison.strings(in: adoptedEnvelope) + V15Comparison.strings(in: adoptedSidecar)
+            macStrings: macStrings,
+            adoptedStrings: adoptedRecordStrings
                 + routes.record.steps.flatMap { $0.argv + ($0.storage?.launches ?? []).flatMap(\.argv) }
         )
         var comparison = V15Comparison(roots: found.roots, payloadFileNames: [payloadName, sidecarName])
         for problem in found.problems {
             comparison.findings.append(V15Finding(key: "roots", adopted: "-", mac: "-", why: problem))
+        }
+        for problem in Self.routeNames(routes, adoptedEnvelope: adoptedEnvelope, macEnvelope: macEnvelope, into: &comparison) {
+            comparison.findings.append(V15Finding(key: "names", adopted: "-", mac: "-", why: problem))
+        }
+        // UX U-3: the harness's placeholders never reach a record of either bundle.
+        for (route, strings) in [("adopted", adoptedRecordStrings), ("mac", macStrings)]
+        where strings.contains(where: { $0.contains(V15RouteNames.stemPlaceholder) || $0.contains(V15RouteNames.matePlaceholderPrefix) }) {
+            comparison.findings.append(V15Finding(key: "names", adopted: "-", mac: "-", why: "the \(route) records hold a harness placeholder (UX U-3)"))
         }
         if envelope {
             var adoptedSteps = adoptedEnvelope["steps"] as? [[String: Any]] ?? []

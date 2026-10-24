@@ -89,4 +89,20 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
         )
         XCTAssertNil(ExecutorRunAdoption.storageLaunchSteps(record("recipe-1", tool: "fastp", argv: ["/env/fastp"]), parent: UUID()))
     }
+
+    /// QV-15: the compress launch is its own writer, so its step states the record's writer by name as the Mac's
+    /// `bgzip` step does, and a clumpify launch, which wrote no stored gzip, states none.
+    func testAdoptWritesTheWriterOnTheCompressLaunchAsMac() throws {
+        let pairs = launch("clumpify.sh", ["in=.clumpify-split-X/pairs.fastq", "out=.clumpify-split-X/pairs.clumped.fastq"], groups: 1)
+        let writer = launch("bgzip", ["-@", "1", "-c", ".clumpify-split-X/combined.fastq"])
+        let storage = ExecutorStorageDetails(
+            writer: ExecutorStorageWriter(name: "bgzip", tool: writer.tool), clumpingRan: true, qualityBinning: .illumina4,
+            inputBytes: 10, outputBytes: 5, launches: [pairs, writer]
+        )
+        let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(record("storage", tool: "clumpify.sh", argv: pairs.argv, storage: storage), parent: UUID()))
+        XCTAssertEqual(steps.map(\.toolName), ["clumpify.sh", "bgzip"])
+        XCTAssertNil(steps[0].resolvedOptions?["writer"], "a clumpify launch states no writer")
+        XCTAssertEqual(steps[1].resolvedOptions?["writer"], .dictionary(["name": .string("bgzip")]),
+                       "the writer step states the record's writer: \(String(describing: steps[1].resolvedOptions))")
+    }
 }

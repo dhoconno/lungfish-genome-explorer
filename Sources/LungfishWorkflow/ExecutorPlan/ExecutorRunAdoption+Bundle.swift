@@ -189,6 +189,10 @@ extension ExecutorRunAdoption {
             } else if launch.tool.id == NativeTool.bgzip.executableName, let output = step.outputs.first?.path {
                 command += [">", output]
             }
+            // QV-15: a compress launch is its own writer, so it states the record's writer by name, as the Mac's does.
+            if let writer = step.storage?.writer, writer.name == launch.tool.id {
+                options[FASTQStorageRecordKey.writer] = .dictionary(["name": .string(writer.name)])
+            }
             return StepExecution(
                 toolName: launch.tool.id, toolVersion: launch.tool.version, command: command, resolvedOptions: options,
                 inputs: [], exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,

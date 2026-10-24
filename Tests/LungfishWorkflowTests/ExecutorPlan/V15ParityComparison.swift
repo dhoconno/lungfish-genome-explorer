@@ -25,6 +25,36 @@ struct V15Finding: Sendable, CustomStringConvertible {
     }
 }
 
+/// What C4-3 C-2 maps for one route besides its roots: its one work stem, read from its own record; the node's `work/`
+/// folder; whether its fastp report names carry a per-run UUID (the Mac's); and each input path its own records name,
+/// to its mate by the plan's digest. The placeholders exist only here and never reach a record (UX U-3).
+struct V15RouteNames: Sendable, Equatable {
+    static let stemPlaceholder = "<work-stem>"
+    static let matePlaceholderPrefix = "<input:"
+    var stem: String?
+    var workFolder: String?
+    var reportUUID = false
+    var inputs: [String: String] = [:]
+
+    /// Each path to `<input:R1>` or `<input:R2>` when its digest equals exactly one mate's digest in the plan's order
+    /// (BIO B3-5, QA Q-2e, SWIFT C-2). A path whose digest matches no mate, and every path of a plan whose mates share a
+    /// digest, maps to nothing, so it stays byte for byte and fails against the other route's mate.
+    static func mates(_ digests: [String: String], plan mates: [String]) -> [String: String] {
+        guard !mates.isEmpty, Set(mates).count == mates.count else { return [:] }
+        var mapped: [String: String] = [:]
+        for (path, digest) in digests {
+            if let index = mates.firstIndex(of: digest) { mapped[path] = matePlaceholderPrefix + "R\(index + 1)>" }
+        }
+        return mapped
+    }
+
+    /// A payload's stem, its file name without `.fastq.gz`, or nil for any other name.
+    static func stem(ofPayload path: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        return name.hasSuffix(".fastq.gz") && name.count > 9 ? String(name.dropLast(9)) : nil
+    }
+}
+
 /// SWIFT's S-4: each record's JSON tree walked key by key against the closed list.
 struct V15Comparison {
     /// The roots `stripRoot` removes from a path token, for each route (XC-10).
@@ -39,20 +69,51 @@ struct V15Comparison {
         self.payloadFileNames = payloadFileNames
     }
 
-    // MARK: The one function of XC-10
+    // MARK: The one function of XC-10 B as amended by C4-3 C-2
+
+    /// The names C4-3 C-2 maps for each route besides its roots.
+    var names: [V15Route: V15RouteNames] = [:]
+
+    static let uuidPattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
 
     /// Strips a route's root from a path token, whether the path is the whole token or follows a key such as `in=`, to
-    /// leave the plan's relative path. Nothing else rewrites a token.
-    static func stripRoot(_ token: String, roots: [String]) -> String {
+    /// leave the plan's relative path, then maps C4-3 C-2's names. Nothing else rewrites a token.
+    static func stripRoot(_ token: String, roots: [String], names: V15RouteNames = V15RouteNames()) -> String {
+        if let mate = names.inputs[token] { return mate }
+        var key = "", value = token
         for root in roots.sorted(by: { $0.count > $1.count }) where !root.isEmpty {
             let prefix = root.hasSuffix("/") ? root : root + "/"
-            if token.hasPrefix(prefix) { return String(token.dropFirst(prefix.count)) }
+            if token.hasPrefix(prefix) {
+                value = String(token.dropFirst(prefix.count))
+                break
+            }
             if let equals = token.firstIndex(of: "="), token[token.index(after: equals)...].hasPrefix(prefix) {
-                let key = token[...equals]
-                return String(key) + String(token[token.index(after: equals)...].dropFirst(prefix.count))
+                key = String(token[...equals])
+                value = String(token[token.index(after: equals)...].dropFirst(prefix.count))
+                break
             }
         }
-        return token
+        return key + mapNames(value, names)
+    }
+
+    /// C4-3 C-2's maps, each anchored: an input path whole, to its mate by digest; `work/` only as the first folder of a
+    /// node token; the stem only as the leading `<stem>_` of the last path component; the Mac's report UUID only as the
+    /// `_<UUID>` just before `.json` of a fastp report name. Every other text stays byte for byte.
+    private static func mapNames(_ value: String, _ names: V15RouteNames) -> String {
+        if let mate = names.inputs[value] { return mate }
+        var path = value
+        if let work = names.workFolder, !work.isEmpty, path.hasPrefix(work + "/") { path.removeFirst(work.count + 1) }
+        let slash = path.lastIndex(of: "/")
+        let folder = slash.map { String(path[...$0]) } ?? ""
+        var last = slash.map { String(path[path.index(after: $0)...]) } ?? path
+        if let stem = names.stem, !stem.isEmpty, last.hasPrefix(stem + "_") {
+            last = V15RouteNames.stemPlaceholder + last.dropFirst(stem.count)
+        }
+        if names.reportUUID,
+           let range = last.range(of: "_fastp_report_" + uuidPattern + "\\.json$", options: .regularExpression) {
+            last = String(last[..<range.lowerBound]) + "_fastp_report.json"
+        }
+        return folder + last
     }
 
     /// The roots of each route (QV-10): the project, and on the adopt route the returned folder; on the Mac the one
@@ -230,7 +291,8 @@ struct V15Comparison {
         let adopted = Self.untyped(typedAdopted), mac = Self.untyped(typedMac)
         switch line.rule {
         case .path:
-            let a = Self.stripped(adopted, roots: roots[.adopted] ?? []), m = Self.stripped(mac, roots: roots[.mac] ?? [])
+            let a = Self.stripped(adopted, roots: roots[.adopted] ?? [], names: names[.adopted] ?? V15RouteNames())
+            let m = Self.stripped(mac, roots: roots[.mac] ?? [], names: names[.mac] ?? V15RouteNames())
             if !Self.equal(a, m) {
                 var finding = V15Finding(key: key, adopted: Self.render(a), mac: Self.render(m),
                                          why: "\(line.id): the path differs byte for byte after the root is stripped (XC-10)")
@@ -297,8 +359,8 @@ struct V15Comparison {
                 }
             }
         }
-        let strippedA = a.map { $0.map { Self.stripRoot($0, roots: roots[.adopted] ?? []) } }
-        let strippedM = m.map { $0.map { Self.stripRoot($0, roots: roots[.mac] ?? []) } }
+        let strippedA = a.map { $0.map { Self.stripRoot($0, roots: roots[.adopted] ?? [], names: names[.adopted] ?? V15RouteNames()) } }
+        let strippedM = m.map { $0.map { Self.stripRoot($0, roots: roots[.mac] ?? [], names: names[.mac] ?? V15RouteNames()) } }
         var differs = strippedA.count != strippedM.count
         for (partA, partM) in zip(strippedA, strippedM) where !differs {
             differs = partA.count != partM.count
@@ -319,12 +381,12 @@ struct V15Comparison {
     }
 
     /// A value with the one function applied to each string in it, dictionary keys included.
-    static func stripped(_ value: Any?, roots: [String]) -> Any? {
+    static func stripped(_ value: Any?, roots: [String], names: V15RouteNames = V15RouteNames()) -> Any? {
         switch value {
-        case let text as String: return stripRoot(text, roots: roots)
-        case let list as [Any]: return list.map { stripped($0, roots: roots) ?? NSNull() }
+        case let text as String: return stripRoot(text, roots: roots, names: names)
+        case let list as [Any]: return list.map { stripped($0, roots: roots, names: names) ?? NSNull() }
         case let object as [String: Any]:
-            return Dictionary(object.map { (stripRoot($0.key, roots: roots), stripped($0.value, roots: roots) ?? NSNull()) },
+            return Dictionary(object.map { (stripRoot($0.key, roots: roots, names: names), stripped($0.value, roots: roots, names: names) ?? NSNull()) },
                               uniquingKeysWith: { first, _ in first })
         default: return value
         }
