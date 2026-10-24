@@ -82,8 +82,12 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
             XCTAssertTrue(model.runtimeRows.allSatisfy { !Self.runLabels.contains($0.label) })
         }
         XCTAssertEqual(mac.runtimeRows, pre.runtimeRows)
-        XCTAssertEqual(Self.section("Lineage", of: mac.copyableText), Self.section("Lineage", of: pre.copyableText))
-        XCTAssertEqual(Self.section("Runtime", of: mac.copyableText), Self.section("Runtime", of: pre.copyableText))
+        // Each record lies in its own temporary project, so its paths differ by that folder alone.
+        func rooted(_ text: String) -> String {
+            text.replacingOccurrences(of: #"provenance-node-runtime-[0-9A-F-]+"#, with: "<root>", options: .regularExpression)
+        }
+        XCTAssertEqual(rooted(Self.section("Lineage", of: mac.copyableText)), rooted(Self.section("Lineage", of: pre.copyableText)))
+        XCTAssertEqual(rooted(Self.section("Runtime", of: mac.copyableText)), rooted(Self.section("Runtime", of: pre.copyableText)))
     }
 
     /// The Copy text lists the run rows in the Runtime section in screen order, and a step's "Version and build" after
