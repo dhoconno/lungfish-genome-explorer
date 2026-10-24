@@ -312,10 +312,13 @@ probe_uid="$(sed -n 's/^uid=//p' "$logs/container-probe.log")"
 probe_kernel="$(sed -n 's/^kernel=//p' "$logs/container-probe.log")"
 
 # The x86-64 executor is built by the release's own build script, the one `release.py package` calls, so the tier
-# checks the bytes a package ships: the pins above, the scratch and checkout path maps, and the pinned llvm-objcopy
+# builds the way a package builds: the pins above, the scratch and checkout path maps, and the pinned llvm-objcopy
 # --strip-all. The stripped copy then passes the one-file scan with --all-labels, under which user-home and
 # repository-root fail too, so a new build-machine path fails here at landing and not in the middle of a package
 # (QA's FC-Q2 ruling). A plain --binary pass is never evidence for this file.
+# Its stripped file is not a package's: the module hashes and build ID follow the scratch folder's path
+# (build/linux-tier/scratch here, build/linux-executor/scratch in a package). The tier checks the same code and
+# strings. The gate for the shipped bytes is QC18 item 4's /proc/self/exe equality.
 lge_version="$(python3 scripts/release/release_version.py --root "$repo")" || die "could not read the LGE version"
 x86_stage="$work/executor-x86_64"
 rm -rf "$x86_stage"

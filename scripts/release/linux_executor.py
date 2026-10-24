@@ -2,8 +2,9 @@
 """Build, strip and place the Linux executor that ships inside the app (CHTC program, lane C4-14).
 
 One build command serves `release.py package` and the x86-64 step of the Linux tier (scripts/linux/portable-tier.sh),
-so the tier checks the bytes a package ships. The command uses the toolchain and Static Linux SDK pinned in
-scripts/linux/toolchain.json and keeps its SwiftPM scratch folder inside the checkout. It maps the scratch folder to
+so the tier builds a package's way and its scan covers the same code and strings (the file's SHA-256 differs with the
+scratch folder's path). The command uses the toolchain and Static Linux SDK pinned in scripts/linux/toolchain.json and
+keeps its SwiftPM scratch folder inside the checkout. It maps the scratch folder to
 /swiftpm-build and the checkout to /workspace, the two maps the app's own build uses (build-notarized-dmg.sh), for the C,
 C++ and Swift compilers in that order (QA's FC-Q2 ruling), so no build-machine path reaches the stripped file. It strips
 with the pinned toolchain's llvm-objcopy --strip-all, never xcrun strip. The unstripped binary still names home folders
