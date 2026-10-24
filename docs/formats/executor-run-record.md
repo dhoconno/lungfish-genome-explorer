@@ -131,20 +131,22 @@ Each entry of `payloads` has `relativePath`, `sha256` and `size`, with `recordCo
 
 | Key | Meaning |
 | --- | --- |
-| `writer` | `name` and `tool` of the program that wrote the gzip bytes. It is `bgzip` or `pigz` for a compressor launch. For a `clumpify.sh` or `reformat.sh` launch it is `bgzip`, the plan's pinned bgzip that answered the probe. A BBTools step whose probe finds no bgzip that answers fails before BBTools starts, with the step's reason "Step <step id> did not run. <clumpify.sh or reformat.sh> compresses its output with bgzip, and no bgzip answered `bgzip -h` on the step's PATH (<PATH>). The tool image must hold bgzip beside the BBTools scripts." The run's `reason` is that sentence alone, and the executor never states `BBTools native BGZF`. It is absent when Trim Galore wrote the stored gzip itself, and when no `bgzip -h` probe ran, as on the Trim Galore route's `reformat.sh` |
+| `writer` | `name` and `tool` of the program that wrote the gzip bytes. It is `bgzip` or `pigz` for a compressor launch. For a `clumpify.sh` or `reformat.sh` launch it is `bgzip`, the plan's pinned bgzip that answered the probe. A BBTools step whose probe finds no bgzip that answers fails before BBTools starts, with the step's reason "Step <step id> did not run. <clumpify.sh or reformat.sh> compresses its output with bgzip, and no bgzip answered `bgzip -h` on the step's PATH (<PATH>). The tool image must hold bgzip beside the BBTools scripts. The step fails the same way when the bgzip that answered states a `Version:` other than the version the plan pins ("states version X, not the version Y the plan pins") or none ("states no version, so the executor cannot tell it is the version Y the plan pins"), and when the plan pins no bgzip." The run's `reason` is that sentence alone, and the executor never states `BBTools native BGZF`. It is absent when Trim Galore wrote the stored gzip itself, and when no `bgzip -h` probe ran, as on the Trim Galore route's `reformat.sh` |
 | `effectiveCompressionLevel` | The level the writer used, when the record knows it |
 | `clumpifyGroups`, `clumpifyMemoryEstimateLine`, `clumpifyMemoryAvailableLine` | The N of clumpify's `Set groups to N` line and its two memory lines as printed. When a mixed file runs clumpify twice the keys hold the launch with more groups, and `launches` keeps each launch's own |
 | `clumpingRan` | Whether clumpify or Trim Galore sorted the reads |
 | `qualityBinning` | The binning scheme that ran, `none` for the Trim Galore route |
 | `inputBytes`, `outputBytes` | The sizes of the step's inputs and its output |
 | `mixedLayout` | `mergedReads`, `pairs` and `unpairedReads` of a mixed file |
-| `launches` | Each tool launch in order, the writer probe included, with `tool`, `argv`, `environmentNames`, `outcome`, `toolExitCode`, `toolSignal`, `wallSeconds`, `stderrPath`, the launch's own keys below and the clumpify lines of that launch |
+| `launches` | Each tool launch in order, the writer probe included, with `tool`, `argv`, `environmentNames`, `outcome`, `toolExitCode`, `toolSignal`, `wallSeconds`, `stderrPath`, the launch's own keys below and the clumpify lines of that launch For the merged-to-mixed step, `launches` holds one launch for each decompressor child the step's reader started, in the order of the step's inputs, each with the absolute program that ran, `-dc` and the work-relative input, and `stderrPath` `/dev/null`. The step's `toolExitCode` and `toolSignal` come from the first child that did not succeed, else from the last. |
 
 Each launch runs within what is left of the step's deadline when it starts. Its own keys are absent in a record written before C3.
 
 | Launch key | Meaning |
 | --- | --- |
 | `reason` | The executor's sentence for a launch that did not succeed, such as "The tool ran past its deadline of N seconds. The executor stopped it.", with each work-root path cut to a relative path. Absent for a launch that succeeded |
+| `inputs` | `relativePath`, `sha256` and `size` of each work-root file the launch read, hashed when the step accepted the launch. Absent for a launch that read none and in a record written before C4-3 |
+| `outputs` | The same for the files the launch wrote, hashed before the step deleted any scratch half. Absent for the writer probe and in a record written before C4-3 |
 | `escalatedToSIGKILL` | True when a process of the launch outlived the grace and was sent SIGKILL |
 | `stoppedProcesses` | The PIDs the executor signalled other than the tool |
 | `peakResidentBytes` | The launch's peak resident memory in bytes from the `wait4` that reaped it, which counts the children the tool waited for, such as clumpify's JVM |
