@@ -76,6 +76,20 @@ extension ViewerViewController {
         return nil
     }
 
+    /// The reference bundle this pane draws and the viewer that draws it, read from the display route that installed
+    /// the view (2.14 lane OBS11, ARCH's ruling on obs-11). The reference viewport, which the sidebar opens for a
+    /// `.lungfishref` and for a mapping result, and the mapping result view draw their input's bundle in their
+    /// embedded viewer once it has loaded there. `displayBundle` in sequence mode draws `currentBundleURL` in this
+    /// viewer. File > Export > Image reads its pane state, its Scope list and the leaf's region from here.
+    var drawnReferenceBundle: (url: URL, viewer: ViewerViewController)? {
+        let viewport: ReferenceBundleViewportController? = referenceBundleViewportController ?? mappingResultController
+        guard let viewport else { return currentBundleURL.map { ($0, self) } }
+        guard let url = viewport.currentInput?.renderedBundleURL, viewport.loadedViewerBundleURL == url else {
+            return nil
+        }
+        return (url, viewport.activeSequenceViewerController)
+    }
+
     func presentMappingConsensusExtraction() {
         activeMappingViewportController?.activeSequenceViewerController.presentAlignmentConsensusGeneration()
     }

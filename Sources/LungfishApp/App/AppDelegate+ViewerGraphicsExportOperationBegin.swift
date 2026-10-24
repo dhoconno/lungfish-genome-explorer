@@ -21,10 +21,11 @@ enum ViewerGraphicsExportContent: Equatable {
 
 /// The state of the pane that decides its content, read from the viewer when the panel opens.
 struct ViewerGraphicsExportPaneState: Equatable {
-    /// `currentBundleURL`, which only a bundle shown in the sequence viewer sets.
+    /// The bundle the pane draws, from `ViewerViewController.drawnReferenceBundle`, which reads the display route.
     var bundleURL: URL?
+    /// The content mode of the viewer that draws, a reference viewport's embedded viewer or the pane's own viewer.
     var contentMode: ViewportContentMode
-    /// False when another view hides the sequence viewer, such as an MSA, a tree or a reference viewport.
+    /// False when another view hides the viewer that draws, such as an MSA, a tree or a classifier result.
     var sequenceViewShown: Bool
     /// True while the VCF dataset or FASTA collection view of a document fills the pane.
     var documentDashboardShown: Bool
@@ -69,8 +70,8 @@ struct ViewerGraphicsExportNoSelection: Error, Equatable {}
 /// which runs no leaf, begins no row and writes no record (O18, V1-3). This file holds the content check, the scope
 /// list, the settings the app passes, the row and the alert words, since AppDelegate+ImportCenter.swift may not grow.
 extension AppDelegate {
-    /// What the pane shows. A bundle is shown when `currentBundleURL` is set and the sequence viewer fills the pane,
-    /// since `contentMode` alone cannot tell (ARCH condition 1, UX item 2).
+    /// What the pane shows. A bundle is shown when the display route draws one in a sequence viewer that fills the
+    /// pane, since `contentMode` alone cannot tell (ARCH condition 1, UX item 2, 2.14 obs-11).
     static func viewerGraphicsExportContent(of state: ViewerGraphicsExportPaneState) -> ViewerGraphicsExportContent {
         if state.documentDashboardShown { return .document }
         guard state.contentMode == .genomics, state.sequenceViewShown else { return .other }
@@ -78,12 +79,16 @@ extension AppDelegate {
         return state.hasDocument ? .document : .other
     }
 
-    /// The pane state of `viewer` at this moment.
+    /// The pane state of `viewer` at this moment. The bundle, the mode and the shown sequence view are those of the
+    /// viewer that draws, which for a `.lungfishref` or a mapping result from the sidebar is the reference viewport's
+    /// embedded viewer, while `viewer` keeps `.mapping` with its own sequence view hidden (2.14 lane OBS11).
     static func viewerGraphicsExportPaneState(of viewer: ViewerViewController) -> ViewerGraphicsExportPaneState {
-        ViewerGraphicsExportPaneState(
-            bundleURL: viewer.currentBundleURL,
-            contentMode: viewer.contentMode,
-            sequenceViewShown: !viewer.viewerView.isHidden,
+        let drawn = viewer.drawnReferenceBundle
+        let drawing = drawn?.viewer ?? viewer
+        return ViewerGraphicsExportPaneState(
+            bundleURL: drawn?.url,
+            contentMode: drawing.contentMode,
+            sequenceViewShown: !drawing.viewerView.isHidden,
             documentDashboardShown: viewer.children.contains {
                 $0 is VCFDatasetViewController || $0 is FASTACollectionViewController
             },
@@ -92,12 +97,12 @@ extension AppDelegate {
     }
 
     /// The Scope menu for what `viewer` shows, the one function that gives the list for a bundle, a document and
-    /// other content (UX items 2 and 3).
+    /// other content (UX items 2 and 3). A bundle's selection is read from the viewer that draws it.
     static func viewerGraphicsExportScopes(
         viewerController viewer: ViewerViewController
     ) -> (content: ViewerGraphicsExportContent, scopes: [ViewerExportScope]) {
         let content = viewerGraphicsExportContent(of: viewerGraphicsExportPaneState(of: viewer))
-        let view = viewer.viewerView!
+        let view = (viewer.drawnReferenceBundle?.viewer ?? viewer).viewerView!
         let scopes = viewerGraphicsExportScopes(
             for: content, hasSelection: view.selectionRange?.isEmpty == false,
             isUserSelection: view.isUserColumnSelection
@@ -294,7 +299,8 @@ extension AppDelegate {
         )
     }
 
-    /// Builds the leaf's invocation from the view, writes `view-state.json` and begins the row.
+    /// Builds the leaf's invocation from the view of the viewer that draws the bundle, writes `view-state.json` and
+    /// begins the row. The window, the selection and the read settings are that viewer's (2.14 lane OBS11).
     private static func startViewerGraphicsExport(
         viewerController: ViewerViewController,
         bundleURL: URL,
@@ -306,12 +312,13 @@ extension AppDelegate {
         runner: CLIViewerExportRunner,
         reporter: any OperationReporting
     ) -> (operationID: UUID, task: Task<CLIViewerExportRunner.Outcome, Never>)? {
-        let view = viewerController.viewerView!
-        guard let frame = viewerController.referenceFrame else {
+        let drawing = viewerController.drawnReferenceBundle?.viewer ?? viewerController
+        let view = drawing.viewerView!
+        guard let frame = drawing.referenceFrame else {
             present(.failed("No viewer is currently available for export."))
             return nil
         }
-        let drawsAlignment = viewerController.currentReferenceBundle?.manifest.alignments.isEmpty == false
+        let drawsAlignment = drawing.currentReferenceBundle?.manifest.alignments.isEmpty == false
         let invocation: ViewerExportInvocation
         do {
             var settings = try Self.viewerGraphicsExportSettings(
@@ -336,7 +343,7 @@ extension AppDelegate {
         }
         return beginViewerGraphicsExportOperation(
             invocation: invocation,
-            bundleName: viewerController.currentBundleDisplayName ?? bundleURL.deletingPathExtension().lastPathComponent,
+            bundleName: drawing.currentBundleDisplayName ?? bundleURL.deletingPathExtension().lastPathComponent,
             runner: runner,
             reporter: reporter,
             onFailure: { failure in

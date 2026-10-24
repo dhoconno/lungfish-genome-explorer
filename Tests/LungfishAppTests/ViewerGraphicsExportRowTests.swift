@@ -187,9 +187,10 @@ final class ViewerGraphicsExportRowTests: XCTestCase {
         }
     }
 
-    /// Kinds 2, 3, 4 and 8. A `.browse` bundle shows the reference viewport, which never sets `currentBundleURL`
-    /// (`ViewerViewController+BundleDisplay.swift:54-56`). A mapping result clears the bundle and sets `.mapping`
-    /// (`ViewerViewController+Mapping.swift:110-112`). An MSA bundle sets `.genomics` and hides the sequence viewer
+    /// Kinds 2, 3, 4 and 8, given as the pane state with no drawn bundle. The reference viewport, which shows a
+    /// `.browse` bundle and a mapping result, gives its bundle only once its embedded viewer draws it
+    /// (`ViewerViewController.drawnReferenceBundle`), and `ViewerGraphicsExportRouteReachTests` opens both kinds for
+    /// real (2.14 lane OBS11). An MSA bundle sets `.genomics` and hides the sequence viewer
     /// (`ViewerViewController+AlignmentTreeBundles.swift:122`, `:198`). A classifier result sets `.metagenomics` and
     /// hides it (`ViewerViewController+Taxonomy.swift:58`, `:266`), even when a bundle URL is left over. Kind 9, the
     /// empty pane, is shown for real, and its capture writes the file and begins no row.
@@ -197,10 +198,10 @@ final class ViewerGraphicsExportRowTests: XCTestCase {
         let stale = URL(fileURLWithPath: "/tmp/stale.lungfishref", isDirectory: true)
         for mode in [ViewportContentMode.genomics, .empty] {
             for shown in [true, false] {
-                XCTAssertEqual(pane(mode, shown: shown), .other, "browse bundle, \(mode), shown \(shown)")
+                XCTAssertEqual(pane(mode, shown: shown), .other, "viewport with no drawn bundle, \(mode), shown \(shown)")
             }
         }
-        XCTAssertEqual(pane(.mapping, shown: false), .other, "mapping result")
+        XCTAssertEqual(pane(.mapping, shown: false), .other, "mapping result with no drawn bundle")
         XCTAssertEqual(pane(.genomics, shown: false), .other, "MSA bundle")
         XCTAssertEqual(pane(bundleURL: stale, .metagenomics, shown: false), .other, "classifier result")
         XCTAssertEqual(pane(bundleURL: stale, .genomics, shown: false), .other, "a hidden sequence viewer")
