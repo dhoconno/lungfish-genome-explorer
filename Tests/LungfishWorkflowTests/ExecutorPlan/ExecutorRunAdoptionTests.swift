@@ -386,6 +386,70 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         XCTAssertEqual(Self.files(under: project), before)
     }
 
+    /// The refusal the dry run raises, or nil when it says the adopt would succeed.
+    private func dryRunRefusal(_ returned: Returned) -> ExecutorAdoptRefusal? {
+        do {
+            _ = try ExecutorRunAdoption.dryRun(resultFolder: returned.folder, projectDirectory: project)
+            return nil
+        } catch let refusal as ExecutorAdoptRefusal {
+            return refusal
+        } catch {
+            XCTFail("The dry run failed with \(error) in place of a refusal")
+            return nil
+        }
+    }
+
+    /// AMV1 SWIFT fix 1: the dry run and the adopt share one preflight, so a record that only the bundle step used to
+    /// refuse (no seqkit table, or a text the Mac's parse rejects) is refused by `--dry-run` as well, with the same field
+    /// and words, and neither run makes a bundle file or an `Imports` folder.
+    func testAdoptDryRunRefusesWhatTheAdoptRefuses() async throws {
+        let notATable = "not a seqkit table"
+        let cases: [(label: String, output: ExecutorCapturedOutput?)] = [
+            ("no seqkit stats output", nil),
+            ("a text that is not a seqkit table", ExecutorCapturedOutput(
+                text: notATable, sha256: PortableDigest.sha256Hex(of: Data(notATable.utf8)), size: Int64(notATable.utf8.count)
+            )),
+        ]
+        for (label, output) in cases {
+            var changed = try returned(.bbtools)
+            let index = try XCTUnwrap(changed.record.steps.firstIndex { $0.kind == .statistics }, label)
+            changed.record.steps[index].standardOutput = output
+            try changed.write()
+            let dry = try XCTUnwrap(dryRunRefusal(changed), "\(label): the dry run passed a run the adopt refuses")
+            let outcome = await refusal(changed)
+            let refused = try XCTUnwrap(outcome, label)
+            XCTAssertEqual(dry.field, "steps[\(index)]", label)
+            XCTAssertEqual(refused.field, dry.field, label)
+            XCTAssertEqual(refused.reason, dry.reason, label)
+            XCTAssertEqual(importedEntries(), [], label)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path), label)
+            try FileManager.default.removeItem(at: changed.folder)
+            try FileManager.default.removeItem(at: root.appendingPathComponent("S", isDirectory: true))
+        }
+    }
+
+    /// AMV1 BIO fix 2 (a): the seqkit table that becomes the sidecar's statistics must describe the payload. A record
+    /// whose statistics step read another file than the payload is refused by the dry run and by the adopt, naming the
+    /// step's `inputFile`, and the unchanged record passes the dry run.
+    func testAdoptRefusesStatisticsTableOfAnotherFile() async throws {
+        var changed = try returned(.bbtools)
+        XCTAssertEqual(try ExecutorRunAdoption.dryRun(resultFolder: changed.folder, projectDirectory: project), "S")
+        let index = try XCTUnwrap(changed.record.steps.firstIndex { $0.kind == .statistics })
+        let payload = changed.record.payloads[0]
+        changed.record.steps[index].inputFile = ExecutorFileDigest(
+            relativePath: payload.relativePath, sha256: String(repeating: "e", count: 64), size: payload.size
+        )
+        try changed.write()
+        let dry = try XCTUnwrap(dryRunRefusal(changed), "the dry run passed a table of another file")
+        let outcome = await refusal(changed)
+        let refused = try XCTUnwrap(outcome, "the adopt took a table of another file")
+        XCTAssertEqual(dry.field, "steps[\(index)].inputFile")
+        XCTAssertEqual(refused.field, dry.field)
+        XCTAssertEqual(refused.reason, dry.reason)
+        XCTAssertEqual(importedEntries(), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
+    }
+
     /// Lane U's two fills (U.md Handoff a): the run identity names the node's kernel, machine, executor build and SHA-256
     /// and its orphan sweep as the record states them, and each node step names its tool as the record does, with the
     /// plan step's title on a step the executor ran itself.

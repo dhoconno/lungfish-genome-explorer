@@ -38,7 +38,7 @@ extension ExecutorRunAdoption {
     /// of that name already in the project is refused without `force`, as the adopt refuses it (review A2 fix 1).
     public static func dryRun(resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false) throws -> String {
         let run = try check(resultFolder, name: name, policy: .release)
-        _ = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        _ = try preflight(run, projectDirectory: projectDirectory, force: force)
         return run.sampleName
     }
 

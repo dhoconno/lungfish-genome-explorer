@@ -20,9 +20,10 @@ extension ExecutorRunAdoption {
             let engine = RecipeEngine()
             let planned = try engine.plan(recipe: recipe, inputFormat: paired ? .pairedR1R2 : .single)
             var turnedOff = engine.turnedOffStepRecords(for: recipe)
+            // The preflight refuses a record whose recipe steps this build's plan does not hold, through the same function.
+            try claimedRecipeSteps(run, recipe: recipe, paired: paired)
             let recorded = run.record.steps.filter { $0.kind == .recipe }
             let consumed = Set(run.plan.steps.flatMap(\.inputs))
-            var used = 0
             for (index, plannedStep) in planned.enumerated() {
                 if case .formatConversion = plannedStep { continue }
                 // The emitter's ids: `recipe-<n>` for a planned step's process and `recipe-<n>-<m>` for its second one.
@@ -48,15 +49,8 @@ extension ExecutorRunAdoption {
                         counts: counts, reports: reports
                     ))
                 }
-                used += runs.count
             }
             results += turnedOff.remaining()
-            guard used == recorded.count else {
-                throw refusal(
-                    "steps",
-                    "The run record holds recipe steps that this build's plan of recipe \(recipe.id) does not hold. Nothing was imported."
-                )
-            }
         }
         if let storage = run.record.steps.first(where: { $0.kind == .storage }) {
             results.append(RecipeStepResult(

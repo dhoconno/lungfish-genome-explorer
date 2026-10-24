@@ -131,7 +131,11 @@ package struct ExecutorReturnedFolder {
                                              inputBytes: 200, outputBytes: payload.size)
                     : nil
             )
-            if step.kind == .statistics { recorded.standardOutput = seqkitOutput }
+            if step.kind == .statistics {
+                recorded.standardOutput = seqkitOutput
+                // The executor records the file seqkit read, the payload (AMV1 BIO fix 2).
+                recorded.inputFile = payload
+            }
             return recorded
         }
         let record = ExecutorRunRecord(

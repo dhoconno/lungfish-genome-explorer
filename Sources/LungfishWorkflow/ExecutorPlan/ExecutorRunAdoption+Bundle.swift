@@ -35,9 +35,9 @@ extension ExecutorRunAdoption {
     ) async throws -> URL {
         let plan = run.plan
         let record = run.record
-        let (pair, inputs, bundleURL) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        // Every refusal that needs no bundle file comes first, and the dry run makes the same call (AMV1 SWIFT fix 1).
+        let (pair, inputs, bundleURL, recipe, statisticsTable) = try preflight(run, projectDirectory: projectDirectory, force: force)
         let r1 = inputs[0]
-        let recipe = try resolvedRecipe(plan.recipe)
         // The platform as the Mac decides it for a sample: the plan's request, resolved against the plan's inputs.
         let config = FASTQBatchImporter.sampleConfig(
             for: pair,
@@ -45,9 +45,6 @@ extension ExecutorRunAdoption {
             log: nil
         )
         let metadataPairs = Dictionary(plan.sample.sampleSheet.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
-        guard let statisticsTable = record.steps.first(where: { $0.kind == .statistics })?.standardOutput?.text else {
-            throw refusal("steps", "The run record holds no seqkit stats output, so the bundle would hold no statistics. Nothing was imported.")
-        }
 
         try FASTQBatchImporter.prepareFASTQBundleParent(for: bundleURL)
         let staging = try FASTQBatchImporter.makeStagingFASTQBundleURL(for: bundleURL)
@@ -301,6 +298,49 @@ extension ExecutorRunAdoption {
             command: [executorBinaryName] + record.executorArguments, inputs: [], exitCode: record.exitCode,
             wallTime: record.wallSeconds, startTime: date(record.startedAt) ?? Date(), endTime: date(record.endedAt)
         )
+    }
+
+    /// Every refusal of the adopt that needs no bundle file, in the order the adopt meets them, for the dry run and the adopt
+    /// alike (AMV1 SWIFT fix 1, BIO fix 2): the bundle's place, the recipe this build holds, the record's seqkit table (present,
+    /// and a table the Mac's parse reads, refused with the statistics step's index) and the recipe steps the plan claims. It
+    /// writes nothing, so a run it passes can still fail on a write but never on a record it could have read.
+    static func preflight(
+        _ run: ExecutorAdoptedRun, projectDirectory: URL, force: Bool
+    ) throws -> (pair: SamplePair, inputs: [URL], url: URL, recipe: Recipe?, statistics: String) {
+        let (pair, inputs, url) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        let recipe = try resolvedRecipe(run.plan.recipe)
+        let index = run.record.steps.firstIndex { $0.kind == .statistics }
+        let field = index.map { "steps[\($0)]" } ?? "steps"
+        guard let index, let statistics = run.record.steps[index].standardOutput?.text else {
+            throw refusal(field, "The run record holds no seqkit stats output, so the bundle would hold no statistics.")
+        }
+        do {
+            _ = try FASTQBatchImporter.parseRequiredSeqkitStats(stdout: statistics)
+        } catch {
+            throw refusal(field, "The run record's seqkit stats output is not a table the import reads. \(error.localizedDescription)")
+        }
+        if let recipe { try claimedRecipeSteps(run, recipe: recipe, paired: inputs.count > 1) }
+        return (pair, inputs, url, recipe, statistics)
+    }
+
+    /// The recipe steps the plan claims: the engine's plan of the recipe, as the Mac plans it for this sample, takes the record's
+    /// `recipe-<n>` process for each planned step and its `recipe-<n>-<m>` second one, and a record that holds a recipe step no
+    /// planned step takes is refused. The preflight and `recipeStepResults` both call it.
+    static func claimedRecipeSteps(_ run: ExecutorAdoptedRun, recipe: Recipe, paired: Bool) throws {
+        let planned = try RecipeEngine().plan(recipe: recipe, inputFormat: paired ? .pairedR1R2 : .single)
+        let recorded = run.record.steps.filter { $0.kind == .recipe }
+        var used = 0
+        for (index, plannedStep) in planned.enumerated() {
+            if case .formatConversion = plannedStep { continue }
+            let id = "recipe-\(index + 1)"
+            used += recorded.filter { $0.id == id || $0.id.hasPrefix(id + "-") }.count
+        }
+        guard used == recorded.count else {
+            throw refusal(
+                "steps",
+                "The run record holds recipe steps that this build's plan of recipe \(recipe.id) does not hold. Nothing was imported."
+            )
+        }
     }
 
     /// The adopt's sample pair, its inputs and the bundle it publishes, by the import's own URL rule. A bundle already

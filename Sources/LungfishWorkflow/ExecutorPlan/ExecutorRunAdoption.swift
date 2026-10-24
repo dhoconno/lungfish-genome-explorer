@@ -228,6 +228,14 @@ public enum ExecutorRunAdoption {
                     + "holds \(count)."
             )
         }
+        // AMV1 BIO fix 2 (a): the seqkit table that becomes the sidecar's statistics describes the payload and no other file.
+        // The executor records the digest of the file seqkit read in `inputFile`, as it records the Q20 and Q30 count's.
+        if let index = record.steps.firstIndex(where: { $0.kind == .statistics }), record.steps[index].inputFile != own {
+            throw refusal(
+                "steps[\(index)].inputFile",
+                "The run record's seqkit stats read another file than the payload \(path), so its table does not describe the payload."
+            )
+        }
         return (payload, url)
     }
 
