@@ -5,6 +5,7 @@
 import XCTest
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
@@ -144,6 +145,55 @@ extension ImportFastqE2ETests {
         let payload = try FileManager.default.contentsOfDirectory(at: bundle, includingPropertiesForKeys: nil)
             .first { $0.lastPathComponent.hasSuffix(".fastq.gz") }
         return (envelope, payload.flatMap { FASTQMetadataStore.load(for: $0) })
+    }
+
+    // MARK: - C4-10, the writer and level a storage step records leave provenance verify passing
+
+    /// A real import of the sarscov2 pair, signed with a throwaway key, once through `clumpify.sh` and once through
+    /// `reformat.sh` after `--clumping-tool none`. The step that wrote the stored gzip names a bgzip writer with an
+    /// executable path and a level, and the forked CLI verifies the bundle's record that holds those keys (ARCH N3
+    /// condition 3: `provenance verify` passes on a record with the new fields, a real `writer.tool.path` included).
+    func testAnImportRecordThatNamesItsWriterAndLevelPassesProvenanceVerify() async throws {
+        try await recordTruthRequire(.clumpify)
+        let key = [ProvenanceSigningConfiguration.signingKeyEnvironmentKey: "c4-10-throwaway-signing-key"]
+        let routes: [(clumpingTool: String, step: String)] = [("bbtools", "clumpify.sh"), ("none", "reformat.sh")]
+        for route in routes {
+            let (root, input, project) = try recordTruthProject()
+            let imported = try recordTruthRun(
+                [
+                    "import", "fastq", input.path, "--project", project.path, "--platform", "illumina",
+                    "--pairing", "paired", "--clumping-tool", route.clumpingTool, "--quality-binning", "illumina4",
+                ],
+                environment: key, scratch: root, timeout: 900
+            )
+            XCTAssertFalse(imported.timedOut, "\(route.step): import fastq did not end within 900 s: \(imported.output)")
+            XCTAssertEqual(imported.status, 0, "\(route.step): import fastq failed: \(imported.output)")
+
+            let bundle = try XCTUnwrap(
+                try recordTruthBundles(in: project).first, "\(route.step): the import wrote no bundle"
+            )
+            let record = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            // The record keeps a tool path portable (`<tool-root>/envs/bbtools/bin/bgzip`); reading resolves it here.
+            let data = PortablePath.resolveJSON(try Data(contentsOf: record), forFileAt: record)
+            let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+            let step = try XCTUnwrap(
+                envelope.steps.first { $0.toolName == route.step }, "\(envelope.steps.map(\.toolName))"
+            )
+            guard case .dictionary(let writer)? = step.resolvedOptions["writer"],
+                  case .dictionary(let tool)? = writer["tool"], case .string(let path)? = tool["path"] else {
+                XCTFail("\(route.step) names no bgzip writer: \(step.resolvedOptions)")
+                continue
+            }
+            XCTAssertEqual(writer["name"], .string("bgzip"), route.step)
+            XCTAssertTrue(FileManager.default.isExecutableFile(atPath: path), "\(route.step): \(path)")
+            XCTAssertNotNil(step.resolvedOptions["effectiveCompressionLevel"], route.step)
+
+            let verified = try recordTruthRun(
+                ["provenance", "verify", record.path], environment: key, scratch: root, timeout: 60
+            )
+            XCTAssertEqual(verified.status, 0, "\(route.step): provenance verify: \(verified.output)")
+            XCTAssertNotNil(verified.output.range(of: "Signature valid"), "\(route.step): \(verified.output)")
+        }
     }
 
     // MARK: - M1, true recorded defaults
