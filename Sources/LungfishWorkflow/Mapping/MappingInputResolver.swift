@@ -160,6 +160,15 @@ public enum MappingInputResolver {
                 pairedEnd = true
             }
         }
+        // Several inputs that are not bound as R1 and R2 are one pool of single
+        // reads, so they reach every mapper as one file in the run's input
+        // folder (MappingPooledInputs). BBMap reads the first input only,
+        // bwa-mem2 reads two files as mates and minimap2 refuses three.
+        var pooledOriginals: [URL]?
+        if !pairedEnd, resolved.executionInputURLs.count > 1 {
+            pooledOriginals = resolved.inputs.map(\.originalURL)
+            resolved = try MappingPooledInputs.join(resolved, into: directory)
+        }
         resolved = await reusing.withMaterializationTimes(resolved)
 
         let layoutResolution: FASTQInputLayoutResolution
@@ -172,10 +181,14 @@ public enum MappingInputResolver {
                 explicit: explicitLayout
             )
         }
-        let resolvedRequest = request
+        var resolvedRequest = request
             .withInputFASTQURLs(resolved.executionInputURLs, pairedEnd: pairedEnd)
             .withInputLineage(resolved)
             .withInputLayout(layoutResolution.layout)
+        if let pooledOriginals {
+            // The lineage names every bundle the pool joined, not the first only.
+            resolvedRequest = resolvedRequest.withOriginalInputFASTQURLs(pooledOriginals)
+        }
         return MappingResolvedInputs(
             request: resolvedRequest,
             layoutResolution: layoutResolution,

@@ -123,12 +123,14 @@ public enum MappingCommandBuilder {
     ) throws -> ManagedMappingCommand {
         let mode = try mode(for: request)
         let readGroup = request.resolvedReadGroup(defaultPlatform: platformName(for: mode))
-        var arguments = [
-            "-a",
-            "-x", mode.commandPresetValue ?? "sr",
-            "-t", String(request.threads),
-            "-R", readGroupHeader(readGroup),
-        ]
+        var arguments = ["-a", "-x", mode.commandPresetValue ?? "sr"]
+        // A pool reaches minimap2 as one stream of single reads. Fragment mode of
+        // the short-read preset pairs adjacent records with equal names, so
+        // `--frag=no` keeps the run what its record says (MAP-POOLED, BIO-C2).
+        if mode == .defaultShortRead, isPooledSingleReadStream(request) {
+            arguments.append("--frag=no")
+        }
+        arguments += ["-t", String(request.threads), "-R", readGroupHeader(readGroup)]
         if !request.includeSecondary {
             arguments.append("--secondary=no")
         }
@@ -254,6 +256,13 @@ public enum MappingCommandBuilder {
                 "in=\(request.inputFASTQURLs[0].path)",
                 "in2=\(request.inputFASTQURLs[1].path)",
             ]
+        } else if request.inputFASTQURLs.count > 1 {
+            // BBMap maps one input or one bound pair. It would read the first
+            // input and drop the rest, so it refuses (MAP-POOLED, BIO-C2).
+            throw MappingCommandBuilderError.unboundInputs(
+                tool: request.tool.displayName,
+                count: request.inputFASTQURLs.count
+            )
         } else if let inputURL = request.inputFASTQURLs.first {
             arguments.append("in=\(inputURL.path)")
             // `interleaved=auto` never pairs identically named mates, and
@@ -271,6 +280,14 @@ public enum MappingCommandBuilder {
             nativeTool: nativeTool,
             workingDirectory: request.outputDirectory
         )
+    }
+
+    /// Whether `request` is a pool: several chosen inputs joined into the one
+    /// file the mapper reads, mapped as single reads (``MappingPooledInputs``).
+    private static func isPooledSingleReadStream(_ request: MappingRunRequest) -> Bool {
+        request.inputFASTQURLs.count == 1
+            && (request.originalInputFASTQURLs?.count ?? 0) > 1
+            && request.readLayoutPlan.handling == .asSingle
     }
 
     private static func mode(for request: MappingRunRequest) throws -> MappingMode {
@@ -301,6 +318,21 @@ public enum MappingCommandBuilder {
 
     private static func readGroupHeader(_ readGroup: MappingReadGroup) -> String {
         "@RG\\tID:\(readGroup.id)\\tSM:\(readGroup.sampleName)\\tLB:\(readGroup.library)\\tPL:\(readGroup.platform)\\tPU:\(readGroup.platformUnit)"
+    }
+}
+
+/// Why ``MappingCommandBuilder`` cannot build a command from a request.
+enum MappingCommandBuilderError: LocalizedError, Sendable, Equatable {
+    /// A mapper that takes one input or one bound pair was handed several
+    /// inputs that are neither a bound pair nor a read set.
+    case unboundInputs(tool: String, count: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .unboundInputs(let tool, let count):
+            return "\(tool) maps one input file or one R1 and R2 pair, and this run has \(count) input files. "
+                + "Join the files into one file first, or map them one at a time."
+        }
     }
 }
 

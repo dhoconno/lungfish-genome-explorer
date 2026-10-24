@@ -61,6 +61,9 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertEqual(members, [Fixture.fastqURL(in: a).standardizedFileURL, Fixture.fastqURL(in: b).standardizedFileURL])
         XCTAssertEqual(resolved.layoutResolution.reason, "2 input files are pooled as single reads.")
         XCTAssertEqual(resolved.request.inputLayout, .singleEnd)
+        // The name cannot collide with the join of one bundle, and the sidecar records the step.
+        XCTAssertTrue(joined.lastPathComponent.hasPrefix("pooled-"), joined.lastPathComponent)
+        XCTAssertEqual(SequenceInputConcatenation.load(for: joined)?.memberURLs, members)
         // Every bundle the user chose stays in the lineage, not only the first.
         XCTAssertEqual(resolved.request.originalInputFASTQURLs, [a.standardizedFileURL, b.standardizedFileURL])
         // `--frag=no` follows `-x sr`, which ends minimap2's pairing of equal read names.
@@ -205,6 +208,65 @@ final class MappingPooledInputsTests: XCTestCase {
         let joined = try XCTUnwrap(resolved.request.inputFASTQURLs.first)
         let expected = ["a", "b"].flatMap { prefix in (1...4).flatMap { ["\(prefix)\($0)/1", "\(prefix)\($0)/2"] } }
         XCTAssertEqual(try ReadSetFixtures.readNames(in: joined), expected)
+    }
+
+    /// A cancelled join stops between chunks and throws, and it leaves neither
+    /// the joined file nor its sidecar nor a folder it created, while a folder
+    /// that was there before keeps what it held. (SWIFT 4, removed on cancel.)
+    /// The join is called directly, since an earlier step of the resolution
+    /// already throws on a cancelled task and would hide the join's own check.
+    func testAPooledJoinThatIsCancelledLeavesNoFileBehind() async throws {
+        let a = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try pairBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+        let resolved = try await ResolvedSequenceInputs.resolve(
+            inputURLs: [a, b],
+            materializationDirectory: root.appendingPathComponent("unused/.lungfish-map-inputs", isDirectory: true),
+            materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]),
+            concatenateUnpairedFiles: true
+        )
+        let created = root.appendingPathComponent("created/.lungfish-map-inputs", isDirectory: true)
+        let existing = root.appendingPathComponent("existing/.lungfish-map-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        try "kept".write(to: existing.appendingPathComponent("keep.txt"), atomically: true, encoding: .utf8)
+
+        for folder in [created, existing] {
+            let task = Task { () throws -> ResolvedSequenceInputs in
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try MappingPooledInputs.join(resolved, into: folder)
+            }
+            do {
+                _ = try await task.value
+                XCTFail("a cancelled join must throw")
+            } catch is CancellationError {
+                // expected
+            } catch {
+                XCTFail("expected CancellationError, got \(error)")
+            }
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: created.path), "a folder the join created is removed")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: existing.path), ["keep.txt"], "no joined file or sidecar remains")
+    }
+
+    /// Members of both kinds cannot be one stream, so the join stops before it
+    /// writes anything.
+    func testAPoolOfCompressedAndPlainFilesIsRefusedBeforeAnythingIsWritten() throws {
+        let compressed = root.appendingPathComponent("a.fastq.gz")
+        let plain = root.appendingPathComponent("b.fastq")
+        let resolved = ResolvedSequenceInputs(
+            inputs: [
+                .init(originalURL: compressed, executionURLs: [compressed], wasMaterialized: false),
+                .init(originalURL: plain, executionURLs: [plain], wasMaterialized: false),
+            ],
+            materializationStartedAt: nil,
+            materializationEndedAt: nil
+        )
+        let folder = root.appendingPathComponent("refused/.lungfish-map-inputs", isDirectory: true)
+
+        XCTAssertThrowsError(try MappingPooledInputs.join(resolved, into: folder)) { error in
+            XCTAssertEqual(error as? MappingPooledInputsError, .mixedCompression)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }
 
     // MARK: - Helpers

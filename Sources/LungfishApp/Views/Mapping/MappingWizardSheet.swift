@@ -382,7 +382,7 @@ struct MappingWizardSheet: View {
             outputDirectory: outputDirectory
         )
         let warning = "Combined \(bundleURLs.count) bundles into one pooled mapping run (\(pooledSampleName)). "
-            + "All reads share a single @RG SM tag; per-sample attribution is lost in this BAM."
+            + "All reads share a single @RG SM tag, so per-sample attribution is lost in this BAM. Every read maps as a single read, so paired bundles lose their pairing. To keep pairs, map the bundles one by one."
         return MappingRunPlan(requests: [pooledRequest], mode: .combined, warning: warning)
     }
 
