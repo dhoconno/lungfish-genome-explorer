@@ -311,19 +311,16 @@ extension ImportCommand {
         ]
 
         /// The legacy `ProcessingRecipe` names ``resolveImportRecipe(named:switchOptions:recipes:refused:)``
-        /// falls back to when no recipe file matches. Every name here resolves.
-        static let legacyRecipeNames: [String] = ["wgs", "hifi"]
+        /// falls back to when no recipe file matches. Every name here resolves. The unknown-recipe error reads
+        /// the same list from `BatchImportError`, so the error and the help cannot differ.
+        static let legacyRecipeNames: [String] = BatchImportError.legacyRecipeNames
 
         /// Every `--recipe` value that resolves, in the order the help lists
         /// them: the recipe files' own IDs, then their presets' IDs, then the
         /// presets' aliases, then the legacy names. An alias is listed only
         /// while the recipe file that holds it is loaded.
         static func availableRecipeNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> [String] {
-            var names = RecipeResolver.resolvableNames(in: recipes)
-            for legacy in legacyRecipeNames where !names.contains(legacy) {
-                names.append(legacy)
-            }
-            return names
+            BatchImportError.resolvableRecipeNames(recipes: recipes)
         }
 
         static func recipeHelpNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> String {

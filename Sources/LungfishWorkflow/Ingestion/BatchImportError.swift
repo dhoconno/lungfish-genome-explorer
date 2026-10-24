@@ -21,7 +21,8 @@ public enum BatchImportError: Error, LocalizedError {
         case .noFASTQFilesFound(let url):
             return "No FASTQ or BAM read files found in \(url.lastPathComponent)"
         case .unknownRecipe(let name):
-            return "Unknown recipe '\(name)'. Valid names: vsp2, wgs, hifi"
+            let valid = Self.resolvableRecipeNames().joined(separator: ", ")
+            return "Unknown recipe '\(name)'. Valid names: \(valid), or none"
         case .unsupportedRecipe(let name, let reason):
             return "Unsupported recipe '\(name)': \(reason)"
         case .unsupportedRecipeStep(let recipe, let step):
@@ -37,5 +38,22 @@ public enum BatchImportError: Error, LocalizedError {
         case .recipeArtifactMissing(let url):
             return "Recipe step artifact is missing and cannot be retained: \(url.path)"
         }
+    }
+}
+
+extension BatchImportError {
+    /// The legacy recipes `--recipe` accepts when no recipe file matches the name.
+    public static let legacyRecipeNames: [String] = ["wgs", "hifi"]
+
+    /// Every `--recipe` value that resolves, in the order `import fastq --help` lists them: the recipe files' own
+    /// IDs, then their presets' IDs, then the presets' aliases, then the legacy names. An alias is listed only while
+    /// the recipe file that holds it is loaded. `none`, which skips the recipe, is not in the list. The help and the
+    /// unknown-recipe error both read this list, so neither can go stale when a recipe file is added.
+    public static func resolvableRecipeNames(recipes: [Recipe] = RecipeRegistryV2.allRecipes()) -> [String] {
+        var names = RecipeResolver.resolvableNames(in: recipes)
+        for legacy in legacyRecipeNames where !names.contains(legacy) {
+            names.append(legacy)
+        }
+        return names
     }
 }
