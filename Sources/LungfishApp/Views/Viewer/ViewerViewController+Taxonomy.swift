@@ -69,51 +69,9 @@ extension ViewerViewController {
             taxView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        // Wire batch extraction callback for the taxa collections drawer.
-        // When the user clicks "Extract" on a collection, run
-        // `lungfish-cli extract taxa-collection` on the CLI bundle build runner,
-        // which writes one file per taxon into `extracted-<collection id>`.
-        controller.onBatchExtract = { [weak self] collection, classResult in
-            guard let self else { return }
-            let routeContext = OperationRouteContext(
-                projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
-                windowStateScope: self.windowStateScope
-            )
-            let arguments = ViewerViewController.taxaCollectionExtractionArguments(
-                collection: collection,
-                resultDirectory: classResult.config.outputDirectory,
-                outputDirectory: classResult.config.outputDirectory
-                    .appendingPathComponent("extracted-\(collection.id)")
-            )
-            ViewerViewController.beginTaxaCollectionExtractionOperation(
-                collection: collection,
-                arguments: arguments,
-                routeContext: routeContext
-            ) { opID in
-                Task { @MainActor in
-                    do {
-                        let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: opID)
-                        let outputURLs = run.outputs.map { URL(fileURLWithPath: $0) }
-                        _ = OperationCenter.shared.complete(
-                            id: opID,
-                            detail: run.message ?? "Extracted \(outputURLs.count) taxa from \(collection.name)",
-                            bundleURLs: outputURLs
-                        )
-
-                        // Refresh sidebar to pick up new extracted files
-                        if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
-                            sidebar.requestReloadFromFilesystem()
-                        }
-                    } catch is CancellationError {
-                        // The runner acknowledged the cancel on the row, and the command stopped.
-                    } catch {
-                        let errorDesc = error.localizedDescription
-                        _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
-                        showTaxonomyExtractionErrorAlert(errorDesc)
-                    }
-                }
-            }
-        }
+        // Wire batch extraction callback for the taxa collections drawer. Both display
+        // routes share one wiring, so both run the same command (row 69).
+        wireTaxaCollectionExtraction(on: controller)
 
         // Wire BLAST verification callback.
         // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
@@ -149,8 +107,8 @@ extension ViewerViewController {
     ///
     /// Creates a ``TaxonomyViewController``, adds it as a child filling the content area,
     /// and calls ``TaxonomyViewController/configureFromDatabase(_:)`` to populate it from the
-    /// database. Does NOT wire extraction or BLAST callbacks because batch/DB mode uses
-    /// the flat aggregated table, not the per-sample tree.
+    /// database. It wires BLAST verification and the Collections drawer's Extract to the one
+    /// sample the table shows, which the drawer resolves when the user presses Extract (row 69).
     ///
     /// - Parameters:
     ///   - db: The `Kraken2Database` to load rows from.
@@ -193,6 +151,9 @@ extension ViewerViewController {
             taxView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
+        // Wire the Collections drawer's Extract the way the single-result route does (row 69).
+        wireTaxaCollectionExtraction(on: controller)
+
         // Wire BLAST verification for DB-backed batch display by resolving the
         // currently displayed sample's sidecar result from the batch manifest.
         // Single-sample DB-backed results have no batch manifest, so fall back
@@ -225,6 +186,59 @@ extension ViewerViewController {
         geneTabBarView.isHidden = true
 
         taxonomyLogger.info("displayTaxonomyFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
+    }
+
+    /// Wires the Collections drawer's Extract of `controller` to ``extractTaxaCollection(_:from:)``.
+    /// Both display routes call it (row 69). The drawer hands over the result it extracts from, which
+    /// is the result displayed alone or the one sample a database-backed table shows.
+    func wireTaxaCollectionExtraction(on controller: TaxonomyViewController) {
+        controller.onBatchExtract = { [weak self] collection, classResult in
+            self?.extractTaxaCollection(collection, from: classResult)
+        }
+    }
+
+    /// Runs `lungfish-cli extract taxa-collection` over `classResult` and ends the row with the taxa
+    /// count. The command writes one file per taxon into `extracted-<collection id>` inside the
+    /// result's own folder, which makes a batch sample's folder hold that sample's reads alone.
+    func extractTaxaCollection(_ collection: TaxaCollection, from classResult: ClassificationResult) {
+        let routeContext = OperationRouteContext(
+            projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
+            windowStateScope: windowStateScope
+        )
+        let arguments = ViewerViewController.taxaCollectionExtractionArguments(
+            collection: collection,
+            resultDirectory: classResult.config.outputDirectory,
+            outputDirectory: classResult.config.outputDirectory
+                .appendingPathComponent("extracted-\(collection.id)")
+        )
+        ViewerViewController.beginTaxaCollectionExtractionOperation(
+            collection: collection,
+            arguments: arguments,
+            routeContext: routeContext
+        ) { opID in
+            Task { @MainActor in
+                do {
+                    let run = try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: opID)
+                    let outputURLs = run.outputs.map { URL(fileURLWithPath: $0) }
+                    _ = OperationCenter.shared.complete(
+                        id: opID,
+                        detail: run.message ?? "Extracted \(outputURLs.count) taxa from \(collection.name)",
+                        bundleURLs: outputURLs
+                    )
+
+                    // Refresh sidebar to pick up new extracted files
+                    if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
+                        sidebar.requestReloadFromFilesystem()
+                    }
+                } catch is CancellationError {
+                    // The runner acknowledged the cancel on the row, and the command stopped.
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                    showTaxonomyExtractionErrorAlert(errorDesc)
+                }
+            }
+        }
     }
 
     /// Registers the batch-extraction row for a taxa collection and, only when
@@ -414,9 +428,9 @@ func blastVerificationCompletionDetail(_ result: BlastVerificationResult) -> Str
 }
 
 /// The result folder of the Kraken 2 sample that owns `node` in a
-/// database-backed display: the batch manifest's sample folder, or
-/// `resultURL` itself for a single-sample result. Only checks that the
-/// folder holds a classification sidecar, so it is cheap enough to call on
+/// database-backed display, found the way
+/// ``kraken2SampleResultDirectory(resultURL:sampleId:fallsBackToResultFolder:)`` finds a sample's.
+/// Only checks that the folder holds a classification sidecar, so it is cheap enough to call on
 /// every selection.
 @MainActor
 func kraken2SampleResultDirectory(
@@ -424,18 +438,31 @@ func kraken2SampleResultDirectory(
     controller: TaxonomyViewController,
     node: TaxonNode
 ) -> URL? {
+    kraken2SampleResultDirectory(resultURL: resultURL, sampleId: controller.owningSampleId(for: node))
+}
+
+/// The result folder of the Kraken 2 sample `sampleId` in a database-backed display: the batch
+/// manifest's sample folder, or `resultURL` itself for a single-sample result when
+/// `fallsBackToResultFolder` holds. A caller that must act on one named sample passes false for a
+/// batch of several, since the batch folder's own sidecar belongs to none of them. Only checks that
+/// the folder holds a classification sidecar.
+func kraken2SampleResultDirectory(
+    resultURL: URL,
+    sampleId: String?,
+    fallsBackToResultFolder: Bool = true
+) -> URL? {
     func hasSidecar(_ directory: URL) -> Bool {
         FileManager.default.fileExists(
             atPath: directory.appendingPathComponent(ClassificationResult.sidecarFilename).path
         )
     }
     if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
-       let sampleId = controller.owningSampleId(for: node),
+       let sampleId,
        let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }) {
         let directory = resultURL.appendingPathComponent(sampleRecord.resultDirectory)
         if hasSidecar(directory) { return directory }
     }
-    return hasSidecar(resultURL) ? resultURL : nil
+    return fallsBackToResultFolder && hasSidecar(resultURL) ? resultURL : nil
 }
 
 /// Presents an error alert for a failed BLAST verification request.

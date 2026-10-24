@@ -10,6 +10,7 @@
 // `TaxonomyCollectionsExtractReadIDConformanceTests`, which skips without seqkit unless
 // `LUNGFISH_REQUIRE_TOOLS=1`.
 
+import os
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -125,6 +126,23 @@ struct TwoSampleKraken2Batch {
 final class DrawerExtractHarness {
     /// The viewer owns the display, and the extraction callback holds it weakly, so the test keeps it.
     private var viewer: ViewerViewController?
+    /// The suite that takes the drawer's height and open state, so no test writes the standard defaults.
+    private var defaultsSuite: TestDefaultsSuite?
+
+    /// Isolates the drawer from the machine until `testCase` ends. Its defaults go to a test suite, so no
+    /// test writes the standard defaults. Its launch goes to a command that fails at once, so a test that
+    /// reads only the row's beginning starts no real extraction and does not search for the built
+    /// `lungfish-cli`. A test that wants the real command sets `LUNGFISH_CLI_PATH` after this.
+    func isolate(for testCase: XCTestCase) {
+        let suite = TestDefaultsSuite(prefix: "TaxonomyCollectionsExtractTests")
+        defaultsSuite = suite
+        TaxaCollectionsDrawerSeams.defaults = suite.defaults
+        setenv("LUNGFISH_CLI_PATH", "/usr/bin/false", 1)
+        testCase.addTeardownBlock { @MainActor in
+            TaxaCollectionsDrawerSeams.defaults = .standard
+            unsetenv("LUNGFISH_CLI_PATH")
+        }
+    }
 
     /// Opens `batch` through `displayTaxonomyFromDatabase`, the call the Kraken2 sidebar route makes, and picks
     /// `samples` in the sample picker when given. The default picks every sample, which the table shows merged.
@@ -177,6 +195,7 @@ final class TaxonomyCollectionsExtractTests: XCTestCase {
     private let harness = DrawerExtractHarness()
 
     override func setUp() async throws {
+        harness.isolate(for: self)
         root = try TestTempDirectory.make(prefix: "taxonomy-collections-extract")
     }
 
@@ -210,6 +229,123 @@ final class TaxonomyCollectionsExtractTests: XCTestCase {
         XCTAssertFalse(command.contains(TwoSampleKraken2Batch.sampleB), "the other sample is not in the command: \(command)")
         await DrawerExtractHarness.waitUntilEnded(id)
     }
+
+    // MARK: - The load and the refusals
+
+    /// The sample's result loads off the main thread, and no row has begun while it loads (SWIFT 2). The
+    /// injected loader holds the load open, so the test reads the Operations panel in the middle of it.
+    func testExtractLoadsTheSampleResultOffTheMainThread() async throws {
+        let batch = try TwoSampleKraken2Batch(in: root)
+        let taxonomy = try harness.openFromSidebar(batch, showing: [TwoSampleKraken2Batch.sampleA])
+        let collection = TaxaCollectionFixtures.collection
+        let probe = LoaderProbe()
+        let live = TaxaCollectionsDrawerSeams.loadSampleResult
+        TaxaCollectionsDrawerSeams.loadSampleResult = { url in
+            probe.entered(url, onMainThread: Thread.isMainThread)
+            probe.waitForRelease()
+            return try live(url)
+        }
+        addTeardownBlock { @MainActor in TaxaCollectionsDrawerSeams.loadSampleResult = live }
+        let before = Set(OperationCenter.shared.items.map(\.id))
+        let title = "Extract \(collection.name)"
+
+        try harness.pressExtract(collection, on: taxonomy)
+
+        let loading = await probe.waitUntilEntered()
+        XCTAssertTrue(loading, "Extract never loaded the sample's result")
+        XCTAssertEqual(probe.threads, [false], "ClassificationResult.load ran on the main thread")
+        XCTAssertEqual(
+            probe.urls.map { $0.resolvingSymlinksInPath().path },
+            [batch.sampleADirectory.resolvingSymlinksInPath().path],
+            "one load, of the sample shown"
+        )
+        XCTAssertNil(
+            OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title },
+            "a row began before the result loaded"
+        )
+        probe.release()
+        let began = await DrawerExtractHarness.waitForNewRow(titled: title, excluding: before)
+        let id = try XCTUnwrap(began, "Extract began no Operations row once the result loaded")
+        await DrawerExtractHarness.waitUntilEnded(id)
+    }
+
+    /// A sample whose result folder is gone gets the alert and no row, where the base returned with a log line.
+    func testExtractWithoutTheSampleResultAlertsWithTheWords() async throws {
+        let batch = try TwoSampleKraken2Batch(in: root)
+        let taxonomy = try harness.openFromSidebar(batch, showing: [TwoSampleKraken2Batch.sampleA])
+        try FileManager.default.removeItem(at: batch.sampleADirectory)
+        let shown = recordRefusals()
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        try harness.pressExtract(TaxaCollectionFixtures.collection, on: taxonomy)
+
+        XCTAssertEqual(shown.all, [
+            "Could not extract reads | Lungfish could not find the classification result for the sample shown. "
+                + "Open the result again from the sidebar, then choose Extract.",
+        ])
+        XCTAssertFalse(OperationCenter.shared.items.contains { !before.contains($0.id) }, "a refusal begins no row")
+    }
+
+    /// The default display of a batch picks every sample and shows them merged, so no one sample is shown.
+    func testExtractWithSeveralSamplesShownAsksToChooseOne() async throws {
+        let batch = try TwoSampleKraken2Batch(in: root)
+        let taxonomy = try harness.openFromSidebar(batch)
+        XCTAssertEqual(taxonomy.samplePickerState.selectedSamples.count, 2, "the sidebar route picks every sample")
+        let shown = recordRefusals()
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        try harness.pressExtract(TaxaCollectionFixtures.collection, on: taxonomy)
+
+        XCTAssertEqual(shown.all, ["Could not extract reads | Choose one sample, then choose Extract."])
+        XCTAssertFalse(OperationCenter.shared.items.contains { !before.contains($0.id) }, "a refusal begins no row")
+    }
+
+    /// Records what the drawer's alert would show, in place of a sheet no test could answer.
+    private func recordRefusals() -> EventLog {
+        let log = EventLog()
+        let live = TaxaCollectionsDrawerSeams.presentRefusal
+        TaxaCollectionsDrawerSeams.presentRefusal = { title, text, _ in log.append("\(title) | \(text)") }
+        addTeardownBlock { @MainActor in TaxaCollectionsDrawerSeams.presentRefusal = live }
+        return log
+    }
+
+    final class EventLog: Sendable {
+        private let lines = OSAllocatedUnfairLock(initialState: [String]())
+        func append(_ line: String) { lines.withLock { $0.append(line) } }
+        var all: [String] { lines.withLock { $0 } }
+    }
+
+    /// A loader that records its thread and holds the load until the test releases it.
+    final class LoaderProbe: Sendable {
+        struct State: Sendable {
+            var urls: [URL] = []
+            var threads: [Bool] = []
+        }
+
+        private let state = OSAllocatedUnfairLock(initialState: State())
+        private let gate = DispatchSemaphore(value: 0)
+
+        func entered(_ url: URL, onMainThread: Bool) {
+            state.withLock {
+                $0.urls.append(url)
+                $0.threads.append(onMainThread)
+            }
+        }
+
+        func waitForRelease() { _ = gate.wait(timeout: .now() + 30) }
+        func release() { gate.signal() }
+        var urls: [URL] { state.withLock { $0.urls } }
+        var threads: [Bool] { state.withLock { $0.threads } }
+
+        func waitUntilEntered() async -> Bool {
+            let deadline = ContinuousClock.now + .seconds(30)
+            while ContinuousClock.now < deadline {
+                if !urls.isEmpty { return true }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            return false
+        }
+    }
 }
 
 /// The read IDs of the drawer's Extract against the command's own run. It launches the built `lungfish-cli`
@@ -220,6 +356,7 @@ final class TaxonomyCollectionsExtractReadIDConformanceTests: XCTestCase {
     private let harness = DrawerExtractHarness()
 
     override func setUp() async throws {
+        harness.isolate(for: self)
         root = try TestTempDirectory.make(prefix: "taxonomy-collections-readids")
     }
 
@@ -231,6 +368,8 @@ final class TaxonomyCollectionsExtractReadIDConformanceTests: XCTestCase {
     /// holds the read IDs `extract taxa-collection` gives for sample B and the collection, and none of sample A's.
     func testExtractedReadIDsAreTheCommandsForTheShownSampleOnly() async throws {
         try await requireSeqkit()
+        // The harness points the launch at a command that fails at once, and the resolver reads that variable first.
+        unsetenv("LUNGFISH_CLI_PATH")
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),

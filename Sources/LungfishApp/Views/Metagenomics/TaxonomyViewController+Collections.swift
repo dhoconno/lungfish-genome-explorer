@@ -6,9 +6,42 @@ import AppKit
 import LungfishKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let collectionsLogger = Logger(subsystem: LogSubsystem.app, category: "TaxonomyCollections")
+
+/// The seams of the Collections drawer's Extract. A test binds them to hold the load open, to record the
+/// alert and to keep the drawer's height and open state out of the standard defaults. The live values
+/// are the app's own.
+@MainActor
+enum TaxaCollectionsDrawerSeams {
+    /// Loads the classification result of one sample. The drawer calls it off the main thread (SWIFT 2).
+    static var loadSampleResult: @Sendable (URL) throws -> ClassificationResult = {
+        try ClassificationResult.load(from: $0)
+    }
+
+    /// Shows the refusal of Extract as a sheet on `window`, or application-modal with none, as
+    /// ``LiveNoProjectAlertPresenter`` does, since the project rules forbid `runModal`.
+    static var presentRefusal: @MainActor (_ title: String, _ text: String, _ window: NSWindow?) -> Void = { title, text, window in
+        if let window {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = text
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(NSError(
+                domain: "org.lungfish.taxonomy-extract", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: title, NSLocalizedRecoverySuggestionErrorKey: text]
+            ))
+        }
+    }
+
+    /// Where the drawer keeps its height and its open state.
+    static var defaults: UserDefaults = .standard
+}
 
 // MARK: - TaxonomyViewController Collections Extension
 
@@ -73,7 +106,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         }
 
         isTaxaCollectionsDrawerOpen = !isOpen
-        UserDefaults.standard.set(isTaxaCollectionsDrawerOpen, forKey: Self.taxaDrawerOpenKey)
+        TaxaCollectionsDrawerSeams.defaults.set(isTaxaCollectionsDrawerOpen, forKey: Self.taxaDrawerOpenKey)
 
         // Update the toggle button states
         collectionsToggleButton.state = isTaxaCollectionsDrawerOpen ? .on : .off
@@ -107,7 +140,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         view.addSubview(drawer)
 
         // Load persisted height or use default
-        let persistedHeight = UserDefaults.standard.double(forKey: Self.taxaDrawerHeightKey)
+        let persistedHeight = TaxaCollectionsDrawerSeams.defaults.double(forKey: Self.taxaDrawerHeightKey)
         let drawerHeight = persistedHeight > 0 ? CGFloat(persistedHeight) : Self.defaultTaxaDrawerHeight
 
         // Bottom constraint: distance from drawer bottom to action bar top.
@@ -131,12 +164,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         // Wire the batch extraction callback. This closure is the drawer's
         // only extraction path; the delegate protocol covers resizing alone.
         drawer.onBatchExtract = { [weak self] collection in
-            guard let self else { return }
-            guard let result = self.classificationResult else {
-                collectionsLogger.warning("Cannot extract: no classification result")
-                return
-            }
-            self.onBatchExtract?(collection, result)
+            self?.extractCollectionFromDrawer(collection)
         }
 
         taxaCollectionsDrawerView = drawer
@@ -170,6 +198,73 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         }
     }
 
+    // MARK: - Extract
+
+    /// Why the drawer's Extract cannot start. The words are the alert's (row 69).
+    enum ExtractRefusal {
+        /// The shown sample's result is not on disk, or the table shows nothing to extract from.
+        case resultNotFound
+        /// The table shows several samples, so no one sample is the one to extract.
+        case chooseOneSample
+
+        static let title = "Could not extract reads"
+
+        var text: String {
+            switch self {
+            case .resultNotFound:
+                "Lungfish could not find the classification result for the sample shown. Open the result again from the sidebar, then choose Extract."
+            case .chooseOneSample:
+                "Choose one sample, then choose Extract."
+            }
+        }
+    }
+
+    /// Starts the extraction of `collection` over the one result the table shows.
+    ///
+    /// A result displayed alone hands its result to ``onBatchExtract``. A database-backed display holds no
+    /// result, so Extract finds the sample the table shows alone, which is the one picked sample, resolves
+    /// its folder the way the BLAST callback does (`kraken2SampleResultDirectory`), loads its
+    /// ``ClassificationResult`` off the main thread and hands that to ``onBatchExtract`` back on the main
+    /// actor. Several samples shown together name no one sample, so Extract says so and starts nothing,
+    /// since one output would mix samples a scientist keeps apart. A refusal shows the alert (row 69).
+    func extractCollectionFromDrawer(_ collection: TaxaCollection) {
+        if let result = classificationResult {
+            onBatchExtract?(collection, result)
+            return
+        }
+        guard isBatchMode, let resultURL = batchURL else {
+            refuseExtraction(.resultNotFound)
+            return
+        }
+        guard let picker = samplePickerState, picker.selectedSamples.count == 1,
+              let sampleId = picker.selectedSamples.first else {
+            refuseExtraction(.chooseOneSample)
+            return
+        }
+        guard let sampleDirectory = kraken2SampleResultDirectory(
+            resultURL: resultURL, sampleId: sampleId, fallsBackToResultFolder: sampleEntries.count == 1
+        ) else {
+            refuseExtraction(.resultNotFound)
+            return
+        }
+        let load = TaxaCollectionsDrawerSeams.loadSampleResult
+        Task { [weak self] in
+            let loaded = await Task.detached { try? load(sampleDirectory) }.value
+            guard let self else { return }
+            guard let result = loaded else {
+                collectionsLogger.warning("Cannot extract: no classification result loaded for \(sampleId, privacy: .public)")
+                self.refuseExtraction(.resultNotFound)
+                return
+            }
+            self.onBatchExtract?(collection, result)
+        }
+    }
+
+    private func refuseExtraction(_ refusal: ExtractRefusal) {
+        collectionsLogger.warning("Cannot extract: \(refusal.text, privacy: .public)")
+        TaxaCollectionsDrawerSeams.presentRefusal(ExtractRefusal.title, refusal.text, view.window)
+    }
+
     // MARK: - TaxaCollectionsDrawerDelegate
 
     public func taxaCollectionsDrawerDidDragDivider(_ drawer: TaxaCollectionsDrawerView, deltaY: CGFloat) {
@@ -190,7 +285,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let height = self.taxaCollectionsDrawerHeightConstraint?.constant ?? Self.defaultTaxaDrawerHeight
-                UserDefaults.standard.set(Double(height), forKey: Self.taxaDrawerHeightKey)
+                TaxaCollectionsDrawerSeams.defaults.set(Double(height), forKey: Self.taxaDrawerHeightKey)
             }
         }
         _taxaDrawerHeightSaveWorkItem = item
@@ -202,7 +297,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         _taxaDrawerHeightSaveWorkItem?.cancel()
         _taxaDrawerHeightSaveWorkItem = nil
         if let height = taxaCollectionsDrawerHeightConstraint?.constant {
-            UserDefaults.standard.set(Double(height), forKey: Self.taxaDrawerHeightKey)
+            TaxaCollectionsDrawerSeams.defaults.set(Double(height), forKey: Self.taxaDrawerHeightKey)
         }
     }
 }
