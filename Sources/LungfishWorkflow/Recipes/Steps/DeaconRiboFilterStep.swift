@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Recipe step that removes ribosomal reads using Deacon and the BBMap ribokmers index.
 public struct DeaconRiboFilterStep: RecipeStepExecutor {
@@ -74,11 +75,13 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
         let (outR1, outR2) = (invocation.output.r1, invocation.output.r2)
         let summary = invocation.auxiliaryOutputs[0]
 
+        let deaconClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .deacon,
             arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .deacon, input: input)
         )
+        let completedAt = deaconClock.now
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "deacon",
@@ -97,6 +100,10 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
             tool: .deacon,
             arguments: result.arguments,
             auxiliaryOutputs: [summary],
+            exitStatus: Int(result.exitCode),
+            stderr: result.stderr,
+            startedAt: deaconClock.startedAt,
+            completedAt: completedAt,
             databases: [database]
         )
     }

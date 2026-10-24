@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Recipe step that merges overlapping paired-end reads using fastp.
 ///
@@ -45,11 +46,13 @@ public struct FastpMergeStep: RecipeStepExecutor {
         let unmergedR2 = context.workspace.appendingPathComponent("\(context.sampleName)_unmerged_R2.fq.gz")
         let report = invocation.auxiliaryOutputs[0]
 
+        let mergeClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .fastp,
             arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .fastp, input: input)
         )
+        let completedAt = mergeClock.now
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "fastp", step: Self.typeID, stderr: result.stderr)
@@ -67,7 +70,11 @@ public struct FastpMergeStep: RecipeStepExecutor {
                 inputReadCount: counts?.inputPairs,
                 tool: .fastp,
                 arguments: result.arguments,
-                auxiliaryOutputs: [report]
+                auxiliaryOutputs: [report],
+                exitStatus: Int(result.exitCode),
+                stderr: result.stderr,
+                startedAt: mergeClock.startedAt,
+                completedAt: completedAt
             )
         }
 
@@ -80,7 +87,11 @@ public struct FastpMergeStep: RecipeStepExecutor {
             inputReadCount: counts?.inputPairs,
             tool: .fastp,
             arguments: result.arguments,
-            auxiliaryOutputs: [report]
+            auxiliaryOutputs: [report],
+            exitStatus: Int(result.exitCode),
+            stderr: result.stderr,
+            startedAt: mergeClock.startedAt,
+            completedAt: completedAt
         )
     }
 }

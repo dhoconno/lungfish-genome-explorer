@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Recipe step that removes human reads using Deacon.
 ///
@@ -50,17 +51,20 @@ public struct DeaconScrubStep: RecipeStepExecutor {
         let (outR1, outR2) = (invocation.output.r1, invocation.output.r2)
         let summary = invocation.auxiliaryOutputs[0]
 
+        let deaconClock = ProvenanceRunClock()
         let result = try await context.runner.run(
             .deacon,
             arguments: invocation.arguments,
             timeout: context.recipeToolTimeout(for: .deacon, input: input)
         )
+        let completedAt = deaconClock.now
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "deacon", step: Self.typeID, stderr: result.stderr)
         }
 
         let counts = RecipeToolReportCounts.deaconPairs(summaryAt: summary)
+        // Vote C4-3 C-1: the exit status, standard error and times of the run, as every other recipe step records them.
         return StepOutput(
             r1: outR1,
             r2: outR2,
@@ -70,6 +74,10 @@ public struct DeaconScrubStep: RecipeStepExecutor {
             tool: .deacon,
             arguments: result.arguments,
             auxiliaryOutputs: [summary],
+            exitStatus: Int(result.exitCode),
+            stderr: result.stderr,
+            startedAt: deaconClock.startedAt,
+            completedAt: completedAt,
             databases: [database]
         )
     }
