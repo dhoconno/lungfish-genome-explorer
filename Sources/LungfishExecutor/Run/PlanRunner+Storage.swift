@@ -230,17 +230,23 @@ extension PlanRunner {
     /// order they were reaped, since the R1 and R2 readers run together (SWIFT, CHTC CH-C3-1). Each states the absolute
     /// program that ran, never the `/usr/bin/gzip` the reader asked for, `-dc` and the work-relative input, its end, and
     /// that input with its SHA-256 (QA Q-3a). The child's stderr is `/dev/null`, so the launch keeps no stderr.
+    /// Each argument under the work root loses the root's prefix in the one inline form the launcher and the runner use
+    /// (`ExecutorToolLauncher`, `PlanRunner`), since the executor cannot import LungfishCore's `CanonicalFilePath` and keeps
+    /// no helper of its own (`scripts/ratchets/path-helpers.sh`).
     static func readerLaunches(
         _ ends: [ReaderChildEnd], inputs: [String], root: URL, tools: [ImageTool]
     ) -> [ExecutorStorageLaunch] {
         let prefix = root.path + "/"
-        func relative(_ path: String) -> String { path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path }
-        func position(_ end: ReaderChildEnd) -> Int { inputs.firstIndex(of: relative(end.arguments.last ?? "")) ?? inputs.count }
-        let ordered = ends.enumerated().sorted { (position($0.element), $0.offset) < (position($1.element), $1.offset) }
-        return ordered.map(\.element).map { end in
+        let relativeArguments = ends.map { end in
+            end.arguments.map { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : $0 }
+        }
+        func position(_ index: Int) -> Int { inputs.firstIndex(of: relativeArguments[index].last ?? "") ?? inputs.count }
+        let ordered = ends.indices.sorted { (position($0), $0) < (position($1), $1) }
+        return ordered.map { index in
+            let end = ends[index]
             let listed = tools.first { $0.path == end.executable }
             let id = listed?.id ?? URL(fileURLWithPath: end.executable).lastPathComponent
-            let arguments = end.arguments.map(relative)
+            let arguments = relativeArguments[index]
             let input = arguments.last ?? ""
             return ExecutorStorageLaunch(
                 tool: ExecutorToolRecord(id: id, version: listed?.version ?? "", build: listed?.build ?? "", path: end.executable),
