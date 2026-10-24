@@ -78,6 +78,7 @@ extension ImportCommand {
         /// The settings `fetch sra download --bundle` takes too (lane A45 M3). The properties below
         /// forward their old names.
         @OptionGroup var importOptions: ImportFastqOptions
+        @OptionGroup var planOptions: ImportFastqPlanOptions
 
         var recipe: String { importOptions.recipe }
         var qualityBinning: String? { importOptions.qualityBinning }
@@ -140,6 +141,9 @@ extension ImportCommand {
                 globalOptions: globalOptions, formatter: formatter, projectDirectory: URL(fileURLWithPath: project)
             )
             reporter.start()
+            if planOptions.isOn {
+                return try await writePlanFolder(reporter: reporter)
+            }
 
             // The detection, the unpaired-reads check and the import are shared with
             // `fetch sra download --bundle` (FASTQImportRun).

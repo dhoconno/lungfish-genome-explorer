@@ -88,12 +88,19 @@ package enum ExecutorPlanFolderWriter {
     /// The shared mode: writes `emission` into `folder` as `write(_:into:)` does, but copies no `executor` or
     /// `database` entry, and writes `staging.json`, which names each of those by SHA-256 and size and states `image`,
     /// before `plan.json`. The plan file's bytes are those the per-sample folder gets.
+    ///
+    /// With `stagedInputs`, the folder of a CHTC batch (C4 lane F M2), it copies no `input` entry either, since each
+    /// sample's reads are staged beside its plan tar and the job wrapper places them, and `staging.json` names them too.
     @discardableResult
-    package static func writeShared(_ emission: ExecutorPlanEmission, image: ExecutorPlanImageFile, into folder: URL) throws -> URL {
-        try write(emission, into: folder, sharedImage: image)
+    package static func writeShared(
+        _ emission: ExecutorPlanEmission, image: ExecutorPlanImageFile, stagedInputs: Bool = false, into folder: URL
+    ) throws -> URL {
+        try write(emission, into: folder, sharedImage: image, stagedInputs: stagedInputs)
     }
 
-    private static func write(_ emission: ExecutorPlanEmission, into folder: URL, sharedImage: ExecutorPlanImageFile?) throws -> URL {
+    private static func write(
+        _ emission: ExecutorPlanEmission, into folder: URL, sharedImage: ExecutorPlanImageFile?, stagedInputs: Bool = false
+    ) throws -> URL {
         let plan = emission.plan
         let data = try plan.encoded()
         if String(decoding: data, as: UTF8.self).contains(signingVariablePrefix) {
@@ -102,7 +109,7 @@ package enum ExecutorPlanFolderWriter {
         // The node's own decoder, so the Mac refuses a plan with the node's words (tally-r2 K4-13).
         _ = try ExecutionPlan.decode(data)
         func copies(_ entry: PlanEntry) -> Bool {
-            sharedImage == nil || !sharedRoles.contains(entry.role)
+            sharedImage == nil || !(sharedRoles.contains(entry.role) || (stagedInputs && entry.role == .input))
         }
         var staging: Data?
         if let sharedImage {
