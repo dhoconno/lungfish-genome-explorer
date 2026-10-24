@@ -130,4 +130,37 @@ extension RunPlanTests {
             "The decompressor gzip stopped with status 1 while it read out/merged.fastq.gz."
         )
     }
+
+    /// SWIFT Fix 4 and QA Fix 4 of the lane V review set 2. The R1 and R2 readers run together, so the order they are
+    /// reaped in varies, and the record lists the launches in the order of the step's inputs. The test hands
+    /// `readerLaunches` the reap order itself, so no scheduling decides it: three children reaped as R2, merged, R1
+    /// come back as merged, R1, R2, and a child whose input the step does not list, reaped first of all, comes last.
+    func testReaderLaunchesFollowTheStepInputsNotTheReapOrder() throws {
+        let fixture = try RunPlanFixture()
+        let root = URL(fileURLWithPath: fixture.planFolder)
+        let inputs = ["out/merged.fastq.gz", "out/R1.fastq.gz", "out/R2.fastq.gz"]
+        let stray = "out/stray.fastq.gz"
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("out"), withIntermediateDirectories: true)
+        for (index, path) in (inputs + [stray]).enumerated() {
+            try Data("read \(index)\n".utf8).write(to: root.appendingPathComponent(path))
+        }
+        func end(_ path: String, pid: Int32) -> ReaderChildEnd {
+            ReaderChildEnd(
+                label: "reader", executable: "/opt/conda/bin/gzip", arguments: ["-dc", root.path + "/" + path], pid: pid,
+                exitCode: 0, signal: nil, isSuccess: true, drainExpired: false, stopped: false, escalatedToSIGKILL: false,
+                wallSeconds: 0.1, environmentNames: []
+            )
+        }
+        let reaped = [stray, inputs[2], inputs[0], inputs[1]]
+        let ends = reaped.enumerated().map { end($0.element, pid: Int32(100 + $0.offset)) }
+
+        let launches = PlanRunner.readerLaunches(ends, inputs: inputs, root: root, tools: [])
+
+        XCTAssertEqual(launches.compactMap { $0.argv.last }, inputs + [stray], "the step's input order, then the stray")
+        XCTAssertEqual(
+            launches.compactMap { $0.inputs?.first?.relativePath }, inputs + [stray],
+            "each launch hashes the input it read, in the same order"
+        )
+        XCTAssertEqual(launches.map(\.argv.count), [3, 3, 3, 3])
+    }
 }
