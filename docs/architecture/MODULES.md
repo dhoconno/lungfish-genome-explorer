@@ -29,7 +29,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortable | library | Sources/LungfishPortable | 32 | 4836 | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 984 | 268036 | 1549 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 987 | 268567 | 1557 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15634 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
 
@@ -57,7 +57,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortableTests | Tests/LungfishPortableTests | 9 | 1179 | LungfishPortable |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 737 | 231644 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 740 | 232095 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## CLungfishExecutor
 
@@ -1907,7 +1907,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 984, lines 268036
+- Swift files. 987, lines 268567
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1936,6 +1936,7 @@ None.
 | Extraction | 35 | 10698 |
 | FASTQ | 1 | 259 |
 | Geneious | 10 | 2386 |
+| HTCondor | 3 | 531 |
 | Ingestion | 49 | 10880 |
 | MSA | 14 | 2641 |
 | Mapping | 31 | 9983 |
@@ -2604,6 +2605,14 @@ None.
 - `HaplotypeDefinitionCommandService` struct, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift:22`
 - `HaplotypeDefinitionCommandServiceError` enum, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift:1074`
 - `HaplotypeDefinitionExport` enum, `Sources/LungfishWorkflow/ViewerExport/HaplotypeDefinitionExport.swift:9`
+- `HTCondorDAG` enum, `Sources/LungfishWorkflow/HTCondor/HTCondorDAG.swift:30`
+- `HTCondorDAGNode` struct, `Sources/LungfishWorkflow/HTCondor/HTCondorDAG.swift:8`
+- `HTCondorJobWrapper` enum, `Sources/LungfishWorkflow/HTCondor/HTCondorJobWrapper.swift:22`
+- `HTCondorSiteFact` struct, `Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:97`
+- `HTCondorStagedFile` struct, `Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:14`
+- `HTCondorSubmitError` enum, `Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:35`
+- `HTCondorSubmitTemplate` enum, `Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:109`
+- `HTCondorSubmitTemplateInput` struct, `Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:60`
 - `HumanScrubberDatabaseError` enum, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:49`
 - `HumanScrubberDatabaseInstaller` actor, `Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift:76`
 - `IlluminaAmpliconPairMerger` enum, `Sources/LungfishWorkflow/ONTGenotyping/IlluminaAmpliconPairMerger.swift:36`
