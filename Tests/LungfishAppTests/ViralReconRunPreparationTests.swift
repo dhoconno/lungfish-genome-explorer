@@ -85,6 +85,7 @@ final class ViralReconRunPreparationTests: XCTestCase {
         defer { held.harness.close() }
         try held.pressRunTwice()
 
+        AccessibilityTreeProbe.waitUntil(timeout: 30) { held.harness.footerText == "Preparing inputs\u{2026}" }
         XCTAssertEqual(held.harness.footerText, "Preparing inputs\u{2026}", "the footer says what is happening")
         held.gate.signal()
         held.harness.waitForRequests(1)
@@ -126,11 +127,15 @@ extension ViralReconRunPreparationTests {
         let builds: OSAllocatedUnfairLock<Int>
         let finishes: OSAllocatedUnfairLock<Int>
 
-        /// Presses Run, waits until the sheet reports Run off, then presses it again and lets the sheet take the press.
+        /// Presses Run, waits until the sheet reports Run off and the builder holds on the gate, then presses Run
+        /// again and lets the sheet take the press. Waiting on the builder makes the second press a real double press
+        /// on a busy machine too, where the detached task can start late.
         func pressRunTwice() throws {
             harness.pressRun()
             AccessibilityTreeProbe.waitUntil(timeout: 30) { harness.recorder.availability.last == false }
             XCTAssertEqual(harness.recorder.availability.last, false, "the first press turned Run off")
+            AccessibilityTreeProbe.waitUntil(timeout: 30) { builds.withLock { $0 } >= 1 }
+            XCTAssertEqual(builds.withLock { $0 }, 1, "the builder started before the second press")
             harness.pressRun()
             harness.settle()
         }
