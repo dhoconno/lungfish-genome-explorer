@@ -17,11 +17,11 @@ final class ProvenanceStepStorageDisplayTests: XCTestCase {
         ["-c", "-f", "-l", "4", "-@", "2"].map(ParameterValue.string)
     )
 
-    private static func bgzipWriter(version: String, source: String) -> ParameterValue {
+    private static func bgzipWriter(version: String, build: String = "", source: String) -> ParameterValue {
         .dictionary([
             "name": .string("bgzip"),
             "tool": .dictionary([
-                "id": .string("bgzip"), "version": .string(version), "build": .string(""),
+                "id": .string("bgzip"), "version": .string(version), "build": .string(build),
                 "path": .string("/env/bin/bgzip"), "versionSource": .string(source),
             ]),
             "arguments": bgzipArguments,
@@ -50,6 +50,19 @@ final class ProvenanceStepStorageDisplayTests: XCTestCase {
         XCTAssertEqual(
             Self.display("clumpify.sh", ["writer": Self.bgzipWriter(version: "", source: "unknown")])?.compressedBy,
             "bgzip, version Not recorded, started by clumpify.sh as bgzip -c -f -l 4 -@ 2"
+        )
+        // N3-3a's main form, the one with a build, which the adopted node record will use (tally-c4 OQ-5).
+        XCTAssertEqual(
+            Self.display(
+                "clumpify.sh", ["writer": Self.bgzipWriter(version: "1.21", build: "h3a4d415_1", source: "imageManifest")]
+            )?.compressedBy,
+            "bgzip 1.21 (build h3a4d415_1, from the tool image's manifest), started by clumpify.sh as bgzip -c -f -l 4 -@ 2"
+        )
+        XCTAssertEqual(
+            Self.display(
+                "clumpify.sh", ["writer": Self.bgzipWriter(version: "1.21", build: "h3a4d415_1", source: "unknown")]
+            )?.compressedBy,
+            "bgzip 1.21 (build h3a4d415_1), started by clumpify.sh as bgzip -c -f -l 4 -@ 2"
         )
     }
 
