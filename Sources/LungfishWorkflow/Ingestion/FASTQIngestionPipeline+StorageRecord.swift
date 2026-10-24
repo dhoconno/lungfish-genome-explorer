@@ -84,9 +84,11 @@ extension FASTQIngestionPipeline {
 
     /// The writer probe of the binning route's `reformat.sh`, run with the environment `NativeToolRunner` gives
     /// `reformat.sh` when its caller names none, so the probe tests the very `PATH` it reads (ARCH N3 condition 1).
-    /// Nil for an argv with no `zl=`, which writes no gzip.
-    func reformatWriterProbe(arguments: [String], threads: Int) async throws -> PortableBBToolsWriterProbe? {
-        guard let level = PortableStorageStep<NativeToolStorageLauncher>.compressionLevel(of: arguments) else {
+    /// Nil for an output whose name does not end in `.gz`, which BBTools writes as plain text through no bgzip (the ONT
+    /// chunk pass writes plain chunks), and for an argv with no `zl=`.
+    func reformatWriterProbe(arguments: [String], outputFile: URL, threads: Int) async throws -> PortableBBToolsWriterProbe? {
+        guard outputFile.pathExtension.lowercased() == "gz",
+              let level = PortableStorageStep<NativeToolStorageLauncher>.compressionLevel(of: arguments) else {
             return nil
         }
         let environment = CoreToolLocator.bbToolsEnvironment(

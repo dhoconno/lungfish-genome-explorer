@@ -63,6 +63,25 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
             XCTAssertTrue(step.argv.contains("quantize=0,8,13,22,27,32,37"), "\(step.argv)")
             XCTAssertEqual(step.exitStatus, 0)
             XCTAssertFalse(step.toolVersion.isEmpty)
+            // C4-10 (BIO 4): BBTools writes a plain chunk as plain text through no bgzip, so only the step of a `.gz`
+            // chunk names a writer and a level, and the level is the `zl=` of the argv that ran.
+            let chunkName = step.outputs.first.map { URL(fileURLWithPath: $0.path).lastPathComponent } ?? ""
+            let gzip = step.outputs.contains { $0.path.hasSuffix(".gz") }
+            XCTAssertEqual(step.resolvedOptions["writer"] != nil, gzip, "\(chunkName): a writer is recorded for a gzip output only")
+            XCTAssertEqual(
+                step.resolvedOptions["effectiveCompressionLevel"] != nil, gzip,
+                "\(chunkName): a level is recorded for a gzip output only"
+            )
+            if gzip {
+                guard case .dictionary(let writer)? = step.resolvedOptions["writer"] else {
+                    XCTFail("\(chunkName) names no writer: \(step.resolvedOptions)")
+                    continue
+                }
+                XCTAssertEqual(writer["name"], .string("bgzip"), chunkName)
+                let level = step.argv.first { $0.hasPrefix("zl=") }.flatMap { Int($0.dropFirst(3)) }
+                XCTAssertNotNil(level, "\(chunkName): no zl= in \(step.argv)")
+                XCTAssertEqual(step.resolvedOptions["effectiveCompressionLevel"], level.map(ParameterValue.integer), chunkName)
+            }
         }
         XCTAssertEqual(
             // The record names the run's chunk by its real path, /private/var on macOS, so both sides resolve links.

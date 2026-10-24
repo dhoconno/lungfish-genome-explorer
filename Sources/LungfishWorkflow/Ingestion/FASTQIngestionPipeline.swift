@@ -708,7 +708,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
         progress(0.05, "Launching bbtools reformat.sh...")
-        let writerProbe = try await reformatWriterProbe(arguments: args, threads: config.threads)
+        let writerProbe = try await reformatWriterProbe(arguments: args, outputFile: outputFile, threads: config.threads)
         let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
