@@ -23,12 +23,23 @@ enum RecipeAppliedPresentation {
         (id: "removeRibosomalRNA", label: "Remove ribosomal RNA reads"),
     ]
 
+    /// The recipes that have the two known switches and whose older records hold no settings: the merged recipe and
+    /// the three names an older build wrote (the legacy VSP2 recipe, its recipe file and the wastewater file). A
+    /// record without settings from any other recipe, such as `wgs`, `hifi` or the amplicon merge, comes from a
+    /// recipe that has no such switch, so it gets no switch row.
+    private static let recipeIDsWithKnownSwitches: Set<String> = [
+        "illumina-paired-cleanup", "illuminaVSP2TargetEnrichment", "vsp2-target-enrichment", "wastewater-metagenomics",
+    ]
+
     /// The rows after the recipe's name, in the order the Inspector draws them, which is also the order VoiceOver
-    /// reads and Copy text takes them. Preset, one row for each switch, then the recipe digest.
+    /// reads and Copy text takes them. Preset, one row for each switch the recipe has, then the recipe digest. A
+    /// switch row reads Not recorded only for a recipe that has the switch and a record that lacks its setting.
     static func rows(for info: RecipeAppliedInfo) -> [Row] {
         var rows = [Row(label: "Preset", value: presetText(for: info))]
+        let recipeHasKnownSwitches = recipeIDsWithKnownSwitches.contains(info.recipeID)
         for known in knownSwitches {
             let setting = info.switchSettings?.first { $0.id == known.id }
+            guard setting != nil || recipeHasKnownSwitches else { continue }
             rows.append(Row(label: known.label, value: setting.map(switchText) ?? notRecorded))
         }
         for setting in info.switchSettings ?? [] where !knownSwitches.contains(where: { $0.id == setting.id }) {
