@@ -353,6 +353,7 @@ extension MainSplitViewController {
             break
         }
 
+        inspectorController?.clearBatchOperationDetails()  // each arm below sets its own block, a result with none shows none
         if tool == .kraken2 {
             // Check for SQLite database first -- faster than parsing per-sample kreport files.
             let dbURL = batchURL.appendingPathComponent("kraken2.sqlite")
@@ -563,7 +564,6 @@ extension MainSplitViewController {
                 }
             }
 
-            self.inspectorController?.clearBatchOperationDetails()
             self.inspectorController?.updateBatchOperationDetails(
                 tool: "TaxTriage",
                 parameters: taxTriageParams,
