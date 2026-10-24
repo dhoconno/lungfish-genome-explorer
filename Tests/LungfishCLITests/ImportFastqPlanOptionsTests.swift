@@ -86,6 +86,46 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
     }
 
+    /// An R1 and an R2 file for `sample` in a folder of their own.
+    private func writeReadPair(_ sample: String) throws -> [URL] {
+        let folder = root.appendingPathComponent("reads-\(sample)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try [1, 2].map { mate in
+            let url = folder.appendingPathComponent("\(sample)_R\(mate).fastq")
+            try "@\(sample)a/\(mate)\nACGTACGTAC\n+\nIIIIIIIIII\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+    }
+
+    /// `--dry-run` with `--write-plan` makes the refusals the real run makes for a fixed reason, so a dry run that passes
+    /// is a run that can pass. It writes nothing in either case.
+    func testWritePlanDryRunReportsTheRefusalsOfTheRealRun() async throws {
+        let fixture = try writeFixture()
+        let dotted = try writeReadPair("S1.2")
+        let cases: [(name: String, reads: [URL], staging: String, extra: [String], refused: Bool)] = [
+            ("no clumping and no binning", fixture.reads, Fixture.stagingFolder,
+             ["--clumping-tool", "none", "--quality-binning", "none"], true),
+            ("a sample name the DAG cannot name", dotted, Fixture.stagingFolder, ["--clumping-tool", "bbtools"], true),
+            ("a staging folder with a space", fixture.reads, "/staging/groups/our lab/x", ["--clumping-tool", "bbtools"], true),
+            ("the plain fixture", fixture.reads, Fixture.stagingFolder, ["--clumping-tool", "bbtools"], false),
+        ]
+        for (index, item) in cases.enumerated() {
+            let folder = root.appendingPathComponent("dry-run-\(index)", isDirectory: true)
+            let command = try ImportCommand.FastqSubcommand.parse(
+                item.reads.map(\.path) + fixture.planArguments(folder: folder, staging: item.staging)
+                    + ["--threads", "1", "--clumpify-heap-gb", "4", "--dry-run"] + item.extra
+            )
+            do {
+                try await command.run()
+                XCTAssertFalse(item.refused, "\(item.name): the dry run passed where the real run is refused")
+            } catch let error as ExitCode {
+                XCTAssertTrue(item.refused, "\(item.name): the dry run was refused")
+                XCTAssertEqual(error.rawValue, 3, item.name)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(item.name): a dry run writes nothing")
+        }
+    }
+
     /// The built CLI writes the submit folder with `ssh`, `scp`, `rsync` and the HTCondor submit commands replaced by
     /// stand-ins at the front of `PATH`, and no stand-in ran: the planning step opens no connection and submits nothing.
     func testWritePlanOpensNoSSH() throws {
@@ -139,9 +179,11 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         var image: URL
         var toolManifest: URL
 
-        func planArguments(folder: URL) -> [String] {
+        static let stagingFolder = "/staging/groups/g/1/lge-chtc-test"
+
+        func planArguments(folder: URL, staging: String = Fixture.stagingFolder) -> [String] {
             ["--write-plan", folder.path, "--executor-manifest", executorManifest.path, "--image", image.path,
-             "--image-tool-manifest", toolManifest.path, "--staging-folder", "/staging/groups/g/1/lge-chtc-test"]
+             "--image-tool-manifest", toolManifest.path, "--staging-folder", staging]
         }
     }
 

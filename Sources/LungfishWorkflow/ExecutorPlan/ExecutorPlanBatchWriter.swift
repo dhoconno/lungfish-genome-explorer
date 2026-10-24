@@ -197,14 +197,10 @@ package enum ExecutorPlanBatchWriter {
         }
     }
 
-    @discardableResult
-    package static func write(
-        _ recipeTemplate: ExecutorPlanTemplate, request: ExecutorPlanTemplateRequest, rows: [ExecutorPlanSampleRow],
-        image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, into folder: URL
-    ) throws -> ExecutorPlanBatch {
-        let template = recipeTemplate.template
-        try ExecutorPlanNoPlanForm.check(template, request: request)
-        try checkLayout(layout)
+    /// The folder name of each row, which is also its `staging/` folder, its DAG node and its job log. It is the name
+    /// the sample sanitizer gives (`SampleFolderNaming`, which TaxTriage and Viral Recon share), with a suffix when two
+    /// samples take one name, and it must be a name the DAG can hold. The real run and `--dry-run` make this one check.
+    package static func folderNames(for rows: [ExecutorPlanSampleRow]) throws -> [String] {
         var used = Set<String>()
         var names: [String] = []
         for row in rows {
@@ -215,6 +211,18 @@ package enum ExecutorPlanBatchWriter {
             }
             names.append(name)
         }
+        return names
+    }
+
+    @discardableResult
+    package static func write(
+        _ recipeTemplate: ExecutorPlanTemplate, request: ExecutorPlanTemplateRequest, rows: [ExecutorPlanSampleRow],
+        image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, into folder: URL
+    ) throws -> ExecutorPlanBatch {
+        let template = recipeTemplate.template
+        try ExecutorPlanNoPlanForm.check(template, request: request)
+        try checkLayout(layout)
+        let names = try folderNames(for: rows)
         let emissions = try rows.map { try recipeTemplate.emission(for: $0) }
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: folder.path) else {

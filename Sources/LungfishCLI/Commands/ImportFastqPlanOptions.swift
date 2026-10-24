@@ -141,15 +141,22 @@ extension ImportCommand.FastqSubcommand {
                                              processorCount: ProcessInfo.processInfo.activeProcessorCount)
             let recipeTemplate = try ExecutorPlanEmitter.template(template, host: host)
             let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
+            let layout = ExecutorPlanStagingLayout(folder: staging, batch: folder.lastPathComponent)
             if dryRun {
-                for row in rows.rows { reporter.text("  \(row.sampleName): \(row.inputs.map(\.url.lastPathComponent).joined(separator: ", "))") }
-                reporter.text("Dry-run mode — no plan folder was written.")
-                reporter.complete(message: "Dry-run mode — no plan folder was written.")
+                // A dry run makes the refusals of the real run that the inputs and the names alone decide, so it cannot
+                // pass where the run would end for a fixed reason.
+                try ExecutorPlanNoPlanForm.check(recipeTemplate.template, request: template)
+                try ExecutorPlanBatchWriter.checkLayout(layout)
+                let names = try ExecutorPlanBatchWriter.folderNames(for: rows.rows)
+                for (row, name) in zip(rows.rows, names) {
+                    reporter.text("  \(row.sampleName) in folder \(name): \(row.inputs.map(\.url.lastPathComponent).joined(separator: ", "))")
+                }
+                reporter.text("This was a dry run, so no submit folder was written.")
+                reporter.complete(message: "This was a dry run, so no submit folder was written.")
                 return
             }
             let batch = try ExecutorPlanBatchWriter.write(
-                recipeTemplate, request: template, rows: rows.rows, image: image,
-                layout: ExecutorPlanStagingLayout(folder: staging, batch: folder.lastPathComponent), into: folder
+                recipeTemplate, request: template, rows: rows.rows, image: image, layout: layout, into: folder
             )
             reporter.text("Wrote the submit folder \(batch.folder.path) for \(batch.samples.count) sample(s).")
             for file in batch.files {
