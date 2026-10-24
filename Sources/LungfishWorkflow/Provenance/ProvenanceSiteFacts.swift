@@ -29,10 +29,13 @@ public enum ProvenanceSiteFactRows {
     static let clusterKey = "ClusterId"
     static let processKey = "ProcId"
 
-    /// The facts the submit template asks for (C4-03's list) with their labels, in OQ-5's order.
+    /// The label of each fact OQ-5's table names, in UX's words, and of the two other facts the CHTC submit template
+    /// passes, `Arch` and `OpSysMajorVer`, in the same style.
     public static let templateLabels: [(key: String, label: String)] = [
         ("Machine", "Machine name"),
+        ("Arch", "CPU architecture"),
         ("OpSysAndVer", "Operating system"),
+        ("OpSysMajorVer", "Operating system major version"),
         ("OSKernelRelease", "Kernel release"),
         ("SingularityVersion", "Apptainer version"),
         ("Microarch", "CPU microarchitecture"),
@@ -40,6 +43,13 @@ public enum ProvenanceSiteFactRows {
         ("Cpus", "CPUs"),
         ("Memory", "Memory"),
         ("Disk", "Disk"),
+    ]
+
+    /// The machine-ad facts the CHTC submit template asks for, in its `arguments` order (lane H's
+    /// `HTCondorSubmitTemplate.machineAdAttributes`). Each one a record lacks shows as Not recorded. The template passes
+    /// no Apptainer or HTCondor version yet, so a record without them shows neither row.
+    public static let templateKeys = [
+        "Machine", "Arch", "Microarch", "OpSysAndVer", "OpSysMajorVer", "OSKernelRelease", "Cpus", "Memory", "Disk",
     ]
 
     /// The unit each whole-number fact takes. HTCondor states a slot's `Memory` in MiB and its `Disk` in KiB.
@@ -73,8 +83,8 @@ public enum ProvenanceSiteFactRows {
             }
             rows.append((label, recorded(fact.key).map { value(of: fact.key, $0) } ?? notRecorded))
         }
-        for (key, label) in templateLabels where byKey[key] == nil {
-            rows.append((label, notRecorded))
+        for key in templateKeys where byKey[key] == nil {
+            rows.append((labels[key] ?? key, notRecorded))
         }
         if !jobShown { rows.append((jobLabel, notRecorded)) }
         return rows

@@ -346,18 +346,20 @@ final class ExecutorRunAdoptionTests: XCTestCase {
     }
 
     /// OQ-5's rows for the facts a CHTC slot gave: the group row first, a template fact under its label, Memory in
-    /// MiB and Disk in KiB, any other key under its own name, one job row, and each asked-for fact the record lacks as
-    /// Not recorded.
+    /// MiB and Disk in KiB, any other key under its own name, one job row, and each fact the CHTC template asks for
+    /// that the record lacks as Not recorded. Every key lane H's template passes has a label (lane U), and the
+    /// Apptainer and HTCondor versions it does not pass show no row.
     func testSiteFactRowsShowLauncherWordsLabelsAndUnits() {
         let facts = Self.chtcFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
         let rows = ProvenanceSiteFactRows.rows(facts).map { "\($0.label): \($0.value)" }
         XCTAssertEqual(rows, [
             "Reported by the launcher: Passed in by the program that started the run, such as HTCondor. Lungfish shows them as given and did not check them.",
-            "Machine name: e4004.chtc.wisc.edu", "Arch: X86_64", "CPU microarchitecture: x86_64-v3",
-            "Operating system: CentOS9", "OpSysMajorVer: 9", "Kernel release: 5.14.0-620.el9.x86_64", "CPUs: 1",
-            "Memory: 1024 MiB", "Disk: 16777216 KiB", "HTCondor job: 593367.0",
-            "Apptainer version: Not recorded", "HTCondor version: Not recorded",
+            "Machine name: e4004.chtc.wisc.edu", "CPU architecture: X86_64", "CPU microarchitecture: x86_64-v3",
+            "Operating system: CentOS9", "Operating system major version: 9", "Kernel release: 5.14.0-620.el9.x86_64",
+            "CPUs: 1", "Memory: 1024 MiB", "Disk: 16777216 KiB", "HTCondor job: 593367.0",
         ])
+        let withoutDisk = ProvenanceSiteFactRows.rows(facts.filter { $0.key != "Disk" }).map { "\($0.label): \($0.value)" }
+        XCTAssertEqual(withoutDisk.last, "Disk: Not recorded")
         let odd = ProvenanceSiteFactRows.rows([
             ProvenanceSiteFact(key: "Memory", value: "1 GB"), ProvenanceSiteFact(key: "Machine", value: "undefined"),
             ProvenanceSiteFact(key: "ProcId", value: "3"),

@@ -219,10 +219,10 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var wallTimeSeconds: TimeInterval?
     var stderr: String?
     var dependsOn: [UUID]
-    /// The lines the step's observation adds to its disclosure, or nil when it adds none (Phase 2.10 U37), and the
-    /// lines a storage step's record adds about how its gzip was written, or nil when it holds none (C4-10).
+    /// The lines the step's observation adds (Phase 2.10 U37), a storage step's lines on how its gzip was written
+    /// (C4-10) and a node step's "Version and build" (C4-13), each nil when the record holds none of its fields.
     var observation: ProvenanceStepTerminationDisplay? = nil
-    var storage: ProvenanceStepStorageDisplay? = nil
+    var storage: ProvenanceStepStorageDisplay? = nil, versionAndBuild: String? = nil
 
     var displayCommand: String { commandLabel ?? command }
 }
@@ -717,7 +717,7 @@ final class ProvenanceInspectorViewModel {
                 return ProvenanceLineageStep(
                     id: step.id,
                     ordinal: index + 1,
-                    toolName: step.toolName,
+                    toolName: ProvenanceNodeRuntimeDisplay.title(of: step) ?? step.toolName,
                     toolVersion: stepIdentity.displayVersion,
                     command: ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL),
                     commandLabel: ProvenanceCommandPresentation
@@ -728,7 +728,7 @@ final class ProvenanceInspectorViewModel {
                     exitStatus: step.exitStatus, wallTimeSeconds: step.wallTimeSeconds,
                     stderr: step.stderr?.strippingANSIEscapeSequences(), dependsOn: step.dependsOn,
                     observation: ProvenanceStepTerminationDisplay(step.observation),
-                    storage: ProvenanceStepStorageDisplay(step, in: envelope)
+                    storage: ProvenanceStepStorageDisplay(step, in: envelope), versionAndBuild: ProvenanceNodeRuntimeDisplay.versionAndBuild(of: step)
                 )
             }
         )
@@ -965,7 +965,7 @@ final class ProvenanceInspectorViewModel {
         appendOptional("Container Image", runtime.containerImage, to: &rows)
         appendOptional("Container Digest", runtime.containerDigest, to: &rows)
         rows.append(ProvenanceRuntimeRow(label: "Dependency Set", value: runtime.dependencySet.flatMap { $0.isEmpty ? nil : $0 } ?? "Not recorded"))
-        return rows
+        return rows + ProvenanceNodeRuntimeDisplay.runtimeRows(runtime)
     }
 
     private func appendOptional(_ label: String, _ value: String?, to rows: inout [ProvenanceRuntimeRow]) {

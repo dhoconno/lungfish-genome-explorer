@@ -427,6 +427,7 @@ struct ProvenanceSection: View {
                     appStepNoteRow(of: step)
                 }
                 stepObservationRow(.environment, of: step)
+                stepVersionRow(of: step)
                 ForEach(ProvenanceStepStorageDisplay.Line.allCases, id: \.self) { stepStorageRow($0, of: step) }
                 if !step.inputPaths.isEmpty {
                     pathList("Inputs", step.inputPathLabels, recorded: step.inputPaths)
@@ -685,6 +686,7 @@ struct ProvenanceSection: View {
             || step.outputPaths.contains(where: matchesSearch)
             || matchesSearch(step.stderr ?? "")
             || matchesSearch(step.observation?.searchText ?? "")
+            || matchesSearch(step.versionAndBuild ?? "")
     }
 
     private func matchesSearch(_ value: String) -> Bool {

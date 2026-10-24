@@ -39,6 +39,9 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
     /// The site facts the program that started a Linux run passed in, in the order given and as the run record keeps
     /// them, never observed or checked (C4-02). Only an adopted record of a run that had some holds them.
     public let siteFacts: [ProvenanceSiteFact]?
+    /// What the executor observed of the machine and the executor build that ran an adopted run's steps, once per run
+    /// (UX ruling OQ-1). Only an adopted record holds it.
+    public let nodeRuntime: ProvenanceNodeRuntime?
 
     private enum CodingKeys: String, CodingKey {
         case appVersion
@@ -56,6 +59,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         case dependencySet
         case managedToolLockSHA256
         case siteFacts
+        case nodeRuntime
     }
 
     /// A writer's identity. Each default is a fact of the writing process, and a blank value takes the
@@ -75,7 +79,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerImage: String? = nil,
         containerDigest: String? = nil,
         dependencySet: String? = ManagedToolLock.bundled.resolvedDependencySet,
-        siteFacts: [ProvenanceSiteFact]? = nil
+        siteFacts: [ProvenanceSiteFact]? = nil,
+        nodeRuntime: ProvenanceNodeRuntime? = nil
     ) {
         self.appVersion = appVersion.map { ProvenanceVersion.required($0, fallback: WorkflowRun.currentAppVersion) }
         self.executablePath = executablePath.map {
@@ -96,6 +101,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.dependencySet = dependencySet
         self.managedToolLockSHA256 = Self.bundledLockSHA256(recordingDependencySet: dependencySet)
         self.siteFacts = siteFacts
+        self.nodeRuntime = nodeRuntime
     }
 
     /// The identity a record holds, for a reader. It takes the process ID the record holds, or nil,
@@ -116,7 +122,8 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerDigest: String? = nil,
         dependencySet: String?,
         managedToolLockSHA256: String? = nil,
-        siteFacts: [ProvenanceSiteFact]? = nil
+        siteFacts: [ProvenanceSiteFact]? = nil,
+        nodeRuntime: ProvenanceNodeRuntime? = nil
     ) {
         self.appVersion = Self.recorded(appVersion)
         self.executablePath = Self.recorded(executablePath)
@@ -133,6 +140,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.dependencySet = dependencySet
         self.managedToolLockSHA256 = Self.recorded(managedToolLockSHA256)
         self.siteFacts = siteFacts
+        self.nodeRuntime = nodeRuntime
     }
 
     /// A missing or blank key decodes as nil. A present value decodes trimmed, as before.
@@ -153,6 +161,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         dependencySet = try container.decodeIfPresent(String.self, forKey: .dependencySet)
         managedToolLockSHA256 = Self.recorded(try container.decodeIfPresent(String.self, forKey: .managedToolLockSHA256))
         siteFacts = try container.decodeIfPresent([ProvenanceSiteFact].self, forKey: .siteFacts)
+        nodeRuntime = try container.decodeIfPresent(ProvenanceNodeRuntime.self, forKey: .nodeRuntime)
     }
 
     /// Writes every fact the identity holds except the process ID, which no record written since
@@ -173,6 +182,7 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         try container.encodeIfPresent(dependencySet, forKey: .dependencySet)
         try container.encodeIfPresent(managedToolLockSHA256, forKey: .managedToolLockSHA256)
         try container.encodeIfPresent(siteFacts, forKey: .siteFacts)
+        try container.encodeIfPresent(nodeRuntime, forKey: .nodeRuntime)
     }
 
     /// The bundled lock file's SHA-256 when `dependencySet` is the bundled lock's dependency set, and nil
