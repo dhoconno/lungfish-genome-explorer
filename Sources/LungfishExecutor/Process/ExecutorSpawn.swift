@@ -29,8 +29,12 @@ struct ChildExit: Equatable, Sendable {
 /// The POSIX process calls of the executor's launcher (`docs/contracts/RUNNING-A-TOOL.md`, The Linux executor's launcher).
 ///
 /// Linux has no `POSIX_SPAWN_CLOEXEC_DEFAULT` and musl lacks `posix_spawn_file_actions_addclosefrom_np`, so the
-/// executor marks every inherited descriptor from 3 up close-on-exec at start and opens its own with `O_CLOEXEC`. A child
-/// then holds only the three descriptors the spawn installs. macOS takes the same route, so the parity tests prove it.
+/// executor marks every inherited descriptor from 3 up close-on-exec in its first spawn and opens its own with
+/// `O_CLOEXEC`. A child then holds only the three descriptors the spawn installs. macOS takes the same route, so the
+/// parity tests prove it.
+///
+/// `spawn` and `openPipe` take a `SpawnLockToken`, which only `StepController.swift` can make and only while it holds the
+/// one spawn lock, so a second caller does not compile.
 enum ExecutorSpawn {
     struct Failure: Error, Equatable, Sendable {
         let reason: String
@@ -49,6 +53,8 @@ enum ExecutorSpawn {
     }
 
     /// Sets `FD_CLOEXEC` on every descriptor from 3 up that this process has open, and returns how many it marked.
+    /// The first `spawn` of each `StepController` makes this call under the spawn lock, so a command does not make it at
+    /// start. Tests may call it directly.
     @discardableResult
     static func markInheritedDescriptorsCloseOnExec() -> Int {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: descriptorFolder)) ?? []
@@ -82,8 +88,8 @@ enum ExecutorSpawn {
     /// Makes a pipe whose two ends are close-on-exec and above the standard descriptors. The caller holds the spawn lock
     /// (`StepController.spawnTrackedReadingStdout`), so no spawn of this process sees an end before its flag is set, which
     /// is what `pipe2(O_CLOEXEC)` gives on Linux, on every platform.
-    /// Call it only from `StepController.spawnTrackedReadingStdout`, which holds the lock.
-    static func openPipe() throws(Failure) -> (read: Int32, write: Int32) {
+    /// The `lock` is the proof of that. Only `StepController.swift` can make one, so no other file can call this.
+    static func openPipe(lock: SpawnLockToken) throws(Failure) -> (read: Int32, write: Int32) {
         var ends: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else {
             throw Failure(reason: "Could not make a pipe. \(String(cString: strerror(errno)))")
@@ -137,6 +143,8 @@ enum ExecutorSpawn {
     /// Starts `executable` as the leader of its own process group, with an empty signal mask, default dispositions for
     /// `defaultedSignals`, the three descriptors given as 0, 1 and 2 and exactly `environment`. No PATH lookup is made.
     /// A `workingDirectory` is set by the spawn's file actions, never by a process-wide `chdir` (SWIFT ruling N8).
+    /// The `lock` proves the caller holds the spawn lock. The first one a controller makes also has this spawn mark the
+    /// inherited descriptors close-on-exec before the `posix_spawn`, under that lock.
     static func spawn(
         executable: String,
         arguments: [String],
@@ -144,8 +152,12 @@ enum ExecutorSpawn {
         stdin: Int32,
         stdout: Int32,
         stderr: Int32,
+        lock: SpawnLockToken,
         workingDirectory: String? = nil
     ) throws(Failure) -> pid_t {
+        if lock.marksInheritedDescriptors {
+            markInheritedDescriptorsCloseOnExec()
+        }
         #if os(Linux)
         var attributes = posix_spawnattr_t()
         var actions = posix_spawn_file_actions_t()

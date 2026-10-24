@@ -152,7 +152,7 @@ struct RunPlanFixture {
             // argv[0] the bare name (UX fix 5 of the K4 part C review).
             let launcher = byBareName
                 ? ["PATH=" + (binary as NSString).deletingLastPathComponent, (binary as NSString).lastPathComponent] : []
-            pid = try ExecutorSpawn.spawn(
+            pid = try ExecutorTestSupport.controller.spawnTracked(
                 executable: byBareName ? "/usr/bin/env" : binary, arguments: launcher + ["run", "--plan", plan] + arguments,
                 environment: environment.merging(["PATH": "/usr/bin:/bin"]) { current, _ in current },
                 stdin: stdin, stdout: stdout, stderr: stderr

@@ -49,6 +49,12 @@ enum ExecutorTestSupport {
         return folder
     }
 
+    /// The controller whose spawn lock every launch of the tests' own takes, since `ExecutorSpawn.spawn` needs the lock's
+    /// token. It is shared, so only the first launch of a test process sweeps its inherited descriptors, as the first
+    /// spawn of the executor does, and a descriptor a test opens afterwards still reaches the executor it starts
+    /// (`testChildSeesOnlyStandardDescriptors`).
+    static let controller = StepController()
+
     /// Starts `program` with the launcher, stdout and stderr in files of `folder`, and returns its PID.
     static func spawn(_ program: String, _ arguments: [String], folder: String, name: String = "child") throws -> pid_t {
         let stdin = try ExecutorSpawn.openNullForReading()
@@ -59,7 +65,7 @@ enum ExecutorTestSupport {
             close(stdout)
             close(stderr)
         }
-        return try ExecutorSpawn.spawn(
+        return try controller.spawnTracked(
             executable: program, arguments: arguments, environment: ["PATH": "/usr/bin:/bin"],
             stdin: stdin, stdout: stdout, stderr: stderr
         )

@@ -164,7 +164,7 @@ enum ReadCommand {
         }
 
         ExecutorSignals.ignoreBrokenPipe()
-        ExecutorSpawn.markInheritedDescriptorsCloseOnExec()
+        // The controller's first spawn marks the inherited descriptors close-on-exec, under its spawn lock.
         let controller = StepController()
         let sources = ExecutorSignals.watch(queue: DispatchQueue(label: "lungfish-executor.signals")) { signal in
             controller.interrupt(signal)

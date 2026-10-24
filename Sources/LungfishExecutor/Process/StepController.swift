@@ -57,6 +57,21 @@ struct StepResult: Sendable {
     var stoppedByExecutor = false
 }
 
+/// The proof, in the type system, that the caller holds the one spawn lock (QK2). `ExecutorSpawn.spawn` and
+/// `ExecutorSpawn.openPipe` take one, so a call from any other place does not compile. The initializer is `fileprivate`
+/// to this file, and only `StepController.State.spawnToken()` calls it, which only a closure of `state.withLock` can
+/// reach, so a token is made while the lock is held.
+struct SpawnLockToken {
+    /// True on the first token a controller makes. The spawn that receives it marks every descriptor the process
+    /// inherited close-on-exec before `posix_spawn`. That is the sweep that `run`, `step` and `read-fastq` once made at
+    /// start, outside the lock.
+    let marksInheritedDescriptors: Bool
+
+    fileprivate init(marksInheritedDescriptors: Bool) {
+        self.marksInheritedDescriptors = marksInheritedDescriptors
+    }
+}
+
 /// The launcher's state for one run: the tracked children and the cancel path.
 ///
 /// One lock is held across `posix_spawn` and the insert into the tracked set, and the sweep takes the same lock, so a
@@ -66,12 +81,25 @@ struct StepResult: Sendable {
 /// a PID it did not find under its own PID or in the group of a child it started. Each tracked child has one dedicated
 /// thread that blocks in `waitid(WNOWAIT)`, so no cooperative thread blocks and the child stays a zombie, holding its PID
 /// and group ID, until the sweep is over and `wait4` reaps it with its exit status and peak resident memory.
+///
+/// `spawnTracked` and `spawnTrackedReadingStdout` are the only places that make a `SpawnLockToken`, each inside the lock,
+/// so they are the only callers of `ExecutorSpawn.spawn` and `ExecutorSpawn.openPipe`. The first token of a controller
+/// tells its spawn to mark the inherited descriptors close-on-exec, so no command sweeps before the controller exists.
 final class StepController: Sendable {
     private struct State {
         var tracked: Set<pid_t> = []
         var exited: Set<pid_t> = []
         var interruptSignal: Int32?
         var adoptedReaped = 0
+        var inheritedDescriptorsMarked = false
+
+        /// The token for one spawn. A `State` is reachable only inside `state.withLock`, so a token comes only from
+        /// there. The first one asks its spawn for the start-up sweep and the later ones do not.
+        mutating func spawnToken() -> SpawnLockToken {
+            let first = !inheritedDescriptorsMarked
+            inheritedDescriptorsMarked = true
+            return SpawnLockToken(marksInheritedDescriptors: first)
+        }
     }
 
     private let state = Mutex(State())
@@ -98,9 +126,10 @@ final class StepController: Sendable {
         workingDirectory: String? = nil
     ) throws(ExecutorSpawn.Failure) -> pid_t {
         try state.withLock { (current: inout State) throws(ExecutorSpawn.Failure) -> pid_t in
+            let lock = current.spawnToken()
             let pid = try ExecutorSpawn.spawn(
                 executable: executable, arguments: arguments, environment: environment,
-                stdin: stdin, stdout: stdout, stderr: stderr, workingDirectory: workingDirectory
+                stdin: stdin, stdout: stdout, stderr: stderr, lock: lock, workingDirectory: workingDirectory
             )
             current.tracked.insert(pid)
             return pid
@@ -118,12 +147,13 @@ final class StepController: Sendable {
         stderr: Int32
     ) throws(ExecutorSpawn.Failure) -> (pid: pid_t, stdout: Int32) {
         try state.withLock { (current: inout State) throws(ExecutorSpawn.Failure) -> (pid: pid_t, stdout: Int32) in
-            let pipe = try ExecutorSpawn.openPipe()
+            let lock = current.spawnToken()
+            let pipe = try ExecutorSpawn.openPipe(lock: lock)
             defer { close(pipe.write) }
             do throws(ExecutorSpawn.Failure) {
                 let pid = try ExecutorSpawn.spawn(
                     executable: executable, arguments: arguments, environment: environment,
-                    stdin: stdin, stdout: pipe.write, stderr: stderr
+                    stdin: stdin, stdout: pipe.write, stderr: stderr, lock: lock
                 )
                 current.tracked.insert(pid)
                 return (pid, pipe.read)

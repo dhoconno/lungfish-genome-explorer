@@ -38,7 +38,7 @@ extension RunPlanFixture {
             close(stdout)
             close(stderr)
         }
-        return try ExecutorSpawn.spawn(
+        return try ExecutorTestSupport.controller.spawnTracked(
             executable: binary, arguments: ["run", "--plan", planPath] + arguments,
             environment: ["PATH": "/usr/bin:/bin"], stdin: stdin, stdout: stdout, stderr: stderr
         )
