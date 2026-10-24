@@ -174,6 +174,63 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         XCTAssertEqual(importedEntries(), [])
     }
 
+    /// S-1 with the resolver's path and link rules: a payload path that leaves the plan's folder is refused by `..`, by an
+    /// absolute path and by a symbolic link out of the folder, and so is a run record that is itself a link. The first and
+    /// third case name a real file with the right size and digest, and each case sets the record's count files to the same
+    /// path, so only the path rule can refuse. Each leaves the file outside the folder as it was and makes no bundle file.
+    func testAdoptRefusesPayloadThatLeavesTheFolder() async throws {
+        let outsideBytes = Data("@outside/1\nACGTACGTAC\n+\nIIIIIIIIII\n@outside/2\nGTACGTACGT\n+\nIIIIIIIIII\n".utf8)
+        let outside = root.appendingPathComponent("outside.fastq.gz")
+        let cases: [(label: String, path: String, file: URL, words: String)] = [
+            ("dot-dot", "../outside.fastq.gz", outside, "holds an empty, . or .. component"),
+            ("absolute", "/etc/hosts", URL(fileURLWithPath: "/etc/hosts"), "is absolute"),
+            ("link", "out/link.fastq.gz", outside, "leads outside the plan's folder through a symbolic link"),
+        ]
+        for (label, path, file, words) in cases {
+            var folderCase = try returned(.bbtools)
+            try outsideBytes.write(to: outside)
+            if label == "link" {
+                try FileManager.default.createSymbolicLink(
+                    atPath: folderCase.folder.appendingPathComponent(path).path, withDestinationPath: outside.path
+                )
+            }
+            let named = ExecutorFileDigest(
+                relativePath: path, sha256: PortableDigest.sha256Hex(of: outsideBytes), size: Int64(outsideBytes.count)
+            )
+            folderCase.record.payloads = [ExecutorPayloadRecord(
+                relativePath: path, sha256: named.sha256, size: named.size, recordCount: 2, recordCountFile: named
+            )]
+            let counted = try XCTUnwrap(folderCase.record.steps.firstIndex(where: { $0.kind == .qualityCount }), label)
+            folderCase.record.steps[counted].qualityCounts = ExecutorQualityCounts(
+                baseCount: 20, q20Count: 20, q30Count: 20, recordCount: 2, file: named
+            )
+            try folderCase.write()
+            let fileBefore = try Data(contentsOf: file)
+            let caseOutcome = await refusal(folderCase)
+            let caseRefused = try XCTUnwrap(caseOutcome, label)
+            XCTAssertEqual(caseRefused.field, "payloads[0]", label)
+            XCTAssertTrue(caseRefused.reason.contains(words), "\(label): \(caseRefused.reason)")
+            XCTAssertEqual(importedEntries(), [], label)
+            XCTAssertEqual(try Data(contentsOf: file), fileBefore, label)
+            try FileManager.default.removeItem(at: folderCase.folder)
+            try FileManager.default.removeItem(at: root.appendingPathComponent("S", isDirectory: true))
+        }
+
+        // The run record is a link to a copy outside the folder: the adopt reads a regular file at the folder's root only.
+        let linked = try returned(.bbtools)
+        let recordURL = linked.folder.appendingPathComponent(ExecutorRunRecord.fileName)
+        let copy = root.appendingPathComponent("outside-run-record.json")
+        try FileManager.default.moveItem(at: recordURL, to: copy)
+        try FileManager.default.createSymbolicLink(at: recordURL, withDestinationURL: copy)
+        let copyBefore = try Data(contentsOf: copy)
+        let linkOutcome = await refusal(linked)
+        let linkRefused = try XCTUnwrap(linkOutcome)
+        XCTAssertEqual(linkRefused.field, ExecutorRunRecord.fileName)
+        XCTAssertTrue(linkRefused.reason.contains("is not a regular file."), linkRefused.reason)
+        XCTAssertEqual(importedEntries(), [])
+        XCTAssertEqual(try Data(contentsOf: copy), copyBefore)
+    }
+
     /// C4-02: a run from any Linux machine passes no site fact, and its record adopts.
     func testAdoptAcceptsRecordWithNoSiteFacts() async throws {
         let returned = try returned(.bbtools)
