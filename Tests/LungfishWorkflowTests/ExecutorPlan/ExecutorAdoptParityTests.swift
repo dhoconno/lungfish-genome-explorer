@@ -155,6 +155,9 @@ final class ExecutorAdoptParityTests: XCTestCase {
         }
         XCTAssertTrue(V15ParityList.routeOnlySteps.contains { $0.role == V15Roles.counter },
                       "The counter step stays listed until MO-B1's lane")
+        XCTAssertEqual(V15ParityList.routeOnlySteps.filter { $0.route == .adopted }.map(\.role),
+                       [V15Roles.runner, V15Roles.counter, V15Roles.adoptStep, V15Roles.decompressor],
+                       "C4-3 C-3: exactly four steps only the adopt route holds")
     }
 
     // MARK: The two routes
@@ -361,10 +364,22 @@ final class ExecutorAdoptParityTests: XCTestCase {
                 // The adopt writes a storage step's launches as steps, the writer probe left out (QV-15).
                 nodeKinds: routes.record.steps.flatMap { step -> [String] in
                     let launches = (step.storage?.launches ?? []).filter { Array($0.argv.dropFirst()) != ["-h"] }
-                    return step.kind == .storage && !launches.isEmpty
-                        ? Array(repeating: "\(step.kind)", count: launches.count) : ["\(step.kind)"]
+                    guard !launches.isEmpty else { return ["\(step.kind)"] }
+                    if step.kind == .storage { return Array(repeating: "\(step.kind)", count: launches.count) }
+                    // C4-3 C-3: the interleave step's decompressor launches, each its own step.
+                    return step.kind == .interleave ? Array(repeating: V15Roles.decompressor, count: launches.count) : ["\(step.kind)"]
                 }
             )
+            // C4-3 C-3 (XC-4 B): each decompressor step's program is a plan pin, at the pin's version.
+            for step in adoptedSteps where (step["id"] as? String).map(adoptedRoles.role(ofID:)) == V15Roles.decompressor {
+                let program = ((step["argv"] as? [String])?.first.map { ($0 as NSString).lastPathComponent }) ?? ""
+                let pin = routes.plan.tools.first { $0.id == program }
+                if pin == nil || step["toolVersion"] as? String != pin?.version {
+                    comparison.findings.append(V15Finding(
+                        key: "envelope.steps[\(V15Roles.decompressor)]", adopted: "\(program) \(step["toolVersion"] ?? "absent")", mac: "-",
+                        why: "V15-S5: the decompressor step's program is not a plan pin at the pin's version (XC-4 B)"))
+                }
+            }
             let macRoles = V15StepRoles.mac(macEnvelope["steps"] as? [[String: Any]] ?? [], importToolName: Self.importToolName)
             for problem in adoptedRoles.problems + macRoles.problems {
                 comparison.findings.append(V15Finding(key: "envelope.steps", adopted: "-", mac: "-", why: problem))

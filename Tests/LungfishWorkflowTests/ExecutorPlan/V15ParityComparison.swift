@@ -241,6 +241,19 @@ struct V15Comparison {
             findings.append(V15Finding(key: Self.joined(path + ["toolVersion"]), adopted: Self.render(adopted["toolVersion"]),
                                        mac: Self.render(mac["toolVersion"]), why: "the Mac step records no version (XC-4)"))
         }
+        // C4-3 C-4: a step whose managedToolID V15-27 sets aside must name the environment of its own program.
+        if Self.line(for: path + ["managedToolID"], tag: nil)?.id == "V15-27" {
+            for (route, step) in [(V15Route.adopted, adopted), (.mac, mac)] {
+                let program = (step["argv"] as? [String])?.first ?? ""
+                let parts = program.split(separator: "/").map(String.init)
+                let held = parts.lastIndex(of: "envs").flatMap { parts.indices.contains($0 + 1) ? parts[$0 + 1] : nil }
+                if held == nil || step["managedToolID"] as? String != held {
+                    findings.append(V15Finding(key: Self.joined(path + ["managedToolID"]), adopted: Self.render(adopted["managedToolID"]),
+                                               mac: Self.render(mac["managedToolID"]),
+                                               why: "V15-27: the \(route.rawValue) value is not the envs/<id>/ of the step's program \(program)"))
+                }
+            }
+        }
         // QV-17: V15-02 sets the node tool's record aside, so its version must be the step's own.
         if let tool = Self.untyped((adopted["resolvedOptions"] as? [String: Any])?["tool"]) as? [String: Any] {
             let held = Self.untyped(tool["version"]) as? String
@@ -421,6 +434,9 @@ struct V15Comparison {
             component = true
         } else if head.hasSuffix("[]"), let bracket = first.firstIndex(of: "[") {
             component = String(first[..<bracket]) == String(head.dropLast(2))
+        } else if head.hasSuffix("*]"), head.contains("[") {
+            // A step label glob, `steps[bgzip#*]` for each step of one tool (C4-3 C-4).
+            component = first.hasPrefix(String(head.dropLast(2))) && first.hasSuffix("]")
         } else {
             component = head == first
         }
@@ -507,6 +523,7 @@ struct V15StepRoles {
             guard let id = steps[index]["id"] as? String else { continue }
             if kind == "qualityCount" { result.roles[id] = V15Roles.counter }
             if kind == "statistics" { result.roles[id] = V15Roles.statistics }
+            if kind == V15Roles.decompressor { result.roles[id] = V15Roles.decompressor }
         }
         result.numberTheRest()
         return result

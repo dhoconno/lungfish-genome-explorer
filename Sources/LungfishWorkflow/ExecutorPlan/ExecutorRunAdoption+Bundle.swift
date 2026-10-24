@@ -171,10 +171,17 @@ extension ExecutorRunAdoption {
 
     /// The storage step's launches as the Mac's envelope holds them (QV-15, QV-19, QV-21): each clumpify launch with its
     /// group count and memory lines, and the writer as `bgzip` with the `> <output>` the Mac's argv adds, each under the
-    /// executor's step. The writer probe `-h` is left out, as the Mac's envelope holds none. Nil for a step with no
-    /// launches, which keeps its one step.
+    /// executor's step. The writer probe `-h` is left out, as the Mac's envelope holds none. The interleave step's
+    /// decompressor launches are steps the same way, one for each gzip input with the plan pin's tool id (C4-3 C-3).
+    /// Each step lists the files its launch read and wrote with their SHA-256 (QV-23). Nil for a step with no launches,
+    /// which keeps its one step.
     static func storageLaunchSteps(_ step: ExecutorStepRecord, parent: UUID) -> [StepExecution]? {
-        guard step.kind == .storage, let launches = step.storage?.launches, !launches.isEmpty else { return nil }
+        guard step.kind == .storage || step.kind == .interleave, let launches = step.storage?.launches, !launches.isEmpty else {
+            return nil
+        }
+        func files(_ digests: [ExecutorFileDigest]?, role: FileRole) -> [FileRecord] {
+            (digests ?? []).map { FileRecord(path: $0.relativePath, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.size), format: .fastq, role: role) }
+        }
         return launches.compactMap { launch -> StepExecution? in
             guard Array(launch.argv.dropFirst()) != ["-h"] else { return nil }
             var options = ProvenanceNodeStepOptions.options(
@@ -195,7 +202,8 @@ extension ExecutorRunAdoption {
             }
             return StepExecution(
                 toolName: launch.tool.id, toolVersion: launch.tool.version, command: command, resolvedOptions: options,
-                inputs: [], exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
+                inputs: files(launch.inputs, role: .input), outputs: files(launch.outputs, role: .output),
+                exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
                 peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool.path),
                 startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
             )

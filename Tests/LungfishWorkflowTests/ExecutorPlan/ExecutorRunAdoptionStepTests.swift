@@ -105,4 +105,56 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
         XCTAssertEqual(steps[1].resolvedOptions?["writer"], .dictionary(["name": .string("bgzip")]),
                        "the writer step states the record's writer: \(String(describing: steps[1].resolvedOptions))")
     }
+
+    /// C4-3 C-3: each decompressor the node's interleave step started becomes its own envelope step under the
+    /// executor's, with the plan pin's tool id, the launch's argv and its input with the input's SHA-256, and no output.
+    func testAdoptWritesEachDecompressorLaunchAsAStep() throws {
+        let program = "/opt/conda/envs/pigz/bin/pigz"
+        let pigz = ExecutorToolRecord(id: "pigz", version: "2.8", build: "h2", path: program)
+        let reads = ["work/s_lengthfilter_merged.fq.gz", "work/s_lengthfilter_unmerged_R1.fq.gz"]
+        let launches = reads.enumerated().map { index, path in
+            ExecutorStorageLaunch(
+                tool: pigz, argv: [program, "-dc", path], environmentNames: ["PATH"], outcome: .succeeded, toolExitCode: 0,
+                wallSeconds: 2, stderrPath: "/dev/null", inputs: [ExecutorFileDigest(relativePath: path, sha256: "ab\(index)", size: 40 + Int64(index))]
+            )
+        }
+        let step = ExecutorStepRecord(
+            id: "recipe-5", kind: .interleave, tool: pigz, outcome: .succeeded, argv: [], environmentNames: ["PATH"],
+            graceSeconds: 30, deadlineSeconds: 7200, toolExitCode: 0, startedAt: time, endedAt: time, wallSeconds: 4,
+            qualityCounts: nil,
+            storage: ExecutorStorageDetails(clumpingRan: false, qualityBinning: .illumina4, inputBytes: 10, outputBytes: 5, launches: launches)
+        )
+        let parent = UUID()
+        let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(step, parent: parent), "the interleave step's launches are steps")
+        XCTAssertEqual(steps.map(\.toolName), ["pigz", "pigz"])
+        XCTAssertEqual(steps.map(\.toolVersion), ["2.8", "2.8"])
+        XCTAssertEqual(steps.map(\.command), launches.map(\.argv))
+        XCTAssertEqual(steps.map { $0.inputs.map(\.path) }, reads.map { [$0] })
+        XCTAssertEqual(steps.map { $0.inputs.map(\.sha256) }, [["ab0"], ["ab1"]])
+        XCTAssertEqual(steps.map { $0.inputs.map(\.sizeBytes) }, [[40], [41]])
+        XCTAssertEqual(steps.map(\.outputs.count), [0, 0], "a decompressor writes no file")
+        XCTAssertEqual(steps.map(\.parentStepID), [parent, parent])
+    }
+
+    /// QV-23: each storage launch's envelope step lists the files the launch read and wrote, by the record's path,
+    /// SHA-256 and size, as the Mac's clumpify and bgzip steps do.
+    func testAdoptWritesEachStorageLaunchsFilesWithDigests() throws {
+        var pairs = launch("clumpify.sh", ["in=.clumpify-split-X/pairs.fastq", "out=.clumpify-split-X/pairs.clumped.fastq"], groups: 1)
+        pairs.inputs = [ExecutorFileDigest(relativePath: ".clumpify-split-X/pairs.fastq", sha256: "aa", size: 7)]
+        pairs.outputs = [ExecutorFileDigest(relativePath: ".clumpify-split-X/pairs.clumped.fastq", sha256: "bb", size: 7)]
+        var writer = launch("bgzip", ["-@", "1", "-c", ".clumpify-split-X/combined.fastq"])
+        writer.inputs = [ExecutorFileDigest(relativePath: ".clumpify-split-X/combined.fastq", sha256: "cc", size: 9)]
+        writer.outputs = [ExecutorFileDigest(relativePath: "out/s.fastq.gz", sha256: "dd", size: 3)]
+        let storage = ExecutorStorageDetails(
+            clumpingRan: true, qualityBinning: .illumina4, inputBytes: 10, outputBytes: 5, launches: [launch("bgzip", ["-h"]), pairs, writer]
+        )
+        let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(record("storage", tool: "clumpify.sh", argv: pairs.argv, storage: storage), parent: UUID()))
+        XCTAssertEqual(steps.map { $0.inputs.map(\.path) }, [[".clumpify-split-X/pairs.fastq"], [".clumpify-split-X/combined.fastq"]])
+        XCTAssertEqual(steps.map { $0.inputs.map(\.sha256) }, [["aa"], ["cc"]])
+        XCTAssertEqual(steps.map { $0.outputs.map(\.path) }, [[".clumpify-split-X/pairs.clumped.fastq"], ["out/s.fastq.gz"]])
+        XCTAssertEqual(steps.map { $0.outputs.map(\.sha256) }, [["bb"], ["dd"]])
+        XCTAssertEqual(steps.map { $0.outputs.map(\.sizeBytes) }, [[7], [3]])
+        XCTAssertEqual(steps.map { $0.inputs.map(\.role) }, [[.input], [.input]])
+        XCTAssertEqual(steps.map { $0.outputs.map(\.role) }, [[.output], [.output]])
+    }
 }

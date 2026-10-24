@@ -67,6 +67,9 @@ enum V15ParityList {
                          reason: "The adopt step, the run's last step in place of the import step (V12)."),
         V15RouteOnlyStep(id: "V15-S4", route: .mac, role: V15Roles.runner, decision: "XC-8",
                          reason: "The Mac's import step lungfish import fastq, the runner of the Mac's steps and the adopt step's counterpart."),
+        // C4-3 C-3: the adopt route's fourth route-only step. The harness asserts each one's program is the plan's pin.
+        V15RouteOnlyStep(id: "V15-S5", route: .adopted, role: V15Roles.decompressor, decision: "XC-8 A, C4-3 C-3",
+                         reason: "Each decompressor the node's interleave step started for a gzip input, one step per launch the record holds. The Mac's interleave also starts /usr/bin/gzip -dc through ToolProcess and records no step, so only the adopt route holds these."),
     ]
 
     static let lines: [V15Line] = [
@@ -110,7 +113,9 @@ enum V15ParityList {
         V15Line(id: "V15-26", n9Class: 1, decision: "XC-10 B as amended by C4-3 C-2, XC-6 B scratch folder names",
                 patterns: ["**.executionOutputFiles.*.path", "**.databases.*.path", "**.auxiliaryCommandPathRewrites",
                            "envelope.steps[].inputs.*.path", "envelope.steps[].outputs.*.path",
-                           "envelope.steps[].resolvedOptions.databases"],
+                           "envelope.steps[].resolvedOptions.databases",
+                           // QV-23: the run's outputs and files list the steps' files, whose paths fall under QV-10 and QV-11.
+                           "envelope.outputs.*.path", "envelope.files.*.path"],
                 rule: .path,
                 reason: "Path keys that hold argv paths, the envelope's typed database block whole among them (QV-10): each goes through the one function that strips the route's roots and maps C4-3 C-2's work stem, work folder, report UUID and inputs by digest, and then compares byte for byte, with no last-component rule."),
         V15Line(id: "V15-07", n9Class: 1, decision: "XC-10 B as amended by C4-3 C-2",
@@ -190,6 +195,12 @@ enum V15ParityList {
                 patterns: ["envelope.steps[statistics].outputs", "envelope.steps[statistics].inputs"],
                 rule: .notCompared(mustCarry: []),
                 reason: "The seqkit stats step's output: the node's standardOutput and inputFile on the adopt route, the sidecar the step names on the Mac. Every value seqkit printed is parsed and compared."),
+
+        // C4-3 C-4 (a), QV-OQ1. `bgzip#*` matches each writer step by its role label.
+        V15Line(id: "V15-27", n9Class: 1, decision: "XC-4 B, C4-3 C-4 (a)",
+                patterns: ["envelope.steps[bgzip#*].managedToolID"],
+                rule: .notCompared(mustCarry: [.adopted, .mac]),
+                reason: "The writer bgzip's managed environment, bbtools on the node and htslib on the Mac, a route-shaped line: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
     ]
 }
 
@@ -199,4 +210,5 @@ enum V15Roles {
     static let adoptStep = "adopt-step"
     static let counter = "counter-step"
     static let statistics = "statistics"
+    static let decompressor = "decompressor"
 }
