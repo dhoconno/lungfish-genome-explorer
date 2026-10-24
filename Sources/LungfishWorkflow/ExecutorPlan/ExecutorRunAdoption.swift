@@ -125,6 +125,7 @@ public enum ExecutorRunAdoption {
         }
         let image = try stagingImage(in: resolver)
         try checkImageDigestFact(record.siteFacts, image: image)
+        try checkSteps(record, plan: plan)
         let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
         let sampleName = SampleFolderNaming.sanitizedDirectoryName(for: name ?? plan.sample.sampleName)
         return ExecutorAdoptedRun(
@@ -152,6 +153,48 @@ public enum ExecutorRunAdoption {
                 "imageManifest.sha256",
                 "The run read a tool manifest with SHA-256 \(manifest.sha256) and \(manifest.size) bytes, and the plan pins "
                     + "\(pin.sha256) and \(pin.size) bytes."
+            )
+        }
+    }
+
+    /// BIO 4 and BIO 6: the record holds one succeeded step for each step of the plan, in the plan's order, with the
+    /// storage details, the Q20 and Q30 counts and the times that the bundle's records are built from, so the adapter
+    /// invents no size, no clumping state, no outcome and no time.
+    private static func checkSteps(_ record: ExecutorRunRecord, plan: ExecutionPlan) throws(ExecutorAdoptRefusal) {
+        for (name, text) in [("startedAt", record.startedAt), ("endedAt", record.endedAt)] where date(text) == nil {
+            throw refusal(name, "The run record states a \(name) that is not an ISO 8601 time with milliseconds.")
+        }
+        for (index, planned) in plan.steps.enumerated() {
+            let field = "steps[\(index)]"
+            guard index < record.steps.count else {
+                throw refusal(field, "The run record holds \(record.steps.count) steps, and the plan's step \(index + 1) is \(planned.id).")
+            }
+            let step = record.steps[index]
+            guard step.id == planned.id, step.kind == planned.kind else {
+                throw refusal(
+                    field,
+                    "The run record's step \(index + 1) is not the plan's step \(index + 1), \(planned.id) of kind \(planned.kind.rawValue)."
+                )
+            }
+            guard step.outcome == .succeeded else {
+                throw refusal(
+                    field,
+                    "The run record states the outcome \(step.outcome.rawValue) for the step \(planned.id), and a succeeded run finishes every step."
+                )
+            }
+            if step.kind == .storage && step.storage == nil {
+                throw refusal(field, "The run record states no storage details for the step \(planned.id).")
+            }
+            if step.kind == .qualityCount && step.qualityCounts == nil {
+                throw refusal(field, "The run record states no Q20 and Q30 count for the step \(planned.id).")
+            }
+            for (name, text) in [("startedAt", step.startedAt), ("endedAt", step.endedAt)] where date(text) == nil {
+                throw refusal(field, "The run record states a \(name) for the step \(planned.id) that is not an ISO 8601 time with milliseconds.")
+            }
+        }
+        guard record.steps.count == plan.steps.count else {
+            throw refusal(
+                "steps[\(plan.steps.count)]", "The run record holds \(record.steps.count) steps, and the plan has \(plan.steps.count)."
             )
         }
     }

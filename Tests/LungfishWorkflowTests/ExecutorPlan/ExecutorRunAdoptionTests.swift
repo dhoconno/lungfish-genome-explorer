@@ -414,4 +414,66 @@ final class ExecutorRunAdoptionTests: XCTestCase {
             }
         }
     }
+
+    /// BIO 4 and BIO 6: a record whose steps are not the plan's is refused with the step's field before any bundle file
+    /// exists, so no value of the bundle's records comes from a default. A step dropped, added or renamed, a step that
+    /// did not succeed, a storage or Q20 and Q30 step without its details, and a time that is not a time.
+    func testAdoptRefusesRecordWhoseStepsAreNotThePlans() async throws {
+        func index(of kind: PlanStepKind, in returned: Returned) throws -> Int {
+            try XCTUnwrap(returned.plan.steps.firstIndex(where: { $0.kind == kind }), kind.rawValue)
+        }
+        let cases: [(label: String, words: String, change: (inout Returned) throws -> String)] = [
+            ("a dropped storage step", "storage of kind storage", { returned in
+                let at = try index(of: .storage, in: returned)
+                returned.record.steps.remove(at: at)
+                return "steps[\(at)]"
+            }),
+            ("an added step", "and the plan has", { returned in
+                returned.record.steps.append(returned.record.steps[0])
+                return "steps[\(returned.plan.steps.count)]"
+            }),
+            ("a renamed step", "is not the plan's step", { returned in
+                let at = try index(of: .qualityCount, in: returned)
+                returned.record.steps[at].id = "recipe-9"
+                return "steps[\(at)]"
+            }),
+            ("a failed step", "outcome failed", { returned in
+                let at = try index(of: .statistics, in: returned)
+                returned.record.steps[at].outcome = .failed
+                return "steps[\(at)]"
+            }),
+            ("a storage step without its details", "no storage details", { returned in
+                let at = try index(of: .storage, in: returned)
+                returned.record.steps[at].storage = nil
+                return "steps[\(at)]"
+            }),
+            ("a Q20 and Q30 step without its counts", "no Q20 and Q30 count", { returned in
+                let at = try index(of: .qualityCount, in: returned)
+                returned.record.steps[at].qualityCounts = nil
+                return "steps[\(at)]"
+            }),
+            ("a step time that is not a time", "startedAt", { returned in
+                let at = try index(of: .storage, in: returned)
+                returned.record.steps[at].startedAt = "soon"
+                return "steps[\(at)]"
+            }),
+            ("a record time that is not a time", "endedAt", { returned in
+                returned.record.endedAt = "soon"
+                return "endedAt"
+            }),
+        ]
+        for (label, words, change) in cases {
+            var changed = try returned(.bbtools)
+            let field = try change(&changed)
+            try changed.write()
+            let outcome = await refusal(changed)
+            let refused = try XCTUnwrap(outcome, label)
+            XCTAssertEqual(refused.field, field, label)
+            XCTAssertTrue(refused.reason.contains(words), "\(label): \(refused.reason)")
+            XCTAssertTrue(refused.reason.hasSuffix("Nothing was imported."), label)
+            XCTAssertEqual(importedEntries(), [], label)
+            try FileManager.default.removeItem(at: changed.folder)
+            try FileManager.default.removeItem(at: root.appendingPathComponent("S", isDirectory: true))
+        }
+    }
 }
