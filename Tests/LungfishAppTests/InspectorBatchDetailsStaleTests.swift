@@ -13,6 +13,10 @@
 // virus hits and BLAST tables through the production parser and database writers (RoutingSafetyNetFixtures).
 // Opening a result writes nothing (UX 6), so each test also hashes the result folder before and after the open.
 //
+// The batch route's own arms can leave the block too. Its Kraken2 arm sets the block only when the folder holds a
+// batch manifest or a sidecar that names its configuration, and its EsViritu arm only when the folder holds a batch
+// manifest. A folder with none sets nothing, so two tests open one after a Kraken2 batch and read the block.
+//
 // The last test pins the one set of the block that can run after an await. A Kraken2 database build that ends
 // after another result opens re-displays its batch through `commitDatabaseBuildCompletion`, which commits only
 // while the request that began the build is still the current one.
@@ -91,6 +95,34 @@ final class InspectorBatchDetailsStaleTests: XCTestCase {
         XCTAssertEqual(try TreeDigest.of(nvd), before, "opening an NVD result writes nothing into it")
     }
 
+    // MARK: - The batch route's arms that set no block of their own
+
+    /// An EsViritu folder with no batch manifest sets no block (`loadEsViritu` finds nothing), so the block of the
+    /// Kraken2 batch shown before it must go.
+    func testEsVirituBatchWithNoManifestAfterKraken2ShowsNoOperationDetails() throws {
+        let kraken2 = try makeKraken2Batch()
+        let esv = try makeEsVirituBatchWithoutManifest()
+        showKraken2Batch(kraken2)
+
+        controller.displayContent(for: SidebarItem(title: esv.lastPathComponent, type: .batchGroup, url: esv))
+
+        XCTAssertNotNil(controller.viewerController.esVirituViewController, "the EsViritu batch is shown")
+        assertNoBatchBlock("an EsViritu batch with no manifest")
+    }
+
+    /// A Kraken2 folder whose sidecar names no configuration and that holds no batch manifest has no details of its
+    /// own, so the block of the Kraken2 result shown before it must go.
+    func testKraken2FolderWithNoSidecarConfigurationAfterKraken2ShowsNoOperationDetails() throws {
+        let first = try makeKraken2Batch()
+        let second = try makeKraken2Batch(named: "Kraken2 No Configuration", withSidecar: false)
+        showKraken2Batch(first)
+
+        controller.displayContent(for: SidebarItem(title: second.lastPathComponent, type: .batchGroup, url: second))
+
+        XCTAssertNotNil(controller.viewerController.taxonomyViewController, "the second Kraken2 result is shown")
+        assertNoBatchBlock("a Kraken2 result with no recorded configuration")
+    }
+
     // MARK: - The pin
 
     /// The Kraken2 database build placeholder begins a display request, and the build's end re-displays the batch
@@ -134,9 +166,50 @@ final class InspectorBatchDetailsStaleTests: XCTestCase {
         XCTAssertNotNil(controller.viewerController.taxonomyViewController, "the batch is shown", file: file, line: line)
     }
 
-    /// A Kraken2 result folder whose sidecar names its configuration, so that `displayBatchGroup` sets the block.
-    private func makeKraken2Batch() throws -> URL {
-        let batch = root.appendingPathComponent("Kraken2 Results", isDirectory: true)
+    /// An EsViritu batch folder with the SQLite database and the analysis metadata and no batch manifest, the shape of
+    /// `EsVirituBatchInspectorStateTests.makeBatch` (a private helper of another test target).
+    private func makeEsVirituBatchWithoutManifest() throws -> URL {
+        let batch = root.appendingPathComponent("esviritu-batch-2026-09-03T00-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
+        try EsVirituDatabase.create(
+            at: batch.appendingPathComponent("esviritu.sqlite"),
+            rows: [
+                EsVirituDetectionRow(
+                    sample: "sample-a", virusName: "Example virus", description: nil,
+                    contigLength: 1_000, segment: nil, accession: "NC_000001.1",
+                    assembly: "ASM_1", assemblyLength: 1_000, kingdom: nil, phylum: nil,
+                    tclass: nil, torder: nil, family: nil, genus: nil, species: nil,
+                    subspecies: nil, rpkmf: 1, readCount: 4, uniqueReads: 3,
+                    coveredBases: 1_000, meanCoverage: 1, avgReadIdentity: 0.99,
+                    pi: nil, filteredReadsInSample: 4, bamPath: nil, bamIndexPath: nil
+                ),
+                EsVirituDetectionRow(
+                    sample: "sample-b", virusName: "Other virus", description: nil,
+                    contigLength: 1_000, segment: nil, accession: "NC_000002.1",
+                    assembly: "ASM_2", assemblyLength: 1_000, kingdom: nil, phylum: nil,
+                    tclass: nil, torder: nil, family: nil, genus: nil, species: nil,
+                    subspecies: nil, rpkmf: 1, readCount: 2, uniqueReads: 2,
+                    coveredBases: 1_000, meanCoverage: 1, avgReadIdentity: 0.99,
+                    pi: nil, filteredReadsInSample: 2, bamPath: nil, bamIndexPath: nil
+                ),
+            ],
+            metadata: ["tool": "esviritu"]
+        )
+        let metadata = """
+        {"created":"2026-09-03T00:00:00Z","isBatch":true,"tool":"esviritu"}
+        """
+        try metadata.write(
+            to: batch.appendingPathComponent("analysis-metadata.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return batch
+    }
+
+    /// A Kraken2 result folder. With `withSidecar` its sidecar names the configuration, so that `displayBatchGroup`
+    /// sets the block. Without it the folder holds the database and the analysis metadata only.
+    private func makeKraken2Batch(named name: String = "Kraken2 Results", withSidecar: Bool = true) throws -> URL {
+        let batch = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
         _ = try Kraken2Database.create(
             at: batch.appendingPathComponent("kraken2.sqlite"),
@@ -152,6 +225,7 @@ final class InspectorBatchDetailsStaleTests: XCTestCase {
             AnalysesFolder.AnalysisMetadata(tool: "kraken2", isBatch: true, created: Date()),
             to: batch
         )
+        guard withSidecar else { return batch }
         let sidecar = """
         {"config":{"databaseName":"Viral","databaseVersion":"2026-01","goal":"profile","confidence":0.2,\
         "minimumHitGroups":2,"threads":1,"sampleDisplayName":"Sample A"},\
