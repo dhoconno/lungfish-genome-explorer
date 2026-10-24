@@ -32,9 +32,6 @@ enum MappingPooledInputsError: LocalizedError, Sendable, Equatable {
 }
 
 enum MappingPooledInputs {
-    /// The most bytes of a member held in memory at once while joining.
-    private static let joinChunkSize = 4 * 1024 * 1024
-
     /// `resolved` with its execution files written, in input order, into one
     /// new FASTQ in `directory`, the run's input folder. The file is named
     /// `pooled-<UUID>` so it never collides with the `concatenated-<UUID>` join
@@ -43,13 +40,15 @@ enum MappingPooledInputs {
     /// and it is published through ``DurableReplace`` from a stage file, so a
     /// reader never finds a partial file under the final name.
     ///
-    /// The join streams in chunks of at most ``joinChunkSize`` and stops between
-    /// chunks when the task is cancelled. A join that throws, a cancel among
-    /// them, removes the file, its sidecar and the folder when the join created
-    /// it. The join computes no hash. The step that records it hashes the file.
+    /// The join streams through ``ReadFileWriters`` in chunks and stops before
+    /// each member and each chunk when the task is cancelled. A join that
+    /// throws, a cancel among them, removes the file, its sidecar and the
+    /// folder when the join created it. The join computes no hash. The step
+    /// that records it hashes the file.
     ///
     /// Gzip members form a multi-member gzip stream, which every mapper reads as
-    /// one file. A plain member that does not end in a newline gets one, so its
+    /// one file. A plain member that does not end in a line break gets one
+    /// before a member that starts a record (ReadFileWriters.append), so its
     /// last record and the next member's first stay apart. The one input that
     /// results names the first input as its origin and every member as its
     /// source. The caller keeps every chosen input in the request's lineage.
@@ -82,9 +81,16 @@ enum MappingPooledInputs {
         do {
             try DurableReplace.transaction {
                 try concatenation.save()
-                try DurableReplace.replace(named: outputName, in: directory, recovery: .none) { stage in
+                try ReadFileWriters.publish(concatenation.outputURL) { stage in
+                    var lastByte: UInt8?
                     for member in members {
-                        try append(member, to: stage, endingWithLineBreak: !gzipped)
+                        try Task.checkCancellation()
+                        lastByte = try ReadFileWriters.append(
+                            member,
+                            to: stage,
+                            after: lastByte,
+                            checkingCancellation: true
+                        ) ?? lastByte
                     }
                 }
             }
@@ -103,26 +109,6 @@ enum MappingPooledInputs {
             materializationStartedAt: resolved.materializationStartedAt ?? began,
             materializationEndedAt: Date()
         )
-    }
-
-    /// Streams `member` into `stage`, checking for a cancel before every chunk.
-    private static func append(
-        _ member: URL,
-        to stage: DurableReplace.StageWriter,
-        endingWithLineBreak: Bool
-    ) throws {
-        try Task.checkCancellation()
-        let input = try FileHandle(forReadingFrom: member)
-        defer { try? input.close() }
-        var lastByte: UInt8?
-        while let chunk = try input.read(upToCount: joinChunkSize), !chunk.isEmpty {
-            try Task.checkCancellation()
-            try stage.write(chunk)
-            lastByte = chunk.last
-        }
-        if endingWithLineBreak, let lastByte, lastByte != UInt8(ascii: "\n") {
-            try stage.write(Data([UInt8(ascii: "\n")]))
-        }
     }
 }
 

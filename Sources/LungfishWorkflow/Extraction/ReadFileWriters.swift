@@ -83,13 +83,23 @@ enum ReadFileWriters {
     /// Streams `source` into `stage` in chunks and returns its last byte, nil
     /// for an empty source. When `previous`, the last byte written before it,
     /// is no line break and `source` starts a record, a line break goes first.
+    /// With `checkingCancellation`, a cancelled task stops before each chunk is
+    /// written with a thrown `CancellationError`, and the surrounding
+    /// ``publish(_:writing:)`` leaves the name as it was. The default keeps
+    /// every other caller as it was (Phase 2.14 lane MAPPOOL, QA 1).
     @discardableResult
-    static func append(_ source: URL, to stage: DurableReplace.StageWriter, after previous: UInt8? = nil) throws -> UInt8? {
+    static func append(
+        _ source: URL,
+        to stage: DurableReplace.StageWriter,
+        after previous: UInt8? = nil,
+        checkingCancellation: Bool = false
+    ) throws -> UInt8? {
         let input = try openForReading(source)
         defer { try? input.close() }
         let lineBreak = UInt8(ascii: "\n")
         var last: UInt8?
         while let chunk = try readChunk(of: input, from: source), !chunk.isEmpty {
+            if checkingCancellation { try Task.checkCancellation() }
             if last == nil, let previous, previous != lineBreak, let first = chunk.first, recordStarts.contains(first) {
                 try stage.write(Data([lineBreak]))
             }

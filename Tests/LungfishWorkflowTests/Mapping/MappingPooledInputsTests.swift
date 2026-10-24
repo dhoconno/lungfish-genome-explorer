@@ -324,6 +324,42 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertEqual(joins.first?.inputs.map(\.path), members, "the cat step reads the files the materialization wrote")
     }
 
+    /// `ReadFileWriters.append` stops a cancelled task between chunks only when
+    /// asked, so every other caller of the helper keeps its behavior (QA 1). A
+    /// 5 MiB source holds two chunks of the helper's 4 MiB.
+    func testAppendChecksCancellationBetweenChunksOnlyWhenAsked() async throws {
+        let size = 5 * 1024 * 1024
+        let source = root.appendingPathComponent("large.fastq")
+        try Data(repeating: UInt8(ascii: "A"), count: size).write(to: source)
+        let asked = root.appendingPathComponent("asked.fastq")
+        let notAsked = root.appendingPathComponent("not-asked.fastq")
+
+        let stopping = Task { () throws -> Void in
+            withUnsafeCurrentTask { $0?.cancel() }
+            try ReadFileWriters.publish(asked) { stage in
+                try ReadFileWriters.append(source, to: stage, checkingCancellation: true)
+            }
+        }
+        do {
+            try await stopping.value
+            XCTFail("a cancelled task must stop between chunks when asked")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("expected CancellationError, got \(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: asked.path), "a stopped join publishes nothing")
+
+        let ignoring = Task { () throws -> Void in
+            withUnsafeCurrentTask { $0?.cancel() }
+            try ReadFileWriters.publish(notAsked) { stage in
+                try ReadFileWriters.append(source, to: stage, checkingCancellation: false)
+            }
+        }
+        try await ignoring.value
+        XCTAssertEqual(try Data(contentsOf: notAsked).count, size, "without the flag the helper writes every byte as before")
+    }
+
     // MARK: - Helpers
 
     private func pairBundle(_ name: String, prefix: String, starts: [Int]) throws -> URL {
