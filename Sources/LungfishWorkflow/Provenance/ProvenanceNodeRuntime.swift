@@ -13,7 +13,7 @@ public struct ProvenanceNodeRuntime: Codable, Sendable, Equatable {
     public let kernelRelease: String?
     /// The machine hardware name the executor read (`runtimeIdentity.machine`), such as `x86_64`.
     public let machine: String?
-    /// The executor build's version from the plan's build pin (`executor.buildPin.lgeVersion`).
+    /// The executor build's commit from the plan's build pin (`executor.buildPin.lgeCommit`), the `build` of the executor's own tool record.
     public let executorBuild: String?
     /// The SHA-256 of the executor binary that ran (`executor.sha256`).
     public let executorSHA256: String?

@@ -88,7 +88,7 @@ extension ExecutorRunAdoption {
             // Lane U's OQ-1 rows: where the steps ran and with which executor, as the record states them.
             nodeRuntime: ProvenanceNodeRuntime(
                 kernelRelease: node.kernelRelease, machine: node.machine,
-                executorBuild: run.record.executor.buildPin?.lgeVersion, executorSHA256: run.record.executor.sha256,
+                executorBuild: run.record.executor.buildPin?.lgeCommit, executorSHA256: run.record.executor.sha256,
                 orphanSweep: node.orphanSweep.rawValue
             )
         )

@@ -41,7 +41,7 @@ enum ProvenanceNodeRuntimeDisplay {
                 let value = recorded(node.machine).map { "kernel \(kernel) (\($0))" } ?? "kernel \(kernel)"
                 rows.append(ProvenanceRuntimeRow(label: stepsRanOnLabel, value: value))
             }
-            let build = recorded(node.executorBuild).map { " build \($0)" }
+            let build = recorded(node.executorBuild).map { " build \($0) (from the plan's pin)" }
             let digest = recorded(node.executorSHA256).map { "SHA-256 \($0)" }
             if build != nil || digest != nil {
                 let value = "lungfish-executor" + (build ?? "") + (digest.map { ", \($0)" } ?? "")

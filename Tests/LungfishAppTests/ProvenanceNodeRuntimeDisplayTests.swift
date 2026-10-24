@@ -13,6 +13,8 @@ import LungfishWorkflow
 @MainActor
 final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
     private static let executorSHA256 = String(repeating: "a", count: 64)
+    /// The commit of the executor build, the plan's build pin `lgeCommit`: the `build` of the executor's own tool record.
+    private static let executorCommit = "6f3c2d1a9b8e7c6d5e4f3a2b1c0d9e8f7a6b5c4d"
     private static let sif = "lge-c0-tools-c42530259944.sif"
     private static let sifSHA256 = "c425302599447ae0157523299b71ac5c170294537c58c1ca31bdc2bb1cfceb7c"
     private static let parentWalkWords = "Found through each process's parent only. A process that a tool detached from "
@@ -28,7 +30,7 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
         let start = try XCTUnwrap(model.runtimeRows.firstIndex { $0.label == "Dependency Set" })
         XCTAssertEqual(Array(rows[(start + 1)...]), [
             "Steps ran on: kernel 5.14.0-620.el9.x86_64 (x86_64)",
-            "Steps ran with: lungfish-executor build 2026.10.24, SHA-256 \(Self.executorSHA256)",
+            "Steps ran with: lungfish-executor build \(Self.executorCommit) (from the plan's pin), SHA-256 \(Self.executorSHA256)",
             "Leftover processes: \(Self.parentWalkWords)",
             "Reported by the launcher: \(Self.launcherWords)",
             "Machine name: e4004.chtc.wisc.edu", "Memory: 1024 MiB", "HTCondor job: 593367.0",
@@ -57,12 +59,29 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
         XCTAssertEqual(steps[0].toolName, "clumpify.sh")
         XCTAssertEqual(steps[0].versionAndBuild, "39.13 (build h3a4d415_1), from the tool image's manifest")
         XCTAssertEqual(steps[1].toolName, "Count Q20 and Q30 bases")
-        XCTAssertEqual(steps[1].versionAndBuild, "2026.10.24, from the plan's pin")
+        XCTAssertEqual(steps[1].versionAndBuild, "2026.10.24 (build \(Self.executorCommit)), from the plan's pin")
         XCTAssertTrue(model.stepCopyText(of: steps[1]).hasPrefix("2. Count Q20 and Q30 bases"))
         XCTAssertTrue(
-            model.stepCopyText(of: steps[1]).contains("\nVersion and build: 2026.10.24, from the plan's pin"),
+            model.stepCopyText(of: steps[1])
+                .contains("\nVersion and build: 2026.10.24 (build \(Self.executorCommit)), from the plan's pin"),
             model.stepCopyText(of: steps[1])
         )
+        // One binary, one build: the commit "Steps ran with" names is the build the executor's own step row names.
+        let ranWith = try XCTUnwrap(model.runtimeRows.first { $0.label == "Steps ran with" }?.value)
+        let rowCommit = try XCTUnwrap(ranWith.components(separatedBy: " build ").dropFirst().first?
+            .components(separatedBy: " (from the plan's pin)").first)
+        XCTAssertEqual(rowCommit, Self.executorCommit)
+        XCTAssertTrue(try XCTUnwrap(steps[1].versionAndBuild).contains("(build \(rowCommit))"), ranWith)
+    }
+
+    /// A record that states no build gives no build words: the step shows its version and source, and the run row names
+    /// the binary and its SHA-256 only (each part left out when not recorded).
+    func testNodeStepAndRunRowWithNoRecordedBuildShowNoBuildWords() async throws {
+        let model = try await loadedModel(record: try Self.adoptedRecord(counterBuild: "", executorBuild: nil))
+        let steps = try XCTUnwrap(model.lineageRuns.last).steps
+        XCTAssertEqual(steps[1].versionAndBuild, "2026.10.24, from the plan's pin")
+        let ranWith = try XCTUnwrap(model.runtimeRows.first { $0.label == "Steps ran with" }?.value)
+        XCTAssertEqual(ranWith, "lungfish-executor, SHA-256 \(Self.executorSHA256)")
     }
 
     /// A Mac import, whose step states a Mac version source, and the record written before C4 give the same runtime
@@ -112,13 +131,16 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
     /// The committed `observed-clean-exit` record as an adopt writes it: the node runtime and site facts in its
     /// runtime identity, the image `staging.json` names, a `clumpify.sh` step from the image's manifest and the
     /// counter step from the plan's pin.
-    private static func adoptedRecord() throws -> Data {
+    private static func adoptedRecord(
+        counterBuild: String = ProvenanceNodeRuntimeDisplayTests.executorCommit,
+        executorBuild: String? = ProvenanceNodeRuntimeDisplayTests.executorCommit
+    ) throws -> Data {
         try fixtureRecord { record in
             var runtime = record["runtimeIdentity"] as? [String: Any] ?? [:]
             runtime["containerImage"] = sif
             runtime["containerDigest"] = sifSHA256
             runtime["nodeRuntime"] = try json(ProvenanceNodeRuntime(
-                kernelRelease: "5.14.0-620.el9.x86_64", machine: "x86_64", executorBuild: "2026.10.24",
+                kernelRelease: "5.14.0-620.el9.x86_64", machine: "x86_64", executorBuild: executorBuild,
                 executorSHA256: executorSHA256, orphanSweep: "parentWalkOnly"
             ))
             runtime["siteFacts"] = try json([
@@ -136,7 +158,7 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
             counter["id"] = UUID().uuidString
             counter["toolName"] = "lungfish-executor"
             counter["resolvedOptions"] = try json(ProvenanceNodeStepOptions.options(
-                toolID: "lungfish-executor", version: "2026.10.24", build: "", versionSource: "planPin",
+                toolID: "lungfish-executor", version: "2026.10.24", build: counterBuild, versionSource: "planPin",
                 title: "Count Q20 and Q30 bases"
             ))
             record["steps"] = [steps[0], counter]

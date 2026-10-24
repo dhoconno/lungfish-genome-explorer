@@ -459,7 +459,9 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         let node = try XCTUnwrap(try envelope(bundle).runtimeIdentity.nodeRuntime)
         XCTAssertEqual(node.kernelRelease, "5.14.0-503.el9.x86_64")
         XCTAssertEqual(node.machine, "x86_64")
-        XCTAssertEqual(node.executorBuild, returned.record.executor.buildPin?.lgeVersion)
+        // U review fix 1: the build is the pin's commit, the `build` of the executor's own tool record, not its version.
+        XCTAssertEqual(node.executorBuild, returned.record.executor.buildPin?.lgeCommit)
+        XCTAssertNotEqual(node.executorBuild, returned.record.executor.buildPin?.lgeVersion)
         XCTAssertEqual(node.executorSHA256, ExecutorPlanTestSupport.digest)
         XCTAssertEqual(node.orphanSweep, "subreaper")
 
