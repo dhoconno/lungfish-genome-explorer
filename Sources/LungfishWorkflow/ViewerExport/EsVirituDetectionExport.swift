@@ -105,7 +105,7 @@ extension EsVirituDetectionExport {
                 "\(detection.readCount)",
                 String(format: "%.2f", detection.rpkmf),
                 String(format: "%.2f", detection.meanCoverage),
-                String(format: "%.2f", detection.avgReadIdentity),
+                String(detection.avgReadIdentity),
                 "\(detection.coveredBases)",
                 String(format: "%.6f", detection.pi),
                 "\(detection.assemblyLength)",

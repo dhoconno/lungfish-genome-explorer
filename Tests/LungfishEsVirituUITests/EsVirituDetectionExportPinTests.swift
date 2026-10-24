@@ -31,8 +31,8 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let vc = try Self.configuredController()
         let expected = [
             Self.header.joined(separator: "\t"),
-            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.00\t100\t0.000000\t100\t1000\tS\t100\tcase",
-            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t20.00\t1.00\t99.00\t100\t0.000000\t100\t1000\t\t100\tcontrol",
+            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
+            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t20.00\t1.00\t99.0\t100\t0.000000\t100\t1000\t\t100\tcontrol",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(Self.bytes(vc, result: Self.result, separator: "\t"), expected)
     }
@@ -61,7 +61,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         )
         XCTAssertEqual(Self.bytes(vc, result: oneSample, separator: "\t"), [
             Self.header.joined(separator: "\t"),
-            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.00\t100\t0.000000\t100\t1000\tS\t100\tcase",
+            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
         ].joined(separator: "\n") + "\n")
     }
 
@@ -69,8 +69,8 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let vc = try Self.configuredController()
         let expected = [
             Self.header.joined(separator: ","),
-            "sample-A,\"Alpha, virus\",NC_A,GCF_A,Viruses,,,,Testviridae,,\"Alpha, virus\",,40,40.00,1.00,99.00,100,0.000000,100,1000,S,100,case",
-            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,20.00,1.00,99.00,100,0.000000,100,1000,,100,control",
+            "sample-A,\"Alpha, virus\",NC_A,GCF_A,Viruses,,,,Testviridae,,\"Alpha, virus\",,40,40.00,1.00,99.0,100,0.000000,100,1000,S,100,case",
+            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,20.00,1.00,99.0,100,0.000000,100,1000,,100,control",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(Self.bytes(vc, result: Self.result, separator: ","), expected)
     }
