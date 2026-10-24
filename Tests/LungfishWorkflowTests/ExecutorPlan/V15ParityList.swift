@@ -20,8 +20,11 @@ enum V15Rule: Sendable {
     case routeValues(adopted: String?, mac: String?)
     /// JSON null on the adopted record and a number, the Mac host's value, on the Mac record (XC-7, C4-01).
     case nullOnAdoptedNumberOnMac
-    /// Compared token by token after the one function that strips each route's root (XC-10).
+    /// Compared token by token after the one function that strips each route's root (XC-10). A command line joined by
+    /// ` && ` compares part by part, each part one argv.
     case argv
+    /// A path, or a value that holds paths, compared byte for byte after the one function strips each route's root (XC-10).
+    case path
     /// A step id compares by the role of the step it names, never by UUID (XC-8, QA ruling 2).
     case byRole
 }
@@ -73,9 +76,9 @@ enum V15ParityList {
                 rule: .notCompared(mustCarry: []),
                 reason: "Host, platform, kernel and runtime identity of the run and of each step."),
         V15Line(id: "V15-02", n9Class: 1, decision: "XC-4 B",
-                patterns: ["envelope.steps[].toolVersionEvidence"],
+                patterns: ["envelope.steps[].toolVersionEvidence", "envelope.steps[].resolvedOptions.tool"],
                 rule: .notCompared(mustCarry: []),
-                reason: "The line that names where a tool's version came from: imageManifest or planPin on the node, the Mac's toolVersionEvidence kind on the Mac. The version itself is compared."),
+                reason: "The line that names where a tool's version came from: imageManifest or planPin on the node, the Mac's toolVersionEvidence kind on the Mac, and the node tool's build, path and version source under resolvedOptions.tool. The version itself is compared, and the comparison asserts the node tool's version equals the step's toolVersion (QV-17)."),
         V15Line(id: "V15-03", n9Class: 1, decision: "XC-4 B",
                 patterns: ["**.tool.path", "**.tool.build", "**.tool.versionSource"],
                 rule: .notCompared(mustCarry: []),
@@ -93,8 +96,25 @@ enum V15ParityList {
                            "**.subreaper", "**.orphanSweep"],
                 rule: .notCompared(mustCarry: []),
                 reason: "The image and executor digests, the executor's identity and the subreaper result."),
+        // Before V15-07, since `line(for:)` takes the first match and `**.argv` matches `envelope.argv` (QV-22).
+        V15Line(id: "V15-24", n9Class: 2, decision: "XC-8 A, CLI-EQUIVALENCE \"Same provenance\"",
+                patterns: ["envelope.argv", "envelope.durableReplayArgv", "envelope.reproducibleCommand",
+                           "envelope.options.explicit.r1", "envelope.options.explicit.r2",
+                           "envelope.options.resolvedDefaults.r1", "envelope.options.resolvedDefaults.r2"],
+                rule: .notCompared(mustCarry: [.adopted, .mac]),
+                reason: "The run-level argv is the route's own command, the import step's or the adopt step's, the two route-only steps whose fields are not compared. Every other options key stays compared."),
+        V15Line(id: "V15-25", n9Class: 2, decision: "XC-8 A",
+                patterns: ["envelope.id"],
+                rule: .notCompared(mustCarry: [.adopted, .mac]),
+                reason: "The envelope's id names the route's own record, whose counterpart is the other route's; ids compare by what they name, never by UUID (QV-26)."),
+        V15Line(id: "V15-26", n9Class: 1, decision: "XC-10 B, XC-6 B scratch folder names",
+                patterns: ["**.executionOutputFiles.*.path", "**.databases.*.path", "**.auxiliaryCommandPathRewrites",
+                           "envelope.steps[].inputs.*.path", "envelope.steps[].outputs.*.path"],
+                rule: .path,
+                reason: "Path keys that hold argv paths: each goes through the one function that strips the route's roots and then compares byte for byte, with no last-component rule (QV-10)."),
         V15Line(id: "V15-07", n9Class: 1, decision: "XC-10 B",
-                patterns: ["**.argv", "**.durableReplayArgv", "**.commandArguments", "**.reproducibleCommand", "**.commandLine"],
+                patterns: ["**.argv", "**.durableReplayArgv", "**.commandArguments", "**.reproducibleCommand", "**.commandLine",
+                           "**.processingCommandLine"],
                 rule: .argv,
                 reason: "Each argv token by token after the one function that strips the route's root. The executable token compares by its last path component and is never set aside."),
 
@@ -124,7 +144,8 @@ enum V15ParityList {
 
         // Class 4. Lines in which the Mac differs from itself.
         V15Line(id: "V15-14", n9Class: 4, decision: "XC-6 B, QA ruling 1",
-                patterns: ["**.createdAt", "**.startedAt", "**.completedAt", "**.endedAt", "**.ingestionDate", "**.appliedDate"],
+                patterns: ["**.createdAt", "**.startedAt", "**.completedAt", "**.endedAt", "**.ingestionDate", "**.appliedDate",
+                           "**.recordedAt"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
                 reason: "Dates and start and end times. mac-determinism-c0.md measures start times and shows them differing between two Mac runs; it holds no row for the two date keys, which stand on the class as voted."),
         V15Line(id: "V15-15", n9Class: 4, decision: "XC-6 B, QA ruling 1",
@@ -154,7 +175,8 @@ enum V15ParityList {
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
                 reason: "The signature of the envelope, a file that holds the payload's SHA-256 and size."),
         V15Line(id: "V15-21", n9Class: 5, decision: "XC-2 A",
-                patterns: ["**.clumpifyGroups", "**.clumpifyMemoryEstimate", "**.clumpifyMemoryAvailable"],
+                patterns: ["**.clumpifyGroups", "**.clumpifyMemoryEstimate", "**.clumpifyMemoryAvailable",
+                           "**.clumpifyMemoryEstimateLine", "**.clumpifyMemoryAvailableLine"],
                 rule: .reported,
                 reason: "Clumpify's group count and its memory lines, printed for both routes and never failing."),
         V15Line(id: "V15-22", n9Class: 5, decision: "XC-3 A",

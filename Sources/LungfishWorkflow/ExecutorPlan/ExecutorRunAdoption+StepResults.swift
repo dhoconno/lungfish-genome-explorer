@@ -32,10 +32,19 @@ extension ExecutorRunAdoption {
                 if case .fusedFastp(_, _, _, let fused) = plannedStep { components = fused }
                 results += turnedOff.before(plannedStep)
                 for (runIndex, step) in runs.enumerated() {
+                    // The Mac counts a logical step of several processes over its whole input on its first result, each
+                    // mate of a paired process a read, and gives a later process no counts (QV-12, QV-13).
+                    let counts: (input: Int?, output: Int?) = runs.count == 1
+                        ? (step.inputReadCount.map(Int.init), step.outputReadCount.map(Int.init))
+                        : runIndex == 0
+                            ? (logicalReadCount(runs) { $0.inputReadCount.map(Int.init) },
+                               logicalReadCount(runs) { $0.outputReadCount.map(Int.init) })
+                            : (nil, nil)
                     results.append(recipeStepResult(
                         step, plan: run.plan, engine: engine, components: components,
                         // The Mac keeps a fastp step's read files and every file of a step's second process.
-                        keepsOutputs: runIndex > 0 || step.tool?.id == NativeTool.fastp.executableName, consumed: consumed
+                        keepsOutputs: runIndex > 0 || step.tool?.id == NativeTool.fastp.executableName, consumed: consumed,
+                        counts: counts
                     ))
                 }
                 used += runs.count
@@ -63,7 +72,7 @@ extension ExecutorRunAdoption {
     /// database the plan pins whose path its argv names.
     static func recipeStepResult(
         _ step: ExecutorStepRecord, plan: ExecutionPlan, engine: RecipeEngine, components: [RecipeLogicalComponent],
-        keepsOutputs: Bool, consumed: Set<String>
+        keepsOutputs: Bool, consumed: Set<String>, counts: (input: Int?, output: Int?)
     ) -> RecipeStepResult {
         let databases = plan.entries.compactMap { entry -> RecipeDatabaseRecord? in
             guard entry.role == .database, let identity = entry.database, step.argv.contains(entry.relativePath) else {
@@ -83,10 +92,21 @@ extension ExecutorRunAdoption {
         return RecipeStepResult(
             stepName: plan.steps.first { $0.id == step.id }?.title ?? step.id, tool: step.tool?.id ?? executorBinaryName,
             toolVersion: step.tool?.version, commandLine: step.argv.map(engine.shellEscapeForRecipeCommand).joined(separator: " "),
-            commandArguments: step.argv, inputReadCount: step.inputReadCount.map(Int.init),
-            outputReadCount: step.outputReadCount.map(Int.init), durationSeconds: step.wallSeconds,
+            commandArguments: step.argv, inputReadCount: counts.input,
+            outputReadCount: counts.output, durationSeconds: step.wallSeconds,
             logicalComponents: components, executionOutputFiles: outputs, exitStatus: step.toolExitCode.map(Int.init),
             startedAt: date(step.startedAt), completedAt: date(step.endedAt), databases: databases
         )
+    }
+
+    /// A logical step's read count over its processes, as the Mac counts the step over its whole input: a process that
+    /// reads a pair of files (`-I`) counts each pair as two reads. Nil when a process has no count.
+    static func logicalReadCount(_ runs: [ExecutorStepRecord], _ count: (ExecutorStepRecord) -> Int?) -> Int? {
+        var total = 0
+        for step in runs {
+            guard let value = count(step) else { return nil }
+            total += step.argv.contains("-I") || step.argv.contains("--in2") ? 2 * value : value
+        }
+        return total
     }
 }

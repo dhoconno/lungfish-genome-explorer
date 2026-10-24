@@ -64,9 +64,14 @@ extension ExecutorRunAdoption {
         }
 
         let ingestionResult = ingestionResult(run, outputFile: stagedFASTQ, paired: inputs.count > 1)
-        let pairing = FASTQBatchImporter.recordedPairing(
+        // The mixed layout the node counted where it wrote the mixed file (the `interleave` step of a merging recipe).
+        let mixed = record.steps.last { $0.storage?.mixedLayout != nil }?.storage?.mixedLayout.map {
+            RecipeMixedLayoutCounts(mergedReads: $0.mergedReads, pairs: $0.pairs, unpairedReads: $0.unpairedReads)
+        }
+        let imported = FASTQBatchImporter.recordedPairing(
             pairing: config.pairing, r1: inputs.count > 1 ? r1 : stagedFASTQ, hasR2: inputs.count > 1
         )
+        let pairing = recordedPairing(imported: imported, recipeRan: recipe != nil, mixedLayout: mixed)
         var metadata = PersistedFASTQMetadata()
         metadata.ingestion = IngestionMetadata(
             isClumpified: ingestionResult.wasClumpified, isCompressed: true, pairingMode: pairing.mode,
@@ -75,20 +80,22 @@ extension ExecutorRunAdoption {
             originalSizeBytes: plan.sample.originalSizeBytes, storageInputSizeBytes: ingestionResult.originalSizeBytes,
             storageOutputSizeBytes: ingestionResult.finalSizeBytes
         )
-        // The Mac's read classification of the stored file, from the mixed layout the node counted where it wrote the
-        // mixed file (the `interleave` step of a merging recipe).
-        let mixed = record.steps.last { $0.storage?.mixedLayout != nil }?.storage?.mixedLayout.map {
-            RecipeMixedLayoutCounts(mergedReads: $0.mergedReads, pairs: $0.pairs, unpairedReads: $0.unpairedReads)
-        }
+        // The Mac's read classification of the stored file, from the node's mixed layout.
         metadata.readClassification = FASTQBatchImporter.readClassification(
             forMixedLayout: FASTQBatchImporter.storedMixedLayout(mixed, removing: ingestionResult.readsRemovedByStorage),
             bundleFASTQName: fastqName
         )
         FASTQBatchImporter.applyPlatformMetadata(to: &metadata, config: config)
+        // QV-18: each node step's envelope step carries the components and databases of its sidecar result, as the Mac's.
+        var recipeOptions: [[String]: [String: ParameterValue]] = [:]
         if let recipe {
             let stepResults = try recipeStepResults(
                 run, recipe: recipe, paired: inputs.count > 1, ingestionResult: ingestionResult, optimizeStorage: config.optimizeStorage
             )
+            for result in stepResults {
+                if let argv = result.commandArguments, !argv.isEmpty,
+                   let options = FASTQBatchImporter.recipeResolvedOptions(for: result) { recipeOptions[argv] = options }
+            }
             metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
                 recipeID: recipe.id, recipeName: recipe.name, appliedDate: Date(),
                 stepResults: stepResults,
@@ -107,7 +114,10 @@ extension ExecutorRunAdoption {
 
         let executorStep = executorStepExecution(record)
         let titles = Dictionary(plan.steps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-        let nodeSteps = record.steps.map { nodeStepExecution($0, parent: executorStep.id, title: titles[$0.id]) }
+        let nodeSteps = record.steps.flatMap { step in
+            storageLaunchSteps(step, parent: executorStep.id)
+                ?? [nodeStepExecution(step, parent: executorStep.id, title: titles[step.id], recipeOptions: recipeOptions[step.argv])]
+        }
         try await FASTQBatchImporter.writeImportProvenance(
             pair: pair, processingPair: pair, materializationSteps: nodeSteps + [executorStep], unpairedReads: nil,
             config: config, importedPairing: pairing, stagingBundleURL: staging, stagingBundleFASTQURL: stagedFASTQ,
@@ -137,7 +147,63 @@ extension ExecutorRunAdoption {
             "clumpifyHeapSource": result.clumpifyHeapGB == nil ? .null : plan,
             "resolvedClumpingToolSource": plan,
             "qualityBinningSource": plan,
+            // QV-24: the sample's own file names as the plan records them, never the plan folder's `inputs/` names.
+            "originalFilenames": .array(result.originalFilenames.map(ParameterValue.string)),
         ]
+    }
+
+    /// QV-5: the pairing as the Mac records it after a recipe, of the recipe's output and not of its input. A recipe whose
+    /// node wrote a mixed file records a detected `single_end` when the file holds any single read, so no tool pairs it
+    /// by position, and a detected `interleaved` for pairs alone; any other run keeps the import's own record.
+    static func recordedPairing(
+        imported: FASTQBatchImporter.RecordedPairing, recipeRan: Bool, mixedLayout: RecipeMixedLayoutCounts?
+    ) -> FASTQBatchImporter.RecordedPairing {
+        guard recipeRan, let mixedLayout else { return imported }
+        return FASTQBatchImporter.recordedPairing(afterRecipeOutput: .mixed, mixedLayout: mixedLayout, importedAs: imported)
+    }
+
+    /// The storage command as the Mac records it (QV-14): the clumpify launches joined by ` && `, or the step's argv.
+    static func processingCommandLine(_ step: ExecutorStepRecord) -> String {
+        let clumpify = (step.storage?.launches ?? []).filter { $0.tool.id == NativeTool.clumpify.executableName }
+        guard !clumpify.isEmpty else { return step.argv.joined(separator: " ") }
+        return clumpify.map { $0.argv.joined(separator: " ") }.joined(separator: " && ")
+    }
+
+    /// The storage step's launches as the Mac's envelope holds them (QV-15, QV-19, QV-21): each clumpify launch with its
+    /// group count and memory lines, and the writer as `bgzip` with the `> <output>` the Mac's argv adds, each under the
+    /// executor's step. The writer probe `-h` is left out, as the Mac's envelope holds none. Nil for a step with no
+    /// launches, which keeps its one step.
+    static func storageLaunchSteps(_ step: ExecutorStepRecord, parent: UUID) -> [StepExecution]? {
+        guard step.kind == .storage, let launches = step.storage?.launches, !launches.isEmpty else { return nil }
+        return launches.compactMap { launch -> StepExecution? in
+            guard Array(launch.argv.dropFirst()) != ["-h"] else { return nil }
+            var options = ProvenanceNodeStepOptions.options(
+                toolID: launch.tool.id, version: launch.tool.version, build: launch.tool.build,
+                versionSource: launch.tool.versionSource.rawValue, title: nil
+            )
+            var command = launch.argv
+            if launch.tool.id == NativeTool.clumpify.executableName {
+                options["clumpifyGroups"] = launch.clumpifyGroups.map(ParameterValue.integer)
+                options["clumpifyMemoryEstimateLine"] = launch.clumpifyMemoryEstimateLine.map(ParameterValue.string)
+                options["clumpifyMemoryAvailableLine"] = launch.clumpifyMemoryAvailableLine.map(ParameterValue.string)
+            } else if launch.tool.id == NativeTool.bgzip.executableName, let output = step.outputs.first?.path {
+                command += [">", output]
+            }
+            return StepExecution(
+                toolName: launch.tool.id, toolVersion: launch.tool.version, command: command, resolvedOptions: options,
+                inputs: [], exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
+                peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool.path),
+                startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
+            )
+        }
+    }
+
+    /// The managed environment a tool ran from, the folder after `envs/` in its path (QV-19). The node's path names the
+    /// environment the image holds the tool in, so the writer's may differ from the Mac's (QV-OQ1).
+    static func managedToolID(_ path: String?) -> ManagedToolID? {
+        let parts = (path ?? "").split(separator: "/").map(String.init)
+        guard let envs = parts.lastIndex(of: "envs"), envs + 2 < parts.count else { return nil }
+        return ManagedToolID(rawValue: parts[envs + 1])
     }
 
     /// The recipe the plan ran, resolved in this build by the name and switch options the plan states. A recipe whose
@@ -193,7 +259,7 @@ extension ExecutorRunAdoption {
                 clumpifyHeapBytes: plan.clumping.heapBytes, thresholdBytes: 0, reason: plan.clumping.reason
             ),
             processingTool: step?.tool?.id, processingToolVersion: step?.tool?.version,
-            processingCommandLine: step.map { $0.argv.joined(separator: " ") },
+            processingCommandLine: step.map(processingCommandLine),
             clumpifyHeapGB: clumpifyRan ? plan.storage.clumpifyHeapGB : nil
         )
     }
@@ -225,13 +291,16 @@ extension ExecutorRunAdoption {
 
     /// One node step under the executor's step, with the argv, version and times the record states, and its tool in
     /// the record's shape under `resolvedOptions` (lane U, OQ-1), with the plan step's title on a step the executor ran.
-    static func nodeStepExecution(_ step: ExecutorStepRecord, parent: UUID, title: String?) -> StepExecution {
-        let options = step.tool.map {
+    static func nodeStepExecution(
+        _ step: ExecutorStepRecord, parent: UUID, title: String?, recipeOptions: [String: ParameterValue]? = nil
+    ) -> StepExecution {
+        var options = step.tool.map {
             ProvenanceNodeStepOptions.options(
                 toolID: $0.id, version: $0.version, build: $0.build, versionSource: $0.versionSource.rawValue,
                 title: $0.id == executorBinaryName ? title : nil
             )
         }
+        if let recipeOptions { options = (options ?? [:]).merging(recipeOptions) { node, _ in node } }
         return StepExecution(
             toolName: step.tool?.id ?? executorBinaryName, toolVersion: step.tool?.version ?? "unknown", command: step.argv,
             resolvedOptions: options, inputs: [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,

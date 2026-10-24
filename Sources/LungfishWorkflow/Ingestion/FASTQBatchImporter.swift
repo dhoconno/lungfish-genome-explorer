@@ -1523,7 +1523,8 @@ public enum FASTQBatchImporter {
         )
     }
 
-    private static func recipeResolvedOptions(for result: RecipeStepResult) -> [String: ParameterValue]? {
+    /// A recipe step's envelope options, its databases and logical components; the adopt writes the same (QV-18).
+    static func recipeResolvedOptions(for result: RecipeStepResult) -> [String: ParameterValue]? {
         var options = recipeDatabaseOptions(for: result)
         if !result.logicalComponents.isEmpty {
             options["recipeLogicalComponents"] = .array(result.logicalComponents.map { component in

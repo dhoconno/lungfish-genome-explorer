@@ -12,8 +12,17 @@ struct V15Finding: Sendable, CustomStringConvertible {
     let adopted: String
     let mac: String
     let why: String
+    /// The artifact files the values were read from, as `keepArtifacts` names them (QV-27).
+    var artifact = ""
+    /// Both values whole and before any root is stripped, for a finding whose shown values are cut or stripped (QV-27).
+    var raw: (adopted: String, mac: String)?
 
-    var description: String { "PARITY-FINDING key=\(key) adopted=\(adopted) mac=\(mac) why=\(why)" }
+    var description: String {
+        var text = "PARITY-FINDING key=\(key) adopted=\(adopted) mac=\(mac) why=\(why)"
+        if !artifact.isEmpty { text += " artifact=\(artifact)" }
+        if let raw { text += " rawAdopted=\(raw.adopted) rawMac=\(raw.mac)" }
+        return text
+    }
 }
 
 /// SWIFT's S-4: each record's JSON tree walked key by key against the closed list.
@@ -46,10 +55,70 @@ struct V15Comparison {
         return token
     }
 
+    /// The roots of each route (QV-10): the project, and on the adopt route the returned folder; on the Mac the one
+    /// `.tmp/fastq-import-<UUID>` folder its records name, in its absolute and `@/` forms, and the storage root in its
+    /// absolute and `<storage-root>` forms; on each route its one `.clumpify-split-<UUID>` folder below its work root.
+    /// A route that names more than one such folder is a problem, since no one root would strip them all.
+    static func routeRoots(
+        project: String, returned: String, storageRoot: String?, macStrings: [String], adoptedStrings: [String]
+    ) -> (roots: [V15Route: [String]], problems: [String]) {
+        let uuid = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+        var problems: [String] = []
+        func one(_ pattern: String, _ strings: [String], _ what: String) -> String? {
+            let found = folders(in: strings, matching: pattern)
+            if found.count > 1 { problems.append("\(what) names \(found.count) folders, and must name one: \(found)") }
+            return found.count == 1 ? found[0] : nil
+        }
+        let split = "\\.clumpify-split-" + uuid
+        let scratch = one(NSRegularExpression.escapedPattern(for: project + "/.tmp/fastq-import-") + uuid, macStrings, "the Mac record's import folder")
+        let macSplit = one(split, macStrings, "the Mac record's clumpify split folder")
+        let adoptedSplit = one(split, adoptedStrings, "the adopted record's clumpify split folder")
+        var mac = [project]
+        if let scratch {
+            let forms = [scratch, "@/" + scratch.dropFirst(project.count + 1)]
+            mac += forms + (macSplit.map { split in forms.map { $0 + "/" + split } } ?? [])
+        }
+        if let storageRoot, !storageRoot.isEmpty { mac += [storageRoot, "<storage-root>"] }
+        return ([.mac: mac, .adopted: [returned, project] + (adoptedSplit.map { [$0] } ?? [])], problems)
+    }
+
+    /// The distinct texts a pattern matches in a record's strings.
+    static func folders(in strings: [String], matching pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var found = Set<String>()
+        for text in strings {
+            for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let range = Range(match.range, in: text) { found.insert(String(text[range])) }
+            }
+        }
+        return found.sorted()
+    }
+
+    /// Every string value of a JSON tree, read from the parsed record so JSON escapes never hide a path.
+    static func strings(in value: Any?) -> [String] {
+        switch value {
+        case let text as String: return [text]
+        case let list as [Any]: return list.flatMap { strings(in: $0) }
+        case let object as [String: Any]: return object.keys.sorted().flatMap { [$0] + strings(in: object[$0]) }
+        default: return []
+        }
+    }
+
+    /// QV-25: the envelope types an option as `{"type", "value"}`; a rule reads its value, JSON null for a typed null.
+    static func untyped(_ value: Any?) -> Any? {
+        guard let object = value as? [String: Any], object["type"] is String,
+              Set(object.keys).isSubset(of: ["type", "value"]) else { return value }
+        return object["value"] ?? NSNull()
+    }
+
     // MARK: Records
 
     /// The envelopes, with the steps paired by role, plan order and tool id (QA ruling 2).
-    mutating func compareEnvelopes(adopted: [String: Any], mac: [String: Any], adoptedRoles: V15StepRoles, macRoles: V15StepRoles) {
+    mutating func compareEnvelopes(
+        adopted: [String: Any], mac: [String: Any], adoptedRoles: V15StepRoles, macRoles: V15StepRoles, artifact: String = ""
+    ) {
+        let start = findings.count
+        defer { for index in start..<findings.count { findings[index].artifact = artifact } }
         var adoptedTop = adopted
         var macTop = mac
         adoptedTop.removeValue(forKey: "steps")
@@ -72,7 +141,9 @@ struct V15Comparison {
         }
     }
 
-    mutating func compareSidecars(adopted: [String: Any], mac: [String: Any]) {
+    mutating func compareSidecars(adopted: [String: Any], mac: [String: Any], artifact: String = "") {
+        let start = findings.count
+        defer { for index in start..<findings.count { findings[index].artifact = artifact } }
         walk(adopted, mac, path: ["sidecar"])
     }
 
@@ -108,6 +179,15 @@ struct V15Comparison {
         if version == nil || version == "unknown" || version?.isEmpty == true {
             findings.append(V15Finding(key: Self.joined(path + ["toolVersion"]), adopted: Self.render(adopted["toolVersion"]),
                                        mac: Self.render(mac["toolVersion"]), why: "the Mac step records no version (XC-4)"))
+        }
+        // QV-17: V15-02 sets the node tool's record aside, so its version must be the step's own.
+        if let tool = Self.untyped((adopted["resolvedOptions"] as? [String: Any])?["tool"]) as? [String: Any] {
+            let held = Self.untyped(tool["version"]) as? String
+            if held != adopted["toolVersion"] as? String {
+                findings.append(V15Finding(key: Self.joined(path + ["resolvedOptions", "tool", "version"]), adopted: Self.render(held),
+                                           mac: Self.render(adopted["toolVersion"]),
+                                           why: "V15-02 sets the node tool aside only when its version is the step's toolVersion (QV-17)"))
+            }
         }
     }
 
@@ -145,9 +225,18 @@ struct V15Comparison {
         }
     }
 
-    private mutating func apply(_ line: V15Line, _ adopted: Any?, _ mac: Any?, path: [String]) {
+    private mutating func apply(_ line: V15Line, _ typedAdopted: Any?, _ typedMac: Any?, path: [String]) {
         let key = Self.joined(path)
+        let adopted = Self.untyped(typedAdopted), mac = Self.untyped(typedMac)
         switch line.rule {
+        case .path:
+            let a = Self.stripped(adopted, roots: roots[.adopted] ?? []), m = Self.stripped(mac, roots: roots[.mac] ?? [])
+            if !Self.equal(a, m) {
+                var finding = V15Finding(key: key, adopted: Self.render(a), mac: Self.render(m),
+                                         why: "\(line.id): the path differs byte for byte after the root is stripped (XC-10)")
+                finding.raw = (Self.render(adopted, whole: true), Self.render(mac, whole: true))
+                findings.append(finding)
+            }
         case .notCompared(let mustCarry):
             for route in mustCarry where (route == .adopted ? adopted : mac) == nil {
                 findings.append(V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
@@ -181,31 +270,63 @@ struct V15Comparison {
     }
 
     private mutating func compareArgv(_ adopted: Any?, _ mac: Any?, key: String) {
-        func tokens(_ value: Any?) -> [String]? {
-            if let list = value as? [String] { return list }
-            if let text = value as? String { return text.split(separator: " ", omittingEmptySubsequences: true).map(String.init) }
+        // QV-14: a command line of several launches joined by ` && ` compares part by part, each part one argv.
+        func parts(_ value: Any?) -> [[String]]? {
+            if let list = value as? [String] { return [list] }
+            if let text = value as? String {
+                return text.components(separatedBy: " && ").map { $0.split(separator: " ", omittingEmptySubsequences: true).map(String.init) }
+            }
             return nil
         }
-        guard let a = tokens(adopted), let m = tokens(mac) else {
+        guard let a = parts(adopted), let m = parts(mac) else {
             if !(adopted == nil && mac == nil) {
                 findings.append(V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
                                            why: "the argv is on one route only"))
             }
             return
         }
-        let strippedA = a.map { Self.stripRoot($0, roots: roots[.adopted] ?? []) }
-        let strippedM = m.map { Self.stripRoot($0, roots: roots[.mac] ?? []) }
+        // QV-27: a doubled slash in an absolute path is a path a tool could not have been given as the plan names it.
+        for (route, list) in [(V15Route.adopted, a), (.mac, m)] {
+            for token in list.joined() {
+                let value = token.firstIndex(of: "=").map { String(token[token.index(after: $0)...]) } ?? token
+                if value.hasPrefix("/") && value.contains("//") {
+                    var finding = V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
+                                             why: "an absolute path token on the \(route.rawValue) route holds //: \(token)")
+                    finding.raw = (Self.render(adopted, whole: true), Self.render(mac, whole: true))
+                    findings.append(finding)
+                }
+            }
+        }
+        let strippedA = a.map { $0.map { Self.stripRoot($0, roots: roots[.adopted] ?? []) } }
+        let strippedM = m.map { $0.map { Self.stripRoot($0, roots: roots[.mac] ?? []) } }
         var differs = strippedA.count != strippedM.count
-        for index in 0..<min(strippedA.count, strippedM.count) where !differs {
-            if index == 0 {
-                differs = (strippedA[0] as NSString).lastPathComponent != (strippedM[0] as NSString).lastPathComponent
-            } else {
-                differs = strippedA[index] != strippedM[index]
+        for (partA, partM) in zip(strippedA, strippedM) where !differs {
+            differs = partA.count != partM.count
+            for index in 0..<min(partA.count, partM.count) where !differs {
+                if index == 0 {
+                    differs = (partA[0] as NSString).lastPathComponent != (partM[0] as NSString).lastPathComponent
+                } else {
+                    differs = partA[index] != partM[index]
+                }
             }
         }
         if differs {
-            findings.append(V15Finding(key: key, adopted: strippedA.description, mac: strippedM.description,
-                                       why: "the argv differs token by token after the root is stripped (XC-10)"))
+            var finding = V15Finding(key: key, adopted: strippedA.description, mac: strippedM.description,
+                                     why: "the argv differs token by token after the root is stripped (XC-10)")
+            finding.raw = (Self.render(adopted, whole: true), Self.render(mac, whole: true))
+            findings.append(finding)
+        }
+    }
+
+    /// A value with the one function applied to each string in it, dictionary keys included.
+    static func stripped(_ value: Any?, roots: [String]) -> Any? {
+        switch value {
+        case let text as String: return stripRoot(text, roots: roots)
+        case let list as [Any]: return list.map { stripped($0, roots: roots) ?? NSNull() }
+        case let object as [String: Any]:
+            return Dictionary(object.map { (stripRoot($0.key, roots: roots), stripped($0.value, roots: roots) ?? NSNull()) },
+                              uniquingKeysWith: { first, _ in first })
+        default: return value
         }
     }
 
@@ -256,13 +377,15 @@ struct V15Comparison {
         }
     }
 
-    static func render(_ value: Any?) -> String {
+    /// A value as a finding prints it, cut at 240 characters unless `whole`.
+    static func render(_ value: Any?, whole: Bool = false) -> String {
+        let limit = whole ? Int.max : 240
         guard let value else { return "absent" }
         if value is NSNull { return "null" }
-        if let text = value as? String { return "\"\(text.prefix(240))\"" }
+        if let text = value as? String { return "\"\(text.prefix(limit))\"" }
         if JSONSerialization.isValidJSONObject(value),
-           let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
-            return String(String(decoding: data, as: UTF8.self).prefix(240))
+           let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]) {
+            return String(String(decoding: data, as: UTF8.self).prefix(limit))
         }
         return "\(value)"
     }

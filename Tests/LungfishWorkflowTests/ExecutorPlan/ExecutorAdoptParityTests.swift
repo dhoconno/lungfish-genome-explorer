@@ -285,32 +285,45 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let macFASTQ = routes.macBundle.appendingPathComponent(payloadName)
         let adoptedFASTQ = routes.adoptedBundle.appendingPathComponent(payloadName)
         let sidecarName = FASTQMetadataStore.metadataURL(for: macFASTQ).lastPathComponent
-        var comparison = V15Comparison(
-            roots: [.mac: [routes.project.path], .adopted: [routes.returned.path, routes.project.path]],
-            payloadFileNames: [payloadName, sidecarName]
+        let provenance = ProvenanceRecorder.provenanceFilename
+        var adoptedEnvelope = try V15Comparison.jsonObject(routes.adoptedBundle.appendingPathComponent(provenance))
+        let macEnvelope = try V15Comparison.jsonObject(routes.macBundle.appendingPathComponent(provenance))
+        let adoptedSidecar = try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: adoptedFASTQ))
+        let macSidecarObject = try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: macFASTQ))
+        // QV-10: each route's roots, the Mac's scratch and storage folders read from its own records.
+        let found = V15Comparison.routeRoots(
+            project: routes.project.path, returned: routes.returned.path,
+            storageRoot: ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"],
+            macStrings: V15Comparison.strings(in: macEnvelope) + V15Comparison.strings(in: macSidecarObject),
+            adoptedStrings: V15Comparison.strings(in: adoptedEnvelope) + V15Comparison.strings(in: adoptedSidecar)
+                + routes.record.steps.flatMap { $0.argv + ($0.storage?.launches ?? []).flatMap(\.argv) }
         )
+        var comparison = V15Comparison(roots: found.roots, payloadFileNames: [payloadName, sidecarName])
+        for problem in found.problems {
+            comparison.findings.append(V15Finding(key: "roots", adopted: "-", mac: "-", why: problem))
+        }
         if envelope {
-            let provenance = ProvenanceRecorder.provenanceFilename
-            var adoptedEnvelope = try V15Comparison.jsonObject(routes.adoptedBundle.appendingPathComponent(provenance))
-            let macEnvelope = try V15Comparison.jsonObject(routes.macBundle.appendingPathComponent(provenance))
             var adoptedSteps = adoptedEnvelope["steps"] as? [[String: Any]] ?? []
             editAdoptedSteps?(&adoptedSteps)
             adoptedEnvelope["steps"] = adoptedSteps
             let adoptedRoles = V15StepRoles.adopted(
                 adoptedSteps, executorToolName: ExecutorRunAdoption.executorToolName, adoptToolName: Self.importToolName,
-                nodeKinds: routes.record.steps.map { "\($0.kind)" }
+                // The adopt writes a storage step's launches as steps, the writer probe left out (QV-15).
+                nodeKinds: routes.record.steps.flatMap { step -> [String] in
+                    let launches = (step.storage?.launches ?? []).filter { Array($0.argv.dropFirst()) != ["-h"] }
+                    return step.kind == .storage && !launches.isEmpty
+                        ? Array(repeating: "\(step.kind)", count: launches.count) : ["\(step.kind)"]
+                }
             )
             let macRoles = V15StepRoles.mac(macEnvelope["steps"] as? [[String: Any]] ?? [], importToolName: Self.importToolName)
             for problem in adoptedRoles.problems + macRoles.problems {
                 comparison.findings.append(V15Finding(key: "envelope.steps", adopted: "-", mac: "-", why: problem))
             }
-            comparison.compareEnvelopes(adopted: adoptedEnvelope, mac: macEnvelope, adoptedRoles: adoptedRoles, macRoles: macRoles)
+            comparison.compareEnvelopes(adopted: adoptedEnvelope, mac: macEnvelope, adoptedRoles: adoptedRoles, macRoles: macRoles,
+                                        artifact: "adopted-envelope.json, mac-envelope.json")
         }
         if sidecar {
-            comparison.compareSidecars(
-                adopted: try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: adoptedFASTQ)),
-                mac: try V15Comparison.jsonObject(FASTQMetadataStore.metadataURL(for: macFASTQ))
-            )
+            comparison.compareSidecars(adopted: adoptedSidecar, mac: macSidecarObject, artifact: "adopted-sidecar.json, mac-sidecar.json")
         }
         // QA ruling 3: the node's printed and counted values against the Mac sidecar, by the test's own parse.
         let statistics = routes.record.steps.first { $0.kind == .statistics }?.standardOutput?.text ?? ""
