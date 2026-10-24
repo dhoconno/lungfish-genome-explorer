@@ -1,0 +1,10 @@
+000 (593368.000.000) 2026-10-24 11:16:49 Job submitted from host: <128.105.68.247:9618?addrs=128.105.68.247-9618+[2607-f388-2200-100-a288-c2ff-fe20-cab2]-9618&alias=oconnor-ap4000.chtc.wisc.edu&noUDP&sock=schedd_7814_5521>
+    [ JobBatchName = "c4-h2-b" ]
+...
+012 (593368.000.000) 2026-10-24 11:20:14 Job was held.
+	Cannot expand $$ expression (LgeNoSuchAttribute).
+	Code 0 Subcode 0
+...
+009 (593368.000.000) 2026-10-24 11:22:34 Job was aborted.
+	via condor_rm (by user dhoconno)
+...

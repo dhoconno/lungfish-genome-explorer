@@ -1,0 +1,23 @@
+# Lane H M2 node job (a), C4-09 and Q-C4-4. The arguments line is the one HTCondorSubmitTemplate.render writes for
+# HTCondorSubmitTemplateTests.input() at 3b16dac02, word for word. echo-args.sh prints each argument as the job got it,
+# tries sha256sum on the SIF, then execs /bin/echo with the same arguments. sample_placements stands in for run.dag's VARS.
+universe = container
+container_image = file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/lge-c0-tools-c42530259944.sif
+sample = H2a
+sample_placements = H2a_R1.fastq.gz=reads/R1.fastq.gz H2a_R2.fastq.gz=reads/R2.fastq.gz
+executable = echo-args.sh
+arguments = "'lungfish-executor-abababababababababababababababababababababababababababababababab=bin/lungfish-executor' 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd.idx=databases/panhuman-1.k31w15.idx' $(sample_placements) '--' '--site-fact' 'Machine=$$(Machine:lge_unset)' '--site-fact' 'Arch=$$(Arch:lge_unset)' '--site-fact' 'Microarch=$$(Microarch:lge_unset)' '--site-fact' 'OpSysAndVer=$$(OpSysAndVer:lge_unset)' '--site-fact' 'OpSysMajorVer=$$(OpSysMajorVer:lge_unset)' '--site-fact' 'OSKernelRelease=$$(OSKernelRelease:lge_unset)' '--site-fact' 'Cpus=$$(Cpus:lge_unset)' '--site-fact' 'Memory=$$(Memory:lge_unset)' '--site-fact' 'Disk=$$(Disk:lge_unset)' '--site-fact' 'ClusterId=$(Cluster)' '--site-fact' 'ProcId=$(Process)'"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+requirements = (TARGET.HasCHTCStaging == true) && (TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")
+request_cpus = 1
+request_memory = 1GB
+request_disk = 16GB
+max_retries = 3
+retry_until = (ExitCode =?= 0) || (ExitCode =?= 2) || (ExitCode =?= 64)
+kill_sig = SIGTERM
+log = logs/h2a-echo.log
+output = logs/h2a-echo.out
+error = logs/h2a-echo.err
+batch_name = c4-h2-a
+queue
