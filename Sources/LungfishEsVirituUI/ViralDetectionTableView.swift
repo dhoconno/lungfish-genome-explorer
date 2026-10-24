@@ -1635,7 +1635,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 accession: sparklineAccession
             )
         case ColumnID.identity:
-            return makeDecimalCell(value: assembly.avgReadIdentity, format: "%.1f%%")
+            return makeDecimalCell(value: assembly.avgReadIdentity * 100.0, format: "%.1f%%")
         case ColumnID.segment:
             // Assembly rows show segment count summary
             let segments = assembly.contigs.compactMap(\.segment)
@@ -1678,7 +1678,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 accession: detection.accession
             )
         case ColumnID.identity:
-            return makeDecimalCell(value: detection.avgReadIdentity, format: "%.1f%%")
+            return makeDecimalCell(value: detection.avgReadIdentity * 100.0, format: "%.1f%%")
         case ColumnID.segment:
             return makeTextCell(text: detection.segment ?? "\u{2014}", alignment: .center)
         default:
@@ -1869,7 +1869,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         lines.append("Length: \(detection.length) bp")
         lines.append("Reads: \(detection.readCount)")
         lines.append("Coverage: \(String(format: "%.1fx", detection.meanCoverage))")
-        lines.append("Identity: \(String(format: "%.1f%%", detection.avgReadIdentity))")
+        lines.append("Identity: \(String(format: "%.1f%%", detection.avgReadIdentity * 100.0))")
         if let species = detection.species, !species.isEmpty {
             let displaySpecies = species.hasPrefix("s__") ? String(species.dropFirst(3)) : species
             lines.append("Species: \(displaySpecies)")
