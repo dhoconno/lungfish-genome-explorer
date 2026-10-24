@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishPortable
 
 extension ExecutorRunAdoption {
     /// The sidecar's step results as `RecipeEngine.execute` lists them on the Mac: the engine's own plan of the recipe
@@ -63,20 +64,57 @@ extension ExecutorRunAdoption {
     }
 
     /// QV-7: a recipe process's reports, the record outputs no later plan step reads, as absolute paths in the returned
-    /// folder, each re-hashed against the record's SHA-256 so the bundle never keeps bytes the node did not write. A
-    /// report the folder does not hold is left out, since this build cannot tell yet that a CHTC return carries `work/`.
+    /// folder. Each is read through the resolver the payload uses (AMV2 SWIFT fix 1): a relative path with no dot
+    /// component, a real path inside the folder, a regular file of the record's size and SHA-256, so the bundle never keeps
+    /// bytes the node did not write, and a path out of the folder or a link is refused. A report the folder lacks is refused
+    /// as well (AMV2 SWIFT fix 2, BIO fix 1), as the Mac's import refuses a recipe run whose report is missing: the CHTC
+    /// submit file returns every report at its `work/` path.
     static func recordedReports(_ step: ExecutorStepRecord, folder: URL, consumed: Set<String>) throws -> [String] {
-        try step.outputs.filter { !consumed.contains($0.path) }.compactMap { output in
-            let url = folder.appendingPathComponent(output.path)
-            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-            guard ProvenanceRecorder.sha256(of: url) == output.sha256 else {
-                throw refusal(
-                    "steps",
-                    "The report \(output.path) of step \(step.id) does not hold the bytes the run record states "
-                        + "(SHA-256 \(output.sha256)). Nothing was imported."
+        let resolver: PlanResourceResolver
+        do {
+            resolver = try PlanResourceResolver(workRoot: folder)
+        } catch {
+            throw refusal("folder", "The folder \(folder.lastPathComponent) cannot be read. \(error.localizedDescription)")
+        }
+        return try step.outputs.filter { !consumed.contains($0.path) }.map { output in
+            let name = "The report \(output.path) of step \(step.id)"
+            let verified: URL
+            do {
+                verified = try resolver.verify(
+                    PlanEntry(role: .input, relativePath: output.path, sha256: output.sha256, size: Int64(clamping: output.bytes))
                 )
+            } catch let error as PlanResourceRefusal {
+                switch error {
+                case .missing:
+                    throw refusal(
+                        "steps",
+                        "\(name) is in the run record but not in the returned folder. The Mac's import refuses a recipe run "
+                            + "whose report is missing, so nothing was imported."
+                    )
+                case .digestMismatch, .sizeMismatch:
+                    throw refusal(
+                        "steps",
+                        "\(name) does not hold the bytes the run record states (SHA-256 \(output.sha256)). Nothing was imported."
+                    )
+                default:
+                    throw refusal("steps", "\(name) cannot be adopted. \(error.reason) Nothing was imported.")
+                }
             }
-            return url.path
+            // The copy's name and the argv rewrite are keyed by the record's path, so a link is refused and never followed.
+            guard verified.path == resolver.workRoot + "/" + output.path else {
+                throw refusal("steps", "\(name) is a symbolic link. Nothing was imported.")
+            }
+            return folder.appendingPathComponent(output.path).path
+        }
+    }
+
+    /// The preflight's read of every report the run record names for a recipe step (AMV2 BIO fix 1, ARCH Optional 2), through
+    /// `recordedReports`, so the dry run refuses a run whose report is missing, linked or changed, as the adopt does before it
+    /// copies any report.
+    static func checkRecipeReports(_ run: ExecutorAdoptedRun) throws {
+        let consumed = Set(run.plan.steps.flatMap(\.inputs))
+        for step in run.record.steps where step.kind == .recipe {
+            _ = try recordedReports(step, folder: run.folder, consumed: consumed)
         }
     }
 

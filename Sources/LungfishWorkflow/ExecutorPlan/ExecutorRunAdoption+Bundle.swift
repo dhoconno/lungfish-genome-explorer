@@ -197,7 +197,10 @@ extension ExecutorRunAdoption {
         func files(_ digests: [ExecutorFileDigest]?, role: FileRole) -> [FileRecord] {
             (digests ?? []).map { FileRecord(path: $0.relativePath, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.size), format: .fastq, role: role) }
         }
-        return launches.compactMap { launch -> StepExecution? in
+        // The interleave step's own output, the mixed file, is the recorded output of the decompressor step that ends it (AMV2
+        // ARCH fix 4); the earlier ones list none, since a reader writes into a pipe.
+        let last = launches.lastIndex { Array($0.argv.dropFirst()) != ["-h"] }
+        return launches.enumerated().compactMap { index, launch -> StepExecution? in
             guard Array(launch.argv.dropFirst()) != ["-h"] else { return nil }
             var options = ProvenanceNodeStepOptions.options(
                 toolID: launch.tool.id, version: launch.tool.version, build: launch.tool.build,
@@ -208,16 +211,20 @@ extension ExecutorRunAdoption {
                 options["clumpifyGroups"] = launch.clumpifyGroups.map(ParameterValue.integer)
                 options["clumpifyMemoryEstimateLine"] = launch.clumpifyMemoryEstimateLine.map(ParameterValue.string)
                 options["clumpifyMemoryAvailableLine"] = launch.clumpifyMemoryAvailableLine.map(ParameterValue.string)
-            } else if launch.tool.id == NativeTool.bgzip.executableName, let output = step.outputs.first?.path {
+            } else if step.kind == .storage, launch.tool.id == NativeTool.bgzip.executableName, let output = step.outputs.first?.path {
+                // Only the storage writer redirects into its output (AMV2 SWIFT fix 3); a `bgzip -dc` reader writes to a pipe.
                 command += [">", output]
             }
+            let mixed = step.kind == .interleave && index == last ? step.outputs.map {
+                FileRecord(path: $0.path, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.bytes), format: .fastq, role: .output)
+            } : []
             // QV-15: a compress launch is its own writer, so it states the record's writer by name, as the Mac's does.
             if let writer = step.storage?.writer, writer.name == launch.tool.id {
                 options[FASTQStorageRecordKey.writer] = .dictionary(["name": .string(writer.name)])
             }
             return StepExecution(
                 toolName: launch.tool.id, toolVersion: launch.tool.version, command: command, resolvedOptions: options,
-                inputs: files(launch.inputs, role: .input), outputs: files(launch.outputs, role: .output),
+                inputs: files(launch.inputs, role: .input), outputs: files(launch.outputs, role: .output) + mixed,
                 exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
                 peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool.path),
                 startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
@@ -226,10 +233,11 @@ extension ExecutorRunAdoption {
     }
 
     /// The managed environment a tool ran from, the folder after `envs/` in its path (QV-19). The node's path names the
-    /// environment the image holds the tool in, so the writer's may differ from the Mac's (QV-OQ1).
+    /// environment the image holds the tool in, so the writer's may differ from the Mac's (QV-OQ1). Only a program of the
+    /// form `<tool-root>/envs/<name>/bin/<tool>` names one (C4-3 C-4, AMV2 SWIFT fix 5); any other path states none.
     static func managedToolID(_ path: String?) -> ManagedToolID? {
         let parts = (path ?? "").split(separator: "/").map(String.init)
-        guard let envs = parts.lastIndex(of: "envs"), envs + 2 < parts.count else { return nil }
+        guard let envs = parts.lastIndex(of: "envs"), envs + 3 < parts.count, parts[envs + 2] == "bin" else { return nil }
         return ManagedToolID(rawValue: parts[envs + 1])
     }
 
@@ -319,7 +327,11 @@ extension ExecutorRunAdoption {
         } catch {
             throw refusal(field, "The run record's seqkit stats output is not a table the import reads. \(error.localizedDescription)")
         }
-        if let recipe { try claimedRecipeSteps(run, recipe: recipe, paired: inputs.count > 1) }
+        if let recipe {
+            try claimedRecipeSteps(run, recipe: recipe, paired: inputs.count > 1)
+            // AMV2 BIO fix 1: a report the run record names must be in the folder with the record's bytes, as the adopt demands.
+            try checkRecipeReports(run)
+        }
         return (pair, inputs, url, recipe, statistics)
     }
 

@@ -107,34 +107,79 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
                        "the writer step states the record's writer: \(String(describing: steps[1].resolvedOptions))")
     }
 
-    /// C4-3 C-3: each decompressor the node's interleave step started becomes its own envelope step under the
-    /// executor's, with the plan pin's tool id, the launch's argv and its input with the input's SHA-256, and no output.
-    func testAdoptWritesEachDecompressorLaunchAsAStep() throws {
-        let program = "/opt/conda/envs/pigz/bin/pigz"
-        let pigz = ExecutorToolRecord(id: "pigz", version: "2.8", build: "h2", path: program)
-        let reads = ["work/s_lengthfilter_merged.fq.gz", "work/s_lengthfilter_unmerged_R1.fq.gz"]
+    /// The interleave step of a merging recipe (C4-3 C-3): one `<program> -dc <read>` launch for each read, with the read's
+    /// SHA-256 and size and no output of its own, the tool a plan pin. The caller sets the step's recorded outputs.
+    private func interleaveStep(
+        program: String, tool: String, version: String, reads: [String]
+    ) -> (step: ExecutorStepRecord, launches: [ExecutorStorageLaunch]) {
+        let pin = ExecutorToolRecord(id: tool, version: version, build: "h2", path: program)
         let launches = reads.enumerated().map { index, path in
             ExecutorStorageLaunch(
-                tool: pigz, argv: [program, "-dc", path], environmentNames: ["PATH"], outcome: .succeeded, toolExitCode: 0,
+                tool: pin, argv: [program, "-dc", path], environmentNames: ["PATH"], outcome: .succeeded, toolExitCode: 0,
                 wallSeconds: 2, stderrPath: "/dev/null", inputs: [ExecutorFileDigest(relativePath: path, sha256: "ab\(index)", size: 40 + Int64(index))]
             )
         }
         let step = ExecutorStepRecord(
-            id: "recipe-5", kind: .interleave, tool: pigz, outcome: .succeeded, argv: [], environmentNames: ["PATH"],
+            id: "recipe-5", kind: .interleave, tool: pin, outcome: .succeeded, argv: [], environmentNames: ["PATH"],
             graceSeconds: 30, deadlineSeconds: 7200, toolExitCode: 0, startedAt: time, endedAt: time, wallSeconds: 4,
             qualityCounts: nil,
             storage: ExecutorStorageDetails(clumpingRan: false, qualityBinning: .illumina4, inputBytes: 10, outputBytes: 5, launches: launches)
         )
+        return (step, launches)
+    }
+
+    /// C4-3 C-3: each decompressor the node's interleave step started becomes its own envelope step under the
+    /// executor's, with the plan pin's tool id, the launch's argv, exit status 0 and its input with the input's SHA-256, and
+    /// no output of its own; the mixed file, the interleave step's recorded output, is the output of the step that ends it
+    /// (AMV2 ARCH fix 4, BIO fix 3: the three inputs of a merging recipe, each exit status).
+    func testAdoptWritesEachDecompressorLaunchAsAStep() throws {
+        let reads = ["work/s_lengthfilter_merged.fq.gz", "work/s_lengthfilter_unmerged_R1.fq.gz", "work/s_lengthfilter_unmerged_R2.fq.gz"]
+        let (built, launches) = interleaveStep(program: "/opt/conda/envs/pigz/bin/pigz", tool: "pigz", version: "2.8", reads: reads)
+        var step = built
+        step.outputs = [.init(path: "work/s_mixed.fastq.gz", bytes: 9, sha256: "cd")]
         let parent = UUID()
         let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(step, parent: parent), "the interleave step's launches are steps")
-        XCTAssertEqual(steps.map(\.toolName), ["pigz", "pigz"])
-        XCTAssertEqual(steps.map(\.toolVersion), ["2.8", "2.8"])
+        XCTAssertEqual(steps.map(\.toolName), ["pigz", "pigz", "pigz"])
+        XCTAssertEqual(steps.map(\.toolVersion), ["2.8", "2.8", "2.8"])
         XCTAssertEqual(steps.map(\.command), launches.map(\.argv))
+        XCTAssertEqual(steps.map(\.exitCode), [0, 0, 0])
         XCTAssertEqual(steps.map { $0.inputs.map(\.path) }, reads.map { [$0] })
-        XCTAssertEqual(steps.map { $0.inputs.map(\.sha256) }, [["ab0"], ["ab1"]])
-        XCTAssertEqual(steps.map { $0.inputs.map(\.sizeBytes) }, [[40], [41]])
-        XCTAssertEqual(steps.map(\.outputs.count), [0, 0], "a decompressor writes no file")
-        XCTAssertEqual(steps.map(\.parentStepID), [parent, parent])
+        XCTAssertEqual(steps.map { $0.inputs.map(\.sha256) }, [["ab0"], ["ab1"], ["ab2"]])
+        XCTAssertEqual(steps.map { $0.inputs.map(\.sizeBytes) }, [[40], [41], [42]])
+        XCTAssertEqual(steps.map { $0.outputs.map(\.sha256) }, [[], [], ["cd"]], "the mixed file is the last step's recorded output")
+        XCTAssertEqual(steps.last?.outputs.map(\.path), ["work/s_mixed.fastq.gz"])
+        XCTAssertEqual(steps.last?.outputs.map(\.sizeBytes), [9])
+        XCTAssertEqual(steps.last?.outputs.map(\.role), [.output])
+        XCTAssertEqual(steps.map(\.parentStepID), [parent, parent, parent])
+    }
+
+    /// AMV2 SWIFT fix 3: `RunCommand` picks the decompressor from `gzip`, `pigz` and `bgzip`, so a plan that pins `bgzip`
+    /// alone reads with `bgzip -dc`, which writes to a pipe. The adopted step states the argv the reader ran and no
+    /// `> <output>`; the storage step's `bgzip` writer keeps its redirect.
+    func testAdoptWritesNoRedirectOnABgzipDecompressorStep() throws {
+        let (built, launches) = interleaveStep(
+            program: "/opt/conda/envs/bbtools/bin/bgzip", tool: "bgzip", version: "1.24", reads: ["work/s_a.fq.gz", "work/s_b.fq.gz"]
+        )
+        var step = built
+        step.outputs = [.init(path: "out/mixed.fastq", bytes: 3, sha256: "aa")]
+        let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(step, parent: UUID()))
+        XCTAssertEqual(steps.map(\.command), launches.map(\.argv), "a reader writes to a pipe, so its step holds no redirect")
+
+        let writer = launch("bgzip", ["-@", "1", "-c", ".clumpify-split-X/combined.fastq"])
+        let storage = ExecutorStorageDetails(clumpingRan: true, qualityBinning: .illumina4, inputBytes: 10, outputBytes: 5, launches: [writer])
+        var storageStep = record("storage", tool: "bgzip", argv: writer.argv, storage: storage)
+        storageStep.outputs = [.init(path: "out/s.fastq.gz", bytes: 3, sha256: "dd")]
+        let written = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(storageStep, parent: UUID()))
+        XCTAssertEqual(written.map(\.command), [writer.argv + [">", "out/s.fastq.gz"]], "the storage writer states its output")
+    }
+
+    /// AMV2 SWIFT fix 5 (C4-3 C-4): only a program of the form `<tool-root>/envs/<name>/bin/<tool>` names a managed
+    /// environment; a path outside any environment, a file under an environment but not in `bin` and no path name none.
+    func testManagedToolIDTakesOnlyAProgramOfAnEnvironmentsBinFolder() {
+        XCTAssertEqual(ExecutorRunAdoption.managedToolID("/opt/conda/envs/bbtools/bin/bgzip")?.rawValue, "bbtools")
+        XCTAssertNil(ExecutorRunAdoption.managedToolID("/usr/bin/bgzip"))
+        XCTAssertNil(ExecutorRunAdoption.managedToolID("/opt/conda/envs/bbtools/lib/bgzip"))
+        XCTAssertNil(ExecutorRunAdoption.managedToolID(nil))
     }
 
     /// QV-23: each storage launch's envelope step lists the files the launch read and wrote, by the record's path,
@@ -162,7 +207,7 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
     /// QV-7 and QV-23: a recipe process's report, a record output no later plan step reads, goes into the bundle's
     /// `metadata/recipe-step-artifacts/` by the Mac's own copy; the sidecar result holds the published path and the
     /// rewrite keyed by the node's argv token, and the envelope step's replay argv and outputs name the copy. A report
-    /// whose bytes differ from the record is refused, and one the folder lacks is left out.
+    /// whose bytes differ from the record is refused, and so is one the folder lacks, as the Mac's import refuses it.
     func testAdoptCopiesEachReportAndNamesTheCopyAsMac() throws {
         let root = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionStep")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -206,7 +251,53 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
         XCTAssertThrowsError(try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed)) { error in
             XCTAssertTrue(error.localizedDescription.contains("does not hold the bytes the run record states"), error.localizedDescription)
         }
+        // The record names the report and the folder lacks it: refused, as the Mac's import refuses it (AMV2 SWIFT fix 2, BIO fix 1).
+        step.outputs[1].sha256 = digest
         try FileManager.default.removeItem(at: folder.appendingPathComponent(report))
-        XCTAssertEqual(try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed), [])
+        XCTAssertThrowsError(try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed)) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("is in the run record but not in the returned folder"), error.localizedDescription
+            )
+        }
+    }
+
+    /// AMV2 SWIFT fix 1: a report is read through the resolver the payload uses. A record output that names a path out of
+    /// the folder, a report that is a link to a file outside the folder whose bytes match the record, and one that is a link
+    /// to a file inside the folder are each refused with the report named; the same bytes as a regular file pass.
+    func testAdoptRefusesAReportThatIsALinkOrLeavesTheFolder() throws {
+        let root = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionLink")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("returned", isDirectory: true)
+        let work = folder.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let bytes = Data("{\"summary\":{}}\n".utf8)
+        let outside = root.appendingPathComponent("outside.json")
+        let inside = folder.appendingPathComponent("inside.json")
+        try bytes.write(to: outside)
+        try bytes.write(to: inside)
+        let digest = try XCTUnwrap(ProvenanceRecorder.sha256(of: outside))
+        let link = work.appendingPathComponent("r.json")
+        func report(at path: String) -> ExecutorStepRecord {
+            var step = record("recipe-1", tool: "fastp", argv: ["/env/fastp", "-j", path])
+            step.outputs = [.init(path: path, bytes: UInt64(bytes.count), sha256: digest)]
+            return step
+        }
+        let cases: [(label: String, path: String, target: URL?)] = [
+            ("a path out of the folder", "../outside.json", nil),
+            ("a link to a file outside the folder", "work/r.json", outside),
+            ("a link to a file inside the folder", "work/r.json", inside),
+        ]
+        for (label, path, target) in cases {
+            try? FileManager.default.removeItem(at: link)
+            if let target { try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target) }
+            XCTAssertThrowsError(try ExecutorRunAdoption.recordedReports(report(at: path), folder: folder, consumed: []), label) { error in
+                guard let refusal = error as? ExecutorAdoptRefusal else { return XCTFail("\(label): \(error)") }
+                XCTAssertEqual(refusal.field, "steps", label)
+                XCTAssertTrue(refusal.reason.contains(path), "\(label): \(refusal.reason)")
+            }
+        }
+        try? FileManager.default.removeItem(at: link)
+        try bytes.write(to: link)
+        XCTAssertEqual(try ExecutorRunAdoption.recordedReports(report(at: "work/r.json"), folder: folder, consumed: []), [link.path])
     }
 }
