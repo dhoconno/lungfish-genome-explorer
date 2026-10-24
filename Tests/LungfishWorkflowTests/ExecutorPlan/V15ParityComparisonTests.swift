@@ -75,4 +75,63 @@ final class V15ParityComparisonTests: XCTestCase {
         XCTAssertNotNil(slash, doubled.findings.description)
         XCTAssertEqual(slash?.raw?.mac, "\"seqkit seq /mac//Users/a.fq\"")
     }
+
+    /// AMV1 QA fix 3 (XC-6 B): V15-16 and V15-17 test that each listed key is present on the route that must carry it and
+    /// never compare a value. A peak memory the adopt route has and the Mac lacks gives one finding that names the Mac, the
+    /// same key on both routes gives none, stderr is the Mac's to carry, and the names only the run record holds are free.
+    func testPeakMemoryAndStderrMustBePresentOnTheRoutesThatCarryThem() {
+        let path = ["envelope", "steps[fastp#1]"]
+        let none = [String: Any]()
+        var missing = V15Comparison(roots: [:], payloadFileNames: [])
+        missing.walk(["peakMemoryBytes": 1], none, path: path)
+        XCTAssertEqual(missing.findings.count, 1, missing.findings.description)
+        XCTAssertTrue(missing.findings.first?.why.contains("must be present on the mac route") == true, missing.findings.description)
+
+        var present = V15Comparison(roots: [:], payloadFileNames: [])
+        present.walk(["peakMemoryBytes": 1], ["peakMemoryBytes": 2], path: path)
+        XCTAssertEqual(present.findings.map(\.description), [])
+
+        var macStderr = V15Comparison(roots: [:], payloadFileNames: [])
+        macStderr.walk(["stderr": "node text"], none, path: path)
+        XCTAssertEqual(macStderr.findings.count, 1, macStderr.findings.description)
+        XCTAssertTrue(macStderr.findings.first?.why.contains("must be present on the mac route") == true, macStderr.findings.description)
+
+        var adoptedWithout = V15Comparison(roots: [:], payloadFileNames: [])
+        adoptedWithout.walk(none, ["stderr": "mac text"], path: path)
+        XCTAssertEqual(adoptedWithout.findings.map(\.description), [])
+
+        var nodeOnly = V15Comparison(roots: [:], payloadFileNames: [])
+        nodeOnly.walk(["peakResidentBytes": 1, "stderrTail": "x", "stderrTruncated": false, "stderrBytes": 1], none, path: path)
+        XCTAssertEqual(nodeOnly.findings.map(\.description), [])
+    }
+
+    /// AMV1 BIO fix 3 (XC-9, QA ruling 3 condition 1): only `file` is skipped, so a value column that maps to no key of the
+    /// Mac's sidecar is read from a seqkit row of the Mac's payload. A changed `Q3`, or any other unmapped column, gives one
+    /// finding named `statistics.<column>`, two tables that differ only in `file` give none, and a column the sidecar keys
+    /// map (Q2) is left to the sidecar comparison.
+    func testParityFailsOnPlantedUnmappedStatisticsColumn() {
+        let columns = ["file", "format", "type", "num_seqs", "sum_len", "min_len", "avg_len", "max_len", "Q1", "Q2", "Q3", "sum_gap",
+                       "N50", "N50_num", "Q20(%)", "Q30(%)", "AvgQual", "GC(%)", "sum_n"]
+        let values = ["FASTQ", "DNA", "2", "20", "10", "10.0", "10", "10", "10", "10", "0", "10", "1", "95.00", "91.00", "40.00", "50.00", "0"]
+        func table(file: String, changing column: String? = nil, to value: String = "") -> String {
+            let row = [file] + zip(columns.dropFirst(), values).map { $0 == column ? value : $1 }
+            return columns.joined(separator: "\t") + "\n" + row.joined(separator: "\t") + "\n"
+        }
+        let mac = table(file: "/project/Imports/S.lungfishfastq/S.fastq.gz")
+        XCTAssertEqual(V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz"), macTable: mac).map(\.description), [])
+
+        let q3 = V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz", changing: "Q3", to: "11"), macTable: mac)
+        XCTAssertEqual(q3.map(\.key), ["statistics.Q3"], q3.description)
+        XCTAssertEqual(q3.first?.adopted, "11")
+        XCTAssertEqual(q3.first?.mac, "10")
+
+        for column in ["format", "type", "Q1", "sum_gap", "N50_num", "sum_n"] {
+            let planted = V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz", changing: column, to: "9"), macTable: mac)
+            XCTAssertEqual(planted.map(\.key), ["statistics.\(column)"], column)
+        }
+        let mapped = V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz", changing: "Q2", to: "9"), macTable: mac)
+        XCTAssertEqual(mapped.map(\.description), [], "Q2 is compared against the sidecar's medianReadLength")
+        let noRow = V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz"), macTable: "")
+        XCTAssertEqual(noRow.map(\.key), ["statistics.macTable"], "an empty Mac table is a finding and never a pass")
+    }
 }

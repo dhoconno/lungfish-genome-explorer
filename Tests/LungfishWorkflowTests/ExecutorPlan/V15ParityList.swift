@@ -158,14 +158,25 @@ enum V15ParityList {
                 patterns: ["**.wallTimeSeconds", "**.wallSeconds", "**.durationSeconds"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
                 reason: "Wall times and durations. mac-determinism-c0.md measures wall seconds and shows them differing between two Mac runs."),
+        // AMV1 QA fix 3: XC-6 B tests that each listed key is present on the route that must carry it, and never compares
+        // its value. peakMemoryBytes is the envelope step's key on both routes and stderr is the Mac envelope's; the names
+        // only the node's run record holds (peakResidentBytes, stderrTail, stderrTruncated, stderrBytes) are V15-16b and V15-17b.
         V15Line(id: "V15-16", n9Class: 4, decision: "XC-6 B, QA ruling 1",
-                patterns: ["**.peakMemoryBytes", "**.peakResidentBytes"],
+                patterns: ["**.peakMemoryBytes"],
+                rule: .notCompared(mustCarry: [.adopted, .mac]),
+                reason: "Peak memory, peakMemoryBytes on each envelope step: the value is never compared, and each route must carry the key. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
+        V15Line(id: "V15-16b", n9Class: 4, decision: "XC-6 B, QA ruling 1",
+                patterns: ["**.peakResidentBytes"],
                 rule: .notCompared(mustCarry: []),
-                reason: "Peak memory, peakResidentBytes on the node and peakMemoryBytes on the Mac. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
+                reason: "Peak resident bytes, held by the run record only; the walk reads no run record. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
         V15Line(id: "V15-17", n9Class: 4, decision: "XC-6 B, QA ruling 1",
-                patterns: ["**.stderr", "**.stderrTail", "**.stderrTruncated", "**.stderrBytes"],
+                patterns: ["**.stderr"],
+                rule: .notCompared(mustCarry: [.mac]),
+                reason: "Standard error text, stderr on the Mac's records: the value is never compared, and the Mac route must carry the key. mac-determinism-c0.md does not measure it, nor scratch folder names; they stand on the class as voted."),
+        V15Line(id: "V15-17b", n9Class: 4, decision: "XC-6 B, QA ruling 1",
+                patterns: ["**.stderrTail", "**.stderrTruncated", "**.stderrBytes"],
                 rule: .notCompared(mustCarry: []),
-                reason: "Standard error text, stderrTail, stderrTruncated and stderrBytes on the node and stderr on the Mac. mac-determinism-c0.md does not measure it, nor scratch folder names; they stand on the class as voted."),
+                reason: "Standard error tail, truncation flag and byte count, held by the run record only; the walk reads no run record. mac-determinism-c0.md does not measure it; they stand on the class as voted."),
 
         // Class 5. Lines that follow compressed bytes or the read order.
         V15Line(id: "V15-18", n9Class: 5, decision: "XC-1 A",

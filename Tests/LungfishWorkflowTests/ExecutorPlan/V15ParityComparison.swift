@@ -585,6 +585,34 @@ enum V15Statistics {
         ("GC(%)", ["computedStatistics.gcContent", "seqkitStats.gcPercentage"]),
     ]
 
+    /// AMV1 BIO fix 3 (XC-9, QA ruling 3 condition 1): every value column of the node's table except `file` is compared. The
+    /// columns that map to a key of the Mac's sidecar (`columns`, Q20 and Q30) are compared there. Each other column (format,
+    /// type, Q1, Q3, sum_gap, N50_num, sum_n) is compared as text with the same column of a seqkit row of the Mac's own
+    /// payload, since the Mac's sidecar keeps no value for it. A Mac table that holds no row is a finding, never a pass.
+    static func compareTables(standardOutput: String, macTable: String) -> [V15Finding] {
+        func parse(_ text: String) -> (header: [String], values: [String: String])? {
+            let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+            guard lines.count >= 2 else { return nil }
+            let header = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            let row = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            return (header, Dictionary(zip(header, row).map { ($0, $1) }, uniquingKeysWith: { first, _ in first }))
+        }
+        // A node table that does not parse is `compare`'s finding.
+        guard let node = parse(standardOutput) else { return [] }
+        guard let mac = parse(macTable) else {
+            return [V15Finding(key: "statistics.macTable", adopted: "\(node.header.count) columns", mac: "no seqkit row",
+                               why: "no seqkit stats row of the Mac's payload to compare the unmapped columns with (XC-9)")]
+        }
+        let mapped = Set(columns.map(\.column)).union(["file", "Q20(%)", "Q30(%)"])
+        return node.header.filter { !mapped.contains($0) }.compactMap { column in
+            let adopted = node.values[column] ?? "absent"
+            let macValue = mac.values[column] ?? "absent"
+            return adopted == macValue ? nil : V15Finding(
+                key: "statistics.\(column)", adopted: adopted, mac: macValue,
+                why: "the node's seqkit stats value differs from a seqkit row of the Mac's payload; no sidecar key holds this column (XC-9)")
+        }
+    }
+
     /// Every value the node's statistics step printed and counted, against the Mac sidecar's typed values.
     static func compare(standardOutput: String, counts: FASTQQualityFractions, macSidecar: PersistedFASTQMetadata) -> [V15Finding] {
         let lines = standardOutput.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }

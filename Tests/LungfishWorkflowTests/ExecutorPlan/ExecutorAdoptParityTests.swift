@@ -135,6 +135,29 @@ final class ExecutorAdoptParityTests: XCTestCase {
         XCTAssertEqual(sidecar?.adopted, "\(planted / 100.0)", "the adopted sidecar carries the node's GC value: \(findings.map(\.key))")
     }
 
+    /// QV-17 and XC-4 B (AMV1 QA fix 4): V15-02 sets the node tool's record aside only when its version is the step's own
+    /// and the plan's pin. A fastp step whose tool record and step both say 0.0, which agree with each other and not with
+    /// the plan, fails with `resolvedOptions.tool.version` named, and the unplanted run has no such finding.
+    func testParityFailsOnPlantedToolVersionOffThePlanPin() async throws {
+        let routes = try await routes(ExecutorPlanReplayParityTests.cases[0])
+        let key = "envelope.steps[fastp#1].resolvedOptions.tool.version"
+        let unplanted = try compare(routes, envelope: true, sidecar: false).findings.map(\.key)
+        XCTAssertFalse(unplanted.contains(key), "the unplanted run names the tool version: \(unplanted)")
+        let planted = try compare(routes, envelope: true, sidecar: false) { steps in
+            guard let index = steps.firstIndex(where: { $0["toolName"] as? String == "fastp" }) else { return }
+            var options = steps[index]["resolvedOptions"] as? [String: Any] ?? [:]
+            // The envelope types the tool record as {"type": "dictionary", "value": {..., "version": {"type": "string", ...}}}.
+            if var outer = options["tool"] as? [String: Any], var inner = outer["value"] as? [String: Any] {
+                inner["version"] = ["type": "string", "value": "0.0"]
+                outer["value"] = inner
+                options["tool"] = outer
+            }
+            steps[index]["resolvedOptions"] = options
+            steps[index]["toolVersion"] = "0.0"
+        }.findings
+        XCTAssertTrue(planted.contains { $0.key == key }, "a tool version off the plan's pin fails and is named: \(planted.map(\.key))")
+    }
+
     /// QA ruling 1, condition 5: the class-4 lines cite the committed excerpt, whose first line names the C0 source.
     func testRunVaryingClassCitesCommittedDeterminismTable() throws {
         let classFour = V15ParityList.lines.filter { $0.n9Class == 4 }
@@ -171,6 +194,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let plan: ExecutionPlan
         var record: ExecutorRunRecord
         let e4Equal: Bool
+        /// A seqkit stats table of the Mac bundle's payload, for the value columns no sidecar key holds (AMV1 BIO fix 3).
+        let macStatisticsTable: String
     }
 
     private func routes(_ parity: ExecutorPlanReplayParityTests.ParityCase) async throws -> Routes {
@@ -271,8 +296,15 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let payloadName = "\(ExecutorPlanReplayParityTests.sampleName).fastq.gz"
         let e4Equal = try PayloadLevels.measure(macBundle.appendingPathComponent(payloadName)).e4
             == PayloadLevels.measure(adoptedBundle.appendingPathComponent(payloadName)).e4
+        // AMV1 BIO fix 3: a seqkit row of the Mac's payload from the runner the Mac import uses, for the columns it keeps no value for.
+        let macRow = try await NativeToolRunner.shared.run(
+            .seqkit, arguments: ["stats", "-a", "-T", macBundle.appendingPathComponent(payloadName).path], timeout: 900
+        )
+        guard macRow.isSuccess else {
+            try ToolAvailability.skipOrFail("seqkit stats of the Mac bundle's payload exited \(macRow.exitCode): \(macRow.stderr)")
+        }
         return Routes(name: name, project: project, macBundle: macBundle, adoptedBundle: adoptedBundle, returned: work,
-                      plan: emission.plan, record: record, e4Equal: e4Equal)
+                      plan: emission.plan, record: record, e4Equal: e4Equal, macStatisticsTable: macRow.stdout)
     }
 
     // MARK: The comparison
@@ -386,6 +418,23 @@ final class ExecutorAdoptParityTests: XCTestCase {
             }
             comparison.compareEnvelopes(adopted: adoptedEnvelope, mac: macEnvelope, adoptedRoles: adoptedRoles, macRoles: macRoles,
                                         artifact: "adopted-envelope.json, mac-envelope.json")
+            // QV-17, XC-4 B (AMV1 QA fix 4): V15-02 sets the node tool's record aside only when its version is the step's own
+            // (`compareStep`) and the plan's pin, which this loop checks for every node step. The executor's own steps are
+            // pinned by the plan's executor build.
+            for step in adoptedSteps {
+                guard let tool = V15Comparison.untyped((step["resolvedOptions"] as? [String: Any])?["tool"]) as? [String: Any],
+                      let id = V15Comparison.untyped(tool["id"]) as? String else { continue }
+                let held = V15Comparison.untyped(tool["version"]) as? String
+                let pinned = id == ExecutorRunAdoption.executorBinaryName
+                    ? routes.plan.executor.lgeVersion : routes.plan.tools.first { $0.id == id }?.version
+                if pinned == nil || held != pinned {
+                    let role = (step["id"] as? String).map(adoptedRoles.role(ofID:)) ?? "unnamed"
+                    comparison.findings.append(V15Finding(
+                        key: "envelope.steps[\(role)].resolvedOptions.tool.version", adopted: V15Comparison.render(held),
+                        mac: "plan pin \(pinned ?? "absent")",
+                        why: "V15-02 sets the node tool aside only when its version is the plan's pin for \(id) (QV-17, XC-4 B)"))
+                }
+            }
         }
         if sidecar {
             comparison.compareSidecars(adopted: adoptedSidecar, mac: macSidecarObject, artifact: "adopted-sidecar.json, mac-sidecar.json")
@@ -399,6 +448,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
             counts: FASTQQualityFractions(baseCount: counts?.baseCount ?? 0, q20Count: counts?.q20Count ?? 0, q30Count: counts?.q30Count ?? 0),
             macSidecar: macSidecar
         ).map { V15Finding(key: "statistics." + $0.key, adopted: $0.adopted, mac: $0.mac, why: $0.why) }
+        // AMV1 BIO fix 3: the columns no sidecar key holds, against a seqkit row of the Mac's own payload.
+        comparison.findings += V15Statistics.compareTables(standardOutput: statistics, macTable: routes.macStatisticsTable)
         comparison.reported.append("PARITY-REPORTED line=V15-22 key=payload.e4 case=\(routes.name) equalInStoredOrder=\(routes.e4Equal)")
         try keepArtifacts(routes)
         return comparison
