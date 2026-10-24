@@ -151,7 +151,7 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
             break
         }
         if launch.tool == .clumpify && launch.executable == nil {
-            let lines = ClumpifyLog(tail)
+            let lines = PortableClumpifyLog(tail)
             entry.clumpifyGroups = lines.groups
             entry.clumpifyMemoryEstimateLine = lines.memoryEstimate
             entry.clumpifyMemoryAvailableLine = lines.memoryAvailable
@@ -177,26 +177,5 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
             throw ExecutorSpawn.Failure(reason: "The plan pins no \(Self.toolIDs[tool] ?? tool.rawValue) for step \(stepID).")
         }
         return image
-    }
-}
-
-/// The lines clumpify prints about its groups and memory (tally-r2 K4-10, BIO N2-6), each line as printed.
-struct ClumpifyLog: Equatable {
-    var groups: Int?
-    var memoryEstimate: String?
-    var memoryAvailable: String?
-
-    init(_ stderr: String) {
-        for line in stderr.split(whereSeparator: \.isNewline) {
-            let text = String(line)
-            if text.hasPrefix("Set groups to "),
-               let count = Int(text.dropFirst("Set groups to ".count).trimmingCharacters(in: .whitespaces)) {
-                groups = count
-            } else if text.hasPrefix("Memory Estimate:") {
-                memoryEstimate = text
-            } else if text.hasPrefix("Memory Available:") {
-                memoryAvailable = text
-            }
-        }
     }
 }
