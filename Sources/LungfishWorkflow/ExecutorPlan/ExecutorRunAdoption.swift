@@ -43,6 +43,8 @@ struct ExecutorAdoptedRun: Sendable {
     let payloadURL: URL
     /// `sample.sampleName` through the one name sanitizer, or the name `--name` gave.
     let sampleName: String
+    /// The image `staging.json` names, or nil for a folder that holds none.
+    let stagingImage: ExecutorAdoptStagingImage?
 }
 
 /// The adopt: it reads a plan folder that `lungfish-executor run --plan` returned and writes the bundle's sidecar and
@@ -54,17 +56,28 @@ public enum ExecutorRunAdoption {
     static let largestRecordBytes = 256 << 20
 
     /// Adopts the folder into the project under `ExecutorAdoptPolicy.release` and returns the bundle it published.
+    /// The envelope's argv is `cliArguments` of the same values, with `--format json` when `eventsOn` is set.
     public static func adopt(
-        resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false
+        resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false, eventsOn: Bool = false
     ) async throws -> URL {
-        try await adopt(resultFolder: resultFolder, projectDirectory: projectDirectory, name: name, force: force, policy: .release)
+        try await adopt(
+            resultFolder: resultFolder, projectDirectory: projectDirectory, name: name, force: force, eventsOn: eventsOn,
+            policy: .release
+        )
     }
 
+    /// `signingEnvironment` is where the signing key is read from, the process's own outside a test.
     static func adopt(
-        resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false, policy: ExecutorAdoptPolicy
+        resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false, eventsOn: Bool = false,
+        policy: ExecutorAdoptPolicy, signingEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> URL {
         let run = try check(resultFolder, name: name, policy: policy)
-        return try await writeBundle(run, projectDirectory: projectDirectory, force: force)
+        let argv = [CLICommandIdentity.executableName] + cliArguments(
+            resultFolder: resultFolder, projectDirectory: projectDirectory, name: name, force: force, eventsOn: eventsOn
+        )
+        return try await writeBundle(
+            run, projectDirectory: projectDirectory, force: force, argv: argv, signingEnvironment: signingEnvironment
+        )
     }
 
     /// The reads of the design's section 2 in order, the plan, the record, the plan's digest and each payload, with
@@ -110,11 +123,13 @@ public enum ExecutorRunAdoption {
         if let violation = SiteFactRules.violation(in: record.siteFacts) {
             throw refusal("siteFacts[\(violation.position - 1)]", violation.sentence)
         }
+        let image = try stagingImage(in: resolver)
+        try checkImageDigestFact(record.siteFacts, image: image)
         let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
         let sampleName = name ?? SampleFolderNaming.sanitizedDirectoryName(for: plan.sample.sampleName)
         return ExecutorAdoptedRun(
             folder: URL(fileURLWithPath: resolver.workRoot, isDirectory: true), plan: plan, record: record,
-            payload: payload, payloadURL: payloadURL, sampleName: sampleName
+            payload: payload, payloadURL: payloadURL, sampleName: sampleName, stagingImage: image
         )
     }
 
@@ -187,7 +202,7 @@ public enum ExecutorRunAdoption {
     }
 
     /// A regular file at the folder's root, never through a link, at most `limit` bytes.
-    private static func read(_ name: String, in resolver: PlanResourceResolver, limit: Int) throws(ExecutorAdoptRefusal) -> Data {
+    static func read(_ name: String, in resolver: PlanResourceResolver, limit: Int) throws(ExecutorAdoptRefusal) -> Data {
         let path = resolver.workRoot + "/" + name
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
             throw refusal(name, "The folder holds no \(name).")

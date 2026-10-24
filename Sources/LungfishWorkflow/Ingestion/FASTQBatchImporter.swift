@@ -1169,7 +1169,7 @@ public enum FASTQBatchImporter {
             id: importStepID,
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: reproducibleImportCommand(pair: pair, config: config, durable: true, imported: importedPairing),
+            command: adoption?.argv ?? reproducibleImportCommand(pair: pair, config: config, durable: true, imported: importedPairing),
             inputs: originalInputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: provenanceFormat(for: $0), role: .input)
             }
@@ -1212,8 +1212,8 @@ public enum FASTQBatchImporter {
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion
         )
-        .argv(command)
-        .durableReplayArgv(durableCommand)
+        .argv(adoption?.argv ?? command)
+        .durableReplayArgv(adoption?.argv ?? durableCommand)
             .options(
             explicit: provenanceParameters(pair: pair, config: config, bundleURL: publishedBundleURL),
             defaults: provenanceDefaultParameters(config: config),
@@ -1228,7 +1228,7 @@ public enum FASTQBatchImporter {
                 unpairedReads: unpairedReads
             ).merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
         )
-        .runtime(ProvenanceRuntimeIdentity())
+        .runtime(adoption?.runtime ?? ProvenanceRuntimeIdentity())
         for inputURL in originalInputURLs {
             builder = try builder.input(inputURL, format: provenanceFormat(for: inputURL), role: .input)
         }
@@ -1257,7 +1257,8 @@ public enum FASTQBatchImporter {
             stagingBundleURL: stagingBundleURL,
             publishedBundleURL: publishedBundleURL
         )
-        try ProvenanceWriter().write(
+        let writer = adoption.map { ProvenanceWriter(signingProvider: ProvenanceSigningConfiguration.defaultProvider(environment: $0.signingEnvironment)) }
+        try (writer ?? ProvenanceWriter()).write(
             finalEnvelope,
             to: stagingBundleURL,
             bundleLayoutRoot: publishedBundleURL

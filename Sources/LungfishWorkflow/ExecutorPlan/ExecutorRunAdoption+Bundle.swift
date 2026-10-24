@@ -12,6 +12,12 @@ struct ExecutorAdoptionProvenance: Sendable {
     var resolvedParameters: [String: ParameterValue]
     /// The node's steps, whose parent is the executor's step and never the import step (QA ruling 2, XC-8).
     var childStepIDs: Set<UUID>
+    /// The envelope's argv and its import step's command, the adopt command (CLI-EQUIVALENCE, "Same provenance").
+    var argv: [String]
+    /// The run-level identity, with the image `staging.json` names and the launcher's site facts.
+    var runtime: ProvenanceRuntimeIdentity
+    /// The environment the signing key is read from.
+    var signingEnvironment: [String: String]
 }
 
 extension ExecutorRunAdoption {
@@ -24,7 +30,9 @@ extension ExecutorRunAdoption {
     /// Builds the import's in-process values from the plan and the record, then writes the bundle through
     /// `FASTQMetadataStore.save` and `FASTQBatchImporter.writeImportProvenance` and publishes it by one rename. The
     /// envelope is signed on the Mac as an import's is.
-    static func writeBundle(_ run: ExecutorAdoptedRun, projectDirectory: URL, force: Bool) async throws -> URL {
+    static func writeBundle(
+        _ run: ExecutorAdoptedRun, projectDirectory: URL, force: Bool, argv: [String], signingEnvironment: [String: String]
+    ) async throws -> URL {
         let plan = run.plan
         let record = run.record
         let inputs = plan.entries.filter { $0.role == .input }.map { run.folder.appendingPathComponent($0.relativePath) }
@@ -85,7 +93,8 @@ extension ExecutorRunAdoption {
             sourceIngestionOutputURL: stagedFASTQ, ingestionResult: ingestionResult, recipeStepResults: [],
             runClock: ProvenanceRunClock(), statsStartedAt: Date(), statsCompletedAt: Date(), statsError: nil,
             adoption: ExecutorAdoptionProvenance(
-                resolvedParameters: adoptedParameters(ingestionResult), childStepIDs: Set(nodeSteps.map(\.id))
+                resolvedParameters: adoptedParameters(ingestionResult), childStepIDs: Set(nodeSteps.map(\.id)),
+                argv: argv, runtime: runtimeIdentity(run), signingEnvironment: signingEnvironment
             )
         )
         try Task.checkCancellation()

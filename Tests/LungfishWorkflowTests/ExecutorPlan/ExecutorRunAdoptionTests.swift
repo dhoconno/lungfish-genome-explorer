@@ -221,4 +221,97 @@ final class ExecutorRunAdoptionTests: XCTestCase {
             XCTAssertFalse(envelope.steps.contains { $0.toolName == "seqkit" && $0.argv.contains("stats") && $0.parentStepID != executor.id }, label)
         }
     }
+
+    /// The facts lane H's job passed to a CHTC slot (H2.md line 33), as `--site-fact` gives them.
+    private static let chtcFacts = [
+        ("Machine", "e4004.chtc.wisc.edu"), ("Arch", "X86_64"), ("Microarch", "x86_64-v3"), ("OpSysAndVer", "CentOS9"),
+        ("OpSysMajorVer", "9"), ("OSKernelRelease", "5.14.0-620.el9.x86_64"), ("Cpus", "1"), ("Memory", "1024"),
+        ("Disk", "16777216"), ("ClusterId", "593367"), ("ProcId", "0"),
+    ].map { PlanKeyValue(key: $0.0, value: $0.1) }
+
+    private static let sif = "lge-c0-tools-c42530259944.sif"
+    private static let sifSHA256 = "c425302599447ae0157523299b71ac5c170294537c58c1ca31bdc2bb1cfceb7c"
+
+    private func writeStaging(_ returned: Returned) throws {
+        let json = #"{"schemaVersion":1,"sharedFiles":[],"image":{"fileName":"\#(Self.sif)","sha256":"\#(Self.sifSHA256)","size":392368128}}"#
+        try Data(json.utf8).write(to: returned.folder.appendingPathComponent("staging.json"))
+    }
+
+    /// C4-02 and ARCH item 11: the envelope's run-level identity holds the site facts in the record's order as the
+    /// launcher gave them, and the image `staging.json` names, never the tool manifest's digest. A job's image digest
+    /// that differs from `staging.json` is refused.
+    func testAdoptedEnvelopeCopiesSiteFactsAndStagingImage() async throws {
+        let returned = try returned(.bbtools, siteFacts: Self.chtcFacts)
+        try writeStaging(returned)
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let runtime = try envelope(bundle).runtimeIdentity
+        XCTAssertEqual(runtime.siteFacts, Self.chtcFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) })
+        XCTAssertEqual(runtime.containerImage, Self.sif)
+        XCTAssertEqual(runtime.containerDigest, Self.sifSHA256)
+        XCTAssertNotEqual(runtime.containerDigest, returned.plan.imageManifest.sha256)
+
+        let other = try self.returned(.auto, siteFacts: [PlanKeyValue(key: "ImageSHA256", value: String(repeating: "d", count: 64))])
+        try writeStaging(other)
+        let outcome = await refusal(other)
+        let refused = try XCTUnwrap(outcome)
+        XCTAssertEqual(refused.field, "siteFacts[0]")
+        XCTAssertTrue(refused.reason.contains(Self.sifSHA256), refused.reason)
+    }
+
+    /// C4-02: a record with no site fact and no `staging.json`, a run on any Linux machine, adopts with neither.
+    func testAdoptedEnvelopeOfPlainLinuxRunHoldsNoSiteFactOrImage() async throws {
+        let returned = try returned(.bbtools)
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let runtime = try envelope(bundle).runtimeIdentity
+        XCTAssertNil(runtime.siteFacts)
+        XCTAssertNil(runtime.containerImage)
+        XCTAssertNil(runtime.containerDigest)
+        XCTAssertEqual(ProvenanceSiteFactRows.rows(runtime.siteFacts).count, 0)
+    }
+
+    /// OQ-5's rows for the facts a CHTC slot gave: the group row first, a template fact under its label, Memory in
+    /// MiB and Disk in KiB, any other key under its own name, one job row, and each asked-for fact the record lacks as
+    /// Not recorded.
+    func testSiteFactRowsShowLauncherWordsLabelsAndUnits() {
+        let facts = Self.chtcFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
+        let rows = ProvenanceSiteFactRows.rows(facts).map { "\($0.label): \($0.value)" }
+        XCTAssertEqual(rows, [
+            "Reported by the launcher: Passed in by the program that started the run, such as HTCondor. Lungfish shows them as given and did not check them.",
+            "Machine name: e4004.chtc.wisc.edu", "Arch: X86_64", "CPU microarchitecture: x86_64-v3",
+            "Operating system: CentOS9", "OpSysMajorVer: 9", "Kernel release: 5.14.0-620.el9.x86_64", "CPUs: 1",
+            "Memory: 1024 MiB", "Disk: 16777216 KiB", "HTCondor job: 593367.0",
+            "Apptainer version: Not recorded", "HTCondor version: Not recorded",
+        ])
+        let odd = ProvenanceSiteFactRows.rows([
+            ProvenanceSiteFact(key: "Memory", value: "1 GB"), ProvenanceSiteFact(key: "Machine", value: "undefined"),
+            ProvenanceSiteFact(key: "ProcId", value: "3"),
+        ], missingValue: "undefined").map { "\($0.label): \($0.value)" }
+        XCTAssertEqual(Array(odd.dropFirst().prefix(3)), ["Memory: 1 GB", "Machine name: Not recorded", "HTCondor job: Not recorded"])
+        XCTAssertEqual(ProvenanceSiteFactRows.rows([]).count, 0)
+        XCTAssertEqual(ProvenanceSiteFactRows.rows(nil).count, 0)
+    }
+
+    /// ARCH 5 and CLI-EQUIVALENCE: the adopted record is signed on the Mac and passes the check that `lungfish-cli
+    /// provenance verify` runs, and its argv and its import step's command are the adopt command.
+    func testAdoptedBundlePassesProvenanceVerify() async throws {
+        let returned = try returned(.bbtools)
+        let keyFile = root.appendingPathComponent("signing-key.txt")
+        try "adopt-throwaway-\(UUID().uuidString)\n".write(to: keyFile, atomically: true, encoding: .utf8)
+        let bundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: returned.folder, projectDirectory: project, name: "S2", eventsOn: true, policy: .release,
+            signingEnvironment: [ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey: keyFile.path]
+        )
+        let record = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(try ProvenanceSignatureVerifier.verify(provenanceURL: record).isValid)
+        let command = ["lungfish-cli"] + ExecutorRunAdoption.cliArguments(
+            resultFolder: returned.folder, projectDirectory: project, name: "S2", eventsOn: true
+        )
+        XCTAssertEqual(command, [
+            "lungfish-cli", "import", "fastq", returned.folder.path, "--adopt", "--project", project.path, "--name", "S2",
+            "--format", "json",
+        ])
+        let envelope = try envelope(bundle)
+        XCTAssertEqual(envelope.argv, command)
+        XCTAssertEqual(envelope.steps.last?.argv, command)
+    }
 }

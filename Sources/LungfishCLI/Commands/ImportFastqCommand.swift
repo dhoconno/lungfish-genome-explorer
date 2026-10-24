@@ -135,12 +135,15 @@ extension ImportCommand {
         )
         var clumpifyHeapGB: Int?
 
+        @OptionGroup var adoptOptions: ImportFastqAdoptOptions
+
         @OptionGroup var globalOptions: GlobalOptions
 
         /// Thread count sourced from the shared `--threads` / `-t` global option.
         var threads: Int? { globalOptions.threads }
 
         func run() async throws {
+            if adoptOptions.adopt { return try await runAdopt() }
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             // With --format json the run prints version 2 events and its human text on standard error
             // (ImportFastqReporter). Every failure below ends in one failed line.
