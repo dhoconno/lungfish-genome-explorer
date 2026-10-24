@@ -577,11 +577,9 @@ extension MainSplitViewController {
 
         } else if tool == .naomgs {
             displayNaoMgsResultFromSidebar(at: batchURL)
-            self.inspectorController?.clearBatchOperationDetails()
 
         } else if tool == .nvd {
             displayNvdResultFromSidebar(at: batchURL)
-            self.inspectorController?.clearBatchOperationDetails()
 
         } else {
             mainSplitLogger.warning("displayBatchGroup: Unrecognized batch tool '\(toolId, privacy: .public)' in '\(dirName, privacy: .public)'")
@@ -987,6 +985,7 @@ extension MainSplitViewController {
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NaoMgsResultViewController()
         viewerController.displayNaoMgsResult(placeholderVC)
+        inspectorController?.clearBatchOperationDetails()
 
         // Two-phase load: manifest first (fast) for instant taxon list,
         // then SQLite database (slow) for detail queries.
@@ -1100,6 +1099,7 @@ extension MainSplitViewController {
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NvdResultViewController()
         viewerController.displayNvdResult(placeholderVC)
+        inspectorController?.clearBatchOperationDetails()
 
         // Two-phase load: manifest first (fast) for instant contig list,
         // then SQLite database (slower) for detail queries.
