@@ -152,6 +152,37 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
     }
 
+    /// AMV2 fix G1: the writer gives the submit template the plan's reports, so a job brings home each report the adopt
+    /// reads, at its `work/` path, and no other file of `work/`. The recipe fuses fastp and then merges, so its plan holds
+    /// two reports.
+    func testWritePlanReturnsEachReportOfATwoReportPlanAndNoOtherWorkFile() throws {
+        let request = try templateRequest(recipe: recipe(["fastp-dedup", "fastp-trim", "fastp-merge"]))
+        let recipeTemplate = try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24)
+        let folder = root.appendingPathComponent("reports", isDirectory: true)
+        try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1")], image: image,
+                                          layout: layout, into: folder)
+        let submit = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
+        func value(of command: String) throws -> String {
+            let prefix = "\(command) = "
+            let lines = submit.split(separator: "\n").filter { $0.hasPrefix(prefix) }
+            XCTAssertEqual(lines.count, 1, "lines that set \(command)")
+            return String(try XCTUnwrap(lines.first).dropFirst(prefix.count))
+        }
+        let outputs = try value(of: "transfer_output_files").components(separatedBy: ", ")
+        XCTAssertEqual(
+            outputs.filter { $0.hasPrefix("plan/work") },
+            ["plan/work/sample_fused_fastp_report.json", "plan/work/sample_merge_fastp_report.json"],
+            "each report of the plan comes home and nothing else under work/"
+        )
+        XCTAssertFalse(outputs.contains("plan/work"), "the work folder holds the large intermediates and never comes home")
+        let remaps = try value(of: "transfer_output_remaps")
+        XCTAssertTrue(
+            remaps.contains("; sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
+                + "sample_merge_fastp_report.json = work/sample_merge_fastp_report.json\""),
+            remaps
+        )
+    }
+
     // MARK: Steps with no plan form, one test each
 
     private func templateRequest(recipe: Recipe? = nil, suffixes: [String]? = nil, format: RecipeFileFormat = .pairedR1R2,

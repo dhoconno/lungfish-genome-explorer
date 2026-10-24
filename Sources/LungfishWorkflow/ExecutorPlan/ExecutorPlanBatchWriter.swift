@@ -285,7 +285,10 @@ package enum ExecutorPlanBatchWriter {
             databases: try shared.filter { $0.role == .database }.map { try staged($0, layout: layout) },
             heapBytes: Int64(template.storage.clumpifyHeapGB) * gib, requestCpus: template.storage.threads,
             payloadRelativePath: ExecutorPlanEmitter.payloadPath,
-            payloadStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder)
+            payloadStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder),
+            // The adopt reads each report in the returned folder at its `work/` path, so the job brings home the plan's
+            // reports (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1).
+            reportRelativePaths: HTCondorSubmitTemplate.reportRelativePaths(of: template.steps)
         ))
         let dag = try HTCondorDAG.render(nodes)
         let encoder = JSONEncoder()
