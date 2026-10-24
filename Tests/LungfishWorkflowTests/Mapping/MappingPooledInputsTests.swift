@@ -264,6 +264,10 @@ final class MappingPooledInputsTests: XCTestCase {
         let folder = root.appendingPathComponent("refused/.lungfish-map-inputs", isDirectory: true)
 
         XCTAssertThrowsError(try MappingPooledInputs.join(resolved, into: folder)) { error in
+            XCTAssertEqual(
+                error as? MappingPooledInputsError,
+                .mixedCompression(compressed: ["a.fastq.gz"], uncompressed: ["b.fastq"])
+            )
             let message = error.localizedDescription
             XCTAssertTrue(message.contains("a.fastq.gz"), "the refusal names the compressed input: \(message)")
             XCTAssertTrue(message.contains("b.fastq"), "the refusal names the uncompressed input: \(message)")

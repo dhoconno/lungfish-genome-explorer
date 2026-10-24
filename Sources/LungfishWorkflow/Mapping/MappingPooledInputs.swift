@@ -15,14 +15,18 @@ import LungfishCore
 import LungfishIO
 
 enum MappingPooledInputsError: LocalizedError, Sendable, Equatable {
-    /// gzip members and plain members cannot be joined into one stream.
-    case mixedCompression
+    /// gzip members and plain members cannot be joined into one stream. The
+    /// names are those of the chosen inputs, a bundle by its folder name and a
+    /// loose file by its file name.
+    case mixedCompression(compressed: [String], uncompressed: [String])
 
     var errorDescription: String? {
         switch self {
-        case .mixedCompression:
-            return "The inputs mix compressed and uncompressed FASTQ files, which cannot be pooled into one file. "
-                + "Map them one by one, or pool inputs that are all compressed or all plain."
+        case .mixedCompression(let compressed, let uncompressed):
+            return "These inputs mix compressed and uncompressed FASTQ files, so they cannot be pooled into one file. "
+                + "Compressed inputs are \(compressed.joined(separator: ", ")). "
+                + "Uncompressed inputs are \(uncompressed.joined(separator: ", ")). "
+                + "Choose inputs that are all compressed or all uncompressed, or map the bundles one by one."
         }
     }
 }
@@ -50,14 +54,20 @@ enum MappingPooledInputs {
     /// results names the first input as its origin and every member as its
     /// source. The caller keeps every chosen input in the request's lineage.
     ///
-    /// - Throws: ``MappingPooledInputsError/mixedCompression`` for members of both
-    ///   kinds, before anything is written.
+    /// - Throws: ``MappingPooledInputsError/mixedCompression(compressed:uncompressed:)``
+    ///   for members of both kinds, before anything is written.
     static func join(_ resolved: ResolvedSequenceInputs, into directory: URL) throws -> ResolvedSequenceInputs {
         let members = resolved.executionInputURLs
         guard members.count > 1, let first = resolved.inputs.first else { return resolved }
         let compression = Set(members.map { $0.pathExtension.lowercased() == "gz" })
         guard compression.count == 1, let gzipped = compression.first else {
-            throw MappingPooledInputsError.mixedCompression
+            func isCompressed(_ input: ResolvedSequenceInputs.Input) -> Bool {
+                input.executionURLs.contains { $0.pathExtension.lowercased() == "gz" }
+            }
+            throw MappingPooledInputsError.mixedCompression(
+                compressed: resolved.inputs.filter(isCompressed).map { $0.originalURL.lastPathComponent },
+                uncompressed: resolved.inputs.filter { !isCompressed($0) }.map { $0.originalURL.lastPathComponent }
+            )
         }
         let fileManager = FileManager.default
         let folderExisted = fileManager.fileExists(atPath: directory.path)
