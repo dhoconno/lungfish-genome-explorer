@@ -41,6 +41,117 @@ final class ViralReconRunPreparationTests: XCTestCase {
             "no blocking ToolProcess call ran on the main thread while Run staged its inputs"
         )
     }
+
+    /// SWIFT's seam test. The sheet hands the real builder to a detached task, so whatever the builder reads, it reads
+    /// off the main thread, and `onRun` comes back on it.
+    func testRunPreparesTheRequestOffTheMainThread() throws {
+        let fixture = try Fixture.make()
+        addTeardownBlock { TestTempDirectory.cleanup(fixture.root) }
+        let builderThreads = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        let harness = Harness(fixture: fixture) { inputs in
+            builderThreads.withLock { $0.append(Thread.isMainThread) }
+            return try ViralReconRunPreparation.buildRequest(from: inputs)
+        }
+        defer { harness.close() }
+        try harness.chooseScheme()
+
+        harness.pressRun()
+        harness.waitForRequests(1, timeout: 30)
+
+        XCTAssertEqual(builderThreads.withLock { $0 }, [false], "the builder ran once, off the main thread")
+        XCTAssertEqual(harness.recorder.requests.count, 1, "onRun ran once")
+        XCTAssertEqual(harness.recorder.onRunOnMainThread, [true], "onRun ran on the main thread")
+    }
+
+    /// SWIFT's second-run test. The builder waits on a semaphore off the main thread, Run is pressed twice, and only
+    /// one preparation starts and only one request comes out.
+    func testSecondRunWhilePreparingStartsNothing() throws {
+        let held = try makeHeld()
+        defer { held.harness.close() }
+        try held.pressRunTwice()
+
+        XCTAssertEqual(held.harness.recorder.availability.last, false, "Run reads disabled while the request prepares")
+        XCTAssertEqual(held.builds.withLock { $0 }, 1, "the second press started no second preparation")
+        held.gate.signal()
+        held.harness.waitForRequests(1)
+        held.harness.settle()
+
+        XCTAssertEqual(held.harness.recorder.requests.count, 1, "onRun ran once")
+    }
+
+    /// UX's double-press test. It shares the harness with the test above and also reads the footer's words.
+    func testRunPressedTwiceWhilePreparingLaunchesOneRun() throws {
+        let held = try makeHeld()
+        defer { held.harness.close() }
+        try held.pressRunTwice()
+
+        XCTAssertEqual(held.harness.footerText, "Preparing inputs\u{2026}", "the footer says what is happening")
+        held.gate.signal()
+        held.harness.waitForRequests(1)
+        held.harness.settle()
+
+        XCTAssertEqual(held.harness.recorder.requests.count, 1, "one Run launched one request")
+        XCTAssertEqual(held.harness.recorder.availability.last, true, "Run is on again once the request is ready")
+        XCTAssertNotEqual(held.harness.footerText, "Preparing inputs\u{2026}", "the footer left the preparing words")
+    }
+
+    /// UX's cancel test. The sheet closes while the builder runs, and no request reaches the dialog, so no Operations
+    /// row is begun for a run the user cancelled.
+    func testCancelWhilePreparingLaunchesNothing() throws {
+        let held = try makeHeld()
+        defer { held.harness.close() }
+        held.harness.pressRun()
+        AccessibilityTreeProbe.waitUntil(timeout: 30) { held.builds.withLock { $0 } >= 1 }
+        XCTAssertEqual(held.builds.withLock { $0 }, 1, "the builder started")
+
+        held.harness.close()
+        held.gate.signal()
+        AccessibilityTreeProbe.waitUntil(timeout: 30) { held.finishes.withLock { $0 } >= 1 }
+        XCTAssertEqual(held.finishes.withLock { $0 }, 1, "the builder finished")
+        held.harness.settle()
+
+        XCTAssertEqual(held.harness.recorder.requests.count, 0, "no onRun after the sheet closed")
+    }
+}
+
+// MARK: - Held builder
+
+extension ViralReconRunPreparationTests {
+    /// A sheet whose builder waits on `gate` off the main thread. `builds` counts entries into the builder and
+    /// `finishes` its exits.
+    @MainActor
+    struct Held {
+        let harness: Harness
+        let gate: DispatchSemaphore
+        let builds: OSAllocatedUnfairLock<Int>
+        let finishes: OSAllocatedUnfairLock<Int>
+
+        /// Presses Run, waits until the sheet reports Run off, then presses it again and lets the sheet take the press.
+        func pressRunTwice() throws {
+            harness.pressRun()
+            AccessibilityTreeProbe.waitUntil(timeout: 30) { harness.recorder.availability.last == false }
+            XCTAssertEqual(harness.recorder.availability.last, false, "the first press turned Run off")
+            harness.pressRun()
+            harness.settle()
+        }
+    }
+
+    func makeHeld() throws -> Held {
+        let fixture = try Fixture.make()
+        addTeardownBlock { TestTempDirectory.cleanup(fixture.root) }
+        let gate = DispatchSemaphore(value: 0)
+        addTeardownBlock { gate.signal() }
+        let builds = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let finishes = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let harness = Harness(fixture: fixture) { inputs in
+            builds.withLock { $0 += 1 }
+            gate.wait()
+            defer { finishes.withLock { $0 += 1 } }
+            return try ViralReconRunPreparation.buildRequest(from: inputs)
+        }
+        try harness.chooseScheme()
+        return Held(harness: harness, gate: gate, builds: builds, finishes: finishes)
+    }
 }
 
 // MARK: - Fixture
@@ -138,6 +249,7 @@ extension ViralReconRunPreparationTests {
     final class Recorder {
         var requests: [ViralReconRunRequest] = []
         var availability: [Bool] = []
+        var onRunOnMainThread: [Bool] = []
     }
 
     /// Hosts the sheet the way the Operations dialog does. The dialog bumps `embeddedRunTrigger` when Run is pressed,
@@ -152,6 +264,7 @@ extension ViralReconRunPreparationTests {
             @ObservedObject var model: TriggerModel
             let inputFiles: [URL]
             let projectURL: URL
+            let prepareRun: @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest
             let onRun: (ViralReconRunRequest) -> Void
             let onAvailability: (Bool) -> Void
 
@@ -162,7 +275,8 @@ extension ViralReconRunPreparationTests {
                     embeddedInOperationsDialog: true,
                     embeddedRunTrigger: model.value,
                     onRun: onRun,
-                    onRunnerAvailabilityChange: onAvailability
+                    onRunnerAvailabilityChange: onAvailability,
+                    prepareRun: prepareRun
                 )
             }
         }
@@ -171,14 +285,22 @@ extension ViralReconRunPreparationTests {
         let model = TriggerModel()
         let window: NSWindow
 
-        init(fixture: Fixture) {
+        init(
+            fixture: Fixture,
+            prepareRun: @escaping @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest
+                = ViralReconRunPreparation.buildRequest(from:)
+        ) {
             let recorder = self.recorder
             window = AccessibilityTreeProbe.host(
                 Host(
                     model: model,
                     inputFiles: [fixture.bundle],
                     projectURL: fixture.project,
-                    onRun: { recorder.requests.append($0) },
+                    prepareRun: prepareRun,
+                    onRun: {
+                        recorder.requests.append($0)
+                        recorder.onRunOnMainThread.append(Thread.isMainThread)
+                    },
                     onAvailability: { recorder.availability.append($0) }
                 ),
                 size: CGSize(width: 560, height: 900)
@@ -196,6 +318,18 @@ extension ViralReconRunPreparationTests {
 
         func waitForRequests(_ count: Int, timeout: TimeInterval = 30) {
             AccessibilityTreeProbe.waitUntil(timeout: timeout) { recorder.requests.count >= count }
+        }
+
+        /// Lets the run loop take whatever the sheet does after a press or a release. A condition that never holds
+        /// has nothing to return early on, so this is a short fixed spin.
+        func settle() {
+            AccessibilityTreeProbe.waitUntil(timeout: 1) { false }
+        }
+
+        /// The words of the sheet's footer, read the way VoiceOver reads them.
+        var footerText: String? {
+            AccessibilityTreeProbe.element(in: window, identifier: ViralReconAccessibilityID.readinessLabel)
+                .flatMap { AccessibilityTreeProbe.label($0) ?? AccessibilityTreeProbe.value($0) }
         }
 
         /// Picks the project scheme in the sheet's Scheme pop-up, the way a user does, and waits until the sheet

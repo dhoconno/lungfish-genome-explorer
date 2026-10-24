@@ -11,6 +11,8 @@ struct ViralReconWizardSheet: View {
     let embeddedRunTrigger: Int
     let onRun: (ViralReconRunRequest) -> Void
     let onRunnerAvailabilityChange: (Bool) -> Void
+    /// Builds the run's request. The sheet calls it in a detached task, and a test passes its own.
+    var prepareRun: @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest = ViralReconRunPreparation.buildRequest(from:)
 
     @State private var resolvedInputs: [ViralReconResolvedInput] = []
     @State private var inputError: String?
@@ -25,6 +27,8 @@ struct ViralReconWizardSheet: View {
 
     @State private var minimumMappedReads: Int = 1000
     @State private var buildError: String?
+    @State private var isPreparing = false
+    @State private var preparingTask: Task<Void, Never>?
 
     @State private var advancedExpanded = false
     @State private var advancedText: String = ""
@@ -136,7 +140,7 @@ struct ViralReconWizardSheet: View {
     }
 
     private var canRun: Bool {
-        readinessEvaluation.canRun
+        readinessEvaluation.canRun && !isPreparing
     }
 
     private var buildErrorRecoveryKey: BuildErrorRecoveryKey {
@@ -183,6 +187,7 @@ struct ViralReconWizardSheet: View {
             guard embeddedInOperationsDialog else { return }
             performRun()
         }
+        .onDisappear { preparingTask?.cancel() }
     }
 
     @ViewBuilder
@@ -357,7 +362,7 @@ struct ViralReconWizardSheet: View {
         section("Readiness") {
             Text(buildError ?? readinessText)
                 .font(.callout)
-                .foregroundStyle(canRun && buildError == nil ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                .foregroundStyle(readinessEvaluation.canRun && buildError == nil ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
                 .accessibilityIdentifier(ViralReconAccessibilityID.readinessLabel)
         }
     }
@@ -374,7 +379,7 @@ struct ViralReconWizardSheet: View {
     }
 
     private var readinessText: String {
-        readinessEvaluation.message
+        isPreparing ? "Preparing inputs\u{2026}" : readinessEvaluation.message
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -451,77 +456,44 @@ struct ViralReconWizardSheet: View {
         }
     }
 
+    /// Run copies what the builder needs while the sheet's state is still on the main actor, then builds the request
+    /// in a detached task, so the staging folder, the samplesheet, the primer files and the pin read never block the
+    /// window. The footer reads "Preparing inputs..." and Run stays off until the request is ready or it failed.
     private func performRun() {
+        guard !isPreparing else { return }
         buildError = nil
-        do {
-            let request = try buildRequest()
-            onRun(request)
-        } catch {
-            buildError = "Could not prepare Viral Recon: \(error.localizedDescription)"
-            onRunnerAvailabilityChange(canRun)
+        isPreparing = true
+        onRunnerAvailabilityChange(canRun)
+        let inputs = runInputs
+        let prepare = prepareRun
+        preparingTask = Task {
+            let outcome = await Task.detached { Result { try prepare(inputs) } }.value
+            guard !Task.isCancelled else { return }
+            isPreparing = false
+            preparingTask = nil
+            switch outcome {
+            case .success(let request):
+                onRun(request)
+            case .failure(let error):
+                buildError = "Could not prepare Viral Recon: \(error.localizedDescription)"
+                onRunnerAvailabilityChange(canRun)
+            }
         }
     }
 
-    private func buildRequest() throws -> ViralReconRunRequest {
-        guard let platform = effectivePlatform else {
-            throw WizardError.missingPlatform
-        }
-        guard let outputRoot else {
-            throw WizardError.missingOutputRoot
-        }
-        guard let selectedPrimerOption else {
-            throw WizardError.missingPrimer
-        }
-
-        let token = String(UUID().uuidString.prefix(8)).lowercased()
-        let stagingDirectory = outputRoot.appendingPathComponent(".viralrecon-inputs-\(token)", isDirectory: true)
-        let outputDirectory = outputRoot.appendingPathComponent("viralrecon-results-\(token)", isDirectory: true)
-        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
-
-        let samples = try ViralReconInputResolver.makeSamples(from: resolvedInputs)
-        let samplesheetURL: URL
-        var fastqPassDirectoryURL: URL?
-        switch platform {
-        case .illumina:
-            samplesheetURL = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: samples, in: stagingDirectory)
-        case .nanopore:
-            let staged = try ViralReconSamplesheetBuilder.stageNanoporeInputs(samples: samples, in: stagingDirectory)
-            samplesheetURL = staged.samplesheetURL
-            fastqPassDirectoryURL = staged.fastqPassDirectory
-        }
-
-        let primer = try ViralReconWizardPrimerStaging.stageForCanonicalReference(
-            primerBundleURL: selectedPrimerOption.bundle.url,
-            projectURL: projectURL,
-            destinationDirectory: stagingDirectory
-        )
-
-        let advancedParams: [String: String]
-        switch advancedParseResult {
-        case .success(let parsed):
-            advancedParams = Self.defaultResourceParams().merging(parsed) { _, override in override }
-        case .failure(let message):
-            throw WizardError.invalidAdvancedParameters(message)
-        }
-
-        return try ViralReconRunRequest(
-            samples: samples,
-            platform: platform,
-            protocol: .amplicon,
-            samplesheetURL: samplesheetURL,
-            outputDirectory: outputDirectory,
-            executor: Self.fixedExecutor,
-            // The commit the lock pins, the one source of the revision (Phase 2.10 N2). A lock without it refuses here.
-            version: try NextflowWorkflowDescriptor.viralRecon.resolveBundledPin().revision,
-            reference: .genome(ViralReconReferenceCatalog.canonicalAccession),
-            primer: primer,
+    private var runInputs: ViralReconRunInputs {
+        var advanced: [String: String] = [:]
+        if case .success(let parsed) = advancedParseResult { advanced = parsed }
+        return ViralReconRunInputs(
+            platform: effectivePlatform,
+            outputRoot: outputRoot,
+            primerBundleURL: selectedPrimerOption?.bundle.url,
+            resolvedInputs: resolvedInputs,
+            advancedParameters: advanced,
+            advancedError: advancedError,
             minimumMappedReads: minimumMappedReads,
-            variantCaller: Self.defaultVariantCaller,
-            consensusCaller: Self.defaultConsensusCaller,
-            skipOptions: Array(ViralReconSkipOption.defaultSelection).sorted { $0.rawValue < $1.rawValue },
-            advancedParams: advancedParams,
-            gffURL: advancedGFFURL,
-            fastqPassDirectoryURL: fastqPassDirectoryURL
+            advancedGFFURL: advancedGFFURL,
+            projectURL: projectURL
         )
     }
 
@@ -661,19 +633,6 @@ struct ViralReconWizardSheet: View {
             }
         }
         return error.localizedDescription
-    }
-
-    /// Docker is the only executor that reaches a working run, so it is fixed
-    /// here rather than offered. The launch path refuses the others outright.
-    private static let fixedExecutor: NFCoreExecutor = .docker
-    private static let defaultVariantCaller: ViralReconVariantCaller = .ivar
-    private static let defaultConsensusCaller: ViralReconConsensusCaller = .bcftools
-
-    private static func defaultResourceParams() -> [String: String] {
-        [
-            "max_cpus": String(max(1, min(ProcessInfo.processInfo.processorCount, 8))),
-            "max_memory": "8.GB",
-        ]
     }
 }
 
@@ -1005,26 +964,6 @@ private struct PrimerOption: Identifiable {
         let accession = bundle.manifest.canonicalAccession
         let reference = accession.isEmpty ? "SARS-CoV-2" : accession
         return "\(reference) · \(bundle.manifest.primerCount) primers · \(bundle.manifest.ampliconCount) amplicons"
-    }
-}
-
-private enum WizardError: Error, LocalizedError {
-    case missingPlatform
-    case missingOutputRoot
-    case missingPrimer
-    case invalidAdvancedParameters(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingPlatform:
-            return "select a platform."
-        case .missingOutputRoot:
-            return "choose a project or output location."
-        case .missingPrimer:
-            return "select a SARS-CoV-2 primer scheme."
-        case .invalidAdvancedParameters(let message):
-            return message
-        }
     }
 }
 
