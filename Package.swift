@@ -156,7 +156,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux])),
             ],
-            path: "Sources/LungfishPortable"
+            path: "Sources/LungfishPortable",
+            exclude: ["AGENTS.md"]
         ),
         .testTarget(
             name: "LungfishPortableTests",
@@ -168,7 +169,8 @@ let package = Package(
         .executableTarget(
             name: "LungfishExecutor",
             dependencies: ["CLungfishExecutor", "LungfishPortable"],
-            path: "Sources/LungfishExecutor"
+            path: "Sources/LungfishExecutor",
+            exclude: ["AGENTS.md"]
         ),
         // The executor's C wrapper of the Linux child subreaper call. Only LungfishExecutor lists it, and
         // scripts/ratchets/portable-imports.sh refuses any argument beyond the name and the path.

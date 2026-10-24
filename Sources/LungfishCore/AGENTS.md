@@ -4,11 +4,11 @@ Line numbers were checked at commit a0eec8b32. When a line has moved, search for
 
 ## Purpose
 
-The bottom layer. Sequence and region models, the reference bundle manifest, app settings, notification names, managed storage roots, project locks and the network services for NCBI, ENA, SRA, Pathoplexus and BLAST. Everything else imports it, so a public change here recompiles every target.
+Row 1 of the layering table in the root `AGENTS.md`. It depends on LungfishPortable (row 0) and re-exports it with `@_exported import LungfishPortable`. Sequence and region models, the reference bundle manifest, app settings, notification names, managed storage roots, project locks and the network services for NCBI, ENA, SRA, Pathoplexus and BLAST. Everything else in the stack imports it, so a public change here recompiles every target of the stack. LungfishPortable, LungfishExecutor and CLungfishExecutor do not import it.
 
 ## Allowed imports
 
-Foundation and system frameworks, plus Collections and Algorithms from Package.swift. Never another Lungfish module, AppKit or SwiftUI.
+Foundation and system frameworks, plus Collections and Algorithms from Package.swift. LungfishPortable is the one Lungfish module it may import. `Package.swift` lists it as a dependency of this target and `Sources/LungfishCore/LungfishCore.swift` re-exports it. Never another Lungfish module, AppKit or SwiftUI.
 
 ## Entry points
 
