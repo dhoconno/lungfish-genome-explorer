@@ -161,6 +161,21 @@ final class ExecutorPlanFillTests: XCTestCase {
         XCTAssertFalse(String(decoding: try b.encoded(), as: UTF8.self).contains(root.path))
     }
 
+    /// The Mac's plan keeps the request's sample whole, its platform and sample-sheet labels included, for a sample
+    /// whose name holds dots (review of milestone 1, fix 1: BIO 3, BIO 5, ARCH F3).
+    func testMacEmissionKeepsTheRequestSampleWithPlatformLabelsAndADottedName() throws {
+        let files = try ExecutorPlanTestSupport.writePair(root: root, "VSP2.04-A.1")
+        var request = try ExecutorPlanTestSupport.request(root: root, "VSP2.04-A.1", inputs: files, clumping: .bbtools)
+        request.sample = PlanSampleValues(
+            sampleName: request.sample.sampleName, originalFilenames: request.sample.originalFilenames,
+            originalSizeBytes: request.sample.originalSizeBytes, platform: "illumina",
+            sampleSheet: [PlanKeyValue(key: "site", value: "Madison")]
+        )
+        let plan = try ExecutorPlanEmitter.emit(request, host: ExecutorPlanTestSupport.mac24)
+        XCTAssertEqual(plan.sample, request.sample)
+        XCTAssertEqual(try ExecutionPlan.decode(plan.encoded()).sample, request.sample)
+    }
+
     /// ARCH-fill F4, the Mac's half: a fill refusal reaches the Mac as an `ExecutorPlanError` with the fill's field and
     /// words, and a request whose sample states another size than its inputs hold is refused.
     func testFillRefusalReachesTheMacWithItsFieldAndWords() async throws {
