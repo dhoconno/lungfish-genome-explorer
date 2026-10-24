@@ -346,14 +346,14 @@ public enum FASTQBatchImporter {
         }
     }
 
-    private static func prepareFASTQBundleParent(for bundleURL: URL) throws {
+    static func prepareFASTQBundleParent(for bundleURL: URL) throws {
         try FileManager.default.createDirectory(
             at: bundleURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
     }
 
-    private static func makeStagingFASTQBundleURL(for publishedBundleURL: URL) throws -> URL {
+    static func makeStagingFASTQBundleURL(for publishedBundleURL: URL) throws -> URL {
         let parentURL = publishedBundleURL.deletingLastPathComponent()
         let baseName = publishedBundleURL.deletingPathExtension().lastPathComponent
         let stagingName = ".\(baseName).building-\(UUID().uuidString)"
@@ -364,7 +364,7 @@ public enum FASTQBatchImporter {
         ".\(publishedBundleURL.lastPathComponent).replacing-\(UUID().uuidString)"
     }
 
-    private static func publishFASTQBundle(
+    static func publishFASTQBundle(
         from stagingBundleURL: URL,
         to publishedBundleURL: URL,
         replaceExisting: Bool
@@ -1135,7 +1135,8 @@ public enum FASTQBatchImporter {
         recipeStepResults: [RecipeStepResult],
         runClock: ProvenanceRunClock, statsStartedAt: Date,
         statsCompletedAt: Date,
-        statsError: String?
+        statsError: String?,
+        adoption: ExecutorAdoptionProvenance? = nil
     ) async throws {
         let originalInputURLs = pair.inputFiles
         let processingInputURLs = processingPair.inputFiles
@@ -1186,7 +1187,8 @@ public enum FASTQBatchImporter {
             endTime: finalizedAt
         ))
 
-        steps.append(StepExecution(
+        // An adopt's statistics step ran on the node, and its record names it (C4 design section 2).
+        if adoption == nil { steps.append(StepExecution(
             toolName: "seqkit",
             toolVersion: await NativeToolRunner.shared.getToolVersion(.seqkit) ?? "unknown",
             command: ["seqkit", "stats", "-a", "-T", stagingBundleFASTQURL.path],
@@ -1197,7 +1199,7 @@ public enum FASTQBatchImporter {
             stderr: statsError,
             startTime: statsStartedAt,
             endTime: statsCompletedAt
-        ))
+        )) }
 
         let completedAt = runClock.now
         let command = reproducibleImportCommand(pair: pair, config: config)
@@ -1224,7 +1226,7 @@ public enum FASTQBatchImporter {
                 csvMetadataURL: publishedCSVMetadataURL,
                 ingestionResult: ingestionResult,
                 unpairedReads: unpairedReads
-            )
+            ).merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
         )
         .runtime(ProvenanceRuntimeIdentity())
         for inputURL in originalInputURLs {
@@ -1240,7 +1242,7 @@ public enum FASTQBatchImporter {
             builder = try builder.output(stagingCSVMetadataURL, format: .text, role: .output)
         }
         for var step in steps {
-            if step.id != importStepID { step.parentStepID = importStepID }
+            if step.id != importStepID, adoption?.childStepIDs.contains(step.id) != true { step.parentStepID = importStepID }
             builder = builder.step(ProvenanceStep(stepExecution: step))
         }
 
