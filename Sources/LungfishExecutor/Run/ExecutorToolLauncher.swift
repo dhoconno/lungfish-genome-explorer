@@ -164,11 +164,32 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
         )
     }
 
+    /// The record of a launch the step accepted, with the files it read and wrote hashed now, while they still exist,
+    /// since the step deletes each scratch half once it is processed (QV-23). A path outside the work root, or a folder
+    /// such as the one a Trim Galore call writes into, is not hashed.
     func record(_ run: PortableToolRun) async -> ExecutorStorageLaunch {
-        let argv = run.launch.arguments.map { $0.replacingOccurrences(of: resolver.workRoot + "/", with: "") }
-        return made.withLock { all in all.last { Array($0.argv.dropFirst()) == argv } } ?? ExecutorStorageLaunch(
+        let prefix = resolver.workRoot + "/"
+        let root = URL(fileURLWithPath: resolver.workRoot)
+        let argv = run.launch.arguments.map { $0.replacingOccurrences(of: prefix, with: "") }
+        let digests = { (urls: [URL]) -> [ExecutorFileDigest]? in
+            let found = urls.compactMap { url -> ExecutorFileDigest? in
+                guard url.path.hasPrefix(prefix) else { return nil }
+                return ExecutorFileDigest.hashing(String(url.path.dropFirst(prefix.count)), under: root)
+            }
+            return found.isEmpty ? nil : found
+        }
+        let inputs = digests(run.inputs)
+        let outputs = digests(run.outputs)
+        let recorded: ExecutorStorageLaunch? = made.withLock { all in
+            guard let index = all.lastIndex(where: { Array($0.argv.dropFirst()) == argv }) else { return nil }
+            all[index].inputs = inputs
+            all[index].outputs = outputs
+            return all[index]
+        }
+        return recorded ?? ExecutorStorageLaunch(
             tool: ExecutorToolRecord(id: run.executableURL.lastPathComponent, version: "", build: "", path: run.executableURL.path),
-            argv: [run.executableURL.path] + argv, environmentNames: [], outcome: .succeeded, wallSeconds: 0, stderrPath: ""
+            argv: [run.executableURL.path] + argv, environmentNames: [], outcome: .succeeded, wallSeconds: 0, stderrPath: "",
+            inputs: inputs, outputs: outputs
         )
     }
 
@@ -177,5 +198,17 @@ final class ExecutorToolLauncher: PortableToolLauncher, Sendable {
             throw ExecutorSpawn.Failure(reason: "The plan pins no \(Self.toolIDs[tool] ?? tool.rawValue) for step \(stepID).")
         }
         return image
+    }
+}
+
+extension ExecutorFileDigest {
+    /// The digest of the regular file at `relativePath` under `root`, nil for a folder or a file that cannot be read.
+    static func hashing(_ relativePath: String, under root: URL) -> ExecutorFileDigest? {
+        let url = root.appendingPathComponent(relativePath)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue,
+              let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64,
+              let digest = try? PortableDigest.sha256Hex(ofFileAt: url) else { return nil }
+        return ExecutorFileDigest(relativePath: relativePath, sha256: digest, size: size)
     }
 }

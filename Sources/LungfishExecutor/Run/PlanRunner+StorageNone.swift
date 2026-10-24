@@ -23,15 +23,16 @@ extension PlanRunner {
             let probe = try await storage.probeBBToolsWriter(
                 environment: environment, compressionLevel: settings.compressionLevel, threads: settings.threads
             )
-            try requireAnsweringBgzip(probe, step: step, environment: environment)
+            try requireAnsweringBgzip(probe, step: step, environment: environment, plan: plan)
             let arguments = reformatQuantizeArguments(
                 inputs: inputs, output: output, compressionLevel: settings.compressionLevel, threads: settings.threads,
                 quantize: quantize
             )
-            let outcome = try await launcher.run(PortableToolLaunch(
+            let launch = PortableToolLaunch(
                 tool: .reformat, arguments: arguments, workingDirectory: root, environment: environment,
                 timeout: step.deadlineSeconds
-            ))
+            )
+            let outcome = try await launcher.run(launch)
             guard outcome.isSuccess else {
                 throw PortableStorageError.storageFailed(
                     "reformat.sh stopped with status \(outcome.exitCode). "
@@ -41,6 +42,11 @@ extension PlanRunner {
             guard FileManager.default.fileExists(atPath: output.path) else {
                 throw PortableStorageError.storageFailed("reformat.sh completed without producing output.")
             }
+            // The record hashes what reformat.sh read and wrote, as for each launch the storage step accepts (QV-23).
+            _ = await launcher.record(PortableToolRun(
+                launch: launch, executableURL: try await launcher.executableURL(for: .reformat), outcome: outcome,
+                inputs: inputs, outputs: [output]
+            ))
             return
         }
         guard inputs.count == 1 else {

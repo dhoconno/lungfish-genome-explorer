@@ -9,12 +9,13 @@ extension RunPlanTests {
     /// the step's `deadline` in seconds. It pins the `gzip` that reads the stored payload (SWIFT fix 2 of the K4 part B
     /// review).
     func clumpifyPlan(
-        _ body: String, deadline: Double = 60, bgzip bgzipBody: String = "[ \"$1\" = \"-h\" ]", manifestListsBgzip: Bool = true
+        _ body: String, deadline: Double = 60, bgzip bgzipBody: String = "[ \"$1\" = \"-h\" ] && echo 'Version: 1.0'",
+        manifestListsBgzip: Bool = true
     ) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
         let clumpify = try fixture.addTool("clumpify.sh", body)
         // BIO N3. The plan pins the bgzip BBTools writes through, and by default it answers `bgzip -h` as BBTools' probe
-        // asks and the manifest lists it.
+        // asks, with the `Version:` line of the version the plan pins (C4-3 C-4), and the manifest lists it.
         let bgzip = try fixture.addTool("bgzip", bgzipBody)
         let gzip = try fixture.addLoggingGzip()
         let manifest = try fixture.writeManifest(excluding: manifestListsBgzip ? [] : ["bgzip"])
@@ -129,6 +130,64 @@ extension RunPlanTests {
             XCTAssertEqual(step.outputs, [], label)
             XCTAssertEqual(record.payloads, [], label)
             XCTAssertFalse(step.storage?.launches?.contains { $0.tool.id == "clumpify.sh" } ?? false, label)
+            XCTAssertNil(step.storage?.writer, label)
+            XCTAssertFalse(fixture.exists("logs/clumpify.ran"), "\(label): clumpify ran")
+        }
+    }
+
+    /// QV-23. Each launch the storage step accepts records the files it read and wrote with their SHA-256, hashed
+    /// before the step deletes a scratch file, and the writer probe, which reads and writes no file, records none.
+    func testStorageLaunchesRecordTheirFilesWithDigests() throws {
+        let (fixture, plan, manifest) = try clumpifyPlan("""
+        for a in "$@"; do case "$a" in in=*) IN="${a#in=}" ;; out=*) OUT="${a#out=}" ;; esac; done
+        gzip -c < "$IN" > "$OUT"
+        """)
+        let run = try fixture.run(plan, ["--image-manifest", manifest])
+        XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)
+        let step = try XCTUnwrap(run.record?.steps.first)
+        XCTAssertEqual(step.outcome, .succeeded, step.reason ?? "")
+        let launches = try XCTUnwrap(step.storage?.launches)
+        XCTAssertEqual(launches.map(\.tool.id), ["bgzip", "clumpify.sh"])
+        XCTAssertNil(launches.first?.inputs)
+        XCTAssertNil(launches.first?.outputs)
+        let input = try Data(contentsOf: URL(fileURLWithPath: fixture.planFolder + "/inputs/R1.fastq"))
+        XCTAssertEqual(launches.last?.inputs, [ExecutorFileDigest(
+            relativePath: "inputs/R1.fastq", sha256: PortableDigest.sha256Hex(of: input), size: Int64(input.count)
+        )])
+        let payload = try XCTUnwrap(step.outputs.first)
+        XCTAssertEqual(launches.last?.outputs?.map(\.sha256), [payload.sha256])
+        XCTAssertEqual(launches.last?.outputs?.map(\.size), [Int64(payload.bytes)])
+        XCTAssertEqual(launches.last?.outputs?.map(\.relativePath), ["out/sample.fastq.gz"])
+    }
+
+    /// C4-3 C-4 (QA Q-4d). The record may name the writer's environment by the route that ran it, so the version is the
+    /// one check left that the bgzip BBTools writes through is the one the plan pins. A probe whose answering bgzip
+    /// states another version on its `Version:` line, or no version, fails the step before clumpify starts.
+    func testStorageRefusesAnsweringBgzipOfAnotherVersion() throws {
+        let cases = [
+            ("version 1.23", "echo 'Version: 1.23'", "states version 1.23, not the version 1.0 the plan pins"),
+            ("no version", "echo 'Usage: bgzip [OPTIONS] [FILE] ...'",
+             "states no version, so the executor cannot tell it is the version 1.0 the plan pins"),
+        ]
+        for (label, help, states) in cases {
+            let (fixture, plan, manifest) = try clumpifyPlan(
+                "echo ran > logs/clumpify.ran", bgzip: "[ \"$1\" = \"-h\" ] && \(help)"
+            )
+            let run = try fixture.run(plan, ["--image-manifest", manifest])
+            XCTAssertEqual(run.status, ExecutorExitCode.failed, "\(label): \(run.stderr)")
+            let record = try XCTUnwrap(run.record, label)
+            XCTAssertEqual(record.failedStepID, "storage", label)
+            let bgzip = try XCTUnwrap(fixture.tools.first { $0.id == "bgzip" }, label)
+            let sentence = "Step storage did not run. clumpify.sh compresses its output with bgzip, and the bgzip that "
+                + "answered `bgzip -h` on the step's PATH, \(bgzip.path), \(states). The tool image must hold the pinned "
+                + "bgzip beside the BBTools scripts."
+            let step = try XCTUnwrap(record.steps.first, label)
+            XCTAssertEqual(step.outcome, .failed, label)
+            XCTAssertEqual(step.reason, sentence, label)
+            XCTAssertEqual(record.reason, sentence, label)
+            XCTAssertEqual(step.outputs, [], label)
+            XCTAssertEqual(record.payloads, [], label)
+            XCTAssertEqual(step.storage?.launches?.map(\.tool.id), ["bgzip"], label)
             XCTAssertNil(step.storage?.writer, label)
             XCTAssertFalse(fixture.exists("logs/clumpify.ran"), "\(label): clumpify ran")
         }

@@ -181,8 +181,9 @@ extension RunPlanTests {
         printf '%s\\n' "$@" > logs/reformat.argv
         gzip -c < "$IN" > "$OUT"
         """)
-        // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks.
-        let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ]")
+        // BIO N3. The plan pins the bgzip BBTools writes through, and it answers `bgzip -h` as BBTools' probe asks, with
+        // the `Version:` line of the version the plan pins (C4-3 C-4).
+        let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ] && echo 'Version: 1.0'")
         let gzip = try fixture.addLoggingGzip()
         let manifest = try fixture.writeManifest()
         let settings = noneStorage(.illumina4)

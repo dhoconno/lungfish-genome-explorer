@@ -270,14 +270,23 @@ package struct ExecutorStorageLaunch: Codable, Sendable, Equatable {
     /// The launch's peak resident memory in bytes, from the `wait4` that reaped the tool, which counts the children it
     /// waited for, such as clumpify's JVM (tally K4.2). Nil in a record written before C3.
     package var peakResidentBytes: UInt64?
+    /// The files the launch read, by work-root path, SHA-256 and size, such as the gzip input of a decompressor child of
+    /// the merged-to-mixed step (C4-3 C-3). Nil for a launch that read no file and in a record written before C4-3.
+    package var inputs: [ExecutorFileDigest]?
+    /// The files the launch wrote, hashed when the step accepted the launch and before it deleted any scratch half,
+    /// such as each clumpify launch's output and the payload the writer joined (QV-23). Nil for a launch that wrote no
+    /// file, such as the writer probe, and in a record written before C4-3.
+    package var outputs: [ExecutorFileDigest]?
 
     package init(
         tool: ExecutorToolRecord, argv: [String], environmentNames: [String], outcome: ExecutorRunOutcome,
         toolExitCode: Int32? = nil, toolSignal: Int32? = nil, wallSeconds: Double, stderrPath: String,
         clumpifyGroups: Int? = nil, clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil,
         reason: String? = nil, escalatedToSIGKILL: Bool? = nil, stoppedProcesses: [Int32]? = nil,
-        peakResidentBytes: UInt64? = nil
+        peakResidentBytes: UInt64? = nil, inputs: [ExecutorFileDigest]? = nil, outputs: [ExecutorFileDigest]? = nil
     ) {
+        self.inputs = inputs
+        self.outputs = outputs
         self.reason = reason
         self.escalatedToSIGKILL = escalatedToSIGKILL
         self.stoppedProcesses = stoppedProcesses

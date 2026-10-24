@@ -29,6 +29,10 @@ struct ReaderChildEnd: Codable, Equatable, Sendable {
     /// True when a cancel or the executor's signal stopped the child.
     var stopped: Bool
     var escalatedToSIGKILL: Bool
+    /// The seconds from the spawn to the reap, nil in a report written before C4-3.
+    var wallSeconds: Double?
+    /// The names of the variables the child started with, nil in a report written before C4-3.
+    var environmentNames: [String]?
 }
 
 /// The ends of every child a launcher started, in the order they were reaped.
@@ -115,7 +119,7 @@ struct ExecutorChildLauncher: PortableChildLauncher {
         )
         let child = ExecutorChild(
             pid: started.pid, pipeEnd: started.stdout, label: request.label, executable: program,
-            arguments: request.arguments, launcher: self
+            arguments: request.arguments, environmentNames: request.environment.keys.sorted(), launcher: self
         )
         controller.watchExit(of: started.pid) { child.markExited() }
         return child
@@ -159,16 +163,22 @@ final class ExecutorChild: PortableChild, Sendable {
     private let label: String
     private let executable: String
     private let arguments: [String]
+    private let environmentNames: [String]
     private let launcher: ExecutorChildLauncher
     private let exited = DispatchSemaphore(value: 0)
     private let state = Mutex(State())
+    private let startedAt = ContinuousClock.now
 
-    init(pid: pid_t, pipeEnd: Int32, label: String, executable: String, arguments: [String], launcher: ExecutorChildLauncher) {
+    init(
+        pid: pid_t, pipeEnd: Int32, label: String, executable: String, arguments: [String], environmentNames: [String],
+        launcher: ExecutorChildLauncher
+    ) {
         self.pid = pid
         self.pipeEnd = pipeEnd
         self.label = label
         self.executable = executable
         self.arguments = arguments
+        self.environmentNames = environmentNames
         self.launcher = launcher
     }
 
@@ -221,7 +231,8 @@ final class ExecutorChild: PortableChild, Sendable {
         let flags = state.withLock { $0 }
         var record = ReaderChildEnd(
             label: label, executable: executable, arguments: arguments, pid: pid, isSuccess: false,
-            drainExpired: flags.drainExpired, stopped: flags.stopRequestedAt != nil, escalatedToSIGKILL: flags.escalated
+            drainExpired: flags.drainExpired, stopped: flags.stopRequestedAt != nil, escalatedToSIGKILL: flags.escalated,
+            wallSeconds: StepController.seconds(since: startedAt), environmentNames: environmentNames
         )
         guard let end else {
             state.withLock { $0.finished = PortableChildExit(status: -1, isSuccess: false) }

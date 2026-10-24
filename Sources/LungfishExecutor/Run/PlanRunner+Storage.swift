@@ -24,9 +24,11 @@ extension PlanRunner {
         record.argv = []
         let root = URL(fileURLWithPath: resolver.workRoot)
         let started = ContinuousClock.now
+        let readerLog = ReaderChildLog()
         let childLauncher = ExecutorChildLauncher(
             controller: controller, decompressor: prepared.decompressor ?? (tool.id == "gzip" ? tool.path : nil),
-            allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
+            allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds,
+            log: readerLog
         )
         let launcher = ExecutorToolLauncher(
             stepID: step.id, tools: prepared.storageTools, manifestTools: prepared.manifest.tools, controller: controller,
@@ -66,6 +68,24 @@ extension PlanRunner {
         }
 
         let launches = launcher.launches
+        let size = { (path: String) -> Int64 in
+            (try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(path).path))?[.size] as? Int64 ?? 0
+        }
+        // The merged-to-mixed step records each decompressor child its reader started, in the storage step's launch
+        // form, so the record names every program the step ran, and the child that failed the step states its end
+        // (C4-3 C-3). The children of a storage step's count passes reach no record on either route yet (CHTC-c4v3).
+        let readerLaunches = step.kind == .interleave
+            ? Self.readerLaunches(readerLog.all, inputs: step.inputs, root: root, tools: prepared.manifest.tools) : []
+        if !readerLaunches.isEmpty {
+            record.storage = ExecutorStorageDetails(
+                clumpingRan: false, qualityBinning: .none, inputBytes: step.inputs.reduce(0) { $0 + size($1) },
+                outputBytes: 0, launches: readerLaunches
+            )
+            if let ended = readerLaunches.first(where: { $0.outcome != .succeeded }) ?? readerLaunches.last {
+                record.toolExitCode = ended.toolExitCode
+                record.toolSignal = ended.toolSignal
+            }
+        }
         if step.kind == .storage {
             record.storage = storageDetails(step: step, launches: launches, root: root)
             if let own = launches.first(where: { $0.tool.id == tool.id }) {
@@ -86,7 +106,7 @@ extension PlanRunner {
         // orphans the run reaped since the step before it, as an argv step does (tally K4.2, BIO fix 4 of the K4 part B
         // review).
         record.peakResidentBytes = launches.compactMap(\.peakResidentBytes).max()
-        record.escalatedToSIGKILL = launches.contains { $0.escalatedToSIGKILL == true }
+        record.escalatedToSIGKILL = (launches + readerLaunches).contains { $0.escalatedToSIGKILL == true }
         record.stoppedProcesses = launches.flatMap { $0.stoppedProcesses ?? [] }
         if let reaped = launcher.adoptedOrphansReaped {
             record.adoptedOrphansReaped = reaped - adoptedSoFar
@@ -107,12 +127,10 @@ extension PlanRunner {
             if let mixed = counts.mixed {
                 // The merged-to-mixed step states the mixed file's counts by kind, as the recipe engine counts them
                 // (tally K4.1, BIO fix 2 of the K4 part B review).
-                let size = { (path: String) -> Int64 in
-                    (try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(path).path))?[.size] as? Int64 ?? 0
-                }
                 record.storage = ExecutorStorageDetails(
                     clumpingRan: false, qualityBinning: .none, inputBytes: step.inputs.reduce(0) { $0 + size($1) },
-                    outputBytes: step.outputs.first.map(size) ?? 0, mixedLayout: mixed
+                    outputBytes: step.outputs.first.map(size) ?? 0, mixedLayout: mixed,
+                    launches: readerLaunches.isEmpty ? nil : readerLaunches
                 )
             }
         case .failure(let error):
@@ -155,7 +173,7 @@ extension PlanRunner {
             // The probe BBTools runs before it writes, so the record names the writer (K4-14), and a node whose bgzip
             // does not answer fails the step before clumpify starts (UX N3-2).
             let probe = try await storage.probeBBToolsWriter(environment: environment, compressionLevel: 4, threads: plan.storage.threads)
-            try requireAnsweringBgzip(probe, step: step, environment: environment)
+            try requireAnsweringBgzip(probe, step: step, environment: environment, plan: plan)
             _ = try await storage.clumpify(PortableStorageStep<ExecutorToolLauncher>.ClumpifyRun(
                 inputs: inputs, output: output, workingDirectory: root, heapGB: plan.storage.clumpifyHeapGB,
                 threads: plan.storage.threads, qualityBinning: plan.storage.qualityBinning, environment: environment,
@@ -179,16 +197,77 @@ extension PlanRunner {
     /// UX's N3-2 words. BBTools writes through the first bgzip on its PATH that answers `bgzip -h`, else through its own
     /// writer, and the plan pins bgzip, so a step whose probe finds no answering bgzip fails before BBTools writes a byte,
     /// and no node stores bytes from a writer the plan does not name (tally-r2 N3-2 and N3-3b, fix 1 of the K4 part C UX
-    /// review).
+    /// review). The record names the writer's environment by the route that ran it (C4-3 C-4), so the version is the one
+    /// check left that the answering bgzip is the one the plan pins: a probe whose bgzip states another version on its
+    /// `Version:` line, or none, fails the step the same way (QA Q-4d).
     static func requireAnsweringBgzip(
-        _ probe: PortableBBToolsWriterProbe, step: PlanStep, environment: [String: String]
+        _ probe: PortableBBToolsWriterProbe, step: PlanStep, environment: [String: String], plan: ExecutionPlan
     ) throws {
-        guard probe.writer == .nativeBGZF else { return }
+        let tool = step.tool?.id ?? "BBTools"
+        guard case .bgzip(let executable, _) = probe.writer else {
+            throw ExecutorSpawn.Failure(
+                reason: "Step \(step.id) did not run. \(tool) compresses its output with bgzip, and no bgzip "
+                    + "answered `bgzip -h` on the step's PATH (\(environment["PATH"] ?? "")). The tool image must hold bgzip "
+                    + "beside the BBTools scripts."
+            )
+        }
+        guard let pinned = plan.tools.first(where: { $0.id == "bgzip" })?.version else {
+            throw ExecutorSpawn.Failure(
+                reason: "Step \(step.id) did not run. \(tool) compresses its output with bgzip, and the plan pins no bgzip."
+            )
+        }
+        guard probe.version != pinned else { return }
+        let states = probe.version.map { "states version \($0), not the version \(pinned) the plan pins" }
+            ?? "states no version, so the executor cannot tell it is the version \(pinned) the plan pins"
         throw ExecutorSpawn.Failure(
-            reason: "Step \(step.id) did not run. \(step.tool?.id ?? "BBTools") compresses its output with bgzip, and no bgzip "
-                + "answered `bgzip -h` on the step's PATH (\(environment["PATH"] ?? "")). The tool image must hold bgzip "
+            reason: "Step \(step.id) did not run. \(tool) compresses its output with bgzip, and the bgzip that answered "
+                + "`bgzip -h` on the step's PATH, \(executable.path), \(states). The tool image must hold the pinned bgzip "
                 + "beside the BBTools scripts."
         )
+    }
+
+    /// The decompressor children of a merged-to-mixed step as launches, in the order of the step's inputs and not the
+    /// order they were reaped, since the R1 and R2 readers run together (SWIFT, CHTC CH-C3-1). Each states the absolute
+    /// program that ran, never the `/usr/bin/gzip` the reader asked for, `-dc` and the work-relative input, its end, and
+    /// that input with its SHA-256 (QA Q-3a). The child's stderr is `/dev/null`, so the launch keeps no stderr.
+    static func readerLaunches(
+        _ ends: [ReaderChildEnd], inputs: [String], root: URL, tools: [ImageTool]
+    ) -> [ExecutorStorageLaunch] {
+        let prefix = root.path + "/"
+        func relative(_ path: String) -> String { path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path }
+        func position(_ end: ReaderChildEnd) -> Int { inputs.firstIndex(of: relative(end.arguments.last ?? "")) ?? inputs.count }
+        let ordered = ends.enumerated().sorted { (position($0.element), $0.offset) < (position($1.element), $1.offset) }
+        return ordered.map(\.element).map { end in
+            let listed = tools.first { $0.path == end.executable }
+            let id = listed?.id ?? URL(fileURLWithPath: end.executable).lastPathComponent
+            let arguments = end.arguments.map(relative)
+            let input = arguments.last ?? ""
+            return ExecutorStorageLaunch(
+                tool: ExecutorToolRecord(id: id, version: listed?.version ?? "", build: listed?.build ?? "", path: end.executable),
+                argv: [end.executable] + arguments, environmentNames: end.environmentNames ?? [],
+                outcome: end.isSuccess ? .succeeded : .failed, toolExitCode: end.exitCode, toolSignal: end.signal,
+                wallSeconds: end.wallSeconds ?? 0, stderrPath: "/dev/null",
+                reason: end.isSuccess ? nil : readerReason(end, tool: id, input: input),
+                escalatedToSIGKILL: end.escalatedToSIGKILL,
+                inputs: ExecutorFileDigest.hashing(input, under: root).map { [$0] }
+            )
+        }
+    }
+
+    /// The record's sentence for a decompressor child that did not succeed.
+    static func readerReason(_ end: ReaderChildEnd, tool: String, input: String) -> String {
+        if end.stopped { return "The executor stopped the decompressor \(tool) while it read \(input)." }
+        if end.drainExpired {
+            return "The decompressor \(tool) exited while it read \(input), and its output stayed open past the drain grace, "
+                + "so the executor stopped its group."
+        }
+        if let signal = end.signal {
+            return "The decompressor \(tool) ended by \(ExecutorSignals.name(signal)) while it read \(input)."
+        }
+        if let code = end.exitCode, code != 0 {
+            return "The decompressor \(tool) stopped with status \(code) while it read \(input)."
+        }
+        return "The decompressor \(tool) ended before the reader read all of \(input)."
     }
 
     /// The storage fields of the record: the writer and level (K4-14), clumpify's group and memory lines from its launch
