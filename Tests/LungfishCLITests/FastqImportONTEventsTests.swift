@@ -107,7 +107,80 @@ final class FastqImportONTEventsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a refused folder writes nothing")
     }
 
+    // MARK: - A chunked import says "Import complete" once (Phase 2.14 lane ONT, O29-ONT-ONCE)
+
+    /// A chunked import bins each chunk after the importer ends, so the importer's last word, "Import complete (N
+    /// reads, Xs)", waits for the binning and the row says it once, as its last detail. A binning failure then never
+    /// reads as complete and then failed. It fails at the base, where the stream holds the word at 0.8 of the bar
+    /// and again at 1.0.
+    func testChunkedONTImportSaysImportCompleteOnceAfterBinning() throws {
+        let run = try runChunkedImport(named: "imported-once")
+        let progress = progressLines(run.events)
+        let words = progress.map(\.message)
+
+        XCTAssertEqual(
+            progress.filter { $0.message.hasPrefix("Import complete") }.count, 1,
+            "the row says Import complete once: \(words)"
+        )
+        XCTAssertEqual(
+            progress.last?.message.hasPrefix("Import complete (5 reads, "), true,
+            "it is the last detail: \(words)"
+        )
+        XCTAssertEqual(progress.last?.fraction, 1.0, "at the end of the bar")
+        let barcodes = progress.filter { $0.message == "Completed 2/2 barcodes" }
+        XCTAssertEqual(barcodes.count, 1, "the importer's barcode line stays once: \(words)")
+        let barcode = try XCTUnwrap(barcodes.first)
+        XCTAssertEqual(barcode.fraction, 0.8, accuracy: 1e-9, "at the end of the importer's share of the bar")
+        let fractions = progress.map(\.fraction)
+        XCTAssertEqual(fractions, fractions.sorted(), "the bar never moves back: \(fractions)")
+        XCTAssertEqual(
+            run.events.last,
+            .complete(
+                outputs: [
+                    run.output.appendingPathComponent("barcode01.lungfishfastq").path,
+                    run.output.appendingPathComponent("barcode02.lungfishfastq").path,
+                ],
+                message: "2 barcode bundles, 5 reads"
+            ),
+            "the complete event is unchanged"
+        )
+    }
+
+    /// BIO finding 2 of lane ONT. The importer also says "Completed 2/2 barcodes" at 1.0 of its own share, which lands
+    /// at 0.8 of the bar. A guard on the fraction would hold that line back with the importer's last word, so the
+    /// line has to stay once, at 0.8. It passes at the base.
+    func testChunkedONTImportKeepsCompletedBarcodesLine() throws {
+        let progress = progressLines(try runChunkedImport(named: "imported-barcodes").events)
+
+        let barcodes = progress.filter { $0.message == "Completed 2/2 barcodes" }
+        XCTAssertEqual(barcodes.count, 1, "\(progress.map(\.message))")
+        let barcode = try XCTUnwrap(barcodes.first)
+        XCTAssertEqual(barcode.fraction, 0.8, accuracy: 1e-9, "at the end of the importer's share of the bar")
+    }
+
     // MARK: - Helpers
+
+    /// The leaf with the chunked storage mode and illumina4 binning named, which are its defaults.
+    private func runChunkedImport(named name: String) throws -> (events: [CLIEvent], output: URL) {
+        let source = try makeSource()
+        let output = root.appendingPathComponent(name, isDirectory: true)
+        let run = try runLeaf([
+            source.path, "--output", output.path, "--concurrency", "1", "--format", "json",
+            "--storage-mode", "chunked", "--quality-binning", "illumina4",
+        ])
+        XCTAssertEqual(run.status, 0, "stderr: \(run.stderr)")
+        let events = try run.stdout.split(separator: "\n").map {
+            try XCTUnwrap(CLIEventLineDecoder().decode(line: String($0)), String($0))
+        }
+        return (events, output)
+    }
+
+    private func progressLines(_ events: [CLIEvent]) -> [(fraction: Double, message: String)] {
+        events.compactMap { event -> (fraction: Double, message: String)? in
+            if case let .progress(fraction, message) = event { return (fraction, message) }
+            return nil
+        }
+    }
 
     private func runLeaf(_ arguments: [String]) throws -> ProcessResult {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
