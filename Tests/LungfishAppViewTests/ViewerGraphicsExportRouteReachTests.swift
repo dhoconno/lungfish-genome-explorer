@@ -8,7 +8,8 @@
 // test opens one kind through the sidebar's own open call in a main window, then reads what File > Export > Image
 // reads from the viewer `exportImage(_:)` takes. The pane resolves to the bundle the viewport draws, the Scope list is
 // that bundle's list with the selection of the viewer that draws, and Save begins an Export Image row whose command is
-// `lungfish-cli bundle export-graphic` on that bundle over the window that viewer shows.
+// `lungfish-cli bundle export-graphic` on that bundle over the window that viewer shows. A recording stand-in for
+// `lungfish-cli` shows that the argv the transport ran equals the words of that row.
 
 import AppKit
 import XCTest
@@ -116,13 +117,15 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
         )
         drawing.viewerView.selectionRange = nil
 
-        // 3. Save begins an Export Image row that runs `bundle export-graphic` (QA rider).
+        // 3. Save begins an Export Image row that runs `bundle export-graphic`, and the transport runs the row's
+        //    words (QA rider and ARCH 2, one path).
         let reporter = RecordingOperationReporter()
+        let argvLog = folder.appendingPathComponent("\(kind)-argv.txt")
         let begun = try XCTUnwrap(delegate.finishViewerGraphicsExport(
             viewerController: viewer, content: listed.content, scope: .tracks, format: .png, bitmapScale: 2,
             outputURL: folder.appendingPathComponent("\(kind).png"),
-            presentAlert: { _ in }, // /usr/bin/true reports no completion, so the row fails after it began
-            runner: CLIViewerExportRunner(cliURLOverride: URL(fileURLWithPath: "/usr/bin/true")),
+            presentAlert: { _ in }, // the recording stub reports no completion, so the row fails after it began
+            runner: CLIViewerExportRunner(cliURLOverride: try makeRecordingCLI(log: argvLog)),
             reporter: reporter
         ), "\(kind): Save began no row. Pane: \(state)", file: file, line: line)
         _ = await begun.task.value
@@ -132,6 +135,10 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
         XCTAssertEqual(item.title, "Export Image", file: file, line: line)
         XCTAssertEqual(item.operationType, .export, file: file, line: line)
         let words = try AdvancedCommandLineOptions.parse(try XCTUnwrap(item.cliCommand, file: file, line: line))
+        let ran = try String(contentsOf: argvLog, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        XCTAssertEqual(ran, Array(words.dropFirst()), "\(kind): the row's command is the argv the transport ran",
+                       file: file, line: line)
         XCTAssertEqual(Array(words.prefix(3)), ["lungfish-cli", "bundle", "export-graphic"], kind, file: file, line: line)
         XCTAssertEqual(
             words.count > 3 ? URL(fileURLWithPath: words[3]).standardizedFileURL.path : nil,
@@ -171,6 +178,16 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
         let children = viewer.children.map { "\(type(of: $0))" }.joined(separator: ",")
         return "contentMode=\(viewer.contentMode) viewerView=\(shown(viewer)) currentBundleURL=\(name(viewer.currentBundleURL))"
             + " viewport=\(viewportText) children=[\(children)] embedded=\(embeddedText)"
+    }
+
+    /// A stand-in `lungfish-cli` that writes one line per argument it was run with into `log`, then exits 0 like
+    /// `/usr/bin/true` (it reports no completion, so the row fails after it began).
+    private func makeRecordingCLI(log: URL) throws -> URL {
+        let script = folder.appendingPathComponent("recording-cli-\(UUID().uuidString).sh")
+        try "#!/bin/sh\nfor argument in \"$@\"; do printf '%s\\n' \"$argument\"; done > '\(log.path)'\nexit 0\n"
+            .write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script
     }
 
     // MARK: - Fixtures
