@@ -104,8 +104,21 @@ final class MapCommandResolutionTests: XCTestCase {
         let unpaired = try await resolve([r1, r2])
         let paired = try await resolve([r1, r2], pairedEnd: true)
 
-        XCTAssertEqual(unpaired.request.inputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
+        // Without --paired the two files are one pool of single reads, joined into one file
+        // in the run's input folder (MappingPooledInputs, V7).
+        let pooled = try XCTUnwrap(unpaired.request.inputFASTQURLs.first)
+        XCTAssertEqual(unpaired.request.inputFASTQURLs.count, 1, "two inputs that --paired does not bind are one pooled file")
+        XCTAssertTrue(pooled.lastPathComponent.hasPrefix("pooled-"))
+        XCTAssertEqual(pooled.deletingLastPathComponent().standardizedFileURL, inputsDirectory.standardizedFileURL)
+        XCTAssertEqual(try String(contentsOf: pooled, encoding: .utf8), Self.fastq(["p1/1"]) + Self.fastq(["p1/2"]))
+        XCTAssertEqual(unpaired.request.originalInputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
         XCTAssertFalse(unpaired.request.pairedEnd, "two separate inputs are bound by --paired, not by their names")
+        XCTAssertEqual(unpaired.layoutResolution.layout, .singleEnd)
+        XCTAssertEqual(unpaired.layoutResolution.source, .pooledFiles)
+
+        // With --paired the same two files reach the mapper as R1 and R2 and are never joined.
+        XCTAssertEqual(paired.request.inputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
+        XCTAssertEqual(paired.request.originalInputFASTQURLs, [r1.standardizedFileURL, r2.standardizedFileURL])
         XCTAssertTrue(paired.request.pairedEnd)
         XCTAssertEqual(paired.layoutResolution.layout, .pairedFiles)
     }
