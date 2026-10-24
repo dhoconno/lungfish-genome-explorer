@@ -53,8 +53,8 @@ enum ExecutorSpawn {
     }
 
     /// Sets `FD_CLOEXEC` on every descriptor from 3 up that this process has open, and returns how many it marked.
-    /// The first `spawn` of each `StepController` makes this call under the spawn lock, so a command does not make it at
-    /// start. Tests may call it directly.
+    /// The first spawn of each `StepController` makes this call, under the spawn lock, before its pipe or child exists
+    /// (`StepController.State.spawnToken()`). Tests may call it directly.
     @discardableResult
     static func markInheritedDescriptorsCloseOnExec() -> Int {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: descriptorFolder)) ?? []
@@ -143,8 +143,7 @@ enum ExecutorSpawn {
     /// Starts `executable` as the leader of its own process group, with an empty signal mask, default dispositions for
     /// `defaultedSignals`, the three descriptors given as 0, 1 and 2 and exactly `environment`. No PATH lookup is made.
     /// A `workingDirectory` is set by the spawn's file actions, never by a process-wide `chdir` (SWIFT ruling N8).
-    /// The `lock` proves the caller holds the spawn lock. The first one a controller makes also has this spawn mark the
-    /// inherited descriptors close-on-exec before the `posix_spawn`, under that lock.
+    /// The `lock` proves the caller holds the spawn lock.
     static func spawn(
         executable: String,
         arguments: [String],
@@ -155,9 +154,6 @@ enum ExecutorSpawn {
         lock: SpawnLockToken,
         workingDirectory: String? = nil
     ) throws(Failure) -> pid_t {
-        if lock.marksInheritedDescriptors {
-            markInheritedDescriptorsCloseOnExec()
-        }
         #if os(Linux)
         var attributes = posix_spawnattr_t()
         var actions = posix_spawn_file_actions_t()

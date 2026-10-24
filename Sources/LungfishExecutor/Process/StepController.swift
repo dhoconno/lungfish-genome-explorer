@@ -58,17 +58,15 @@ struct StepResult: Sendable {
 }
 
 /// The proof, in the type system, that the caller holds the one spawn lock (QK2). `ExecutorSpawn.spawn` and
-/// `ExecutorSpawn.openPipe` take one, so a call from any other place does not compile. The initializer is `fileprivate`
-/// to this file, and only `StepController.State.spawnToken()` calls it, which only a closure of `state.withLock` can
-/// reach, so a token is made while the lock is held.
+/// `ExecutorSpawn.openPipe` take one, so a call from any other place does not compile. The only initializer is
+/// `fileprivate` and the only stored property is `private`, so no other file can make a token, not even with an
+/// initializer in an extension, which would have to set that property. Only `StepController.State.spawnToken()` makes
+/// one, and a `State` is reachable only inside a closure of `state.withLock`, so a token is made while the lock is held.
 struct SpawnLockToken {
-    /// True on the first token a controller makes. The spawn that receives it marks every descriptor the process
-    /// inherited close-on-exec before `posix_spawn`. That is the sweep that `run`, `step` and `read-fastq` once made at
-    /// start, outside the lock.
-    let marksInheritedDescriptors: Bool
+    private let sealed: Bool
 
-    fileprivate init(marksInheritedDescriptors: Bool) {
-        self.marksInheritedDescriptors = marksInheritedDescriptors
+    fileprivate init() {
+        sealed = true
     }
 }
 
@@ -84,7 +82,7 @@ struct SpawnLockToken {
 ///
 /// `spawnTracked` and `spawnTrackedReadingStdout` are the only places that make a `SpawnLockToken`, each inside the lock,
 /// so they are the only callers of `ExecutorSpawn.spawn` and `ExecutorSpawn.openPipe`. The first token of a controller
-/// tells its spawn to mark the inherited descriptors close-on-exec, so no command sweeps before the controller exists.
+/// marks the inherited descriptors close-on-exec before its spawn or pipe exists, so no command sweeps at start.
 final class StepController: Sendable {
     private struct State {
         var tracked: Set<pid_t> = []
@@ -94,11 +92,16 @@ final class StepController: Sendable {
         var inheritedDescriptorsMarked = false
 
         /// The token for one spawn. A `State` is reachable only inside `state.withLock`, so a token comes only from
-        /// there. The first one asks its spawn for the start-up sweep and the later ones do not.
+        /// there. The first call of a controller marks every descriptor the process inherited close-on-exec, before
+        /// the spawn or its pipe exists. That is the descriptor sweep that `run`, `step` and `read-fastq` once made at
+        /// start, outside the lock. It is made here and not in `ExecutorSpawn.spawn`, because `openPipe` runs between
+        /// the token and the spawn and may throw.
         mutating func spawnToken() -> SpawnLockToken {
-            let first = !inheritedDescriptorsMarked
-            inheritedDescriptorsMarked = true
-            return SpawnLockToken(marksInheritedDescriptors: first)
+            if !inheritedDescriptorsMarked {
+                ExecutorSpawn.markInheritedDescriptorsCloseOnExec()
+                inheritedDescriptorsMarked = true
+            }
+            return SpawnLockToken()
         }
     }
 

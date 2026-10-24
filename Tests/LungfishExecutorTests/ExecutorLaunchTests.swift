@@ -35,6 +35,73 @@ final class ExecutorLaunchTests: XCTestCase {
         XCTAssertEqual(Support.text("\(folder)/tool.out").trimmingCharacters(in: .newlines), "0 1 2")
     }
 
+    func testFirstSpawnOfAControllerMarksInheritedDescriptorsOnce() throws {
+        // The first spawn of a controller marks every descriptor the process inherited close-on-exec, before the
+        // child exists, and a later spawn of the same controller does not sweep again. A new controller stands for
+        // a new command.
+        let controller = StepController()
+        let stdin = try ExecutorSpawn.openNullForReading()
+        let stdout = try ExecutorSpawn.openNullForWriting()
+        let stderr = try ExecutorSpawn.openNullForWriting()
+        defer {
+            close(stdin)
+            close(stdout)
+            close(stderr)
+        }
+        let early = open("/dev/null", O_RDONLY)
+        XCTAssertGreaterThanOrEqual(early, 3)
+        defer { close(early) }
+        XCTAssertEqual(fcntl(early, F_GETFD) & FD_CLOEXEC, 0, "the descriptor starts without close-on-exec")
+
+        let first = try controller.spawnTracked(
+            executable: "/bin/echo", arguments: ["first"], environment: [:], stdin: stdin, stdout: stdout, stderr: stderr
+        )
+        XCTAssertEqual(Support.waitForExit(first, timeout: 30)?.termination, .exited(code: 0))
+        XCTAssertNotEqual(fcntl(early, F_GETFD) & FD_CLOEXEC, 0, "the first spawn marks an inherited descriptor")
+
+        let late = open("/dev/null", O_RDONLY)
+        XCTAssertGreaterThanOrEqual(late, 3)
+        defer { close(late) }
+        let second = try controller.spawnTracked(
+            executable: "/bin/echo", arguments: ["second"], environment: [:], stdin: stdin, stdout: stdout, stderr: stderr
+        )
+        XCTAssertEqual(Support.waitForExit(second, timeout: 30)?.termination, .exited(code: 0))
+        XCTAssertEqual(fcntl(late, F_GETFD) & FD_CLOEXEC, 0, "a later spawn of the same controller does not sweep again")
+    }
+
+    func testFirstReaderSpawnOfAControllerMarksInheritedDescriptorsOnce() throws {
+        // The same two properties through the reader's spawn, where the pipe is made after the token and before the
+        // spawn, so the sweep has to run before the pipe and not in the spawn.
+        let controller = StepController()
+        let stdin = try ExecutorSpawn.openNullForReading()
+        let stderr = try ExecutorSpawn.openNullForWriting()
+        defer {
+            close(stdin)
+            close(stderr)
+        }
+        let early = open("/dev/null", O_RDONLY)
+        XCTAssertGreaterThanOrEqual(early, 3)
+        defer { close(early) }
+        XCTAssertEqual(fcntl(early, F_GETFD) & FD_CLOEXEC, 0, "the descriptor starts without close-on-exec")
+
+        let first = try controller.spawnTrackedReadingStdout(
+            executable: "/bin/echo", arguments: ["first"], environment: [:], stdin: stdin, stderr: stderr
+        )
+        defer { close(first.stdout) }
+        XCTAssertEqual(Support.waitForExit(first.pid, timeout: 30)?.termination, .exited(code: 0))
+        XCTAssertNotEqual(fcntl(early, F_GETFD) & FD_CLOEXEC, 0, "the first spawn marks an inherited descriptor")
+
+        let late = open("/dev/null", O_RDONLY)
+        XCTAssertGreaterThanOrEqual(late, 3)
+        defer { close(late) }
+        let second = try controller.spawnTrackedReadingStdout(
+            executable: "/bin/echo", arguments: ["second"], environment: [:], stdin: stdin, stderr: stderr
+        )
+        defer { close(second.stdout) }
+        XCTAssertEqual(Support.waitForExit(second.pid, timeout: 30)?.termination, .exited(code: 0))
+        XCTAssertEqual(fcntl(late, F_GETFD) & FD_CLOEXEC, 0, "a later spawn of the same controller does not sweep again")
+    }
+
     func testChildStdinReadsEndOfFile() throws {
         let folder = try Support.scratchFolder()
         let (exit, record) = try Support.runStep(folder: folder, timeout: 20, ["/bin/cat"])
