@@ -4,6 +4,7 @@
 //
 // The template's rendered text is its output. These tests read that text line by line, as condor_submit reads it.
 
+import LungfishPortable
 import XCTest
 @testable import LungfishWorkflow
 
@@ -12,7 +13,7 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
     static let executorDigest = String(repeating: "ab", count: 32)
     static let indexDigest = String(repeating: "cd", count: 32)
 
-    static func input(heapBytes: Int64 = 4 << 30) -> HTCondorSubmitTemplateInput {
+    static func input(heapBytes: Int64 = 4 << 30, reports: [String] = []) -> HTCondorSubmitTemplateInput {
         HTCondorSubmitTemplateInput(
             containerImageURL: "\(staging)/images/lge-c0-tools-c42530259944.sif",
             executor: HTCondorStagedFile(
@@ -28,7 +29,8 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
             heapBytes: heapBytes,
             requestCpus: 1,
             payloadRelativePath: "out/sample.fastq.gz",
-            payloadStagingFolderURL: "\(staging)/h"
+            payloadStagingFolderURL: "\(staging)/h",
+            reportRelativePaths: reports
         )
     }
 
@@ -222,5 +224,70 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         XCTAssertThrowsError(try HTCondorSubmitTemplate.render(twice)) { error in
             XCTAssertEqual(error as? HTCondorSubmitError, .duplicate(field: "shared file transfer", name: "\(Self.indexDigest).idx"))
         }
+    }
+
+    /// ARCH Optional 1 and SWIFT Fix 2 of the lane V review set 2. The run record names each report the plan writes
+    /// under `work/`, and the adopt reads it in the sample's returned folder, so the job returns each report there, at its
+    /// `work/` path, and nothing else under `work/`. HTCondor names a returned file after the last component of the
+    /// path it was listed by, so each report has a remap that puts it back under `work/`.
+    func testEachPlanReportComesHomeAtItsWorkPathAndNothingElseUnderWorkDoes() throws {
+        let reports = ["work/sample_fused_fastp_report.json", "work/sample_deacon_summary.json"]
+        let text = try HTCondorSubmitTemplate.render(Self.input(reports: reports))
+        XCTAssertEqual(
+            try value(of: "transfer_output_files", in: text),
+            "plan/run-record.json, plan/logs, plan/out/sample.fastq.gz, "
+                + "plan/work/sample_fused_fastp_report.json, plan/work/sample_deacon_summary.json"
+        )
+        XCTAssertEqual(
+            try value(of: "transfer_output_remaps", in: text),
+            "\"sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz; "
+                + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
+                + "sample_deacon_summary.json = work/sample_deacon_summary.json\""
+        )
+        // The work folder holds the large intermediates, so it is never listed, and only the named reports come from it.
+        let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
+        XCTAssertFalse(files.contains("plan/work"))
+        XCTAssertEqual(files.filter { $0.hasPrefix("plan/work") }, reports.map { "plan/" + $0 })
+    }
+
+    func testTemplateRefusesReportsThatLeaveWorkOrShareAReturnedName() {
+        func refusal(_ reports: [String]) -> HTCondorSubmitError? {
+            do {
+                _ = try HTCondorSubmitTemplate.render(Self.input(reports: reports))
+                return nil
+            } catch {
+                return error as? HTCondorSubmitError
+            }
+        }
+        let notUnderWork = HTCondorSubmitError.invalidValue(field: "report path", rule: "is not a path under work/.")
+        XCTAssertEqual(refusal(["out/sample_report.json"]), notUnderWork)
+        XCTAssertEqual(refusal(["work"]), notUnderWork)
+        XCTAssertNotNil(refusal(["work/../out/r.json"]), "a dot component leaves the work folder")
+        XCTAssertNotNil(refusal(["work/sample report.json"]), "a space would split the remap")
+        // HTCondor names a returned file after the last component of its path, so two reports, a report and the record,
+        // or a report and the payload that share one would overwrite each other.
+        XCTAssertEqual(refusal(["work/a/r.json", "work/b/r.json"]), .duplicate(field: "returned file", name: "r.json"))
+        XCTAssertEqual(refusal(["work/r.json", "work/r.json"]), .duplicate(field: "returned file", name: "r.json"))
+        XCTAssertEqual(refusal(["work/run-record.json"]), .duplicate(field: "returned file", name: "run-record.json"))
+        XCTAssertEqual(refusal(["work/sample.fastq.gz"]), .duplicate(field: "returned file", name: "sample.fastq.gz"))
+        XCTAssertNil(refusal(["work/r.json", "work/s.json"]))
+    }
+
+    /// The plan's reports are the outputs of its recipe steps that no step reads, in the plan's order, which is the
+    /// rule the adopt applies to the run record (`ExecutorRunAdoption.recordedReports`).
+    func testReportsAreTheRecipeOutputsNoStepReads() {
+        func step(_ id: String, _ kind: PlanStepKind, inputs: [String], outputs: [String]) -> PlanStep {
+            PlanStep(id: id, title: id, kind: kind, tool: nil, arguments: [], deadlineSeconds: 1, inputs: inputs, outputs: outputs)
+        }
+        let steps = [
+            step("recipe-1", .recipe, inputs: ["inputs/R1.fastq"], outputs: ["work/sample_fused.fastq", "work/sample_fused_fastp_report.json"]),
+            step("recipe-2", .recipe, inputs: ["work/sample_fused.fastq"], outputs: ["work/sample_deacon.fastq", "work/sample_deacon_summary.json"]),
+            step("storage", .storage, inputs: ["work/sample_deacon.fastq"], outputs: ["out/sample.fastq.gz"]),
+        ]
+        XCTAssertEqual(
+            HTCondorSubmitTemplate.reportRelativePaths(of: steps),
+            ["work/sample_fused_fastp_report.json", "work/sample_deacon_summary.json"]
+        )
+        XCTAssertEqual(HTCondorSubmitTemplate.reportRelativePaths(of: [steps[2]]), [], "a storage step's payload is no report")
     }
 }

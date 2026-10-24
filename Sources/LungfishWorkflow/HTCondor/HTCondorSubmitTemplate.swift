@@ -73,6 +73,11 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
     /// The staging folder that receives each sample's payload under `<sample>/<payload path>`, so the payload never
     /// reaches the home submit folder (CHTC-c4r2 4.6).
     public var payloadStagingFolderURL: String
+    /// The plan's reports, each a plan path under `work/` such as `work/sample_fused_fastp_report.json`: the recipe
+    /// outputs that no later step reads (``HTCondorSubmitTemplate/reportRelativePaths(of:)``). Each one comes home to
+    /// the sample's folder at the same path, since the adopt reads it there (``HTCondorSubmitTemplate/render(_:)``).
+    /// Nothing else under `work/` comes home. A recipe with no report passes `[]`.
+    public var reportRelativePaths: [String]
 
     public init(
         containerImageURL: String,
@@ -81,7 +86,8 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
         heapBytes: Int64,
         requestCpus: Int,
         payloadRelativePath: String,
-        payloadStagingFolderURL: String
+        payloadStagingFolderURL: String,
+        reportRelativePaths: [String]
     ) {
         self.containerImageURL = containerImageURL
         self.executor = executor
@@ -90,6 +96,7 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
         self.requestCpus = requestCpus
         self.payloadRelativePath = payloadRelativePath
         self.payloadStagingFolderURL = payloadStagingFolderURL
+        self.reportRelativePaths = reportRelativePaths
     }
 }
 
@@ -187,6 +194,15 @@ public enum HTCondorSubmitTemplate {
         return request
     }
 
+    /// The plan's reports: the outputs of its recipe steps that no step of the plan reads, in the plan's order, such as
+    /// `work/sample_fused_fastp_report.json`. This is the rule the adopt applies to the run record's outputs
+    /// (`ExecutorRunAdoption.recordedReports`), so a job returns exactly the files the adopt looks for. The batch writer
+    /// passes the result as ``HTCondorSubmitTemplateInput/reportRelativePaths``.
+    package static func reportRelativePaths(of steps: [PlanStep]) -> [String] {
+        let read = Set(steps.flatMap(\.inputs))
+        return steps.filter { $0.kind == .recipe }.flatMap(\.outputs).filter { !read.contains($0) }
+    }
+
     /// The `sample.sub` text.
     ///
     /// The DAG runs it with `initialdir` at the sample's own plan folder, named by the sample, so the run record and the
@@ -208,8 +224,15 @@ public enum HTCondorSubmitTemplate {
         let inputs = ["$(\(inputsVariable))"] + shared.map(\.url)
         let plan = planFolderName
         let payloadName = input.payloadRelativePath.split(separator: "/").last.map(String.init) ?? ""
+        // The adopt reads each report in the returned folder at its `work/` path (`ExecutorRunAdoption.recordedReports`), so
+        // the job returns each one and never the work folder, which holds the large intermediates. HTCondor names a
+        // returned file after the last component of the path it was listed by, so a remap puts each report back.
+        try HTCondorValueRules.checkReports(input.reportRelativePaths, payloadRelativePath: input.payloadRelativePath)
+        let reports = input.reportRelativePaths
         let outputs = ["\(plan)/run-record.json", "\(plan)/logs", "\(plan)/\(input.payloadRelativePath)"]
-        let payloadURL = "\(input.payloadStagingFolderURL)/\(sample)/\(input.payloadRelativePath)"
+            + reports.map { "\(plan)/\($0)" }
+        let remaps = ["\(payloadName) = \(input.payloadStagingFolderURL)/\(sample)/\(input.payloadRelativePath)"]
+            + reports.map { "\(HTCondorValueRules.lastComponent($0)) = \($0)" }
 
         let lines = [
             "# \(fileName) - written by Lungfish for one recipe of a CHTC batch. run.dag gives each job its sample's",
@@ -224,7 +247,7 @@ public enum HTCondorSubmitTemplate {
             "when_to_transfer_output = ON_EXIT",
             "transfer_input_files = \(inputs.joined(separator: ", "))",
             "transfer_output_files = \(outputs.joined(separator: ", "))",
-            "transfer_output_remaps = \"\(payloadName) = \(payloadURL)\"",
+            "transfer_output_remaps = \"\(remaps.joined(separator: "; "))\"",
             "requirements = \(requirements)",
             "request_cpus = \(input.requestCpus)",
             "request_memory = \(memoryMiB)MB",
@@ -264,6 +287,28 @@ enum HTCondorValueRules {
         return name.unicodeScalars.allSatisfy { scalar in
             ("A"..."Z").contains(scalar) || ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar)
                 || scalar == "_" || scalar == "." || scalar == "-"
+        }
+    }
+
+    /// The last component of a relative path, the name HTCondor gives a returned file listed by that path.
+    static func lastComponent(_ path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? ""
+    }
+
+    /// Each report is a path of names under `work/`, and no two returned files share a last component: HTCondor names a
+    /// returned file after the last component of the path it was listed by, and only then applies the remap, so two with
+    /// one name would overwrite each other. The record, the logs folder and the payload are returned beside the reports.
+    static func checkReports(_ reports: [String], payloadRelativePath: String) throws {
+        var names: Set<String> = ["run-record.json", "logs", lastComponent(payloadRelativePath)]
+        for report in reports {
+            try checkRelativePath(report, field: "report path")
+            guard report.hasPrefix("work/") else {
+                throw HTCondorSubmitError.invalidValue(field: "report path", rule: "is not a path under work/.")
+            }
+            let name = lastComponent(report)
+            guard names.insert(name).inserted else {
+                throw HTCondorSubmitError.duplicate(field: "returned file", name: name)
+            }
         }
     }
 
