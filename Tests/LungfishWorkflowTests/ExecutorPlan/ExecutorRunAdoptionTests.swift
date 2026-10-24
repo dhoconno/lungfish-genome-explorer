@@ -277,6 +277,9 @@ final class ExecutorRunAdoptionTests: XCTestCase {
             for key in ["threadsSource", "clumpifyHeapSource", "resolvedClumpingToolSource", "qualityBinningSource"] {
                 XCTAssertEqual(resolved[key], .string("plan"), "\(label) \(key)")
             }
+            // Clumpify ran, so the record states the heap the plan pinned, as the Mac's record states the heap that ran.
+            XCTAssertEqual(resolved["clumpifyHeapGB"], .integer(returned.plan.storage.clumpifyHeapGB), label)
+            XCTAssertEqual(resolved["clumpingHeapBytes"], .integer(returned.plan.storage.clumpifyHeapGB * 1_073_741_824), label)
             XCTAssertEqual(resolved["requestedClumpingTool"], .string(clumping.rawValue), label)
             XCTAssertEqual(resolved["resolvedClumpingTool"], .string("bbtools"), label)
             XCTAssertEqual(resolved["clumpingResolutionReason"], .string(returned.plan.clumping.reason), label)
@@ -386,5 +389,29 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         let envelope = try envelope(bundle)
         XCTAssertEqual(envelope.argv, command)
         XCTAssertEqual(envelope.steps.last?.argv, command)
+    }
+
+    /// BIO 4: a plan that ran no clumpify has no heap to state. The adopted record holds the Mac's own nulls for the heap
+    /// that ran, keeps the heap the plan pinned in `clumpingPlanHeapBytes`, and still names the plan as the source of
+    /// the threads, the clumping tool and the binning.
+    func testAdoptedRecordOfPlanWithoutClumpifyNullsHeapKeys() async throws {
+        for clumping in [ClumpingTool.none, .trimGalore] {
+            let returned = try returned(clumping)
+            let label = clumping.rawValue
+            XCTAssertFalse(returned.record.steps.contains { $0.storage?.clumpingRan == true }, label)
+            let projectFolder = root.appendingPathComponent("Project-\(label).lungfish", isDirectory: true)
+            let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: projectFolder)
+            let resolved = try envelope(bundle).options.resolvedDefaults
+            for key in [
+                "clumpifyHeapSource", "clumpifyHeapGB", "clumpingHeapBytes",
+                "clumpingEstimatedInputBytes", "clumpingPhysicalMemoryBytes", "clumpingThresholdBytes",
+            ] {
+                XCTAssertEqual(resolved[key], .null, "\(label) \(key)")
+            }
+            XCTAssertEqual(resolved["clumpingPlanHeapBytes"], .integer(Int(returned.plan.clumping.heapBytes)), label)
+            for key in ["threadsSource", "resolvedClumpingToolSource", "qualityBinningSource"] {
+                XCTAssertEqual(resolved[key], .string("plan"), "\(label) \(key)")
+            }
+        }
     }
 }
