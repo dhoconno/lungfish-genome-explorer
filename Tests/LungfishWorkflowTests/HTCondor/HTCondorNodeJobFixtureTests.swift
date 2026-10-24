@@ -38,5 +38,12 @@ final class HTCondorNodeJobFixtureTests: XCTestCase {
         XCTAssertEqual(log.state, .ended(.exited(returnValue: 0)))
         XCTAssertEqual(log.host, "e4004.chtc.wisc.edu")
         XCTAssertTrue(facts.contains { $0.fact == "ClusterId=\(log.job.cluster)" })
+
+        // Cpus, Memory and Disk are the dynamic slot's: the 005 event's Allocated column names the same numbers.
+        for name in ["Cpus", "Memory", "Disk"] {
+            let allocated = try XCTUnwrap(log.resource(name)?.allocated, "the 005 table has an Allocated value for \(name)")
+            XCTAssertEqual(facts.first { $0.fact.hasPrefix("\(name)=") }?.fact, "\(name)=\(Int(allocated))")
+        }
+        XCTAssertTrue(facts.contains { $0.fact == "ProcId=\(log.job.process)" })
     }
 }
