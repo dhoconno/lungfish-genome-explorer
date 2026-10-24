@@ -53,7 +53,7 @@ final class PopUpMirrorInDrawerTests: XCTestCase {
     /// `NSButton`, a pop-up and a pull-down each reach the server as their
     /// cell, so all three must list their actions once and run them.
     func testMirroredButtonPopUpAndPullDownAreListedOnceAndPerformableThroughTheAXServer() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let drawer = makeVariantDrawer()
         let window = hostVariantDrawer(drawer)
         defer { window.close() }

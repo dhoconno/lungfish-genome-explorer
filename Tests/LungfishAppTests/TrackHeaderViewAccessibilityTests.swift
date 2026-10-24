@@ -141,7 +141,7 @@ final class TrackHeaderViewAccessibilityTests: XCTestCase {
     /// The disclosure triangles through the real AX server: listed under the
     /// "Track headers" group, valued 0 or 1, and pressable with `AXPress`.
     func testDisclosureTrianglesAreReachableThroughTheAXServer() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let (_, spy, window) = try makeHeader()
         window.orderFront(nil)
         defer { window.close() }

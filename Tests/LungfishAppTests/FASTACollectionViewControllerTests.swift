@@ -455,7 +455,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
     }
 
     func testRowActionsReachAnOutOfProcessAXClient() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let (vc, window) = try makeHostedController()
         window.orderFront(nil)
         defer { window.close() }

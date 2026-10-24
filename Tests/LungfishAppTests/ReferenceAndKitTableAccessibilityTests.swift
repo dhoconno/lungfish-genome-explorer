@@ -54,7 +54,7 @@ final class ReferenceAndKitTableAccessibilityTests: XCTestCase {
     /// like an out-of-process client: the row's actions are listed once and
     /// performing one on an unselected row acts on that row alone.
     func testRecordRowActionsReachAnOutOfProcessAXClient() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let (table, window) = makeRecordTable()
         window.orderFront(nil)
         defer { window.close() }

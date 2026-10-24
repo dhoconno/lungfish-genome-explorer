@@ -1700,7 +1700,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
     }
 
     func testRowActionsReachAnOutOfProcessAXClient() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let (table, tree, window) = makeHostedTable()
         window.orderFront(nil)
         defer { window.close() }

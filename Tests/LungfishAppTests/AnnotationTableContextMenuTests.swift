@@ -1144,7 +1144,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
     /// than the Swift getters: the listed names and the performed action are
     /// what an out-of-process client gets.
     func testDrawerRowActionsReachAnOutOfProcessAXClient() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let drawer = try createDrawerWithDatabase(lines: [
             "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
             "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b",

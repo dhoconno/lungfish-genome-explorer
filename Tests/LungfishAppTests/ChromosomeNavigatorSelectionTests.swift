@@ -221,7 +221,7 @@ final class ChromosomeNavigatorSelectionTests: XCTestCase {
 
     /// Row actions and the Sort pop-up through the real AX server.
     func testRowActionsAndSortPopUpReachAnOutOfProcessAXClient() throws {
-        try XCTSkipUnless(AXProcessProbe.isAvailable, "process is not trusted for accessibility")
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
         let (navigator, window) = makeNavigatorInWindow()
         window.orderFront(nil)
         defer { window.close() }

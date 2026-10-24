@@ -17,12 +17,30 @@ import XCTest
 /// means an out-of-process client sees and can run the action.
 ///
 /// A request to the process's own pid is answered on the calling thread, so
-/// the calls run on the main thread. The process must be trusted for accessibility (`isAvailable`);
-/// tests skip rather than fake a result when it is not. Windows must be
-/// ordered front to appear in the application's window list.
+/// the calls run on the main thread. The process must be trusted for accessibility
+/// and the login session must be unlocked (`isAvailable`). Tests skip rather than
+/// fake a result when it is not. Windows must be ordered front to appear in the
+/// application's window list.
 @MainActor
 public enum AXProcessProbe {
-    public static var isAvailable: Bool { AXIsProcessTrusted() }
+    /// True when the process is trusted for accessibility and the login session is not locked.
+    public static var isAvailable: Bool { unavailableReason == nil }
+
+    /// Why the probe cannot answer now, or nil when it can. Tests pass this as their skip message.
+    public static var unavailableReason: String? {
+        unavailableReason(trusted: AXIsProcessTrusted(), session: CGSessionCopyCurrentDictionary() as? [String: Any])
+    }
+
+    /// The decision on its own, so a test can hand it a trusted process and a locked session.
+    /// `CGSSessionScreenIsLocked` is not in the public headers. The key is present and true
+    /// while the screen is locked. A missing dictionary is an unknown state and is not read as a lock.
+    nonisolated public static func unavailableReason(trusted: Bool, session: [String: Any]?) -> String? {
+        if !trusted { return "process is not trusted for accessibility" }
+        if (session?["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue == true {
+            return "the login session is locked (CGSSessionScreenIsLocked), so the out-of-process AX check does not run"
+        }
+        return nil
+    }
 
     /// Matches an element by role and by any of its title, description,
     /// identifier or help text.
