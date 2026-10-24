@@ -124,8 +124,47 @@ def check_metadata(app: Path, contract) -> tuple[Path, str]:
     return cli, version
 
 
-def check_app(app: Path, contract, runner=subprocess.run):
+LINUX_EXECUTOR_FOLDER = Path('Contents/Resources/LinuxExecutor')
+LINUX_EXECUTOR_ARCH = 'x86_64'
+LINUX_EXECUTOR_FILES = frozenset({'lungfish-executor', 'manifest.json'})
+
+
+def check_linux_executor(app: Path, *, present: bool = True) -> dict | None:
+    """Check the one state the Debug build chose: the executor folder present and valid, or the folder absent.
+
+    A Debug app built with the executor holds Contents/Resources/LinuxExecutor/x86_64/ with exactly a regular
+    lungfish-executor and its manifest.json, whose SHA-256 and size equal the file's (QA-parity-4, condition 2). A Debug
+    app built with --without-linux-executor holds no LinuxExecutor folder at all, so a folder an earlier build left in
+    the app path fails too (condition 3). It returns the manifest when the folder is present.
+    """
+    folder = app / LINUX_EXECUTOR_FOLDER
+    if not present:
+        if folder.exists() or folder.is_symlink():
+            raise DebugArtifactError('Debug app built with --without-linux-executor holds ' + LINUX_EXECUTOR_FOLDER.as_posix())
+        return None
+    if folder.is_symlink() or not folder.is_dir():
+        raise DebugArtifactError('Debug app lacks ' + LINUX_EXECUTOR_FOLDER.as_posix()
+                                 + '; build it with the pinned Linux toolchain or pass --without-linux-executor')
+    architecture = folder / LINUX_EXECUTOR_ARCH
+    if sorted(entry.name for entry in folder.iterdir()) != [LINUX_EXECUTOR_ARCH] or architecture.is_symlink() \
+            or not architecture.is_dir():
+        raise DebugArtifactError(LINUX_EXECUTOR_FOLDER.as_posix() + ' must hold exactly a ' + LINUX_EXECUTOR_ARCH + ' folder')
+    if set(entry.name for entry in architecture.iterdir()) != LINUX_EXECUTOR_FILES:
+        raise DebugArtifactError((LINUX_EXECUTOR_FOLDER / LINUX_EXECUTOR_ARCH).as_posix()
+                                 + ' must hold exactly lungfish-executor and manifest.json')
+    try:
+        from linux_executor import ExecutorBuildError, read_folder
+    except ModuleNotFoundError:
+        from scripts.release.linux_executor import ExecutorBuildError, read_folder
+    try:
+        return read_folder(architecture)
+    except ExecutorBuildError as error:
+        raise DebugArtifactError('Debug app Linux executor: ' + str(error)) from error
+
+
+def check_app(app: Path, contract, runner=subprocess.run, *, linux_executor: bool = True):
     cli, version = check_metadata(app, contract)
+    check_linux_executor(app, present=linux_executor)
     with tempfile.TemporaryDirectory(prefix='lungfish-debug-check-') as directory:
         root = Path(directory)
         for name in ('home', 'tmp', 'storage'):
@@ -148,6 +187,8 @@ def main(argv=None):
     parser.add_argument('operation', choices=('prepare-identity', 'apply-identity', 'check'))
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--app', type=Path)
+    parser.add_argument('--without-linux-executor', action='store_true',
+                        help='check that the app holds no Contents/Resources/LinuxExecutor folder')
     args = parser.parse_args(argv)
     try:
         contract = load_contract(args.root / 'config/release-contract.json')
@@ -160,7 +201,7 @@ def main(argv=None):
             if args.operation == 'apply-identity':
                 apply_app_identity(app, contract, 'debug')
             else:
-                check_app(app, contract)
+                check_app(app, contract, linux_executor=not args.without_linux_executor)
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         parser.exit(1, 'Debug artifact: ' + str(error) + '\n')
     return 0

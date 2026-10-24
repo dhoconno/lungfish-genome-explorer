@@ -2741,6 +2741,168 @@ class DebugPlanTests(unittest.TestCase):
         self.assertEqual(app, ROOT / "build/Debug/Lungfish Debug.app")
 
 
+class DebugLinuxExecutorTests(unittest.TestCase):
+    """release.py debug and the app's Linux executor (QA's ruling QA-parity-4). The toolchain check runs against a
+    temporary home folder, and stand-ins replace the build function and build-app.sh, so nothing compiles."""
+
+    COMMIT = "a" * 40
+    PAYLOAD = b"\x7fELF\x02\x01\x01\x00/workspace/Sources/x.swift\x00/swiftpm-build/checkouts/y.cc\x00"
+
+    def setUp(self):
+        self.release = load_module()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name).resolve()
+        self.root, self.home = base / "checkout", base / "home"
+        for relative in ("config/release-contract.json", "scripts/linux/toolchain.json"):
+            (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, self.root / relative)
+        self.home.mkdir()
+        self.pins = json.loads((ROOT / "scripts/linux/toolchain.json").read_text(encoding="utf-8"))
+        self.stage = self.root / "build/linux-executor/debug-stage"
+        self.app = self.release.debug_plan(self.root)[1]
+        self.events = []
+
+    def install_toolchain(self, listed_sdk):
+        """The pinned toolchain's swift and llvm-objcopy, whose `swift sdk list` prints one SDK id."""
+        tools = self.home / "Library/Developer/Toolchains" / f"{self.pins['toolchain']['name']}.xctoolchain/usr/bin"
+        tools.mkdir(parents=True)
+        for name in ("swift", "llvm-objcopy"):
+            (tools / name).write_text(f"#!/bin/sh\necho {listed_sdk}\n")
+            (tools / name).chmod(0o755)
+
+    def write_folder(self, folder, payload, commit):
+        folder.mkdir(parents=True)
+        (folder / "lungfish-executor").write_bytes(payload)
+        manifest = {"schemaVersion": 1, "relativePath": "lungfish-executor",
+                    "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload), "lgeVersion": "2026.10.24",
+                    "lgeCommit": commit, "targetTriple": "x86_64-swift-linux-musl",
+                    "toolchainID": self.pins["toolchain"]["name"], "toolchainSHA256": self.pins["toolchain"]["sha256"],
+                    "staticLinuxSDKID": self.pins["staticSDK"]["id"],
+                    "staticLinuxSDKSHA256": self.pins["staticSDK"]["sha256"]}
+        (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        return manifest
+
+    def fake_build(self, root, output, *, lge_version, lge_commit, environment):
+        self.events.append(("build", output, lge_version, lge_commit))
+        return self.write_folder(output / "LinuxExecutor/x86_64", self.PAYLOAD, lge_commit)
+
+    def place_stage(self):
+        """What build-app.sh does with the stage: copy its LinuxExecutor folder into the app."""
+        (self.app / "Contents/Resources").mkdir(parents=True)
+        shutil.copytree(self.stage / "LinuxExecutor", self.app / "Contents/Resources/LinuxExecutor")
+
+    def patches(self, place=None):
+        events, real = self.events, self.release.missing_linux_executor_pins
+
+        class Runner:
+            def __init__(self, _root, environment):
+                self.environment = environment
+
+            def run(self, command):
+                events.append(("run", command))
+                if place is not None:
+                    place()
+
+        stack = contextlib.ExitStack()
+        for name, value in (
+            ("resolve_developer_dir", mock.Mock(return_value=Path("/Applications/Xcode.app/Contents/Developer"))),
+            ("SubprocessRunner", Runner),
+            ("missing_linux_executor_pins", lambda root, environment: real(root, environment=environment,
+                                                                            home=self.home)),
+            ("_head_commit", mock.Mock(return_value=self.COMMIT)),
+            ("release_version", mock.Mock(return_value="2026.10.24")),
+            ("build_linux_executor_stage", self.fake_build),
+        ):
+            stack.enter_context(mock.patch.object(self.release, name, value))
+        return stack
+
+    def run_debug(self, place=None, **options):
+        with self.patches(place), contextlib.redirect_stdout(io.StringIO()) as output:
+            status = self.release.run_debug(self.root, **options)
+        return status, output.getvalue()
+
+    def test_debug_stops_naming_missing_toolchain_and_option(self):
+        toolchain, sdk = self.pins["toolchain"]["name"], self.pins["staticSDK"]["id"]
+        with self.assertRaises(self.release.ReleaseError) as stopped:
+            self.run_debug(place=lambda: self.fail("no build command runs"))
+        message = str(stopped.exception)
+        self.assertIn(f"lacks the toolchain {toolchain} and the Static Linux SDK {sdk}.", message)
+        self.assertIn("--without-linux-executor", message)
+        self.assertEqual(self.events, [], "no build command ran")
+        self.assertFalse((self.root / "build").exists(), "nothing was built or staged")
+
+        self.install_toolchain("another-sdk")
+        with self.assertRaises(self.release.ReleaseError) as stopped:
+            self.run_debug(place=lambda: self.fail("no build command runs"))
+        message = str(stopped.exception)
+        self.assertIn(f"lacks the Static Linux SDK {sdk}.", message)
+        self.assertNotIn(f"the toolchain {toolchain}", message)
+        self.assertIn("--without-linux-executor", message)
+        self.assertEqual(self.events, [])
+
+    def test_debug_builds_executor_when_toolchain_present(self):
+        self.install_toolchain(self.pins["staticSDK"]["id"])
+        shared = mock.Mock(wraps=self.release.build_linux_executor_at)
+        with mock.patch.object(self.release, "build_linux_executor_at", shared):
+            status, output = self.run_debug(place=self.place_stage)
+
+        self.assertEqual(status, 0)
+        self.assertEqual([event[0] for event in self.events], ["build", "run"], "the executor is built first")
+        self.assertEqual(self.events[0][1:], (self.stage, "2026.10.24", self.COMMIT))
+        self.assertEqual(self.events[1][1], ["/bin/bash", str(self.root / "scripts/build-app.sh"), "--debug"])
+        placed = self.app / "Contents/Resources/LinuxExecutor/x86_64"
+        manifest = json.loads((placed / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["lgeCommit"], self.COMMIT)
+        self.assertIn(f"Debug Linux executor: {placed / 'lungfish-executor'} sha256 {manifest['sha256']} "
+                      f"size {len(self.PAYLOAD)}", output)
+
+        # package builds through the same function, so both apps get one build command, prefix maps and strip.
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.root = self.root
+        operations.runner = SimpleNamespace(environment={"PATH": "/usr/bin:/bin"})
+        with self.patches(), mock.patch.object(self.release, "build_linux_executor_at", shared), \
+                mock.patch.object(self.release, "source_identity", return_value={"commit": self.COMMIT, "clean": True}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            operations.build_linux_executor(SimpleNamespace(release_dir=Path("/release") / self.COMMIT))
+        self.assertEqual([call.args[1] for call in shared.call_args_list],
+                         [self.stage, self.root / "build/linux-executor/stage"])
+
+        for label, place in (("an app without the folder", lambda: None),
+                             ("an executor another build made", lambda: self.write_folder(
+                                 self.app / "Contents/Resources/LinuxExecutor/x86_64", self.PAYLOAD, "b" * 40))):
+            with self.subTest(label):
+                shutil.rmtree(self.app, ignore_errors=True)
+                with self.assertRaisesRegex(self.release.ReleaseError, "not the one this run built"):
+                    self.run_debug(place=place)
+
+    def test_debug_without_linux_executor_places_no_folder(self):
+        status, output = self.run_debug(place=lambda: None, linux_executor=False)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(self.events, [("run", ["/bin/bash", str(self.root / "scripts/build-app.sh"), "--debug",
+                                                "--without-linux-executor"])],
+                         "no toolchain check and no executor build, only build-app.sh with the flag")
+        self.assertIn("This Debug app holds no Linux executor (--without-linux-executor), so it writes no plan.", output)
+        self.assertFalse((self.root / "build/linux-executor").exists(), "no stage, manifest or placeholder")
+
+        parser = self.release._parser()
+        self.assertTrue(parser.parse_args(["debug", "--without-linux-executor"]).without_linux_executor)
+        self.assertFalse(parser.parse_args(["debug"]).without_linux_executor)
+        with mock.patch.object(self.release, "run_debug", return_value=0) as run:
+            self.assertEqual(self.release.main(["debug", "--without-linux-executor", "--repo", str(self.root)]), 0)
+        self.assertEqual(run.call_args.kwargs["linux_executor"], False)
+
+    def test_package_rejects_without_linux_executor(self):
+        for argv in (["package", "preview", "--without-linux-executor"],
+                     ["package", "--without-linux-executor", "stable"]):
+            with self.subTest(argv=argv):
+                with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit) as stopped:
+                    self.release._parser().parse_args(argv)
+                self.assertEqual(stopped.exception.code, 2)
+                self.assertIn("unrecognized arguments: --without-linux-executor", errors.getvalue())
+
+
 class DoctorFrontDoorTests(unittest.TestCase):
     def test_missing_default_profile_reports_package_ready_without_credentials(self):
         release = load_module()

@@ -16,6 +16,7 @@ SKIP_BUILD=0
 LOG_DIR=""
 PORTABLE=0
 JOBS=""
+WITHOUT_LINUX_EXECUTOR=0
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,10 +50,12 @@ NC='\033[0m' # No Color
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--debug] [--skip-build] [--log-dir PATH] [--jobs COUNT] [--portable]
+Usage: $(basename "$0") [--debug] [--skip-build] [--log-dir PATH] [--jobs COUNT] [--portable] [--without-linux-executor]
 
 Builds the contract-defined local Debug app and runs cheap headless checks.
 --portable additionally relocates the app and hides compiler resources for verification.
+The app holds the Linux executor that python3 scripts/release/release.py debug built first in
+build/linux-executor/debug-stage. --without-linux-executor builds an app with no executor, which writes no plan.
 For unsigned release packaging, use:
   bash scripts/release/build-notarized-dmg.sh --package-only --channel preview|stable
 EOF
@@ -97,6 +100,10 @@ while [ "$#" -gt 0 ]; do
             SKIP_BUILD=1
             shift
             ;;
+        --without-linux-executor)
+            WITHOUT_LINUX_EXECUTOR=1
+            shift
+            ;;
         --log-dir)
             if [ "$#" -lt 2 ]; then
                 echo "Missing value for --log-dir" >&2
@@ -120,6 +127,15 @@ done
 
 if [ "$CONFIGURATION" != "debug" ]; then
     echo "Only the debug build profile is supported by build-app.sh." >&2
+    exit 64
+fi
+
+# QA-parity-4: a Debug app holds the executor that release.py debug built in this checkout, or no LinuxExecutor folder.
+# The stage folder is fixed, so no option of this script brings in an executor that another Mac or app built.
+LINUX_EXECUTOR_STAGE="$PROJECT_ROOT/build/linux-executor/debug-stage"
+LINUX_EXECUTOR_SYMBOLS="$PROJECT_ROOT/build/linux-executor/debug-symbols"
+if [ "$WITHOUT_LINUX_EXECUTOR" -eq 0 ] && [ ! -d "$LINUX_EXECUTOR_STAGE/LinuxExecutor/x86_64" ]; then
+    echo "No Linux executor stage at $LINUX_EXECUTOR_STAGE. Build Debug with python3 scripts/release/release.py debug, which builds it first, or pass --without-linux-executor." >&2
     exit 64
 fi
 
@@ -380,6 +396,17 @@ fi
 # Finalize public app and Help identity before sealing their bytes.
 "$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" apply-identity --root "$PROJECT_ROOT" --app "$APP_DIR"
 
+if [ "$WITHOUT_LINUX_EXECUTOR" -eq 0 ]; then
+    # As in the package, the stripped executor and its manifest go to Contents/Resources/LinuxExecutor/x86_64 before
+    # the ad-hoc signature seals the resources, and the unstripped binary goes beside the app, never into it.
+    rm -rf "$LINUX_EXECUTOR_SYMBOLS"
+    mkdir -p "$LINUX_EXECUTOR_SYMBOLS"
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/linux_executor.py" place \
+        --stage "$LINUX_EXECUTOR_STAGE" \
+        --app "$APP_DIR" \
+        --symbols "$LINUX_EXECUTOR_SYMBOLS"
+fi
+
 if [ -f "$MACOS_DIR/lungfish-cli" ]; then
     echo -e "${GREEN}Ad-hoc signing bundled CLI with CLI entitlements...${NC}"
     codesign --force --sign - --options runtime --entitlements "$CLI_ENTITLEMENTS" "$MACOS_DIR/lungfish-cli"
@@ -389,7 +416,11 @@ echo -e "${GREEN}Ad-hoc signing app bundle for local launch...${NC}"
 codesign --force --deep --sign - "$APP_DIR"
 codesign --verify --deep --strict --verbose=4 "$APP_DIR"
 
-"$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" check --root "$PROJECT_ROOT" --app "$APP_DIR"
+if [ "$WITHOUT_LINUX_EXECUTOR" -eq 1 ]; then
+    "$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" check --root "$PROJECT_ROOT" --app "$APP_DIR" --without-linux-executor
+else
+    "$RELEASE_PYTHON" "$DEBUG_ARTIFACT_HELPER" check --root "$PROJECT_ROOT" --app "$APP_DIR"
+fi
 if [ "$PORTABLE" -eq 1 ]; then
     /bin/bash "$SCRIPT_DIR/smoke-test-debug-app.sh" "$APP_DIR" --portable --compiling-build-dir "$PROJECT_ROOT/.build"
 fi

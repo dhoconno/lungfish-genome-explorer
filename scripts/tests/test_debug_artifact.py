@@ -1,8 +1,13 @@
 """Fast Debug checks using synthetic Mach-O bytes and fake process runners."""
+import hashlib
+import json
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import struct
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -32,13 +37,32 @@ def executable_bytes(info):
     return header + segment + section + payload
 
 
+def place_executor(app, payload=b'\x7fELF stand-in executor\x00', **changes):
+    """Contents/Resources/LinuxExecutor/x86_64 as linux_executor.place leaves it, with the manifest's eleven fields."""
+    folder = app / 'Contents/Resources/LinuxExecutor/x86_64'
+    folder.mkdir(parents=True)
+    (folder / 'lungfish-executor').write_bytes(payload)
+    (folder / 'lungfish-executor').chmod(0o755)
+    manifest = {'schemaVersion': 1, 'relativePath': 'lungfish-executor', 'sha256': hashlib.sha256(payload).hexdigest(),
+                'size': len(payload), 'lgeVersion': '1.2.3', 'lgeCommit': 'a' * 40,
+                'targetTriple': 'x86_64-swift-linux-musl', 'toolchainID': 'swift-6.4.0-RELEASE',
+                'toolchainSHA256': 'b' * 64, 'staticLinuxSDKID': 'swift-6.4.0-RELEASE_static-linux-0.1.0',
+                'staticLinuxSDKSHA256': 'c' * 64, **changes}
+    (folder / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    return folder
+
+
+def passing_runner(argv, **_options):
+    return SimpleNamespace(returncode=0, stdout='1.2.3\n' if argv[1:] == ['--version'] else 'debug-resource-smoke-ok\n')
+
+
 class DebugArtifactTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
 
-    def fixture(self, selected):
+    def fixture(self, selected, executor=True):
         app = self.root / selected.profile('debug').appBundleFilename
         executables = app / 'Contents/MacOS'
         executables.mkdir(parents=True)
@@ -55,7 +79,92 @@ class DebugArtifactTests(unittest.TestCase):
         help_info.parent.mkdir(parents=True)
         help_info.write_bytes(plistlib.dumps({}))
         apply_app_identity(app, selected, 'debug')
+        if executor:
+            place_executor(app)
         return app
+
+    def test_debug_artifact_requires_executor_and_manifest(self):
+        """QA-parity-4 condition 2: by default the app must hold exactly the executor and its manifest."""
+        selected = contract()
+        app = self.fixture(selected)
+        folder = app / 'Contents/Resources/LinuxExecutor/x86_64'
+        check_app(app, selected, runner=passing_runner)
+
+        executor, manifest = (folder / 'lungfish-executor').read_bytes(), (folder / 'manifest.json').read_bytes()
+        (folder / 'manifest.json').unlink()
+        with self.assertRaisesRegex(DebugArtifactError, 'exactly lungfish-executor and manifest.json'):
+            check_app(app, selected, runner=passing_runner)
+        (folder / 'manifest.json').write_bytes(manifest)
+        (folder / 'lungfish-executor').unlink()
+        with self.assertRaisesRegex(DebugArtifactError, 'exactly lungfish-executor and manifest.json'):
+            check_app(app, selected, runner=passing_runner)
+        (self.root / 'elsewhere').write_bytes(executor)
+        (folder / 'lungfish-executor').symlink_to(self.root / 'elsewhere')
+        with self.assertRaisesRegex(DebugArtifactError, 'the executor is missing or not a regular file'):
+            check_app(app, selected, runner=passing_runner)
+        (folder / 'lungfish-executor').unlink()
+        (folder / 'lungfish-executor').write_bytes(executor)
+        (folder / 'placeholder').write_text('')
+        with self.assertRaisesRegex(DebugArtifactError, 'exactly lungfish-executor and manifest.json'):
+            check_app(app, selected, runner=passing_runner)
+        (folder / 'placeholder').unlink()
+        (folder.parent / 'aarch64').mkdir()
+        with self.assertRaisesRegex(DebugArtifactError, 'exactly a x86_64 folder'):
+            check_app(app, selected, runner=passing_runner)
+
+        shutil.rmtree(app)
+        app = self.fixture(selected, executor=False)
+        with self.assertRaisesRegex(DebugArtifactError, 'lacks Contents/Resources/LinuxExecutor.*--without-linux-executor'):
+            check_app(app, selected, runner=lambda *a, **kw: self.fail('no CLI probe runs for an app without the folder'))
+
+    def test_debug_artifact_rejects_manifest_digest_mismatch(self):
+        """QA-parity-4 condition 2: the manifest's SHA-256 and size must equal the file beside it."""
+        selected = contract()
+        for name, changes in (('sha256', {'sha256': '0' * 64}), ('size', {'size': 3}),
+                              ('fields', {'schemaVersion': 2})):
+            with self.subTest(name):
+                shutil.rmtree(self.root / selected.profile('debug').appBundleFilename, ignore_errors=True)
+                app = self.fixture(selected, executor=False)
+                place_executor(app, **changes)
+                message = 'fields are missing' if name == 'fields' else 'SHA-256 or size differs'
+                with self.assertRaisesRegex(DebugArtifactError, 'Debug app Linux executor: .*' + message):
+                    check_app(app, selected, runner=lambda *a, **kw: self.fail('no CLI probe runs after a mismatch'))
+        shutil.rmtree(self.root / selected.profile('debug').appBundleFilename, ignore_errors=True)
+        app = self.fixture(selected, executor=False)
+        folder = place_executor(app)
+        with (folder / 'lungfish-executor').open('ab') as handle:
+            handle.write(b'\x00')
+        with self.assertRaisesRegex(DebugArtifactError, 'SHA-256 or size differs'):
+            check_app(app, selected, runner=passing_runner)
+
+    def test_debug_artifact_without_executor_requires_folder_absent(self):
+        """QA-parity-4 condition 3: --without-linux-executor accepts only an app with no LinuxExecutor folder."""
+        selected = contract()
+        app = self.fixture(selected, executor=False)
+        check_app(app, selected, runner=passing_runner, linux_executor=False)
+        resources = app / 'Contents/Resources'
+        for name, make in (('a valid executor folder', lambda: place_executor(app)),
+                           ('an empty folder', lambda: (resources / 'LinuxExecutor').mkdir()),
+                           ('a symlink', lambda: (resources / 'LinuxExecutor').symlink_to(self.root / 'missing'))):
+            with self.subTest(name):
+                make()
+                with self.assertRaisesRegex(DebugArtifactError,
+                                            'built with --without-linux-executor holds Contents/Resources/LinuxExecutor'):
+                    check_app(app, selected, runner=passing_runner, linux_executor=False)
+                target = resources / 'LinuxExecutor'
+                if target.is_symlink() or target.is_file():
+                    target.unlink()
+                else:
+                    shutil.rmtree(target)
+        root = Path(__file__).resolve().parents[2]
+        for flags in ([], ['--without-linux-executor']):
+            with self.subTest(flags=flags):
+                result = subprocess.run([sys.executable, str(root / 'scripts/release/debug_artifact.py'), 'check',
+                                         '--root', str(root), '--app', str(app), *flags],
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn('unrecognized arguments', result.stderr)
+                self.assertTrue(result.stderr.startswith('Debug artifact: '), result.stderr)
 
     def test_fast_checks_run_only_bounded_headless_cli_commands(self):
         selected = contract(fork=True)
@@ -164,7 +273,16 @@ class DebugArtifactTests(unittest.TestCase):
                          f'open({str(recorded)!r}, "w").write(json.dumps(sys.argv[1:]))\n'
                          'sys.exit(79)\n')
         xcrun.chmod(0o755)
+        # Without the stage release.py debug builds, the default stops before any compiler runs (QA-parity-4).
         result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--jobs', '3'],
+                                env={**os.environ, 'PATH': str(stub_dir) + os.pathsep + os.environ['PATH'],
+                                     'DEVELOPER_DIR': str(developer), 'LUNGFISH_RELEASE_PYTHON': sys.executable},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn('release.py debug', result.stderr)
+        self.assertIn('--without-linux-executor', result.stderr)
+        self.assertFalse(recorded.exists(), 'no compiler ran')
+        result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--jobs', '3', '--without-linux-executor'],
                                 env={**os.environ, 'PATH': str(stub_dir) + os.pathsep + os.environ['PATH'],
                                      'DEVELOPER_DIR': str(developer), 'LUNGFISH_RELEASE_PYTHON': sys.executable},
                                 capture_output=True, text=True)
@@ -184,7 +302,8 @@ class DebugArtifactTests(unittest.TestCase):
                          f'if sys.argv[1:] == ["--sdk", "macosx", "--show-sdk-path"]: print({str(sdk)!r}); sys.exit(0)\n'
                          f'open({str(recorded)!r}, "w").write(json.dumps(sys.argv[1:]))\n'
                          f'print({str(selected_bin)!r})\n')
-        result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--skip-build', '--jobs', '3'],
+        result = subprocess.run(['bash', str(root / 'scripts/build-app.sh'), '--skip-build', '--jobs', '3',
+                                 '--without-linux-executor'],
                                 env={**os.environ, 'PATH': str(stub_dir) + os.pathsep + os.environ['PATH'],
                                      'DEVELOPER_DIR': str(developer), 'LUNGFISH_RELEASE_PYTHON': sys.executable},
                                 capture_output=True, text=True)

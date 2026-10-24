@@ -58,8 +58,10 @@ from release_cache_fingerprint import (  # noqa: E402
 )
 from linux_executor import (  # noqa: E402
     ExecutorBuildError,
+    app_record as linux_executor_record,
     build as build_linux_executor_stage,
     forbidden_findings as linux_executor_findings,
+    missing_pins as missing_linux_executor_pins,
 )
 from release_repository import (  # noqa: E402
     RepositoryIdentity,
@@ -493,10 +495,14 @@ def candidate_receipt_path(root: Path, channel: str, commit: str) -> Path:
     )
 
 
-def debug_plan(root: Path, *, portable: bool = False, jobs: int | None = None) -> tuple[list[list[str]], Path]:
+def debug_plan(
+    root: Path, *, portable: bool = False, jobs: int | None = None, linux_executor: bool = True
+) -> tuple[list[list[str]], Path]:
     profile = load_contract(root / "config/release-contract.json").profile("debug")
     app = root / "build" / "Debug" / profile.appBundleFilename
     command = ["/bin/bash", str(root / "scripts/build-app.sh"), "--debug"]
+    if not linux_executor:
+        command.append("--without-linux-executor")
     if portable:
         command.append("--portable")
     if jobs is not None:
@@ -610,7 +616,42 @@ def _resolve_sparkle_generate_appcast(
     return path
 
 
-def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None) -> int:
+# scripts/build-app.sh places the stage of this folder, so no option of either script names another Mac's executor.
+DEBUG_LINUX_EXECUTOR_STAGE = Path("build/linux-executor/debug-stage")
+
+
+def build_linux_executor_at(root: Path, stage: Path, commit: str, environment: dict[str, str]) -> dict[str, Any]:
+    """Build the executor into a new stage folder with scripts/release/linux_executor.py and scan the stripped file.
+
+    package and debug both build through this function, so a Debug app's executor has the package's prefix maps and
+    strip, built at the Debug checkout. A failed build or a stripped file with any label of the release scan stops the
+    caller before anything else compiles.
+    """
+    if stage.is_symlink():
+        raise ReleaseError("the Linux executor stage folder is a symlink")
+    if stage.exists():
+        shutil.rmtree(stage)
+    try:
+        version = release_version(root)
+        manifest = build_linux_executor_stage(
+            root, stage, lge_version=version, lge_commit=commit, environment=environment,
+        )
+        findings = linux_executor_findings(stage / "LinuxExecutor/x86_64/lungfish-executor")
+    except (ExecutorBuildError, ReleaseVersionError, OSError, KeyError) as error:
+        raise ReleaseError(f"Linux executor build failed: {error}") from error
+    if findings:
+        named = ", ".join(f"{label} {count}" for label, count in findings)
+        raise ReleaseError(f"Linux executor holds build-machine paths ({named})")
+    print(f"Linux executor {manifest['targetTriple']} sha256 {manifest['sha256']} size {manifest['size']}")
+    return manifest
+
+
+def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None, linux_executor: bool = True) -> int:
+    """Build the Debug app with the Linux executor this run builds, or with no LinuxExecutor folder (QA-parity-4).
+
+    The default needs the pinned toolchain and Static Linux SDK and stops before any build command when either is
+    missing. --without-linux-executor gives an app that writes no plan, and debug_artifact.py checks the folder absent.
+    """
     try:
         developer_dir = resolve_developer_dir(os.environ)
     except XcodeSelectionError as error:
@@ -619,9 +660,34 @@ def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None) ->
     environment["DEVELOPER_DIR"] = str(developer_dir)
     runner = SubprocessRunner(root, environment)
     runner.environment = sanitized_package_environment(runner.environment)
-    commands, app = debug_plan(root, portable=portable, jobs=jobs)
+    commands, app = debug_plan(root, portable=portable, jobs=jobs, linux_executor=linux_executor)
+    manifest = None
+    if linux_executor:
+        try:
+            missing = missing_linux_executor_pins(root, environment=runner.environment)
+        except (OSError, KeyError, ValueError) as error:
+            raise ReleaseError(f"the Linux toolchain pins could not be read: {error}") from error
+        if missing:
+            raise ReleaseError(
+                "Debug builds the Linux executor with the pinned Linux toolchain and Static Linux SDK, and this Mac "
+                f"lacks {' and '.join(missing)}. Install them with: bash scripts/linux/portable-tier.sh --install. "
+                "Or pass --without-linux-executor for a Debug app that writes no plan."
+            )
+        manifest = build_linux_executor_at(
+            root, root / DEBUG_LINUX_EXECUTOR_STAGE, _head_commit(root, runner.environment), runner.environment,
+        )
     for command in commands:
         runner.run(command)
+    if manifest is None:
+        print("This Debug app holds no Linux executor (--without-linux-executor), so it writes no plan.")
+    else:
+        try:
+            placed = linux_executor_record(app)
+        except (ExecutorBuildError, OSError) as error:
+            raise ReleaseError(f"the Debug app's Linux executor is unreadable: {error}") from error
+        if placed is None or placed["manifest"] != manifest:
+            raise ReleaseError("the Debug app's Linux executor is not the one this run built")
+        print(f"Debug Linux executor: {app / placed['path']} sha256 {manifest['sha256']} size {manifest['size']}")
     print(f"Debug app: {app}")
     return 0
 
@@ -1676,23 +1742,7 @@ class LocalReleaseOperations:
         if HEX_COMMIT.fullmatch(request.release_dir.name) and pinned["commit"] != request.release_dir.name:
             raise ReleaseError("HEAD moved after package started; start it again")
         stage = self.root / "build/linux-executor/stage"
-        if stage.is_symlink():
-            raise ReleaseError("the Linux executor stage folder is a symlink")
-        if stage.exists():
-            shutil.rmtree(stage)
-        try:
-            version = release_version(self.root)
-            manifest = build_linux_executor_stage(
-                self.root, stage, lge_version=version, lge_commit=pinned["commit"],
-                environment=self.runner.environment,
-            )
-            findings = linux_executor_findings(stage / "LinuxExecutor/x86_64/lungfish-executor")
-        except (ExecutorBuildError, ReleaseVersionError, OSError, KeyError) as error:
-            raise ReleaseError(f"Linux executor build failed: {error}") from error
-        if findings:
-            named = ", ".join(f"{label} {count}" for label, count in findings)
-            raise ReleaseError(f"Linux executor holds build-machine paths ({named})")
-        print(f"Linux executor {manifest['targetTriple']} sha256 {manifest['sha256']} size {manifest['size']}")
+        build_linux_executor_at(self.root, stage, pinned["commit"], self.runner.environment)
         self._linux_executor_stage = stage
         return stage
 
@@ -2597,6 +2647,10 @@ def _parser() -> argparse.ArgumentParser:
     debug.add_argument("--repo", type=Path, default=PROJECT_ROOT)
     debug.add_argument("--portable", action="store_true", help="also run full relocation checks")
     debug.add_argument("--jobs", type=int, help="positive compiler job budget; defaults to available CPUs")
+    debug.add_argument(
+        "--without-linux-executor", action="store_true",
+        help="build on a Mac without the pinned Linux toolchain and SDK; the app holds no Linux executor and writes no plan",
+    )
 
     package = commands.add_parser(
         "package",
@@ -2672,7 +2726,8 @@ def main(argv: list[str] | None = None) -> int:
         os.close(descriptor)
         _METRICS_PATH = Path(filename)
         if args.command == "debug":
-            result_status = run_debug(root, portable=args.portable, jobs=args.jobs)
+            result_status = run_debug(root, portable=args.portable, jobs=args.jobs,
+                                      linux_executor=not args.without_linux_executor)
             return result_status
         if args.command == "configure-fork":
             result_status = run_configure_fork(root, args)

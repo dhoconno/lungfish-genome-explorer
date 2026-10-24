@@ -151,6 +151,32 @@ def _regular(path: Path, label: str) -> None:
         raise ExecutorBuildError(f"{label} is missing or not a regular file: {path}")
 
 
+def missing_pins(
+    root: Path,
+    *,
+    environment: Mapping[str, str] | None = None,
+    home: Path | None = None,
+    run: Runner = _run,
+) -> list[str]:
+    """Name each pin of scripts/linux/toolchain.json that this Mac lacks for build(), before any build command starts.
+
+    release.py debug asks first (QA's ruling QA-parity-4, condition 1). Only the pinned toolchain's swift can list the
+    installed Static Linux SDKs, so a Mac without the toolchain lacks both pins as far as build() is concerned.
+    """
+    pins = load_pins(Path(root))
+    toolchain = f"the toolchain {pins['toolchain']['name']}"
+    sdk_id = pins["staticSDK"]["id"]
+    sdk = f"the Static Linux SDK {sdk_id}"
+    tools = toolchain_bin(pins, Path.home() if home is None else home)
+    if not all(os.access(tools / name, os.X_OK) for name in ("swift", "llvm-objcopy")):
+        return [toolchain, sdk]
+    try:
+        installed = run([str(tools / "swift"), "sdk", "list"], cwd=Path(root), capture=True, env=environment)
+    except ExecutorBuildError:
+        return [sdk]
+    return [] if sdk_id in (line.strip() for line in installed.splitlines()) else [sdk]
+
+
 def build(
     root: Path,
     output: Path,
