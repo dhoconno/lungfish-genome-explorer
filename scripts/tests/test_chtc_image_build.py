@@ -27,7 +27,7 @@ LINUX_LOCK = TOOLS_FOLDER / "third-party-tools-lock.linux-64.json"
 # The linux/amd64 manifest of mambaorg/micromamba 2.9.0-debian12-slim, the base C0 built from (C0-SLICE0.md:13).
 C0_BASE_DIGEST = "sha256:bba1fff35268813383cb9f92816e862b7580ae2e9493a5ea2d824938c060fe98"
 STAGING_IMAGES = "file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/"
-TIMEOUT_SECONDS = 120
+TIMEOUT_SECONDS = 30
 
 # A stand-in for apptainer. It keeps the sandbox and the image in plain folders and files, logs each call to
 # $FAKE_STATE/calls.log, and runs the few commands the script gives it. FAKE_MISSING names base image utilities to
@@ -265,7 +265,14 @@ class Harness:
 
 class PinTests(unittest.TestCase):
     def test_script_parses_and_is_executable(self):
-        result = subprocess.run(["/bin/bash", "-n", str(SCRIPT)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        result = subprocess.run(
+            ["/bin/bash", "-n", str(SCRIPT)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=TIMEOUT_SECONDS,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(os.access(SCRIPT, os.X_OK), "the submit file runs build-image.sh directly, so it must be executable")
 
@@ -277,6 +284,7 @@ class PinTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
+                timeout=TIMEOUT_SECONDS,
                 cwd=folder,
                 env={"PATH": "/usr/bin:/bin"},
             )
@@ -292,6 +300,7 @@ class PinTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=False,
+                timeout=TIMEOUT_SECONDS,
                 cwd=folder,
             )
             self.assertEqual(result.returncode, 64)
