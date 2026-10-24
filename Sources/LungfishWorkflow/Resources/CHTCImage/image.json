@@ -1,0 +1,22 @@
+{
+  "build" : {
+    "base" : "mambaorg/micromamba@sha256:bba1fff35268813383cb9f92816e862b7580ae2e9493a5ea2d824938c060fe98",
+    "builtAt" : "2026-10-24T16:15:03Z",
+    "chtcCluster" : 593366,
+    "chtcHost" : "build4002",
+    "executorSHA256" : "2b005db71eb2c28056415f7e1303223b5a6dadd50bbfb6f63483f31929209aaa",
+    "manifestToolCount" : 521,
+    "toolsLockSHA256" : "e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5",
+    "trimGaloreLockSHA256" : "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a"
+  },
+  "imageManifest" : {
+    "sha256" : "aa0660ff63e1b0c6881c5c7e71981ef0a7bc26791e5984bd523979c90a327710",
+    "size" : 64199
+  },
+  "schemaVersion" : 1,
+  "sif" : {
+    "fileName" : "lge-tools-eae819829358.sif",
+    "sha256" : "eae819829358cca9b3bfeef86f5ecfec89726b53acf1dadcea832f3ccabc829a",
+    "size" : 396402688
+  }
+}

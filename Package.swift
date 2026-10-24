@@ -237,6 +237,7 @@ let package = Package(
             resources: [
                 .copy("Resources/Containerization"),
                 .copy("Resources/ManagedTools"),
+                .copy("Resources/CHTCImage"),
                 .copy("Resources/Tools"),
                 .copy("Resources/Databases"),
                 .copy("Resources/AIHaplotyping"),
