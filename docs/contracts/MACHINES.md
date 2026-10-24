@@ -16,7 +16,7 @@ The release Mac holds the signing identity, the notary profile and the Sparkle k
 
 | Build | Where it is made | How it reaches another Mac |
 |---|---|---|
-| Lungfish Debug | Any development Mac, with `python3 scripts/release/release.py debug` from its own checkout. It is ad-hoc signed and needs no release credentials. The Debug app writes Linux executor plans only when built on a Mac that holds the pinned Linux toolchain and Static Linux SDK of `scripts/linux/toolchain.json`, and any Mac without them builds it with `release.py debug --without-linux-executor`, which gives an app that writes no plan. | It does not. Each Mac builds its own, and Debug is never published. |
+| Lungfish Debug | Any development Mac, with `python3 scripts/release/release.py debug` from its own checkout. It is ad-hoc signed and needs no release credentials. The Debug app writes Linux executor plans only when built from a committed tree on a Mac that holds the pinned Linux toolchain and Static Linux SDK of `scripts/linux/toolchain.json`, and any Mac without them, or any edited tree, builds it with `release.py debug --without-linux-executor`, which gives an app that writes no plan. | It does not. Each Mac builds its own, and Debug is never published. |
 | Lungfish Preview and Lungfish (Stable) | The Mac Studio only, with `release.py package` and then `release.py publish` | Sparkle updates the installed app from its channel's feed. The notarized DMG is also on the GitHub release. |
 
 A development Mac needs no release verification root (`~/.lungfish-verify`) and no packaged releases under `build/Release`, because it never packages.

@@ -2810,7 +2810,7 @@ class DebugLinuxExecutorTests(unittest.TestCase):
             ("SubprocessRunner", Runner),
             ("missing_linux_executor_pins", lambda root, environment: real(root, environment=environment,
                                                                             home=self.home)),
-            ("_head_commit", mock.Mock(return_value=self.COMMIT)),
+            ("source_identity", mock.Mock(return_value={"commit": self.COMMIT, "clean": True})),
             ("release_version", mock.Mock(return_value="2026.10.24")),
             ("build_linux_executor_stage", self.fake_build),
         ):
@@ -2892,6 +2892,31 @@ class DebugLinuxExecutorTests(unittest.TestCase):
         with mock.patch.object(self.release, "run_debug", return_value=0) as run:
             self.assertEqual(self.release.main(["debug", "--without-linux-executor", "--repo", str(self.root)]), 0)
         self.assertEqual(run.call_args.kwargs["linux_executor"], False)
+
+    def test_debug_stops_on_uncommitted_changes_before_building_executor(self):
+        """The executor is built from the working tree, so a plan must not name HEAD for a tree that differs from it."""
+        self.install_toolchain(self.pins["staticSDK"]["id"])
+        dirty = mock.Mock(return_value={"commit": self.COMMIT, "clean": False})
+
+        def run(place, **options):
+            # source_identity is patched after self.patches(), so this dirty identity replaces the clean default.
+            with self.patches(place), mock.patch.object(self.release, "source_identity", dirty), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                return self.release.run_debug(self.root, **options), output.getvalue()
+
+        with self.assertRaises(self.release.ReleaseError) as stopped:
+            run(lambda: self.fail("a checkout with uncommitted changes reached a build command"))
+        message = str(stopped.exception)
+        self.assertIn("uncommitted changes", message)
+        self.assertIn("--without-linux-executor", message)
+        dirty.assert_called_once_with(self.root)
+        self.assertEqual(self.events, [], "no executor build and no build command ran")
+        self.assertFalse((self.root / "build").exists(), "nothing was built or staged")
+
+        status, output = run(lambda: None, linux_executor=False)
+        self.assertEqual(status, 0)
+        self.assertEqual([event[0] for event in self.events], ["run"], "only build-app.sh ran, with no executor build")
+        self.assertIn("writes no plan", output)
 
     def test_package_rejects_without_linux_executor(self):
         for argv in (["package", "preview", "--without-linux-executor"],

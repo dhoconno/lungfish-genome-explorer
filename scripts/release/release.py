@@ -673,8 +673,16 @@ def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None, li
                 f"lacks {' and '.join(missing)}. Install them with: bash scripts/linux/portable-tier.sh --install. "
                 "Or pass --without-linux-executor for a Debug app that writes no plan."
             )
+        # The executor is compiled from the working tree, so its manifest may name HEAD only when the tree is HEAD.
+        pinned = source_identity(root)
+        if pinned.get("clean") is not True or not pinned.get("commit"):
+            raise ReleaseError(
+                "Debug builds the Linux executor from the commit HEAD names, and this checkout has uncommitted "
+                "changes, so a plan would name a commit whose source differs from the executor. Commit them, or "
+                "pass --without-linux-executor for a Debug app that writes no plan."
+            )
         manifest = build_linux_executor_at(
-            root, root / DEBUG_LINUX_EXECUTOR_STAGE, _head_commit(root, runner.environment), runner.environment,
+            root, root / DEBUG_LINUX_EXECUTOR_STAGE, pinned["commit"], runner.environment,
         )
     for command in commands:
         runner.run(command)
