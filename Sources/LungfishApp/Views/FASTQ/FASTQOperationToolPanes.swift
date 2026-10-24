@@ -24,10 +24,10 @@ struct FASTQOperationToolPanes: View {
             ViralReconWizardSheet(
                 inputFiles: state.selectedInputURLs,
                 projectURL: state.projectURL,
-                embeddedInOperationsDialog: true,
-                embeddedRunTrigger: state.embeddedRunTrigger,
+                embeddedInOperationsDialog: true, embeddedRunTrigger: state.embeddedRunTrigger,
                 onRun: state.captureViralReconRequest(_:),
-                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
+                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID),
+                onReadinessDetailChange: { state.updateEmbeddedReadinessDetail($0, for: .viralRecon) }
             )
             .id(state.selectedToolID.rawValue)
         case .spades, .megahit, .skesa, .flye, .hifiasm:

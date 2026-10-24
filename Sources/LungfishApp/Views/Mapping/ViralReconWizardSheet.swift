@@ -190,7 +190,10 @@ struct ViralReconWizardSheet: View {
             guard embeddedInOperationsDialog else { return }
             performRun()
         }
-        .onDisappear { preparingTask?.cancel() }
+        .onDisappear {
+            preparingTask?.cancel()
+            onReadinessDetailChange(nil)
+        }
     }
 
     @ViewBuilder
@@ -461,11 +464,13 @@ struct ViralReconWizardSheet: View {
 
     /// Run copies what the builder needs while the sheet's state is still on the main actor, then builds the request
     /// in a detached task, so the staging folder, the samplesheet, the primer files and the pin read never block the
-    /// window. The footer reads "Preparing inputs..." and Run stays off until the request is ready or it failed.
+    /// window. The footer and the dialog's status line read "Preparing inputs..." and Run stays off until the
+    /// request is ready or it failed.
     private func performRun() {
         guard !isPreparing else { return }
         buildError = nil
         isPreparing = true
+        onReadinessDetailChange("Preparing inputs\u{2026}")
         onRunnerAvailabilityChange(canRun)
         let inputs = runInputs
         let prepare = prepareRun
@@ -473,6 +478,7 @@ struct ViralReconWizardSheet: View {
             let outcome = await Task.detached { Result { try prepare(inputs) } }.value
             guard !Task.isCancelled else { return }
             isPreparing = false
+            onReadinessDetailChange(nil)
             preparingTask = nil
             switch outcome {
             case .success(let request):
