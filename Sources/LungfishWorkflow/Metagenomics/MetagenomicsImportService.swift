@@ -1754,7 +1754,7 @@ private func sanitizePathComponent(_ raw: String) -> String {
 
 private func makeUniqueResultDirectory(prefix: String, baseName: String, in parent: URL) -> URL {
     let fm = FileManager.default
-    let base = "\(prefix)\(baseName)"
+    let base = baseName.hasPrefix(prefix) ? baseName : "\(prefix)\(baseName)"
     let firstCandidate = parent.appendingPathComponent(base, isDirectory: true)
     if !fm.fileExists(atPath: firstCandidate.path) {
         return firstCandidate

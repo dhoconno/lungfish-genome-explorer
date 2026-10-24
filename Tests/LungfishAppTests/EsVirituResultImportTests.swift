@@ -206,6 +206,27 @@ final class EsVirituResultImportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("Escape").path))
     }
 
+    /// A source folder that is already named for the kind keeps one prefix. The 2.13 walk imported a folder named
+    /// `esviritu-one-folder` and the leaf made `esviritu-esviritu-one-folder`. The destination holds one folder named
+    /// `esviritu-one-folder` and the sidebar lists it as an EsViritu row (the ROW20-UX review, section R6).
+    func testASourceFolderAlreadyNamedForTheKindKeepsOneEsvirituPrefix() async throws {
+        let project = try makeProject()
+        let input = root.appendingPathComponent("esviritu-one-folder", isDirectory: true)
+        try FileManager.default.moveItem(at: ClassifierImportAppFixtures.esVirituResult(in: root), to: input)
+        let destination = try ClassifierResultImportCLIRoute.destination(projectURL: project)
+
+        let imported = try await importResult(.esviritu, input: input, into: destination)
+
+        XCTAssertEqual(try listing(of: destination), ["esviritu-one-folder"])
+        XCTAssertEqual(imported.lastPathComponent, "esviritu-one-folder")
+        let sidebar = openSidebar(on: project)
+        let row = try XCTUnwrap(
+            self.row(for: imported, in: sidebar),
+            "the imported EsViritu result \(imported.path) is not a row of the sidebar"
+        )
+        XCTAssertEqual(row.type, .esvirituResult)
+    }
+
     // MARK: - Helpers
 
     private func makeProject() throws -> URL {
