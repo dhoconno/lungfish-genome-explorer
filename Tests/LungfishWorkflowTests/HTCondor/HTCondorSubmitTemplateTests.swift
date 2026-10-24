@@ -171,7 +171,11 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         let text = try HTCondorSubmitTemplate.render(Self.input())
         XCTAssertEqual(try value(of: "log", in: text), "../logs/$(sample).log")
         XCTAssertEqual(try value(of: "initialdir", in: text), "$(sample)")
-        XCTAssertEqual(try value(of: "executable", in: text), "../lge-job.sh")
+        XCTAssertEqual(try value(of: "executable", in: text), "lge-job.sh")
+        XCTAssertFalse(
+            try value(of: "executable", in: text).contains("/"),
+            "a relative executable resolves against the folder condor_submit runs in, never initialdir"
+        )
         XCTAssertEqual(try value(of: "universe", in: text), "container")
         XCTAssertEqual(try value(of: "when_to_transfer_output", in: text), "ON_EXIT")
         XCTAssertEqual(

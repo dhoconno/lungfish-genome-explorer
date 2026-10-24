@@ -157,7 +157,9 @@ public enum HTCondorSubmitTemplate {
     /// The plan tar's name in the job's scratch folder. Each sample's tar is staged under this name in its own folder.
     public static let planTarName = "plan.tar"
 
-    /// The job wrapper's file name in the submit folder, one level above each sample's plan folder.
+    /// The job wrapper's file name in the submit folder, beside `run.dag` and one level above each sample's plan folder.
+    /// `condor_submit` resolves a relative `executable` against the folder it runs in, never against `initialdir`, so
+    /// the template names the wrapper with no `../`.
     public static let wrapperFileName = "lge-job.sh"
 
     /// The `VARS` names each node of `run.dag` sets. `request_disk` is a GB value that reaches no plan, no argument and
@@ -188,7 +190,8 @@ public enum HTCondorSubmitTemplate {
     /// The `sample.sub` text.
     ///
     /// The DAG runs it with `initialdir` at the sample's own plan folder, named by the sample, so the run record and the
-    /// step logs come home to that folder, where the adopt reads them, and no two jobs write one file.
+    /// step logs come home to that folder, where the adopt reads them, and no two jobs write one file. `log`, `output`
+    /// and `error` follow `initialdir`, so they name `../logs/`, the submit folder's; `executable` does not.
     public static func render(_ input: HTCondorSubmitTemplateInput) throws -> String {
         try validate(input)
         let memoryMiB = try requestMemoryMiB(heapBytes: input.heapBytes)
@@ -215,7 +218,7 @@ public enum HTCondorSubmitTemplate {
             "universe = container",
             "container_image = \(input.containerImageURL)",
             "initialdir = \(sample)",
-            "executable = ../\(wrapperFileName)",
+            "executable = \(wrapperFileName)",
             "arguments = \"\(arguments.joined(separator: " "))\"",
             "should_transfer_files = YES",
             "when_to_transfer_output = ON_EXIT",

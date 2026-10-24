@@ -107,6 +107,38 @@ final class HTCondorJobWrapperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: scratch.appendingPathComponent("plan/bin/lungfish-executor").path))
     }
 
+    func testJobWrapperPlacesFileWhoseNameStartsWithDash() async throws {
+        let root = try TestTempDirectory.make(prefix: "htcondor-wrapper-dash")
+        defer { TestTempDirectory.cleanup(root) }
+        let scratch = root.appendingPathComponent("scratch", isDirectory: true)
+        let plan = scratch.appendingPathComponent("plan", isDirectory: true)
+        try FileManager.default.createDirectory(at: plan, withIntermediateDirectories: true)
+        try "{}\n".write(to: plan.appendingPathComponent("plan.json"), atomically: true, encoding: .utf8)
+        let tar = try await ToolProcess.run(ToolProcessSpec(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tar"),
+            arguments: ["-cf", "plan.tar", "plan"],
+            environment: ["PATH": "/usr/bin:/bin"],
+            workingDirectory: scratch,
+            timeout: .seconds(60)
+        ))
+        XCTAssertEqual(tar.status, 0, tar.stderrText)
+        try FileManager.default.removeItem(at: plan)
+        try "#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\"\n".write(
+            to: scratch.appendingPathComponent("lungfish-executor-ab"), atomically: true, encoding: .utf8
+        )
+        // A name the character rule allows, which mv would read as its -n option without the `--` before it.
+        try "dash index\n".write(to: scratch.appendingPathComponent("-n.idx"), atomically: true, encoding: .utf8)
+
+        let result = try await run(
+            ["lungfish-executor-ab=bin/lungfish-executor", "-n.idx=databases/x.idx", "--"], in: scratch, path: "/usr/bin:/bin"
+        )
+
+        XCTAssertEqual(result.status, 0, result.stderrText)
+        let index = scratch.appendingPathComponent("plan/databases/x.idx")
+        XCTAssertEqual(try? String(contentsOf: index, encoding: .utf8), "dash index\n", "the file sits at its plan path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scratch.appendingPathComponent("-n.idx").path))
+    }
+
     func testJobWrapperRefusesPlacementOutsideThePlanFolder() async throws {
         let root = try TestTempDirectory.make(prefix: "htcondor-wrapper-escape")
         defer { TestTempDirectory.cleanup(root) }

@@ -89,7 +89,7 @@ public enum HTCondorJobWrapper {
           [ -f "$name" ] || refuse "The scratch folder holds no $name."
           target=\#(plan)/$path
           mkdir -p "${target%/*}" || fail "The folder of $path could not be made."
-          mv -f "$name" "$target" || fail "$name could not be moved to $path."
+          mv -f -- "$name" "$target" || fail "$name could not be moved to $path."
           [ -n "$executor" ] || executor=$path
         done
         [ "$#" -gt 0 ] && [ -n "$executor" ] || usage
