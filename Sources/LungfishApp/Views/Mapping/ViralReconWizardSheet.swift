@@ -13,6 +13,9 @@ struct ViralReconWizardSheet: View {
     let onRunnerAvailabilityChange: (Bool) -> Void
     /// Builds the run's request. The sheet calls it in a detached task, and a test passes its own.
     var prepareRun: @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest = ViralReconRunPreparation.buildRequest(from:)
+    /// Words for the dialog's status line while the request prepares, and nil when they end. The default keeps the
+    /// sheet usable on its own.
+    var onReadinessDetailChange: (String?) -> Void = { _ in }
 
     @State private var resolvedInputs: [ViralReconResolvedInput] = []
     @State private var inputError: String?

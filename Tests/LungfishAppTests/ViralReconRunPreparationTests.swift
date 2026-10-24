@@ -4,6 +4,7 @@ import SwiftUI
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
@@ -96,6 +97,27 @@ final class ViralReconRunPreparationTests: XCTestCase {
         XCTAssertNotEqual(held.harness.footerText, "Preparing inputs\u{2026}", "the footer left the preparing words")
     }
 
+    /// Review fix 3. The Operations dialog shows its readiness text beside the disabled Run. While the request
+    /// prepares, the sheet gives the dialog the words "Preparing inputs..." through `onReadinessDetailChange` and
+    /// takes them back before `onRun`, so the dialog never tells the user to complete settings that are complete.
+    func testDialogStatusReadsPreparingWhileTheRequestPrepares() throws {
+        let held = try makeHeld()
+        defer { held.harness.close() }
+        try held.pressRunTwice()
+
+        XCTAssertEqual(
+            held.harness.recorder.details, ["Preparing inputs\u{2026}"],
+            "the dialog status reads the preparing words once, and the refused second press added nothing"
+        )
+        held.gate.signal()
+        held.harness.waitForRequests(1)
+
+        XCTAssertEqual(
+            held.harness.recorder.details, ["Preparing inputs\u{2026}", nil],
+            "the sheet took the preparing words back before the request reached the dialog"
+        )
+    }
+
     /// UX's cancel test. The sheet closes while the builder runs, and no request reaches the dialog, so no Operations
     /// row is begun for a run the user cancelled.
     func testCancelWhilePreparingLaunchesNothing() throws {
@@ -112,6 +134,72 @@ final class ViralReconRunPreparationTests: XCTestCase {
         held.harness.settle()
 
         XCTAssertEqual(held.harness.recorder.requests.count, 0, "no onRun after the sheet closed")
+    }
+
+    /// Review fix 4. A project without MN908947.3 stages only the primer BED at Run, so the launch path downloads the
+    /// reference and cuts the primer FASTA out of it. The cut gunzips the downloaded reference through a child gzip,
+    /// which the debug app traps when the service makes the call on the main thread.
+    func testDeferredPrimerFASTAIsCutOffTheMainThread() throws {
+        enum RunOutcome: Sendable {
+            case finished(URL)
+            case failed(String)
+        }
+        let fixture = try Fixture.make(withReference: false)
+        addTeardownBlock { TestTempDirectory.cleanup(fixture.root) }
+        let harness = Harness(fixture: fixture)
+        defer { harness.close() }
+        try harness.chooseScheme()
+        harness.pressRun()
+        harness.waitForRequests(1)
+        let request = try XCTUnwrap(harness.recorder.requests.first)
+        let stagedFASTA = request.primer.fastaURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        XCTAssertFalse(stagedFASTA, "the project holds no reference, so Run staged only the primer BED")
+
+        // The download copies a reference written before the run, so the downloader starts no child process.
+        let downloadable = fixture.root.appendingPathComponent("downloadable.lungfishref", isDirectory: true)
+        try Fixture.writeReference(into: downloadable)
+        let service = ViralReconWorkflowExecutionService(
+            operationCenter: OperationCenter(),
+            processRunner: IdleProcessRunner(),
+            referenceDownloader: { _, destination in
+                try FileManager.default.copyItem(
+                    at: downloadable,
+                    to: destination.appendingPathComponent(ViralReconReferenceCatalog.bundleFilename, isDirectory: true)
+                )
+            },
+            resultIngest: { _ in }
+        )
+        let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
+        ToolProcessMainThreadGuard.record(into: { name in calls.withLock { $0.append(name) } })
+        defer { ToolProcessMainThreadGuard.record(into: nil) }
+
+        // The sheet's host needs the run loop, so the test is synchronous and waits for the service the way it waits
+        // for the sheet. An async test body holds the main queue and the sheet never draws.
+        let outcome = OSAllocatedUnfairLock<RunOutcome?>(initialState: nil)
+        let bundleRoot = fixture.project.appendingPathComponent("Analyses", isDirectory: true)
+        let project = fixture.project
+        Task {
+            do {
+                let result = try await service.run(request, bundleRoot: bundleRoot, projectURL: project)
+                outcome.withLock { $0 = .finished(result.bundleURL) }
+            } catch {
+                outcome.withLock { $0 = .failed("\(error)") }
+            }
+        }
+        AccessibilityTreeProbe.waitUntil(timeout: 30) { outcome.withLock { $0 } != nil }
+
+        guard case .finished(let bundleURL)? = outcome.withLock({ $0 }) else {
+            return XCTFail("the service run did not finish, it reported \(String(describing: outcome.withLock { $0 }))")
+        }
+        let cutFASTA = bundleURL.appendingPathComponent("inputs/primers/primers.fasta")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: cutFASTA.path),
+            "the service cut the primer FASTA out of the downloaded reference"
+        )
+        XCTAssertEqual(
+            calls.withLock { $0 }, [],
+            "no blocking ToolProcess call ran on the main thread while the service cut the primer FASTA"
+        )
     }
 }
 
@@ -162,8 +250,8 @@ extension ViralReconRunPreparationTests {
 // MARK: - Fixture
 
 extension ViralReconRunPreparationTests {
-    /// A project with one Illumina bundle, a project primer scheme written against MN908947.3 and the project's own
-    /// MN908947.3 reference as a gzip FASTA, which is what makes the primer staging gunzip.
+    /// A project with one Illumina bundle, a project primer scheme written against MN908947.3 and, unless asked
+    /// otherwise, the project's own MN908947.3 reference as a gzip FASTA, which is what makes the primer staging gunzip.
     struct Fixture {
         static let schemeTitle = "Run Preparation Test Scheme (Project)"
 
@@ -171,7 +259,7 @@ extension ViralReconRunPreparationTests {
         let project: URL
         let bundle: URL
 
-        static func make() throws -> Fixture {
+        static func make(withReference: Bool = true) throws -> Fixture {
             let fileManager = FileManager.default
             let root = try TestTempDirectory.make(prefix: "viralrecon-run-prep")
             let project = root.appendingPathComponent("Project", isDirectory: true)
@@ -187,14 +275,11 @@ extension ViralReconRunPreparationTests {
             try fastq.write(to: reads, atomically: true, encoding: .utf8)
             try gzip(reads)
 
-            let referenceBundle = project.appendingPathComponent(
-                "Reference Sequences/MN908947.3.lungfishref", isDirectory: true
-            )
-            try fileManager.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
-            let reference = referenceBundle.appendingPathComponent("sequence.fa")
-            try (">MN908947.3\n" + String(repeating: "ACGT", count: 20) + "\n")
-                .write(to: reference, atomically: true, encoding: .utf8)
-            try gzip(reference)
+            if withReference {
+                try writeReference(
+                    into: project.appendingPathComponent("Reference Sequences/MN908947.3.lungfishref", isDirectory: true)
+                )
+            }
 
             let schemes = try PrimerSchemesFolder.ensureFolder(in: project)
             let scheme = schemes.appendingPathComponent("RunPrepScheme.lungfishprimers", isDirectory: true)
@@ -220,6 +305,16 @@ extension ViralReconRunPreparationTests {
                 to: scheme.appendingPathComponent("PROVENANCE.md"), atomically: true, encoding: .utf8
             )
             return Fixture(root: root, project: project, bundle: bundle)
+        }
+
+        /// Writes MN908947.3 into `referenceBundle` as a gzip FASTA. The project holds it as a reference bundle, and
+        /// the service's downloader writes it as the download.
+        static func writeReference(into referenceBundle: URL) throws {
+            try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
+            let reference = referenceBundle.appendingPathComponent("sequence.fa")
+            try (">MN908947.3\n" + String(repeating: "ACGT", count: 20) + "\n")
+                .write(to: reference, atomically: true, encoding: .utf8)
+            try gzip(reference)
         }
 
         private static func gzip(_ url: URL) throws {
@@ -248,6 +343,20 @@ extension ViralReconRunPreparationTests {
         }
     }
 
+    /// A process runner that ends every run at once, so a service run goes through without a pipeline.
+    @MainActor
+    final class IdleProcessRunner: ViralReconWorkflowProcessRunning {
+        func runLungfishCLI(
+            arguments: [String],
+            workingDirectory: URL,
+            outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+        ) async throws -> ViralReconWorkflowProcessResult {
+            .init(exitCode: 0, standardOutput: "", standardError: "")
+        }
+
+        func cancel() {}
+    }
+
     // MARK: Harness
 
     /// What the sheet reported to its host.
@@ -255,10 +364,12 @@ extension ViralReconRunPreparationTests {
         var requests: [ViralReconRunRequest] = []
         var availability: [Bool] = []
         var onRunOnMainThread: [Bool] = []
+        var details: [String?] = []
     }
 
     /// Hosts the sheet the way the Operations dialog does. The dialog bumps `embeddedRunTrigger` when Run is pressed,
-    /// so the harness does the same, and the sheet's `onRun` and `onRunnerAvailabilityChange` land in the recorder.
+    /// so the harness does the same, and the sheet's `onRun`, `onRunnerAvailabilityChange` and
+    /// `onReadinessDetailChange` land in the recorder.
     @MainActor
     final class Harness {
         final class TriggerModel: ObservableObject {
@@ -272,6 +383,7 @@ extension ViralReconRunPreparationTests {
             let prepareRun: @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest
             let onRun: (ViralReconRunRequest) -> Void
             let onAvailability: (Bool) -> Void
+            let onReadinessDetail: (String?) -> Void
 
             var body: some View {
                 ViralReconWizardSheet(
@@ -281,7 +393,8 @@ extension ViralReconRunPreparationTests {
                     embeddedRunTrigger: model.value,
                     onRun: onRun,
                     onRunnerAvailabilityChange: onAvailability,
-                    prepareRun: prepareRun
+                    prepareRun: prepareRun,
+                    onReadinessDetailChange: onReadinessDetail
                 )
             }
         }
@@ -306,7 +419,8 @@ extension ViralReconRunPreparationTests {
                         recorder.requests.append($0)
                         recorder.onRunOnMainThread.append(Thread.isMainThread)
                     },
-                    onAvailability: { recorder.availability.append($0) }
+                    onAvailability: { recorder.availability.append($0) },
+                    onReadinessDetail: { recorder.details.append($0) }
                 ),
                 size: CGSize(width: 560, height: 900)
             )
