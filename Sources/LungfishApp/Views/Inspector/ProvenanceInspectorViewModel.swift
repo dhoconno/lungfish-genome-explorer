@@ -219,8 +219,10 @@ struct ProvenanceLineageStep: Identifiable, Equatable {
     var wallTimeSeconds: TimeInterval?
     var stderr: String?
     var dependsOn: [UUID]
-    /// The lines the step's observation adds to its disclosure, or nil when it adds none (Phase 2.10 U37).
+    /// The lines the step's observation adds to its disclosure, or nil when it adds none (Phase 2.10 U37), and the
+    /// lines a storage step's record adds about how its gzip was written, or nil when it holds none (C4-10).
     var observation: ProvenanceStepTerminationDisplay? = nil
+    var storage: ProvenanceStepStorageDisplay? = nil
 
     var displayCommand: String { commandLabel ?? command }
 }
@@ -720,15 +722,13 @@ final class ProvenanceInspectorViewModel {
                     command: ProvenanceCommandPresentation.quotingProjectPath(step.reproducibleCommand, projectURL: projectURL),
                     commandLabel: ProvenanceCommandPresentation
                         .display(step.reproducibleCommand, projectURL: projectURL, toolRoot: toolRoot),
-                    inputPaths: inputs,
-                    outputPaths: outputs,
+                    inputPaths: inputs, outputPaths: outputs,
                     inputPathLabels: inputs.map { pathLabel($0, projectURL: projectURL) },
                     outputPathLabels: outputs.map { pathLabel($0, projectURL: projectURL) },
-                    exitStatus: step.exitStatus,
-                    wallTimeSeconds: step.wallTimeSeconds,
-                    stderr: step.stderr?.strippingANSIEscapeSequences(),
-                    dependsOn: step.dependsOn,
-                    observation: ProvenanceStepTerminationDisplay(step.observation)
+                    exitStatus: step.exitStatus, wallTimeSeconds: step.wallTimeSeconds,
+                    stderr: step.stderr?.strippingANSIEscapeSequences(), dependsOn: step.dependsOn,
+                    observation: ProvenanceStepTerminationDisplay(step.observation),
+                    storage: ProvenanceStepStorageDisplay(step, in: envelope)
                 )
             }
         )

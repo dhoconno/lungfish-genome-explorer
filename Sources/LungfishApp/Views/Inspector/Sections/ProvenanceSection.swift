@@ -427,6 +427,7 @@ struct ProvenanceSection: View {
                     appStepNoteRow(of: step)
                 }
                 stepObservationRow(.environment, of: step)
+                ForEach(ProvenanceStepStorageDisplay.Line.allCases, id: \.self) { stepStorageRow($0, of: step) }
                 if !step.inputPaths.isEmpty {
                     pathList("Inputs", step.inputPathLabels, recorded: step.inputPaths)
                 }

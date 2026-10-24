@@ -107,7 +107,9 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
             toolName: Self.recordName(run.launch.tool),
             toolVersion: evidence.recordedString,
             command: command,
-            resolvedOptions: run.report.map { FASTQIngestionPipeline.trimGaloreResolvedOptions($0) },
+            // A BBTools or compress launch states how its gzip was written (C4-10).
+            resolvedOptions: run.report.map { FASTQIngestionPipeline.trimGaloreResolvedOptions($0) }
+                ?? FASTQIngestionPipeline.storageResolvedOptions(of: run),
             inputs: run.inputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
             },

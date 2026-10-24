@@ -459,7 +459,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             threads: config.threads,
             qualityBinning: config.qualityBinning,
             environment: environment,
-            compressor: await resolveCompressor()
+            compressor: await resolveCompressor(), probesWriter: true
         )
         let step = storageStep
         let records = try await Self.mappingStorageErrors {
@@ -708,7 +708,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
         progress(0.05, "Launching bbtools reformat.sh...")
-
+        let writerProbe = try await reformatWriterProbe(arguments: args, threads: config.threads)
         let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
@@ -732,21 +732,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(1.0, "reformat.sh complete")
         logger.info("Binned quality scores with reformat.sh (\(config.qualityBinning.rawValue))")
 
-        let evidence = await versionEvidence(for: .reformat)
-        let step = StepExecution(
-            toolName: "reformat.sh",
-            toolVersion: evidence.recordedString,
-            command: [reformat.path] + args,
-            inputs: config.inputFiles.map {
-                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-            },
-            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
-            exitCode: result.exitCode,
-            wallTime: stepCompletedAt.timeIntervalSince(stepClock.startedAt),
-            stderr: result.stderr.isEmpty ? nil : result.stderr,
-            managedToolID: NativeTool.reformat.managedToolID, toolVersionEvidence: evidence,
-            startTime: stepClock.startedAt,
-            endTime: stepCompletedAt
+        let (step, evidence) = await reformatStep(
+            command: [reformat.path] + args, config: config, outputFile: outputFile, result: result,
+            clock: stepClock, completedAt: stepCompletedAt, writerProbe: writerProbe
         )
         return FASTQProcessingRecord(
             url: outputFile,

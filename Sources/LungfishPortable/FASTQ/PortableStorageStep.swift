@@ -169,11 +169,15 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
         /// The seconds each launch may run, the plan's deadline on the executor (K2 review O-1, tally-r2 K4-06). Nil
         /// takes the Mac's rule of at least 900 seconds and one second for each 2.5 MB of input.
         package var deadlineSeconds: Double?
+        /// True when the step runs the writer probe right before each launch that writes the stored gzip and hands
+        /// its result to that launch's record (`PortableToolRun.writerProbe`), as the Mac import asks from C4-10. The
+        /// executor probes on its own and leaves it false.
+        package var probesWriter: Bool
 
         package init(
             inputs: [URL], output: URL, workingDirectory: URL, heapGB: Int, threads: Int,
             qualityBinning: QualityBinningScheme, environment: [String: String], compressor: PortableCompressor?,
-            deadlineSeconds: Double? = nil
+            deadlineSeconds: Double? = nil, probesWriter: Bool = false
         ) {
             self.inputs = inputs
             self.output = output
@@ -184,6 +188,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
             self.environment = environment
             self.compressor = compressor
             self.deadlineSeconds = deadlineSeconds
+            self.probesWriter = probesWriter
         }
     }
 
@@ -217,10 +222,19 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
                 qualityBinning: run.qualityBinning
             )
         }
-        func clumpifyOnce(_ args: [String], inputs: [URL], output: URL) async throws -> Launcher.Record {
-            try await launchClumpify(
+        // A launch that writes the stored gzip itself runs right after the writer probe when the caller asks for it,
+        // so the probe's result lands on that launch's record. A mixed file's halves are written plain and then
+        // compressed, so their launches run no probe (ARCH N3 condition 2).
+        func clumpifyOnce(
+            _ args: [String], inputs: [URL], output: URL, writesStoredGzip: Bool = false
+        ) async throws -> Launcher.Record {
+            var probe: PortableBBToolsWriterProbe?
+            if writesStoredGzip, run.probesWriter, let level = Self.compressionLevel(of: args) {
+                probe = try await probeBBToolsWriter(environment: environment, compressionLevel: level, threads: run.threads)
+            }
+            return try await launchClumpify(
                 arguments: args, inputs: inputs, output: output, workingDirectory: run.workingDirectory,
-                environment: environment, timeout: timeoutSeconds
+                environment: environment, timeout: timeoutSeconds, writerProbe: probe
             )
         }
 
@@ -228,7 +242,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
             progress(0.05, "Launching bbtools clumpify.sh...")
             return [try await clumpifyOnce(
                 arguments(inputFile, run.output, interleaved: true, input2: inputFile2),
-                inputs: [inputFile, inputFile2], output: run.output
+                inputs: [inputFile, inputFile2], output: run.output, writesStoredGzip: true
             )]
         }
 
@@ -247,7 +261,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
             progress(0.05, "Launching bbtools clumpify.sh...")
             records.append(try await clumpifyOnce(
                 arguments(inputFile, run.output, interleaved: plan == .interleaved),
-                inputs: [inputFile], output: run.output
+                inputs: [inputFile], output: run.output, writesStoredGzip: true
             ))
         case .splitMixed:
             // Partition by name so each half gets the right flag, clump each,
@@ -306,7 +320,8 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
         output: URL,
         workingDirectory: URL,
         environment: [String: String],
-        timeout: Double
+        timeout: Double,
+        writerProbe: PortableBBToolsWriterProbe? = nil
     ) async throws -> Launcher.Record {
         let executable = try await launcher.executableURL(for: .clumpify)
         let launch = PortableToolLaunch(
@@ -327,7 +342,8 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
             throw PortableStorageError.storageFailed("clumpify.sh completed without producing output")
         }
         return await launcher.record(PortableToolRun(
-            launch: launch, executableURL: executable, outcome: outcome, inputs: inputs, outputs: [output]
+            launch: launch, executableURL: executable, outcome: outcome, inputs: inputs, outputs: [output],
+            writerProbe: writerProbe
         ))
     }
 

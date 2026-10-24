@@ -203,6 +203,9 @@ extension ProvenanceInspectorViewModel {
     func appendStepLines(of step: ProvenanceLineageStep, to lines: inout [String]) {
         appendIfPresent("Command", step.command, to: &lines)
         appendStepLine(.environment, of: step, to: &lines)
+        for line in ProvenanceStepStorageDisplay.Line.allCases {
+            appendIfPresent(line.label, step.storage?.text(of: line) ?? "", to: &lines)
+        }
         appendList("Inputs", step.inputPaths, to: &lines)
         appendList("Outputs", step.outputPaths, to: &lines)
         appendIfPresent("Exit Status", step.exitStatus.map(String.init) ?? "", to: &lines)

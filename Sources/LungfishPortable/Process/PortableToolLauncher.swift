@@ -120,10 +120,13 @@ package struct PortableToolRun: Sendable {
     package var outputs: [URL]
     /// The trimming report of a Trim Galore call, which the record states with the reads the call removed.
     package var report: TrimGaloreReport?
+    /// The writer probe the step ran right before this BBTools launch, which writes the stored gzip, when the step's
+    /// caller asked for it (`ClumpifyRun.probesWriter`, C4-10). Nil for every other launch.
+    package var writerProbe: PortableBBToolsWriterProbe?
 
     package init(
         launch: PortableToolLaunch, executableURL: URL, outcome: PortableToolOutcome, inputs: [URL], outputs: [URL],
-        report: TrimGaloreReport? = nil
+        report: TrimGaloreReport? = nil, writerProbe: PortableBBToolsWriterProbe? = nil
     ) {
         self.launch = launch
         self.executableURL = executableURL
@@ -131,6 +134,7 @@ package struct PortableToolRun: Sendable {
         self.inputs = inputs
         self.outputs = outputs
         self.report = report
+        self.writerProbe = writerProbe
     }
 }
 
