@@ -121,6 +121,12 @@ OPTIONS:
                           this host's physical memory, lowered to its free
                           memory less 8 GB when that is smaller, from 4 up to
                           31)
+  --adopt                 Adopt a plan folder that a Linux run of
+                          lungfish-executor returned, as one bundle
+        The one input names the returned plan folder, which holds plan.json,
+        run-record.json and the run's output. The plan fixed every setting, so
+        no setting option is taken with --adopt. --name, --dry-run, --force and
+        --format json keep their meaning.
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
