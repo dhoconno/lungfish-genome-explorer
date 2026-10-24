@@ -206,6 +206,21 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
     }
 
+    /// The `request_disk` column is a whole number of GB, with or without a `GB` ending. Any other value is refused with
+    /// the sample and the column named.
+    func testRequestDiskColumnReadsWholeGB() throws {
+        for text in ["40", "40GB", "40 gb"] {
+            XCTAssertEqual(try ImportCommand.FastqSubcommand.requestDiskGiB(text, sample: "S1"), 40, text)
+        }
+        for text in ["0", "1.5", "forty"] {
+            XCTAssertThrowsError(try ImportCommand.FastqSubcommand.requestDiskGiB(text, sample: "S1"), text) { error in
+                let refusal = error as? ImportFastqPlanRefusal
+                XCTAssertTrue(refusal?.message.contains("S1") == true && refusal?.message.contains("request_disk") == true,
+                              "\(text): \(error)")
+            }
+        }
+    }
+
     // MARK: Fixture
 
     /// Two samples' reads, an executor stand-in with its `manifest.json`, a tool manifest and the `image.json` that pins it.

@@ -116,6 +116,42 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         }
     }
 
+    /// The sample sanitizer names the folders of a batch (ARCH 4). `S 1` and `S_1` take `S_1` and `S_1-2`, the plan keeps
+    /// each sample's own name, and the DAG, the plan folders and the plan tars follow the folder names.
+    func testWritePlanNamesFoldersByTheSampleSanitizerAndKeepsTheSampleName() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let rows = [try row("S 1"), try row("S_1")]
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: rows, image: image,
+                                                      layout: layout, into: folder)
+        XCTAssertEqual(batch.samples, ["S_1", "S_1-2"])
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        XCTAssertEqual(dag.split(separator: "\n").map(String.init).filter { $0.hasPrefix("JOB ") },
+                       ["JOB S_1 sample.sub", "JOB S_1-2 sample.sub"])
+        for (name, sampleName) in [("S_1", "S 1"), ("S_1-2", "S_1")] {
+            let plan = try ExecutionPlan.decode(Data(contentsOf: folder.appendingPathComponent("\(name)/plan.json")))
+            XCTAssertEqual(plan.sample.sampleName, sampleName, name)
+        }
+        let tars = batch.files.filter { $0.role == "plan-tar" }
+        XCTAssertEqual(tars.map(\.sample), ["S_1", "S_1-2"])
+        XCTAssertTrue(try XCTUnwrap(tars.last).stagingPath.hasSuffix("/S_1-2/plan.tar"), tars.last?.stagingPath ?? "")
+    }
+
+    /// The sanitizer keeps a `.`, which a DAG node name cannot hold, so the writer refuses the sample with the sample to
+    /// rename and writes no folder.
+    func testWritePlanRefusesASampleNameTheDAGCannotName() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let target = root.appendingPathComponent("refused", isDirectory: true)
+        XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(
+            recipeTemplate, request: request, rows: [try row("S1.2")], image: image, layout: layout, into: target
+        )) { error in
+            let refusal = error as? ExecutorPlanError
+            XCTAssertEqual(refusal?.field, "sample.sampleName", "\(error)")
+            XCTAssertTrue(refusal?.reason.contains("rename the sample") == true, "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+    }
+
     // MARK: Steps with no plan form, one test each
 
     private func templateRequest(recipe: Recipe? = nil, suffixes: [String]? = nil, format: RecipeFileFormat = .pairedR1R2,
