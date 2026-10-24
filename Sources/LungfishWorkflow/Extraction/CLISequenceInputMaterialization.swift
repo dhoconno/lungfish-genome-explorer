@@ -228,19 +228,18 @@ public enum CLISequenceInputMaterialization {
         originalInputURLs: [URL],
         executionInputURLs: [URL]
     ) -> [CLISequenceInputMaterializationPair] {
-        executionInputURLs.enumerated().compactMap { index, executionURL in
+        executionInputURLs.enumerated().flatMap { index, executionURL -> [CLISequenceInputMaterializationPair] in
             let originalURL = originalInputURLs.indices.contains(index)
                 ? originalInputURLs[index].standardizedFileURL
                 : executionURL.standardizedFileURL
             let executionURL = executionURL.standardizedFileURL
             guard originalURL != executionURL,
                   let bundleURL = materializedSourceBundle(originalURL: originalURL, executionURL: executionURL) else {
-                return nil
+                return []
             }
-            return CLISequenceInputMaterializationPair(
-                originalURL: bundleURL,
-                executionURL: executionURL
-            )
+            // A pool also keeps the step of each virtual bundle that wrote one of its members.
+            return (concatenation(forExecutionURL: executionURL)?.materializedMemberPairs ?? [])
+                + [CLISequenceInputMaterializationPair(originalURL: bundleURL, executionURL: executionURL)]
         }
     }
 

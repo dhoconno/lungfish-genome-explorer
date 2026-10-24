@@ -495,16 +495,36 @@ public struct SequenceInputConcatenation: Codable, Sendable, Equatable {
     public let bundlePath: String
     public let memberPaths: [String]
     public let outputPath: String
+    /// The bundle each member came from, one entry per entry of ``memberPaths``.
+    /// The join of a pool of inputs writes it, so the record can name the step
+    /// that made each member (Phase 2.14 lane MAPPOOL, BIO 2). Nil for the join
+    /// of one bundle and for a sidecar written before pools had one.
+    public let memberBundlePaths: [String]?
 
-    public init(bundleURL: URL, memberURLs: [URL], outputURL: URL) {
+    public init(bundleURL: URL, memberURLs: [URL], outputURL: URL, memberBundleURLs: [URL]? = nil) {
         bundlePath = bundleURL.standardizedFileURL.path
         memberPaths = memberURLs.map { $0.standardizedFileURL.path }
         outputPath = outputURL.standardizedFileURL.path
+        memberBundlePaths = memberBundleURLs?.map { $0.standardizedFileURL.path }
     }
 
     public var bundleURL: URL { URL(fileURLWithPath: bundlePath) }
     public var memberURLs: [URL] { memberPaths.map { URL(fileURLWithPath: $0) } }
     public var outputURL: URL { URL(fileURLWithPath: outputPath) }
+    public var memberBundleURLs: [URL]? { memberBundlePaths?.map { URL(fileURLWithPath: $0) } }
+
+    /// The pairs of the virtual bundles a pool materialized, one for each member
+    /// whose bundle needs materialization (``memberBundlePaths``). Each keeps the
+    /// `fastq materialize` step that wrote its member. A member of any other
+    /// bundle is a file of that bundle and has no step of its own.
+    public var materializedMemberPairs: [CLISequenceInputMaterializationPair] {
+        guard let memberBundleURLs else { return [] }
+        return zip(memberBundleURLs, memberURLs).compactMap { memberBundleURL, memberURL in
+            CLISequenceInputMaterialization.bundleRequiringMaterialization(for: memberBundleURL).map {
+                CLISequenceInputMaterializationPair(originalURL: $0, executionURL: memberURL.standardizedFileURL)
+            }
+        }
+    }
 
     /// The shell command that writes the same file again.
     public var command: [String] {

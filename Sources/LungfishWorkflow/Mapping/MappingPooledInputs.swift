@@ -72,10 +72,13 @@ enum MappingPooledInputs {
         let folderExisted = fileManager.fileExists(atPath: directory.path)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let outputName = "pooled-\(UUID().uuidString).\(gzipped ? "fastq.gz" : "fastq")"
+        // One origin per member, so the record names the bundle that made each file.
+        let memberBundles = resolved.inputs.flatMap { input in input.executionURLs.map { _ in input.originalURL } }
         let concatenation = SequenceInputConcatenation(
             bundleURL: first.originalURL,
             memberURLs: members,
-            outputURL: directory.appendingPathComponent(outputName)
+            outputURL: directory.appendingPathComponent(outputName),
+            memberBundleURLs: memberBundles.count == members.count ? memberBundles : nil
         )
         let began = Date()
         do {
