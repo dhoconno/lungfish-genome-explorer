@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import stat
 import subprocess
@@ -54,6 +55,11 @@ from release_cache_fingerprint import (  # noqa: E402
     CachePaths,
     cache_paths,
     collect_fingerprint_document,
+)
+from linux_executor import (  # noqa: E402
+    ExecutorBuildError,
+    build as build_linux_executor_stage,
+    forbidden_findings as linux_executor_findings,
 )
 from release_repository import (  # noqa: E402
     RepositoryIdentity,
@@ -652,6 +658,8 @@ def run_package(root: Path, channel: str) -> int:
         previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)
                     if signal.getsignal(sig) is not signal.SIG_IGN}
         try:
+            # The executor ships inside the app (QC18), so a new candidate builds it first and the builder places it.
+            operations.build_linux_executor(request)
             identity = ReleaseCoordinator(operations).package(request)
         finally:
             for sig, handler in previous.items():
@@ -1655,6 +1663,39 @@ class LocalReleaseOperations:
             release_dir,
         )
 
+    def build_linux_executor(self, request: ReleaseRequest) -> Path:
+        """Build the app's Linux executor at the clean package commit (QC18 item 1) and return its stage folder.
+
+        scripts/release/linux_executor.py holds the whole build command, so the Linux tier builds the same bytes. A
+        failed build or a stripped file with any label of the release scan stops the package before anything else
+        compiles, so a package never yields an app without the folder. The builder places the stage in the app.
+        """
+        pinned = source_identity(self.root)
+        if pinned.get("clean") is not True or not pinned.get("commit"):
+            raise ReleaseError("package requires a clean checkout")
+        if HEX_COMMIT.fullmatch(request.release_dir.name) and pinned["commit"] != request.release_dir.name:
+            raise ReleaseError("HEAD moved after package started; start it again")
+        stage = self.root / "build/linux-executor/stage"
+        if stage.is_symlink():
+            raise ReleaseError("the Linux executor stage folder is a symlink")
+        if stage.exists():
+            shutil.rmtree(stage)
+        try:
+            version = release_version(self.root)
+            manifest = build_linux_executor_stage(
+                self.root, stage, lge_version=version, lge_commit=pinned["commit"],
+                environment=self.runner.environment,
+            )
+            findings = linux_executor_findings(stage / "LinuxExecutor/x86_64/lungfish-executor")
+        except (ExecutorBuildError, ReleaseVersionError, OSError, KeyError) as error:
+            raise ReleaseError(f"Linux executor build failed: {error}") from error
+        if findings:
+            named = ", ".join(f"{label} {count}" for label, count in findings)
+            raise ReleaseError(f"Linux executor holds build-machine paths ({named})")
+        print(f"Linux executor {manifest['targetTriple']} sha256 {manifest['sha256']} size {manifest['size']}")
+        self._linux_executor_stage = stage
+        return stage
+
     def _validate_release_notes(
         self, request: ReleaseRequest, identity: CandidateIdentity | None = None
     ) -> None:
@@ -2080,11 +2121,14 @@ class LocalReleaseOperations:
     def _package_command(self, request: ReleaseRequest, gate_arguments: list[str]) -> list[str]:
         archive, derived, release_dir = self._paths(request)
         selected_cache = self._cache_paths(request)
+        stage = getattr(self, "_linux_executor_stage", None)
+        executor = [] if stage is None else ["--linux-executor-stage", str(stage)]
         return [
             "/bin/bash",
             str(SCRIPT_DIR / "build-notarized-dmg.sh"),
             "--package-only",
             *gate_arguments,
+            *executor,
             "--channel",
             request.channel,
             "--release-dir",
@@ -2180,6 +2224,10 @@ class LocalReleaseOperations:
         receipt = release_dir / "unsigned-candidate-receipt.json"
         if not receipt.is_file():
             raise ReleaseError("package phase did not produce a candidate receipt")
+        if getattr(self, "_linux_executor_stage", None) is not None:
+            artifacts = _read_bounded_json(receipt, "unsigned candidate receipt").get("artifacts")
+            if not isinstance(artifacts, dict) or not isinstance(artifacts.get("linuxExecutor"), dict):
+                raise ReleaseError("package candidate holds no Linux executor")
         return receipt
 
     def abort_package_build(self, build: PackageBuild) -> None:

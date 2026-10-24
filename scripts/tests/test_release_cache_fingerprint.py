@@ -313,6 +313,48 @@ class ReleaseCacheFingerprintTests(unittest.TestCase):
         self.assertNotIn(str(first), encoded)
         self.assertNotIn(str(second), encoded)
 
+    def test_a_changed_linux_toolchain_pin_or_executor_build_command_changes_the_fingerprint(self):
+        helper = load_helper()
+        responses = {
+            ("xcodebuild", "-version"): "Xcode 27.0\nBuild version 27A266a\n",
+            ("xcrun", "swift", "--version"): str(fixture_fields()["swift_identity"]),
+            ("xcrun", "--sdk", "macosx", "--show-sdk-version"): "27.0\n",
+            ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "26A425\n",
+            ("uname", "-m"): "arm64\n",
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            checkout = Path(raw) / "checkout"
+            for relative in (*helper.RECIPE_PATHS, "Package.resolved", "config/release-contract.json"):
+                destination = checkout / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / relative, destination)
+
+            def document():
+                return helper.collect_fingerprint_document(
+                    project_root=checkout, repository="github.com/example/lungfish",
+                    repository_key="a" * 64, deployment_target="26.0",
+                    command_output=lambda command: responses[tuple(command)],
+                )
+
+            baseline = document()
+            pins = checkout / "scripts/linux/toolchain.json"
+            pins.write_text(
+                pins.read_text(encoding="utf-8").replace("swift-6.4.0-RELEASE_static-linux", "swift-6.4.1-RELEASE_static-linux"),
+                encoding="utf-8",
+            )
+            after_pins = document()
+            builder = checkout / "scripts/release/linux_executor.py"
+            builder.write_text(
+                builder.read_text(encoding="utf-8").replace("-ffile-prefix-map=", "-fdebug-prefix-map="),
+                encoding="utf-8",
+            )
+            after_builder = document()
+
+        keys = [helper.fingerprint(value) for value in (baseline, after_pins, after_builder)]
+        self.assertEqual(len(set(keys)), 3, keys)
+        self.assertIn(helper.LINUX_EXECUTOR_PRODUCT, helper.canonical_json_bytes(baseline).decode("utf-8"))
+        self.assertNotIn("CLungfishExecutor", helper.canonical_json_bytes(baseline).decode("utf-8"))
+
     def test_collection_rejects_an_incomplete_recipe(self):
         helper = load_helper()
         with tempfile.TemporaryDirectory() as raw:

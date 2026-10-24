@@ -32,6 +32,7 @@ from release_identity import prepare_identity_plist, identity_plist
 from debug_artifact import embedded_identity, embedded_identity_matches, DebugArtifactError
 from app_smoke_gate import retain_result as retain_app_smoke, verify_result as verify_app_smoke
 from release_repository import RepositoryIdentityError, resolve_repository_identity
+from linux_executor import ExecutorBuildError, app_record as linux_executor_record
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -536,10 +537,17 @@ def _build_receipt(
         "packageResolvedSha256": _input_hash(PACKAGE_LOCK_PATH),
         "releaseContractSha256": _input_hash(CONTRACT_PATH),
     }
+    try:
+        # QC18 item 2: the receipt states the executor's manifest, which read_folder checks against the file.
+        # None when the app holds no LinuxExecutor folder. release.py package refuses a candidate without one.
+        linux_executor = linux_executor_record(app)
+    except ExecutorBuildError as error:
+        raise ReceiptError(f"Linux executor folder is invalid: {error}") from error
     artifacts = {
         "archiveExecutable": _artifact_file(app, executable),
         "lungfishCLI": _artifact_file(app, CLI_RELATIVE_PATH),
         "micromamba": _artifact_file(app, _micromamba_relative_path(app)),
+        "linuxExecutor": linux_executor,
         "packagedAppPayloadSha256": _payload_digest(app),
     }
     smoke_binding = None

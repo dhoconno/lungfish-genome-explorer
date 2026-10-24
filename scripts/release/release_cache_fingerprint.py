@@ -50,7 +50,12 @@ RECIPE_PATHS = (
     "scripts/release/release_archive.py",
     "scripts/release/swiftpm_build.py",
     COMPILER_RECIPE_PATH,
+    # The Linux executor's pins and its whole build command (QC18 item 3, ARCH's note 2). The pinned swift.org
+    # toolchain is not the Xcode compiler named below, so its identity enters through the pins file.
+    "scripts/linux/toolchain.json",
+    "scripts/release/linux_executor.py",
 )
+LINUX_EXECUTOR_PRODUCT = "swiftpm:lungfish-executor:x86_64-swift-linux-musl"
 CACHE_MARKER = ".lungfish-release-cache.json"
 CACHE_LOCK = ".build.lock"
 
@@ -295,7 +300,7 @@ def collect_fingerprint_document(
         architecture=command_output(["uname", "-m"]).strip(),
         deployment_target=deployment_target,
         configuration="Release",
-        products=("xcode:Lungfish", "xcode:LungfishCLIExecutable"),
+        products=("xcode:Lungfish", "xcode:LungfishCLIExecutable", LINUX_EXECUTOR_PRODUCT),
         package_resolved_sha256=_hash_file(
             root / "Package.resolved", "Package.resolved"
         ),

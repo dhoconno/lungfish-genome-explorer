@@ -15,7 +15,10 @@
 #      process under test would be PID 1.
 #   4. Runs the static aarch64 binary in that Debian container, on a file whose SHA-256 it must reproduce. Debian is
 #      glibc, so a binary that quietly needs the musl loader or the Swift runtime fails there.
-#   5. Cross-builds the x86_64 release binary, prints its file type, size and SHA-256 and writes a tier record.
+#   5. Cross-builds the x86_64 release binary with scripts/release/linux_executor.py, the build `release.py package`
+#      runs (path maps, pinned llvm-objcopy --strip-all), scans the stripped copy with
+#      `scan-release-portability.py --binary <copy> --all-labels`, prints the file type, size and SHA-256 of the
+#      unstripped and stripped files and writes a tier record.
 #
 # Containers run under Apple `container` when it is installed and its system answers (`container system status`), and
 # under `docker` when that answers (`docker info`). With neither the tier stops with a message naming both. The Apple
@@ -308,14 +311,27 @@ probe_pid1="$(sed -n 's/^pid1=//p' "$logs/container-probe.log")"
 probe_uid="$(sed -n 's/^uid=//p' "$logs/container-probe.log")"
 probe_kernel="$(sed -n 's/^kernel=//p' "$logs/container-probe.log")"
 
-step cross-build-x86_64 cross_build x86_64-swift-linux-musl
-x86_dir="$(bin_dir x86_64-swift-linux-musl)"
-cp "$x86_dir/lungfish-executor" "$artifacts/lungfish-executor-x86_64-linux-musl"
+# The x86-64 executor is built by the release's own build script, the one `release.py package` calls, so the tier
+# checks the bytes a package ships: the pins above, the scratch and checkout path maps, and the pinned llvm-objcopy
+# --strip-all. The stripped copy then passes the one-file scan with --all-labels, under which user-home and
+# repository-root fail too, so a new build-machine path fails here at landing and not in the middle of a package
+# (QA's FC-Q2 ruling). A plain --binary pass is never evidence for this file.
+lge_version="$(python3 scripts/release/release_version.py --root "$repo")" || die "could not read the LGE version"
+x86_stage="$work/executor-x86_64"
+rm -rf "$x86_stage"
+step cross-build-x86_64 python3 scripts/release/linux_executor.py build --triple x86_64-swift-linux-musl \
+  --scratch-path "$scratch" --output "$x86_stage" --lge-version "$lge_version" --lge-commit "${state_start%% *}"
+tail -n 1 "$logs/cross-build-x86_64.log"
+cp "$x86_stage/unstripped/lungfish-executor-x86_64-swift-linux-musl" "$artifacts/lungfish-executor-x86_64-linux-musl"
+cp "$x86_stage/LinuxExecutor/x86_64/lungfish-executor" "$artifacts/lungfish-executor-x86_64-linux-musl-stripped"
+step scan-x86_64-stripped-all-labels python3 scripts/release/scan-release-portability.py \
+  --binary "$artifacts/lungfish-executor-x86_64-linux-musl-stripped" --all-labels
+tail -n 1 "$logs/scan-x86_64-stripped-all-labels.log"
 
-for arch in x86_64 aarch64; do
-  file_path="$artifacts/lungfish-executor-$arch-linux-musl"
-  echo "$arch: $(file "$file_path" | sed 's/^[^:]*: //')"
-  echo "$arch: $(size_of "$file_path") bytes, sha256 $(sha256_of "$file_path")"
+for name in x86_64-linux-musl x86_64-linux-musl-stripped aarch64-linux-musl; do
+  file_path="$artifacts/lungfish-executor-$name"
+  echo "$name: $(file "$file_path" | sed 's/^[^:]*: //')"
+  echo "$name: $(size_of "$file_path") bytes, sha256 $(sha256_of "$file_path")"
 done
 
 state_end="$(tree_state)" || die "cannot read the git state of $repo"

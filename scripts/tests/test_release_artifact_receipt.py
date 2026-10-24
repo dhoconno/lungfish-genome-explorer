@@ -964,6 +964,8 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             "scripts/release/release_identity.py",
             "scripts/release/release_archive.py",
             "scripts/release/swiftpm_build.py",
+            "scripts/release/linux_executor.py",
+            "scripts/linux/toolchain.json",
             "scripts/release/debug_artifact.py",
             "config/test-catalog.json",
             "scripts/testing/catalog.py",

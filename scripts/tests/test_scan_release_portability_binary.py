@@ -127,6 +127,46 @@ def test_user_home_and_repository_root_are_counted_but_never_fail(tmp_path, scan
     ]
 
 
+# ------------------------------------------------------------ --all-labels, the check for a file that ships as it is
+
+def test_binary_all_labels_fails_on_user_home(tmp_path):
+    product = write(tmp_path, "lungfish-executor", b"/Users/x")
+
+    result = run_scanner("--binary", str(product), "--all-labels")
+
+    lines = result.stdout.splitlines()
+    assert result.returncode == 1, result.stdout
+    assert "user-home 1" in lines
+    assert lines[-1] == "FAIL portability binary findings=1"
+
+
+def test_binary_default_keeps_home_advisory(tmp_path):
+    product = write(tmp_path, "lungfish-executor", b"/Users/x")
+
+    result = run_scanner("--binary", str(product))
+
+    lines = result.stdout.splitlines()
+    assert result.returncode == 0, result.stdout
+    assert "user-home 1" in lines
+    assert lines[-1] == "PASS portability binary"
+
+
+def test_binary_all_labels_fails_on_repository_root_and_passes_a_clean_file(tmp_path, scanner, monkeypatch, capsys):
+    table = ((b"/Users/", "user-home"), (b"/srv/checkout", "repository-root"))
+    monkeypatch.setattr(scanner, "FORBIDDEN_PATTERNS", table)
+    leaking = write(tmp_path, "leaking", b"/workspace/a\x00/srv/checkout/b\x00/srv/checkout/c")
+    clean = write(tmp_path, "clean", b"/workspace/a\x00/swiftpm-build/b")
+
+    leaking_status = scanner.main_binary(["--binary", str(leaking), "--all-labels"])
+    leaking_lines = capsys.readouterr().out.splitlines()
+    clean_status = scanner.main_binary(["--binary", str(clean), "--all-labels"])
+    clean_lines = capsys.readouterr().out.splitlines()
+
+    assert (leaking_status, leaking_lines) == (
+        1, ["user-home 0", "repository-root 2", "FAIL portability binary findings=2"])
+    assert (clean_status, clean_lines) == (0, ["user-home 0", "repository-root 0", "PASS portability binary"])
+
+
 # ------------------------------------------------------------ chunk boundaries
 
 @pytest.mark.parametrize("offset", range(0, 36))

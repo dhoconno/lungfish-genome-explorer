@@ -101,6 +101,7 @@ SPARKLE_ACCOUNT="ed25519"
 SETUP_RECEIPT=""
 SCRATCH_PATH=""
 SCRATCH_PATH_EXPLICIT=0
+LINUX_EXECUTOR_STAGE=""
 GATE_MANIFEST=""
 GATE_MANIFEST_SHA256=""
 GATE_HANDOFF_FD=""
@@ -172,6 +173,12 @@ while [ "$#" -gt 0 ]; do
         --scratch-path)
             SCRATCH_PATH="$2"
             SCRATCH_PATH_EXPLICIT=1
+            shift 2
+            ;;
+        --linux-executor-stage)
+            # The stage folder that release.py package built with scripts/release/linux_executor.py.
+            [ "$#" -ge 2 ] || { echo "Missing --linux-executor-stage value" >&2; exit 64; }
+            LINUX_EXECUTOR_STAGE="$2"
             shift 2
             ;;
         --package-only)
@@ -1483,6 +1490,16 @@ from release_contract import load_contract
 from release_identity import apply_app_identity
 apply_app_identity(Path(sys.argv[2]), load_contract(root / "config/release-contract.json"), sys.argv[3])
 IDENTITY_PY
+    if [ -n "$LINUX_EXECUTOR_STAGE" ]; then
+        # QC18: the stripped executor and its manifest go to Contents/Resources/LinuxExecutor/x86_64, outside the
+        # Tools folder that signing walks, so the app's signature seals them as resources. The unstripped binary
+        # goes beside the dSYMs and never into the app. place refuses a stage whose file differs from its manifest
+        # or holds any label of the release scan.
+        "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/linux_executor.py" place \
+            --stage "$LINUX_EXECUTOR_STAGE" \
+            --app "$APP_PATH" \
+            --symbols "$ARCHIVE_PATH/dSYMs"
+    fi
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/release_archive.py" finalize \
         --archive "$ARCHIVE_PATH"
 

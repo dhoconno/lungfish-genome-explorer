@@ -329,6 +329,10 @@ class GateOperationsMixin:
 
 class FrontDoorTransactionTests(GateOperationsMixin, unittest.TestCase):
     class RecordingOperations:
+        def build_linux_executor(self, _request):
+            # run_package builds the app's Linux executor before the coordinator. No test here compiles.
+            return None
+
         def __init__(self, release):
             self.release = release
             self.events: list[str] = []

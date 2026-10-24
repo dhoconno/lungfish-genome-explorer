@@ -316,7 +316,10 @@ BINARY_FLAG = "--binary"
 # A SwiftPM product carries the folder of the machine that built it in its debug map, thousands of times.
 # The one-file mode prints these two counts and never fails on them. The Xcode archive of the app has no
 # such map, and the app-folder mode, which the package runs, still fails on every label.
+# --all-labels fails on these two as well. It is the check for a file that ships as it is, such as the
+# stripped Linux executor (QA's FC-Q2 ruling), and the only form of this mode that is evidence for one.
 ONE_FILE_ADVISORY_LABELS = frozenset({"user-home", "repository-root"})
+ALL_LABELS_FLAG = "--all-labels"
 
 
 def _binary_parser() -> argparse.ArgumentParser:
@@ -324,10 +327,15 @@ def _binary_parser() -> argparse.ArgumentParser:
         description=(
             "Count the forbidden strings in one built product, such as a Release Mach-O. It prints one "
             "'label count' line per pattern in table order, then PASS or FAIL. user-home and "
-            "repository-root are counted but never fail this mode."
+            "repository-root are counted but never fail this mode unless --all-labels is given."
         )
     )
     parser.add_argument(BINARY_FLAG, required=True, type=Path, metavar="FILE")
+    parser.add_argument(
+        ALL_LABELS_FLAG,
+        action="store_true",
+        help="fail on every label, user-home and repository-root included",
+    )
     return parser
 
 
@@ -404,7 +412,7 @@ def main_binary(arguments: list[str]) -> int:
     findings = 0
     for label, count in counts:
         print(f"{label} {count}")
-        if label not in ONE_FILE_ADVISORY_LABELS:
+        if args.all_labels or label not in ONE_FILE_ADVISORY_LABELS:
             findings += count
     if findings:
         print(f"FAIL portability binary findings={findings}")
