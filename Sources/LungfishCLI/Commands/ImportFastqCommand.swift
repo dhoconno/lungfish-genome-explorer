@@ -71,9 +71,16 @@ extension ImportCommand {
 
         @Option(
             name: [.customLong("project"), .customShort("p")],
-            help: "Path to .lungfish project directory"
+            help: "Path to .lungfish project directory, required unless --write-plan is given"
         )
-        var project: String
+        var project: String?
+
+        /// A plan writes nothing into a project (ARCH 3), so only `--write-plan` runs without one.
+        func validate() throws {
+            guard project != nil || planOptions.isOn else {
+                throw ValidationError("Missing expected argument '--project <project>'")
+            }
+        }
 
         /// The settings `fetch sra download --bundle` takes too (lane A45 M3). The properties below
         /// forward their old names.
@@ -138,11 +145,15 @@ extension ImportCommand {
             // With --format json the run prints version 2 events and its human text on standard error
             // (ImportFastqReporter). Every failure below ends in one failed line.
             let reporter = ImportFastqReporter(
-                globalOptions: globalOptions, formatter: formatter, projectDirectory: URL(fileURLWithPath: project)
+                globalOptions: globalOptions, formatter: formatter,
+                projectDirectory: URL(fileURLWithPath: project ?? planOptions.writePlan ?? FileManager.default.currentDirectoryPath)
             )
             reporter.start()
             if planOptions.isOn {
                 return try await writePlanFolder(reporter: reporter)
+            }
+            guard let project else {
+                throw reporter.fail("Missing expected argument '--project <project>'", exitCode: .inputError)
             }
 
             // The detection, the unpaired-reads check and the import are shared with

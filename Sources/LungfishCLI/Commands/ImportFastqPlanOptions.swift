@@ -20,8 +20,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
             discussion: "The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan folder per sample named by "
                 + "its sample, each sample's plan.tar under staging/, and staging-files.json, which lists each file the "
                 + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
-                + "No file is imported and nothing is submitted. A sample sheet's request_disk column gives a sample's "
-                + "disk request in GB.",
+                + "No file is imported and nothing is submitted, so --project is not needed. A sample sheet's "
+                + "request_disk column gives a sample's disk request in GB.",
             valueName: "folder"
         )
     )
@@ -144,7 +144,7 @@ extension ImportCommand.FastqSubcommand {
             for file in batch.files {
                 reporter.text("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? ""))
             }
-            reporter.completePlan(folder: batch.folder, files: batch.files)
+            reporter.completePlan(folder: batch.folder, samples: batch.samples, files: batch.files)
         } catch let refusal as ExitCode {
             throw refusal
         } catch {
@@ -256,13 +256,13 @@ extension ImportCommand.FastqSubcommand {
 }
 
 extension ImportFastqReporter {
-    /// The `complete` line of a written submit folder: the folder and `staging-files.json` as outputs, and each file the
-    /// jobs read from the staging folder as an artifact of kind `staging-<role>`. Sizes and digests are in the list.
-    func completePlan(folder: URL, files: [ExecutorPlanBatchFile]) {
+    /// The `complete` line of a written submit folder: the paths of the submit folder and of each sample's plan folder
+    /// as outputs (Q-C4-8), and each file the jobs read from the staging folder as an artifact of kind `staging-<role>`.
+    /// The sizes and digests stay in `staging-files.json` and the human text, since a v2 event has no size field.
+    func completePlan(folder: URL, samples: [String], files: [ExecutorPlanBatchFile]) {
         guard eventsOn else { return }
-        let list = folder.appendingPathComponent(ExecutorPlanBatchFiles.fileName).path
         CLIEventEmitter(enabled: true) { printEventLine($0) }.emitComplete(
-            outputs: [folder.path, list],
+            outputs: [folder.path] + samples.map { folder.appendingPathComponent($0, isDirectory: true).path },
             artifacts: files.map { CLIEventArtifact(kind: "staging-\($0.role)", path: $0.stagingPath, role: $0.sample) },
             message: "Wrote the submit folder for \(Set(files.compactMap(\.sample)).count) sample(s)"
         )
