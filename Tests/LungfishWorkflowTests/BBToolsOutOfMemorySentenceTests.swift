@@ -33,4 +33,17 @@ final class BBToolsOutOfMemorySentenceTests: XCTestCase {
             tool: "clumpify.sh", arguments: ["in=/work/reads.fastq", "-Xmx4g", "-eoom"], optionPinsHeap: true)
         XCTAssertTrue(sentence.contains("import fastq --clumpify-heap-gb 8"), sentence)
     }
+
+    /// The Import FASTQ sheet has no heap control, so the storage sentence leads with what a person in the sheet can
+    /// do and names the option last, as a command line step (narrowed review O29-UX finding 1, UX 1 and UX 4).
+    func testStorageSentenceLeadsWithAnActionTheSheetHas() throws {
+        let sentence = BBToolsOutOfMemory.message(
+            tool: "clumpify.sh", arguments: ["in=/work/reads.fastq", "-Xmx4g", "-eoom"], optionPinsHeap: true)
+        let action = try XCTUnwrap(sentence.range(of: "Close other apps"), sentence)
+        let option = try XCTUnwrap(sentence.range(of: "--clumpify-heap-gb"), sentence)
+        XCTAssertLessThan(action.lowerBound, option.lowerBound, sentence)
+        XCTAssertFalse(sentence.hasSuffix("--clumpify-heap-gb 8."), "the sentence must not end on the flag: \(sentence)")
+        XCTAssertTrue(
+            sentence.contains("On the command line, import fastq --clumpify-heap-gb 8 sets a larger heap."), sentence)
+    }
 }

@@ -389,6 +389,24 @@ final class ImportFastqCommandTests: XCTestCase {
         }
     }
 
+    // Narrowed fact-check O29-facts NT-01. `--recipe` accepts the names the help lists and none, so the unknown-recipe
+    // error lists them from the same registry and cannot go stale when a recipe file is added.
+    func testUnknownRecipeErrorNamesEveryRecipeTheParserAccepts() {
+        let accepted = ImportCommand.FastqSubcommand.availableRecipeNames() + ["none"]
+        XCTAssertGreaterThan(accepted.count, 3, "the help lists more names than the error once held")
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.resolveImportRecipe(named: "no-such-recipe")) { error in
+            guard case BatchImportError.unknownRecipe("no-such-recipe") = error else {
+                return XCTFail("Expected BatchImportError.unknownRecipe, got \(error)")
+            }
+            let message = error.localizedDescription
+            let prefix = "Unknown recipe 'no-such-recipe'. Valid names: "
+            XCTAssertTrue(message.hasPrefix(prefix), message)
+            let listed = message.dropFirst(prefix.count).components(separatedBy: ", ")
+                .map { $0.hasPrefix("or ") ? String($0.dropFirst(3)) : $0 }
+            XCTAssertEqual(listed, accepted, message)
+        }
+    }
+
     func testMissingRecipeFileNamesTheRecipeFilesThatDidLoad() throws {
         let loaded = RecipeRegistryV2.builtinRecipes().filter { $0.id != "illumina-paired-cleanup" }
         XCTAssertFalse(loaded.isEmpty, "the other bundled recipe files should load")

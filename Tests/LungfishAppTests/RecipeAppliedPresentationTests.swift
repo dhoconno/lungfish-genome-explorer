@@ -100,6 +100,33 @@ final class RecipeAppliedPresentationTests: XCTestCase {
         }
     }
 
+    /// A recipe with no duplicate or ribosomal RNA switch has no setting to record, so its Inspector shows the preset
+    /// and the digest and no switch row (UX 5, narrowed review O29-UX finding 2). `wgs` and `hifi` are the legacy
+    /// recipes, whose record holds a UUID, and the amplicon recipe is a recipe file whose record holds no settings.
+    func testRecordOfARecipeWithoutSwitchesShowsNoSwitchRows() {
+        let records = [
+            ("Illumina WGS", UUID().uuidString),
+            ("PacBio HiFi", UUID().uuidString),
+            ("Illumina amplicon merge", "illumina-amplicon-merge"),
+        ]
+        for (name, id) in records {
+            let info = RecipeAppliedInfo(recipeID: id, recipeName: name, stepResults: [])
+            let rows = RecipeAppliedPresentation.rows(for: info)
+            XCTAssertEqual(rows.map(\.label), ["Preset", "Recipe digest"], name)
+            XCTAssertFalse(
+                rows.contains { $0.label.hasPrefix("Remove ") && $0.value == RecipeAppliedPresentation.notRecorded },
+                "\(name): no switch row may read Not recorded")
+        }
+    }
+
+    /// The merged recipe has both switches, so its older sidecar, which holds no settings, keeps both rows and each
+    /// reads Not recorded (UX 5, an older record displays as it did).
+    func testMergedRecipeRecordWithoutSettingsKeepsBothSwitchRows() {
+        let info = RecipeAppliedInfo(
+            recipeID: "illumina-paired-cleanup", recipeName: "Illumina paired-end cleanup", stepResults: [])
+        XCTAssertEqual(RecipeAppliedPresentation.rows(for: info), notRecordedRows())
+    }
+
     /// (ii) A run that kept duplicates shows no Deduplication row (UX 9).
     func testKeptDuplicatesRecordHasNoDeduplicationRow() throws {
         let info = try keptDuplicatesRecord()
