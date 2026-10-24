@@ -84,6 +84,38 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o755)
     }
 
+    /// The bbtools template request for `S1` and its recipe template, which the refusal tests below share.
+    private func bbtoolsTemplate() throws -> (request: ExecutorPlanTemplateRequest, recipeTemplate: ExecutorPlanTemplate) {
+        let request = try ExecutorPlanTestSupport.request(
+            root: root, "S1", inputs: ExecutorPlanTestSupport.writePair(root: root, "S1"), clumping: .bbtools
+        ).templateRequest
+        return (request, try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24))
+    }
+
+    /// A submit folder named with a space, or a staging folder with a space in it, ends in a transfer line that cannot
+    /// hold it. The writer refuses both before it writes, with the option or folder to change.
+    func testWritePlanRefusesNamesTheTransferLinesCannotHold() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let rows = [try row("S1")]
+        let cases = [
+            (layout: ExecutorPlanStagingLayout(folder: "/staging/groups/g/1/lge-chtc-test", batch: "VSP2 test"),
+             field: "folder", names: "submit folder name"),
+            (layout: ExecutorPlanStagingLayout(folder: "/staging/groups/our lab/x", batch: "batch"),
+             field: "stagingFolder", names: "--staging-folder"),
+        ]
+        for (index, item) in cases.enumerated() {
+            let target = root.appendingPathComponent("refused-\(index)", isDirectory: true)
+            XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(
+                recipeTemplate, request: request, rows: rows, image: image, layout: item.layout, into: target
+            )) { error in
+                let refusal = error as? ExecutorPlanError
+                XCTAssertEqual(refusal?.field, item.field, "\(error)")
+                XCTAssertTrue(refusal?.reason.contains(item.names) == true, "\(error)")
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: target.path), item.field)
+        }
+    }
+
     // MARK: Steps with no plan form, one test each
 
     private func templateRequest(recipe: Recipe? = nil, suffixes: [String]? = nil, format: RecipeFileFormat = .pairedR1R2,

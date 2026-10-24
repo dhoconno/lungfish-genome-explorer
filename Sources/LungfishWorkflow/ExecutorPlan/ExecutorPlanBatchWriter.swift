@@ -182,6 +182,21 @@ package enum ExecutorPlanBatchWriter {
         Int((inputBytes * 3 + gib - 1) / gib) + 8
     }
 
+    /// Refuses a batch name or a staging folder that a transfer line of `sample.sub` or `run.dag` cannot hold, before
+    /// anything is written. The batch name is the submit folder's name and each folder of the staging path is a name
+    /// of letters, digits, `_`, `.` and `-`, the rule `HTCondorValueRules` applies when the template renders. The
+    /// real run and `--dry-run` make this one check.
+    package static func checkLayout(_ layout: ExecutorPlanStagingLayout) throws {
+        guard HTCondorValueRules.isName(layout.batch) else {
+            throw ExecutorPlanError(field: "folder", reason: "The submit folder name \(layout.batch) is also the batch's folder name on CHTC, so name it with letters, digits, _, . and - only.")
+        }
+        do {
+            try HTCondorValueRules.checkRelativePath(String(layout.folder.dropFirst()), field: "staging folder")
+        } catch {
+            throw ExecutorPlanError(field: "stagingFolder", reason: "The staging folder \(layout.folder) is not a path of folder names made of letters, digits, _, . and -, so pass --staging-folder a path made of those.")
+        }
+    }
+
     @discardableResult
     package static func write(
         _ recipeTemplate: ExecutorPlanTemplate, request: ExecutorPlanTemplateRequest, rows: [ExecutorPlanSampleRow],
@@ -189,6 +204,7 @@ package enum ExecutorPlanBatchWriter {
     ) throws -> ExecutorPlanBatch {
         let template = recipeTemplate.template
         try ExecutorPlanNoPlanForm.check(template, request: request)
+        try checkLayout(layout)
         var used = Set<String>()
         var names: [String] = []
         for row in rows {
