@@ -36,6 +36,10 @@ private let logger = Logger(subsystem: "com.lungfish.io", category: "ONTDirector
 /// decompressing or recompressing.
 public final class ONTDirectoryImporter: @unchecked Sendable {
 
+    /// The start of the last word an import says, "Import complete (N reads, Xs)". A chunked import holds a word that
+    /// starts with it back until its chunks are binned, so the text and the match cannot drift apart.
+    public static let completionPrefix = "Import complete"
+
     public init() {}
 
     // MARK: - Layout Detection
@@ -278,7 +282,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         )
 
         let elapsed = runClock.elapsed
-        progress(1.0, "Import complete (\(totalReadCount) reads, \(String(format: "%.1f", elapsed))s)")
+        progress(1.0, "\(Self.completionPrefix) (\(totalReadCount) reads, \(String(format: "%.1f", elapsed))s)")
 
         logger.info("ONT import: \(barcodesToImport.count) barcodes, \(totalReadCount) reads in \(String(format: "%.1f", elapsed))s")
 

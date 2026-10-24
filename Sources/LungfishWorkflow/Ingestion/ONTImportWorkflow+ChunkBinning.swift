@@ -81,9 +81,10 @@ extension ONTImportWorkflow {
 }
 
 /// Keeps a chunked import's progress in order when its chunks are binned after the importer ends. The importer takes
-/// the first 80 percent of the bar and the binning the rest, and the importer's last word, such as
-/// "Import complete (5 reads, 0.4s)", is said again once the binning ends, so it stays the row's last detail. Any
-/// other import reports as the importer and Optimize Storage say.
+/// the first 80 percent of the bar and the binning the rest. The importer's last word, such as
+/// "Import complete (5 reads, 0.4s)", is held back and said once by `finish()` after the binning succeeds, so it is
+/// the row's last detail and a failed or cancelled binning never says complete. Any other import reports as the
+/// importer and Optimize Storage say.
 struct ChunkBinningProgress: Sendable {
     private static let importShare = 0.8
     private let binsChunks: Bool
@@ -102,7 +103,11 @@ struct ChunkBinningProgress: Sendable {
 
     func importer(_ fraction: Double, _ message: String) {
         guard binsChunks else { return report(fraction, message) }
-        lastImportWord.withLock { $0 = message }
+        if message.hasPrefix(ONTDirectoryImporter.completionPrefix) {
+            // The importer's last word waits for finish(), so a chunked import says it once, after the binning.
+            lastImportWord.withLock { $0 = message }
+            return
+        }
         report(fraction * Self.importShare, message)
     }
 
