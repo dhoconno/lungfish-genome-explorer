@@ -1,0 +1,29 @@
+# Lane I IMAGE: build the Lungfish tool image in a CHTC build job (https://chtc.cs.wisc.edu/uw-research-computing/apptainer-build).
+# From C0's build.sub. build-image.sh runs the sandbox route, since a build job cannot build from a definition file.
+#
+# Submit from ~/lge-chtc-test/I/ in the access point home folder (CHTC refuses /staging as the submit folder), with these
+# files copied there and the logs folder made:
+#   build-image.sh, build-image.sub
+#   lge-tools-linux-64-explicit.txt and trim_galore-linux-64-explicit.txt, from Sources/LungfishWorkflow/Resources/ManagedTools/
+#   lungfish-executor, the stripped x86-64 Linux executor (deleted inside the job right after the manifest step)
+# Run as: condor_submit build-image.sub
+#
+# The SIF leaves the node as lge-tools.sif and lands on /staging as lge-tools.build.sif. After the job, check its SHA-256
+# against LGE_IMAGE_SIF_SHA256 in build-info.txt and rename it to the LGE_IMAGE_SIF_NAME line, lge-tools-<12 hex>.sif.
+universe = vanilla
+executable = build-image.sh
+log = logs/build.log
+output = logs/build.out
+error = logs/build.err
++IsBuildJob = true
+requirements = (HasCHTCStaging == true)
+request_cpus = 4
+request_memory = 16GB
+request_disk = 20GB
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = lge-tools-linux-64-explicit.txt, trim_galore-linux-64-explicit.txt, lungfish-executor
+transfer_output_files = lge-tools.sif, image-manifest.json, build-info.txt, installed.explicit.txt, tool-versions.txt
+transfer_output_remaps = "lge-tools.sif = file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/lge-tools.build.sif"
+batch_name = lge-image-build
+queue
