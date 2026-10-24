@@ -269,6 +269,24 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }
 
+    /// The join is a recorded `cat` step. Its inputs are the members in input
+    /// order and its only output is the joined file, so the record shows how the
+    /// one file the mapper read was made (ARCH 5).
+    func testAPooledRunRecordsTheJoinAsOneCatStepWithEveryMember() async throws {
+        let a = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try pairBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+
+        let resolved = try await resolve([a, b], tool: .minimap2)
+        let steps = try ManagedMappingPipeline().mappingInputMaterializationSteps(for: resolved.request)
+
+        let joins = steps.filter { $0.toolName == SequenceInputConcatenation.toolName }
+        XCTAssertEqual(joins.count, 1, "a pool is recorded as one cat step")
+        let join = try XCTUnwrap(joins.first)
+        XCTAssertEqual(join.inputs.map(\.path), [Fixture.fastqURL(in: a), Fixture.fastqURL(in: b)].map { $0.standardizedFileURL.path })
+        XCTAssertTrue(join.inputs.allSatisfy { $0.sha256 != nil }, "every member is recorded with its sha256")
+        XCTAssertEqual(join.outputs.map(\.path), [resolved.request.inputFASTQURLs[0].standardizedFileURL.path])
+    }
+
     // MARK: - Helpers
 
     private func pairBundle(_ name: String, prefix: String, starts: [Int]) throws -> URL {

@@ -111,8 +111,10 @@ final class MappingPooledInputsConformanceTests: XCTestCase {
             XCTAssertEqual(mapped.record["inputLayout"] as? String, "single_end", "\(tool)")
             XCTAssertEqual(mapped.record["readLayoutHandling"] as? String, "as_single", "\(tool)")
             for path in mapped.recordedInputPaths {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: path), "\(tool): the record names \(path), which must exist after the run")
                 XCTAssertTrue(mapped.mapperArguments.contains { $0.contains(path) }, "\(tool): \(path) is in the recorded argv")
             }
+            XCTAssertEqual(mapped.recordedInputPaths.count, 1, "\(tool): a pool is recorded as the one joined file")
         }
     }
 
@@ -166,7 +168,7 @@ final class MappingPooledInputsConformanceTests: XCTestCase {
             referenceFASTAURL: reference,
             outputDirectory: outputDirectory,
             sampleName: "pooled-\(bundles.count)-bundles",
-            threads: 2
+            threads: 1
         )
         let resolved = try await MappingInputResolver.resolve(
             request: request,
@@ -178,7 +180,7 @@ final class MappingPooledInputsConformanceTests: XCTestCase {
             readSetPlan: resolved.readSetPlan
         )
 
-        let view = try ProcessRunner.run(samtools, ["view", result.bamURL.path], timeout: 120)
+        let view = try ProcessRunner.run(samtools, ["view", result.bamURL.path], timeout: 30)
         XCTAssertEqual(view.status, 0, "samtools view: \(view.stderr)")
         let fields = view.stdout.split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false) }
         let primary = fields.filter { (Int($0[1]) ?? 0) & 0x900 == 0 }
