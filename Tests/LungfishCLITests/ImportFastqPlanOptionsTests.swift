@@ -198,7 +198,8 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                     try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
                 }
                 let failed = try XCTUnwrap(events.first { $0["event"] as? String == "failed" }, "\(label): \(result.stdoutText)")
-                let message = try XCTUnwrap(failed["message"] as? String, label)
+                // The failed line of a version 2 event holds its sentence under `error`.
+                let message = try XCTUnwrap(failed["error"] as? String, "\(label): \(failed)")
                 XCTAssertTrue(message.contains("given to \(option) is not"), "\(label): \(message)")
                 XCTAssertFalse(message.contains("Error Domain") || message.contains("keyNotFound"), "\(label): \(message)")
                 XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), label)
