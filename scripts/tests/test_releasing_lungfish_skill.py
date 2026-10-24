@@ -71,6 +71,7 @@ fi
             "scripts/release/release_cache_fingerprint.py",
             "scripts/release/release_cache_security.py",
             "scripts/release/release_repository.py",
+            "scripts/release/linux_executor.py",
             "scripts/release/release_target_security.py",
             "scripts/release/release_xcode.py",
             "scripts/release/build-notarized-dmg.sh",
