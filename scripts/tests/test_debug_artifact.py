@@ -11,8 +11,10 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
+from scripts.release import debug_artifact
 from scripts.release.debug_artifact import DebugArtifactError, check_app, check_metadata, embedded_identity
 from scripts.release.release_identity import identity_plist, apply_app_identity
 
@@ -156,15 +158,13 @@ class DebugArtifactTests(unittest.TestCase):
                     target.unlink()
                 else:
                     shutil.rmtree(target)
+        # The command line must carry the flag into the check: no flag asks for the folder present, the flag for it absent.
         root = Path(__file__).resolve().parents[2]
-        for flags in ([], ['--without-linux-executor']):
-            with self.subTest(flags=flags):
-                result = subprocess.run([sys.executable, str(root / 'scripts/release/debug_artifact.py'), 'check',
-                                         '--root', str(root), '--app', str(app), *flags],
-                                        capture_output=True, text=True, timeout=60)
-                self.assertEqual(result.returncode, 1)
-                self.assertNotIn('unrecognized arguments', result.stderr)
-                self.assertTrue(result.stderr.startswith('Debug artifact: '), result.stderr)
+        for flags, expected in (([], True), (['--without-linux-executor'], False)):
+            with self.subTest(flags=flags), mock.patch.object(debug_artifact, 'check_app') as checked:
+                self.assertEqual(debug_artifact.main(['check', '--root', str(root), '--app', str(app), *flags]), 0)
+                checked.assert_called_once()
+                self.assertEqual(checked.call_args.kwargs['linux_executor'], expected)
 
     def test_fast_checks_run_only_bounded_headless_cli_commands(self):
         selected = contract(fork=True)
