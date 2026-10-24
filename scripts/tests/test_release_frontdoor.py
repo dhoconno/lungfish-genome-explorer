@@ -331,6 +331,7 @@ class FrontDoorTransactionTests(GateOperationsMixin, unittest.TestCase):
     class RecordingOperations:
         def build_linux_executor(self, _request):
             # run_package builds the app's Linux executor before the coordinator. No test here compiles.
+            self.events.append("build-linux-executor")
             return None
 
         def __init__(self, release):
@@ -1796,8 +1797,10 @@ FAKE_BUILDER = textwrap.dedent(r'''
     if mode == "fail-after-pass":
         raise SystemExit(3)
     if mode != "no-receipt":
-        (work / "unsigned-candidate-receipt.json").write_text(
-            json.dumps({"gateSha256": lines[1], "gateManifest": lines[2]}))
+        receipt = {"gateSha256": lines[1], "gateManifest": lines[2]}
+        if "FAKE_BUILDER_ARTIFACTS" in os.environ:
+            receipt["artifacts"] = json.loads(os.environ["FAKE_BUILDER_ARTIFACTS"])
+        (work / "unsigned-candidate-receipt.json").write_text(json.dumps(receipt))
 ''')
 
 
@@ -2017,6 +2020,52 @@ class PackageBuildHandoffTests(GateOperationsMixin, unittest.TestCase):
                               ("--archive-path", "/fixture/archive"), ("--derived-data-path", "/fixture/derived"),
                               ("--scratch-path", "/fixture/swiftpm")):
             self.assertEqual(command[command.index(option) + 1], value)
+
+    def test_package_command_names_the_stage_only_after_a_build(self):
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.root = self.root
+        operations._paths = lambda _request: (Path("/fixture/archive"), Path("/fixture/derived"), Path("/fixture/release"))
+        operations._cache_paths = lambda _request: SimpleNamespace(swiftpm=Path("/fixture/swiftpm"))
+        handoff = ["--gate-handoff-fd", "9"]
+
+        before_a_build = operations._package_command(self.request("package"), handoff)
+
+        self.assertNotIn("--linux-executor-stage", before_a_build)
+
+        operations._linux_executor_stage = Path("/s/stage")
+        after_a_build = operations._package_command(self.request("package"), handoff)
+
+        position = after_a_build.index("--linux-executor-stage")
+        self.assertEqual(after_a_build[position:position + 2], ["--linux-executor-stage", "/s/stage"])
+        self.assertLess(position, after_a_build.index("--channel"))
+        self.assertEqual(after_a_build[2:5], ["--package-only", "--gate-handoff-fd", "9"])
+        self.assertEqual(after_a_build[:position] + after_a_build[position + 2:], before_a_build,
+                         "the stage pair is the only difference")
+
+    def finish_with_a_stage(self, artifacts, evidence):
+        """Finish a package whose executor stage was built, with a stand-in builder that writes artifacts into its
+        receipt (None writes none)."""
+        self.receipt.unlink(missing_ok=True)
+        operations = self.operations()
+        operations._linux_executor_stage = self.root / "stage"
+        if artifacts is not None:
+            operations.runner.environment["FAKE_BUILDER_ARTIFACTS"] = json.dumps(artifacts)
+        build = self.started(operations)
+        with mock.patch.object(self.release, "_METRICS_PATH", self.root / "metrics.jsonl"):
+            return self.finish(operations, build, evidence)
+
+    def test_finish_package_build_refuses_a_candidate_without_a_linux_executor(self):
+        evidence = self.retained_evidence()
+        record = {"path": "Contents/Resources/LinuxExecutor/x86_64/lungfish-executor", "manifest": {"schemaVersion": 1}}
+
+        for label, artifacts in (("an executor record of null", {"linuxExecutor": None}),
+                                 ("a receipt without artifacts", None)):
+            with self.subTest(label):
+                with self.assertRaisesRegex(self.release.ReleaseError, "holds no Linux executor"):
+                    self.finish_with_a_stage(artifacts, evidence)
+
+        with self.subTest("an executor record"):
+            self.assertEqual(self.finish_with_a_stage({"linuxExecutor": record}, evidence), self.receipt)
 
     def test_the_builder_starts_in_its_own_session_and_waits_for_the_gates(self):
         operations = self.operations()
@@ -2537,7 +2586,142 @@ class RunPackageSignalTests(unittest.TestCase):
 
         self.assertEqual(stopped.exception.code, 128 + signal.SIGTERM)
         self.assertEqual(operations.events,
-                         ["package-source", "doctor-package", "builder-start", "local-release-gates", "builder-abort"])
+                         ["build-linux-executor", "package-source", "doctor-package", "builder-start",
+                          "local-release-gates", "builder-abort"])
+
+
+class RunPackageLinuxExecutorTests(unittest.TestCase):
+    """run_package builds the app's Linux executor before the coordinator starts anything (QC18 item 1), and a failed
+    build ends the package before the builder, the gates or any other step starts. The operations are the recording
+    double of the transaction tests, so nothing here compiles."""
+
+    def setUp(self):
+        self.release = load_module()
+
+    def run_package(self, operations):
+        with mock.patch.object(self.release, "_head_commit", return_value="a" * 40), \
+                mock.patch.object(self.release, "resolve_repository_identity",
+                                  return_value=SimpleNamespace(github_repository="example/lungfish")), \
+                mock.patch.object(self.release, "_verify_public_repository"), \
+                mock.patch.object(self.release, "LocalReleaseOperations", return_value=operations), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return self.release.run_package(ROOT, "preview")
+
+    def test_run_package_builds_the_linux_executor_before_the_package_starts(self):
+        operations = FrontDoorTransactionTests.RecordingOperations(self.release)
+
+        self.assertEqual(self.run_package(operations), 0)
+
+        self.assertEqual(
+            operations.events,
+            [
+                "build-linux-executor",
+                "package-source",
+                "doctor-package",
+                "builder-start",
+                "local-release-gates",
+                "builder-finish",
+                "verify-candidate",
+            ],
+        )
+
+    def test_a_failed_linux_executor_build_starts_no_package(self):
+        operations = FrontDoorTransactionTests.RecordingOperations(self.release)
+
+        def fails(_request):
+            raise self.release.ReleaseError("Linux executor build failed: x")
+
+        operations.build_linux_executor = fails
+
+        with self.assertRaisesRegex(self.release.ReleaseError, "Linux executor build failed: x"):
+            self.run_package(operations)
+
+        self.assertNotIn("builder-start", operations.events)
+        self.assertEqual(operations.events, [], "no step of the package ran after the failed build")
+
+
+class BuildLinuxExecutorStageTests(GateOperationsMixin, unittest.TestCase):
+    """LocalReleaseOperations.build_linux_executor around a stand-in for the build function. A dirty or moved checkout
+    stops it before any build, the old stage folder goes before a new build, and a stripped file that holds any label
+    of the release scan stops the package (QC18 item 1). The real build is shown by the lane record, so nothing here
+    compiles."""
+
+    COMMIT = "a" * 40
+    CLEAN = {"commit": COMMIT, "clean": True}
+    CLEAN_ELF = b"\x7fELF\x02\x01\x01\x00/workspace/Sources/x.swift\x00/swiftpm-build/checkouts/y.cc\x00"
+
+    def setUp(self):
+        self.release = load_module()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.stage = self.root / "build/linux-executor/stage"
+        self.operations = object.__new__(self.release.LocalReleaseOperations)
+        self.operations.root = self.root
+        self.operations.runner = SimpleNamespace(environment={"PATH": "/usr/bin:/bin"})
+
+    def build(self, source, builder):
+        """build_linux_executor with the checkout reporting source and builder standing in for the build function."""
+        with mock.patch.object(self.release, "source_identity", return_value=source), \
+                mock.patch.object(self.release, "release_version", return_value="2026.10.24"), \
+                mock.patch.object(self.release, "build_linux_executor_stage", side_effect=builder), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return self.operations.build_linux_executor(self.request("package"))
+
+    @staticmethod
+    def stage_holding(payload, seen):
+        def fake_build(_root, output, *, lge_version, lge_commit, environment):
+            seen.append({"stage_existed": output.exists(), "version": lge_version, "commit": lge_commit,
+                         "environment": environment})
+            folder = output / "LinuxExecutor/x86_64"
+            folder.mkdir(parents=True)
+            (folder / "lungfish-executor").write_bytes(payload)
+            return {"targetTriple": "x86_64-swift-linux-musl", "sha256": "0" * 64, "size": len(payload)}
+
+        return fake_build
+
+    def test_build_linux_executor_stops_on_a_label_and_on_a_dirty_checkout(self):
+        for label, source in (("uncommitted changes", {"commit": self.COMMIT, "clean": False}),
+                              ("no commit", {"commit": "", "clean": True}),
+                              ("an unreadable checkout", {})):
+            with self.subTest(label):
+                with self.assertRaisesRegex(self.release.ReleaseError, "package requires a clean checkout"):
+                    self.build(source, AssertionError("no build starts"))
+        with self.subTest("a head that moved"):
+            with self.assertRaisesRegex(self.release.ReleaseError, "HEAD moved after package started"):
+                self.build({"commit": "b" * 40, "clean": True}, AssertionError("no build starts"))
+        self.assertFalse(self.stage.exists(), "a refused checkout leaves no stage folder")
+
+        self.stage.mkdir(parents=True)
+        (self.stage / "from-the-last-package").write_text("old")
+        seen = []
+
+        with self.assertRaisesRegex(self.release.ReleaseError, r"build-machine paths \(user-home 1\)"):
+            self.build(self.CLEAN, self.stage_holding(b"\x7fELF\x00/Users/x\x00", seen))
+
+        self.assertEqual([record["stage_existed"] for record in seen], [False],
+                         "the old stage folder is removed before the build starts")
+        self.assertIsNone(getattr(self.operations, "_linux_executor_stage", None),
+                          "a stage that holds a label is never handed to the builder")
+
+    def test_build_linux_executor_reports_a_failed_build(self):
+        failure = self.release.ExecutorBuildError("swift build failed with exit 1")
+
+        with self.assertRaisesRegex(self.release.ReleaseError,
+                                    "Linux executor build failed: swift build failed with exit 1"):
+            self.build(self.CLEAN, failure)
+
+        self.assertIsNone(getattr(self.operations, "_linux_executor_stage", None))
+
+    def test_build_linux_executor_returns_the_stage_of_a_clean_build(self):
+        seen = []
+
+        stage = self.build(self.CLEAN, self.stage_holding(self.CLEAN_ELF, seen))
+
+        self.assertEqual(stage, self.stage)
+        self.assertEqual(self.operations._linux_executor_stage, self.stage)
+        self.assertEqual([(record["version"], record["commit"]) for record in seen], [("2026.10.24", self.COMMIT)])
+        self.assertEqual(seen[0]["environment"], {"PATH": "/usr/bin:/bin"})
 
 
 class DebugPlanTests(unittest.TestCase):
