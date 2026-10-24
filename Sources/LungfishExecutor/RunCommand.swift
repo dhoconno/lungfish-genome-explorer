@@ -34,8 +34,6 @@ struct PreparedRun {
 /// rename, as `run-record.json` at the work root (ARCH-r3 ruling 2). Exit codes are `ExecutorExitCode`.
 enum RunCommand {
     static let usage = "usage: lungfish-executor run --plan <file> [--image-manifest <absolute file>] [--site-fact KEY=VALUE]...\n"
-    static let maximumSiteFacts = 64
-    static let maximumSiteFactValueBytes = 1024
     /// The largest plan file the executor reads.
     static let maximumPlanSize = 16 << 20
 
@@ -73,46 +71,11 @@ enum RunCommand {
     }
 
     /// The site facts in the order given, or the refusal that names the argument's position and the rule it broke, never
-    /// its value (tally-r2 3.1). A fact is recorded and never interpreted, passed to a tool or used to find a file.
+    /// its value (tally-r2 3.1). The rules are `SiteFactRules`, which the Mac's adopt checks a record against (C4-02).
     static func siteFacts(_ arguments: [String]) -> Result<[PlanKeyValue], RunRefusal> {
-        guard arguments.count <= maximumSiteFacts else {
-            let position = maximumSiteFacts + 1
-            return .failure(RunRefusal(
-                field: "--site-fact \(position)",
-                reason: "Site fact \(position) is over the limit of \(maximumSiteFacts) site facts. No tool ran."
-            ))
+        SiteFactRules.siteFacts(arguments).mapError { violation in
+            RunRefusal(field: "--site-fact \(violation.position)", reason: "\(violation.sentence) No tool ran.")
         }
-        var facts: [PlanKeyValue] = []
-        var keys = Set<String>()
-        for (offset, text) in arguments.enumerated() {
-            let position = offset + 1
-            let refusal = { (rule: String) in
-                RunRefusal(field: "--site-fact \(position)", reason: "Site fact \(position) \(rule) No tool ran.")
-            }
-            guard let equals = text.firstIndex(of: "=") else { return .failure(refusal("is not KEY=VALUE.")) }
-            let key = String(text[..<equals])
-            let value = String(text[text.index(after: equals)...])
-            guard isSiteFactKey(key) else {
-                return .failure(refusal("has a key that is not a letter followed by at most 63 letters, digits or underscores."))
-            }
-            guard value.utf8.count <= maximumSiteFactValueBytes else {
-                return .failure(refusal("has a value over \(maximumSiteFactValueBytes) bytes."))
-            }
-            guard !value.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
-                return .failure(refusal("has a value that holds a control character."))
-            }
-            guard keys.insert(key).inserted else { return .failure(refusal("repeats the key of an earlier site fact.")) }
-            facts.append(PlanKeyValue(key: key, value: value))
-        }
-        return .success(facts)
-    }
-
-    /// `[A-Za-z][A-Za-z0-9_]{0,63}`.
-    static func isSiteFactKey(_ key: String) -> Bool {
-        let scalars = Array(key.unicodeScalars)
-        func letter(_ scalar: Unicode.Scalar) -> Bool { ("A"..."Z").contains(scalar) || ("a"..."z").contains(scalar) }
-        guard (1...64).contains(scalars.count), letter(scalars[0]) else { return false }
-        return scalars.allSatisfy { letter($0) || ("0"..."9").contains($0) || $0 == "_" }
     }
 
     /// The text the record states in place of the `--image-manifest` value.
