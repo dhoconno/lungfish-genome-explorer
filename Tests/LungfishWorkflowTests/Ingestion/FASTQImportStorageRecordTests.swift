@@ -16,13 +16,11 @@ final class FASTQImportStorageRecordTests: XCTestCase {
     private var tempDir: URL!
 
     override func setUpWithError() throws {
-        tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FASTQImportStorageRecordTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        tempDir = try TestTempDirectory.make(prefix: "import-storage-record")
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: tempDir)
+        TestTempDirectory.cleanup(tempDir)
     }
 
     // MARK: - The import's record
