@@ -84,9 +84,16 @@ extension ImportCommand.FastqSubcommand {
                 return
             }
             let started = Date()
-            let bundle = try await ExecutorRunAdoption.adopt(
-                resultFolder: folder, projectDirectory: projectDirectory, name: name, force: force, eventsOn: reporter.eventsOn
-            )
+            // Review A2 fix 2: the window's Cancel is a SIGTERM, so the adopt runs as `import fastq` does, under a scope
+            // that turns the signal into a cancel, and its staging bundle is removed before the command exits 125.
+            let (adoptName, adoptForce, eventsOn) = (name, force, reporter.eventsOn)
+            let outcome = await runCancellingOnSIGTERM {
+                try await ExecutorRunAdoption.adopt(
+                    resultFolder: folder, projectDirectory: projectDirectory, name: adoptName, force: adoptForce,
+                    eventsOn: eventsOn
+                )
+            }
+            let bundle = try outcome.get()
             let sample = bundle.deletingPathExtension().lastPathComponent
             reporter.log(.sampleComplete(
                 sample: sample, bundle: bundle.path, durationSeconds: Date().timeIntervalSince(started), originalBytes: 0,
@@ -98,6 +105,8 @@ extension ImportCommand.FastqSubcommand {
             throw reporter.fail(refusal.reason, exitCode: .inputError)
         } catch let error as BatchImportError {
             throw reporter.fail(error.localizedDescription, exitCode: .inputError)
+        } catch is CancellationError {
+            throw reporter.fail("Adopt cancelled", detail: nil, exitCode: .cancelled)
         } catch {
             throw reporter.fail("The adopt failed. \(error.localizedDescription)", exitCode: .workflowError)
         }

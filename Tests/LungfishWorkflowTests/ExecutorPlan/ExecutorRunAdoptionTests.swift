@@ -20,71 +20,12 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         if let root { try? FileManager.default.removeItem(at: root) }
     }
 
-    /// A returned plan folder: the emitter's plan, a payload and a succeeded run record that is true to both.
-    private struct Returned {
-        let folder: URL
-        let plan: ExecutionPlan
-        var record: ExecutorRunRecord
-
-        func write() throws {
-            try record.encoded().write(to: folder.appendingPathComponent(ExecutorRunRecord.fileName))
-        }
-    }
+    /// A returned plan folder: the emitter's plan, a payload and a succeeded run record that is true to both. The
+    /// builder is in LungfishTestSupport, where the CLI's process tests of the adopt build the same folder.
+    private typealias Returned = ExecutorReturnedFolder
 
     private func returned(_ clumping: ClumpingTool, siteFacts: [PlanKeyValue] = []) throws -> Returned {
-        let pair = try ExecutorPlanTestSupport.writePair(root: root, "S")
-        let emission = try ExecutorPlanEmitter.emission(
-            ExecutorPlanTestSupport.request(root: root, "S", inputs: pair, clumping: clumping), host: ExecutorPlanTestSupport.mac24
-        )
-        let folder = root.appendingPathComponent("returned-\(clumping.rawValue)", isDirectory: true)
-        let planFile = try ExecutorPlanFolderWriter.write(emission, into: folder)
-        let planBytes = try Data(contentsOf: planFile)
-        let payloadBytes = Data("@pair1/1\nACGTACGTAC\n+\nIIIIIIIIII\n@pair1/2\nGTACGTACGT\n+\nIIIIIIIIII\n".utf8)
-        let payloadURL = folder.appendingPathComponent(ExecutorPlanEmitter.payloadPath)
-        try FileManager.default.createDirectory(at: payloadURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try payloadBytes.write(to: payloadURL)
-        let payload = ExecutorFileDigest(
-            relativePath: ExecutorPlanEmitter.payloadPath, sha256: PortableDigest.sha256Hex(of: payloadBytes),
-            size: Int64(payloadBytes.count)
-        )
-        let plan = emission.plan
-        let time = "2026-10-24T12:00:00.000Z"
-        let steps = plan.steps.map { step in
-            var recorded = ExecutorStepRecord(
-                id: step.id, kind: step.kind,
-                tool: step.tool.map { ExecutorToolRecord(id: $0.id, version: $0.version, build: $0.build, path: "/opt/conda/bin/\($0.id)") },
-                outcome: .succeeded, argv: step.arguments, environmentNames: ["HOME", "PATH", "TMPDIR"], graceSeconds: 30,
-                deadlineSeconds: step.deadlineSeconds, toolExitCode: 0, startedAt: time, endedAt: time, wallSeconds: 1,
-                qualityCounts: step.kind == .qualityCount
-                    ? ExecutorQualityCounts(baseCount: 20, q20Count: 20, q30Count: 20, recordCount: 2, file: payload) : nil,
-                storage: step.kind == .storage
-                    ? ExecutorStorageDetails(clumpingRan: plan.clumping.resolved == .bbtools, qualityBinning: plan.storage.qualityBinning,
-                                             inputBytes: 200, outputBytes: payload.size)
-                    : nil
-            )
-            if step.kind == .statistics { recorded.standardOutput = Self.seqkitOutput }
-            return recorded
-        }
-        let record = ExecutorRunRecord(
-            outcome: .succeeded, executorArguments: ["run", "--plan", "plan.json"],
-            executor: ExecutorBinaryIdentity(sha256: ExecutorPlanTestSupport.digest, size: 17, buildPin: plan.executor),
-            plan: ExecutorFileDigest(relativePath: "plan.json", sha256: PortableDigest.sha256Hex(of: planBytes), size: Int64(planBytes.count)),
-            recipe: plan.recipe,
-            imageManifest: ExecutorImageManifestRecord(sha256: plan.imageManifest.sha256, size: plan.imageManifest.size, source: .image),
-            runtimeIdentity: ExecutorRuntimeIdentity(
-                kernelRelease: "5.14.0-503.el9.x86_64", machine: "x86_64", pidNamespaceDepth: 2, cgroupVersion: 2, observedLimits: [],
-                subreaper: ExecutorStepRecord.Subreaper(state: "set", setterResult: 0, setterResultName: "0", getterResult: 0, getterValue: 1),
-                orphanSweep: .subreaper
-            ),
-            siteFacts: siteFacts, inputs: plan.entries.filter { $0.role != .executor },
-            payloads: [ExecutorPayloadRecord(
-                relativePath: payload.relativePath, sha256: payload.sha256, size: payload.size, recordCount: 2, recordCountFile: payload
-            )],
-            steps: steps, startedAt: time, endedAt: time, wallSeconds: 3
-        )
-        let returned = Returned(folder: folder, plan: plan, record: record)
-        try returned.write()
-        return returned
+        try ExecutorReturnedFolder.make(root: root, clumping: clumping, siteFacts: siteFacts)
     }
 
     private var project: URL { root.appendingPathComponent("Project.lungfish", isDirectory: true) }
@@ -419,15 +360,6 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         }
     }
 
-    /// The fixture's `seqkit stats -a -T` table for its two 10-base reads, half G and C, with seqkit's whole percents.
-    private static let seqkitTable = "file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len\tQ1\tQ2\tQ3\tsum_gap\tN50\tN50_num\tQ20(%)\tQ30(%)\tAvgQual\tGC(%)\tsum_n\n"
-        + "out/S.fastq.gz\tFASTQ\tDNA\t2\t20\t10\t10.0\t10\t10\t10\t10\t0\t10\t1\t95.00\t91.00\t40.00\t50.00\t0\n"
-
-    private static var seqkitOutput: ExecutorCapturedOutput {
-        ExecutorCapturedOutput(
-            text: seqkitTable, sha256: PortableDigest.sha256Hex(of: Data(seqkitTable.utf8)), size: Int64(seqkitTable.utf8.count)
-        )
-    }
 
     /// Each file under a folder with its bytes, so a test can tell that nothing was written.
     private static func files(under folder: URL) -> [String: Data] {

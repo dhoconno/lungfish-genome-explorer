@@ -14,7 +14,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 9 | 2858 | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishApp | library | Sources/LungfishApp | 642 | 212886 | 171 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 7 | 1994 | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishCLI | library | Sources/LungfishCLI | 321 | 78840 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishCLI | library | Sources/LungfishCLI | 321 | 78849 | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 1 | 8 | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 180 | 46247 | 332 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 8 | 5238 | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -31,7 +31,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 997 | 270702 | 1571 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | 15634 | 75 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 76 | 15792 | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
 ## Test targets
 
@@ -42,7 +42,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishAppViewTests | Tests/LungfishAppViewTests | 42 | 20173 | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | 19 | 7640 | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | 4 | 1390 | LungfishAssemblyUI, LungfishKit, LungfishTestSupport |
-| LungfishCLITests | Tests/LungfishCLITests | 409 | 98117 | LungfishCLI, LungfishIO, LungfishTestSupport |
+| LungfishCLITests | Tests/LungfishCLITests | 410 | 98182 | LungfishCLI, LungfishIO, LungfishTestSupport |
 | LungfishCoreTests | Tests/LungfishCoreTests | 147 | 40897 | LungfishCore, LungfishTestSupport |
 | LungfishEsVirituUITests | Tests/LungfishEsVirituUITests | 9 | 2272 | LungfishEsVirituUI, LungfishKit, LungfishTestSupport |
 | LungfishExecutorTests | Tests/LungfishExecutorTests | 20 | 3391 | LungfishExecutor |
@@ -57,7 +57,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortableTests | Tests/LungfishPortableTests | 10 | 1313 | LungfishPortable |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | 17 | 4252 | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | 13 | 2535 | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
-| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 751 | 234937 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
+| LungfishWorkflowTests | Tests/LungfishWorkflowTests | 751 | 234803 | LungfishIO, LungfishTestSupport, LungfishWorkflow |
 
 ## CLungfishExecutor
 
@@ -372,7 +372,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishCLI
-- Swift files. 321, lines 78840
+- Swift files. 321, lines 78849
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. ArgumentParser (swift-argument-parser)
 - Used by. LungfishCLIExecutable
@@ -382,7 +382,7 @@ None.
 
 | Subdirectory | Swift files | Lines |
 |---|---|---|
-| Commands | 297 | 73818 |
+| Commands | 297 | 73827 |
 | Options | 3 | 812 |
 | Output | 2 | 554 |
 | Support | 18 | 3346 |
@@ -1831,7 +1831,7 @@ None.
 - Swift files. 35, lines 5170
 - Depends on. none
 - External products. Crypto (swift-crypto)
-- Used by. LungfishCore, LungfishExecutor
+- Used by. LungfishCore, LungfishExecutor, LungfishTestSupport
 - Test target. LungfishPortableTests
 
 ### Subdirectories
@@ -3575,8 +3575,8 @@ None.
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Swift files. 75, lines 15634
-- Depends on. LungfishCore, LungfishIO, LungfishWorkflow
+- Swift files. 76, lines 15792
+- Depends on. LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
 - Test target. none named LungfishTestSupportTests, tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAppWorkflowTests, LungfishAssemblyUITests, LungfishCLITests, LungfishCoreTests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishIOTests, LungfishIntegrationTests, LungfishKitTests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests, LungfishWorkflowTests
