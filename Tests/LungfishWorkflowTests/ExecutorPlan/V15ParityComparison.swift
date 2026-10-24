@@ -434,9 +434,6 @@ struct V15Comparison {
             component = true
         } else if head.hasSuffix("[]"), let bracket = first.firstIndex(of: "[") {
             component = String(first[..<bracket]) == String(head.dropLast(2))
-        } else if head.hasSuffix("*]"), head.contains("[") {
-            // A step label glob, `steps[bgzip#*]` for each step of one tool (C4-3 C-4).
-            component = first.hasPrefix(String(head.dropLast(2))) && first.hasSuffix("]")
         } else {
             component = head == first
         }

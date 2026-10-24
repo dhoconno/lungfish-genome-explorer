@@ -207,11 +207,11 @@ enum V15ParityList {
                 rule: .notCompared(mustCarry: []),
                 reason: "The seqkit stats step's output: the node's standardOutput and inputFile on the adopt route, the sidecar the step names on the Mac. Every value seqkit printed is parsed and compared."),
 
-        // C4-3 C-4 (a), QV-OQ1. `bgzip#*` matches each writer step by its role label.
+        // C4-3 C-4 (a), QV-OQ1, A-C4-1. `bgzip#1` is the BBTools writer step, the one step the line names (AMV2 ARCH fix 5).
         V15Line(id: "V15-27", n9Class: 1, decision: "XC-4 B, C4-3 C-4 (a)",
-                patterns: ["envelope.steps[bgzip#*].managedToolID"],
+                patterns: ["envelope.steps[bgzip#1].managedToolID"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
-                reason: "The writer bgzip's managed environment, bbtools on the node and htslib on the Mac, a route-shaped line: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
+                reason: "BBTools takes the first bgzip on its PATH (PortableStorageStep+WriterProbe.swift:7-8), so the environment a writer comes from is a fact of each route's path: bbtools on the node, htslib on the Mac. A route-shaped line for the writer step bgzip#1 only: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
     ]
 }
 

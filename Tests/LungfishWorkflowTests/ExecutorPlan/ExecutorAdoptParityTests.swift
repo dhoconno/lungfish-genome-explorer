@@ -158,6 +158,56 @@ final class ExecutorAdoptParityTests: XCTestCase {
         XCTAssertTrue(planted.contains { $0.key == key }, "a tool version off the plan's pin fails and is named: \(planted.map(\.key))")
     }
 
+    /// AMV2 ARCH fix 3: the decompressor check names the decompressor the plan pins, not any tool the plan pins. With a plan
+    /// that pins fastp, pigz 2.8 and bgzip 1.24 (gzip first when pinned), a step of `bgzip`, one of `fastp`, one of `pigz`
+    /// 2.7 and one of `pigz` without `-dc` each give a finding, and `pigz` 2.8 with `-dc` gives none.
+    func testDecompressorStepMustBeThePinnedDecompressor() {
+        let pins: [(id: String, version: String)] = [("fastp", "1.0.1"), ("pigz", "2.8"), ("bgzip", "1.24")]
+        func step(_ program: String, version: String, flag: String = "-dc") -> [String: Any] {
+            ["argv": ["/opt/conda/envs/pigz/bin/\(program)", flag, "work/a.fq.gz"], "toolVersion": version]
+        }
+        func findings(_ step: [String: Any], _ pins: [(id: String, version: String)]) -> Int {
+            Self.decompressorFindings([step], pins: pins).count
+        }
+        XCTAssertEqual(findings(step("pigz", version: "2.8"), pins), 0, "the pinned pigz at the pin's version")
+        XCTAssertEqual(findings(step("bgzip", version: "1.24"), pins), 1, "bgzip is a plan pin, and the decompressor is pigz")
+        XCTAssertEqual(findings(step("fastp", version: "1.0.1"), pins), 1, "fastp is a plan pin and no decompressor")
+        XCTAssertEqual(findings(step("pigz", version: "2.7"), pins), 1, "pigz off the pin's version")
+        XCTAssertEqual(findings(step("pigz", version: "2.8", flag: "-d"), pins), 1, "-dc byte for byte")
+        XCTAssertEqual(findings(step("pigz", version: "2.8"), pins + [("gzip", "1.12")]), 1, "gzip, when pinned, is the decompressor")
+        XCTAssertEqual(findings(step("bgzip", version: "1.24"), [("bgzip", "1.24")]), 0, "bgzip when the plan pins neither gzip nor pigz")
+    }
+
+    /// QA ruling 1 ("a test that cannot fail is not a gate"; AMV2 QA fix 5): a writer step whose `managedToolID` is not the
+    /// envs folder of its own program fails V15-27, and a decompressor step at a version off the plan's pin or without `-dc`
+    /// fails V15-S5, each with the step named and exactly one finding. The unplanted run has neither.
+    func testParityFailsOnPlantedWriterEnvironmentAndDecompressorPin() async throws {
+        let routes = try await routes(ExecutorPlanReplayParityTests.cases[0])
+        let writerKey = "envelope.steps[bgzip#1].managedToolID"
+        let pinKey = "envelope.steps[\(V15Roles.decompressor)]"
+        let unplanted = try compare(routes, envelope: true, sidecar: false).findings
+        XCTAssertFalse(unplanted.contains { $0.key == writerKey && $0.why.contains("V15-27") }, "\(unplanted.map(\.key))")
+        XCTAssertFalse(unplanted.contains { $0.key == pinKey && $0.why.contains("V15-S5") }, "\(unplanted.map(\.key))")
+        let plants: [(label: String, program: String, key: String, tag: String, edit: (inout [String: Any]) -> Void)] = [
+            ("the writer's managedToolID", "bgzip", writerKey, "V15-27", { step in
+                step["managedToolID"] = "\(step["managedToolID"] as? String ?? "none")-planted"
+            }),
+            ("a decompressor version of 0.0", "pigz", pinKey, "V15-S5", { step in step["toolVersion"] = "0.0" }),
+            ("a decompressor without -dc", "pigz", pinKey, "V15-S5", { step in
+                var argv = step["argv"] as? [String] ?? []
+                if argv.count > 1 { argv[1] = "-d" }
+                step["argv"] = argv
+            }),
+        ]
+        for plant in plants {
+            let findings = try compare(routes, envelope: true, sidecar: false) { steps in
+                guard let index = steps.firstIndex(where: { $0["toolName"] as? String == plant.program }) else { return }
+                plant.edit(&steps[index])
+            }.findings.filter { $0.key == plant.key && $0.why.contains(plant.tag) }
+            XCTAssertEqual(findings.count, 1, "\(plant.label) gives one \(plant.tag) finding at \(plant.key): \(findings)")
+        }
+    }
+
     /// QA ruling 1, condition 5: the class-4 lines cite the committed excerpt, whose first line names the C0 source.
     func testRunVaryingClassCitesCommittedDeterminismTable() throws {
         let classFour = V15ParityList.lines.filter { $0.n9Class == 4 }
@@ -353,6 +403,25 @@ final class ExecutorAdoptParityTests: XCTestCase {
         return problems
     }
 
+    /// V15-S5 (C4-3 C-3, XC-4 B; AMV2 ARCH fix 3, QA fix 5): each decompressor step runs the one decompressor the plan pins,
+    /// taken in the executor's order (`gzip`, else `pigz`, else `bgzip`; `RunCommand.swift:274`), at the pin's version, and
+    /// its first argument is `-dc`. A pin the plan holds for another tool (`fastp`, or `bgzip` when the plan pins `pigz`) is
+    /// not the decompressor. One finding for each step that is not.
+    static func decompressorFindings(_ steps: [[String: Any]], pins: [(id: String, version: String)]) -> [V15Finding] {
+        let pinned = ["gzip", "pigz", "bgzip"].first { id in pins.contains { $0.id == id } }
+        return steps.compactMap { step in
+            let argv = step["argv"] as? [String] ?? []
+            let program = argv.first.map { ($0 as NSString).lastPathComponent } ?? ""
+            let pin = pins.first { $0.id == program && program == pinned }
+            guard pin == nil || step["toolVersion"] as? String != pin?.version || argv.dropFirst().first != "-dc" else { return nil }
+            return V15Finding(
+                key: "envelope.steps[\(V15Roles.decompressor)]",
+                adopted: "\(program) \(step["toolVersion"] ?? "absent") \(argv.dropFirst().first ?? "-")", mac: "-",
+                why: "V15-S5: the decompressor step's program is not the plan's pinned decompressor (gzip, else pigz, else bgzip) "
+                    + "at the pin's version with -dc (XC-4 B)")
+        }
+    }
+
     private func compare(
         _ routes: Routes, envelope: Bool, sidecar: Bool, editAdoptedSteps: ((inout [[String: Any]]) -> Void)? = nil
     ) throws -> V15Comparison {
@@ -402,16 +471,11 @@ final class ExecutorAdoptParityTests: XCTestCase {
                     return step.kind == .interleave ? Array(repeating: V15Roles.decompressor, count: launches.count) : ["\(step.kind)"]
                 }
             )
-            // C4-3 C-3 (XC-4 B): each decompressor step's program is a plan pin, at the pin's version.
-            for step in adoptedSteps where (step["id"] as? String).map(adoptedRoles.role(ofID:)) == V15Roles.decompressor {
-                let program = ((step["argv"] as? [String])?.first.map { ($0 as NSString).lastPathComponent }) ?? ""
-                let pin = routes.plan.tools.first { $0.id == program }
-                if pin == nil || step["toolVersion"] as? String != pin?.version {
-                    comparison.findings.append(V15Finding(
-                        key: "envelope.steps[\(V15Roles.decompressor)]", adopted: "\(program) \(step["toolVersion"] ?? "absent")", mac: "-",
-                        why: "V15-S5: the decompressor step's program is not a plan pin at the pin's version (XC-4 B)"))
-                }
-            }
+            // C4-3 C-3 (XC-4 B): each decompressor step's program is the decompressor the plan pins, at the pin's version.
+            comparison.findings += Self.decompressorFindings(
+                adoptedSteps.filter { ($0["id"] as? String).map(adoptedRoles.role(ofID:)) == V15Roles.decompressor },
+                pins: routes.plan.tools.map { ($0.id, $0.version) }
+            )
             let macRoles = V15StepRoles.mac(macEnvelope["steps"] as? [[String: Any]] ?? [], importToolName: Self.importToolName)
             for problem in adoptedRoles.problems + macRoles.problems {
                 comparison.findings.append(V15Finding(key: "envelope.steps", adopted: "-", mac: "-", why: problem))
