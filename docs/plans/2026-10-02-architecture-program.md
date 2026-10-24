@@ -309,6 +309,21 @@ O26 (2026-10-21 16:07) is a standing direction for every release. Release notes 
 
 UNIT-TIER-CADENCE. No unit tier ran between 2026-10-20 and the 2.13 candidate, and five stale tests reached it (MD94). `docs/contracts/RUNNING-A-PHASE-SESSION.md` gets the rule that a unit tier runs after about every 10 landings, which the closing monitor of 2.13 writes (`exit/QA.md:156`). MD90 also added a habit for landings, that a landing that changes export text runs the Conformance pins of that export (`rg -l` on the changed literal in Tests) and not only its unit suites.
 
+## Carry-in from Phase 2.14
+
+Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/phase-2-14`. Preview 2026.10.23 build 11097 is published from `1ec9ee27d`, `main` is `21b7825b5` plus the records commit that adds this section, and Stable is blocked. QA's exit verdict is "Phase 2 exit Met with Phase 3 rows" (`exit/QA.md:235`), and the owner check list `docs/reports/2026.10.23-owner-checks.md` still blocks Stable. The packaged re-walk of 2026-10-24 added four Stable blockers and left items for the owner.
+
+### First rows for Phase 3.1
+
+1. The four Stable blockers, each fixed red test first. OBS-W4 (Extract uses the folder stored in the result, so a renamed or copied result fails or reaches the original project), OBS-W6 (a NAO-MGS result's Summary block stays in the Inspector for the next results), OBS-W8 (a ZIP dropped on the sidebar adds nothing though its row reads Completed) and OBS-W9 (a dropped ZIP that holds a link is refused without a message).
+2. obs-22, the window that grows past the screen when a tree is selected.
+3. One packaged walk after the fixes of rows 69, 88, W2c and obs-22 (the `STABLE-WALK-*` rows) and of the reruns the re-walk did not show. They are row 18 on a virus with several segments, row 80 route with no region selected, row 89 with the ruler at base zoom, row 80 images b at 500 bases or fewer and at 20,000 or more, and row 13 after the owner's Accessibility grant.
+4. The owner's items. They are row 17 (the update from the older certificate), row 35 (the Pathoplexus terms), row 13's pass by ear, and the three items the panel left without consensus, row 80 images b, row ONT and OBS-W7 (the mapping image has no mismatch marks).
+
+### The rest
+
+`## Moved out of 2.14` in `docs/plans/2026-10-23-phase-2-14.md` holds every other row, among them the Phase 3 rows of the exit review and the rows carried from 2.13 that its table did not hold. The Known limits of the open findings are in `docs/reports/2026.10.23-technical.md`. The CHTC program's C4 resumes from `~/lungfish-phase-records/chtc-program/CONTINUE-C4.md` in its own session, since O33 put 2.14 first.
+
 ## Phase 4, god-object splits and module splits (weeks 8 to 12)
 
 Entry criteria. Phase 3 exit, characterization tests captured per extracted responsibility, byte-identical genotype export fixtures in place.
