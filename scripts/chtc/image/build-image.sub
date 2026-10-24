@@ -5,7 +5,9 @@
 # files copied there and the logs folder made:
 #   build-image.sh, build-image.sub
 #   lge-tools-linux-64-explicit.txt and trim_galore-linux-64-explicit.txt, from Sources/LungfishWorkflow/Resources/ManagedTools/
-#   lungfish-executor, the stripped x86-64 Linux executor (deleted inside the job right after the manifest step)
+# The stripped x86-64 Linux executor is over 100 MB, so CHTC's rule is to keep it on /staging and name it by a file:///
+# path. It stays at /staging/groups/oconnor_group/32748/lge-chtc-test/images/lungfish-executor and arrives as
+# lungfish-executor, the name build-image.sh reads. The job deletes its copy right after the manifest step.
 # Run as: condor_submit build-image.sub
 #
 # The SIF leaves the node as lge-tools.sif and lands on /staging as lge-tools.build.sif. After the job, check its SHA-256
@@ -22,7 +24,7 @@ request_memory = 16GB
 request_disk = 20GB
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-transfer_input_files = lge-tools-linux-64-explicit.txt, trim_galore-linux-64-explicit.txt, lungfish-executor
+transfer_input_files = lge-tools-linux-64-explicit.txt, trim_galore-linux-64-explicit.txt, file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/lungfish-executor
 transfer_output_files = lge-tools.sif, image-manifest.json, build-info.txt, installed.explicit.txt, tool-versions.txt
 transfer_output_remaps = "lge-tools.sif = file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/lge-tools.build.sif"
 batch_name = lge-image-build

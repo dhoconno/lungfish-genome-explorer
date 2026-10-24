@@ -346,7 +346,13 @@ class PinTests(unittest.TestCase):
         self.assertEqual(values["executable"], "build-image.sh")
         self.assertIn("haschtcstaging", values["requirements"].lower())
         inputs = {name.strip() for name in values["transfer_input_files"].split(",")}
-        self.assertEqual(inputs, {os.path.basename(pins()["lock_tools"]), os.path.basename(pins()["lock_trim_galore"]), pins()["executor_input"]})
+        # The two locks travel by plain name from the submit folder. The executor is over 100 MB, so CHTC's rule is to keep
+        # it on /staging and name it by a file:/// path, and it arrives under the last name of that path, which is the name
+        # the script reads.
+        locks = {os.path.basename(pins()["lock_tools"]), os.path.basename(pins()["lock_trim_galore"])}
+        executor = STAGING_IMAGES + pins()["executor_input"]
+        self.assertEqual(inputs, locks | {executor})
+        self.assertEqual(os.path.basename(executor), pins()["executor_input"])
         self.assertIn(pins()["sif_scratch_name"], transfer_outputs())
         remap = values["transfer_output_remaps"].strip('"')
         self.assertTrue(remap.startswith(pins()["sif_scratch_name"] + " = " + STAGING_IMAGES), remap)
