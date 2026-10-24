@@ -34,6 +34,7 @@ Modules form a stack. Each row imports only rows above it.
 
 | Row | Targets |
 |---|---|
+| 0 | LungfishPortable (no internal dependency, builds for macOS and static Linux) |
 | 1 | LungfishCore |
 | 2 | LungfishIO |
 | 3 | LungfishWorkflow |
@@ -44,6 +45,7 @@ Modules form a stack. Each row imports only rows above it.
 | 8 | Lungfish (app executable) |
 
 LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. LungfishCLIExecutable wraps it as `lungfish-cli`.
+LungfishExecutor (`lungfish-executor`) and its C wrapper CLungfishExecutor sit beside the stack. LungfishExecutor imports only LungfishPortable and CLungfishExecutor, CLungfishExecutor depends on nothing, and no target but LungfishExecutorTests depends on LungfishExecutor (`scripts/ratchets/portable-imports.sh`).
 
 1. LungfishKit and the leaves never import LungfishApp. A leaf exposes callbacks and the App wires them.
 2. LungfishCLI never imports LungfishKit, LungfishOperations or any UI target.

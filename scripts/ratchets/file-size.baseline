@@ -185,7 +185,6 @@ Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift 926
 Sources/LungfishWorkflow/Provenance/ProvenanceExporter.swift 1598
 Sources/LungfishWorkflow/Provenance/ProvenancePublicationSnapshot.swift 862
 Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift 1514
-Sources/LungfishWorkflow/Recipes/RecipeEngine.swift 802
 Sources/LungfishWorkflow/SequenceAnnotation/SequenceAnnotationTrackWorkflow.swift 1311
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2486
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
