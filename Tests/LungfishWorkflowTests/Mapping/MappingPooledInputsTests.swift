@@ -264,7 +264,9 @@ final class MappingPooledInputsTests: XCTestCase {
         let folder = root.appendingPathComponent("refused/.lungfish-map-inputs", isDirectory: true)
 
         XCTAssertThrowsError(try MappingPooledInputs.join(resolved, into: folder)) { error in
-            XCTAssertEqual(error as? MappingPooledInputsError, .mixedCompression)
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("a.fastq.gz"), "the refusal names the compressed input: \(message)")
+            XCTAssertTrue(message.contains("b.fastq"), "the refusal names the uncompressed input: \(message)")
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }
@@ -285,6 +287,37 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertEqual(join.inputs.map(\.path), [Fixture.fastqURL(in: a), Fixture.fastqURL(in: b)].map { $0.standardizedFileURL.path })
         XCTAssertTrue(join.inputs.allSatisfy { $0.sha256 != nil }, "every member is recorded with its sha256")
         XCTAssertEqual(join.outputs.map(\.path), [resolved.request.inputFASTQURLs[0].standardizedFileURL.path])
+    }
+
+    /// BIO 2 and 6. A pool of virtual bundles had one `fastq materialize` step
+    /// before the join, which says which bundle made which file. The record keeps
+    /// that step, with both bundles as inputs and both materialized files as
+    /// outputs, and then the `cat` step that reads those two files.
+    func testPooledVirtualBundlesKeepOneMaterializationStepEach() async throws {
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let virtual = [fixtures.subsetOfSingle, fixtures.subsetOfInterleaved]
+
+        let resolved = try await MappingInputResolver.resolve(
+            request: request(virtual, tool: .minimap2),
+            materializer: fixtures.materializer
+        )
+        let members = resolved.sequenceInputs.inputs.flatMap(\.concatenatedFrom).map { $0.standardizedFileURL.path }
+        XCTAssertEqual(members.count, 2, "the pool joins the two materialized files")
+        let steps = try ManagedMappingPipeline().mappingInputMaterializationSteps(for: resolved.request)
+
+        let materializations = steps.filter { $0.toolName == CLISequenceInputMaterialization.materializationToolName }
+        XCTAssertEqual(materializations.count, 1, "one materialization step covers the two virtual bundles")
+        let materialization = try XCTUnwrap(materializations.first)
+        for bundle in virtual {
+            XCTAssertTrue(
+                materialization.inputs.contains { $0.path == bundle.standardizedFileURL.path },
+                "the materialization step names \(bundle.lastPathComponent) as an input"
+            )
+        }
+        XCTAssertEqual(materialization.outputs.map(\.path), members, "the materialization step writes both members")
+        let joins = steps.filter { $0.toolName == SequenceInputConcatenation.toolName }
+        XCTAssertEqual(joins.count, 1, "the join is one cat step")
+        XCTAssertEqual(joins.first?.inputs.map(\.path), members, "the cat step reads the files the materialization wrote")
     }
 
     // MARK: - Helpers

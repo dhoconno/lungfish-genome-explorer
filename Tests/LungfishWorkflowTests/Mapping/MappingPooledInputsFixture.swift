@@ -11,6 +11,7 @@
 // scratchpad generator of the check.
 
 import Foundation
+import LungfishTestSupport
 @testable import LungfishIO
 
 enum MappingPooledInputsFixture {
@@ -86,17 +87,33 @@ enum MappingPooledInputsFixture {
     }
 
     /// `<directory>/<name>.lungfishfastq/<name>.fastq`, the bundle of one import.
+    /// With `gzipped` the payload is `<name>.fastq.gz`, as a physical import keeps
+    /// it, written with `/usr/bin/gzip`.
     @discardableResult
-    static func writeBundle(named name: String, fastq: String, in directory: URL) throws -> URL {
+    static func writeBundle(named name: String, fastq: String, in directory: URL, gzipped: Bool = false) throws -> URL {
         let bundle = directory.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try fastq.write(to: fastqURL(in: bundle), atomically: true, encoding: .utf8)
+        let plain = bundle.appendingPathComponent("\(name).fastq")
+        try fastq.write(to: plain, atomically: true, encoding: .utf8)
+        if gzipped {
+            let result = try ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/gzip"), ["-f", plain.path], timeout: 30)
+            guard result.status == 0 else {
+                throw NSError(
+                    domain: "MappingPooledInputsFixture",
+                    code: Int(result.status),
+                    userInfo: [NSLocalizedDescriptionKey: "gzip failed: \(result.stderr)"]
+                )
+            }
+        }
         return bundle
     }
 
-    /// The FASTQ file ``writeBundle(named:fastq:in:)`` wrote.
+    /// The FASTQ file ``writeBundle(named:fastq:in:gzipped:)`` wrote, the `.fastq.gz`
+    /// when the bundle holds one and the `.fastq` otherwise.
     static func fastqURL(in bundle: URL) -> URL {
-        bundle.appendingPathComponent("\(bundle.deletingPathExtension().lastPathComponent).fastq")
+        let plain = bundle.appendingPathComponent("\(bundle.deletingPathExtension().lastPathComponent).fastq")
+        let gzip = plain.appendingPathExtension("gz")
+        return FileManager.default.fileExists(atPath: gzip.path) ? gzip : plain
     }
 
     /// A bundle that holds an R1 file and an R2 file (a paired import listed in

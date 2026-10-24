@@ -132,6 +132,63 @@ final class MappingPooledInputsConformanceTests: XCTestCase {
         XCTAssertEqual(mapped.primaryPositions, Fixture.expectedPositions(Fixture.bundleAStarts, Fixture.bundleBLongStarts))
     }
 
+    /// BIO 1. The usual bundle holds a gzip file, so the join writes
+    /// `pooled-<UUID>.fastq.gz`, a multi-member gzip stream. Every mapper must read
+    /// both members. A mapper that stopped after the first member would map 8 of
+    /// the 16 reads with exit 0, as BBMap did with two separate files.
+    func testTwoPooledGzipBundlesMapEveryReadOnEveryMapper() async throws {
+        let bundles = [
+            try bundle("poolA", prefix: "a", starts: Fixture.bundleAStarts, gzipped: true),
+            try bundle("poolB", prefix: "b", starts: Fixture.bundleBStarts, gzipped: true),
+        ]
+        for tool in [MappingTool.minimap2, .bwaMem2, .bowtie2, .bbmap] {
+            let mapped = try await map(tool, bundles)
+
+            XCTAssertEqual(mapped.request.inputFASTQURLs.count, 1, "\(tool): a pool is one file")
+            let joined = try XCTUnwrap(mapped.request.inputFASTQURLs.first)
+            XCTAssertEqual(joined.pathExtension, "gz", "\(tool): the joined file is a gzip stream")
+            XCTAssertEqual(mapped.primaryFlags.count, 16, "\(tool) maps every read of both gzip bundles")
+            XCTAssertEqual(mapped.primaryFlags.filter { $0 & 0x1 != 0 }.count, 0, "\(tool): every read maps as a single read")
+            XCTAssertEqual(mapped.primaryPositions, Fixture.expectedPositions(Fixture.bundleAStarts, Fixture.bundleBStarts), "\(tool)")
+            let text = try ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/gzip"), ["-dc", joined.path], timeout: 30)
+            XCTAssertEqual(text.status, 0, "gzip -dc: \(text.stderr)")
+            XCTAssertEqual(text.stdout.split(separator: "\n").count, 64, "\(tool): the joined file holds 16 reads of 4 lines")
+        }
+    }
+
+    /// BIO 2 and 6, ARCH 5. The record of a pooled run names every bundle and the
+    /// join. The payload file of each bundle is an input with its sha256, one `cat`
+    /// step reads both payload files and writes the joined file alone, the mapper
+    /// step reads that file, and every input the record names exists after the run.
+    func testPooledRunRecordNamesEveryBundleAndTheJoinStep() async throws {
+        let a = try bundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try bundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+        let payloads = [a, b].map { Self.canonical(Fixture.fastqURL(in: $0).path) }
+
+        let mapped = try await map(.minimap2, [a, b])
+
+        let joined = Self.canonical(try XCTUnwrap(mapped.request.inputFASTQURLs.first).path)
+        let inputs = recordedFiles(mapped.record["inputFiles"])
+        for payload in payloads {
+            let entry = inputs.first { $0.path == payload }
+            XCTAssertNotNil(entry, "the record lists \(payload) as an input")
+            XCTAssertNotNil(entry?.sha256, "\(payload) is recorded with its sha256")
+        }
+        let steps = mapped.record["steps"] as? [[String: Any]] ?? []
+        let joins = steps.filter { $0["toolName"] as? String == SequenceInputConcatenation.toolName }
+        XCTAssertEqual(joins.count, 1, "the join is one cat step")
+        let join = try XCTUnwrap(joins.first)
+        XCTAssertEqual(recordedFiles(join["inputs"]).map(\.path), payloads, "the cat step reads both payload files in order")
+        let joinOutputs = recordedFiles(join["outputs"])
+        XCTAssertEqual(joinOutputs.map(\.path), [joined], "the cat step writes the joined file alone")
+        XCTAssertNotNil(joinOutputs.first?.sha256, "the joined file is recorded with its sha256")
+        let mapper = try XCTUnwrap(steps.first { $0["toolName"] as? String == "minimap2" })
+        XCTAssertTrue(recordedFiles(mapper["inputs"]).contains { $0.path == joined }, "the mapper step reads the joined file")
+        for file in inputs + recordedFiles(join["inputs"]) + joinOutputs {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the record names \(file.path), which must exist after the run")
+        }
+    }
+
     // MARK: - Running a pooled mapping
 
     private struct MappedPool {
@@ -148,8 +205,30 @@ final class MappingPooledInputsConformanceTests: XCTestCase {
         let recordedInputPaths: [String]
     }
 
-    private func bundle(_ name: String, prefix: String, starts: [Int]) throws -> URL {
-        try Fixture.writeBundle(named: name, fastq: Fixture.interleavedFASTQ(prefix: prefix, starts: starts), in: imports)
+    private func bundle(_ name: String, prefix: String, starts: [Int], gzipped: Bool = false) throws -> URL {
+        try Fixture.writeBundle(
+            named: name,
+            fastq: Fixture.interleavedFASTQ(prefix: prefix, starts: starts),
+            in: imports,
+            gzipped: gzipped
+        )
+    }
+
+    private struct RecordedFile {
+        let path: String
+        let sha256: String?
+    }
+
+    /// The path and sha256 of each entry of a list of file records in the run's JSON,
+    /// the path resolved so that `/var` and `/private/var` compare equal.
+    private func recordedFiles(_ value: Any?) -> [RecordedFile] {
+        (value as? [[String: Any]] ?? []).map { entry in
+            RecordedFile(path: Self.canonical(entry["path"] as? String ?? ""), sha256: entry["sha256"] as? String)
+        }
+    }
+
+    private static func canonical(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     private func map(_ tool: MappingTool, _ bundles: [URL]) async throws -> MappedPool {
