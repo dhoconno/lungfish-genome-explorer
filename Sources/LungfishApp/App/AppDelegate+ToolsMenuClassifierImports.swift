@@ -35,12 +35,12 @@ extension AppDelegate {
             return
         }
 
-        let importsDir = projectURL.appendingPathComponent("Imports", isDirectory: true)
+        let importsDir: URL
         do {
-            try FileManager.default.createDirectory(at: importsDir, withIntermediateDirectories: true)
+            importsDir = try ClassifierResultImportCLIRoute.destination(for: .nvd, projectURL: projectURL)
         } catch {
             onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
-            showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: controller.window)
+            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: controller.window)
             return
         }
 

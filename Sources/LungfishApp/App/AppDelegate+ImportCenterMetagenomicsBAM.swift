@@ -85,25 +85,13 @@ extension AppDelegate {
             return
         }
 
-        // NAO-MGS results go to Analyses/ (they are analysis results, not raw imports)
         let outputDir: URL
-        if kind == .naomgs {
-            do {
-                outputDir = try AnalysesFolder.url(for: projectURL)
-            } catch {
-                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
-                showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
-                return
-            }
-        } else {
-            outputDir = projectURL.appendingPathComponent("Imports", isDirectory: true)
-            do {
-                try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            } catch {
-                onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
-                showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
-                return
-            }
+        do {
+            outputDir = try ClassifierResultImportCLIRoute.destination(for: kind, projectURL: projectURL)
+        } catch {
+            onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
+            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
+            return
         }
 
         // Every kind runs `lungfish-cli import <kind>` (Phase 2.12 lanes 12.04 and 12.05).

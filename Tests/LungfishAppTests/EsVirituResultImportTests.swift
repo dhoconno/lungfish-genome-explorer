@@ -86,6 +86,50 @@ final class EsVirituResultImportTests: XCTestCase {
         }
     }
 
+    // MARK: - Row 20, the fix
+
+    /// An EsViritu result imported through the route lists in the sidebar and opens with the source folder's
+    /// detections. The route's argv runs in process into the folder that the one destination function gives. The
+    /// sidebar lists the result as an EsViritu row, the router places the row's folder as an EsViritu result, and
+    /// opening it builds the result's index as the viewer does (`lungfish-cli build-db esviritu <result>`). The opened
+    /// result's detection count and read counts equal those of the source folder (BIO). It failed at the base, where
+    /// the result went to Imports and never listed.
+    func testImportedCLIResultIsListedAndOpens() async throws {
+        let project = try makeProject()
+        let input = try ClassifierImportAppFixtures.esVirituResult(in: root)
+        let destination = try ClassifierResultImportCLIRoute.destination(for: .esviritu, projectURL: project)
+        let imported = try await importResult(.esviritu, input: input, into: destination)
+
+        let sidebar = openSidebar(on: project)
+        let row = try XCTUnwrap(
+            self.row(for: imported, in: sidebar),
+            "the imported EsViritu result \(imported.path) is not a row of the sidebar"
+        )
+        XCTAssertEqual(row.type, .esvirituResult)
+        XCTAssertTrue(sidebar.selectItem(forURL: imported), "the imported result cannot be selected")
+
+        let route = try XCTUnwrap(ClassifierDatabaseRouter.route(for: imported), "the row's folder routes to no classifier")
+        XCTAssertEqual(route.analysisID, .esviritu)
+        XCTAssertEqual(route.resultURL.resolvingSymlinksInPath().path, imported.resolvingSymlinksInPath().path)
+        XCTAssertNil(route.databaseURL, "an import leaves no index, so opening the row builds it")
+        let build = try await ClassifierImportAppFixtures.runCLI(["build-db", route.tool, route.resultURL.path], in: root)
+        XCTAssertNil(build.failure, build.lines.joined(separator: "\n"))
+
+        let database = try EsVirituDatabase(at: route.resultURL.appendingPathComponent("esviritu.sqlite"))
+        let samples = try database.fetchSamples()
+        let rows = try database.fetchRows(samples: samples.map(\.sample))
+        let table = input.appendingPathComponent("\(ClassifierImportAppFixtures.sampleID).detected_virus.info.tsv")
+        let source = try EsVirituDetectionParser.parse(url: table)
+        XCTAssertFalse(source.isEmpty, "the source folder holds detections")
+        XCTAssertEqual(samples.map(\.detectionCount), [source.count], "detections of the opened result and the source folder")
+        XCTAssertEqual(rows.count, source.count)
+        XCTAssertEqual(rows.map(\.accession).sorted(), source.map(\.accession).sorted())
+        XCTAssertEqual(
+            rows.map(\.readCount).sorted(), source.map(\.readCount).sorted(),
+            "read counts of the opened result and the source folder"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeProject() throws -> URL {

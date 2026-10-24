@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -73,6 +74,16 @@ enum ClassifierResultImportCLIRoute {
                 preferredName: preferredName, fetchReferences: fetchReferences
             ).dropFirst(2))
         )
+    }
+
+    /// The folder a classifier import is told to write its result folder into (`--output-dir`) for `kind`, in the
+    /// project `projectURL`. The Import Center and the Tools menu both ask here, so the two menus cannot disagree.
+    /// A NAO-MGS result goes to Analyses and every other kind to Imports.
+    static func destination(for kind: MetagenomicsImportKind, projectURL: URL) throws -> URL {
+        if kind == .naomgs { return try AnalysesFolder.url(for: projectURL) }
+        let imports = projectURL.appendingPathComponent("Imports", isDirectory: true)
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        return imports
     }
 
     /// Runs `arguments` for the row `operationID` and ends the row as the helper route did.
