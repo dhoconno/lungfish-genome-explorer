@@ -67,11 +67,16 @@ extension ImportCommand.FastqSubcommand {
     /// The adopt: each refusal before any bundle file, then one bundle, with the import's events under `--format json`.
     func runAdopt() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
-        let projectDirectory = URL(fileURLWithPath: project)
+        // Landing 3: the F2 fixes made `project` optional, since `validate()` lets `--write-plan` run without one, and the
+        // adopt writes its bundle into a project, so it names the same missing option the command's own run does.
+        let projectDirectory = URL(fileURLWithPath: project ?? planOptions.writePlan ?? FileManager.default.currentDirectoryPath)
         let reporter = ImportFastqReporter(globalOptions: globalOptions, formatter: formatter, projectDirectory: projectDirectory)
         reporter.start()
         if let sentence = adoptRefusal {
             throw reporter.fail(sentence, exitCode: .inputError)
+        }
+        guard project != nil else {
+            throw reporter.fail("Missing expected argument '--project <project>'", exitCode: .inputError)
         }
         let folder = URL(fileURLWithPath: input[0])
         do {
