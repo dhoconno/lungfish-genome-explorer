@@ -40,11 +40,12 @@ extension ExecutorRunAdoption {
                             ? (logicalReadCount(runs) { $0.inputReadCount.map(Int.init) },
                                logicalReadCount(runs) { $0.outputReadCount.map(Int.init) })
                             : (nil, nil)
+                    let reports = try recordedReports(step, folder: run.folder, consumed: consumed)
                     results.append(recipeStepResult(
                         step, plan: run.plan, engine: engine, components: components,
                         // The Mac keeps a fastp step's read files and every file of a step's second process.
                         keepsOutputs: runIndex > 0 || step.tool?.id == NativeTool.fastp.executableName, consumed: consumed,
-                        counts: counts
+                        counts: counts, reports: reports
                     ))
                 }
                 used += runs.count
@@ -67,12 +68,47 @@ extension ExecutorRunAdoption {
         return results
     }
 
+    /// QV-7: a recipe process's reports, the record outputs no later plan step reads, as absolute paths in the returned
+    /// folder, each re-hashed against the record's SHA-256 so the bundle never keeps bytes the node did not write. A
+    /// report the folder does not hold is left out, since this build cannot tell yet that a CHTC return carries `work/`.
+    static func recordedReports(_ step: ExecutorStepRecord, folder: URL, consumed: Set<String>) throws -> [String] {
+        try step.outputs.filter { !consumed.contains($0.path) }.compactMap { output in
+            let url = folder.appendingPathComponent(output.path)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            guard ProvenanceRecorder.sha256(of: url) == output.sha256 else {
+                throw refusal(
+                    "steps",
+                    "The report \(output.path) of step \(step.id) does not hold the bytes the run record states "
+                        + "(SHA-256 \(output.sha256)). Nothing was imported."
+                )
+            }
+            return url.path
+        }
+    }
+
+    /// The Mac keys each report's rewrite by the argv token that named the report, its absolute work path. The node's
+    /// argv names a report by its work-relative record path, so the adopt keys each rewrite by that path, and
+    /// `durableReplayArgv` then names the bundle's copy as the Mac's does (QV-7).
+    static func rewritesKeyedByRecordPath(_ results: [RecipeStepResult], folder: URL) -> [RecipeStepResult] {
+        results.map { result in
+            guard !result.auxiliaryCommandPathRewrites.isEmpty else { return result }
+            let rewrites = Dictionary(
+                result.auxiliaryCommandPathRewrites.map { key, value in
+                    (CanonicalFilePath.relativePath(of: URL(fileURLWithPath: key), within: folder) ?? key, value)
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return result.replacingAuxiliaryOutputs(paths: result.auxiliaryOutputPaths, commandPathRewrites: rewrites)
+        }
+    }
+
     /// One recorded process as the Mac records it: the engine's quoting of its argv, the fused step's components, its
-    /// read files by digest when the Mac keeps them (an output a later plan step reads, so never a report), and each
-    /// database the plan pins whose path its argv names.
+    /// read files by digest when the Mac keeps them (an output a later plan step reads, so never a report), its reports
+    /// (absolute paths in the returned folder until the bundle copies them), and each database the plan pins whose path
+    /// its argv names.
     static func recipeStepResult(
         _ step: ExecutorStepRecord, plan: ExecutionPlan, engine: RecipeEngine, components: [RecipeLogicalComponent],
-        keepsOutputs: Bool, consumed: Set<String>, counts: (input: Int?, output: Int?)
+        keepsOutputs: Bool, consumed: Set<String>, counts: (input: Int?, output: Int?), reports: [String] = []
     ) -> RecipeStepResult {
         let databases = plan.entries.compactMap { entry -> RecipeDatabaseRecord? in
             guard entry.role == .database, let identity = entry.database, step.argv.contains(entry.relativePath) else {
@@ -93,7 +129,7 @@ extension ExecutorRunAdoption {
             stepName: plan.steps.first { $0.id == step.id }?.title ?? step.id, tool: step.tool?.id ?? executorBinaryName,
             toolVersion: step.tool?.version, commandLine: step.argv.map(engine.shellEscapeForRecipeCommand).joined(separator: " "),
             commandArguments: step.argv, inputReadCount: counts.input,
-            outputReadCount: counts.output, durationSeconds: step.wallSeconds,
+            outputReadCount: counts.output, durationSeconds: step.wallSeconds, auxiliaryOutputPaths: reports,
             logicalComponents: components, executionOutputFiles: outputs, exitStatus: step.toolExitCode.map(Int.init),
             startedAt: date(step.startedAt), completedAt: date(step.endedAt), databases: databases
         )

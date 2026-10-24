@@ -6,6 +6,7 @@ import XCTest
 import Foundation
 import LungfishIO
 import LungfishPortable
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class ExecutorRunAdoptionStepTests: XCTestCase {
@@ -156,5 +157,56 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
         XCTAssertEqual(steps.map { $0.outputs.map(\.sizeBytes) }, [[7], [3]])
         XCTAssertEqual(steps.map { $0.inputs.map(\.role) }, [[.input], [.input]])
         XCTAssertEqual(steps.map { $0.outputs.map(\.role) }, [[.output], [.output]])
+    }
+
+    /// QV-7 and QV-23: a recipe process's report, a record output no later plan step reads, goes into the bundle's
+    /// `metadata/recipe-step-artifacts/` by the Mac's own copy; the sidecar result holds the published path and the
+    /// rewrite keyed by the node's argv token, and the envelope step's replay argv and outputs name the copy. A report
+    /// whose bytes differ from the record is refused, and one the folder lacks is left out.
+    func testAdoptCopiesEachReportAndNamesTheCopyAsMac() throws {
+        let root = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionStep")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("returned", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("work"), withIntermediateDirectories: true)
+        let report = "work/s_fused_fastp_report.json"
+        let bytes = Data("{\"summary\":{}}\n".utf8)
+        try bytes.write(to: folder.appendingPathComponent(report))
+        let digest = try XCTUnwrap(ProvenanceRecorder.sha256(of: folder.appendingPathComponent(report)))
+        var step = record("recipe-1", tool: "fastp", argv: ["/env/fastp", "-i", "work/s_R1.fq.gz", "-o", "work/s_out.fq.gz", "-j", report])
+        step.outputs = [.init(path: "work/s_out.fq.gz", bytes: 4, sha256: "aa"), .init(path: report, bytes: UInt64(bytes.count), sha256: digest)]
+        let consumed: Set<String> = ["work/s_out.fq.gz"]
+        let reports = try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed)
+        XCTAssertEqual(reports, [folder.appendingPathComponent(report).path], "only the output no later step reads is a report")
+
+        let staging = root.appendingPathComponent("Imports/.s.building-X", isDirectory: true)
+        let published = root.appendingPathComponent("Imports/s.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let result = RecipeStepResult(stepName: "Trim", tool: "fastp", commandArguments: step.argv, durationSeconds: 1, auxiliaryOutputPaths: reports)
+        let copied = ExecutorRunAdoption.rewritesKeyedByRecordPath(
+            try FASTQBatchImporter.materializeRecipeAuxiliaryOutputs([result], stagingBundleURL: staging, publishedBundleURL: published),
+            folder: folder
+        )
+        let artifact = "metadata/recipe-step-artifacts/1-1-trim-s_fused_fastp_report.json"
+        let publishedReport = published.appendingPathComponent(artifact).path
+        XCTAssertEqual(try Data(contentsOf: staging.appendingPathComponent(artifact)), bytes, "the bundle holds the node's report")
+        XCTAssertEqual(copied.first?.auxiliaryOutputPaths, [publishedReport])
+        XCTAssertEqual(copied.first?.auxiliaryCommandPathRewrites, [report: publishedReport])
+
+        let files = FASTQBatchImporter.recipeProvenanceFiles(
+            for: try XCTUnwrap(copied.first), command: step.argv, originalInputURLs: [],
+            bundleFASTQURL: staging.appendingPathComponent("s.fastq.gz"), stagingBundleURL: staging, publishedBundleURL: published
+        )
+        let envelopeStep = ExecutorRunAdoption.nodeStepExecution(step, parent: UUID(), title: nil, recipeFiles: files)
+        XCTAssertEqual(envelopeStep.command, step.argv, "argv stays the node's")
+        XCTAssertEqual(envelopeStep.durableReplayArgv, Array(step.argv.dropLast()) + [publishedReport])
+        XCTAssertEqual(envelopeStep.outputs.last?.path, publishedReport)
+        XCTAssertEqual(envelopeStep.outputs.last?.sha256, digest)
+
+        step.outputs[1].sha256 = String(repeating: "0", count: 64)
+        XCTAssertThrowsError(try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("does not hold the bytes the run record states"), error.localizedDescription)
+        }
+        try FileManager.default.removeItem(at: folder.appendingPathComponent(report))
+        XCTAssertEqual(try ExecutorRunAdoption.recordedReports(step, folder: folder, consumed: consumed), [])
     }
 }

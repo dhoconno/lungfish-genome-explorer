@@ -88,13 +88,23 @@ extension ExecutorRunAdoption {
         FASTQBatchImporter.applyPlatformMetadata(to: &metadata, config: config)
         // QV-18: each node step's envelope step carries the components and databases of its sidecar result, as the Mac's.
         var recipeOptions: [[String]: [String: ParameterValue]] = [:]
+        var recipeResults: [[String]: RecipeStepResult] = [:]
         if let recipe {
-            let stepResults = try recipeStepResults(
-                run, recipe: recipe, paired: inputs.count > 1, ingestionResult: ingestionResult, optimizeStorage: config.optimizeStorage
+            // QV-7: the bundle keeps each step's reports where the Mac's import copies them, by the Mac's own code.
+            let stepResults = rewritesKeyedByRecordPath(
+                try FASTQBatchImporter.materializeRecipeAuxiliaryOutputs(
+                    recipeStepResults(
+                        run, recipe: recipe, paired: inputs.count > 1, ingestionResult: ingestionResult,
+                        optimizeStorage: config.optimizeStorage
+                    ),
+                    stagingBundleURL: staging, publishedBundleURL: bundleURL
+                ),
+                folder: run.folder
             )
             for result in stepResults {
-                if let argv = result.commandArguments, !argv.isEmpty,
-                   let options = FASTQBatchImporter.recipeResolvedOptions(for: result) { recipeOptions[argv] = options }
+                guard let argv = result.commandArguments, !argv.isEmpty else { continue }
+                recipeResults[argv] = result
+                if let options = FASTQBatchImporter.recipeResolvedOptions(for: result) { recipeOptions[argv] = options }
             }
             metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
                 recipeID: recipe.id, recipeName: recipe.name, appliedDate: Date(),
@@ -114,9 +124,17 @@ extension ExecutorRunAdoption {
 
         let executorStep = executorStepExecution(record)
         let titles = Dictionary(plan.steps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        // QV-23: a recipe step's replay argv, inputs and outputs come from the Mac's one code path for its sidecar result.
         let nodeSteps = record.steps.flatMap { step in
-            storageLaunchSteps(step, parent: executorStep.id)
-                ?? [nodeStepExecution(step, parent: executorStep.id, title: titles[step.id], recipeOptions: recipeOptions[step.argv])]
+            storageLaunchSteps(step, parent: executorStep.id) ?? [nodeStepExecution(
+                step, parent: executorStep.id, title: titles[step.id], recipeOptions: recipeOptions[step.argv],
+                recipeFiles: recipeResults[step.argv].map {
+                    FASTQBatchImporter.recipeProvenanceFiles(
+                        for: $0, command: step.argv, originalInputURLs: inputs, bundleFASTQURL: stagedFASTQ,
+                        stagingBundleURL: staging, publishedBundleURL: bundleURL
+                    )
+                }
+            )]
         }
         try await FASTQBatchImporter.writeImportProvenance(
             pair: pair, processingPair: pair, materializationSteps: nodeSteps + [executorStep], unpairedReads: nil,
@@ -303,8 +321,10 @@ extension ExecutorRunAdoption {
 
     /// One node step under the executor's step, with the argv, version and times the record states, and its tool in
     /// the record's shape under `resolvedOptions` (lane U, OQ-1), with the plan step's title on a step the executor ran.
+    /// A recipe step takes its replay argv, inputs and outputs from `FASTQBatchImporter.recipeProvenanceFiles`.
     static func nodeStepExecution(
-        _ step: ExecutorStepRecord, parent: UUID, title: String?, recipeOptions: [String: ParameterValue]? = nil
+        _ step: ExecutorStepRecord, parent: UUID, title: String?, recipeOptions: [String: ParameterValue]? = nil,
+        recipeFiles: (durableReplayArgv: [String]?, inputs: [FileRecord], outputs: [FileRecord])? = nil
     ) -> StepExecution {
         var options = step.tool.map {
             ProvenanceNodeStepOptions.options(
@@ -315,7 +335,8 @@ extension ExecutorRunAdoption {
         if let recipeOptions { options = (options ?? [:]).merging(recipeOptions) { node, _ in node } }
         return StepExecution(
             toolName: step.tool?.id ?? executorBinaryName, toolVersion: step.tool?.version ?? "unknown", command: step.argv,
-            resolvedOptions: options, inputs: [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,
+            durableReplayArgv: recipeFiles?.durableReplayArgv, resolvedOptions: options, inputs: recipeFiles?.inputs ?? [],
+            outputs: recipeFiles?.outputs ?? [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,
             peakMemoryBytes: step.peakResidentBytes, stderr: step.stderrTail.isEmpty ? nil : step.stderrTail,
             parentStepID: parent, startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
         )

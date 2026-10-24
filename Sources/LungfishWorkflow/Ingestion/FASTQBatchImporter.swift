@@ -1044,7 +1044,9 @@ public enum FASTQBatchImporter {
         }
     }
 
-    private static func materializeRecipeAuxiliaryOutputs(
+    /// Copies each step's reports into the bundle's `metadata/recipe-step-artifacts/` and rewrites the step's report
+    /// paths to the published copies; the import and `fastq adopt` both call it (QV-7).
+    static func materializeRecipeAuxiliaryOutputs(
         _ stepResults: [RecipeStepResult],
         stagingBundleURL: URL,
         publishedBundleURL: URL
@@ -1438,32 +1440,20 @@ public enum FASTQBatchImporter {
                 return nil
             }
             let command = recipeStepCommandArguments(for: result)
-            let durableReplayArgv = durableRecipeStepArguments(
-                command,
-                pathRewrites: result.auxiliaryCommandPathRewrites
+            let files = recipeProvenanceFiles(
+                for: result, command: command, originalInputURLs: originalInputURLs, bundleFASTQURL: bundleFASTQURL,
+                stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL
             )
             let timestamp = Date()
             return StepExecution(
                 toolName: result.tool,
                 toolVersion: result.toolVersion ?? "unknown",
                 command: command,
-                durableReplayArgv: durableReplayArgv == command ? nil : durableReplayArgv,
+                durableReplayArgv: files.durableReplayArgv,
                 resolvedOptions: recipeResolvedOptions(for: result),
                 runtimeIdentity: recipeRuntimeIdentity(for: result, command: command),
-                inputs: originalInputURLs.map {
-                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
-                } + recipeDatabaseInputRecords(for: result),
-                outputs: recipePrimaryOutputRecords(
-                    for: result,
-                    legacyBundleFASTQURL: bundleFASTQURL
-                )
-                    + result.auxiliaryOutputPaths.map {
-                        recipeAuxiliaryOutputRecord(
-                            finalPath: $0,
-                            stagingBundleURL: stagingBundleURL,
-                            publishedBundleURL: publishedBundleURL
-                        )
-                    },
+                inputs: files.inputs,
+                outputs: files.outputs,
                 exitCode: result.exitStatus.flatMap { Int32(exactly: $0) },
                 wallTime: result.effectiveDurationSeconds,
                 stderr: result.stderr,
@@ -1471,6 +1461,24 @@ public enum FASTQBatchImporter {
                 endTime: result.completedAt ?? timestamp
             )
         }
+    }
+
+    /// A recipe step's replay argv, inputs and outputs in the envelope, one code path for the import and `fastq adopt`
+    /// (QV-7, QV-23): the argv with each report token rewritten to the bundle's copy (nil when nothing changes), the
+    /// run's input files and the step's databases, and its read files (the bundle FASTQ when the step keeps none) and
+    /// its copied reports.
+    static func recipeProvenanceFiles(
+        for result: RecipeStepResult, command: [String], originalInputURLs: [URL], bundleFASTQURL: URL,
+        stagingBundleURL: URL?, publishedBundleURL: URL?
+    ) -> (durableReplayArgv: [String]?, inputs: [FileRecord], outputs: [FileRecord]) {
+        let durable = durableRecipeStepArguments(command, pathRewrites: result.auxiliaryCommandPathRewrites)
+        let inputs = originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
+            + recipeDatabaseInputRecords(for: result)
+        let outputs = recipePrimaryOutputRecords(for: result, legacyBundleFASTQURL: bundleFASTQURL)
+            + result.auxiliaryOutputPaths.map {
+                recipeAuxiliaryOutputRecord(finalPath: $0, stagingBundleURL: stagingBundleURL, publishedBundleURL: publishedBundleURL)
+            }
+        return (durable == command ? nil : durable, inputs, outputs)
     }
 
     private static func recipePrimaryOutputRecords(
