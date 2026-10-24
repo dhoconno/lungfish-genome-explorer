@@ -310,7 +310,9 @@ final class ViralReconWorkflowExecutionService {
             acquisitionSummary = "Downloaded reference \(ViralReconReferenceCatalog.canonicalAccession) to \(outcome.bundleURL.path)"
         }
 
-        let primer = try completedPrimerSelection(for: request, referenceFASTAURL: fastaURL)
+        let primer = try await Task.detached(priority: .userInitiated) {
+            try Self.completedPrimerSelection(for: request, referenceFASTAURL: fastaURL)
+        }.value
 
         return try ViralReconRunRequest(
             samples: request.samples,
@@ -337,8 +339,9 @@ final class ViralReconWorkflowExecutionService {
     ///
     /// No bundled scheme ships `primers.fasta`, and the wizard has no reference
     /// to cut from until this point, so it stages only the BED and leaves the
-    /// FASTA to be derived here.
-    private func completedPrimerSelection(
+    /// FASTA to be derived here. The cut gunzips the reference through a child
+    /// process, so this runs off the main actor and reads nothing of the service.
+    nonisolated private static func completedPrimerSelection(
         for request: ViralReconRunRequest,
         referenceFASTAURL: URL
     ) throws -> ViralReconPrimerSelection {
