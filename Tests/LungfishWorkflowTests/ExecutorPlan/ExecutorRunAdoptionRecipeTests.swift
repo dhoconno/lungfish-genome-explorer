@@ -194,7 +194,7 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         XCTAssertTrue(adopted.record.steps.contains { $0.kind == .statistics }, "the record holds the statistics step")
         let results = try XCTUnwrap(adopted.sidecar.ingestion?.recipeApplied?.stepResults)
         XCTAssertEqual(results.filter { $0.stepName == "Compute statistics" }.count, 0, "\(results.map(\.stepName))")
-        XCTAssertFalse(results.contains { $0.tool == "seqkit" && $0.commandArguments?.contains("stats") == true })
+        XCTAssertFalse(results.contains { $0.tool == "seqkit" && $0.commandArguments?.contains(where: { argument in argument == "stats" }) == true })
     }
 
     /// QA fix 2 (888bd9b27): the adopt takes the platform as the Mac decides it for the sample, from the plan's request and
@@ -217,7 +217,7 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
     func testAdoptSumsLogicalStepOnFirstProcess() async throws {
         let probe = try await adopt()
         let second = try XCTUnwrap(
-            probe.plan.steps.first { $0.kind == .recipe && $0.id.hasSuffix("-2") && $0.arguments.contains("-I") },
+            probe.plan.steps.first { $0.kind == .recipe && $0.id.hasSuffix("-2") && $0.arguments.contains(where: { argument in argument == "-I" }) },
             "the plan holds no second process with a paired input: \(probe.plan.steps.map(\.id))"
         )
         let first = String(second.id.dropLast(2))

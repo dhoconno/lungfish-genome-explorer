@@ -71,7 +71,7 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
         let rowCommit = try XCTUnwrap(ranWith.components(separatedBy: " build ").dropFirst().first?
             .components(separatedBy: " (from the plan's pin)").first)
         XCTAssertEqual(rowCommit, Self.executorCommit)
-        XCTAssertTrue(try XCTUnwrap(steps[1].versionAndBuild).contains("(build \(rowCommit))"), ranWith)
+        XCTAssertEqual(steps[1].versionAndBuild, "2026.10.24 (build \(rowCommit)), from the plan's pin", ranWith)
     }
 
     /// A record that states no build gives no build words: the step shows its version and source, and the run row names

@@ -176,10 +176,11 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         )
         XCTAssertFalse(outputs.contains("plan/work"), "the work folder holds the large intermediates and never comes home")
         let remaps = try value(of: "transfer_output_remaps")
-        XCTAssertTrue(
-            remaps.contains("; sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
-                + "sample_merge_fastp_report.json = work/sample_merge_fastp_report.json\""),
-            remaps
+        XCTAssertEqual(
+            remaps,
+            "\"sample.fastq.gz = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz; "
+                + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
+                + "sample_merge_fastp_report.json = work/sample_merge_fastp_report.json\""
         )
     }
 
