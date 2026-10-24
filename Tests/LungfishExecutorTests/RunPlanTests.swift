@@ -180,6 +180,7 @@ struct RunPlanFixture {
             step.wallSeconds = 0
             step.toolPID = nil
             step.peakResidentBytes = nil
+            step.storage?.peakWorkRootBytes = nil
             return step
         }
         return copy

@@ -36,6 +36,8 @@ extension PlanRunner {
             deadlineSeconds: step.deadlineSeconds
         )
         let plan = prepared.plan
+        // The storage step's peak scratch disk, walked in process over the step's whole span (CHTC CH-8 of vote C4-4).
+        let diskSampler = step.kind == .storage ? WorkRootDiskSampler(root: resolver.workRoot) : nil
         let outcome = Self.blocking { () async throws -> OwnStepCounts in
             for output in step.outputs {
                 if let slash = output.lastIndex(of: "/") { try resolver.makeDirectory(String(output[..<slash])) }
@@ -86,8 +88,10 @@ extension PlanRunner {
                 record.toolSignal = ended.toolSignal
             }
         }
+        let peakWorkRootBytes = diskSampler?.finish()
         if step.kind == .storage {
             record.storage = storageDetails(step: step, launches: launches, root: root)
+            record.storage?.peakWorkRootBytes = peakWorkRootBytes
             if let own = launches.first(where: { $0.tool.id == tool.id }) {
                 record.argv = own.argv
                 record.environmentNames = own.environmentNames

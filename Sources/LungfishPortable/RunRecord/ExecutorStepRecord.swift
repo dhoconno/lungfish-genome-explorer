@@ -323,13 +323,20 @@ package struct ExecutorStorageDetails: Codable, Sendable, Equatable {
     package var mixedLayout: ExecutorMixedLayoutCounts?
     /// Every launch the step made, the writer probe's included. Nil in a record written before M4.
     package var launches: [ExecutorStorageLaunch]?
+    /// The largest total size in bytes of the regular files under the work root, from the executor's own walks while
+    /// the storage step ran, at its start, every quarter second and at its end (CHTC CH-8 of vote C4-4). A node-only
+    /// key, since a Mac import measures no such figure. Nil for a step the executor did not walk, such as the
+    /// merged-to-mixed step, and in a record written before C4-4.
+    package var peakWorkRootBytes: UInt64?
 
     package init(
         writer: ExecutorStorageWriter? = nil, effectiveCompressionLevel: Int? = nil, clumpifyGroups: Int? = nil,
         clumpifyMemoryEstimateLine: String? = nil, clumpifyMemoryAvailableLine: String? = nil, clumpingRan: Bool,
         qualityBinning: QualityBinningScheme, inputBytes: Int64, outputBytes: Int64,
-        mixedLayout: ExecutorMixedLayoutCounts? = nil, launches: [ExecutorStorageLaunch]? = nil
+        mixedLayout: ExecutorMixedLayoutCounts? = nil, launches: [ExecutorStorageLaunch]? = nil,
+        peakWorkRootBytes: UInt64? = nil
     ) {
+        self.peakWorkRootBytes = peakWorkRootBytes
         self.writer = writer
         self.effectiveCompressionLevel = effectiveCompressionLevel
         self.clumpifyGroups = clumpifyGroups

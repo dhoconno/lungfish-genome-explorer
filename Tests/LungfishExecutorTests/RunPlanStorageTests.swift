@@ -160,6 +160,42 @@ extension RunPlanTests {
         XCTAssertEqual(launches.last?.outputs?.map(\.relativePath), ["out/sample.fastq.gz"])
     }
 
+    /// CHTC CH-8 of vote C4-4. The storage step records the largest size its work root reached, from the executor's own
+    /// walks while the step ran, so a scratch file the tool writes and deletes before it ends still counts, though the
+    /// walks at the step's start and end never see it.
+    func testStorageRecordsPeakWorkRootBytesOfAScratchFileItDeleted() throws {
+        let scratchBytes = 8 * 1_048_576
+        let (fixture, plan, manifest) = try clumpifyPlan("""
+        for a in "$@"; do case "$a" in in=*) IN="${a#in=}" ;; out=*) OUT="${a#out=}" ;; esac; done
+        head -c \(scratchBytes) /dev/zero > tmp/scratch.bin
+        sleep 2
+        rm tmp/scratch.bin
+        gzip -c < "$IN" > "$OUT"
+        """)
+        let run = try fixture.run(plan, ["--image-manifest", manifest])
+        XCTAssertEqual(run.status, ExecutorExitCode.succeeded, run.stderr)
+        let step = try XCTUnwrap(run.record?.steps.first)
+        XCTAssertEqual(step.outcome, .succeeded, step.reason ?? "")
+        XCTAssertFalse(fixture.exists("tmp/scratch.bin"), "the stub removed its scratch file")
+        let peak = try XCTUnwrap(step.storage?.peakWorkRootBytes)
+        XCTAssertGreaterThanOrEqual(peak, UInt64(scratchBytes), "peakWorkRootBytes \(peak)")
+        XCTAssertLessThan(WorkRootDiskSampler.bytes(under: fixture.planFolder), UInt64(scratchBytes), "the folder at the end")
+    }
+
+    /// The walk behind `peakWorkRootBytes` sums each regular file once by device and inode and follows no link.
+    func testWorkRootWalkCountsAHardLinkOnceAndFollowsNoLink() throws {
+        let root = try ExecutorTestSupport.scratchFolder()
+        let outside = try ExecutorTestSupport.scratchFolder()
+        try FileManager.default.createDirectory(atPath: root + "/work/deep", withIntermediateDirectories: true)
+        try Data(count: 1_000).write(to: URL(fileURLWithPath: root + "/work/deep/a.bin"))
+        try Data(count: 24).write(to: URL(fileURLWithPath: root + "/b.txt"))
+        try Data(count: 50_000).write(to: URL(fileURLWithPath: outside + "/big.bin"))
+        try FileManager.default.linkItem(atPath: root + "/work/deep/a.bin", toPath: root + "/work/a-link.bin")
+        try FileManager.default.createSymbolicLink(atPath: root + "/work/big.bin", withDestinationPath: outside + "/big.bin")
+        try FileManager.default.createSymbolicLink(atPath: root + "/outside", withDestinationPath: outside)
+        XCTAssertEqual(WorkRootDiskSampler.bytes(under: root), 1_024)
+    }
+
     /// C4-3 C-4 (QA Q-4d). The record may name the writer's environment by the route that ran it, so the version is the
     /// one check left that the bgzip BBTools writes through is the one the plan pins. A probe whose answering bgzip
     /// states another version on its `Version:` line, or no version, fails the step before clumpify starts.
