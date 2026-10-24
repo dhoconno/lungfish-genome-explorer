@@ -311,14 +311,14 @@ UNIT-TIER-CADENCE. No unit tier ran between 2026-10-20 and the 2.13 candidate, a
 
 ## Carry-in from Phase 2.14
 
-Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/phase-2-14`. Preview 2026.10.23 build 11097 is published from `1ec9ee27d`, `main` is `21b7825b5` plus the records commit that adds this section, and Stable is blocked. QA's exit verdict is "Phase 2 exit Met with Phase 3 rows" (`exit/QA.md:235`), and the owner check list `docs/reports/2026.10.23-owner-checks.md` still blocks Stable. The packaged re-walk of 2026-10-24 added four Stable blockers and left items for the owner.
+Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/phase-2-14`. Preview 2026.10.23 build 11097 is published from `1ec9ee27d`, `main` is `21b7825b5` plus the records commit that adds this section, and Stable is blocked. QA's exit verdict is "Phase 2 exit Met with Phase 3 rows" (`exit/QA.md:235`), and the owner check list `docs/reports/2026.10.23-owner-checks.md` still blocks Stable. The packaged re-walk of 2026-10-24 added four Stable blockers, the owner added OBS-W7 as a fifth, and items are left for the owner.
 
 ### First rows for Phase 3.1
 
-1. The four Stable blockers, each fixed red test first. OBS-W4 (Extract uses the folder stored in the result, so a renamed or copied result fails or reaches the original project), OBS-W6 (a NAO-MGS result's Summary block stays in the Inspector for the next results), OBS-W8 (a ZIP dropped on the sidebar adds nothing though its row reads Completed) and OBS-W9 (a dropped ZIP that holds a link is refused without a message).
+1. The five Stable blockers, each fixed red test first. OBS-W4 (Extract uses the folder stored in the result, so a renamed or copied result fails or reaches the original project), OBS-W6 (a NAO-MGS result's Summary block stays in the Inspector for the next results), OBS-W8 (a ZIP dropped on the sidebar adds nothing though its row reads Completed), OBS-W9 (a dropped ZIP that holds a link is refused without a message) and OBS-W7 (an image of a mapping result leaves out the mismatch marks).
 2. obs-22, the window that grows past the screen when a tree is selected.
-3. One packaged walk after the fixes of rows 69, 88, W2c and obs-22 (the `STABLE-WALK-*` rows) and of the reruns the re-walk did not show. They are row 18 on a virus with several segments, row 80 route with no region selected, row 89 with the ruler at base zoom, row 80 images b at 500 bases or fewer and at 20,000 or more, and row 13 after the owner's Accessibility grant.
-4. The owner's items. They are row 17 (the update from the older certificate), row 35 (the Pathoplexus terms), row 13's pass by ear, and the three items the panel left without consensus, row 80 images b, row ONT and OBS-W7 (the mapping image has no mismatch marks).
+3. One packaged walk after the fixes of rows 69, 88, W2c and obs-22 (the `STABLE-WALK-*` rows) and of the reruns the re-walk did not show. They are row 18 on a virus with several segments, row 80 route with no region selected, row 89 with the ruler at base zoom, row 80 images b at 500 bases or fewer and at 20,000 or more, row ONT with a staged ONT run folder, and row 13 after the owner's Accessibility grant.
+4. The owner's items. They are row 17 (the update from the older certificate), row 35 (the Pathoplexus terms), and row 13's pass by ear. The owner settled the three items the panel left without consensus (O39 and O40).
 
 ### The rest
 
