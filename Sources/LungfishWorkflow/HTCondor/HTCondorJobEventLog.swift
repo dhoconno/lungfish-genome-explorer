@@ -130,9 +130,14 @@ public struct HTCondorJobEventLog: Sendable, Equatable {
     public let job: HTCondorJobID
     public let events: [HTCondorJobEvent]
 
-    /// Reads the log at `url` once.
+    /// Reads the log at `url` once. A file over `largestReadBytes` is refused by its size before any of it is read.
     public static func read(_ url: URL) throws -> HTCondorJobEventLog {
-        let data = try Data(contentsOf: url)
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= largestReadBytes else { throw HTCondorJobEventLogError.tooLarge(bytes: size) }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        // One byte past the limit shows a log that grew since the size check, without reading the rest of the file.
+        let data = try handle.read(upToCount: largestReadBytes + 1) ?? Data()
         guard data.count <= largestReadBytes else { throw HTCondorJobEventLogError.tooLarge(bytes: data.count) }
         guard let text = String(data: data, encoding: .utf8) else { throw HTCondorJobEventLogError.notText }
         return try HTCondorJobEventLog(text: text)

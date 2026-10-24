@@ -7,6 +7,7 @@
 // Tests/Fixtures/htcondor/README.md.
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// The `Tests/Fixtures/htcondor` folder.
@@ -131,6 +132,31 @@ final class HTCondorJobEventLogTests: XCTestCase {
                 error as? HTCondorJobEventLogError,
                 .moreThanOneJob(first: HTCondorJobID(cluster: 592727, process: 0), other: HTCondorJobID(cluster: 592728, process: 0))
             )
+        }
+        // A file over the limit is refused by its size. The file is sparse, so no 64 MiB is written or read.
+        let root = try TestTempDirectory.make(prefix: "htcondor-event-log")
+        defer { TestTempDirectory.cleanup(root) }
+        let tooLarge = root.appendingPathComponent("too-large.log")
+        try Data().write(to: tooLarge)
+        let writer = try FileHandle(forWritingTo: tooLarge)
+        try writer.truncate(atOffset: UInt64(HTCondorJobEventLog.largestReadBytes + 1))
+        try writer.close()
+        XCTAssertThrowsError(try HTCondorJobEventLog.read(tooLarge)) { error in
+            XCTAssertEqual(error as? HTCondorJobEventLogError, .tooLarge(bytes: HTCondorJobEventLog.largestReadBytes + 1))
+        }
+        // Bytes that are not UTF-8 text.
+        let binary = root.appendingPathComponent("binary.log")
+        try Data([0xFF, 0xFE, 0x0A]).write(to: binary)
+        XCTAssertThrowsError(try HTCondorJobEventLog.read(binary)) { error in
+            XCTAssertEqual(error as? HTCondorJobEventLogError, .notText)
+        }
+        // A 005 event that names neither a return value nor a signal is refused, at the line of its header.
+        let noReturnValue = text.replacingOccurrences(of: "(1) Normal termination (return value 0)", with: "(1) Job ended")
+        XCTAssertNotEqual(noReturnValue, text, "the fixture holds the return line the test replaces")
+        XCTAssertThrowsError(try HTCondorJobEventLog(text: noReturnValue)) { error in
+            guard case .malformedEvent(line: 30, _)? = error as? HTCondorJobEventLogError else {
+                return XCTFail("expected a malformed event on line 30, got \(error)")
+            }
         }
     }
 }
