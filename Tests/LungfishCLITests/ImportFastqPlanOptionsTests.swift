@@ -170,6 +170,42 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                        [folder.path, folder.appendingPathComponent("S1").path, folder.appendingPathComponent("S2").path])
     }
 
+    /// A file that `--executor-manifest`, `--image` or `--image-tool-manifest` names and that is missing or holds `{}`
+    /// ends the command with exit code 3 and a failed line that names the option, not a Foundation or decoder message.
+    func testWritePlanNamesTheOptionOfAnUnreadableFile() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let fixture = try writeFixture()
+        let empty = root.appendingPathComponent("empty.json")
+        try Data("{}".utf8).write(to: empty)
+        let missing = root.appendingPathComponent("missing.json")
+        let folder = root.appendingPathComponent("unreadable", isDirectory: true)
+        for option in ["--executor-manifest", "--image", "--image-tool-manifest"] {
+            for unreadable in [missing, empty] {
+                let label = "\(option) \(unreadable.lastPathComponent)"
+                var plan = fixture.planArguments(folder: folder)
+                plan[try XCTUnwrap(plan.firstIndex(of: option)) + 1] = unreadable.path
+                let result = try ToolProcess.start(ToolProcessSpec(
+                    executableURL: cli,
+                    arguments: ["import", "fastq"] + fixture.reads.map(\.path) + plan
+                        + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools", "--format", "json"],
+                    environment: CLISIGTERMHarness.childEnvironment(overriding: [:]),
+                    timeout: .seconds(120), label: "write-plan-unreadable-file"
+                )).waitBlocking()
+                XCTAssertEqual(result.status, 3, "\(label): \(result.stderrText)")
+                let events = result.stdoutText.split(separator: "\n").compactMap {
+                    try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+                }
+                let failed = try XCTUnwrap(events.first { $0["event"] as? String == "failed" }, "\(label): \(result.stdoutText)")
+                let message = try XCTUnwrap(failed["message"] as? String, label)
+                XCTAssertTrue(message.contains("given to \(option) is not"), "\(label): \(message)")
+                XCTAssertFalse(message.contains("Error Domain") || message.contains("keyNotFound"), "\(label): \(message)")
+                XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), label)
+            }
+        }
+    }
+
     // MARK: Fixture
 
     /// Two samples' reads, an executor stand-in with its `manifest.json`, a tool manifest and the `image.json` that pins it.

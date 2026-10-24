@@ -132,7 +132,10 @@ extension ImportCommand.FastqSubcommand {
                 threads: threads, heapGB: heapGB, manifest: URL(fileURLWithPath: manifestPath),
                 toolManifest: URL(fileURLWithPath: toolManifestPath), suffixes: rows.suffixes, format: rows.format
             )
-            let image = try JSONDecoder().decode(ExecutorPlanImageRecord.self, from: Data(contentsOf: URL(fileURLWithPath: imagePath)))
+            let image = try Self.readPlanFile(
+                at: imagePath, option: "--image",
+                expected: "an image.json, so name the image.json written when the image was built"
+            ) { try JSONDecoder().decode(ExecutorPlanImageRecord.self, from: $0) }
             guard image.imageManifest == template.imageManifest else {
                 throw ImportFastqPlanRefusal(message: "The tool manifest \(toolManifestPath) is not the one \(imagePath) pins, so name the manifest of that image.")
             }
@@ -166,7 +169,7 @@ extension ImportCommand.FastqSubcommand {
         } catch let refusal as ExitCode {
             throw refusal
         } catch {
-            throw refuse((error as? LocalizedError)?.errorDescription ?? "\(error)")
+            throw refuse((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }
 
@@ -189,7 +192,7 @@ extension ImportCommand.FastqSubcommand {
             let urls = [pair.r1] + [pair.r2, pair.unpaired].compactMap { $0 }
             let suffixes = urls.map { PlanTemplate.fastqSuffix(of: $0.lastPathComponent) }
             if let shape, shape != suffixes {
-                throw ImportFastqPlanRefusal(message: "The sample \(pair.sampleName) has files ending \(suffixes.joined(separator: ", ")) and an earlier sample \(shape.joined(separator: ", ")), so write one plan folder for each set of file endings.")
+                throw ImportFastqPlanRefusal(message: "The sample \(pair.sampleName) has files ending \(suffixes.joined(separator: ", ")) and an earlier sample \(shape.joined(separator: ", ")), so run the command once for each set of file endings.")
             }
             shape = suffixes
             var labels = pair.metadata
@@ -211,13 +214,33 @@ extension ImportCommand.FastqSubcommand {
         return value
     }
 
+    /// Reads the file that `option` names and decodes it, or refuses in one sentence that names the option and says which
+    /// file to give. A read or decode error never reaches the user as `Error Domain` or `keyNotFound`.
+    private static func readPlanFile<Value>(
+        at path: String, option: String, expected: String, _ decode: (Data) throws -> Value
+    ) throws -> Value {
+        do {
+            return try decode(Data(contentsOf: URL(fileURLWithPath: path)))
+        } catch {
+            throw ImportFastqPlanRefusal(message: "The file \(path) given to \(option) is not \(expected).")
+        }
+    }
+
     /// The recipe's half of the plan, from the command's settings, the executor's manifest and the image's tools.
     private func planTemplateRequest(
         threads: Int, heapGB: Int, manifest: URL, toolManifest: URL, suffixes: [String], format: RecipeFileFormat
     ) async throws -> ExecutorPlanTemplateRequest {
-        let executor = try JSONDecoder().decode(ExecutorPlanExecutorManifest.self, from: Data(contentsOf: manifest))
-        let manifestBytes = try Data(contentsOf: toolManifest)
-        let tools = try ImageToolManifest.decode(manifestBytes)
+        let executor = try Self.readPlanFile(
+            at: manifest.path, option: "--executor-manifest",
+            expected: "a manifest.json, so name the manifest.json beside the executor you built"
+        ) { try JSONDecoder().decode(ExecutorPlanExecutorManifest.self, from: $0) }
+        let (manifestBytes, tools) = try Self.readPlanFile(
+            at: toolManifest.path, option: "--image-tool-manifest",
+            expected: "a tool manifest, so name the tool manifest that image.json pins"
+        ) { data in
+            let decoded = try ImageToolManifest.decode(data)
+            return (data, decoded)
+        }
         let pins = Set(tools.tools.map(\.id)).sorted().compactMap { try? tools.pin(forToolID: $0) }
         var recipe: Recipe?
         var recipeFile: ExecutorPlanSourceFile?

@@ -207,7 +207,7 @@ package enum ExecutorPlanBatchWriter {
             let name = SampleFolderNaming.uniqueDirectoryName(for: row.sampleName, usedNames: &used)
             used.insert(name)
             guard HTCondorDAG.isNodeName(name) else {
-                throw ExecutorPlanError(field: "sample.sampleName", reason: "The sample \(row.sampleName) takes the folder name \(name), which is not a letter or digit followed by at most 63 letters, digits, _ or -, so rename the sample.")
+                throw ExecutorPlanError(field: "sample.sampleName", reason: "The sample \(row.sampleName) takes the folder name \(name), which is not an ASCII letter or digit followed by at most 63 ASCII letters, digits, _ or -, or is a word DAGMan keeps, so rename the sample.")
             }
             names.append(name)
         }
@@ -226,7 +226,7 @@ package enum ExecutorPlanBatchWriter {
         let emissions = try rows.map { try recipeTemplate.emission(for: $0) }
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: folder.path) else {
-            throw ExecutorPlanError(field: "folder", reason: "The submit folder \(folder.lastPathComponent) already exists. A batch is written into a new folder.")
+            throw ExecutorPlanError(field: "folder", reason: "The submit folder \(folder.lastPathComponent) already exists, so name a new folder or remove this one.")
         }
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
