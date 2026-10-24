@@ -192,4 +192,48 @@ extension RunPlanTests {
             XCTAssertFalse(fixture.exists("logs/clumpify.ran"), "\(label): clumpify ran")
         }
     }
+
+    /// QA Fix 3 of the lane V review set 2 (Q-4d). The quantize-only route, storage route `none` with a binning scheme,
+    /// probes the writer and requires the pinned bgzip version before `reformat.sh` writes a byte, the same refusal as
+    /// the clumpify route. Without the call at its site, only the stub's moved `Version: 1.0` line kept the tests green.
+    func testQuantizeStorageRefusesAnsweringBgzipOfAnotherVersion() throws {
+        let cases = [
+            ("version 1.23", "echo 'Version: 1.23'", "states version 1.23, not the version 1.0 the plan pins"),
+            ("no version", "echo 'Usage: bgzip [OPTIONS] [FILE] ...'",
+             "states no version, so the executor cannot tell it is the version 1.0 the plan pins"),
+        ]
+        for (label, help, states) in cases {
+            var fixture = try RunPlanFixture()
+            let reformat = try fixture.addTool("reformat.sh", """
+            printf '%s\\n' "$@" > logs/reformat.argv
+            for a in "$@"; do case "$a" in in=*) IN="${a#in=}" ;; out=*) OUT="${a#out=}" ;; esac; done
+            gzip -c < "$IN" > "$OUT"
+            """)
+            let bgzip = try fixture.addTool("bgzip", "[ \"$1\" = \"-h\" ] && \(help)")
+            let gzip = try fixture.addLoggingGzip()
+            let manifest = try fixture.writeManifest()
+            let settings = noneStorage(.illumina4)
+            let step = PlanStep(
+                id: "storage", title: "Store reads", kind: .storage, tool: reformat, arguments: [], deadlineSeconds: 60,
+                inputs: ["inputs/R1.fastq"], outputs: ["out/sample.fastq.gz"]
+            )
+            let plan = try fixture.writePlan(
+                [step], manifestPin: manifest.pin, storage: settings.storage, clumping: settings.clumping, pins: [bgzip, gzip]
+            )
+            let run = try fixture.run(plan, ["--image-manifest", manifest.path])
+            XCTAssertEqual(run.status, ExecutorExitCode.failed, "\(label): \(run.stderr)")
+            let record = try XCTUnwrap(run.record, label)
+            XCTAssertEqual(record.failedStepID, "storage", label)
+            let answering = try XCTUnwrap(fixture.tools.first { $0.id == "bgzip" }, label)
+            let sentence = "Step storage did not run. reformat.sh compresses its output with bgzip, and the bgzip that "
+                + "answered `bgzip -h` on the step's PATH, \(answering.path), \(states). The tool image must hold the pinned "
+                + "bgzip beside the BBTools scripts."
+            let stored = try XCTUnwrap(record.steps.first, label)
+            XCTAssertEqual(stored.outcome, .failed, label)
+            XCTAssertEqual(stored.reason, sentence, label)
+            XCTAssertEqual(stored.outputs, [], label)
+            XCTAssertEqual(record.payloads, [], label)
+            XCTAssertFalse(fixture.exists("logs/reformat.argv"), "\(label): reformat.sh ran")
+        }
+    }
 }
