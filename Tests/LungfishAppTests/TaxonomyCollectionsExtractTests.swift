@@ -128,19 +128,26 @@ final class DrawerExtractHarness {
     private var viewer: ViewerViewController?
     /// The suite that takes the drawer's height and open state, so no test writes the standard defaults.
     private var defaultsSuite: TestDefaultsSuite?
+    /// The `LUNGFISH_CLI_PATH` the process held when `isolate(for:)` ran, or nil when it held none. The
+    /// conformance gate sets it to the built `lungfish-cli`, and a class that runs after this one in the
+    /// same process reads it.
+    private(set) var priorCLIPath: String?
 
     /// Isolates the drawer from the machine until `testCase` ends. Its defaults go to a test suite, so no
     /// test writes the standard defaults. Its launch goes to a command that fails at once, so a test that
     /// reads only the row's beginning starts no real extraction and does not search for the built
-    /// `lungfish-cli`. A test that wants the real command sets `LUNGFISH_CLI_PATH` after this.
+    /// `lungfish-cli`. A test that wants the real command sets `LUNGFISH_CLI_PATH` after this. When
+    /// `testCase` ends the variable goes back to the value it held before, or to unset when it held none.
     func isolate(for testCase: XCTestCase) {
         let suite = TestDefaultsSuite(prefix: "TaxonomyCollectionsExtractTests")
         defaultsSuite = suite
         TaxaCollectionsDrawerSeams.defaults = suite.defaults
+        let priorCLIPath = getenv("LUNGFISH_CLI_PATH").map { String(cString: $0) }
+        self.priorCLIPath = priorCLIPath
         setenv("LUNGFISH_CLI_PATH", "/usr/bin/false", 1)
         testCase.addTeardownBlock { @MainActor in
             TaxaCollectionsDrawerSeams.defaults = .standard
-            unsetenv("LUNGFISH_CLI_PATH")
+            if let priorCLIPath { setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
         }
     }
 
@@ -369,15 +376,17 @@ final class TaxonomyCollectionsExtractReadIDConformanceTests: XCTestCase {
     func testExtractedReadIDsAreTheCommandsForTheShownSampleOnly() async throws {
         try await requireSeqkit()
         // The harness points the launch at a command that fails at once, and the resolver reads that variable first.
-        unsetenv("LUNGFISH_CLI_PATH")
+        // The resolver reads the environment as it was before the harness, so it finds the CLI the gate named.
+        var environment = ProcessInfo.processInfo.environment
+        environment["LUNGFISH_CLI_PATH"] = harness.priorCLIPath
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         let cli = try XCTUnwrap(
-            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products, environment: environment),
             "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
         )
-        // The drawer launches the bundled CLI, which a test points at the built one.
+        // The drawer launches the bundled CLI, which a test points at the built one. The harness puts the
+        // variable back to its earlier value when the test ends, so the next class in the process finds it.
         setenv("LUNGFISH_CLI_PATH", cli.path, 1)
-        addTeardownBlock { unsetenv("LUNGFISH_CLI_PATH") }
         let batch = try TwoSampleKraken2Batch(in: root)
         let taxonomy = try harness.openFromSidebar(batch, showing: [TwoSampleKraken2Batch.sampleB])
         let collection = TaxaCollectionFixtures.collection
