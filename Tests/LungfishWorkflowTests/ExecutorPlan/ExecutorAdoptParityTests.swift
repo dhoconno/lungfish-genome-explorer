@@ -192,7 +192,9 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let request = ExecutorPlanRequest(
             sample: PlanSampleValues(sampleName: ExecutorPlanReplayParityTests.sampleName,
                                      originalFilenames: shared.inputs.map(\.url.lastPathComponent),
-                                     originalSizeBytes: shared.inputs.reduce(0) { $0 + $1.size }),
+                                     originalSizeBytes: shared.inputs.reduce(0) { $0 + $1.size },
+                                     // The Mac route is given `--platform illumina`, so the plan states the same request.
+                                     platform: "illumina"),
             inputs: shared.inputs, inputFormat: .pairedR1R2, recipe: recipe, recipeFile: shared.recipeFile,
             storage: ExecutorPlanStorageRequest(
                 requestedClumpingTool: config.clumpingTool, clumpifyHeapGB: config.clumpifyHeapGB ?? 0, threads: config.threads,

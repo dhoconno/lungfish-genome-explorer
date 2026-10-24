@@ -38,7 +38,12 @@ extension ExecutorRunAdoption {
         let (pair, inputs, bundleURL) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
         let r1 = inputs[0]
         let recipe = try resolvedRecipe(plan.recipe)
-        let config = importConfig(plan, recipe: recipe, projectDirectory: projectDirectory, paired: inputs.count > 1, force: force)
+        // The platform as the Mac decides it for a sample: the plan's request, resolved against the plan's inputs.
+        let config = FASTQBatchImporter.sampleConfig(
+            for: pair,
+            config: importConfig(plan, recipe: recipe, projectDirectory: projectDirectory, paired: inputs.count > 1, force: force),
+            log: nil
+        )
         let metadataPairs = Dictionary(plan.sample.sampleSheet.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
         guard let statisticsTable = record.steps.first(where: { $0.kind == .statistics })?.standardOutput?.text else {
             throw refusal("steps", "The run record holds no seqkit stats output, so the bundle would hold no statistics. Nothing was imported.")
@@ -70,11 +75,23 @@ extension ExecutorRunAdoption {
             originalSizeBytes: plan.sample.originalSizeBytes, storageInputSizeBytes: ingestionResult.originalSizeBytes,
             storageOutputSizeBytes: ingestionResult.finalSizeBytes
         )
+        // The Mac's read classification of the stored file, from the mixed layout the node counted where it wrote the
+        // mixed file (the `interleave` step of a merging recipe).
+        let mixed = record.steps.last { $0.storage?.mixedLayout != nil }?.storage?.mixedLayout.map {
+            RecipeMixedLayoutCounts(mergedReads: $0.mergedReads, pairs: $0.pairs, unpairedReads: $0.unpairedReads)
+        }
+        metadata.readClassification = FASTQBatchImporter.readClassification(
+            forMixedLayout: FASTQBatchImporter.storedMixedLayout(mixed, removing: ingestionResult.readsRemovedByStorage),
+            bundleFASTQName: fastqName
+        )
         FASTQBatchImporter.applyPlatformMetadata(to: &metadata, config: config)
         if let recipe {
+            let stepResults = try recipeStepResults(
+                run, recipe: recipe, paired: inputs.count > 1, ingestionResult: ingestionResult, optimizeStorage: config.optimizeStorage
+            )
             metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
                 recipeID: recipe.id, recipeName: recipe.name, appliedDate: Date(),
-                stepResults: recipeStepResults(run, ingestionResult: ingestionResult, optimizeStorage: config.optimizeStorage),
+                stepResults: stepResults,
                 recipeSHA256: recipe.sourceSHA256, recipeFormatVersion: recipe.formatVersion,
                 requestedName: recipe.requestedName, presetID: recipe.resolution?.preset?.id,
                 presetName: recipe.resolution?.preset?.name, switchSettings: recipe.switches.isEmpty ? nil : recipe.switchSettings
@@ -179,34 +196,6 @@ extension ExecutorRunAdoption {
             processingCommandLine: step.map { $0.argv.joined(separator: " ") },
             clumpifyHeapGB: clumpifyRan ? plan.storage.clumpifyHeapGB : nil
         )
-    }
-
-    /// The sidecar's step results: each recipe step the node ran, then storage and statistics as the Mac lists them.
-    static func recipeStepResults(
-        _ run: ExecutorAdoptedRun, ingestionResult: FASTQIngestionResult, optimizeStorage: Bool
-    ) -> [RecipeStepResult] {
-        var results = run.record.steps.filter { $0.kind == .recipe }.map { step in
-            RecipeStepResult(
-                stepName: run.plan.steps.first { $0.id == step.id }?.title ?? step.id, tool: step.tool?.id ?? executorBinaryName,
-                toolVersion: step.tool?.version, commandArguments: step.argv, inputReadCount: step.inputReadCount.map(Int.init),
-                outputReadCount: step.outputReadCount.map(Int.init), durationSeconds: step.wallSeconds,
-                exitStatus: step.toolExitCode.map(Int.init), startedAt: date(step.startedAt), completedAt: date(step.endedAt)
-            )
-        }
-        if let storage = run.record.steps.first(where: { $0.kind == .storage }) {
-            results.append(RecipeStepResult(
-                stepName: optimizeStorage ? "Optimize storage + Compress" : "Compress",
-                tool: ingestionResult.processingTool ?? "compression", toolVersion: ingestionResult.processingToolVersion,
-                commandLine: ingestionResult.processingCommandLine, durationSeconds: storage.wallSeconds
-            ))
-        }
-        if let statistics = run.record.steps.first(where: { $0.kind == .statistics }) {
-            results.append(RecipeStepResult(
-                stepName: "Compute statistics", tool: statistics.tool?.id ?? "seqkit", toolVersion: statistics.tool?.version,
-                durationSeconds: statistics.wallSeconds
-            ))
-        }
-        return results
     }
 
     /// The executor's step, the runner of every node step, from the record's `executor` block (XC-8).

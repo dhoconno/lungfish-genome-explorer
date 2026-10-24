@@ -751,13 +751,20 @@ public final class RecipeEngine: Sendable {
         )
     }
 
-    private func shellEscapeForRecipeCommand(_ value: String) -> String {
+    /// One argument as a step record's `commandLine` quotes it. The adopt of a node's run quotes the record's argv by it.
+    func shellEscapeForRecipeCommand(_ value: String) -> String {
         if value.isEmpty { return "''" }
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-")
         if value.unicodeScalars.allSatisfy({ safe.contains($0) }) {
             return value
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The results of `recipe`'s steps a switch turned off, named by this engine's step types as a run names them, so
+    /// the adopt of a node's run lists them where this engine does.
+    func turnedOffStepRecords(for recipe: Recipe) -> TurnedOffStepRecords {
+        TurnedOffStepRecords(recipe: recipe, stepTypes: stepTypes)
     }
 
     // MARK: - Input requirement check
