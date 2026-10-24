@@ -34,9 +34,12 @@ extension ExecutorRunAdoption {
         return arguments
     }
 
-    /// Every check of the adopt with nothing written (`--dry-run`), and the sample name the bundle would take.
-    public static func dryRun(resultFolder: URL, name: String? = nil) throws -> String {
-        try check(resultFolder, name: name, policy: .release).sampleName
+    /// Every check of the adopt with nothing written (`--dry-run`), and the sample name the bundle would take. A bundle
+    /// of that name already in the project is refused without `force`, as the adopt refuses it (review A2 fix 1).
+    public static func dryRun(resultFolder: URL, projectDirectory: URL, name: String? = nil, force: Bool = false) throws -> String {
+        let run = try check(resultFolder, name: name, policy: .release)
+        _ = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        return run.sampleName
     }
 
     /// `staging.json`'s image, or nil for a folder that holds none, such as a run on any Linux machine. A file that is
@@ -78,9 +81,16 @@ extension ExecutorRunAdoption {
     /// reported them (C4-02). The tool manifest's digest that the plan pins stays in the run record only.
     static func runtimeIdentity(_ run: ExecutorAdoptedRun) -> ProvenanceRuntimeIdentity {
         let facts = run.record.siteFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
+        let node = run.record.runtimeIdentity
         return ProvenanceRuntimeIdentity(
             containerImage: run.stagingImage?.fileName, containerDigest: run.stagingImage?.sha256,
-            siteFacts: facts.isEmpty ? nil : facts
+            siteFacts: facts.isEmpty ? nil : facts,
+            // Lane U's OQ-1 rows: where the steps ran and with which executor, as the record states them.
+            nodeRuntime: ProvenanceNodeRuntime(
+                kernelRelease: node.kernelRelease, machine: node.machine,
+                executorBuild: run.record.executor.buildPin?.lgeVersion, executorSHA256: run.record.executor.sha256,
+                orphanSweep: node.orphanSweep.rawValue
+            )
         )
     }
 }

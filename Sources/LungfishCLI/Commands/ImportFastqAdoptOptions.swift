@@ -76,7 +76,9 @@ extension ImportCommand.FastqSubcommand {
         let folder = URL(fileURLWithPath: input[0])
         do {
             if dryRun {
-                let sample = try ExecutorRunAdoption.dryRun(resultFolder: folder, name: name)
+                let sample = try ExecutorRunAdoption.dryRun(
+                    resultFolder: folder, projectDirectory: projectDirectory, name: name, force: force
+                )
                 reporter.text("\(folder.lastPathComponent) passed every check and would be adopted as \(sample).")
                 reporter.complete(message: "Dry-run mode — no files were imported.")
                 return

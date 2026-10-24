@@ -2375,13 +2375,22 @@ public enum FASTQBatchImporter {
             )
         }
 
-        let requiredStats = try parseRequiredSeqkitStats(stdout: seqkitResult.stdout)
+        try await cacheStatistics(for: fastqURL, seqkitStdout: seqkitResult.stdout, fractions: nil)
+    }
+
+    /// The sidecar's statistics from one `seqkit stats -a -T` table: the exact metrics from the table, Q20 and Q30 from
+    /// `counted` when given (the adopt passes its run record's counts) or else from a count of the file's bases, and the
+    /// charts from a 100,000-read head sample. The import and the adopt share it (CHTC C4 lane A, BIO O1).
+    static func cacheStatistics(for fastqURL: URL, seqkitStdout: String, fractions counted: FASTQQualityFractions?) async throws {
+        let runner = NativeToolRunner.shared
+        let requiredStats = try parseRequiredSeqkitStats(stdout: seqkitStdout)
         // seqkit 2.13 prints Q20(%) and Q30(%) as whole percents (95, 91),
         // while Refresh QC Summary counts every base (94.57, 91.28). Count
         // the bases here too, so the cards read the same from both paths.
         let seqkitMeta: SeqkitStatsMetadata
         do {
-            let fractions = try await FASTQQualityFractions.scan(fastqURL)
+            let fractions: FASTQQualityFractions
+            if let counted { fractions = counted } else { fractions = try await FASTQQualityFractions.scan(fastqURL) }
             seqkitMeta = exactQualityMetadata(seqkit: requiredStats.metadata, fractions: fractions)
         } catch {
             logger.warning("Exact Q20/Q30 count failed for \(fastqURL.lastPathComponent): \(error) — keeping seqkit's rounded values")

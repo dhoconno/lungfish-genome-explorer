@@ -35,15 +35,13 @@ extension ExecutorRunAdoption {
     ) async throws -> URL {
         let plan = run.plan
         let record = run.record
-        let inputs = plan.entries.filter { $0.role == .input }.map { run.folder.appendingPathComponent($0.relativePath) }
-        guard let r1 = inputs.first else { throw refusal("entries", "The plan pins no input.") }
+        let (pair, inputs, bundleURL) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        let r1 = inputs[0]
         let recipe = try resolvedRecipe(plan.recipe)
         let config = importConfig(plan, recipe: recipe, projectDirectory: projectDirectory, paired: inputs.count > 1, force: force)
         let metadataPairs = Dictionary(plan.sample.sampleSheet.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
-        let pair = SamplePair(sampleName: run.sampleName, r1: r1, r2: inputs.count > 1 ? inputs[1] : nil, metadata: metadataPairs)
-        let bundleURL = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDirectory)
-        if FileManager.default.fileExists(atPath: bundleURL.path) && !force {
-            throw BatchImportError.outputBundleAlreadyExists(bundleURL)
+        guard let statisticsTable = record.steps.first(where: { $0.kind == .statistics })?.standardOutput?.text else {
+            throw refusal("steps", "The run record holds no seqkit stats output, so the bundle would hold no statistics. Nothing was imported.")
         }
 
         try FASTQBatchImporter.prepareFASTQBundleParent(for: bundleURL)
@@ -83,9 +81,16 @@ extension ExecutorRunAdoption {
             )
         }
         FASTQMetadataStore.save(metadata, for: stagedFASTQ)
+        // BIO O1: the record's statistics table and Q20 and Q30 counts through the Mac's own parse and count rule.
+        let counts = record.steps.first { $0.kind == .qualityCount }?.qualityCounts
+        try await FASTQBatchImporter.cacheStatistics(
+            for: stagedFASTQ, seqkitStdout: statisticsTable,
+            fractions: counts.map { FASTQQualityFractions(baseCount: $0.baseCount, q20Count: $0.q20Count, q30Count: $0.q30Count) }
+        )
 
         let executorStep = executorStepExecution(record)
-        let nodeSteps = record.steps.map { nodeStepExecution($0, parent: executorStep.id) }
+        let titles = Dictionary(plan.steps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        let nodeSteps = record.steps.map { nodeStepExecution($0, parent: executorStep.id, title: titles[$0.id]) }
         try await FASTQBatchImporter.writeImportProvenance(
             pair: pair, processingPair: pair, materializationSteps: nodeSteps + [executorStep], unpairedReads: nil,
             config: config, importedPairing: pairing, stagingBundleURL: staging, stagingBundleFASTQURL: stagedFASTQ,
@@ -213,11 +218,34 @@ extension ExecutorRunAdoption {
         )
     }
 
-    /// One node step under the executor's step, with the argv, version and times the record states.
-    static func nodeStepExecution(_ step: ExecutorStepRecord, parent: UUID) -> StepExecution {
-        StepExecution(
+    /// The adopt's sample pair, its inputs and the bundle it publishes, by the import's own URL rule. A bundle already
+    /// there is refused without `force`; the dry run calls this too, so it says what the adopt does (review A2 fix 1).
+    static func plannedBundle(
+        _ run: ExecutorAdoptedRun, projectDirectory: URL, force: Bool
+    ) throws -> (pair: SamplePair, inputs: [URL], url: URL) {
+        let inputs = run.plan.entries.filter { $0.role == .input }.map { run.folder.appendingPathComponent($0.relativePath) }
+        guard let r1 = inputs.first else { throw refusal("entries", "The plan pins no input.") }
+        let metadataPairs = Dictionary(run.plan.sample.sampleSheet.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
+        let pair = SamplePair(sampleName: run.sampleName, r1: r1, r2: inputs.count > 1 ? inputs[1] : nil, metadata: metadataPairs)
+        let url = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDirectory)
+        if FileManager.default.fileExists(atPath: url.path) && !force {
+            throw BatchImportError.outputBundleAlreadyExists(url)
+        }
+        return (pair, inputs, url)
+    }
+
+    /// One node step under the executor's step, with the argv, version and times the record states, and its tool in
+    /// the record's shape under `resolvedOptions` (lane U, OQ-1), with the plan step's title on a step the executor ran.
+    static func nodeStepExecution(_ step: ExecutorStepRecord, parent: UUID, title: String?) -> StepExecution {
+        let options = step.tool.map {
+            ProvenanceNodeStepOptions.options(
+                toolID: $0.id, version: $0.version, build: $0.build, versionSource: $0.versionSource.rawValue,
+                title: $0.id == executorBinaryName ? title : nil
+            )
+        }
+        return StepExecution(
             toolName: step.tool?.id ?? executorBinaryName, toolVersion: step.tool?.version ?? "unknown", command: step.argv,
-            inputs: [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,
+            resolvedOptions: options, inputs: [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,
             peakMemoryBytes: step.peakResidentBytes, stderr: step.stderrTail.isEmpty ? nil : step.stderrTail,
             parentStepID: parent, startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
         )

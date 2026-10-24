@@ -253,7 +253,14 @@ final class ExecutorAdoptParityTests: XCTestCase {
         // aside and the adopt publishes into a new folder of the same name.
         let macProject = folder.appendingPathComponent("MacProject.lungfish", isDirectory: true)
         try FileManager.default.moveItem(at: project, to: macProject)
-        let adoptedBundle = try await ExecutorRunAdoption.adopt(resultFolder: work, projectDirectory: project, policy: .macReplayForTests)
+        // As A2's ARCH 5 test: the adopt signs with a throwaway key, as on a Mac that holds a signing key, so `provenance
+        // verify` reads a signed record (SWIFT-ARCH fix 3). The test process holds no key of its own.
+        let keyFile = folder.appendingPathComponent("signing-key.txt")
+        try "adopt-parity-\(UUID().uuidString)\n".write(to: keyFile, atomically: true, encoding: .utf8)
+        let adoptedBundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: work, projectDirectory: project, policy: .macReplayForTests,
+            signingEnvironment: [ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey: keyFile.path]
+        )
         let macBundle = macProject.appendingPathComponent("Imports").appendingPathComponent(adoptedBundle.lastPathComponent)
         let payloadName = "\(ExecutorPlanReplayParityTests.sampleName).fastq.gz"
         let e4Equal = try PayloadLevels.measure(macBundle.appendingPathComponent(payloadName)).e4

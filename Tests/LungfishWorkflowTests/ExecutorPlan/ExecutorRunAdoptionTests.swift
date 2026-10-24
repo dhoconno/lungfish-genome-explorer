@@ -50,7 +50,7 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         let plan = emission.plan
         let time = "2026-10-24T12:00:00.000Z"
         let steps = plan.steps.map { step in
-            ExecutorStepRecord(
+            var recorded = ExecutorStepRecord(
                 id: step.id, kind: step.kind,
                 tool: step.tool.map { ExecutorToolRecord(id: $0.id, version: $0.version, build: $0.build, path: "/opt/conda/bin/\($0.id)") },
                 outcome: .succeeded, argv: step.arguments, environmentNames: ["HOME", "PATH", "TMPDIR"], graceSeconds: 30,
@@ -62,6 +62,8 @@ final class ExecutorRunAdoptionTests: XCTestCase {
                                              inputBytes: 200, outputBytes: payload.size)
                     : nil
             )
+            if step.kind == .statistics { recorded.standardOutput = Self.seqkitOutput }
+            return recorded
         }
         let record = ExecutorRunRecord(
             outcome: .succeeded, executorArguments: ["run", "--plan", "plan.json"],
@@ -415,6 +417,98 @@ final class ExecutorRunAdoptionTests: XCTestCase {
                 XCTAssertEqual(resolved[key], .string("plan"), "\(label) \(key)")
             }
         }
+    }
+
+    /// The fixture's `seqkit stats -a -T` table for its two 10-base reads, half G and C, with seqkit's whole percents.
+    private static let seqkitTable = "file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len\tQ1\tQ2\tQ3\tsum_gap\tN50\tN50_num\tQ20(%)\tQ30(%)\tAvgQual\tGC(%)\tsum_n\n"
+        + "out/S.fastq.gz\tFASTQ\tDNA\t2\t20\t10\t10.0\t10\t10\t10\t10\t0\t10\t1\t95.00\t91.00\t40.00\t50.00\t0\n"
+
+    private static var seqkitOutput: ExecutorCapturedOutput {
+        ExecutorCapturedOutput(
+            text: seqkitTable, sha256: PortableDigest.sha256Hex(of: Data(seqkitTable.utf8)), size: Int64(seqkitTable.utf8.count)
+        )
+    }
+
+    /// Each file under a folder with its bytes, so a test can tell that nothing was written.
+    private static func files(under folder: URL) -> [String: Data] {
+        var files: [String: Data] = [:]
+        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            files[url.path] = (try? Data(contentsOf: url)) ?? Data()
+        }
+        return files
+    }
+
+    /// Review A2 fix 1: `--dry-run` says what the real run does. With the bundle in place it refuses without `--force`
+    /// as the adopt does, names the sample with `--force`, and writes nothing either way.
+    func testAdoptDryRunRefusesExistingBundleWithoutForce() async throws {
+        let returned = try returned(.bbtools)
+        XCTAssertEqual(try ExecutorRunAdoption.dryRun(resultFolder: returned.folder, projectDirectory: project), "S")
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let before = Self.files(under: project)
+        XCTAssertThrowsError(try ExecutorRunAdoption.dryRun(resultFolder: returned.folder, projectDirectory: project, force: false)) {
+            guard case BatchImportError.outputBundleAlreadyExists(let url) = $0 else { return XCTFail("\($0)") }
+            XCTAssertEqual(url.standardizedFileURL.path, bundle.standardizedFileURL.path)
+        }
+        XCTAssertEqual(try ExecutorRunAdoption.dryRun(resultFolder: returned.folder, projectDirectory: project, force: true), "S")
+        XCTAssertEqual(Self.files(under: project), before)
+    }
+
+    /// Lane U's two fills (U.md Handoff a): the run identity names the node's kernel, machine, executor build and SHA-256
+    /// and its orphan sweep as the record states them, and each node step names its tool as the record does, with the
+    /// plan step's title on a step the executor ran itself.
+    func testAdoptedEnvelopeNamesNodeRuntimeAndStepTools() async throws {
+        let returned = try returned(.bbtools)
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let node = try XCTUnwrap(try envelope(bundle).runtimeIdentity.nodeRuntime)
+        XCTAssertEqual(node.kernelRelease, "5.14.0-503.el9.x86_64")
+        XCTAssertEqual(node.machine, "x86_64")
+        XCTAssertEqual(node.executorBuild, returned.record.executor.buildPin?.lgeVersion)
+        XCTAssertEqual(node.executorSHA256, ExecutorPlanTestSupport.digest)
+        XCTAssertEqual(node.orphanSweep, "subreaper")
+
+        let record = try Data(contentsOf: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        let steps = try XCTUnwrap((try JSONSerialization.jsonObject(with: record) as? [String: Any])?["steps"] as? [[String: Any]])
+        let executor = steps.first { $0["toolName"] as? String == ExecutorRunAdoption.executorToolName }
+        let executorID = try XCTUnwrap(executor?["id"] as? String)
+        let nodeSteps = steps.filter { $0["parentStepID"] as? String == executorID }
+        XCTAssertEqual(nodeSteps.count, returned.record.steps.count)
+        var titled = 0
+        for (step, recorded) in zip(nodeSteps, returned.record.steps) {
+            let options = step["resolvedOptions"] as? NSDictionary
+            guard let tool = recorded.tool else {
+                XCTAssertNil(options?[ProvenanceNodeStepOptions.toolKey], recorded.id)
+                continue
+            }
+            let title = tool.id == ExecutorRunAdoption.executorBinaryName
+                ? returned.plan.steps.first { $0.id == recorded.id }?.title : nil
+            if title != nil { titled += 1 }
+            let expected = ProvenanceNodeStepOptions.options(
+                toolID: tool.id, version: tool.version, build: tool.build, versionSource: tool.versionSource.rawValue, title: title
+            )
+            let expectedJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(expected)) as? NSDictionary
+            XCTAssertEqual(options, expectedJSON, recorded.id)
+        }
+        print("ADOPT-NODE-STEPS steps=\(nodeSteps.count) titled=\(titled)")
+    }
+
+    /// BIO's binding (A-BIO O1, A2 Handoff a): the adopted sidecar's statistics are the record's `seqkit stats -a -T`
+    /// table through the Mac's own parse, with Q20 and Q30 from the record's counts, which cover the bases seqkit summed.
+    func testAdoptedSidecarCarriesRecordStatistics() async throws {
+        let returned = try returned(.bbtools)
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.appendingPathComponent("S.fastq.gz")))
+        let statistics = try XCTUnwrap(sidecar.computedStatistics)
+        let seqkit = try XCTUnwrap(sidecar.seqkitStats)
+        XCTAssertEqual(statistics.readCount, 2)
+        XCTAssertEqual(statistics.baseCount, 20)
+        XCTAssertEqual(statistics.n50ReadLength, 10)
+        XCTAssertEqual(statistics.medianReadLength, 10)
+        XCTAssertEqual(statistics.gcContent, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(seqkit.numSeqs, 2)
+        // The record counted 20 of 20 bases at Q20 and at Q30, so its counts replace seqkit's whole percents (95, 91).
+        XCTAssertEqual(statistics.q20Percentage, 100, accuracy: 1e-9)
+        XCTAssertEqual(statistics.q30Percentage, 100, accuracy: 1e-9)
     }
 
     /// BIO 4 and BIO 6: a record whose steps are not the plan's is refused with the step's field before any bundle file
