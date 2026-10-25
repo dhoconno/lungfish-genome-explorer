@@ -84,6 +84,27 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o755)
     }
 
+    /// Fix G3. A `file://` upload makes no folder: G3's tiny jobs 593396 and 593397 were held at code 12 subcode 256,
+    /// "Can't open .../out/sample.fastq.gz for writing", when the payload's folder did not exist, and 593394 returned the
+    /// payload when it did. So `staging-files.json` names each sample's payload folder to make before the submit, the
+    /// folder the submit file's remap writes into.
+    func testStagingListNamesEachSamplesPayloadFolderToMakeBeforeTheSubmit() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let rows = [try row("S1"), try row("S2")]
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: rows, image: image,
+                                                      layout: layout, into: folder)
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
+        let folders = try XCTUnwrap((object as? [String: Any])?["folders"] as? [[String: String]], "staging-files.json lists folders")
+        XCTAssertEqual(folders.map { $0["role"] }, ["payload-folder", "payload-folder"])
+        XCTAssertEqual(folders.map { $0["sample"] }, ["S1", "S2"])
+        let paths = ["/staging/groups/g/1/lge-chtc-test/batches/batch/S1/out", "/staging/groups/g/1/lge-chtc-test/batches/batch/S2/out"]
+        XCTAssertEqual(folders.map { $0["stagingPath"] }, paths)
+        XCTAssertEqual(batch.samples.count, folders.count)
+        let submit = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
+        XCTAssertTrue(submit.contains(" = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz"), submit)
+    }
+
     /// The bbtools template request for `S1` and its recipe template, which the refusal tests below share.
     private func bbtoolsTemplate() throws -> (request: ExecutorPlanTemplateRequest, recipeTemplate: ExecutorPlanTemplate) {
         let request = try ExecutorPlanTestSupport.request(
@@ -178,7 +199,7 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let remaps = try value(of: "transfer_output_remaps")
         XCTAssertEqual(
             remaps,
-            "\"sample.fastq.gz = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz; "
+            "\"plan/out/sample.fastq.gz = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz; "
                 + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
                 + "sample_merge_fastp_report.json = work/sample_merge_fastp_report.json\""
         )

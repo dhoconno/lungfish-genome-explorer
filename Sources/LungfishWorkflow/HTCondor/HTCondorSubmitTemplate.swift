@@ -223,15 +223,18 @@ public enum HTCondorSubmitTemplate {
         }
         let inputs = ["$(\(inputsVariable))"] + shared.map(\.url)
         let plan = planFolderName
-        let payloadName = input.payloadRelativePath.split(separator: "/").last.map(String.init) ?? ""
+        // The execute point uploads a file to a `file://` remap only when the remap's key is the path
+        // `transfer_output_files` lists it by. A key of the last component sends the payload to the access point, which
+        // holds the job at code 12 subcode 1, "Remap of output file resulted in a URL" (fix G3, node job 593391). The
+        // upload makes no folder, so the batch writer names the payload's folder to make before the submit.
+        let payloadListed = "\(plan)/\(input.payloadRelativePath)"
         // The adopt reads each report in the returned folder at its `work/` path (`ExecutorRunAdoption.recordedReports`), so
         // the job returns each one and never the work folder, which holds the large intermediates. HTCondor names a
         // returned file after the last component of the path it was listed by, so a remap puts each report back.
         try HTCondorValueRules.checkReports(input.reportRelativePaths, payloadRelativePath: input.payloadRelativePath)
         let reports = input.reportRelativePaths
-        let outputs = ["\(plan)/run-record.json", "\(plan)/logs", "\(plan)/\(input.payloadRelativePath)"]
-            + reports.map { "\(plan)/\($0)" }
-        let remaps = ["\(payloadName) = \(input.payloadStagingFolderURL)/\(sample)/\(input.payloadRelativePath)"]
+        let outputs = ["\(plan)/run-record.json", "\(plan)/logs", payloadListed] + reports.map { "\(plan)/\($0)" }
+        let remaps = ["\(payloadListed) = \(input.payloadStagingFolderURL)/\(sample)/\(input.payloadRelativePath)"]
             + reports.map { "\(HTCondorValueRules.lastComponent($0)) = \($0)" }
 
         let lines = [

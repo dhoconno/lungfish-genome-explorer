@@ -191,7 +191,7 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         )
         XCTAssertEqual(
             try value(of: "transfer_output_remaps", in: text),
-            "\"sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz\""
+            "\"plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz\""
         )
         let words = try words(ofArguments: try value(of: "arguments", in: text))
         XCTAssertEqual(words[0].text, "lungfish-executor-\(Self.executorDigest)=bin/lungfish-executor")
@@ -240,7 +240,7 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         )
         XCTAssertEqual(
             try value(of: "transfer_output_remaps", in: text),
-            "\"sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz; "
+            "\"plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz; "
                 + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
                 + "sample_deacon_summary.json = work/sample_deacon_summary.json\""
         )
@@ -248,6 +248,29 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
         XCTAssertFalse(files.contains("plan/work"))
         XCTAssertEqual(files.filter { $0.hasPrefix("plan/work") }, reports.map { "plan/" + $0 })
+    }
+
+    /// Fix G3 (lane X1's node job 593391, held twice at code 12 subcode 1). The execute point uploads a file to its
+    /// `file://` remap only when the remap's key is the path `transfer_output_files` lists it by. A key of the last
+    /// component sends the file to the access point instead, which finds the URL and holds the job with "Remap of output
+    /// file resulted in a URL". G3's tiny job 593393 (last-component key) was held so, and 593394 (listed-path key)
+    /// returned the payload to /staging.
+    func testPayloadRemapKeyIsThePathTransferOutputFilesListsSoTheExecutePointUploadsIt() throws {
+        let text = try HTCondorSubmitTemplate.render(Self.input(reports: ["work/sample_fused_fastp_report.json"]))
+        let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
+        let remapValue = try value(of: "transfer_output_remaps", in: text)
+        let remaps = remapValue.dropFirst().dropLast().components(separatedBy: "; ").map { pair -> (key: String, target: String) in
+            let parts = pair.components(separatedBy: " = ")
+            return (parts[0], parts.count == 2 ? parts[1] : "")
+        }
+        let urlRemaps = remaps.filter { $0.target.hasPrefix("file://") }
+        XCTAssertEqual(urlRemaps.map(\.key), ["plan/out/sample.fastq.gz"])
+        XCTAssertEqual(urlRemaps.map(\.target), ["\(Self.staging)/h/$(sample)/out/sample.fastq.gz"])
+        for remap in urlRemaps {
+            XCTAssertTrue(files.contains(remap.key), "the URL remap's key \(remap.key) is a path transfer_output_files lists")
+        }
+        // The access point applies a plain remap to the returned name, the last component, so each report keeps that key.
+        XCTAssertEqual(remaps.filter { !$0.target.hasPrefix("file://") }.map(\.key), ["sample_fused_fastp_report.json"])
     }
 
     func testTemplateRefusesReportsThatLeaveWorkOrShareAReturnedName() {

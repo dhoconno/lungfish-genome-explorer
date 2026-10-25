@@ -165,6 +165,10 @@ extension ImportCommand.FastqSubcommand {
             for file in batch.files {
                 reporter.text("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? ""))
             }
+            // Each job's payload upload makes no folder, so the person makes these before the submit (fix G3).
+            for made in batch.folders {
+                reporter.text("  make the folder \(made.stagingPath) before you submit")
+            }
             reporter.completePlan(folder: batch.folder, samples: batch.samples, files: batch.files)
         } catch let refusal as ExitCode {
             throw refusal

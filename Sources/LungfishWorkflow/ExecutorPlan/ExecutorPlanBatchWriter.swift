@@ -86,11 +86,23 @@ package struct ExecutorPlanBatchFile: Codable, Sendable, Equatable {
     package var source: String?
 }
 
-/// `staging-files.json` of a submit folder, the list `--format json` prints.
+/// One folder to make in the staging folder before the submit. Each sample's job returns its payload by a `file://`
+/// remap into `batches/<batch>/<sample>/out/`, and that upload makes no folder: with none there the job is held at code
+/// 12 subcode 256, "Can't open ... for writing" (fix G3, tiny jobs 593396 and 593397).
+package struct ExecutorPlanBatchFolder: Codable, Sendable, Equatable {
+    package static let payloadRole = "payload-folder"
+    package var role: String
+    package var sample: String
+    package var stagingPath: String
+}
+
+/// `staging-files.json` of a submit folder, the list `--format json` prints: the files to copy to the staging folder
+/// and the folders to make there.
 package struct ExecutorPlanBatchFiles: Codable, Sendable, Equatable {
     package static let fileName = "staging-files.json"
     package var schemaVersion = 1
     package var files: [ExecutorPlanBatchFile]
+    package var folders: [ExecutorPlanBatchFolder]
 }
 
 /// What a batch writer wrote.
@@ -99,6 +111,7 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
     /// Each sample's plan folder name, which is also its DAG node and job log name.
     package var samples: [String]
     package var files: [ExecutorPlanBatchFile]
+    package var folders: [ExecutorPlanBatchFolder]
 }
 
 /// A step or a storage route with no plan form in this build (`docs/formats/executor-plan.md`, "Steps"). Each case names
@@ -252,8 +265,12 @@ package enum ExecutorPlanBatchWriter {
                                                size: entry.size, sha256: entry.sha256, source: sources[entry.relativePath]?.path))
         }
         var nodes: [HTCondorDAGNode] = []
+        var folders: [ExecutorPlanBatchFolder] = []
+        let payloadFolder = (ExecutorPlanEmitter.payloadPath as NSString).deletingLastPathComponent
         for (index, emission) in emissions.enumerated() {
             let name = names[index]
+            folders.append(ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.payloadRole, sample: name,
+                                                   stagingPath: layout.samplePath(name, payloadFolder)))
             let planFolder = folder.appendingPathComponent(name, isDirectory: true)
             try ExecutorPlanFolderWriter.writeShared(emission, image: image.sif, stagedInputs: true, into: planFolder)
             let tarFolder = folder.appendingPathComponent(tarsFolderName).appendingPathComponent(name, isDirectory: true)
@@ -293,14 +310,14 @@ package enum ExecutorPlanBatchWriter {
         let dag = try HTCondorDAG.render(nodes)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let list = try encoder.encode(ExecutorPlanBatchFiles(files: files)) + Data("\n".utf8)
+        let list = try encoder.encode(ExecutorPlanBatchFiles(files: files, folders: folders)) + Data("\n".utf8)
         try DurableReplace.replace(Data(HTCondorJobWrapper.text.utf8), named: HTCondorJobWrapper.fileName, in: folder)
         try fileManager.setAttributes([.posixPermissions: 0o755],
                                       ofItemAtPath: folder.appendingPathComponent(HTCondorJobWrapper.fileName).path)
         try DurableReplace.replace(Data(submit.utf8), named: HTCondorSubmitTemplate.fileName, in: folder)
         try DurableReplace.replace(list, named: ExecutorPlanBatchFiles.fileName, in: folder)
         try DurableReplace.replace(Data(dag.utf8), named: HTCondorDAG.fileName, in: folder)
-        return ExecutorPlanBatch(folder: folder, samples: names, files: files)
+        return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders)
     }
 
     private static func staged(_ entry: PlanEntry?, layout: ExecutorPlanStagingLayout) throws -> HTCondorStagedFile {
