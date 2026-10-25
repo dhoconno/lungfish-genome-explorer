@@ -135,4 +135,49 @@ final class V15ParityEntryTests: XCTestCase {
         oldStem[5]["path"] = "\(artifacts)/1-1-trim-sample_fused_fastp_report.json"
         XCTAssertEqual(compare(oldStem, mac).findings.count, 2, "the report copy named with the emitter's stem pairs with nothing")
     }
+
+    /// QA Q4-13 and Q4-5 (XC-1, integrity inside one route): an entry of the envelope's `files`, its `outputs` or a step's
+    /// `outputs` at one of the route's payload paths carries the digest of that route's own payload. `compareEntries` pairs a
+    /// payload entry by role and path and never compares its digest, so this check alone fails an adopted payload entry that
+    /// holds another digest. An entry outside the payload paths is not its business, and an envelope with no payload digest
+    /// is one finding.
+    func testPayloadIntegrityFailsOnADifferentDigest() {
+        let payload = "out/sample.fastq.gz"
+        func envelope(outputs: String = "cccc", step: String = "cccc", extra: [[String: Any]] = []) -> [String: Any] {
+            [
+                "output": ["path": payload, "checksumSHA256": "cccc"] as [String: Any],
+                "files": [entry("output", payload, "cccc")] + extra,
+                "outputs": [entry("output", payload, outputs)],
+                "steps": [["toolName": "bgzip", "outputs": [entry("output", payload, step)]] as [String: Any]],
+            ]
+        }
+        func findings(_ built: [String: Any], route: V15Route = .adopted) -> [V15Finding] {
+            V15Comparison.payloadIntegrityFindings(envelope: built, route: route, paths: [payload])
+        }
+        XCTAssertEqual(text(findings(envelope())), "", "files, outputs and a step's outputs all hold the route's payload digest")
+
+        let planted = findings(envelope(outputs: "9999"))
+        XCTAssertEqual(planted.count, 1, text(planted))
+        XCTAssertEqual(planted.first?.key, "envelope.outputs")
+        XCTAssertEqual(planted.first?.adopted, "9999")
+        XCTAssertEqual(planted.first?.mac, "-")
+        XCTAssertEqual(
+            planted.first?.why,
+            "QA Q4-13: the adopted route's entry at its payload path \(payload) holds 9999, and the route's payload is cccc"
+        )
+        let inStep = findings(envelope(step: "8888"))
+        XCTAssertEqual(inStep.map(\.key), ["envelope.steps[bgzip].outputs"], text(inStep))
+        let onMac = findings(envelope(outputs: "9999"), route: .mac)
+        XCTAssertEqual(onMac.map(\.mac), ["9999"], "the Mac route's finding carries its value on the Mac side")
+        XCTAssertEqual(onMac.map(\.adopted), ["-"])
+
+        let outside = findings(envelope(extra: [entry("output", "work/sample_other.fq.gz", "7777")]))
+        XCTAssertEqual(text(outside), "", "an entry at a path outside the payload paths is not this check's")
+
+        var undigested = envelope()
+        undigested["output"] = ["path": payload] as [String: Any]
+        let missing = findings(undigested)
+        XCTAssertEqual(missing.map(\.key), ["envelope.output.checksumSHA256"], text(missing))
+        XCTAssertEqual(missing.first?.why, "the adopted envelope names no payload digest (QA Q4-13)")
+    }
 }
