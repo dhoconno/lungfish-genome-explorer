@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishKit
 import LungfishWorkflow
+import os
 
 extension FASTQIngestionService {
     /// The argv after `lungfish-cli` of the adopt the app runs, `import fastq <folder> --adopt --project <project>
@@ -58,7 +59,8 @@ extension FASTQIngestionService {
     }
 
     /// Runs `import fastq` with `arguments` for the row `operationID`, as the FASTQ imports do, with the row's Cancel
-    /// stopping the command.
+    /// stopping the command. The row ends when the command ends (``runLinuxRunToEnd``). A plan's caller passes the
+    /// plan folder as `projectDirectory`, since the finished row names it.
     static func runLinuxRunCommand(
         arguments: [String],
         operationID: UUID,
@@ -67,14 +69,77 @@ extension FASTQIngestionService {
     ) {
         let runner = CLIImportRunner()
         let task = Task.detached {
-            await runner.run(
+            await runLinuxRunToEnd(
                 arguments: arguments, operationID: operationID, projectDirectory: projectDirectory,
-                onBundleCreated: onBundleCreated, onError: { _ in }
+                runner: runner, onBundleCreated: onBundleCreated
             )
         }
         OperationCenter.shared.setCancelCallback(for: operationID) {
             task.cancel()
             runner.cancel()
+        }
+    }
+
+    /// What the runner reported of one run, through `onBundleCreated` and `onError`.
+    struct LinuxRunOutcome: Sendable, Equatable {
+        var bundles: [URL] = []
+        var error: String?
+    }
+
+    /// How the row of a finished run ends.
+    enum LinuxRunRowEnd: Equatable {
+        /// The command finished. The adopt made a bundle, or the plan was written to its folder.
+        case completed(detail: String, bundleURLs: [URL])
+        /// The command stopped after a cancel, so the row is acknowledged as cancelled.
+        case cancelled
+        /// The command failed, and the runner already failed the row with its message.
+        case failedByRunner
+    }
+
+    /// How the row ends for what the runner reported. A run with no error ends in the adopt's bundle or, when it made
+    /// none, in the plan written to `planFolder`. The two cancel messages are the words `CLIImportRunner.run` gives
+    /// `onError` for a cancel before the launch and for a cancel of a run, and the runner leaves the row to its caller.
+    nonisolated static func linuxRunRowEnd(_ outcome: LinuxRunOutcome, planFolder: URL) -> LinuxRunRowEnd {
+        if let error = outcome.error {
+            let cancelled = error == "Import cancelled" || error == "Import cancelled before it started"
+            return cancelled ? .cancelled : .failedByRunner
+        }
+        if let bundle = outcome.bundles.last {
+            return .completed(detail: "Imported \(bundle.lastPathComponent)", bundleURLs: outcome.bundles)
+        }
+        return .completed(detail: "Plan written to \(planFolder.lastPathComponent)", bundleURLs: [])
+    }
+
+    /// Runs the command and returns once its row is ended. The runner fails the row for a failure and leaves it for
+    /// a success and for a cancel, so the end of the other two is here, with the in-app import's words ("Imported
+    /// <bundle>"). A success with no bundle is a plan, which reads "Plan written to <folder>". The hop to the main
+    /// actor waits for the main actor, so the row ends after every event the runner handed over before it.
+    nonisolated static func runLinuxRunToEnd(
+        arguments: [String],
+        operationID: UUID,
+        projectDirectory: URL,
+        runner: CLIImportRunner,
+        onBundleCreated: @escaping @Sendable (URL) -> Void
+    ) async {
+        let outcome = OSAllocatedUnfairLock(initialState: LinuxRunOutcome())
+        await runner.run(
+            arguments: arguments, operationID: operationID, projectDirectory: projectDirectory,
+            onBundleCreated: { bundle in
+                outcome.withLock { $0.bundles.append(bundle) }
+                onBundleCreated(bundle)
+            },
+            onError: { message in outcome.withLock { $0.error = message } }
+        )
+        let end = linuxRunRowEnd(outcome.withLock { $0 }, planFolder: projectDirectory)
+        await MainActor.run {
+            switch end {
+            case let .completed(detail, bundleURLs):
+                _ = OperationCenter.shared.complete(id: operationID, detail: detail, bundleURLs: bundleURLs)
+            case .cancelled:
+                _ = OperationCenter.shared.acknowledgeCancellation(id: operationID, detail: "Cancelled")
+            case .failedByRunner:
+                break
+            }
         }
     }
 }
