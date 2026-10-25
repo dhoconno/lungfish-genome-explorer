@@ -65,7 +65,7 @@ extension ImportCommand {
 
         @Option(
             name: .customLong("samplesheet"),
-            help: "CSV sample sheet with sample,r1,r2 columns and optional metadata columns"
+            help: "CSV sample sheet, such as samples.csv, with sample,r1,r2 columns, an optional request_disk column and optional metadata columns"
         )
         var samplesheet: String?
 

@@ -300,6 +300,120 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         XCTAssertTrue(vars[1].hasPrefix("VARS S2 ") && vars[1].contains("request_disk=\"9GB\""), String(vars[1]))
     }
 
+    /// O41. The tool names no site. The rendered `import fastq` help carries the new words and neither false line, and
+    /// the README and the first lines of each generated file name no site (the CLI half of `testHelpAndCardsNameNoSite`).
+    func testHelpAndCardsNameNoSite() async throws {
+        let help = ImportCommand.FastqSubcommand.helpMessage().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertFalse(help.lowercased().contains("chtc"), help)
+        for stale in ["holds no Linux executor yet", "holds no image record yet"] {
+            XCTAssertFalse(help.contains(stale), "\(stale) is false, since the app holds both: \(help)")
+        }
+        for words in [
+            "Write a plan folder for a run on a Linux machine to this new folder in place of importing",
+            "The absolute path of the folder on the Linux machine that the jobs read the image, the executor and the reads from",
+            "The app holds a Linux executor", "The app holds an image record", "an optional request_disk column",
+        ] {
+            XCTAssertTrue(help.contains(words), "The help lacks \(words): \(help)")
+        }
+        let fixture = try writeFixture()
+        let folder = root.appendingPathComponent("no-site", isDirectory: true)
+        let command = try ImportCommand.FastqSubcommand.parse(
+            fixture.reads.map(\.path) + fixture.planArguments(folder: folder, staging: "/staging/groups/g/1/lge-test")
+                + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools"]
+        )
+        try await command.run()
+        for name in ["README.txt", "jobs.tsv", "run-local.sh"] {
+            let text = try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertFalse(text.lowercased().contains("chtc"), "\(name) names a site")
+        }
+        for name in ["run.dag", "sample.sub", "lge-job.sh"] {
+            let text = try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)
+            let header = text.split(separator: "\n").prefix(2).joined(separator: "\n")
+            XCTAssertTrue(header.contains("written by Lungfish"), "\(name): \(header)")
+            XCTAssertFalse(header.lowercased().contains("chtc"), "\(name) names a site in its first lines: \(header)")
+        }
+    }
+
+    /// The built CLI's run of `arguments` with JSON events, ended by a refusal: its exit status and the sentence of its
+    /// `failed` event.
+    private func planFailure(cli: URL, _ arguments: [String]) throws -> (status: Int, message: String) {
+        let result = try ToolProcess.start(ToolProcessSpec(
+            executableURL: cli, arguments: arguments + ["--format", "json"],
+            environment: CLISIGTERMHarness.childEnvironment(overriding: [:]), timeout: .seconds(120), label: "write-plan-refused"
+        )).waitBlocking()
+        let events = result.stdoutText.split(separator: "\n").compactMap {
+            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+        }
+        let failed = try XCTUnwrap(events.first { $0["event"] as? String == "failed" }, result.stdoutText)
+        return (Int(result.status), try XCTUnwrap(failed["error"] as? String, "\(failed)"))
+    }
+
+    /// ARCH-c5 point 8. The batch's sheet stays comma-separated, so a tab-separated sheet is refused with a sentence that
+    /// names the comma form, and no folder is made.
+    func testPlanRefusesTabSampleSheetAndNamesCommaForm() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let fixture = try writeFixture()
+        let sheet = root.appendingPathComponent("samples.tsv")
+        let rows = ["sample\tr1\tr2", "S1\t\(fixture.reads[0].path)\t\(fixture.reads[1].path)",
+                    "S2\t\(fixture.reads[2].path)\t\(fixture.reads[3].path)"]
+        try (rows.joined(separator: "\n") + "\n").write(to: sheet, atomically: true, encoding: .utf8)
+        let folder = root.appendingPathComponent("tab-batch", isDirectory: true)
+        let failure = try planFailure(cli: cli, ["import", "fastq", "--samplesheet", sheet.path]
+            + fixture.planArguments(folder: folder) + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools"])
+        XCTAssertEqual(failure.status, 3, failure.message)
+        XCTAssertEqual(failure.message, "The sample sheet is tab-separated. Write it comma-separated, as samples.csv with sample, r1 and r2 columns.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// UX-XC26. A build with no executor and no `--executor-manifest` refuses in the sentence that says so and names the
+    /// option, and no folder is made.
+    func testPlanWithNoExecutorInTheBuildRefusesInUXXC26Words() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let fixture = try writeFixture()
+        let folder = root.appendingPathComponent("no-executor", isDirectory: true)
+        let failure = try planFailure(cli: cli, ["import", "fastq"] + fixture.reads.map(\.path) + [
+            "--write-plan", folder.path, "--staging-folder", Fixture.stagingFolder,
+            "--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools",
+        ])
+        XCTAssertEqual(failure.status, 3, failure.message)
+        XCTAssertEqual(failure.message, "This build of Lungfish has no Linux executor, so it cannot write a plan for a run on another machine. Release builds include it. Pass --executor-manifest to name the manifest of one you built.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// C5 lane CMD. With no option naming them, the plan takes the executor's manifest, the image record and its tool
+    /// manifest that the app holds, and an option wins over the app's file. An app with no executor refuses in UX-XC26's
+    /// sentence, and one with no image record in a sentence that names the two options.
+    func testPlanTakesTheAppsExecutorAndImageWhenNoOptionNamesThem() throws {
+        let fixture = try writeFixture()
+        let bundled = ImportFastqPlanDefaults(
+            executorManifest: fixture.executorManifest, image: fixture.image, imageToolManifest: fixture.toolManifest
+        )
+        let bare = try ImportCommand.FastqSubcommand.parse(["--write-plan", "/plans/batch", "--staging-folder", Fixture.stagingFolder])
+        let files = try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: bundled)
+        XCTAssertEqual(files.executorManifest, fixture.executorManifest.path)
+        XCTAssertEqual(files.image, fixture.image.path)
+        XCTAssertEqual(files.imageToolManifest, fixture.toolManifest.path)
+        let named = try ImportCommand.FastqSubcommand.parse([
+            "--write-plan", "/plans/batch", "--staging-folder", Fixture.stagingFolder, "--executor-manifest", "/x/manifest.json",
+            "--image", "/x/image.json", "--image-tool-manifest", "/x/image-manifest.json",
+        ])
+        let own = try ImportCommand.FastqSubcommand.planFiles(options: named.planOptions, defaults: bundled)
+        XCTAssertEqual([own.executorManifest, own.image, own.imageToolManifest],
+                       ["/x/manifest.json", "/x/image.json", "/x/image-manifest.json"])
+        let noExecutor = ImportFastqPlanDefaults(executorManifest: nil, image: fixture.image, imageToolManifest: fixture.toolManifest)
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: noExecutor)) { error in
+            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish has no Linux executor, so it cannot write a plan for a run on another machine. Release builds include it. Pass --executor-manifest to name the manifest of one you built.")
+        }
+        let noImage = ImportFastqPlanDefaults(executorManifest: fixture.executorManifest, image: nil, imageToolManifest: nil)
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: noImage)) { error in
+            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish holds no image record, so pass --image and --image-tool-manifest to name the files written when the image was built.")
+        }
+    }
+
     // MARK: Fixture
 
     /// Two samples' reads, an executor stand-in with its `manifest.json`, a tool manifest and the `image.json` that pins it.

@@ -16,7 +16,7 @@ struct ImportFastqPlanOptions: ParsableArguments {
     @Option(
         name: .customLong("write-plan"),
         help: ArgumentHelp(
-            "Write a CHTC submit folder to this new folder in place of importing",
+            "Write a plan folder for a run on a Linux machine to this new folder in place of importing",
             discussion: "The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan folder per sample named by "
                 + "its sample with the sample's plan.tar, and staging-files.json, which lists each file the "
                 + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
@@ -39,8 +39,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
         name: .customLong("executor-manifest"),
         help: ArgumentHelp(
             "The manifest.json beside the Linux lungfish-executor, which states its SHA-256, size and build",
-            discussion: "Required with --write-plan. This build of the app holds no Linux executor yet, so you name "
-                + "the manifest of one you built.",
+            discussion: "Optional with --write-plan. The app holds a Linux executor and the plan uses it. Name the "
+                + "manifest of one you built to use that one instead.",
             valueName: "file"
         )
     )
@@ -51,8 +51,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
         help: ArgumentHelp(
             "The image.json of the container image the jobs run in, which states the image's file name, SHA-256 and "
                 + "size and its tool manifest's SHA-256 and size",
-            discussion: "Required with --write-plan. This build of the app holds no image record yet, so you name the "
-                + "one written when the image was built.",
+            discussion: "Optional with --write-plan. The app holds an image record and the plan uses it. Name the one "
+                + "written when you built another image to use that one instead.",
             valueName: "file"
         )
     )
@@ -62,7 +62,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
         name: .customLong("image-tool-manifest"),
         help: ArgumentHelp(
             "The image's tool manifest, the file image.json pins",
-            discussion: "Required with --write-plan. The plan pins each tool it runs from this file.",
+            discussion: "Optional with --write-plan. The plan pins each tool it runs from this file, which the image "
+                + "record pins. The app holds the file of its own image record and uses it when you name none.",
             valueName: "file"
         )
     )
@@ -71,11 +72,11 @@ struct ImportFastqPlanOptions: ParsableArguments {
     @Option(
         name: .customLong("staging-folder"),
         help: ArgumentHelp(
-            "The absolute path of the group's staging folder on CHTC that the jobs read from",
+            "The absolute path of the folder on the Linux machine that the jobs read the image, the executor and the reads from",
             discussion: "Required with --write-plan. The image is in images/, each executor and database copy in "
                 + "shared/ under a name that starts with its SHA-256, each sample's reads in "
-                + "batches/<submit folder name>/<sample>/ and the files its job returns in "
-                + "batches/<submit folder name>/<sample>/result/.",
+                + "batches/<plan folder name>/<sample>/ and the files its job returns in "
+                + "batches/<plan folder name>/<sample>/result/.",
             valueName: "path"
         )
     )
@@ -111,6 +112,32 @@ struct ImportFastqPlanRefusal: Error, LocalizedError, Equatable {
     var errorDescription: String? { message }
 }
 
+/// The files `--write-plan` takes when no option names them: the manifest of the Linux executor the app holds, and the
+/// image record with its tool manifest, which ship with the app (C5 lane CMD). A build with no executor folder holds none.
+struct ImportFastqPlanDefaults {
+    var executorManifest: URL?
+    var image: URL?
+    var imageToolManifest: URL?
+
+    /// UX-XC26's sentence for a build with no executor, with the option that names one.
+    static let noExecutorSentence = "This build of Lungfish has no Linux executor, so it cannot write a plan for a run on another machine. Release builds include it. Pass --executor-manifest to name the manifest of one you built."
+    static let noImageSentence = "This build of Lungfish holds no image record, so pass --image and --image-tool-manifest to name the files written when the image was built."
+
+    /// The executor and image of the running app. The executor counts only with its file beside the manifest.
+    static func bundled() -> ImportFastqPlanDefaults {
+        var executor: URL?
+        if let manifest = RuntimeResourceLocator.path("LinuxExecutor/x86_64/manifest.json", in: .app) {
+            let file = manifest.deletingLastPathComponent().appendingPathComponent(ExecutorPlanExecutorManifest.executorFileName)
+            if FileManager.default.isReadableFile(atPath: file.path) { executor = manifest }
+        }
+        return ImportFastqPlanDefaults(
+            executorManifest: executor,
+            image: RuntimeResourceLocator.path("CHTCImage/image.json", in: .workflow),
+            imageToolManifest: RuntimeResourceLocator.path("CHTCImage/image-manifest.json", in: .workflow)
+        )
+    }
+}
+
 extension ImportCommand.FastqSubcommand {
     /// The `request_disk` column of a sample sheet, in whole GB.
     static let requestDiskColumn = "request_disk"
@@ -126,10 +153,16 @@ extension ImportCommand.FastqSubcommand {
         let options = planOptions
         func refuse(_ message: String) -> ExitCode { reporter.fail(message, exitCode: .inputError) }
         guard let folderPath = options.writePlan else { return }
-        guard let manifestPath = options.executorManifest, let imagePath = options.image,
-              let toolManifestPath = options.imageToolManifest, let staging = options.stagingFolder else {
-            throw refuse("--write-plan needs --executor-manifest, --image, --image-tool-manifest and --staging-folder.")
+        guard let staging = options.stagingFolder else { throw refuse("--write-plan needs --staging-folder.") }
+        // With no option the plan uses the executor in the app and the image record that ships with it, so a lab member
+        // names neither (C5 lane CMD). A build with no executor refuses in UX-XC26's words before it reads any input.
+        let files: (executorManifest: String, image: String, imageToolManifest: String)
+        do {
+            files = try Self.planFiles(options: options, defaults: .bundled())
+        } catch {
+            throw refuse((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
+        let (manifestPath, imagePath, toolManifestPath) = (files.executorManifest, files.image, files.imageToolManifest)
         guard staging.hasPrefix("/") else { throw refuse("--staging-folder must be an absolute path.") }
         guard let threads else { throw refuse("A plan fixes its thread count, so pass --threads with --write-plan.") }
         guard let heapGB = clumpifyHeapGB, heapGB >= 1 else {
@@ -203,12 +236,32 @@ extension ImportCommand.FastqSubcommand {
         }
     }
 
+    /// The executor manifest, image record and tool manifest a plan names: the options' own, else the app's.
+    static func planFiles(
+        options: ImportFastqPlanOptions, defaults: ImportFastqPlanDefaults
+    ) throws -> (executorManifest: String, image: String, imageToolManifest: String) {
+        guard let manifest = options.executorManifest ?? defaults.executorManifest?.path else {
+            throw ImportFastqPlanRefusal(message: ImportFastqPlanDefaults.noExecutorSentence)
+        }
+        guard let image = options.image ?? defaults.image?.path,
+              let toolManifest = options.imageToolManifest ?? defaults.imageToolManifest?.path else {
+            throw ImportFastqPlanRefusal(message: ImportFastqPlanDefaults.noImageSentence)
+        }
+        return (manifest, image, toolManifest)
+    }
+
     /// One row a sample, from the sample sheet or the detected files, with the input shape every row must share.
     private func planRows() throws -> (rows: [ExecutorPlanSampleRow], suffixes: [String], format: RecipeFileFormat) {
         let pairs: [SamplePair]
         if let samplesheet {
             guard input.isEmpty else { throw ImportFastqPlanRefusal(message: "Pass either FASTQ input paths or --samplesheet, not both.") }
-            pairs = try FASTQSampleSheet.parse(url: URL(fileURLWithPath: samplesheet)).samplePairs()
+            let sheet = URL(fileURLWithPath: samplesheet)
+            do {
+                pairs = try FASTQSampleSheet.parse(url: sheet).samplePairs()
+            } catch FASTQSampleSheetError.missingRequiredColumns where Self.firstLineHoldsTabNotComma(sheet) {
+                // The batch's sheet stays comma-separated (ARCH-c5 point 8), so a tab-separated one is refused by name.
+                throw ImportFastqPlanRefusal(message: "The sample sheet is tab-separated. Write it comma-separated, as samples.csv with sample, r1 and r2 columns.")
+            }
         } else if input.count == 1, (try? URL(fileURLWithPath: input[0]).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             pairs = try FASTQBatchImporter.detectPairsFromDirectory(URL(fileURLWithPath: input[0]))
         } else {
@@ -234,6 +287,13 @@ extension ImportCommand.FastqSubcommand {
         }
         let suffixes = shape ?? []
         return (rows, suffixes, suffixes.count == 1 ? .single : .pairedR1R2)
+    }
+
+    /// Whether the sheet's first line holds a tab and no comma, which is how a tab-separated sheet begins.
+    private static func firstLineHoldsTabNotComma(_ sheet: URL) -> Bool {
+        guard let text = try? String(contentsOf: sheet, encoding: .utf8) else { return false }
+        let first = text.prefix { $0 != "\n" && $0 != "\r" }
+        return first.contains("\t") && !first.contains(",")
     }
 
     static func requestDiskGiB(_ text: String, sample: String) throws -> Int {
