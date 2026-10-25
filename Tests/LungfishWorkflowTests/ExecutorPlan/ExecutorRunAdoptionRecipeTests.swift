@@ -67,10 +67,12 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
     /// node counted at its `interleave` step, `counts` the reads the record gives named recipe steps, and `platform` the
     /// platform the plan's sample states. With `files`, each recipe step's record lists every file its plan step writes,
     /// which the folder holds, so the reports reach the bundle, and the storage step holds the writer's launch with the
-    /// payload as its output, as the node records them. `sample` names the sample and `project` takes a shared project.
+    /// payload as its output, as the node records them. `sample` names the sample and `project` takes a shared project. With
+    /// `peaks`, the record gives the first recipe step 4_690_345_984 peak resident bytes, the storage writer's launch
+    /// 2_147_483_648 (it exists only with `files`) and the statistics step 1_073_741_824.
     private func adopt(
         layout: (merged: Int, pairs: Int, unpaired: Int)? = nil, counts: Counts = [:], platform: String? = nil,
-        files: Bool = false, sample: String = "S", project shared: URL? = nil
+        files: Bool = false, peaks: Bool = false, sample: String = "S", project shared: URL? = nil
     ) async throws -> Adopted {
         let root = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionRecipe")
         scratch.append(root)
@@ -129,7 +131,9 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
             if step.kind == .statistics {
                 recorded.standardOutput = ExecutorReturnedFolder.seqkitOutput
                 recorded.inputFile = payload
+                if peaks { recorded.peakResidentBytes = 1_073_741_824 }
             }
+            if peaks, step.id == plan.steps.first(where: { $0.kind == .recipe })?.id { recorded.peakResidentBytes = 4_690_345_984 }
             if files, step.kind == .recipe {
                 recorded.outputs = try step.outputs.map { path in
                     let bytes = Data("\(step.id) \(path)\n".utf8)
@@ -148,6 +152,7 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
                 )
                 writer.inputs = [ExecutorFileDigest(relativePath: "work/combined.fastq", sha256: String(repeating: "c", count: 64), size: 9)]
                 writer.outputs = [payload]
+                if peaks { writer.peakResidentBytes = 2_147_483_648 }
                 recorded.storage?.launches = [writer]
                 recorded.outputs = [.init(path: payload.relativePath, bytes: UInt64(payload.size), sha256: payload.sha256)]
             }
@@ -250,6 +255,23 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         XCTAssertTrue(statistics.reproducibleCommand.contains(published), statistics.reproducibleCommand)
         XCTAssertEqual(statistics.inputs.map(\.path), [published])
         XCTAssertEqual(statistics.inputs.map(\.checksumSHA256), [digest])
+    }
+
+    /// Vote C4-4 D-1 (option 2; QA Q4-2, ARCH A-D1-1): the adopted record writes the node's peak resident bytes as the step's
+    /// `peakMemoryBytes` for a recipe step, for the storage writer's launch and for the statistics step alike, so the adopted
+    /// envelope is the one record that writes a peak memory. Without this test only the 345 s real-tool parity run notices the
+    /// loss of the key.
+    func testAdoptedStepsCarryTheRecordsPeakResidentBytes() async throws {
+        let adopted = try await adopt(files: true, peaks: true)
+        let envelope = try adopted.envelope
+        let recipe = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" }, "the first recipe step")
+        XCTAssertEqual(recipe.peakMemoryBytes, 4_690_345_984)
+        let writer = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "bgzip" && $0.argv.dropLast().last == ">" }, "the storage writer"
+        )
+        XCTAssertEqual(writer.peakMemoryBytes, 2_147_483_648)
+        let statistics = try XCTUnwrap(envelope.steps.first { $0.argv.first == "stats" }, "the statistics step")
+        XCTAssertEqual(statistics.peakMemoryBytes, 1_073_741_824)
     }
 
     /// The result whose command is the argv the record gives step `id`.
