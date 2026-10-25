@@ -681,14 +681,130 @@ clumpify heap, the largest at which clumpify split the reads into more than one 
 | MO-B2 | Should clumpify follow the user's compression level? It changes compressed bytes | The owner |
 | Push | `chtc-c4` holds 110 commits on `origin/main`, not pushed | The owner's go |
 
+## C5, batches and the plain Linux launcher (2026-10-25, session 6)
+
+Session 6 ran on the Mac Studio (galah) on 2026-10-25 from 07:25. The records are in
+`~/lungfish-phase-records/chtc-program/c5/` (`notes.md`, `events.log`, `briefs/`, `inv/`, `memos/`, `votes/`,
+`rulings/`, `factcheck/`, `lanes/`, `reviews/`, `land/`, `x/`, `llm/`). Lanes ran as `lge-worker` in their own worktrees,
+Opus 5.5 at effort xhigh for design and Sonnet 5.5 at effort max for mechanical lanes, fixes and landings. Reviews ran
+on Sonnet 5.5 at effort max. Inventories, memos and rulings ran on Opus 5.5 at effort xhigh, with the CHTC seat on
+`general-purpose` for the web.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O45 | The order of work | "lets do c5 first and then cut a new preview build." | C5 lands, then `chtc-c4` and C5 go to `main` fast-forward only, then a Preview |
+| O46 | C5's scope | "Small public batch (Recommended)" | The batch path (a sample sheet, a DAG of many samples, the lab's commands, a plain Linux launcher beside HTCondor) proved on small public SRA runs, one viral capture and one wastewater |
+| O48 | The test reads | "Both runs (Recommended)" | Three public paired Illumina runs from ENA: SRR35520572 (C4's acceptance sample), SRR24403534 (PRJNA966185, wastewater, 2,559,001 pairs, R1 184,506,113 and R2 187,858,336 bytes) and SRR38262740 (PRJNA1438722, wastewater hybrid capture, 659,361 pairs, R1 46,094,697 and R2 48,137,833 bytes), MD5 checked against ENA |
+| O49 | MO-S1 | "Change it in C5" | The Mac's own clumping `auto` follows the plan's rule, platform first |
+| O51 | MO-B2 | "Keep level 4 (Recommended)" | Clumpify keeps `zl=4`. MO-B2 is closed |
+| O52 | C4's scratch on CHTC | "Yes, at C5's end (Recommended)" | C4's scratch folders on `/staging` and the access point go after C5's batch has adopted |
+
+**The votes.** Round 1 settled 19 questions (`c5/votes/tally-c5v1.md`). The ones that shape the code:
+
+| Id | Decision |
+|---|---|
+| D1 | A job returns single files only. The run record, each report and the payload go to `batches/<batch>/<sample>/result/` on `/staging`; logs come home to the submit folder. HTCondor cannot remap a folder |
+| D2 | A batch adopt imports nothing if any sample is refused, and lists every refusal |
+| D3 | One preset a batch. Two presets make two batches |
+| D6 | On a Mac, the plain launcher runs the pinned image in Docker under amd64 emulation, after a probe of the pinned executor |
+| D7 | With the reads absent, the adopted record keeps "not inferred" for the platform, as one listed parity row |
+| D8 | The plan sheet and the Import sheet clear the clumping box for ONT, PacBio and Unknown reads, from one platform-first function |
+| D13 | `run.dag` runs at most 10 nodes at once (`CATEGORY`, `MAXJOBS`) and writes `run.dag.status` |
+| D14 | A held node is removed with the lab's commands, and DAGMan's rescue DAG reruns it alone |
+| D15 | The plan tar goes from the home submit folder, not `/staging` |
+| D17 | `request_disk` is the larger of C4's rule and the amended rule, and the sample sheet's column wins |
+
+Cut, in the panel's cut order: the Import Center's "Sample sheet…" control and storage `none`. Moved out of C5: V11
+(plain FASTQ for Linux users), RiboDetector, interleaved-to-paired, and plan-time platform inference (D7 A).
+
+**The lanes.** SPLIT (moved `ExecutorPlanNoPlanForm` to its own file), REPRO (the stripped Linux executor is the same
+bytes from any checkout: no build id, no `.swift_modhash`), MOS1 (the Mac's clumping `auto` follows the plan's rule,
+O49), BADOPT (the batch adopt: one flat folder a sample, preflight first, D2's ends), DISK (a sample needs five times its
+read files free before clumpify), BF (an unfused fastp plan form), LAUNCH (the batch writer's `samples.csv`, D1, D9,
+D13, D15, D17, `jobs.tsv`, `run-local.sh` and the batch `README.txt`), US (the plan sheet's clumping box, the Linux Run
+Result card's batch adopt, the plain launcher's Provenance rows), CMD (no site word in any help line or generated file,
+the executor and image defaults, the tab-sheet refusal), C-FAIL (a failing node, a passing node and a retry job on
+CHTC) and X (the acceptance run).
+
+**What CHTC taught the code.** Each item was found by a real job and fixed in this session.
+
+| Found by | Fact | Fix |
+|---|---|---|
+| C-FAIL, R (594046) | A job that ends without every listed output is held at code 12, whatever its exit, so `max_retries` and `retry_until` never act | CHTC-3d R1: the retry lines go, and `periodic_release = (HoldReasonCode =?= 12) && (ExitCode =?= 0) && (NumHolds < 3)` releases, at most twice, a job held sending its files back after its run exited 0 (not yet seen to fire on the pool) |
+| C-FAIL, P (594045) | A stalled `/staging` upload ("Aborted due to lack of progress") holds a job that passed | The same line; the README's held-job steps tell the two holds apart |
+| C-FAIL, F (594044) | A rerun replaces `result/run-record.json`, so the failed attempt's record is lost | CHTC-3d R2: the README copies the record aside before `condor_rm`; R3: "Job was evicted" then "Job was held" is one hold |
+| C-FAIL and X | Wastewater nodes use about twice the work space a byte of input that VSP2 does (w 9.94 and 10.60 against 4.995) | CHTC-3d R4: one work-root factor a preset, wastewater 10.61 and VSP2 5.03 |
+| LAUNCH M3, X | `--write-plan` refuses `--pairing paired`; the plan pairs by name | The lab's commands drop `--pairing` on the plan route |
+
+**The acceptance run (S10).** Two batches from the landed head `cfe90c4cc`, one preset each (D3 b): `c5-x1` (VSP2,
+SRR35520572) and `c5-x2` (wastewater, SRR24403534 and SRR38262740), each written from a `samples.csv` with the
+`request_disk` column empty, so the writer asked 10, 10 and 9 GB. Each ran as a DAG on CHTC. The results came home by the
+README's copy step, and each batch was adopted whole on galah into one project.
+
+| Sample (route) | Against galah's own import of the same reads |
+|---|---|
+| SRR35520572 (DAG node 594056) | Equal at E0 to E4, C4's X7 numbers exactly (1,067,166 records, payload `36a55ca4...1493`) |
+| SRR24403534 (DAG node 594057) | Equal at E0 to E3. E4 differs, and two more galah imports of the same reads gave two more stream digests: clumpify above one group writes its groups in the order its fetch threads finish (BIOQA-X1 R2) |
+| SRR38262740 (DAG node 594058) | Equal at E0 to E4 |
+| SRR38262740 (`run-local.sh --runtime apptainer` in a vanilla job, 594059) | Equal at E0 to E4; the record holds D10's seven plain-launcher rows and no `ContainerImageID` |
+| SRR38262740 (`run-local.sh --runtime docker` on galah, LAUNCH M3) | The pinned executor's self-check passed under amd64 emulation; the run, the copy step and the batch adopt each exited 0; the record holds `ContainerImageID` and no `ImageSHA256` |
+
+Each node's peak work root, w, `DiskUsage` and wall time are in `c5/lanes/X/X.md`. Scaled to a 61.6 GB sample at one
+thread, no node passes 36 hours of the 72-hour limit (O28). Every adopted record keeps "not inferred" for the platform
+(D7 C). The parity hook first failed on those 10 platform lines in all four samples, since D7 C's listed row was never
+written, and on 248 stored-order lines in SRR24403534. BIOQA-X1 ruled the two list lines V15-29 and V15-30 (tests only),
+and lane X1F reran the hook on all four: 0 failures each, V15-29 in all four and V15-30 (8 lines) in SRR24403534 only. S10 stands.
+
+C-FAIL proved D1 and D14 A on CHTC: a node whose reads were swapped refused with exit 2 and held, DAGMan waited, the
+lab's `condor_rm` ended it with `run.dag.rescue001` marking the passing node DONE, and `condor_submit_dag run.dag` reran
+only the failed node, which passed.
+
+**The landings.** Three landings put the lanes on the C5 branch, each with the tests of its lanes, the 14 ratchets, the
+module map, the source-portability check and the golden compare. Landing 1 (`2d303f7a6`: SPLIT, REPRO, MOS1, BADOPT) also
+ran the Linux tier, which built the stripped x86_64 executor to `755d825b...30e1`, REPRO's value. Landing 2 (`cfe90c4cc`:
+DISK, BF, LAUNCH M1 and M2) and landing 3 (`2fb78fab1`: US, LAUNCH M3, CMD, X1F) changed no executor or Portable source.
+Every lane had a review and, where it asked, a fix agent; CMD's changed strings also had a fact-check (`FC-CMD`, 58
+strings, 5 false ones fixed). Rulings after the votes: CHTC-3d (held nodes, retries, the lost record, w a preset) and
+BIOQA-X1 (the parity list's V15-29 and V15-30).
+
+**Findings carried out of C5** (the C6 list, `c5/record/C6-list.md`, has every row).
+
+- A clumpify launch above one group stores reads in an order that varies run to run, on the Mac as on a node. The reads,
+  counts and sorted digests are the same; the read-length and quality charts, drawn from the first 100,000 stored reads,
+  can differ slightly. C6 tries `fetchthreads=1`.
+- The adopted record keeps "not inferred" for the platform when the reads are absent. C6 infers it on the Mac from R1
+  when the plan is written, which removes V15-29.
+- `periodic_release` has not yet been seen to fire on the pool, and the disk factor a preset comes from small samples
+  (CH-10 reads both again from the first lab batch).
+- A Docker run's record names the SIF in `containerImage` and `containerDigest`; only `ContainerImageID` names the Docker
+  image. The Import FASTQ sheet still reads the platform on the main actor.
+- The Import Center sheets and cards of C4 and C5 still need the GUI walk (the owner check list of Preview 2026.10.24).
+
+## Open questions that remain (2026-10-25, session 6)
+
+| Id | Question | Who answers |
+|---|---|---|
+| Q-C5-C6 | The fetch route for lab payloads of GBs: the access point, as C4 and C5 did, or CHTC's transfer server | The owner |
+| C6 scope | Which C6 rows run before the first lab batch of 32748 | The owner, with the panel |
+
+## The owner's check list for the merge
+
+| # | Check | State |
+|---|---|---|
+| 1 | Go for the push of `chtc-c4` and C5 to `main`, fast-forward only, at the head and count the manager states | The owner's word in chat, after the manager states the head and the commit count |
+| 2 | Go for the publish of Preview 2026.10.24 from that head | The owner's word in chat, with the head stated again |
+| 3 | The GUI walk rows of `docs/reports/2026.10.24-owner-checks.md` (the plan sheet's clumping box for a short-read and a long-read batch, the Linux Run Result card on a plan folder, a batch folder and a refusal, the Provenance tab of an adopted bundle) | Open, before Stable |
+| 4 | Be at the Mac for C-CLEAN (O52): C4's scratch folders on `/staging` and the access point go one literal path a call | After the publish, with the owner at the Mac |
+| 5 | Archive CHTC session 5's desktop session (local_f75edcf7) | The owner's yes |
+| 6 | Whether galah's Docker image `lge-tools:eae819829358` (from LAUNCH M3) stays | The owner's word |
+
 ## Next step
 
-C4 is complete on `chtc-c4` (code head `4e0ee4016`, then this record), not pushed. C5 runs in its own session on the Mac Studio from
-`~/lungfish-phase-records/chtc-program/CONTINUE-C5.md`.
+C5 is complete on the C5 branch, then this record. C6 runs in its own session on the Mac Studio from
+`~/lungfish-phase-records/chtc-program/CONTINUE-C6.md`.
 
 | Step | Work |
 |---|---|
-| 1 | The owner's go to push `chtc-c4` to `main` (no merge commit), then a Preview |
-| 2 | C5's inventory: the platform line above, a plain Linux launcher beside HTCondor (O41: run a plan folder on any Linux machine with the image and adopt it on any Mac), batches with `samples.tsv`, the lab's commands, RiboDetector, an unfused fastp, interleaved-to-paired and storage `none` (Q-C4-13), and `request_disk` from a lab batch (CH-10) |
-| 3 | B M3, the packaging run with every QC18 proof and notarization, on the owner's go since it sends to Apple |
-| 4 | The first lab batch of 32748 on CHTC from the staged reads (O39), adopted and compared, then a wastewater batch |
+| 1 | The first lab batch of 32748 on CHTC from the staged reads (O39), adopted and compared, with CH-10's disk and memory read again |
+| 2 | The C6 rows the owner picks: plan-time platform inference, clumpify's group order, the "Sample sheet…" control, storage `none`, V11's `collect`, RiboDetector |
+| 3 | The GUI walk of the Import Center's Linux cards on the published Preview |
