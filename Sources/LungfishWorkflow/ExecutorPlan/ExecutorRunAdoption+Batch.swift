@@ -139,9 +139,21 @@ extension ExecutorRunAdoption {
         !isReturnedPlanFolder(folder) && ((try? sampleFolders(in: folder))?.isEmpty == false)
     }
 
-    /// Each sample folder of a batch, in name order: a child folder that holds `plan.json` or a `result` folder. The adopt
-    /// reads `<sample>/result/` when it holds `plan.json`, and `<sample>/` otherwise. The submit folder's `logs/` and
-    /// `staging/` hold neither, so they are no sample.
+    /// Whether a sample's job files still sit in `<sample>/result/` beside the `plan.json` the Mac wrote: the folder holds
+    /// `plan.json` and no `run-record.json`, while `result/run-record.json` exists. The lab's copy step was not made, and the
+    /// refusal names it, since the job did return (ARCH-c5 point 1, BADOPT review fix 2).
+    static func holdsUncopiedResult(_ folder: URL) -> Bool {
+        holdsItem(at: folder.appendingPathComponent(planFileName))
+            && !holdsItem(at: folder.appendingPathComponent(ExecutorRunRecord.fileName))
+            && holdsItem(
+                at: folder.appendingPathComponent(resultFolderName, isDirectory: true).appendingPathComponent(ExecutorRunRecord.fileName)
+            )
+    }
+
+    /// Each sample folder of a batch, in the byte order of the names (Swift's `String` order, which no locale changes): a child
+    /// folder that holds `plan.json`, or a `result` folder so that a copy the lab never made is named. The adopt reads one
+    /// folder a sample, `<sample>/`, with the `plan.json` the Mac wrote and the job's files beside it (ARCH-c5 point 1). The
+    /// submit folder's `logs/` and `staging/` hold neither, so they are no sample.
     static func sampleFolders(in batchFolder: URL) throws(ExecutorBatchAdoptError) -> [ExecutorBatchSampleFolder] {
         let children: [URL]
         do {
@@ -156,7 +168,6 @@ extension ExecutorRunAdoption {
         let samples = children.compactMap { child -> ExecutorBatchSampleFolder? in
             guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return nil }
             let result = child.appendingPathComponent(resultFolderName, isDirectory: true)
-            if isReturnedPlanFolder(result) { return ExecutorBatchSampleFolder(name: child.lastPathComponent, folder: result) }
             guard isReturnedPlanFolder(child) || holdsItem(at: result) else { return nil }
             return ExecutorBatchSampleFolder(name: child.lastPathComponent, folder: child)
         }
@@ -166,7 +177,7 @@ extension ExecutorRunAdoption {
                     + "neither a returned plan folder nor a returned batch. Nothing was imported."
             )
         }
-        return samples.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return samples.sorted { $0.name < $1.name }
     }
 
     /// The batch adopt (D2 a): every sample of `batchFolder` is adopted into `projectDirectory`, or none is. The Import
@@ -237,6 +248,16 @@ extension ExecutorRunAdoption {
         for (index, sample) in samples.enumerated() {
             if Task.isCancelled { throw .cancelled(adopted: [], notAdopted: samples.map(\.name), sampleCount: samples.count) }
             progress(.checking(sample: sample.name, index: index + 1, count: samples.count))
+            // The job returned and its files wait in `result/`: name the copy to make, and not the job (BADOPT review fix 2).
+            if holdsUncopiedResult(sample.folder) {
+                refusals.append(ExecutorBatchAdoptRefusal(
+                    sample: sample.name, field: resultFolderName,
+                    cause: "The job's files are in the folder result. Copy everything inside result into the folder \(sample.name), "
+                        + "next to plan.json.",
+                    gap: nil
+                ))
+                continue
+            }
             do {
                 let run = try check(sample.folder, policy: policy)
                 let planned = try preflight(run, projectDirectory: projectDirectory, force: force)

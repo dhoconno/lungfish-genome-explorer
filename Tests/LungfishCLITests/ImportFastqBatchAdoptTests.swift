@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // D2 a and UX-c5 point 7. Each end reads the exit code, the last event and the project folder, never source text (QA 2).
-// The batch holds three small synthetic samples, A, B and C, in the shape a Linux batch returns: each sample's plan,
-// record and payload, and no reads, since a job reads its inputs where they were staged. A and B sit under
-// `<sample>/result/`, C as `<sample>/`, so the adopt reads both forms of a sample folder.
+// The batch holds three small synthetic samples, A, B and C, in the shape a Linux batch has once the lab has copied each
+// job's files next to the plan.json the Mac wrote: one folder a sample, `<sample>/`, with the plan, the record and the
+// payload, and no reads, since a job reads its inputs where they were staged (ARCH-c5 point 1, BADOPT review fix 2).
 
 import ArgumentParser
 import Foundation
@@ -31,11 +31,11 @@ final class ImportFastqBatchAdoptTests: XCTestCase {
     private static let restDetail = "Imported: A.lungfishfastq, B.lungfishfastq.\nNot imported: C.\n"
         + "To adopt the rest, delete the imported bundles and adopt the batch again."
 
-    /// The three-sample batch, each sample made for its sheet name with the plan naming the platform, and a `logs` folder
-    /// beside them as a submit folder holds.
-    private func batch() throws -> URL {
+    /// The batch of `names` (A, B and C unless a test names others), each sample made for its sheet name with the plan naming
+    /// the platform and placed as one folder a sample, and a `logs` folder beside them as a submit folder holds.
+    private func batch(_ names: [String] = ImportFastqBatchAdoptTests.samples) throws -> URL {
         let batch = scratch.root.appendingPathComponent("batch", isDirectory: true)
-        for name in Self.samples {
+        for name in names {
             let returned = try ExecutorReturnedFolder.make(
                 root: scratch.root.appendingPathComponent("made-\(name)", isDirectory: true), clumping: .bbtools,
                 platform: "illumina", sample: name
@@ -43,10 +43,8 @@ final class ImportFastqBatchAdoptTests: XCTestCase {
             for pin in returned.plan.entries where pin.role == .input {
                 try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath))
             }
-            let sample = batch.appendingPathComponent(name, isDirectory: true)
-            let destination = name == "C" ? sample : sample.appendingPathComponent("result", isDirectory: true)
-            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.moveItem(at: returned.folder, to: destination)
+            try FileManager.default.createDirectory(at: batch, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: returned.folder, to: batch.appendingPathComponent(name, isDirectory: true))
         }
         try FileManager.default.createDirectory(at: batch.appendingPathComponent("logs", isDirectory: true), withIntermediateDirectories: true)
         return batch
@@ -194,8 +192,86 @@ final class ImportFastqBatchAdoptTests: XCTestCase {
         }
     }
 
+    /// BADOPT review fix 2 (ARCH-c5 point 1, UX 1): the job's files in `<sample>/result/` beside the plan.json the Mac wrote
+    /// are a copy the lab has not finished, and the refusal names that copy. It does not blame the job, which did return, so
+    /// a lab does not rerun a long Linux job to finish a copy.
+    func testBatchAdoptRefusesResultFolderBesidePlanAndNamesTheCopy() async throws {
+        let batch = try batch()
+        let sample = batch.appendingPathComponent("B", isDirectory: true)
+        let result = sample.appendingPathComponent("result", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        for name in try FileManager.default.contentsOfDirectory(atPath: sample.path) where name != "plan.json" && name != "result" {
+            try FileManager.default.moveItem(at: sample.appendingPathComponent(name), to: result.appendingPathComponent(name))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent(ExecutorRunRecord.fileName).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sample.appendingPathComponent("plan.json").path))
+        let before = projectFiles()
+        let output = try await run(batch)
+        XCTAssertEqual(Self.exitCode(output), CLIExitCode.inputError.exitCode)
+        let end = try Self.failed(output)
+        XCTAssertEqual(end.message, "1 of 3 samples was refused. Nothing was imported.")
+        let lines = try XCTUnwrap(end.detail).components(separatedBy: "\n")
+        XCTAssertEqual(
+            lines.first, "B: The job's files are in the folder result. Copy everything inside result into the folder B, next to plan.json."
+        )
+        XCTAssertEqual(lines.last, Self.refusedWayOn)
+        XCTAssertEqual(lines.count, 2, "\(lines)")
+        XCTAssertEqual(projectFiles(), before)
+        XCTAssertEqual(importedEntries(), [])
+    }
+
+    /// BADOPT review fix 3 (QA 4), a cancel before any bundle: exit `.cancelled`, `Adopt cancelled. Nothing was imported.`
+    /// with no detail, and a project equal before and after. The observer cancels the task at the second preflight, so the
+    /// third sample's turn meets the cancel before any write begins.
+    func testBatchAdoptCancelBeforeAnyBundleImportsNothing() async throws {
+        let batch = try batch()
+        let before = projectFiles()
+        let output = try await run(batch) { step in
+            if case .checking(_, 2, _) = step { withUnsafeCurrentTask { $0?.cancel() } }
+        }
+        XCTAssertEqual(Self.exitCode(output), CLIExitCode.cancelled.exitCode)
+        let end = try Self.failed(output)
+        XCTAssertEqual(end.message, "Adopt cancelled. Nothing was imported.")
+        XCTAssertNil(end.detail)
+        XCTAssertEqual(projectFiles(), before)
+        XCTAssertEqual(importedEntries(), [])
+    }
+
+    /// BADOPT review fix 3 (QA 4), a write failure at the first bundle: exit `.workflowError`, `The adopt failed. <error>
+    /// Nothing was imported.` with no detail, since no bundle stands, and no bundle or staging bundle in `Imports`. The
+    /// observer removes the first payload as the first write begins.
+    func testBatchAdoptWriteFailureAtFirstBundleImportsNothing() async throws {
+        let batch = try batch()
+        let first = payload(of: "A", in: batch)
+        let output = try await run(batch) { step in
+            if case .adopting(_, 1, _) = step { try? FileManager.default.removeItem(at: first) }
+        }
+        XCTAssertEqual(Self.exitCode(output), CLIExitCode.workflowError.exitCode)
+        let end = try Self.failed(output)
+        XCTAssertTrue(end.message.hasPrefix("The adopt failed. "), end.message)
+        XCTAssertTrue(end.message.hasSuffix(" Nothing was imported."), end.message)
+        XCTAssertNil(end.detail)
+        XCTAssertEqual(importedEntries(), [])
+    }
+
+    /// BADOPT review fix 5 (BIO 5): the samples come in the byte order of their names, which no locale changes, so the
+    /// preflight, the writes, the refusal lines and the events come in one order on every machine. A natural order that
+    /// puts `a2` before `a10`, or a case-blind one, would be a different rule, and a locale-bound one is no contract.
+    func testBatchAdoptOrdersSamplesByNameWhateverTheLocale() async throws {
+        let batch = try batch(["a2", "a10", "B"])
+        let output = try await run(batch)
+        XCTAssertNil(output.thrown, "\(output.standardError)")
+        let order = ["B", "a10", "a2"]
+        for (position, name) in order.enumerated() {
+            let line = "Checking \(position + 1) of 3: \(name)…"
+            XCTAssertTrue(output.standardError.contains { $0.contains(line) }, "\(line) is not in \(output.standardError)")
+        }
+        guard case let .complete(outputs, _)? = try Self.lastEvent(output).event else { return XCTFail("\(output.standardOutput)") }
+        XCTAssertEqual(outputs, order.map { "/work/Project.lungfish/Imports/\($0).lungfishfastq" })
+    }
+
     private func payload(of sample: String, in batch: URL) -> URL {
-        batch.appendingPathComponent(sample == "C" ? "C" : "\(sample)/result").appendingPathComponent(ExecutorPlanEmitter.payloadPath)
+        batch.appendingPathComponent(sample).appendingPathComponent(ExecutorPlanEmitter.payloadPath)
     }
 
     private var imports: URL { scratch.project.appendingPathComponent("Imports", isDirectory: true) }

@@ -18,10 +18,10 @@ struct ImportFastqAdoptOptions: ParsableArguments {
             "Adopt a plan folder that a Linux run of lungfish-executor returned, as one bundle",
             discussion: """
             The one input names the returned plan folder, which holds plan.json, run-record.json and the run's \
-            output, or a returned batch folder, which holds one such folder a sample as <sample>/result/ or \
-            <sample>/. A batch is adopted whole: when any sample is refused, nothing is imported and each refusal is \
-            listed. The plan fixed every setting, so no setting option is taken with --adopt. --name (one folder \
-            only), --dry-run, --force and --format json keep their meaning.
+            output, or a returned batch folder, which holds one such folder a sample as <sample>/. A batch is \
+            adopted whole: when any sample is refused, nothing is imported and each refusal is listed. The plan \
+            fixed every setting, so no setting option is taken with --adopt. --name (one folder only), --dry-run, \
+            --force and --format json keep their meaning.
             """
         )
     )
