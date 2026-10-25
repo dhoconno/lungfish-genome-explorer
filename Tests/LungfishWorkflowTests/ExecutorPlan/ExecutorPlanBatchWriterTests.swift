@@ -42,7 +42,8 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
                                                       layout: layout, into: folder)
         XCTAssertEqual(batch.samples, ["S1", "S2"])
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
-        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging-files.json"])
+        XCTAssertEqual(names, ["README.txt", "S1", "S2", "jobs.tsv", "lge-job.sh", "logs", "run-local.sh", "run.dag",
+                               "sample.sub", "staging-files.json"])
 
         // Each sample's plan folder holds its plan, its staging.json, its plan tar and no read, executor or database.
         for (index, sample) in ["S1", "S2"].enumerated() {

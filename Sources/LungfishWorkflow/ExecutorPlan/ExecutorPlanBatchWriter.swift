@@ -72,6 +72,8 @@ package struct ExecutorPlanStagingLayout: Sendable, Equatable {
     }
     package var batchFolder: String { "\(folder)/batches/\(batch)" }
     package func samplePath(_ sample: String, _ name: String) -> String { "\(batchFolder)/\(sample)/\(name)" }
+    /// A path this layout gives, below ``folder``, which is how `jobs.tsv` names it below a plain run's data folder.
+    package func relativePath(_ path: String) -> String { String(path.dropFirst(folder.count + 1)) }
     static func url(_ path: String) -> String { "file://\(path)" }
 }
 
@@ -131,8 +133,9 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
 
 /// Writes the submit folder of one CHTC batch (ARCH Q-C4-8): `run.dag`, `sample.sub`, `lge-job.sh`, `logs/`, one plan
 /// folder a sample through the folder writer's shared mode, each holding its sample's `plan.tar`, and
-/// `staging-files.json`, the files the jobs read from the staging folder. It starts no process and opens no connection:
-/// the lane copies the files and submits.
+/// `staging-files.json`, the files the jobs read from the staging folder. Beside them go the plain launcher's `jobs.tsv`
+/// and `run-local.sh` (``LinuxRunScript``) and `README.txt` (``ExecutorPlanBatchReadme``) with the lab's commands for
+/// both launchers (C5 S2). It starts no process and opens no connection: the lab copies the files and submits.
 package enum ExecutorPlanBatchWriter {
     package static let logsFolderName = "logs"
     private static let gib: Int64 = 1_073_741_824
@@ -247,6 +250,10 @@ package enum ExecutorPlanBatchWriter {
                                                size: entry.size, sha256: entry.sha256, source: sources[entry.relativePath]?.path))
         }
         let sharedBytes = shared.reduce(Int64(0)) { $0 + $1.size }
+        // jobs.tsv names the executor first, then each database, then the reads: the order lge-job.sh takes them.
+        let sharedPlacements = (shared.filter { $0.role == .executor } + shared.filter { $0.role == .database })
+            .map { "\(layout.relativePath(layout.sharedPath($0)))=\($0.relativePath)" }
+        var jobs: [LinuxRunJob] = []
         // The adopt reads each report in the returned folder at its `work/` path, so the job returns the plan's reports
         // (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1), into the sample's result folder.
         let reports = HTCondorSubmitTemplate.reportRelativePaths(of: template.steps)
@@ -270,11 +277,13 @@ package enum ExecutorPlanBatchWriter {
             tars.append(ExecutorPlanBatchTar(sample: name, relativePath: "\(name)/\(HTCondorSubmitTemplate.planTarName)",
                                              size: Int64(tarData.count), sha256: DeterministicTarWriter.sha256(tarData)))
             var reads: [HTCondorStagedFile] = []
+            var placements = sharedPlacements
             let inputs = emission.plan.entries.filter { $0.role == .input }
             for (slot, entry) in zip(template.inputs, inputs) {
                 let readName = (slot.relativePath as NSString).lastPathComponent
                 let path = layout.samplePath(name, readName)
                 reads.append(HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(path), relativePath: slot.relativePath))
+                placements.append("\(layout.relativePath(path))=\(slot.relativePath)")
                 files.append(ExecutorPlanBatchFile(role: "input", sample: name, stagingPath: path, size: entry.size,
                                                    sha256: entry.sha256, source: emission.sources[entry.relativePath]?.path))
             }
@@ -287,6 +296,8 @@ package enum ExecutorPlanBatchWriter {
                 sample: name, requestDiskGB: disk, planTarPath: HTCondorSubmitTemplate.planTarName, reads: reads,
                 resultFolders: made
             ))
+            jobs.append(LinuxRunJob(sample: name, planTarPath: tars[index].relativePath, planTarSHA256: tars[index].sha256,
+                                    placements: placements))
         }
         let submit = try HTCondorSubmitTemplate.render(HTCondorSubmitTemplateInput(
             containerImageURL: ExecutorPlanStagingLayout.url(layout.imagePath(image.sif)),
@@ -307,6 +318,18 @@ package enum ExecutorPlanBatchWriter {
         try DurableReplace.replace(Data(submit.utf8), named: HTCondorSubmitTemplate.fileName, in: folder)
         try DurableReplace.replace(list, named: ExecutorPlanBatchFiles.fileName, in: folder)
         try DurableReplace.replace(Data(dag.utf8), named: HTCondorDAG.fileName, in: folder)
+        // The plain launcher returns the same files into result/ as the remaps, and takes run.dag's MAXJOBS as its
+        // --jobs default (C5 D13).
+        let resultPaths = HTCondorSubmitTemplate.resultRelativePaths(
+            payloadRelativePath: ExecutorPlanEmitter.payloadPath, reportRelativePaths: reports
+        )
+        let run = LinuxRunScript.text(batch: layout.batch, image: image.sif, resultPaths: resultPaths, maxJobs: concurrentJobs)
+        let readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs)
+        try DurableReplace.replace(Data(LinuxRunScript.jobsTable(jobs).utf8), named: LinuxRunScript.jobsFileName, in: folder)
+        try DurableReplace.replace(Data(run.utf8), named: LinuxRunScript.fileName, in: folder)
+        try fileManager.setAttributes([.posixPermissions: 0o755],
+                                      ofItemAtPath: folder.appendingPathComponent(LinuxRunScript.fileName).path)
+        try DurableReplace.replace(Data(readme.utf8), named: ExecutorPlanBatchReadme.fileName, in: folder)
         return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders, planTars: tars)
     }
 

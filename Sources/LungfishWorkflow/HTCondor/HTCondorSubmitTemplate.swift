@@ -148,6 +148,22 @@ public enum HTCondorSubmitTemplate {
         machineAdAttributes.map { HTCondorSiteFact(key: $0, macro: "$$(\($0):\(unsetValue))") }
         + [HTCondorSiteFact(key: "ClusterId", macro: "$(Cluster)"), HTCondorSiteFact(key: "ProcId", macro: "$(Process)")]
 
+    /// The keys of the site facts the plain launcher `run-local.sh` passes, in the order it passes them (C5 D10): the
+    /// machine's name, its CPU architecture and operating system, the container runtime and its bare version, the image
+    /// (``imageSHA256`` for Apptainer, the SIF it hashed once a batch, or ``containerImageID`` for Docker, never both)
+    /// and the launcher's name and version. A plain run has no slot, cluster, process or HTCondor version, so it passes
+    /// no CPU, memory or disk count, `ClusterId`, `ProcId` or `CondorVersion`.
+    public enum PlainLauncherFact: String, CaseIterable, Sendable {
+        case machine = "Machine"
+        case arch = "Arch"
+        case operatingSystem = "OpSysAndVer"
+        case containerRuntime = "ContainerRuntime"
+        case containerRuntimeVersion = "ContainerRuntimeVersion"
+        case imageSHA256 = "ImageSHA256"
+        case containerImageID = "ContainerImageID"
+        case launcher = "Launcher"
+    }
+
     /// Staging, an EL9 or later system and x86-64. No `Microarch` clause, since the executor is generic x86-64, and
     /// `Arch` keeps out the pool's one aarch64 host.
     public static let requirements =

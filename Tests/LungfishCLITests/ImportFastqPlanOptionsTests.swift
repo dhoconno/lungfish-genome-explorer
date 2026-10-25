@@ -156,7 +156,8 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: markers.path), [],
                        "The planning step started a connection or submit command")
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
-        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging-files.json"])
+        XCTAssertEqual(names, ["README.txt", "S1", "S2", "jobs.tsv", "lge-job.sh", "logs", "run-local.sh", "run.dag",
+                               "sample.sub", "staging-files.json"])
         for sample in ["S1", "S2"] {
             XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(sample)/plan.json").path), sample)
         }

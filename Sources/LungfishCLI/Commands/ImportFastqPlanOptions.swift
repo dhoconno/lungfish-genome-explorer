@@ -20,6 +20,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
             discussion: "The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan folder per sample named by "
                 + "its sample with the sample's plan.tar, and staging-files.json, which lists each file the "
                 + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
+                + "jobs.tsv and run-local.sh run the same plans on one Linux machine with Apptainer or Docker, and "
+                + "README.txt gives the commands for both and for bringing the results back. "
                 + "No file is imported and nothing is submitted, so --project is not needed. A sample sheet's "
                 + "request_disk column gives a sample's disk request in GB. With no --clumping-tool, or with "
                 + "--clumping-tool auto, the plan clumps every sample of short reads with BBTools clumpify at the "
