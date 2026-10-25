@@ -1045,11 +1045,14 @@ public enum FASTQBatchImporter {
     }
 
     /// Copies each step's reports into the bundle's `metadata/recipe-step-artifacts/` and rewrites the step's report
-    /// paths to the published copies; the import and `fastq adopt` both call it (QV-7).
+    /// paths to the published copies; the import and `fastq adopt` both call it (QV-7). The adopt passes `stem`, the
+    /// plan's fixed work stem and the bundle's sample name, so each copy is named for the sample as an import's is (vote
+    /// C4-4 D-3); the import passes none and its names are unchanged.
     static func materializeRecipeAuxiliaryOutputs(
         _ stepResults: [RecipeStepResult],
         stagingBundleURL: URL,
-        publishedBundleURL: URL
+        publishedBundleURL: URL,
+        stem: (work: String, sample: String)? = nil
     ) throws -> [RecipeStepResult] {
         let fm = FileManager.default
         let stagingDirectory = stagingBundleURL
@@ -1079,7 +1082,8 @@ public enum FASTQBatchImporter {
                     stepIndex: stepIndex,
                     artifactIndex: artifactIndex,
                     stepName: result.stepName,
-                    sourceURL: sourceURL
+                    sourceURL: sourceURL,
+                    stem: stem
                 )
                 let stagingURL = stagingDirectory.appendingPathComponent(filename)
                 let publishedURL = publishedDirectory.appendingPathComponent(filename)
@@ -1099,12 +1103,19 @@ public enum FASTQBatchImporter {
         return materialized
     }
 
-    private static func recipeArtifactFilename(
+    /// A report copy's name: `<step>-<artifact>-<slug>-` and the work file's name. With `stem`, a work file name that
+    /// leads with the work stem and `_` takes the sample name in its place, and any other name is kept as it is.
+    static func recipeArtifactFilename(
         stepIndex: Int,
         artifactIndex: Int,
         stepName: String,
-        sourceURL: URL
+        sourceURL: URL,
+        stem: (work: String, sample: String)? = nil
     ) -> String {
+        var source = sourceURL.lastPathComponent
+        if let stem, source.hasPrefix(stem.work + "_") {
+            source = stem.sample + source.dropFirst(stem.work.count)
+        }
         let stem = stepName
             .lowercased()
             .unicodeScalars
@@ -1116,7 +1127,7 @@ public enum FASTQBatchImporter {
             .split(separator: "-")
             .joined(separator: "-")
             .prefix(48)
-        return "\(stepIndex + 1)-\(artifactIndex + 1)-\(slug)-\(sourceURL.lastPathComponent)"
+        return "\(stepIndex + 1)-\(artifactIndex + 1)-\(slug)-\(source)"
     }
 
     // MARK: - Provenance

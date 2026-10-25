@@ -26,6 +26,24 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         var plan: ExecutionPlan
         var record: ExecutorRunRecord
         var sidecar: PersistedFASTQMetadata
+        var bundle: URL
+
+        var envelope: ProvenanceEnvelope {
+            get throws {
+                try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(
+                    fromSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+                ))
+            }
+        }
+
+        /// The names of the report copies the bundle holds.
+        var reportCopies: [String] {
+            get throws {
+                try FileManager.default.contentsOfDirectory(
+                    atPath: bundle.appendingPathComponent("metadata/recipe-step-artifacts").path
+                ).sorted()
+            }
+        }
     }
 
     /// Counts the fixture's record gives a recipe step by id: input and output reads.
@@ -47,13 +65,16 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
     /// Emits the plan of `S` with the VSP2 recipe, writes the folder with a payload and a succeeded record, adopts it
     /// into a project of its own and returns the plan, the record and the saved sidecar. `layout` is the mixed layout the
     /// node counted at its `interleave` step, `counts` the reads the record gives named recipe steps, and `platform` the
-    /// platform the plan's sample states.
+    /// platform the plan's sample states. With `files`, each recipe step's record lists every file its plan step writes,
+    /// which the folder holds, so the reports reach the bundle, and the storage step holds the writer's launch with the
+    /// payload as its output, as the node records them. `sample` names the sample and `project` takes a shared project.
     private func adopt(
-        layout: (merged: Int, pairs: Int, unpaired: Int)? = nil, counts: Counts = [:], platform: String? = nil
+        layout: (merged: Int, pairs: Int, unpaired: Int)? = nil, counts: Counts = [:], platform: String? = nil,
+        files: Bool = false, sample: String = "S", project shared: URL? = nil
     ) async throws -> Adopted {
         let root = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionRecipe")
         scratch.append(root)
-        let pair = try ExecutorPlanTestSupport.writePair(root: root, "S")
+        let pair = try ExecutorPlanTestSupport.writePair(root: root, sample)
 
         let databaseFolder = root.appendingPathComponent("databases/test-panhuman", isDirectory: true)
         try FileManager.default.createDirectory(at: databaseFolder, withIntermediateDirectories: true)
@@ -67,7 +88,7 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         for position in recipe.steps.indices where recipe.steps[position].type == "deacon-scrub" {
             recipe.steps[position].params?["database"] = .string("test-panhuman")
         }
-        var request = try ExecutorPlanTestSupport.request(root: root, "S", inputs: pair, clumping: .bbtools, recipe: recipe)
+        var request = try ExecutorPlanTestSupport.request(root: root, sample, inputs: pair, clumping: .bbtools, recipe: recipe)
         request.recipeFile = try ExecutorPlanSourceFile.measuring(repositoryRecipeFile())
         request.databases = ["test-panhuman": ExecutorPlanDatabaseFile(record: database)]
         if let platform { request.sample.platform = platform }
@@ -85,7 +106,7 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         )
         let plan = emission.plan
         let time = "2026-10-24T12:00:00.000Z"
-        let steps = plan.steps.map { step -> ExecutorStepRecord in
+        let steps = try plan.steps.map { step -> ExecutorStepRecord in
             var details: ExecutorStorageDetails?
             if step.kind == .storage || step.kind == .interleave {
                 details = ExecutorStorageDetails(
@@ -108,6 +129,27 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
             if step.kind == .statistics {
                 recorded.standardOutput = ExecutorReturnedFolder.seqkitOutput
                 recorded.inputFile = payload
+            }
+            if files, step.kind == .recipe {
+                recorded.outputs = try step.outputs.map { path in
+                    let bytes = Data("\(step.id) \(path)\n".utf8)
+                    let url = folder.appendingPathComponent(path)
+                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try bytes.write(to: url)
+                    return .init(path: path, bytes: UInt64(bytes.count), sha256: PortableDigest.sha256Hex(of: bytes))
+                }
+            }
+            if files, step.kind == .storage {
+                let bgzip = "/opt/conda/envs/bbtools/bin/bgzip"
+                var writer = ExecutorStorageLaunch(
+                    tool: ExecutorToolRecord(id: "bgzip", version: "1.24", build: "h1", path: bgzip),
+                    argv: [bgzip, "-@", "1", "-c", "work/combined.fastq"], environmentNames: ["PATH"], outcome: .succeeded,
+                    toolExitCode: 0, wallSeconds: 1, stderrPath: "work/bgzip.stderr"
+                )
+                writer.inputs = [ExecutorFileDigest(relativePath: "work/combined.fastq", sha256: String(repeating: "c", count: 64), size: 9)]
+                writer.outputs = [payload]
+                recorded.storage?.launches = [writer]
+                recorded.outputs = [.init(path: payload.relativePath, bytes: UInt64(payload.size), sha256: payload.sha256)]
             }
             if let seen = counts[step.id] {
                 recorded.inputReadCount = seen.input
@@ -134,10 +176,74 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         )
         try record.encoded().write(to: folder.appendingPathComponent(ExecutorRunRecord.fileName))
 
-        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let project = shared ?? root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let bundle = try await ExecutorRunAdoption.adopt(resultFolder: folder, projectDirectory: project)
-        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.appendingPathComponent("S.fastq.gz")))
-        return Adopted(plan: plan, record: record, sidecar: sidecar)
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.appendingPathComponent("\(sample).fastq.gz")))
+        return Adopted(plan: plan, record: record, sidecar: sidecar, bundle: bundle)
+    }
+
+    /// Vote C4-4 D-3 (option 2; UX U4-4, CHTC CH-5, BIO B-D3-2): each report copy in the adopted bundle takes the sample's
+    /// name in place of the plan's work stem, as an import's copy does, so two samples adopted into one project hold copies
+    /// whose names differ. The step's argv keeps the node's `work/sample_...` name, each rewrite is keyed by that name and
+    /// points at a copy the bundle holds, and the envelope's outputs name those copies.
+    func testAdoptedReportCopiesNameTheSample() async throws {
+        let project = try TestTempDirectory.make(prefix: "ExecutorRunAdoptionRecipeProject")
+        scratch.append(project)
+        let work = ExecutorPlanEmitter.workStem
+        var copies: [String: Set<String>] = [:]
+        for sample in ["S", "T"] {
+            let adopted = try await adopt(files: true, sample: sample, project: project)
+            let names = try adopted.reportCopies
+            XCTAssertFalse(names.isEmpty, "the bundle holds the recipe's reports")
+            for name in names {
+                XCTAssertTrue(name.contains("-\(sample)_"), "\(name) names the sample \(sample)")
+                XCTAssertFalse(name.contains("-\(work)_"), "\(name) keeps the plan's work stem")
+            }
+            let results = try XCTUnwrap(adopted.sidecar.ingestion?.recipeApplied?.stepResults)
+            let rewrites = results.flatMap { result in result.auxiliaryCommandPathRewrites.map { (result, $0.key, $0.value) } }
+            XCTAssertEqual(rewrites.count, names.count, "one rewrite for each copy")
+            for (result, key, value) in rewrites {
+                XCTAssertTrue(key.hasPrefix("work/\(work)_"), "the rewrite is keyed by the node's path: \(key)")
+                XCTAssertEqual(result.commandArguments?.contains(key), true, "the argv keeps the node's name \(key)")
+                XCTAssertTrue(names.contains(URL(fileURLWithPath: value).lastPathComponent), "\(value) is a copy the bundle holds")
+            }
+            let recorded = try adopted.envelope.steps.flatMap(\.outputs).map(\.path).filter { $0.contains("recipe-step-artifacts/") }
+            XCTAssertEqual(Set(recorded.map { URL(fileURLWithPath: $0).lastPathComponent }), Set(names), "the envelope names each copy")
+            copies[sample] = Set(names)
+        }
+        XCTAssertEqual(copies["S"]?.isDisjoint(with: copies["T"] ?? []), true, "two samples' copies never share a name")
+    }
+
+    /// Vote C4-4 D-5 (option 2; ARCH A-D5-1 and A-D5-3, BIO B-D5-1 and B-D5-2, UX U4-3 and U4-7, CHTC CH-4 and CH-7): the
+    /// storage writer and the statistics step keep the node's `out/<payload>` in their argv, and their replay argv, command
+    /// and the writer's output name the published payload, the run's own output. The statistics step lists that payload as
+    /// its input, so the envelope lists the payload once as an output and once as an input, as the Mac's does.
+    func testAdoptedPayloadStepsNameThePublishedPayload() async throws {
+        let adopted = try await adopt(files: true)
+        let envelope = try adopted.envelope
+        let node = ExecutorPlanEmitter.payloadPath
+        let digest = try XCTUnwrap(adopted.record.payloads.first?.sha256)
+        let payloadOutputs = envelope.outputs.filter { $0.checksumSHA256 == digest }
+        XCTAssertEqual(payloadOutputs.count, 1, "the envelope's outputs hold the payload once: \(payloadOutputs.map(\.path))")
+        let published = try XCTUnwrap(payloadOutputs.first?.path)
+        XCTAssertTrue(published.hasSuffix("Imports/S.lungfishfastq/S.fastq.gz"), published)
+        XCTAssertEqual(envelope.files.filter { $0.checksumSHA256 == digest }.map(\.role.rawValue).sorted(), ["input", "output"])
+        XCTAssertFalse(envelope.files.contains { $0.path == node }, "no file entry keeps the node's payload path")
+
+        let writer = try XCTUnwrap(envelope.steps.first { $0.toolName == "bgzip" && $0.argv.contains(">") }, "the storage writer")
+        XCTAssertEqual(writer.argv.last, node, "the argv stays as the node ran it")
+        XCTAssertEqual(writer.durableReplayArgv?.last, published)
+        XCTAssertTrue(writer.reproducibleCommand.hasSuffix(published), writer.reproducibleCommand)
+        XCTAssertEqual(writer.outputs.map(\.path), [published])
+        XCTAssertEqual(writer.outputs.map(\.checksumSHA256), [digest])
+
+        let statistics = try XCTUnwrap(envelope.steps.first { $0.argv.contains("stats") }, "the statistics step")
+        XCTAssertTrue(statistics.argv.contains(node), "the argv stays as the node ran it: \(statistics.argv)")
+        XCTAssertEqual(statistics.durableReplayArgv?.contains(node), false)
+        XCTAssertEqual(statistics.durableReplayArgv?.contains(published), true, "\(statistics.durableReplayArgv ?? [])")
+        XCTAssertTrue(statistics.reproducibleCommand.contains(published), statistics.reproducibleCommand)
+        XCTAssertEqual(statistics.inputs.map(\.path), [published])
+        XCTAssertEqual(statistics.inputs.map(\.checksumSHA256), [digest])
     }
 
     /// The result whose command is the argv the record gives step `id`.

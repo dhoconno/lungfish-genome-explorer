@@ -87,14 +87,17 @@ extension ExecutorRunAdoption {
         var recipeOptions: [[String]: [String: ParameterValue]] = [:]
         var recipeResults: [[String]: RecipeStepResult] = [:]
         if let recipe {
-            // QV-7: the bundle keeps each step's reports where the Mac's import copies them, by the Mac's own code.
+            // QV-7: the bundle keeps each step's reports where the Mac's import copies them, by the Mac's own code, and
+            // each copy takes the sample's name in place of the plan's work stem, as an import's copy does (C4-4 D-3). The
+            // step's argv keeps the node's name, and its rewrite maps that name to the copy.
             let stepResults = rewritesKeyedByRecordPath(
                 try FASTQBatchImporter.materializeRecipeAuxiliaryOutputs(
                     recipeStepResults(
                         run, recipe: recipe, paired: inputs.count > 1, ingestionResult: ingestionResult,
                         optimizeStorage: config.optimizeStorage
                     ),
-                    stagingBundleURL: staging, publishedBundleURL: bundleURL
+                    stagingBundleURL: staging, publishedBundleURL: bundleURL,
+                    stem: (work: ExecutorPlanEmitter.workStem, sample: pair.sampleName)
                 ),
                 folder: run.folder
             )
@@ -121,16 +124,19 @@ extension ExecutorRunAdoption {
 
         let executorStep = executorStepExecution(record)
         let titles = Dictionary(plan.steps.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        // C4-4 D-5: the storage writer and the statistics step name the bundle's payload where the node wrote its own.
+        let payload: BundlePayload = (path: run.payload.relativePath, bundleFASTQ: stagedFASTQ)
         // QV-23: a recipe step's replay argv, inputs and outputs come from the Mac's one code path for its sidecar result.
         let nodeSteps = record.steps.flatMap { step in
-            storageLaunchSteps(step, parent: executorStep.id) ?? [nodeStepExecution(
+            storageLaunchSteps(step, parent: executorStep.id, payload: step.kind == .storage ? payload : nil) ?? [nodeStepExecution(
                 step, parent: executorStep.id, title: titles[step.id], recipeOptions: recipeOptions[step.argv],
                 recipeFiles: recipeResults[step.argv].map {
                     FASTQBatchImporter.recipeProvenanceFiles(
                         for: $0, command: step.argv, originalInputURLs: inputs, bundleFASTQURL: stagedFASTQ,
                         stagingBundleURL: staging, publishedBundleURL: bundleURL
                     )
-                }
+                },
+                payload: step.kind == .statistics ? payload : nil
             )]
         }
         try await FASTQBatchImporter.writeImportProvenance(
@@ -190,12 +196,17 @@ extension ExecutorRunAdoption {
     /// decompressor launches are steps the same way, one for each gzip input with the plan pin's tool id (C4-3 C-3).
     /// Each step lists the files its launch read and wrote with their SHA-256 (QV-23). Nil for a step with no launches,
     /// which keeps its one step.
-    static func storageLaunchSteps(_ step: ExecutorStepRecord, parent: UUID) -> [StepExecution]? {
+    static func storageLaunchSteps(_ step: ExecutorStepRecord, parent: UUID, payload: BundlePayload? = nil) -> [StepExecution]? {
         guard step.kind == .storage || step.kind == .interleave, let launches = step.storage?.launches, !launches.isEmpty else {
             return nil
         }
         func files(_ digests: [ExecutorFileDigest]?, role: FileRole) -> [FileRecord] {
-            (digests ?? []).map { FileRecord(path: $0.relativePath, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.size), format: .fastq, role: role) }
+            (digests ?? []).map {
+                bundlePayloadFile(
+                    FileRecord(path: $0.relativePath, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.size), format: .fastq, role: role),
+                    payload
+                )
+            }
         }
         // The interleave step's own output, the mixed file, is the recorded output of the decompressor step that ends it (AMV2
         // ARCH fix 4); the earlier ones list none, since a reader writes into a pipe.
@@ -223,13 +234,34 @@ extension ExecutorRunAdoption {
                 options[FASTQStorageRecordKey.writer] = .dictionary(["name": .string(writer.name)])
             }
             return StepExecution(
-                toolName: launch.tool.id, toolVersion: launch.tool.version, command: command, resolvedOptions: options,
+                toolName: launch.tool.id, toolVersion: launch.tool.version, command: command,
+                durableReplayArgv: bundlePayloadArgv(command, payload), resolvedOptions: options,
                 inputs: files(launch.inputs, role: .input), outputs: files(launch.outputs, role: .output) + mixed,
                 exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
                 peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool.path),
                 startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
             )
         }
+    }
+
+    /// The node's payload path, `out/<payload>` as the run record names it, and the bundle's staged payload file.
+    typealias BundlePayload = (path: String, bundleFASTQ: URL)
+
+    /// C4-4 D-5 (option 2): the replay argv of a step whose argv names the node's payload, the argv with that token, and
+    /// only a token equal to it, naming the bundle's file; nil for a step whose argv does not name it. The storage writer
+    /// and the statistics step both call it, and the argv itself stays as the node ran it. The import's staging rewrite
+    /// then turns the staged file into the published bundle path, as it does the Mac's own payload, so the record names
+    /// where the file now is.
+    static func bundlePayloadArgv(_ argv: [String], _ payload: BundlePayload?) -> [String]? {
+        guard let payload, argv.contains(payload.path) else { return nil }
+        return argv.map { $0 == payload.path ? payload.bundleFASTQ.path : $0 }
+    }
+
+    /// A file record of the node's payload path as the bundle's payload, with its own digest, size, format and role; any
+    /// other record is kept. The run's own output names the same staged file, so the envelope lists the payload once.
+    static func bundlePayloadFile(_ file: FileRecord, _ payload: BundlePayload?) -> FileRecord {
+        guard let payload, file.path == payload.path else { return file }
+        return FileRecord(path: payload.bundleFASTQ.path, sha256: file.sha256, sizeBytes: file.sizeBytes, format: file.format, role: file.role)
     }
 
     /// The managed environment a tool ran from, the folder after `envs/` in its path (QV-19). The node's path names the
@@ -373,11 +405,20 @@ extension ExecutorRunAdoption {
 
     /// One node step under the executor's step, with the argv, version and times the record states, and its tool in
     /// the record's shape under `resolvedOptions` (lane U, OQ-1), with the plan step's title on a step the executor ran.
-    /// A recipe step takes its replay argv, inputs and outputs from `FASTQBatchImporter.recipeProvenanceFiles`.
+    /// A recipe step takes its replay argv, inputs and outputs from `FASTQBatchImporter.recipeProvenanceFiles`. The
+    /// statistics step takes `payload` (C4-4 D-5): its replay argv names the bundle's payload, and it lists the file it
+    /// read, the record's `inputFile`, as its input at that path, as the Mac's statistics step lists the payload.
     static func nodeStepExecution(
         _ step: ExecutorStepRecord, parent: UUID, title: String?, recipeOptions: [String: ParameterValue]? = nil,
-        recipeFiles: (durableReplayArgv: [String]?, inputs: [FileRecord], outputs: [FileRecord])? = nil
+        recipeFiles: (durableReplayArgv: [String]?, inputs: [FileRecord], outputs: [FileRecord])? = nil,
+        payload: BundlePayload? = nil
     ) -> StepExecution {
+        let payloadInput = payload == nil ? [] : (step.inputFile.map {
+            [bundlePayloadFile(
+                FileRecord(path: $0.relativePath, sha256: $0.sha256, sizeBytes: UInt64(clamping: $0.size), format: .fastq, role: .input),
+                payload
+            )]
+        } ?? [])
         var options = step.tool.map {
             ProvenanceNodeStepOptions.options(
                 toolID: $0.id, version: $0.version, build: $0.build, versionSource: $0.versionSource.rawValue,
@@ -387,7 +428,8 @@ extension ExecutorRunAdoption {
         if let recipeOptions { options = (options ?? [:]).merging(recipeOptions) { node, _ in node } }
         return StepExecution(
             toolName: step.tool?.id ?? executorBinaryName, toolVersion: step.tool?.version ?? "unknown", command: step.argv,
-            durableReplayArgv: recipeFiles?.durableReplayArgv, resolvedOptions: options, inputs: recipeFiles?.inputs ?? [],
+            durableReplayArgv: recipeFiles?.durableReplayArgv ?? bundlePayloadArgv(step.argv, payload), resolvedOptions: options,
+            inputs: recipeFiles?.inputs ?? payloadInput,
             outputs: recipeFiles?.outputs ?? [], exitCode: step.toolExitCode ?? (step.outcome == .succeeded ? 0 : 1), wallTime: step.wallSeconds,
             peakMemoryBytes: step.peakResidentBytes, stderr: step.stderrTail.isEmpty ? nil : step.stderrTail,
             parentStepID: parent, startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)

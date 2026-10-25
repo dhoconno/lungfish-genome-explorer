@@ -261,6 +261,25 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
         }
     }
 
+    /// Vote C4-4 D-3 (BIO B-D3-1): the one naming function gives a copy the sample's name only where the plan's work stem
+    /// and `_` lead the work file's name. An import passes no stem, so its copy names are the work file's names as before.
+    func testReportCopyNameTakesTheSampleOnlyWhereTheWorkStemLeads() {
+        func name(_ file: String, _ stem: (work: String, sample: String)?) -> String {
+            FASTQBatchImporter.recipeArtifactFilename(
+                stepIndex: 0, artifactIndex: 1, stepName: "Remove duplicates", sourceURL: URL(fileURLWithPath: "/run/work/" + file), stem: stem
+            )
+        }
+        let adopt = (work: ExecutorPlanEmitter.workStem, sample: "C079876_S1")
+        XCTAssertEqual(name("sample_fused_fastp_report.json", adopt), "1-2-remove-duplicates-C079876_S1_fused_fastp_report.json")
+        XCTAssertEqual(name("sampled_report.json", adopt), "1-2-remove-duplicates-sampled_report.json", "only the stem and `_`")
+        XCTAssertEqual(name("x_sample_report.json", adopt), "1-2-remove-duplicates-x_sample_report.json", "only a leading stem")
+        XCTAssertEqual(name("sample_fused_fastp_report.json", nil), "1-2-remove-duplicates-sample_fused_fastp_report.json")
+        XCTAssertEqual(
+            name("C079876_S1_fused_fastp_report_0F1E.json", nil), "1-2-remove-duplicates-C079876_S1_fused_fastp_report_0F1E.json",
+            "an import's copy keeps its work file's name"
+        )
+    }
+
     /// AMV2 SWIFT fix 1: a report is read through the resolver the payload uses. A record output that names a path out of
     /// the folder, a report that is a link to a file outside the folder whose bytes match the record, and one that is a link
     /// to a file inside the folder are each refused with the report named; the same bytes as a regular file pass.
