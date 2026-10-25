@@ -85,6 +85,43 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
         XCTAssertFalse(model.runtimeRows.contains { $0.label == "HTCondor job" }, "\(rows)")
     }
 
+    /// C5 D10: a record of the plain launcher `run-local.sh` shows each fact it passed under UX's label, in the order it
+    /// passed them, with the container runtime and its version, then the image as Docker names it (`ContainerImageID`)
+    /// or as the Apptainer SIF's digest (`ImageSHA256`), then the launcher. It holds none of HTCondor's facts, so it shows
+    /// no "HTCondor job" row, no slot label and no Not recorded row.
+    func testProvenanceShowsContainerRuntimeRow() async throws {
+        typealias Fact = HTCondorSubmitTemplate.PlainLauncherFact
+        let image = String(repeating: "c", count: 64)
+        let records: [(runtime: String, version: String, image: Fact, label: String, value: String)] = [
+            ("Docker", "28.3.2", .containerImageID, "Container image ID", "sha256:\(image)"),
+            ("Apptainer", "1.4.1", .imageSHA256, "Image SHA-256", image),
+        ]
+        for record in records {
+            let values: [Fact: String] = [
+                .machine: "galah", .arch: "x86_64", .operatingSystem: "Rocky Linux 9.6",
+                .containerRuntime: record.runtime, .containerRuntimeVersion: record.version, record.image: record.value,
+                .launcher: "run-local.sh/1",
+            ]
+            let facts = Fact.allCases.compactMap { key in values[key].map { ProvenanceSiteFact(key: key.rawValue, value: $0) } }
+            let model = try await loadedModel(record: try Self.adoptedRecord(siteFacts: facts))
+            let rows = model.runtimeRows.map { "\($0.label): \($0.value)" }
+            let start = try XCTUnwrap(model.runtimeRows.firstIndex { $0.label == "Reported by the launcher" }, record.runtime)
+            XCTAssertEqual(Array(rows[start...]), [
+                "Reported by the launcher: \(Self.launcherWordsAsGiven)",
+                "Machine name: galah", "CPU architecture: x86_64", "Operating system: Rocky Linux 9.6",
+                "Container runtime: \(record.runtime)", "Container runtime version: \(record.version)",
+                "\(record.label): \(record.value)", "Launcher: run-local.sh/1",
+            ], record.runtime)
+            let slotLabels = ["CPUs given to the job", "Memory given to the job", "Disk given to the job", "HTCondor job"]
+            XCTAssertFalse(model.runtimeRows.contains { slotLabels.contains($0.label) }, "\(rows)")
+            XCTAssertFalse(model.runtimeRows.contains { $0.value == "Not recorded" }, "\(rows)")
+            let copy = Self.section("Runtime", of: model.copyableText)
+            for label in ["Container runtime", "Container runtime version", record.label] {
+                XCTAssertTrue(copy.contains("\n\(label)"), "the Copy text's Runtime section holds \(label): \(copy)")
+            }
+        }
+    }
+
     /// An `imageManifest` step and the `planPin` counter step, which shows under its title.
     func testAdoptedStepShowsVersionAndBuildWithSource() async throws {
         let model = try await loadedModel(record: try Self.adoptedRecord())

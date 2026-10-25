@@ -41,8 +41,10 @@ public enum ProvenanceSiteFactRows {
     /// them is a record of HTCondor's.
     static let htcondorKeys: Set<String> = [clusterKey, processKey, "CondorVersion"]
 
-    /// The label of each fact OQ-5's table names that reads the same for any launcher, and of the two other facts the
-    /// CHTC submit template passes, `Arch` and `OpSysMajorVer`, in the same style.
+    /// The label of each fact OQ-5's table names that reads the same for any launcher, of the two other facts the
+    /// HTCondor submit template passes, `Arch` and `OpSysMajorVer`, in the same style, and of the facts the plain
+    /// launcher passes (C5 D10, UX's labels), keyed by `HTCondorSubmitTemplate.PlainLauncherFact`. The image row reads
+    /// "Image SHA-256" for Apptainer's SIF digest and "Container image ID" for Docker's image ID.
     public static let templateLabels: [(key: String, label: String)] = [
         ("Machine", "Machine name"),
         ("Arch", "CPU architecture"),
@@ -52,6 +54,11 @@ public enum ProvenanceSiteFactRows {
         ("SingularityVersion", "Apptainer version"),
         ("Microarch", "CPU microarchitecture"),
         ("CondorVersion", "HTCondor version"),
+        (HTCondorSubmitTemplate.PlainLauncherFact.containerRuntime.rawValue, "Container runtime"),
+        (HTCondorSubmitTemplate.PlainLauncherFact.containerRuntimeVersion.rawValue, "Container runtime version"),
+        (HTCondorSubmitTemplate.PlainLauncherFact.imageSHA256.rawValue, "Image SHA-256"),
+        (HTCondorSubmitTemplate.PlainLauncherFact.containerImageID.rawValue, "Container image ID"),
+        (HTCondorSubmitTemplate.PlainLauncherFact.launcher.rawValue, "Launcher"),
     ]
 
     /// The label of each fact that describes the slot, the share of a machine that HTCondor gives one job, and not the
