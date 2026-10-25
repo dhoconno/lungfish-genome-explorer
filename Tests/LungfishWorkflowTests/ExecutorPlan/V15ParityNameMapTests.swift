@@ -96,4 +96,61 @@ final class V15ParityNameMapTests: XCTestCase {
         XCTAssertEqual(V15Comparison.stripRoot("inputs/R1.fastq.gz", roots: [], names: names), "inputs/R1.fastq.gz")
         XCTAssertNotEqual(V15Comparison.stripRoot("inputs/R1.fastq.gz", roots: [], names: names), mac("<external>/C079876_S1_1M_R1.fastq.gz"))
     }
+
+    // MARK: C4-4 D-5: the payload token of `argv`
+
+    private let publishedPayload = "@/Imports/C079876_S1.lungfishfastq/C079876_S1.fastq.gz"
+    private let stagedPayload = "@/.tmp/fastq-import-F7496D2A-0762-44D6-BADE-06B95B9BA4A8/C079876_S1_mixed.fastq.gz"
+    private let buildingPayload = "@/Imports/.C079876_S1.building-5765B1BE-F49A-4CA1-A6E4-21FC0EEF90E5/C079876_S1.fastq.gz"
+
+    /// The findings of one key of a payload step, each route holding the payload paths its own record names.
+    private func payloadFindings(key: String, adopted: [String], mac macArgv: [String]) -> [V15Finding] {
+        var comparison = V15Comparison(roots: [.adopted: [returned], .mac: [scratch]], payloadFileNames: [])
+        comparison.names = [
+            .adopted: V15RouteNames(stem: "sample", workFolder: "work", payloadPaths: ["out/sample.fastq.gz", publishedPayload]),
+            .mac: V15RouteNames(stem: "C079876_S1", reportUUID: true, payloadPaths: [stagedPayload, buildingPayload, publishedPayload]),
+        ]
+        comparison.walk(adopted, macArgv, path: ["envelope", "steps[bgzip#1]", key])
+        return comparison.findings
+    }
+
+    /// ARCH A-D5-2, BIO B-D5-2, CHTC CH-7, QA Q4-12, UX U4-7: the node's `out/<payload>` and the Mac's staged copy (bgzip#1) and
+    /// building-folder copy (the statistics step) are one placeholder in `argv`, one test for each form.
+    func testPayloadTokenOfArgvMapsEachRoutesOwnPathToOnePlaceholder() {
+        let writer = ["/env/bgzip", "-@", "1", "-c", "x.fastq", ">"]
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: writer + ["out/sample.fastq.gz"], mac: writer + [stagedPayload]).count, 0, "staged copy")
+        let statistics = ["seqkit", "stats", "-a", "-T"]
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: statistics + ["out/sample.fastq.gz"], mac: statistics + [buildingPayload]).count, 0, "building copy")
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: statistics + ["out/sample.fastq.gz"], mac: statistics + [publishedPayload]).count, 0, "published copy")
+    }
+
+    /// ARCH A-D5-2: the strip applies to `argv` only, so the same difference in `durableReplayArgv` stays a finding until the
+    /// adopt writes the published path there (row W1-2).
+    func testPayloadPlaceholderReachesArgvOnly() {
+        let writer = ["/env/bgzip", "-@", "1", "-c", "x.fastq", ">"]
+        let durable = payloadFindings(key: "durableReplayArgv", adopted: writer + ["out/sample.fastq.gz"], mac: writer + [publishedPayload])
+        XCTAssertEqual(durable.count, 1, durable.description)
+        XCTAssertEqual(payloadFindings(key: "durableReplayArgv", adopted: writer + [publishedPayload], mac: writer + [publishedPayload]).count, 0)
+    }
+
+    /// QA Q4-11 to Q4-13: a path the route's own record does not name stays byte for byte. A planted `out/other.fastq.gz`
+    /// fails, so does a Mac path into another bundle, and no other token of the line changes.
+    func testPayloadPlaceholderRefusesAnotherPath() {
+        let writer = ["/env/bgzip", "-@", "1", "-c", "x.fastq", ">"]
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: writer + ["out/other.fastq.gz"], mac: writer + [stagedPayload]).count, 1)
+        let other = "@/Imports/.OTHER.building-5765B1BE-F49A-4CA1-A6E4-21FC0EEF90E5/OTHER.fastq.gz"
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: writer + ["out/sample.fastq.gz"], mac: writer + [other]).count, 1)
+        XCTAssertEqual(payloadFindings(key: "argv", adopted: writer + ["out/sample.fastq.gz"], mac: ["/env/bgzip", "-@", "2", "-c", "x.fastq", ">", stagedPayload]).count, 1,
+                       "another token of the line differs")
+    }
+
+    /// SWIFT SW4-10: a payload path maps as a whole token or after `key=`, never as a substring, and only when `argv` asks.
+    func testPayloadPlaceholderMapsWholeTokenOrAfterKeyOnly() {
+        let names = V15RouteNames(stem: "sample", payloadPaths: ["out/sample.fastq.gz"])
+        XCTAssertEqual(V15Comparison.stripRoot("out/sample.fastq.gz", roots: [], names: names, mapsPayload: true), "<payload>")
+        XCTAssertEqual(V15Comparison.stripRoot("in=out/sample.fastq.gz", roots: [], names: names, mapsPayload: true), "in=<payload>")
+        XCTAssertEqual(V15Comparison.stripRoot("xout/sample.fastq.gz", roots: [], names: names, mapsPayload: true), "xout/sample.fastq.gz")
+        XCTAssertEqual(V15Comparison.stripRoot("out/sample.fastq.gz.tmp", roots: [], names: names, mapsPayload: true), "out/sample.fastq.gz.tmp")
+        XCTAssertEqual(V15Comparison.stripRoot("out/sample.fastq.gz", roots: [], names: names), "out/sample.fastq.gz", "paths of other keys are not mapped")
+    }
 }

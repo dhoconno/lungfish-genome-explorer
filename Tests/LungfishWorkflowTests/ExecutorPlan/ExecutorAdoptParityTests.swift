@@ -397,8 +397,12 @@ final class ExecutorAdoptParityTests: XCTestCase {
         comparison.names = [
             .adopted: V15RouteNames(stem: nodeStems.count == 1 ? nodeStems[0] : nil,
                                     workFolder: ExecutorPlanEmitter.workspace.lastPathComponent,
-                                    inputs: V15RouteNames.mates(adoptedDigests, plan: mates)),
-            .mac: V15RouteNames(stem: macStem, reportUUID: true, inputs: V15RouteNames.mates(macDigests, plan: mates)),
+                                    inputs: V15RouteNames.mates(adoptedDigests, plan: mates),
+                                    // C4-4 D-5: the plan's payload path and the paths the record's own steps name.
+                                    payloadPaths: Set(routes.record.payloads.map(\.relativePath))
+                                        .union(V15RouteNames.namedPayloadPaths(in: adoptedEnvelope))),
+            .mac: V15RouteNames(stem: macStem, reportUUID: true, inputs: V15RouteNames.mates(macDigests, plan: mates),
+                                payloadPaths: V15RouteNames.namedPayloadPaths(in: macEnvelope)),
         ]
         return problems
     }
@@ -451,9 +455,17 @@ final class ExecutorAdoptParityTests: XCTestCase {
         for problem in Self.routeNames(routes, adoptedEnvelope: adoptedEnvelope, macEnvelope: macEnvelope, into: &comparison) {
             comparison.findings.append(V15Finding(key: "names", adopted: "-", mac: "-", why: problem))
         }
+        // QA Q4-13 (XC-1, integrity inside one route): every entry at a payload path carries that route's own payload digest.
+        for (route, envelope) in [(V15Route.adopted, adoptedEnvelope), (.mac, macEnvelope)] {
+            comparison.findings += V15Comparison.payloadIntegrityFindings(
+                envelope: envelope, route: route, paths: comparison.names[route]?.payloadPaths ?? [])
+        }
         // UX U-3: the harness's placeholders never reach a record of either bundle.
         for (route, strings) in [("adopted", adoptedRecordStrings), ("mac", macStrings)]
-        where strings.contains(where: { $0.contains(V15RouteNames.stemPlaceholder) || $0.contains(V15RouteNames.matePlaceholderPrefix) }) {
+        where strings.contains(where: {
+            $0.contains(V15RouteNames.stemPlaceholder) || $0.contains(V15RouteNames.matePlaceholderPrefix)
+                || $0.contains(V15RouteNames.payloadPlaceholder)
+        }) {
             comparison.findings.append(V15Finding(key: "names", adopted: "-", mac: "-", why: "the \(route) records hold a harness placeholder (UX U-3)"))
         }
         if envelope {
@@ -481,7 +493,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
                 comparison.findings.append(V15Finding(key: "envelope.steps", adopted: "-", mac: "-", why: problem))
             }
             comparison.compareEnvelopes(adopted: adoptedEnvelope, mac: macEnvelope, adoptedRoles: adoptedRoles, macRoles: macRoles,
-                                        artifact: "adopted-envelope.json, mac-envelope.json")
+                                        artifact: "adopted-envelope.json, mac-envelope.json",
+                                        adoptedBundle: routes.adoptedBundle, macBundle: routes.macBundle)
             // QV-17, XC-4 B (AMV1 QA fix 4): V15-02 sets the node tool's record aside only when its version is the step's own
             // (`compareStep`) and the plan's pin, which this loop checks for every node step. The executor's own steps are
             // pinned by the plan's executor build.
@@ -539,6 +552,11 @@ final class ExecutorAdoptParityTests: XCTestCase {
                                              to: target.appendingPathComponent("\(route)-envelope.json"))
             try FileManager.default.copyItem(at: FASTQMetadataStore.metadataURL(for: bundle.appendingPathComponent(payloadName)),
                                              to: target.appendingPathComponent("\(route)-sidecar.json"))
+            // C4-4 D-4: the report copies the harness parsed, for the panel.
+            let reports = bundle.appendingPathComponent("metadata/recipe-step-artifacts", isDirectory: true)
+            if FileManager.default.fileExists(atPath: reports.path) {
+                try FileManager.default.copyItem(at: reports, to: target.appendingPathComponent("\(route)-recipe-step-artifacts", isDirectory: true))
+            }
         }
         try routes.record.encoded().write(to: target.appendingPathComponent("run-record.json"))
     }

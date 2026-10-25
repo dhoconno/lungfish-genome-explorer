@@ -12,8 +12,9 @@ enum V15Route: String, Sendable, CaseIterable {
 
 /// What the comparison does with a listed line.
 enum V15Rule: Sendable {
-    /// The value is never compared. The key must be present on each route named, where the object holding it exists.
-    case notCompared(mustCarry: Set<V15Route>)
+    /// The value is never compared. The key must be present on each route in `mustCarry` and absent on each route in
+    /// `mustLack`, where the object holding it exists.
+    case notCompared(mustCarry: Set<V15Route>, mustLack: Set<V15Route> = [])
     /// Both values are printed as a `PARITY-REPORTED` line and never fail the test.
     case reported
     /// Each route must hold exactly its value, a JSON string, or JSON null when the value is nil.
@@ -161,14 +162,21 @@ enum V15ParityList {
         // AMV1 QA fix 3: XC-6 B tests that each listed key is present on the route that must carry it, and never compares
         // its value. peakMemoryBytes is the envelope step's key on both routes and stderr is the Mac envelope's; the names
         // only the node's run record holds (peakResidentBytes, stderrTail, stderrTruncated, stderrBytes) are V15-16b and V15-17b.
-        V15Line(id: "V15-16", n9Class: 4, decision: "XC-6 B, QA ruling 1",
+        // C4-4 D-1: XC-6 B's presence clause for peakMemoryBytes holds for the adopted route only, and the Mac's absence is
+        // this line's own (Phase 2.7 decision P4). A Mac change that records the key edits this line in its own commit.
+        V15Line(id: "V15-16", n9Class: 4, decision: "XC-6 B as amended by C4-4 D-1, QA ruling 1",
                 patterns: ["**.peakMemoryBytes"],
-                rule: .notCompared(mustCarry: [.adopted, .mac]),
-                reason: "Peak memory, peakMemoryBytes on each envelope step: the value is never compared, and each route must carry the key. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
+                rule: .notCompared(mustCarry: [.adopted], mustLack: [.mac]),
+                reason: "Peak memory, peakMemoryBytes on each envelope step: the node records it from ru_maxrss and the adopt carries it unchanged, and the Mac records none, since no Mac record reads ToolProcess's observedPeakMemoryBytes until a golden normalizer rule for it is approved (Phase 2.7 decision P4, ProvenanceStepObservation.swift:14-16, ToolProcessObservation.swift:225-232). Never compared: each adopted tool step must carry it above 0 and every Mac step must lack it. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
         V15Line(id: "V15-16b", n9Class: 4, decision: "XC-6 B, QA ruling 1",
                 patterns: ["**.peakResidentBytes"],
                 rule: .notCompared(mustCarry: []),
                 reason: "Peak resident bytes, held by the run record only; the walk reads no run record. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
+        // C4-4 D-6 (CH-8): the node's peak scratch disk, a node-only key of the storage step's record.
+        V15Line(id: "V15-16c", n9Class: 4, decision: "XC-6 B run-varying class, C4-4 D-6 (CH-8)",
+                patterns: ["**.peakWorkRootBytes"],
+                rule: .notCompared(mustCarry: []),
+                reason: "The largest size the run folder reached while the storage step ran, storage.peakWorkRootBytes, from the executor's own walk every quarter second (lane W0): a node-only key, held by the run record and by the adopted record where the adopt carries it, with no Mac counterpart. It varies from run to run and is never compared. mac-determinism-c0.md does not measure it; it stands on the class as voted."),
         V15Line(id: "V15-17", n9Class: 4, decision: "XC-6 B, QA ruling 1",
                 patterns: ["**.stderr"],
                 rule: .notCompared(mustCarry: [.mac]),
@@ -212,6 +220,12 @@ enum V15ParityList {
                 patterns: ["envelope.steps[bgzip#1].managedToolID"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
                 reason: "BBTools takes the first bgzip on its PATH (PortableStorageStep+WriterProbe.swift:7-8), so the environment a writer comes from is a fact of each route's path: bbtools on the node, htslib on the Mac. A route-shaped line for the writer step bgzip#1 only: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
+
+        // C4-4 D-4: the recipe reports' own bytes state their run's command line and times, so two Mac runs differ too.
+        V15Line(id: "V15-28", n9Class: 4, decision: "XC-6 B as amended by C4-4 D-4, QA ruling 1",
+                patterns: ["report-file.checksumSHA256", "report-file.fileSize"],
+                rule: .notCompared(mustCarry: [.adopted, .mac]),
+                reason: "The SHA-256 and size of each recipe step's report copy, a fastp JSON or a deacon summary under metadata/recipe-step-artifacts/: a report states its own run's command line and times, so two Mac runs of one input give different bytes (fastp#1 outputs[2] reads cd597e72 in V2.md:414 and 16d67680 in AMV1-fix-F1.md:80). Recorded on both routes and never compared. Each route's copy must hash to its record's digest and size, and the harness parses both copies and compares every value but the command line, the paths and the times (V15Reports). mac-determinism-c0.md does not measure it; it stands on the class as voted."),
     ]
 }
 

@@ -35,6 +35,11 @@ struct V15RouteNames: Sendable, Equatable {
     var workFolder: String?
     var reportUUID = false
     var inputs: [String: String] = [:]
+    /// The payload's paths this route's own record names (C4-4 D-5): the published payload, a Mac import's staged and
+    /// building copies and the node's `out/<payload>`, each read from that route's envelope. A token of `argv` that equals
+    /// one maps to `payloadPlaceholder`, whole or after `key=`, and no other token of any key does.
+    var payloadPaths: Set<String> = []
+    static let payloadPlaceholder = "<payload>"
 
     /// Each path to `<input:R1>` or `<input:R2>` when its digest equals exactly one mate's digest in the plan's order
     /// (BIO B3-5, QA Q-2e, SWIFT C-2). A path whose digest matches no mate, and every path of a plan whose mates share a
@@ -63,6 +68,8 @@ struct V15Comparison {
     var payloadFileNames: Set<String>
     var findings: [V15Finding] = []
     var reported: [String] = []
+    /// C4-4 D-2: the inputs of the adopted record's V15-S5 steps, the only unmatched `files` entries that pass.
+    var adoptOnlyInputs: [V15AdoptOnlyInput] = []
 
     init(roots: [V15Route: [String]], payloadFileNames: Set<String>) {
         self.roots = roots
@@ -78,8 +85,12 @@ struct V15Comparison {
 
     /// Strips a route's root from a path token, whether the path is the whole token or follows a key such as `in=`, to
     /// leave the plan's relative path, then maps C4-3 C-2's names. Nothing else rewrites a token.
-    static func stripRoot(_ token: String, roots: [String], names: V15RouteNames = V15RouteNames()) -> String {
+    static func stripRoot(
+        _ token: String, roots: [String], names: V15RouteNames = V15RouteNames(), mapsPayload: Bool = false
+    ) -> String {
         if let mate = names.inputs[token] { return mate }
+        // C4-4 D-5: a payload path of the route's own record maps in `argv` only (ARCH A-D5-2), whole or after `key=`.
+        if mapsPayload, let mapped = names.payloadToken(token) { return mapped }
         var key = "", value = token
         for root in roots.sorted(by: { $0.count > $1.count }) where !root.isEmpty {
             let prefix = root.hasSuffix("/") ? root : root + "/"
@@ -176,8 +187,10 @@ struct V15Comparison {
 
     /// The envelopes, with the steps paired by role, plan order and tool id (QA ruling 2).
     mutating func compareEnvelopes(
-        adopted: [String: Any], mac: [String: Any], adoptedRoles: V15StepRoles, macRoles: V15StepRoles, artifact: String = ""
+        adopted: [String: Any], mac: [String: Any], adoptedRoles: V15StepRoles, macRoles: V15StepRoles, artifact: String = "",
+        adoptedBundle: URL? = nil, macBundle: URL? = nil
     ) {
+        adoptOnlyInputs = V15AdoptOnlyInput.inputs(of: adoptedRoles)
         let start = findings.count
         defer { for index in start..<findings.count { findings[index].artifact = artifact } }
         var adoptedTop = adopted
@@ -200,6 +213,10 @@ struct V15Comparison {
                 break
             }
         }
+        // C4-4 D-4: each paired step's report copies are read from the two bundles, parsed and compared.
+        if let adoptedBundle, let macBundle {
+            compareReportCopies(pairs: pairs, adoptedBundle: adoptedBundle, macBundle: macBundle)
+        }
     }
 
     mutating func compareSidecars(adopted: [String: Any], mac: [String: Any], artifact: String = "") {
@@ -208,7 +225,7 @@ struct V15Comparison {
         walk(adopted, mac, path: ["sidecar"])
     }
 
-    private mutating func compareStep(
+    mutating func compareStep(
         _ adopted: [String: Any], _ mac: [String: Any], label: String, adoptedRoles: V15StepRoles, macRoles: V15StepRoles
     ) {
         let path = ["envelope", "steps[\(label)]"]
@@ -233,6 +250,19 @@ struct V15Comparison {
                 }
             default:
                 walk(adopted[key], mac[key], path: keyPath)
+            }
+        }
+        // C4-4 D-1 (SWIFT SW4-2, BIO B-D1-1): the walk reaches a key only when a route holds it, so an adopted step with no
+        // peakMemoryBytes (the Mac has none either) is found here, and a value that is not above 0 is no peak.
+        if let line = Self.line(for: path + ["peakMemoryBytes"], tag: nil), line.id == "V15-16" {
+            let held = adopted["peakMemoryBytes"]
+            let key = Self.joined(path + ["peakMemoryBytes"])
+            if held == nil, mac["peakMemoryBytes"] == nil {
+                findings.append(V15Finding(key: key, adopted: "absent", mac: "absent",
+                                           why: "\(line.id) must be present on the adopted route: the node records each tool step's peak memory and the adopt carries it (C4-4 D-1)"))
+            } else if let held, ((held as? NSNumber)?.doubleValue ?? 0) <= 0 {
+                findings.append(V15Finding(key: key, adopted: Self.render(held), mac: Self.render(mac["peakMemoryBytes"]),
+                                           why: "\(line.id) must be above 0 on the adopted route (C4-4 D-1)"))
             }
         }
         // XC-4: a Mac step that records no version fails and never passes as an unlisted key.
@@ -279,11 +309,16 @@ struct V15Comparison {
             findings.append(V15Finding(key: Self.joined(path), adopted: Self.render(adopted), mac: Self.render(mac),
                                        why: "the key is on one route only, and the list does not name it"))
         case let (a as [String: Any], m as [String: Any]):
-            let fileTag = isPayloadFile(a) || isPayloadFile(m) ? "payload-file" : nil
+            let fileTag = isPayloadFile(a) || isPayloadFile(m) ? "payload-file" : (isReportFile(a) || isReportFile(m) ? "report-file" : nil)
             for key in Set(a.keys).union(m.keys).sorted() {
                 walk(a[key], m[key], path: path + [key], tag: fileTag)
             }
         case let (a as [Any], m as [Any]):
+            // C4-4 D-2: the run's files and outputs match by role and digest, never by index.
+            if path == ["envelope", "files"] || path == ["envelope", "outputs"] {
+                compareEntries(a, m, path: path)
+                return
+            }
             if a.count != m.count {
                 findings.append(V15Finding(key: Self.joined(path), adopted: "\(a.count) items", mac: "\(m.count) items",
                                            why: "the arrays differ in length, and the list does not name the key"))
@@ -312,10 +347,14 @@ struct V15Comparison {
                 finding.raw = (Self.render(adopted, whole: true), Self.render(mac, whole: true))
                 findings.append(finding)
             }
-        case .notCompared(let mustCarry):
+        case .notCompared(let mustCarry, let mustLack):
             for route in mustCarry where (route == .adopted ? adopted : mac) == nil {
                 findings.append(V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
                                            why: "\(line.id) must be present on the \(route.rawValue) route"))
+            }
+            for route in mustLack where (route == .adopted ? adopted : mac) != nil {
+                findings.append(V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
+                                           why: "\(line.id) must be absent on the \(route.rawValue) route"))
             }
         case .reported:
             reported.append("PARITY-REPORTED line=\(line.id) key=\(key) adopted=\(Self.render(adopted)) mac=\(Self.render(mac))")
@@ -334,7 +373,7 @@ struct V15Comparison {
                                            why: "\(line.id) allows null on the adopted route and the host's number on the Mac"))
             }
         case .argv:
-            compareArgv(adopted, mac, key: key)
+            compareArgv(adopted, mac, key: key, mapsPayload: path.last == "argv")
         case .byRole:
             // Steps compare their ids in `compareStep`; an id outside a step is unlisted.
             if !Self.equal(adopted, mac) {
@@ -344,7 +383,7 @@ struct V15Comparison {
         }
     }
 
-    private mutating func compareArgv(_ adopted: Any?, _ mac: Any?, key: String) {
+    private mutating func compareArgv(_ adopted: Any?, _ mac: Any?, key: String, mapsPayload: Bool) {
         // QV-14: a command line of several launches joined by ` && ` compares part by part, each part one argv.
         func parts(_ value: Any?) -> [[String]]? {
             if let list = value as? [String] { return [list] }
@@ -372,8 +411,8 @@ struct V15Comparison {
                 }
             }
         }
-        let strippedA = a.map { $0.map { Self.stripRoot($0, roots: roots[.adopted] ?? [], names: names[.adopted] ?? V15RouteNames()) } }
-        let strippedM = m.map { $0.map { Self.stripRoot($0, roots: roots[.mac] ?? [], names: names[.mac] ?? V15RouteNames()) } }
+        let strippedA = a.map { $0.map { Self.stripRoot($0, roots: roots[.adopted] ?? [], names: names[.adopted] ?? V15RouteNames(), mapsPayload: mapsPayload) } }
+        let strippedM = m.map { $0.map { Self.stripRoot($0, roots: roots[.mac] ?? [], names: names[.mac] ?? V15RouteNames(), mapsPayload: mapsPayload) } }
         var differs = strippedA.count != strippedM.count
         for (partA, partM) in zip(strippedA, strippedM) where !differs {
             differs = partA.count != partM.count
@@ -405,7 +444,7 @@ struct V15Comparison {
         }
     }
 
-    private func isPayloadFile(_ object: [String: Any]) -> Bool {
+    func isPayloadFile(_ object: [String: Any]) -> Bool {
         guard object["checksumSHA256"] != nil || object["fileSize"] != nil, let path = object["path"] as? String else { return false }
         return payloadFileNames.contains((path as NSString).lastPathComponent)
     }
@@ -416,7 +455,7 @@ struct V15Comparison {
         V15ParityList.lines.first { line in
             line.patterns.contains { pattern in
                 let parts = pattern.split(separator: ".").map(String.init)
-                if parts.first == "payload-file" { return tag == "payload-file" && parts.last == path.last }
+                if let kind = parts.first, kind == "payload-file" || kind == "report-file" { return tag == kind && parts.last == path.last }
                 return matches(parts[...], path[...])
             }
         }

@@ -76,20 +76,26 @@ final class V15ParityComparisonTests: XCTestCase {
         XCTAssertEqual(slash?.raw?.mac, "\"seqkit seq /mac//Users/a.fq\"")
     }
 
-    /// AMV1 QA fix 3 (XC-6 B): V15-16 and V15-17 test that each listed key is present on the route that must carry it and
-    /// never compare a value. A peak memory the adopt route has and the Mac lacks gives one finding that names the Mac, the
-    /// same key on both routes gives none, stderr is the Mac's to carry, and the names only the run record holds are free.
+    /// AMV1 QA fix 3 (XC-6 B) as C4-4 D-1 amends it: V15-16 and V15-17 test that each listed key is present on the route that
+    /// must carry it and never compare a value. The peak memory is the adopt route's to carry and the Mac records none (Phase 2.7
+    /// P4), so a key the adopt route has and the Mac lacks gives no finding, a Mac step that carries it fails (QA Q4-1), and an
+    /// adopted step that lacks it while the Mac carries it fails. Stderr is the Mac's to carry, and the names only the run record
+    /// holds are free.
     func testPeakMemoryAndStderrMustBePresentOnTheRoutesThatCarryThem() {
         let path = ["envelope", "steps[fastp#1]"]
         let none = [String: Any]()
-        var missing = V15Comparison(roots: [:], payloadFileNames: [])
-        missing.walk(["peakMemoryBytes": 1], none, path: path)
-        XCTAssertEqual(missing.findings.count, 1, missing.findings.description)
-        XCTAssertTrue(missing.findings.first?.why.contains("must be present on the mac route") == true, missing.findings.description)
+        var adoptedOnly = V15Comparison(roots: [:], payloadFileNames: [])
+        adoptedOnly.walk(["peakMemoryBytes": 1], none, path: path)
+        XCTAssertEqual(adoptedOnly.findings.map(\.description), [], "the adopted route carries it and the Mac records none")
 
-        var present = V15Comparison(roots: [:], payloadFileNames: [])
-        present.walk(["peakMemoryBytes": 1], ["peakMemoryBytes": 2], path: path)
-        XCTAssertEqual(present.findings.map(\.description), [])
+        var macCarries = V15Comparison(roots: [:], payloadFileNames: [])
+        macCarries.walk(["peakMemoryBytes": 1], ["peakMemoryBytes": 2], path: path)
+        XCTAssertEqual(macCarries.findings.count, 1, macCarries.findings.description)
+        XCTAssertTrue(macCarries.findings.first?.why.contains("must be absent on the mac route") == true, macCarries.findings.description)
+
+        var adoptedLacks = V15Comparison(roots: [:], payloadFileNames: [])
+        adoptedLacks.walk(none, ["peakMemoryBytes": 2], path: path)
+        XCTAssertTrue(adoptedLacks.findings.contains { $0.why.contains("must be present on the adopted route") }, adoptedLacks.findings.description)
 
         var macStderr = V15Comparison(roots: [:], payloadFileNames: [])
         macStderr.walk(["stderr": "node text"], none, path: path)
@@ -103,6 +109,45 @@ final class V15ParityComparisonTests: XCTestCase {
         var nodeOnly = V15Comparison(roots: [:], payloadFileNames: [])
         nodeOnly.walk(["peakResidentBytes": 1, "stderrTail": "x", "stderrTruncated": false, "stderrBytes": 1], none, path: path)
         XCTAssertEqual(nodeOnly.findings.map(\.description), [])
+    }
+
+    /// SW4-2, UX U4-1, BIO B-D1-1: the walk reaches a key only when one route holds it, so a paired adopted step with no
+    /// `peakMemoryBytes` (the Mac has none either) is found in `compareStep`: one finding that names V15-16 and the adopted
+    /// route. The key on the adopted step alone gives none, and a peak of 0 is no peak.
+    func testPeakMemoryRequiredOnAdoptedStepOnly() {
+        let roles = V15StepRoles.mac([], importToolName: "lungfish import fastq")
+        let step: [String: Any] = ["toolVersion": "1.3.6"]
+        func findings(adopted: [String: Any], mac: [String: Any]) -> [V15Finding] {
+            var comparison = V15Comparison(roots: [:], payloadFileNames: [])
+            comparison.compareStep(adopted, mac, label: "fastp#1", adoptedRoles: roles, macRoles: roles)
+            return comparison.findings.filter { $0.key.hasSuffix("peakMemoryBytes") }
+        }
+        func carrying(_ value: Any) -> [String: Any] {
+            var carried = step
+            carried["peakMemoryBytes"] = value
+            return carried
+        }
+        XCTAssertEqual(findings(adopted: carrying(4_690_345_984), mac: step).map(\.description), [])
+        let removed = findings(adopted: step, mac: step)
+        XCTAssertEqual(removed.count, 1, removed.description)
+        XCTAssertEqual(removed.first?.key, "envelope.steps[fastp#1].peakMemoryBytes")
+        XCTAssertTrue(removed.first?.why.contains("V15-16") == true && removed.first?.why.contains("adopted") == true, removed.description)
+        XCTAssertEqual(findings(adopted: carrying(0), mac: step).count, 1, "a peak of 0 is no peak")
+    }
+
+    /// CH-8 and W0: `peakWorkRootBytes` is held by the node's run record only, a node-only row in XC-6 B's run-varying class. It
+    /// on the adopted route alone passes, and a node-only key the list does not name still fails.
+    func testPeakWorkRootBytesIsAListedNodeOnlyRunVaryingKey() {
+        let path = ["envelope", "steps[clumpify.sh#1]", "storage"]
+        var listed = V15Comparison(roots: [:], payloadFileNames: [])
+        listed.walk(["peakWorkRootBytes": 8_388_608], [String: Any](), path: path)
+        XCTAssertEqual(listed.findings.map(\.description), [])
+        var unlisted = V15Comparison(roots: [:], payloadFileNames: [])
+        unlisted.walk(["peakWorkRootBytesPlanted": 8_388_608], [String: Any](), path: path)
+        XCTAssertEqual(unlisted.findings.count, 1, unlisted.findings.description)
+        let line = V15ParityList.lines.first { $0.patterns.contains("**.peakWorkRootBytes") }
+        XCTAssertEqual(line?.n9Class, 4)
+        XCTAssertTrue(line?.decision.contains("CH-8") == true, line?.decision ?? "no line")
     }
 
     /// AMV1 BIO fix 3 (XC-9, QA ruling 3 condition 1): only `file` is skipped, so a value column that maps to no key of the
