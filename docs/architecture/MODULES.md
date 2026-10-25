@@ -29,7 +29,7 @@ Counts cover Swift files only, and a target that holds C files lists them in its
 | LungfishPortable | library | Sources/LungfishPortable | 35 | 5186 | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 9 | 7005 | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | 3534 | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 998 | 271209 | 1571 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 999 | 271215 | 1571 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 10 | 1923 | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 76 | 15799 | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
@@ -1907,7 +1907,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishWorkflow
-- Swift files. 998, lines 271209
+- Swift files. 999, lines 271215
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
 - Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
@@ -1931,7 +1931,7 @@ None.
 | Demultiplex | 16 | 6174 |
 | Dependencies | 18 | 2860 |
 | Engines | 7 | 3417 |
-| ExecutorPlan | 8 | 2293 |
+| ExecutorPlan | 9 | 2299 |
 | Exports | 1 | 549 |
 | Extraction | 35 | 10698 |
 | FASTQ | 1 | 259 |
