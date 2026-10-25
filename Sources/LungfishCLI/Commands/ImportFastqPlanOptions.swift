@@ -173,7 +173,7 @@ extension ImportCommand.FastqSubcommand {
             for made in batch.folders {
                 reporter.text("  make the folder \(made.stagingPath) before you submit")
             }
-            reporter.completePlan(folder: batch.folder, samples: batch.samples, files: batch.files)
+            reporter.completePlan(folder: batch.folder, samples: batch.samples, files: batch.files, folders: batch.folders)
         } catch let refusal as ExitCode {
             throw refusal
         } catch {
@@ -306,13 +306,17 @@ extension ImportCommand.FastqSubcommand {
 
 extension ImportFastqReporter {
     /// The `complete` line of a written submit folder: the paths of the submit folder and of each sample's plan folder
-    /// as outputs (Q-C4-8), and each file the jobs read from the staging folder as an artifact of kind `staging-<role>`.
-    /// The sizes and digests stay in `staging-files.json` and the human text, since a v2 event has no size field.
-    func completePlan(folder: URL, samples: [String], files: [ExecutorPlanBatchFile]) {
+    /// as outputs (Q-C4-8), each file the jobs read from the staging folder as an artifact of kind `staging-<role>`, and
+    /// each folder the jobs write into there as one of kind `staging-payload-folder` with the sample as its role, so a
+    /// reader of events learns the folders as well as the files. The sizes and digests stay in `staging-files.json` and
+    /// the human text, since a v2 event has no size field.
+    func completePlan(folder: URL, samples: [String], files: [ExecutorPlanBatchFile], folders: [ExecutorPlanBatchFolder]) {
         guard eventsOn else { return }
+        let staged = files.map { CLIEventArtifact(kind: "staging-\($0.role)", path: $0.stagingPath, role: $0.sample) }
+        let made = folders.map { CLIEventArtifact(kind: "staging-\($0.role)", path: $0.stagingPath, role: $0.sample) }
         CLIEventEmitter(enabled: true) { printEventLine($0) }.emitComplete(
             outputs: [folder.path] + samples.map { folder.appendingPathComponent($0, isDirectory: true).path },
-            artifacts: files.map { CLIEventArtifact(kind: "staging-\($0.role)", path: $0.stagingPath, role: $0.sample) },
+            artifacts: staged + made,
             message: "Wrote the submit folder for \(Set(files.compactMap(\.sample)).count) sample(s)"
         )
     }

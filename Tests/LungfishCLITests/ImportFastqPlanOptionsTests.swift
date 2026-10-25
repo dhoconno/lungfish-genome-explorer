@@ -170,6 +170,53 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                        [folder.path, folder.appendingPathComponent("S1").path, folder.appendingPathComponent("S2").path])
     }
 
+    /// The built CLI's run of the fixture plan into a batch folder named `batch-1`, in the output format given. The tests
+    /// below read what a person or a script reads: the output of the run.
+    private func runWritePlan(cli: URL, format: String) throws -> (succeeded: Bool, stdout: String, stderr: String) {
+        let fixture = try writeFixture()
+        let folder = root.appendingPathComponent("batch-1", isDirectory: true)
+        let arguments = ["import", "fastq"] + fixture.reads.map(\.path) + fixture.planArguments(folder: folder)
+            + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools", "--format", format]
+        let result = try ToolProcess.start(ToolProcessSpec(
+            executableURL: cli, arguments: arguments, environment: CLISIGTERMHarness.childEnvironment(overriding: [:]),
+            timeout: .seconds(120), label: "write-plan-\(format)"
+        )).waitBlocking()
+        return (result.status == 0, result.stdoutText, result.stderrText)
+    }
+
+    /// Review of fix G3, fix 1. A GUI or a script that reads the events never sees the human text, so the `complete`
+    /// event names each sample's payload folder as an artifact of kind `staging-payload-folder`, with the sample as its role
+    /// and the folder on the staging area as its path.
+    func testWritePlanCompleteEventNamesEachPayloadFolderToMake() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let run = try runWritePlan(cli: cli, format: "json")
+        XCTAssertTrue(run.succeeded, run.stderr)
+        let events = run.stdout.split(separator: "\n").compactMap {
+            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+        }
+        let complete = try XCTUnwrap(events.first { $0["event"] as? String == "complete" }, run.stdout)
+        let artifacts = try XCTUnwrap(complete["artifacts"] as? [[String: Any]], run.stdout)
+        let folders = artifacts.filter { $0["kind"] as? String == "staging-payload-folder" }
+        XCTAssertEqual(folders.map { $0["role"] as? String }, ["S1", "S2"], "one payload folder a sample: \(artifacts)")
+        XCTAssertEqual(folders.map { $0["path"] as? String },
+                       ["S1", "S2"].map { "\(Fixture.stagingFolder)/batches/batch-1/\($0)/out" })
+    }
+
+    /// Review of fix G3, fix 1. The human text of the same run names each sample's payload folder once.
+    func testWritePlanTextNamesEachPayloadFolderToMake() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let run = try runWritePlan(cli: cli, format: "text")
+        XCTAssertTrue(run.succeeded, run.stderr)
+        for sample in ["S1", "S2"] {
+            let line = "make the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/out before you submit"
+            XCTAssertEqual(run.stdout.components(separatedBy: line).count - 1, 1, "\(line) once in: \(run.stdout)")
+        }
+    }
+
     /// A file that `--executor-manifest`, `--image` or `--image-tool-manifest` names and that is missing or holds `{}`
     /// ends the command with exit code 3 and a failed line that names the option, not a Foundation or decoder message.
     func testWritePlanNamesTheOptionOfAnUnreadableFile() throws {
