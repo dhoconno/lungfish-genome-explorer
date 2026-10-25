@@ -62,10 +62,16 @@ final class ClumpifyDiskNeedTests: XCTestCase {
         let failure = try XCTUnwrap(result.errors.first)
         XCTAssertEqual(failure.sample, run)
         let needText = ByteCountFormatter.string(fromByteCount: need, countStyle: .file)
-        let freeText = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
-        XCTAssertTrue(failure.error.hasPrefix("\(run) needs about \(needText) free for clumpify"), failure.error)
-        XCTAssertTrue(failure.error.contains("has \(freeText) free"), failure.error)
-        XCTAssertTrue(failure.error.contains("--clumping-tool none"), failure.error)
+        XCTAssertEqual(
+            needText, ByteCountFormatter.string(fromByteCount: free, countStyle: .file),
+            "one byte under the need reads the same in the Finder's units, which is the boundary case of the sentence"
+        )
+        XCTAssertTrue(failure.error.hasPrefix("Optimizing storage needs about \(needText) free"), failure.error)
+        XCTAssertTrue(failure.error.contains("has just under \(needText) free"), failure.error)
+        XCTAssertTrue(failure.error.contains("Optimize storage in the Import FASTQ sheet"), failure.error)
+        XCTAssertTrue(failure.error.contains("--no-optimize-storage"), failure.error)
+        XCTAssertTrue(failure.error.contains(project.standardizedFileURL.path), "the sentence names the project: \(failure.error)")
+        XCTAssertFalse(failure.error.contains("/.tmp/"), "the sentence names no hidden temp folder: \(failure.error)")
         let failedLines = events.all.compactMap { event -> String? in
             if case .sampleFailed(let sample, let error) = event, sample == run { return error }
             return nil
@@ -95,15 +101,16 @@ final class ClumpifyDiskNeedTests: XCTestCase {
             }
             XCTFail("the sample should be refused")
         } catch let error as FASTQIngestionError {
-            guard case .insufficientDiskForClumpify(let sample, let needBytes, let freeBytes, let folder) = error else {
+            guard case .insufficientDiskForClumpify(let needBytes, let freeBytes, let folder) = error else {
                 return XCTFail("expected the disk refusal, got \(error)")
             }
-            XCTAssertEqual(sample, run)
             XCTAssertEqual(needBytes, need)
             XCTAssertEqual(freeBytes, free)
             XCTAssertEqual(folder.standardizedFileURL, outputDirectory.standardizedFileURL)
+            // The batch's sentence names the project that holds its workspace, and the pipeline alone names its output folder.
+            let askedWorkspace = try XCTUnwrap(askedAbout.all.first)
             XCTAssertEqual(error.errorDescription, failure.error.replacingOccurrences(
-                of: askedAbout.all.first?.path ?? "", with: outputDirectory.path
+                of: ClumpifyDiskNeed.folderShown(for: askedWorkspace).path, with: outputDirectory.path
             ), "the pipeline's refusal reads as the batch's")
         }
         XCTAssertTrue(progress.all.isEmpty, "clumpify was never started: \(progress.all)")
@@ -200,7 +207,7 @@ final class ClumpifyDiskNeedTests: XCTestCase {
                 config: importConfig(project: project, clumpingTool: ClumpingTool.none)
             )
         }
-        XCTAssertFalse(result.errors.contains { $0.error.contains("free for clumpify") }, "\(result.errors)")
+        XCTAssertFalse(result.errors.contains { $0.error.contains("Optimizing storage needs about") }, "\(result.errors)")
 
         for tool in [ClumpingTool.none, ClumpingTool.trimGalore] {
             do {
@@ -223,6 +230,82 @@ final class ClumpifyDiskNeedTests: XCTestCase {
             }
         }
         XCTAssertTrue(askedAbout.all.isEmpty, "the reader was asked about \(askedAbout.all)")
+    }
+
+    /// A bcl2fastq pair is one sample named `Run7_S1_L001`, and the refusal sums the sizes of both mates. The sentence
+    /// names no sample, so the label in front of it is the batch's, whatever the first file is called.
+    func testRefusalOfAPairUsesTheBatchLabelAndSumsBothMates() async throws {
+        let sample = "Run7_S1_L001"
+        let mate1 = try writeReads("\(sample)_R1_001.fastq")
+        let mate2 = try writeReads("\(sample)_R2_001.fastq")
+        let samples = FASTQBatchImporter.detectPairs(from: [mate1, mate2])
+        XCTAssertEqual(samples.map(\.sampleName), [sample])
+
+        let need = ClumpifyDiskNeed.needBytes(inputBytes: try byteCount(of: mate1) + byteCount(of: mate2))
+        let needText = ByteCountFormatter.string(fromByteCount: need, countStyle: .file)
+        let oneMateText = ByteCountFormatter.string(
+            fromByteCount: ClumpifyDiskNeed.needBytes(inputBytes: try byteCount(of: mate1)), countStyle: .file
+        )
+        XCTAssertNotEqual(needText, oneMateText, "the sum of two mates reads differently from one mate")
+
+        let project = try makeProject()
+        let askedAbout = Recorder<URL>()
+        let result = await ClumpifyDiskNeed.$freeSpaceReader.withValue({ folder in
+            askedAbout.add(folder)
+            return need - 1
+        }) {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: samples,
+                config: importConfig(project: project, clumpingTool: .bbtools)
+            )
+        }
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.errors.map(\.sample), [sample], "the batch's label is the pair's sample")
+        let message = try XCTUnwrap(result.errors.first).error
+        XCTAssertTrue(message.contains("needs about \(needText) free"), "the need is the sum of both mates: \(message)")
+        XCTAssertFalse(message.contains("_R1_001"), "the sentence names no file stem: \(message)")
+        XCTAssertEqual(askedAbout.all.count, 1, "the reader was asked once for the pair")
+    }
+
+    /// The default choice, Automatic, resolves to BBTools clumpify for short reads (C5 O49, D5), so it is refused for disk
+    /// like a named BBTools choice. The helper's platform is Illumina.
+    func testAutomaticClumpingIsRefusedLikeBBTools() async throws {
+        let reads = try writeReads("SRR9100006.fastq")
+        let need = ClumpifyDiskNeed.needBytes(inputBytes: try byteCount(of: reads))
+        let project = try makeProject()
+        let samples = FASTQBatchImporter.detectPairs(from: [reads])
+        let askedAbout = Recorder<URL>()
+
+        let result = await ClumpifyDiskNeed.$freeSpaceReader.withValue({ folder in
+            askedAbout.add(folder)
+            return need - 1
+        }) {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: samples,
+                config: importConfig(project: project, clumpingTool: .auto)
+            )
+        }
+
+        XCTAssertEqual(result.failed, 1)
+        XCTAssertEqual(result.completed, 0)
+        let failure = try XCTUnwrap(result.errors.first)
+        XCTAssertTrue(failure.error.hasPrefix("Optimizing storage needs about"), failure.error)
+        XCTAssertEqual(askedAbout.all.count, 1, "the reader was asked once, so Automatic reached BBTools clumpify")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: FASTQBatchImporter.bundleOutputURL(for: samples[0], in: project).path),
+            "no bundle"
+        )
+    }
+
+    /// A batch import works in `<project>/.tmp/fastq-import-<id>`, which a failed sample removes, so the refusal names the
+    /// project that holds it. Any other work folder is named as it is.
+    func testFolderShownIsTheProjectForAWorkspace() {
+        let workspace = URL(fileURLWithPath: "/p/Project.lungfish/.tmp/fastq-import-X", isDirectory: true)
+        XCTAssertEqual(ClumpifyDiskNeed.folderShown(for: workspace).path, "/p/Project.lungfish")
+        let output = URL(fileURLWithPath: "/out", isDirectory: true)
+        XCTAssertEqual(ClumpifyDiskNeed.folderShown(for: output).path, "/out")
     }
 
     // MARK: - Helpers

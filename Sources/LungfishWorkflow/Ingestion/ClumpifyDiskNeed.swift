@@ -84,9 +84,8 @@ public enum ClumpifyDiskNeed {
     /// Refuses the sample when its disk is too small, before clumpify starts or writes anything for it. A volume that
     /// does not answer lets the import go ahead with one log line that names the folder.
     ///
-    /// - Throws: ``FASTQIngestionError/insufficientDiskForClumpify(sample:needBytes:freeBytes:folder:)``.
+    /// - Throws: ``FASTQIngestionError/insufficientDiskForClumpify(needBytes:freeBytes:folder:)``.
     static func require(
-        sample: String,
         inputFiles: [URL],
         folder: URL,
         freeSpace: FreeSpaceReader = ClumpifyDiskNeed.freeSpaceReader
@@ -97,18 +96,27 @@ public enum ClumpifyDiskNeed {
         case .unreadable(let logLine):
             logger.warning("\(logLine, privacy: .public)")
         case .tooLittle(let need, let free):
-            throw FASTQIngestionError.insufficientDiskForClumpify(
-                sample: sample, needBytes: need, freeBytes: free, folder: folder
-            )
+            throw FASTQIngestionError.insufficientDiskForClumpify(needBytes: need, freeBytes: free, folder: folder)
         }
     }
 
-    /// The refusal the import shows, with the sizes in the Finder's units.
-    static func refusal(sample: String, needBytes: Int64, freeBytes: Int64, folder: URL) -> String {
+    /// The refusal the import shows, with the sizes in the Finder's units. It names no sample, since the batch puts the
+    /// sample's one label in front of every error, and it leads with what the Import FASTQ sheet lets a person do and
+    /// names the command line step last, as ``BBToolsOutOfMemory`` does.
+    static func refusal(needBytes: Int64, freeBytes: Int64, folder: URL) -> String {
         let need = ByteCountFormatter.string(fromByteCount: needBytes, countStyle: .file)
-        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
-        return "\(sample) needs about \(need) free for clumpify to reorder its reads for storage, and the disk that "
-            + "holds \(folder.path) has \(free) free. Free space there, or import with no clumping "
-            + "(--clumping-tool none)."
+        var free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        if free == need { free = "just under " + free }
+        return "Optimizing storage needs about \(need) free to reorder this sample's reads, and the disk that holds "
+            + "\(folderShown(for: folder).path) has \(free) free, so this sample was not imported and its original files "
+            + "were kept. Free up space on that disk or turn off Optimize storage in the Import FASTQ sheet, then import "
+            + "again. On the command line, import fastq --no-optimize-storage skips clumping."
+    }
+
+    /// The folder the refusal names. A batch import works in `<project>/.tmp/fastq-import-<id>`, which is removed when the
+    /// sample fails, so the sentence names the project that holds it. Any other work folder is named as it is.
+    static func folderShown(for workFolder: URL) -> URL {
+        let parent = workFolder.deletingLastPathComponent()
+        return parent.lastPathComponent == ".tmp" ? parent.deletingLastPathComponent() : workFolder
     }
 }

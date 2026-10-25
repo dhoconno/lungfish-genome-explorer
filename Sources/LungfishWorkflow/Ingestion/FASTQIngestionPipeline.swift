@@ -109,7 +109,7 @@ public enum FASTQIngestionError: Error, LocalizedError {
     /// A BBTools JVM ran out of heap. The sentence is already plain, so it is shown as it is.
     case outOfMemory(String)
     /// The disk that holds clumpify's work folder has less free space than ``ClumpifyDiskNeed`` asks for this sample.
-    case insufficientDiskForClumpify(sample: String, needBytes: Int64, freeBytes: Int64, folder: URL)
+    case insufficientDiskForClumpify(needBytes: Int64, freeBytes: Int64, folder: URL)
 
     public var errorDescription: String? {
         switch self {
@@ -131,8 +131,8 @@ public enum FASTQIngestionError: Error, LocalizedError {
             return "Required tool not found: \(tool)"
         case .outOfMemory(let sentence):
             return sentence
-        case .insufficientDiskForClumpify(let sample, let need, let free, let folder):
-            return ClumpifyDiskNeed.refusal(sample: sample, needBytes: need, freeBytes: free, folder: folder)
+        case .insufficientDiskForClumpify(let need, let free, let folder):
+            return ClumpifyDiskNeed.refusal(needBytes: need, freeBytes: free, folder: folder)
         }
     }
 }
@@ -272,7 +272,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             wasClumpified = false
         case .bbtools:
             // A disk too small for clumpify's work refuses this sample here, and never turns clumpify off (ClumpifyDiskNeed).
-            try ClumpifyDiskNeed.require(sample: baseName, inputFiles: config.inputFiles, folder: config.outputDirectory)
+            try ClumpifyDiskNeed.require(inputFiles: config.inputFiles, folder: config.outputDirectory)
             progress(0.0, "Sorting reads by k-mer similarity...")
             // Heap sizing lives in ManagedJavaHeapPolicy so an import never plans to use memory a
             // concurrently running classifier already holds, unless --clumpify-heap-gb pins it.
