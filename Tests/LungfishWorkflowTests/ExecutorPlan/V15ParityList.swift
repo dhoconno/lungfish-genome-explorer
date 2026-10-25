@@ -28,6 +28,11 @@ enum V15Rule: Sendable {
     case path
     /// A step id compares by the role of the step it names, never by UUID (XC-8, QA ruling 2).
     case byRole
+    /// Equal values pass. Otherwise the adopted route must hold exactly the JSON value given for the key's last name and the
+    /// Mac route a value; both print as PARITY-REPORTED (D7 C, BIOQA-X1 R1).
+    case adoptedValueElseEqual([String: String])
+    /// Printed and never failing while the stored-order condition holds; otherwise compared as an unlisted key (BIOQA-X1 R2).
+    case storedOrder
 }
 
 /// One line of the closed list: the keys it covers, its N9-V15 class and the decision row that admits it.
@@ -150,6 +155,17 @@ enum V15ParityList {
                 patterns: ["**.clumpingEstimatedInputBytes", "**.clumpingPhysicalMemoryBytes", "**.clumpingThresholdBytes"],
                 rule: .nullOnAdoptedNumberOnMac,
                 reason: "Null on the adopted record, since no decision of the plan used them, and the Mac host's value on the Mac."),
+        // BIOQA-X1 R1: the adopt's not-inferred platform values against the Mac's inferred ones.
+        V15Line(id: "V15-29", n9Class: 3, decision: "D7 C (BIOQA-c5 points 6 and 9), BIOQA-X1 R1",
+                patterns: ["envelope.options.explicit.platformConfidence", "envelope.options.explicit.platformEvidence",
+                           "envelope.options.resolvedDefaults.platformConfidence", "envelope.options.resolvedDefaults.platformEvidence",
+                           "sidecar.platformAssignment.confidence", "sidecar.platformAssignment.evidence",
+                           "sidecar.platformAssignment.sampledRecords"],
+                rule: .adoptedValueElseEqual([
+                    "platformConfidence": "\"none\"", "confidence": "\"none\"", "sampledRecords": "0",
+                    "platformEvidence": "[\"The returned folder holds no reads, so the platform was not inferred from them.\"]",
+                    "evidence": "[\"The returned folder holds no reads, so the platform was not inferred from them.\"]"]),
+                reason: "A returned folder holds no R1, so the adopt keeps the plan's given platform and states the inference as not run: confidence none, the one not-inferred sentence, 0 sampled records (D7 C). The Mac infers from 32 reads of R1. Platform, read class, source, vendor detail, detector version and contradiction stay compared. D7's plan-time inference row (C6) deletes this line."),
 
         // Class 4. Lines in which the Mac differs from itself.
         V15Line(id: "V15-14", n9Class: 4, decision: "XC-6 B, QA ruling 1",
@@ -228,6 +244,14 @@ enum V15ParityList {
                 patterns: ["report-file.checksumSHA256", "report-file.fileSize"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
                 reason: "The SHA-256 and size of each recipe step's report copy, a fastp JSON or a deacon summary under metadata/recipe-step-artifacts/: a report states its own run's command line and times, so two Mac runs of one input give different bytes (fastp#1 outputs[2] reads cd597e72 in V2.md:414 and 16d67680 in AMV1-fix-F1.md:80). Recorded on both routes and never compared. Each route's copy must hash to its record's digest and size, and the harness parses both copies and compares every value but the command line, the paths and the times (V15Reports). mac-determinism-c0.md does not measure it; it stands on the class as voted."),
+
+        // BIOQA-X1 R2: after V15-19 and V15-28, whose tagged patterns the walk must meet first for a payload or report file's checksum.
+        V15Line(id: "V15-30", n9Class: 5, decision: "XC-3 A as BIOQA-X1 R2 extends it",
+                patterns: ["envelope.steps[].outputs.*.checksumSHA256", "envelope.steps[].inputs.*.checksumSHA256",
+                           "sidecar.computedStatistics.readLengthHistogram", "sidecar.computedStatistics.qualityScoreHistogram",
+                           "sidecar.computedStatistics.perPositionQuality"],
+                rule: .storedOrder,
+                reason: "Above 1 clumpify group the stored order follows which of KmerSort3's two fetch threads finishes first; three galah imports of SRR24403534 at 13 groups gave three E4s. Only with E2 and E3 equal, E4 different and equal group counts: the checksum of an output of a launch above 1 group or of the writer's input, its size equal, and the three distributions drawn from the first 100,000 stored reads, with equal sampled counts. Every other key stays compared."),
     ]
 }
 

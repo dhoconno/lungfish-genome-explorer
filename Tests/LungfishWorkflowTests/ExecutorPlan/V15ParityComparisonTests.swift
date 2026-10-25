@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+@testable import LungfishWorkflow
 
 final class V15ParityComparisonTests: XCTestCase {
     private let project = "/var/folders/T/case/Project.lungfish"
@@ -212,5 +213,171 @@ final class V15ParityComparisonTests: XCTestCase {
         XCTAssertTrue(absent.allSatisfy { $0.why.contains("adopted") }, absent.description)
         XCTAssertFalse(findings(adopted("htslib", build: "h0000000_0")).isEmpty, "a build the lock does not pin names no entry")
         XCTAssertFalse(findings(adopted("htslib", source: "planPin")).isEmpty, "a plan pin is the plan's word, not what the node read")
+    }
+
+    /// BIOQA-X1 R1 (V15-29): a returned folder holds no R1, so the adopt keeps the plan's platform and states the inference as
+    /// not run (confidence none, the one not-inferred sentence, 0 sampled records) while the Mac infers it from 32 reads. The
+    /// seven keys of V15-29 pass in that one shape and print as PARITY-REPORTED, equal inferred values pass, any other adopted
+    /// value or a Mac without the key is one finding, and the keys beside them (source, platform, vendorDetail) stay compared.
+    func testAdoptedNotInferredPlatformIsTheOnlyPlatformDifference() {
+        typealias Records = (env: [String: Any], side: [String: Any])
+        let notInferred = "The returned folder holds no reads, so the platform was not inferred from them."
+        func typed(_ type: String, _ value: Any) -> [String: Any] { ["type": type, "value": value] }
+        func records(_ confidence: String?, _ evidence: [String], sampled: Int, source: String = "given",
+                     platform: String = "illumina", vendor: String? = nil) -> Records {
+            var options: [String: Any] = ["platformEvidence": typed("array", evidence.map { typed("string", $0) })]
+            var assignment: [String: Any] = ["platform": platform, "readClass": "illuminaShortReads", "source": source,
+                                             "evidence": evidence, "sampledRecords": sampled, "detectorVersion": 1]
+            if let confidence {
+                options["platformConfidence"] = typed("string", confidence)
+                assignment["confidence"] = confidence
+            }
+            if let vendor { assignment["vendorDetail"] = vendor }
+            return (["options": ["explicit": options, "resolvedDefaults": options]], ["platformAssignment": assignment])
+        }
+        func compare(_ adopted: Records, _ mac: Records) -> V15Comparison {
+            var comparison = V15Comparison(roots: [:], payloadFileNames: [])
+            comparison.walk(adopted.env, mac.env, path: ["envelope"])
+            comparison.walk(adopted.side, mac.side, path: ["sidecar"])
+            return comparison
+        }
+        let given = records("none", [notInferred], sampled: 0)
+        let highEvidence = ["Illumina read names (original names kept by ENA or SRA) in 32 of 32 sampled reads.",
+                            "Sampled reads are 151 bases long."]
+        let high = records("high", highEvidence, sampled: 32)
+        let low = records("low", ["The read headers match no known platform form (32 reads sampled).", "Sampled reads are 151 bases long.",
+                                  "Read names carry no instrument tag."], sampled: 32)
+
+        // 1. The adopt's not-inferred values against the Mac's inferred forms (S10): no finding, seven V15-29 lines each.
+        for (form, mac) in [("high, 2 evidence lines", high), ("low, 3 evidence lines", low)] {
+            let found = compare(given, mac)
+            XCTAssertEqual(found.findings.count, 0, "\(form): \(found.findings.count) findings: \(found.findings.map(\.key))")
+            XCTAssertEqual(found.reported.filter { $0.contains("line=V15-29") }.count, 7, "\(form): \(found.reported)")
+        }
+        let line = V15ParityList.lines.first { $0.id == "V15-29" }
+        XCTAssertEqual(line?.n9Class, 3, "V15-29 is a class 3 line")
+        XCTAssertEqual(line?.patterns.count, 7, "seven patterns cover the ten differing keys")
+
+        // 2. Equal inferred values pass.
+        XCTAssertEqual(compare(high, high).findings.map(\.key), [])
+
+        // 3. One V15-29 finding each.
+        let changed: [(String, Records, Records, String)] = [
+            ("adopted low", (given.env, records("low", [notInferred], sampled: 0).side), high, "sidecar.platformAssignment.confidence"),
+            ("a changed sentence", (given.env, records("none", ["The returned folder holds no reads."], sampled: 0).side), high,
+             "sidecar.platformAssignment.evidence"),
+            ("adopted sampledRecords 1", (given.env, records("none", [notInferred], sampled: 1).side), high,
+             "sidecar.platformAssignment.sampledRecords"),
+            ("a Mac without confidence", given, (high.env, records(nil, highEvidence, sampled: 32).side),
+             "sidecar.platformAssignment.confidence"),
+        ]
+        for (what, adopted, mac, key) in changed {
+            let found = compare(adopted, mac)
+            XCTAssertEqual(found.findings.map(\.key), [key], what)
+            XCTAssertTrue(found.findings.first?.why.contains("V15-29") == true, "\(what): \(found.findings)")
+        }
+
+        // 4. The keys beside them stay compared: one finding each, and none of them V15-29's.
+        let others: [(String, Records, Records, String)] = [
+            ("source given against inferred", given, records("high", highEvidence, sampled: 32, source: "inferred"),
+             "sidecar.platformAssignment.source"),
+            ("platform illumina against unknown", given, records("high", highEvidence, sampled: 32, platform: "unknown"),
+             "sidecar.platformAssignment.platform"),
+            ("vendorDetail absent against a PacBio detail", given, records("high", highEvidence, sampled: 32, vendor: "PacBio Revio"),
+             "sidecar.platformAssignment.vendorDetail"),
+        ]
+        for (what, adopted, mac, key) in others {
+            let found = compare(adopted, mac)
+            XCTAssertEqual(found.findings.map(\.key), [key], what)
+            XCTAssertFalse(found.findings.first?.why.contains("V15-29") == true, "\(what): \(found.findings)")
+        }
+    }
+
+    /// BIOQA-X1 R2 (V15-30): above 1 clumpify group the stored order can differ between two imports of one sample, so the checksum of
+    /// that launch's output and of the writer's input, the same two files in the run's files and outputs, and the three distributions
+    /// drawn from the first 100,000 stored reads print as PARITY-REPORTED. They do so only with E2 and E3 equal and E4 different (S1),
+    /// the same group count launch by launch with one above 1 (S2), an equal size beside each checksum (S3) and equal sampled counts
+    /// (S4). Every other key stays compared.
+    func testStoredOrderLinesPassOnlyAboveOneGroupWithEqualE2AndE3() {
+        struct Case {
+            var adoptedGroups = [13, 1], macGroups = [13, 1]
+            var e4Differs = true
+            var macClumpedSize = 448, macSampledExtra = 0, macReadCount = 1000
+            var adoptedUnpaired = "unpaired", macUnpaired = "unpaired"
+        }
+        let importTool = "lungfish import fastq"
+        func entry(_ role: String, _ name: String, _ digest: String, _ size: Int) -> [String: Any] {
+            ["role": role, "path": "split/" + name, "checksumSHA256": digest, "fileSize": size]
+        }
+        func records(adopted: Bool, _ c: Case) -> (envelope: [String: Any], steps: [[String: Any]], sidecar: [String: Any]) {
+            let prefix = adopted ? "A" : "M"
+            let groups = adopted ? c.adoptedGroups : c.macGroups
+            let clumped = entry("output", "pairs.clumped.fastq", adopted ? "pairs-a" : "pairs-m", adopted ? 448 : c.macClumpedSize)
+            let unpaired = entry("output", "unpaired.clumped.fastq", adopted ? c.adoptedUnpaired : c.macUnpaired, 257)
+            let combined = entry("input", "combined.fastq", adopted ? "combined-a" : "combined-m", 705)
+            func step(_ number: Int, _ tool: String, groups: Int? = nil, inputs: [[String: Any]] = [],
+                      outputs: [[String: Any]] = []) -> [String: Any] {
+                var object: [String: Any] = ["id": "\(prefix)\(number)", "toolName": tool, "toolVersion": "1.0",
+                                             "inputs": inputs, "outputs": outputs]
+                if number > 0 { object["parentStepID"] = "\(prefix)0" }
+                if let groups { object["resolvedOptions"] = ["clumpifyGroups": ["type": "integer", "value": groups]] }
+                if adopted { object["peakMemoryBytes"] = 1 }
+                if tool == "bgzip" {
+                    object["argv"] = ["/n/envs/htslib/bin/bgzip"]
+                    object["managedToolID"] = "htslib"
+                }
+                return object
+            }
+            var steps = [step(0, adopted ? ExecutorRunAdoption.executorToolName : importTool),
+                         step(1, "clumpify.sh", groups: groups[0], outputs: [clumped]),
+                         step(2, "clumpify.sh", groups: groups[1], outputs: [unpaired]),
+                         step(3, "bgzip", inputs: [combined])]
+            if adopted { steps.append(step(4, importTool)) }
+            let lengths: [String: Any] = adopted ? ["100": 60, "101": 40] : ["100": 55, "101": 45 + c.macSampledExtra]
+            let statistics: [String: Any] = [
+                "readCount": adopted ? 1000 : c.macReadCount, "readLengthHistogram": lengths,
+                "qualityScoreHistogram": [0, adopted ? 5 : 6, 13, 7],
+                "perPositionQuality": [["position": 0, "mean": adopted ? 35.3 : 35.2]],
+            ]
+            let envelope: [String: Any] = ["steps": steps, "files": [clumped, unpaired, combined], "outputs": [clumped, unpaired]]
+            return (envelope, steps, ["computedStatistics": statistics])
+        }
+        func run(_ change: (inout Case) -> Void = { _ in }) -> V15Comparison {
+            var c = Case()
+            change(&c)
+            let adopted = records(adopted: true, c), mac = records(adopted: false, c)
+            var comparison = V15Comparison(roots: [:], payloadFileNames: [])
+            comparison.storedOrder.e4Differs = c.e4Differs
+            comparison.compareEnvelopes(
+                adopted: adopted.envelope, mac: mac.envelope,
+                adoptedRoles: V15StepRoles.adopted(adopted.steps, executorToolName: ExecutorRunAdoption.executorToolName,
+                                                   adoptToolName: importTool, nodeKinds: []),
+                macRoles: V15StepRoles.mac(mac.steps, importToolName: importTool))
+            comparison.compareSidecars(adopted: adopted.sidecar, mac: mac.sidecar)
+            return comparison
+        }
+        func printed(_ comparison: V15Comparison) -> [String] { comparison.reported.filter { $0.contains("line=V15-30") } }
+
+        // S1 to S4 met: the step checksums, the files and outputs entries and the three distributions print, and nothing is a finding.
+        let met = run()
+        XCTAssertEqual(met.findings.map(\.key), [], met.findings.description)
+        XCTAssertEqual(printed(met).count, 8, printed(met).description)
+
+        let checksum = "envelope.steps[clumpify.sh#1].outputs[0].checksumSHA256"
+        let writer = "envelope.steps[bgzip#1].inputs[0].checksumSHA256"
+        let lengths = "sidecar.computedStatistics.readLengthHistogram.100"
+        func failing(_ what: String, expect keys: [String], printed count: Int, _ change: (inout Case) -> Void) {
+            let found = run(change)
+            let got = Set(found.findings.map(\.key))
+            for key in keys { XCTAssertTrue(got.contains(key), "\(what): no finding for \(key) in \(got.sorted())") }
+            XCTAssertEqual(printed(found).count, count, "\(what): \(printed(found))")
+        }
+        failing("1 and 1 groups", expect: [checksum, writer, lengths], printed: 0) { $0.adoptedGroups = [1, 1]; $0.macGroups = [1, 1] }
+        failing("equal E4", expect: [checksum, writer, lengths], printed: 0) { $0.e4Differs = false }
+        failing("13 against 11", expect: [checksum, writer, lengths], printed: 0) { $0.macGroups = [11, 1] }
+        failing("a changed size", expect: [checksum, "envelope.steps[clumpify.sh#1].outputs[0].fileSize"], printed: 5) { $0.macClumpedSize = 449 }
+        failing("unequal sampled counts", expect: ["sidecar.computedStatistics.readLengthHistogram.101"], printed: 5) { $0.macSampledExtra = 1 }
+        failing("a changed readCount", expect: ["sidecar.computedStatistics.readCount"], printed: 8) { $0.macReadCount = 1001 }
+        failing("a 1-group checksum", expect: ["envelope.steps[clumpify.sh#2].outputs[0].checksumSHA256"], printed: 8) { $0.macUnpaired = "other" }
     }
 }

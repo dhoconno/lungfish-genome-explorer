@@ -71,6 +71,8 @@ struct V15Comparison {
     var reported: [String] = []
     /// C4-4 D-2: the inputs of the adopted record's V15-S5 steps, the only unmatched `files` entries that pass.
     var adoptOnlyInputs: [V15AdoptOnlyInput] = []
+    /// BIOQA-X1 R2: V15-30's conditions S1 to S4. The hook sets `storedOrder.e4Differs` before `compareEnvelopes`.
+    var storedOrder = V15StoredOrder()
 
     init(roots: [V15Route: [String]], payloadFileNames: Set<String>) {
         self.roots = roots
@@ -198,6 +200,9 @@ struct V15Comparison {
         var macTop = mac
         adoptedTop.removeValue(forKey: "steps")
         macTop.removeValue(forKey: "steps")
+        // BIOQA-X1 R2: V15-30 reads S2 and S3 from the paired steps and sets its files and outputs entries aside before the walk.
+        readStoredOrder(adoptedRoles: adoptedRoles, macRoles: macRoles)
+        setStoredOrderEntriesAside(adopted: &adoptedTop, mac: &macTop)
         walk(adoptedTop, macTop, path: ["envelope"])
         let pairs = V15StepRoles.pair(adoptedRoles, macRoles)
         for pair in pairs {
@@ -328,11 +333,17 @@ struct V15Comparison {
 
     // MARK: The walk
 
-    mutating func walk(_ adopted: Any?, _ mac: Any?, path: [String], tag: String? = nil) {
+    mutating func walk(_ adopted: Any?, _ mac: Any?, path: [String], tag: String? = nil, siblings: V15Siblings? = nil) {
         if let line = Self.line(for: path, tag: tag) {
-            apply(line, adopted, mac, path: path)
+            apply(line, adopted, mac, path: path, siblings: siblings)
             return
         }
+        walkValues(adopted, mac, path: path)
+    }
+
+    /// The walk of a key no line names, and of a key whose line leaves it compared (V15-30): the values compare as they stand, and
+    /// objects and arrays compare member by member. `siblings` is the object that holds each member (BIOQA-X1 R2, S3 and S4).
+    mutating func walkValues(_ adopted: Any?, _ mac: Any?, path: [String]) {
         switch (adopted, mac) {
         case (nil, nil):
             return
@@ -342,7 +353,7 @@ struct V15Comparison {
         case let (a as [String: Any], m as [String: Any]):
             let fileTag = isPayloadFile(a) || isPayloadFile(m) ? "payload-file" : (isReportFile(a) || isReportFile(m) ? "report-file" : nil)
             for key in Set(a.keys).union(m.keys).sorted() {
-                walk(a[key], m[key], path: path + [key], tag: fileTag)
+                walk(a[key], m[key], path: path + [key], tag: fileTag, siblings: (a, m))
             }
         case let (a as [Any], m as [Any]):
             // C4-4 D-2: the run's files and outputs match by role and digest, never by index.
@@ -365,7 +376,7 @@ struct V15Comparison {
         }
     }
 
-    private mutating func apply(_ line: V15Line, _ typedAdopted: Any?, _ typedMac: Any?, path: [String]) {
+    private mutating func apply(_ line: V15Line, _ typedAdopted: Any?, _ typedMac: Any?, path: [String], siblings: V15Siblings? = nil) {
         let key = Self.joined(path)
         let adopted = Self.untyped(typedAdopted), mac = Self.untyped(typedMac)
         switch line.rule {
@@ -411,6 +422,10 @@ struct V15Comparison {
                 findings.append(V15Finding(key: key, adopted: Self.render(adopted), mac: Self.render(mac),
                                            why: "an id outside a paired step, which the list does not name"))
             }
+        case .adoptedValueElseEqual(let expected):
+            applyAdoptedValue(line, expected, typedAdopted, typedMac, path: path)
+        case .storedOrder:
+            applyStoredOrder(line, typedAdopted, typedMac, path: path, siblings: siblings)
         }
     }
 

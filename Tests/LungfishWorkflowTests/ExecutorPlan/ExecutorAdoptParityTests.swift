@@ -288,9 +288,11 @@ final class ExecutorAdoptParityTests: XCTestCase {
         guard macRow.isSuccess else {
             try ToolAvailability.skipOrFail("seqkit stats of the Mac bundle's payload exited \(macRow.exitCode): \(macRow.stderr)")
         }
-        let routes = Routes(name: sampleName, project: adoptedBundle.deletingLastPathComponent().deletingLastPathComponent(),
+        var routes = Routes(name: sampleName, project: adoptedBundle.deletingLastPathComponent().deletingLastPathComponent(),
                             macBundle: macBundle, adoptedBundle: adoptedBundle, returned: returned, plan: plan, record: record,
                             e4Equal: mac.e4 == adopted.e4, macStatisticsTable: macRow.stdout, sampleName: sampleName)
+        // BIOQA-X1 R2, S1: V15-30 may pass the lines that follow the stored order only when E2 and E3 are equal and E4 differs.
+        routes.storedOrderDiffers = mac.e2 == adopted.e2 && mac.e3 == adopted.e3 && mac.e4 != adopted.e4
         return (routes, (mac, adopted))
     }
 
@@ -309,6 +311,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let macStatisticsTable: String
         /// The sample, which names the payload and its sidecar in both bundles (lane X3-6: a bundle made outside the test).
         var sampleName = ExecutorPlanReplayParityTests.sampleName
+        /// BIOQA-X1 R2, S1: the hook found E2 and E3 equal and E4 different. False for the test's own runs.
+        var storedOrderDiffers = false
     }
 
     private func routes(_ parity: ExecutorPlanReplayParityTests.ParityCase) async throws -> Routes {
@@ -518,6 +522,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
         for problem in Self.routeNames(routes, adoptedEnvelope: adoptedEnvelope, macEnvelope: macEnvelope, into: &comparison) {
             comparison.findings.append(V15Finding(key: "names", adopted: "-", mac: "-", why: problem))
         }
+        // BIOQA-X1 R2, S1: set before `compareEnvelopes` reads S2 and S3 from the paired steps.
+        comparison.storedOrder.e4Differs = routes.storedOrderDiffers
         // QA Q4-13 (XC-1, integrity inside one route): every entry at a payload path carries that route's own payload digest.
         for (route, envelope) in [(V15Route.adopted, adoptedEnvelope), (.mac, macEnvelope)] {
             comparison.findings += V15Comparison.payloadIntegrityFindings(
