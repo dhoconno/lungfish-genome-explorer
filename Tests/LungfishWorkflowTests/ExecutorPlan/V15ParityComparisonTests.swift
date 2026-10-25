@@ -297,22 +297,32 @@ final class V15ParityComparisonTests: XCTestCase {
     /// that launch's output and of the writer's input, the same two files in the run's files and outputs, and the three distributions
     /// drawn from the first 100,000 stored reads print as PARITY-REPORTED. They do so only with E2 and E3 equal and E4 different (S1),
     /// the same group count launch by launch with one above 1 (S2), an equal size beside each checksum (S3) and equal sampled counts
-    /// (S4). Every other key stays compared.
+    /// (S4). Every other key stays compared, and so does a value that is no stored-order difference: a null checksum, an empty or
+    /// wrong-kind distribution (BIO 4, BIO 6) and any other key of an entry whose digest is excused (X1F review fixes 1 and 2).
     func testStoredOrderLinesPassOnlyAboveOneGroupWithEqualE2AndE3() {
         struct Case {
             var adoptedGroups = [13, 1], macGroups = [13, 1]
             var e4Differs = true
             var macClumpedSize = 448, macSampledExtra = 0, macReadCount = 1000
             var adoptedUnpaired = "unpaired", macUnpaired = "unpaired"
+            /// The Mac's pairs.clumped.fastq digest is a JSON null in the step, files and outputs entries.
+            var macClumpedDigestNull = false
+            /// The adopted qualityScoreHistogram is an empty list.
+            var adoptedQualityEmpty = false
+            /// The format of the Mac's pairs.clumped.fastq entry in the step, files and outputs.
+            var macFormat = "fastq"
         }
         let importTool = "lungfish import fastq"
-        func entry(_ role: String, _ name: String, _ digest: String, _ size: Int) -> [String: Any] {
-            ["role": role, "path": "split/" + name, "checksumSHA256": digest, "fileSize": size]
+        func entry(_ role: String, _ name: String, _ digest: Any, _ size: Int, format: String = "fastq") -> [String: Any] {
+            ["role": role, "path": "split/" + name, "checksumSHA256": digest, "fileSize": size, "format": format]
         }
         func records(adopted: Bool, _ c: Case) -> (envelope: [String: Any], steps: [[String: Any]], sidecar: [String: Any]) {
             let prefix = adopted ? "A" : "M"
             let groups = adopted ? c.adoptedGroups : c.macGroups
-            let clumped = entry("output", "pairs.clumped.fastq", adopted ? "pairs-a" : "pairs-m", adopted ? 448 : c.macClumpedSize)
+            var clumpedDigest: Any = adopted ? "pairs-a" : "pairs-m"
+            if !adopted, c.macClumpedDigestNull { clumpedDigest = NSNull() }
+            let clumped = entry("output", "pairs.clumped.fastq", clumpedDigest, adopted ? 448 : c.macClumpedSize,
+                                format: adopted ? "fastq" : c.macFormat)
             let unpaired = entry("output", "unpaired.clumped.fastq", adopted ? c.adoptedUnpaired : c.macUnpaired, 257)
             let combined = entry("input", "combined.fastq", adopted ? "combined-a" : "combined-m", 705)
             func step(_ number: Int, _ tool: String, groups: Int? = nil, inputs: [[String: Any]] = [],
@@ -336,7 +346,7 @@ final class V15ParityComparisonTests: XCTestCase {
             let lengths: [String: Any] = adopted ? ["100": 60, "101": 40] : ["100": 55, "101": 45 + c.macSampledExtra]
             let statistics: [String: Any] = [
                 "readCount": adopted ? 1000 : c.macReadCount, "readLengthHistogram": lengths,
-                "qualityScoreHistogram": [0, adopted ? 5 : 6, 13, 7],
+                "qualityScoreHistogram": adopted && c.adoptedQualityEmpty ? [Int]() : [0, adopted ? 5 : 6, 13, 7],
                 "perPositionQuality": [["position": 0, "mean": adopted ? 35.3 : 35.2]],
             ]
             let envelope: [String: Any] = ["steps": steps, "files": [clumped, unpaired, combined], "outputs": [clumped, unpaired]]
@@ -379,5 +389,19 @@ final class V15ParityComparisonTests: XCTestCase {
         failing("unequal sampled counts", expect: ["sidecar.computedStatistics.readLengthHistogram.101"], printed: 5) { $0.macSampledExtra = 1 }
         failing("a changed readCount", expect: ["sidecar.computedStatistics.readCount"], printed: 8) { $0.macReadCount = 1001 }
         failing("a 1-group checksum", expect: ["envelope.steps[clumpify.sh#2].outputs[0].checksumSHA256"], printed: 8) { $0.macUnpaired = "other" }
+
+        // A missing fact is no stored-order difference (X1F review fix 1; BIO 4, BIO 6): a null Mac checksum loses the step's line and
+        // the two entries' lines, an empty adopted distribution loses its own line, and each is a finding.
+        failing("a null Mac checksum", expect: [checksum], printed: 5) { $0.macClumpedDigestNull = true }
+        failing("an empty adopted qualityScoreHistogram", expect: ["sidecar.computedStatistics.qualityScoreHistogram"], printed: 7) {
+            $0.adoptedQualityEmpty = true
+        }
+
+        // The entries whose digest is excused keep every other key compared (X1F review fix 2): the digests still print, 8 lines, and a
+        // different format is a finding in the run's files and outputs as it is in the step.
+        failing("another key of an excused entry", expect: [
+            "envelope.files[output split/pairs.clumped.fastq].format", "envelope.outputs[output split/pairs.clumped.fastq].format",
+            "envelope.steps[clumpify.sh#1].outputs[0].format",
+        ], printed: 8) { $0.macFormat = "fasta" }
     }
 }

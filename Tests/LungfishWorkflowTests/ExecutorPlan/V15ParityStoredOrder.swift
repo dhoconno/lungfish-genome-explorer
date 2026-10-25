@@ -21,6 +21,9 @@ struct V15StoredOrder {
     static let sampleLimit = 100_000
     /// The label of the BBTools writer step, whose input follows the stored order.
     static let writerLabel = "bgzip#1"
+    /// The digest that stands for a stored-order pair's two real digests in the run's `files` and `outputs` entries, so `compareEntries`
+    /// pairs the two entries on role and digest and compares their other keys (X1F review fix 2).
+    static let excusedDigest = "stored-order"
     static let distributions: Set<String> = ["readLengthHistogram", "qualityScoreHistogram", "perPositionQuality"]
 
     /// S1.
@@ -42,11 +45,14 @@ struct V15StoredOrder {
         if path.count == 5, path[0] == "envelope", path[1].hasPrefix("steps["), path[1].hasSuffix("]"), path[4] == "checksumSHA256" {
             let label = String(path[1].dropFirst("steps[".count).dropLast())
             let listed = path[2] == "outputs" ? (groups[label] ?? 0) > 1 : (path[2] == "inputs" && label == Self.writerLabel)
-            guard listed, let size = siblings.adopted["fileSize"] else { return false }
-            return V15Comparison.equal(size, siblings.mac["fileSize"])
+            // A null, a missing value or another JSON kind is a lost fact, never an order difference: both digests are strings and
+            // both sizes numbers (X1F review fix 1; BIO 4, BIO 6).
+            guard listed, adopted is String, mac is String, let size = siblings.adopted["fileSize"] as? NSNumber,
+                  let other = siblings.mac["fileSize"] as? NSNumber else { return false }
+            return V15Comparison.equal(size, other)
         }
         if path.count == 3, path[0] == "sidecar", path[1] == "computedStatistics", Self.distributions.contains(path[2]) {
-            guard let sampled = Self.sampledReads(siblings.adopted) else { return false }
+            guard let sampled = Self.sampledReads(siblings.adopted), Self.sameKind(path[2], adopted, mac) else { return false }
             return sampled == Self.sampledReads(siblings.mac)
         }
         return false
@@ -60,6 +66,13 @@ struct V15StoredOrder {
         guard counts.count == histogram.count else { return nil }
         let total = counts.reduce(0, +)
         return (1...sampleLimit).contains(total) ? total : nil
+    }
+
+    /// Present on both routes in one JSON kind; a null, an empty list or another kind compares as an unlisted key.
+    static func sameKind(_ name: String, _ adopted: Any?, _ mac: Any?) -> Bool {
+        if name == "readLengthHistogram" { return adopted is [String: Any] && mac is [String: Any] }
+        guard let a = adopted as? [Any], let m = mac as? [Any] else { return false }
+        return !a.isEmpty && !m.isEmpty
     }
 }
 
@@ -140,9 +153,11 @@ extension V15Comparison {
         return storedOrder.entries[route]?.contains(V15StoredOrder.entryKey(role: role, path: path)) == true ? "[\(role) \(path)]" : nil
     }
 
-    /// S3 for the run's `files` and `outputs`: an adopted entry and a Mac entry of one listed role and path, with different digests and
-    /// an equal `fileSize`, print as PARITY-REPORTED and leave both lists, so `compareEntries` pairs the rest as before. They go first,
-    /// since `compareEntries` reports a pair of one role and path with two digests as a finding (C4-4 D-2).
+    /// S3 for the run's `files` and `outputs`: an adopted entry and a Mac entry of one listed role and path, with different digests (both
+    /// strings) and an equal `fileSize` (both numbers), print as PARITY-REPORTED with their real digests. Both entries stay in their lists
+    /// with one placeholder digest (`excusedDigest`), so `compareEntries` pairs them on role and that digest and walks every other key
+    /// (`format` and the rest) as it does for any pair. This goes first, since `compareEntries` reports a pair of one role and path with
+    /// two digests as a finding (C4-4 D-2).
     mutating func setStoredOrderEntriesAside(adopted: inout [String: Any], mac: inout [String: Any]) {
         guard storedOrder.holds else { return }
         for list in ["files", "outputs"] {
@@ -153,7 +168,9 @@ extension V15Comparison {
             for ai in a.indices {
                 guard let name = adoptedNames[ai], a[ai]["fileSize"] != nil else { continue }
                 for mi in m.indices where !taken.contains(mi) && macNames[mi] == name {
-                    guard a[ai]["checksumSHA256"] as? String != m[mi]["checksumSHA256"] as? String,
+                    guard a[ai]["checksumSHA256"] is String, m[mi]["checksumSHA256"] is String,
+                          a[ai]["checksumSHA256"] as? String != m[mi]["checksumSHA256"] as? String,
+                          a[ai]["fileSize"] is NSNumber, m[mi]["fileSize"] is NSNumber,
                           Self.equal(a[ai]["fileSize"], m[mi]["fileSize"]) else { continue }
                     taken.insert(mi)
                     pairs.append((ai, mi))
@@ -164,8 +181,10 @@ extension V15Comparison {
                 reported.append("PARITY-REPORTED line=V15-30 key=\(Self.joined(["envelope", list, adoptedNames[pair.adopted] ?? ""])) "
                                 + "adopted=\(Self.describe(a[pair.adopted])) mac=\(Self.describe(m[pair.mac]))")
             }
-            for index in pairs.map(\.adopted).sorted(by: >) { a.remove(at: index) }
-            for index in pairs.map(\.mac).sorted(by: >) { m.remove(at: index) }
+            for pair in pairs {
+                a[pair.adopted]["checksumSHA256"] = V15StoredOrder.excusedDigest
+                m[pair.mac]["checksumSHA256"] = V15StoredOrder.excusedDigest
+            }
             adopted[list] = a
             mac[list] = m
         }
