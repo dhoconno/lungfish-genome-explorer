@@ -22,12 +22,29 @@ public struct ExecutorAdoptPolicy: Sendable, Equatable {
 /// Why the adopt refused a plan folder, naming the file or record field. Every refusal comes before any bundle file
 /// exists (C4 design section 2).
 public struct ExecutorAdoptRefusal: Error, Equatable, Sendable, LocalizedError {
+    /// What a job left out of its returned folder, when a refusal is that a file the job writes is missing (UX-c5 point 7):
+    /// the run record, so the job returned nothing, or the payload, so it returned no reads.
+    package enum Gap: Sendable, Equatable {
+        case nothing
+        case reads
+    }
+
     public let field: String
+    /// The one-folder adopt's sentence, which ends "Nothing was imported." (byte-equal since C4).
     public let reason: String
+    /// The reason before that closing sentence, which a batch adopt's line for the sample takes (UX-c5 point 7).
+    package let cause: String
+    package let gap: Gap?
 
     public init(field: String, reason: String) {
+        self.init(field: field, reason: reason, cause: reason, gap: nil)
+    }
+
+    init(field: String, reason: String, cause: String, gap: Gap?) {
         self.field = field
         self.reason = reason
+        self.cause = cause
+        self.gap = gap
     }
 
     public var errorDescription: String? { reason }
@@ -212,7 +229,9 @@ public enum ExecutorRunAdoption {
         do {
             url = try resolver.verify(PlanEntry(role: .input, relativePath: path, sha256: payload.sha256, size: payload.size))
         } catch let error as PlanResourceRefusal {
-            throw refusal("payloads[0]", payloadSentence(error, path: path))
+            let gap: ExecutorAdoptRefusal.Gap?
+            if case .missing = error { gap = .reads } else { gap = nil }
+            throw refusal("payloads[0]", payloadSentence(error, path: path), gap: gap)
         } catch {
             throw refusal("payloads[0]", "The payload \(path) cannot be read. \(error.localizedDescription)")
         }
@@ -256,7 +275,7 @@ public enum ExecutorRunAdoption {
     static func read(_ name: String, in resolver: PlanResourceResolver, limit: Int) throws(ExecutorAdoptRefusal) -> Data {
         let path = resolver.workRoot + "/" + name
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
-            throw refusal(name, "The folder holds no \(name).")
+            throw refusal(name, "The folder holds no \(name).", gap: name == ExecutorRunRecord.fileName ? .nothing : nil)
         }
         guard attributes[.type] as? FileAttributeType == .typeRegular else {
             throw refusal(name, "\(name) is not a regular file.")
@@ -270,7 +289,7 @@ public enum ExecutorRunAdoption {
         return data
     }
 
-    static func refusal(_ field: String, _ reason: String) -> ExecutorAdoptRefusal {
-        ExecutorAdoptRefusal(field: field, reason: "\(reason) Nothing was imported.")
+    static func refusal(_ field: String, _ reason: String, gap: ExecutorAdoptRefusal.Gap? = nil) -> ExecutorAdoptRefusal {
+        ExecutorAdoptRefusal(field: field, reason: "\(reason) Nothing was imported.", cause: reason, gap: gap)
     }
 }

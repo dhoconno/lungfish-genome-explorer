@@ -18,8 +18,10 @@ struct ImportFastqAdoptOptions: ParsableArguments {
             "Adopt a plan folder that a Linux run of lungfish-executor returned, as one bundle",
             discussion: """
             The one input names the returned plan folder, which holds plan.json, run-record.json and the run's \
-            output. The plan fixed every setting, so no setting option is taken with --adopt. --name, --dry-run, \
-            --force and --format json keep their meaning.
+            output, or a returned batch folder, which holds one such folder a sample as <sample>/result/ or \
+            <sample>/. A batch is adopted whole: when any sample is refused, nothing is imported and each refusal is \
+            listed. The plan fixed every setting, so no setting option is taken with --adopt. --name (one folder \
+            only), --dry-run, --force and --format json keep their meaning.
             """
         )
     )
@@ -64,8 +66,10 @@ extension ImportCommand.FastqSubcommand {
         return nil
     }
 
-    /// The adopt: each refusal before any bundle file, then one bundle, with the import's events under `--format json`.
-    func runAdopt() async throws {
+    /// The adopt: each refusal before any bundle file, then one bundle, with the import's events under `--format json`. A
+    /// folder with no `plan.json` and a sample folder is a returned batch, adopted whole or not at all (`runBatchAdopt`).
+    /// `batchObserver` sees each step of a batch after the command reported it, so a test can stop the run at a sample.
+    func runAdopt(batchObserver: (@Sendable (ExecutorBatchAdoptProgress) -> Void)? = nil) async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         // Landing 3: the F2 fixes made `project` optional, since `validate()` lets `--write-plan` run without one, and the
         // adopt writes its bundle into a project, so it names the same missing option the command's own run does.
@@ -79,6 +83,11 @@ extension ImportCommand.FastqSubcommand {
             throw reporter.fail("Missing expected argument '--project <project>'", exitCode: .inputError)
         }
         let folder = URL(fileURLWithPath: input[0])
+        if ExecutorRunAdoption.isReturnedBatchFolder(folder) {
+            return try await runBatchAdopt(
+                folder, projectDirectory: projectDirectory, reporter: reporter, formatter: formatter, observer: batchObserver
+            )
+        }
         do {
             if dryRun {
                 let sample = try ExecutorRunAdoption.dryRun(
@@ -115,5 +124,85 @@ extension ImportCommand.FastqSubcommand {
         } catch {
             throw reporter.fail("The adopt failed. \(error.localizedDescription)", exitCode: .workflowError)
         }
+    }
+
+    /// D2 a and UX-c5 point 7: a returned batch's every sample, or none. Each step is text and a `progress` event; all
+    /// adopted ends `complete` with each bundle, and a refusal, a write failure or a cancel ends `failed` with the words of
+    /// `ExecutorBatchAdoptError` and the exit code of its class.
+    private func runBatchAdopt(
+        _ folder: URL, projectDirectory: URL, reporter: ImportFastqReporter, formatter: TerminalFormatter,
+        observer: (@Sendable (ExecutorBatchAdoptProgress) -> Void)?
+    ) async throws {
+        guard name == nil else {
+            throw reporter.fail(
+                "--name cannot be used with a batch folder, because each sample takes the name its sample sheet gives it.",
+                exitCode: .inputError
+            )
+        }
+        let started = Date()
+        let progressEvents = CLIEventEmitter(enabled: reporter.eventsOn) { printEventLine($0) }
+        let progress: @Sendable (ExecutorBatchAdoptProgress) -> Void = { step in
+            reporter.text(step.message)
+            progressEvents.emitProgress(step.fraction, message: step.message)
+            if case let .adopted(sample, _, _, bundle) = step {
+                reporter.log(.sampleComplete(
+                    sample: sample, bundle: bundle.lastPathComponent, durationSeconds: 0, originalBytes: 0, finalBytes: 0
+                ))
+            }
+            observer?(step)
+        }
+        do {
+            if dryRun {
+                let samples = try ExecutorRunAdoption.dryRunBatch(batchFolder: folder, projectDirectory: projectDirectory, force: force)
+                reporter.text(
+                    "\(ExecutorRunAdoption.samplesPhrase(samples.count)) passed every check and would be adopted as "
+                        + "\(samples.joined(separator: ", "))."
+                )
+                reporter.complete(message: "Dry-run mode — no files were imported.")
+                return
+            }
+            let (adoptForce, eventsOn) = (force, reporter.eventsOn)
+            let outcome = await runCancellingOnSIGTERM {
+                try await ExecutorRunAdoption.adoptBatch(
+                    batchFolder: folder, projectDirectory: projectDirectory, force: adoptForce, eventsOn: eventsOn,
+                    progress: progress
+                )
+            }
+            let bundles = try outcome.get()
+            Self.printAdoptSummary(reporter, formatter, adopted: bundles.count, notAdopted: 0, started: started)
+            reporter.complete(message: "Adopted \(ExecutorRunAdoption.samplesPhrase(bundles.count))")
+        } catch let error as ExecutorBatchAdoptError {
+            let exitCode: CLIExitCode
+            switch error {
+            case let .refused(refusals, count):
+                reporter.text("")
+                reporter.text(formatter.warning("Refused samples:"))
+                for refusal in refusals { reporter.text(formatter.error("  \(refusal.line)")) }
+                Self.printAdoptSummary(reporter, formatter, adopted: 0, notAdopted: count, started: started)
+                exitCode = .inputError
+            case .notABatch: exitCode = .inputError
+            case .writeFailed: exitCode = .workflowError
+            case .cancelled: exitCode = .cancelled
+            }
+            throw reporter.fail(error.message, detail: error.detail, exitCode: exitCode)
+        } catch is CancellationError {
+            throw reporter.fail("Adopt cancelled. Nothing was imported.", detail: nil, exitCode: .cancelled)
+        } catch {
+            throw reporter.fail("The adopt failed. \(error.localizedDescription)", exitCode: .workflowError)
+        }
+    }
+
+    /// `Adopt Summary`, text only, in the import's table (IFC:179-187); it never reaches an event.
+    private static func printAdoptSummary(
+        _ reporter: ImportFastqReporter, _ formatter: TerminalFormatter, adopted: Int, notAdopted: Int, started: Date
+    ) {
+        reporter.text("")
+        reporter.text(formatter.header("Adopt Summary"))
+        reporter.text("")
+        reporter.text(formatter.keyValueTable([
+            ("Adopted", "\(adopted)"),
+            ("Not adopted", "\(notAdopted)"),
+            ("Duration", String(format: "%.1fs", Date().timeIntervalSince(started))),
+        ]))
     }
 }

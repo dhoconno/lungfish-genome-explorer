@@ -509,7 +509,7 @@ extension ExecutorRunAdoption {
         guard used == recorded.count else {
             throw refusal(
                 "steps",
-                "The run record holds recipe steps that this build's plan of recipe \(recipe.id) does not hold. Nothing was imported."
+                "The run record holds recipe steps that this build's plan of recipe \(recipe.id) does not hold."
             )
         }
     }
