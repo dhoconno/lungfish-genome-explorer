@@ -51,8 +51,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
         help: ArgumentHelp(
             "The image.json of the container image the jobs run in, which states the image's file name, SHA-256 and "
                 + "size and its tool manifest's SHA-256 and size",
-            discussion: "Optional with --write-plan. The app holds an image record and the plan uses it. Name the one "
-                + "written when you built another image to use that one instead.",
+            discussion: "Optional with --write-plan. The app holds an image record and the plan uses it. Name the "
+                + "image.json of another image to use that one instead.",
             valueName: "file"
         )
     )
@@ -121,19 +121,22 @@ struct ImportFastqPlanDefaults {
 
     /// UX-XC26's sentence for a build with no executor, with the option that names one.
     static let noExecutorSentence = "This build of Lungfish has no Linux executor, so it cannot write a plan for a run on another machine. Release builds include it. Pass --executor-manifest to name the manifest of one you built."
-    static let noImageSentence = "This build of Lungfish holds no image record, so pass --image and --image-tool-manifest to name the files written when the image was built."
+    static let noImageSentence = "This build of Lungfish holds no image record, so pass --image to name an image.json and --image-tool-manifest to name the image's image-manifest.json."
 
-    /// The executor and image of the running app. The executor counts only with its file beside the manifest.
-    static func bundled() -> ImportFastqPlanDefaults {
+    /// The executor and image of the running app. The executor counts only with its file beside the manifest. `locate`
+    /// finds a resource by its path below a resource root, and a test gives it a folder of its own.
+    static func bundled(
+        locate: (String, RuntimeResourceTarget) -> URL? = { RuntimeResourceLocator.path($0, in: $1) }
+    ) -> ImportFastqPlanDefaults {
         var executor: URL?
-        if let manifest = RuntimeResourceLocator.path("LinuxExecutor/x86_64/manifest.json", in: .app) {
+        if let manifest = locate("LinuxExecutor/x86_64/manifest.json", .app) {
             let file = manifest.deletingLastPathComponent().appendingPathComponent(ExecutorPlanExecutorManifest.executorFileName)
             if FileManager.default.isReadableFile(atPath: file.path) { executor = manifest }
         }
         return ImportFastqPlanDefaults(
             executorManifest: executor,
-            image: RuntimeResourceLocator.path("CHTCImage/image.json", in: .workflow),
-            imageToolManifest: RuntimeResourceLocator.path("CHTCImage/image-manifest.json", in: .workflow)
+            image: locate("CHTCImage/image.json", .workflow),
+            imageToolManifest: locate("CHTCImage/image-manifest.json", .workflow)
         )
     }
 }

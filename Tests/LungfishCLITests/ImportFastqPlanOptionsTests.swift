@@ -325,10 +325,14 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         for stale in ["holds no Linux executor yet", "holds no image record yet"] {
             XCTAssertFalse(help.contains(stale), "\(stale) is false, since the app holds both: \(help)")
         }
+        // FC-CMD H3b. An image build writes lge-tools.sif and image-manifest.json and no image.json, so the help names the
+        // image.json of another image and not "the one written when you built" it.
+        XCTAssertFalse(help.contains("written when you built another image"), help)
         for words in [
             "Write a plan folder for a run on a Linux machine to this new folder in place of importing",
             "The absolute path of the folder on the Linux machine that the jobs read the image, the executor and the reads from",
             "The app holds a Linux executor", "The app holds an image record", "an optional request_disk column",
+            "Name the image.json of another image to use that one instead.",
         ] {
             XCTAssertTrue(help.contains(words), "The help lacks \(words): \(help)")
         }
@@ -427,7 +431,55 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
         let noImage = ImportFastqPlanDefaults(executorManifest: fixture.executorManifest, image: nil, imageToolManifest: nil)
         XCTAssertThrowsError(try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: noImage)) { error in
-            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish holds no image record, so pass --image and --image-tool-manifest to name the files written when the image was built.")
+            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish holds no image record, so pass --image to name an image.json and --image-tool-manifest to name the image's image-manifest.json.")
+        }
+    }
+
+    /// Review of lane CMD, fix 4. A lab member names no executor, so the plan takes the app's own through
+    /// `ImportFastqPlanDefaults.bundled()`. The executor counts only with its file beside the manifest: a manifest alone
+    /// gives no executor and the plan refuses in UX-XC26's sentence, and with the file beside it the manifest is the
+    /// default. The image record and its tool manifest are the files of `CHTCImage/` in the resource root. A test run
+    /// holds no packaged app, so the packaged app's own lookup is a row of the owner list.
+    func testBundledDefaultsNeedTheExecutorBesideTheManifest() throws {
+        let resources = root.appendingPathComponent("resources", isDirectory: true)
+        let executorFolder = resources.appendingPathComponent("LinuxExecutor/x86_64", isDirectory: true)
+        let imageFolder = resources.appendingPathComponent("CHTCImage", isDirectory: true)
+        for folder in [executorFolder, imageFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let manifest = executorFolder.appendingPathComponent("manifest.json")
+        let image = imageFolder.appendingPathComponent("image.json")
+        let toolManifest = imageFolder.appendingPathComponent("image-manifest.json")
+        for file in [manifest, image, toolManifest] { try Data("{}".utf8).write(to: file) }
+        let locate: (String, RuntimeResourceTarget) -> URL? = { path, _ in
+            let url = resources.appendingPathComponent(path)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        let bare = try ImportCommand.FastqSubcommand.parse(["--write-plan", "/plans/batch", "--staging-folder", Fixture.stagingFolder])
+
+        let manifestOnly = ImportFastqPlanDefaults.bundled(locate: locate)
+        XCTAssertNil(manifestOnly.executorManifest, "a manifest with no lungfish-executor beside it is not an executor")
+        XCTAssertEqual(manifestOnly.image?.path, image.path)
+        XCTAssertEqual(manifestOnly.imageToolManifest?.path, toolManifest.path)
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: manifestOnly)) { error in
+            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish has no Linux executor, so it cannot write a plan for a run on another machine. Release builds include it. Pass --executor-manifest to name the manifest of one you built.")
+        }
+
+        try Data("executor stand-in".utf8).write(to: executorFolder.appendingPathComponent("lungfish-executor"))
+        let complete = ImportFastqPlanDefaults.bundled(locate: locate)
+        XCTAssertEqual(complete.executorManifest?.path, manifest.path)
+        XCTAssertEqual(complete.image?.path, image.path)
+        XCTAssertEqual(complete.imageToolManifest?.path, toolManifest.path)
+        let files = try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: complete)
+        XCTAssertEqual([files.executorManifest, files.image, files.imageToolManifest], [manifest.path, image.path, toolManifest.path])
+
+        // A resource root with no image folder holds no image record, and the plan refuses in the sentence that names both options.
+        let noImage = ImportFastqPlanDefaults.bundled(locate: { path, target in path.hasPrefix("CHTCImage/") ? nil : locate(path, target) })
+        XCTAssertEqual(noImage.executorManifest?.path, manifest.path)
+        XCTAssertNil(noImage.image)
+        XCTAssertNil(noImage.imageToolManifest)
+        XCTAssertThrowsError(try ImportCommand.FastqSubcommand.planFiles(options: bare.planOptions, defaults: noImage)) { error in
+            XCTAssertEqual((error as? ImportFastqPlanRefusal)?.message, "This build of Lungfish holds no image record, so pass --image to name an image.json and --image-tool-manifest to name the image's image-manifest.json.")
         }
     }
 
