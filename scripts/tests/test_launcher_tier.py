@@ -3,7 +3,8 @@
 
 The Docker run itself is a tier record, not a test. These tests run the script with a stand-in `docker` on PATH that
 writes down each call and fails, and read the exit code, the messages, what the script printed and whether it called
-Docker or wrote a record.
+Docker or wrote a record. The tests of `run` that go past its refusals put a stand-in run-local.sh in a batch folder and
+swap the stand-in `docker` for one that accepts every call, then read the record the script writes.
 """
 
 from __future__ import annotations
@@ -25,6 +26,13 @@ PINS = json.loads((ROOT / "Sources/LungfishWorkflow/Resources/CHTCImage/image.js
 DEFFILE, PARTITION = 0x4001, 0x4004
 SQUASHFS, EXT3 = 1, 2
 SYSTEM, DATA = 2, 4
+
+# The plan of the stand-in batch pins this executor. The refusal is the sentence that Sources/LungfishExecutor/RunCommand.swift
+# (lines 215 and 216) writes when the running executor is not the pinned one.
+PLAN_EXECUTOR = {"sha256": "aa", "size": 3}
+REFUSAL = (
+    "The running executor has SHA-256 aa and 3 bytes, and the plan's executor entry pins bb and 3 bytes. No tool ran."
+)
 
 
 def sif_bytes(descriptors: list[tuple[int, int, int, bool]]) -> bytes:
@@ -148,6 +156,90 @@ class LauncherTierArgumentTests(unittest.TestCase):
             "run", "--batch", str(batch), "--data", str(self.tmp), "--image", "x", "--record", str(self.record), "--label", "probe"
         )
         self.assert_refused_before_docker(result, 2, f"The batch folder {batch} holds no run-local.sh.")
+
+    def write_batch(self, launcher: str) -> Path:
+        """A batch folder with the one sample `probe`. Its plan pins PLAN_EXECUTOR and `launcher` is the body of its
+        run-local.sh, which runs from inside the batch folder. The data folder and the folder of self.record exist, and
+        docker now answers every call with success, so `run` gets past `docker image inspect`."""
+        batch = self.tmp / "batch"
+        (batch / "probe").mkdir(parents=True)
+        (self.tmp / "data").mkdir()
+        self.record.parent.mkdir()
+        (batch / "run-local.sh").write_text(launcher)
+        (batch / "jobs.tsv").write_text("# sample\ttar\tsha256\nprobe\tprobe.tar\t0\n")
+        (batch / "probe" / "plan.json").write_text(json.dumps({"entries": [{"role": "executor", **PLAN_EXECUTOR}]}))
+        (self.tmp / "bin" / "docker").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TIER_CALLS"\nexit 0\n')
+        return batch
+
+    def launcher_writing_a_record(self, sha256: str, exit_code: int = 0) -> str:
+        """A run-local.sh body that leaves the record of a succeeded run holding the executor `sha256` and 3 bytes."""
+        record = json.dumps({"outcome": "succeeded", "exitCode": 0, "executor": {"sha256": sha256, "size": 3}})
+        return f"mkdir -p probe/result\nprintf '%s\\n' '{record}' > probe/result/run-record.json\nexit {exit_code}\n"
+
+    def run_batch(self, batch: Path, record: Path | None = None) -> subprocess.CompletedProcess[str]:
+        return self.run_tier(
+            "run", "--batch", str(batch), "--data", str(self.tmp / "data"), "--image", "x",
+            "--record", str(record or self.record), "--label", "probe",
+        )
+
+    def probe_row(self, record: Path | None = None) -> dict:
+        return json.loads((record or self.record).read_text())["runs"]["probe"]
+
+    def test_run_records_a_pass_when_the_launcher_and_the_self_check_agree(self) -> None:
+        result = self.run_batch(self.write_batch(self.launcher_writing_a_record("aa")))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        row = self.probe_row()
+        self.assertTrue(row["passed"])
+        self.assertEqual(row["launcherExit"], 0)
+        self.assertFalse(row["overSixtyMinutes"])
+        sample = row["samples"][0]
+        self.assertTrue(sample["selfCheckEqualsPlan"])
+        self.assertIsNone(sample["refusal"])
+
+    def test_run_records_no_pass_when_the_self_check_differs(self) -> None:
+        result = self.run_batch(self.write_batch(self.launcher_writing_a_record("bb")))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        row = self.probe_row()
+        self.assertFalse(row["passed"])
+        self.assertEqual(row["launcherExit"], 0)
+        self.assertFalse(row["samples"][0]["selfCheckEqualsPlan"])
+
+    def test_run_records_no_pass_when_the_launcher_exits_non_zero_after_a_matching_record(self) -> None:
+        result = self.run_batch(self.write_batch(self.launcher_writing_a_record("aa", exit_code=3)))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        row = self.probe_row()
+        self.assertFalse(row["passed"])
+        self.assertEqual(row["launcherExit"], 3)
+        self.assertTrue(row["samples"][0]["selfCheckEqualsPlan"])
+
+    def test_run_records_the_refusal_sentence_of_a_launcher_that_returned_no_record(self) -> None:
+        launcher = f"mkdir -p logs\ncat > logs/probe.err <<'END'\nstarted\n  {REFUSAL}  \nEND\nexit 1\n"
+        result = self.run_batch(self.write_batch(launcher))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        row = self.probe_row()
+        sample = row["samples"][0]
+        self.assertEqual(sample["runRecord"], "absent")
+        self.assertEqual(sample["refusal"], REFUSAL)
+        self.assertEqual(row["launcherExit"], 1)
+        self.assertFalse(row["passed"])
+
+    def test_run_refuses_a_sample_that_already_holds_a_result_before_docker(self) -> None:
+        # run-local.sh skips a sample whose result/ exists and still exits 0, so a pass would describe an earlier run.
+        batch = self.write_batch("touch ran\n")
+        (batch / "probe" / "result").mkdir()
+        (batch / "probe" / "result" / "run-record.json").write_text(
+            json.dumps({"outcome": "succeeded", "exitCode": 0, "executor": PLAN_EXECUTOR})
+        )
+        result = self.run_batch(batch)
+        self.assert_refused_before_docker(result, 2, "The sample probe already holds")
+        self.assertFalse((batch / "ran").exists(), "the launcher ran over a finished sample")
+
+    def test_run_writes_its_record_into_a_folder_that_does_not_exist_yet(self) -> None:
+        # The run can take an hour, so a record folder that is missing must not cost the run its record.
+        record = self.tmp / "new" / "tier" / "record.json"
+        result = self.run_batch(self.write_batch(self.launcher_writing_a_record("aa")), record)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.probe_row(record)["passed"])
 
 
 if __name__ == "__main__":

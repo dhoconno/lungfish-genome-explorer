@@ -20,7 +20,9 @@
 #              plan's executor entry), the steps that did not succeed and the executor's refusal sentence from
 #              logs/<sample>.err. The run passes only when the launcher exits 0, each record exits 0 and each self-check
 #              equals the plan's pin (BIOQA-c5 point 5). A run past 60 minutes is a stop (D6). Emulated wall time never
-#              sizes a request on any pool.
+#              sizes a request on any pool. A sample of jobs.tsv that already holds result/ is refused, since
+#              run-local.sh skips it and exits 0 and the record would describe an earlier run. The record's folder
+#              is made before the launcher starts.
 #   partition  Prints the byte offset and length of the SIF's squashfs system partition.
 #
 # Exit codes: 0 done (run: passed), 1 run ended and did not pass, 2 refused before any container ran, 64 usage.
@@ -206,6 +208,16 @@ run_step() {
   [ -f "$batch/run-local.sh" ] || refuse "The batch folder $batch holds no run-local.sh."
   [ -f "$batch/jobs.tsv" ] || refuse "The batch folder $batch holds no jobs.tsv."
   [ -d "$data" ] || refuse "There is no data folder $data."
+  # run-local.sh skips a sample whose result/ exists and still exits 0, so a pass would describe an earlier run.
+  local first rest tab
+  tab=$(printf '\t')
+  while IFS=$tab read -r first rest; do
+    case $first in "" | "#"*) continue ;; esac
+    [ ! -e "$batch/$first/result" ] ||
+      refuse "The sample $first already holds $batch/$first/result/, which run-local.sh skips, so this record would describe an earlier run. Delete that folder or run a fresh copy of the batch."
+  done < "$batch/jobs.tsv"
+  # The run can take an hour, so make the record's folder before it and not after it.
+  mkdir -p "$(dirname "$record")"
   docker image inspect "$image" >/dev/null 2>&1 || refuse "Docker has no image $image."
   local started status=0
   started=$(date +%s)
