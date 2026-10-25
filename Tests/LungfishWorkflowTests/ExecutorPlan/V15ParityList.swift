@@ -221,7 +221,7 @@ enum V15ParityList {
         V15Line(id: "V15-27", n9Class: 1, decision: "XC-4 B, C4-3 C-4 (a)",
                 patterns: ["envelope.steps[bgzip#1].managedToolID"],
                 rule: .notCompared(mustCarry: [.adopted, .mac]),
-                reason: "BBTools takes the first bgzip on its PATH (PortableStorageStep+WriterProbe.swift:7-8), so the environment a writer comes from is a fact of each route's path: bbtools on the node, htslib on the Mac. A route-shaped line for the writer step bgzip#1 only: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
+                reason: "BBTools takes the first bgzip on its PATH (PortableStorageStep+WriterProbe.swift:7-8), so the environment a writer comes from is a fact of each route's path: bbtools on a node that runs from conda envs/ folders, htslib from the linux-64 lock on the CHTC image, htslib on the Mac. A route-shaped line for the writer step bgzip#1 only: carried on both routes and not compared, and each route's value must be the envs/<id>/ folder of that step's own program or, for a tool whose version the node read from the image manifest, the linux-64 lock entry that lists it and pins its version and build. The version is compared, and the node refuses a writer whose version is not the plan's pin."),
 
         // C4-4 D-4: the recipe reports' own bytes state their run's command line and times, so two Mac runs differ too.
         V15Line(id: "V15-28", n9Class: 4, decision: "XC-6 B as amended by C4-4 D-4, QA ruling 1",

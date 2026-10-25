@@ -179,4 +179,38 @@ final class V15ParityComparisonTests: XCTestCase {
         let noRow = V15Statistics.compareTables(standardOutput: table(file: "out/S.fastq.gz"), macTable: "")
         XCTAssertEqual(noRow.map(\.key), ["statistics.macTable"], "an empty Mac table is a finding and never a pass")
     }
+
+    /// ARCH-X3 R-1 (V15-27): the CHTC image holds every tool at `/opt/lge/env/bin/<tool>`, so the writer's id is the linux-64
+    /// lock entry that lists the program and pins the version and build the node read from the image manifest, and the harness
+    /// reads that lock file itself. The envs-only rule failed a correct `htslib` there. A wrong id, a missing id, a build the
+    /// lock does not pin and a version that is a plan pin are findings still.
+    func testV15_27AcceptsLinuxLockEntryOnImagePath() {
+        func typed(_ value: String) -> [String: Any] { ["type": "string", "value": value] }
+        func tool(build: String, source: String) -> [String: Any] {
+            ["type": "dictionary", "value": ["id": typed("bgzip"), "version": typed("1.24"), "build": typed(build), "versionSource": typed(source)]]
+        }
+        func adopted(_ id: String?, build: String = "ha79157c_0", source: String = "imageManifest") -> [String: Any] {
+            var step: [String: Any] = ["toolVersion": "1.24", "argv": ["/opt/lge/env/bin/bgzip", "-@", "1"],
+                                       "resolvedOptions": ["tool": tool(build: build, source: source)]]
+            if let id { step["managedToolID"] = id }
+            return step
+        }
+        let mac: [String: Any] = ["toolVersion": "1.24", "argv": ["/Users/x/.lungfish/conda/envs/htslib/bin/bgzip", "-@", "1"],
+                                  "managedToolID": "htslib"]
+        let roles = V15StepRoles.mac([], importToolName: "lungfish import fastq")
+        func findings(_ adoptedStep: [String: Any]) -> [V15Finding] {
+            var comparison = V15Comparison(roots: [:], payloadFileNames: [])
+            comparison.compareStep(adoptedStep, mac, label: "bgzip#1", adoptedRoles: roles, macRoles: roles)
+            return comparison.findings.filter { $0.why.contains("V15-27") }
+        }
+        XCTAssertEqual(findings(adopted("htslib")).map(\.description), [], "the image's bgzip 1.24 ha79157c_0 is the htslib entry")
+        let wrong = findings(adopted("bbtools"))
+        XCTAssertEqual(wrong.count, 1, wrong.description)
+        XCTAssertTrue(wrong.first?.why.contains("adopted") == true, wrong.description)
+        let absent = findings(adopted(nil))
+        XCTAssertFalse(absent.isEmpty, "a step with no managedToolID is a finding")
+        XCTAssertTrue(absent.allSatisfy { $0.why.contains("adopted") }, absent.description)
+        XCTAssertFalse(findings(adopted("htslib", build: "h0000000_0")).isEmpty, "a build the lock does not pin names no entry")
+        XCTAssertFalse(findings(adopted("htslib", source: "planPin")).isEmpty, "a plan pin is the plan's word, not what the node read")
+    }
 }

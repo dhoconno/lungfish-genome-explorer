@@ -176,10 +176,59 @@ final class ExecutorRunAdoptionStepTests: XCTestCase {
     /// AMV2 SWIFT fix 5 (C4-3 C-4): only a program of the form `<tool-root>/envs/<name>/bin/<tool>` names a managed
     /// environment; a path outside any environment, a file under an environment but not in `bin` and no path name none.
     func testManagedToolIDTakesOnlyAProgramOfAnEnvironmentsBinFolder() {
-        XCTAssertEqual(ExecutorRunAdoption.managedToolID("/opt/conda/envs/bbtools/bin/bgzip")?.rawValue, "bbtools")
-        XCTAssertNil(ExecutorRunAdoption.managedToolID("/usr/bin/bgzip"))
-        XCTAssertNil(ExecutorRunAdoption.managedToolID("/opt/conda/envs/bbtools/lib/bgzip"))
+        func tool(_ path: String) -> ExecutorToolRecord { ExecutorToolRecord(id: "bgzip", version: "1.24", build: "h1", path: path) }
+        XCTAssertEqual(ExecutorRunAdoption.managedToolID(tool("/opt/conda/envs/bbtools/bin/bgzip"))?.rawValue, "bbtools")
+        XCTAssertNil(ExecutorRunAdoption.managedToolID(tool("/usr/bin/bgzip")))
+        XCTAssertNil(ExecutorRunAdoption.managedToolID(tool("/opt/conda/envs/bbtools/lib/bgzip")))
         XCTAssertNil(ExecutorRunAdoption.managedToolID(nil))
+    }
+
+    /// A storage launch of the CHTC image, where every tool sits at `/opt/lge/env/bin/<tool>` and no path names an
+    /// environment (ARCH-X3 R-1).
+    private func imageLaunch(
+        _ tool: String, version: String, build: String, source: ExecutorToolVersionSource = .imageManifest
+    ) -> ExecutorStorageLaunch {
+        let path = "/opt/lge/env/bin/" + tool
+        return ExecutorStorageLaunch(
+            tool: ExecutorToolRecord(id: tool, version: version, build: build, path: path, versionSource: source),
+            argv: [path, "in=work/x.fastq"], environmentNames: ["PATH"], outcome: .succeeded, toolExitCode: 0, wallSeconds: 1,
+            stderrPath: "work/\(tool).stderr"
+        )
+    }
+
+    /// The tool names and managed tool ids of the envelope steps one storage step's launches become, in step order.
+    private func imageToolIDs(_ launches: [ExecutorStorageLaunch]) throws -> (names: [String], ids: [String?]) {
+        let storage = ExecutorStorageDetails(
+            clumpingRan: true, qualityBinning: .illumina4, inputBytes: 10, outputBytes: 5, launches: launches
+        )
+        let step = record("storage", tool: launches[0].tool.id, argv: launches[0].argv, storage: storage)
+        let steps = try XCTUnwrap(ExecutorRunAdoption.storageLaunchSteps(step, parent: UUID()))
+        return (steps.map(\.toolName), steps.map { $0.managedToolID?.rawValue })
+    }
+
+    /// ARCH-X3 R-1: the CHTC image holds every tool at `/opt/lge/env/bin/<tool>`, so no path names an environment. A tool whose
+    /// version and build the node read from the image manifest names the one linux-64 lock entry that lists it and pins that
+    /// version and build: `clumpify.sh` 40.02 `h09cc210_0` is `bbtools` and `bgzip` 1.24 `ha79157c_0` is `htslib`.
+    func testImageToolNamesItsLinuxLockEntry() throws {
+        let launched = try imageToolIDs([
+            imageLaunch("clumpify.sh", version: "40.02", build: "h09cc210_0"),
+            imageLaunch("bgzip", version: "1.24", build: "ha79157c_0"),
+        ])
+        XCTAssertEqual(launched.names, ["clumpify.sh", "bgzip"])
+        XCTAssertEqual(launched.ids, ["bbtools", "htslib"])
+    }
+
+    /// ARCH-X3 R-1: a tool names no id when the lock does not pin its build, when its version is the plan's pin and not what
+    /// the node read, and when it is a tool another entry lists but at another version and build (`java` is among the bbtools
+    /// entry's executables, and the image's `java` is openjdk 25.0.2 `h1602c4f_26`).
+    func testImageToolOffTheLockNamesNone() throws {
+        let launched = try imageToolIDs([
+            imageLaunch("clumpify.sh", version: "40.02", build: "h0000000_0"),
+            imageLaunch("bgzip", version: "1.24", build: "ha79157c_0", source: .planPin),
+            imageLaunch("java", version: "25.0.2", build: "h1602c4f_26"),
+        ])
+        XCTAssertEqual(launched.names, ["clumpify.sh", "bgzip", "java"])
+        XCTAssertEqual(launched.ids, [nil, nil, nil])
     }
 
     /// QV-23: each storage launch's envelope step lists the files the launch read and wrote, by the record's path,

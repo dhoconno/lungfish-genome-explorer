@@ -5,6 +5,7 @@
 import Foundation
 import LungfishIO
 @testable import LungfishPortable
+@testable import LungfishWorkflow
 
 /// One line the comparison failed on, with both values and why.
 struct V15Finding: Sendable, CustomStringConvertible {
@@ -271,16 +272,17 @@ struct V15Comparison {
             findings.append(V15Finding(key: Self.joined(path + ["toolVersion"]), adopted: Self.render(adopted["toolVersion"]),
                                        mac: Self.render(mac["toolVersion"]), why: "the Mac step records no version (XC-4)"))
         }
-        // C4-3 C-4: a step whose managedToolID V15-27 sets aside must name the environment of its own program.
+        // C4-3 C-4 and ARCH-X3 R-1: a step whose managedToolID V15-27 sets aside must name the environment of its own program or,
+        // for a tool whose version the node read from the image manifest, the linux-64 lock entry that lists it.
         if Self.line(for: path + ["managedToolID"], tag: nil)?.id == "V15-27" {
             for (route, step) in [(V15Route.adopted, adopted), (.mac, mac)] {
                 let program = (step["argv"] as? [String])?.first ?? ""
-                let parts = program.split(separator: "/").map(String.init)
-                let held = parts.lastIndex(of: "envs").flatMap { parts.indices.contains($0 + 1) ? parts[$0 + 1] : nil }
+                let tool = Self.untyped((step["resolvedOptions"] as? [String: Any])?["tool"]) as? [String: Any]
+                let held = Self.expectedManagedToolID(program: program, tool: tool)
                 if held == nil || step["managedToolID"] as? String != held {
                     findings.append(V15Finding(key: Self.joined(path + ["managedToolID"]), adopted: Self.render(adopted["managedToolID"]),
                                                mac: Self.render(mac["managedToolID"]),
-                                               why: "V15-27: the \(route.rawValue) value is not the envs/<id>/ of the step's program \(program)"))
+                                               why: "V15-27: the \(route.rawValue) value is not the envs/<id>/ of the step's program \(program) or the linux-64 lock entry that lists it at the version and build the image manifest gave"))
                 }
             }
         }
@@ -293,6 +295,35 @@ struct V15Comparison {
                                            why: "V15-02 sets the node tool aside only when its version is the step's toolVersion (QV-17)"))
             }
         }
+    }
+
+    /// The linux-64 lock's tool entries, read from the lock file itself and never through the adopt's function (ARCH-X3 R-1): each
+    /// entry's id, the executables it lists and the version and build of its `packageSpec`, `<channel>::<package>=<version>=<build>`.
+    static let linux64LockEntries: [(id: String, executables: [String], version: String, build: String)] = {
+        guard let file = try? ManagedToolLock.resourceURL(named: ManagedToolLock.linux64ResourceName),
+              let data = try? Data(contentsOf: file),
+              let lock = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let tools = lock["tools"] as? [[String: Any]] else { return [] }
+        return tools.compactMap { tool in
+            guard let id = tool["id"] as? String, let executables = tool["executables"] as? [String],
+                  let spec = tool["packageSpec"] as? String else { return nil }
+            let fields = (spec.components(separatedBy: "::").last ?? "").components(separatedBy: "=")
+            return fields.count == 3 ? (id, executables, fields[1], fields[2]) : nil
+        }
+    }()
+
+    /// The id a step's program names, worked out from the step's own record (C4-3 C-4, ARCH-X3 R-1). The first arm is the
+    /// `envs/<id>/` folder of a program `<root>/envs/<id>/bin/<tool>`. The second is for a tool whose version the node read from
+    /// the image manifest: the one linux-64 lock entry that lists the program's file name and pins the tool's version and build.
+    /// Nil for any other step, and for a program that more than one entry or none matches.
+    static func expectedManagedToolID(program: String, tool: [String: Any]?) -> String? {
+        let parts = program.split(separator: "/").map(String.init)
+        if let envs = parts.lastIndex(of: "envs"), envs + 3 < parts.count, parts[envs + 2] == "bin" { return parts[envs + 1] }
+        guard let tool, untyped(tool["versionSource"]) as? String == "imageManifest",
+              let version = untyped(tool["version"]) as? String, let build = untyped(tool["build"]) as? String,
+              let file = parts.last else { return nil }
+        let entries = linux64LockEntries.filter { $0.executables.contains(file) && $0.version == version && $0.build == build }
+        return entries.count == 1 ? entries[0].id : nil
     }
 
     // MARK: The walk

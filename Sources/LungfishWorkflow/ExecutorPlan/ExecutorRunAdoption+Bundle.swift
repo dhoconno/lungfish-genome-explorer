@@ -238,7 +238,7 @@ extension ExecutorRunAdoption {
                 durableReplayArgv: bundlePayloadArgv(command, payload), resolvedOptions: options,
                 inputs: files(launch.inputs, role: .input), outputs: files(launch.outputs, role: .output) + mixed,
                 exitCode: launch.toolExitCode ?? (launch.outcome == .succeeded ? 0 : 1), wallTime: launch.wallSeconds,
-                peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool.path),
+                peakMemoryBytes: launch.peakResidentBytes, parentStepID: parent, managedToolID: managedToolID(launch.tool),
                 startTime: date(step.startedAt) ?? Date(), endTime: date(step.endedAt)
             )
         }
@@ -264,13 +264,25 @@ extension ExecutorRunAdoption {
         return FileRecord(path: payload.bundleFASTQ.path, sha256: file.sha256, sizeBytes: file.sizeBytes, format: file.format, role: file.role)
     }
 
-    /// The managed environment a tool ran from, the folder after `envs/` in its path (QV-19). The node's path names the
-    /// environment the image holds the tool in, so the writer's may differ from the Mac's (QV-OQ1). Only a program of the
-    /// form `<tool-root>/envs/<name>/bin/<tool>` names one (C4-3 C-4, AMV2 SWIFT fix 5); any other path states none.
-    static func managedToolID(_ path: String?) -> ManagedToolID? {
-        let parts = (path ?? "").split(separator: "/").map(String.init)
-        guard let envs = parts.lastIndex(of: "envs"), envs + 3 < parts.count, parts[envs + 2] == "bin" else { return nil }
-        return ManagedToolID(rawValue: parts[envs + 1])
+    /// The lock entry a tool ran from (QV-19). A program of the form `<tool-root>/envs/<name>/bin/<tool>` names its
+    /// environment (C4-3 C-4, AMV2 SWIFT fix 5). A tool whose version and build the node read from the image manifest names
+    /// the one linux-64 lock entry that lists the tool and pins that version and build (ARCH-X3 R-1). Any other tool names
+    /// none: a `planPin` version, a tool under `/usr/bin` and a build the lock does not pin.
+    static func managedToolID(_ tool: ExecutorToolRecord?) -> ManagedToolID? {
+        guard let tool else { return nil }
+        let parts = tool.path.split(separator: "/").map(String.init)
+        if let envs = parts.lastIndex(of: "envs"), envs + 3 < parts.count, parts[envs + 2] == "bin" {
+            return ManagedToolID(rawValue: parts[envs + 1])
+        }
+        // The image holds every tool at one path, so the lock names the environment. A plan pin is the plan's word and not
+        // what the node read (XC-4 B), and the version and build keep `java`, which the bbtools entry lists, off that entry.
+        guard tool.versionSource == .imageManifest, let lock = ManagedToolLock.bundledLinux64Resource?.lock else { return nil }
+        let entries = lock.tools.filter { entry in
+            // `<channel>::<package>=<version>=<build>`, the spec of one conda package.
+            let fields = (entry.packageSpec.components(separatedBy: "::").last ?? "").components(separatedBy: "=")
+            return entry.executables.contains(tool.id) && fields.count == 3 && fields[1] == tool.version && fields[2] == tool.build
+        }
+        return entries.count == 1 ? ManagedToolID(rawValue: entries[0].id) : nil
     }
 
     /// The recipe the plan ran, resolved in this build by the name and switch options the plan states. A recipe whose
