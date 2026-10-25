@@ -173,11 +173,11 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
 
     /// The built CLI's run of the fixture plan into a batch folder named `batch-1`, in the output format given. The tests
     /// below read what a person or a script reads: the output of the run.
-    private func runWritePlan(cli: URL, format: String) throws -> (succeeded: Bool, stdout: String, stderr: String) {
+    private func runWritePlan(cli: URL, format: String, extra: [String] = []) throws -> (succeeded: Bool, stdout: String, stderr: String) {
         let fixture = try writeFixture()
         let folder = root.appendingPathComponent("batch-1", isDirectory: true)
         let arguments = ["import", "fastq"] + fixture.reads.map(\.path) + fixture.planArguments(folder: folder)
-            + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools", "--format", format]
+            + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools", "--format", format] + extra
         let result = try ToolProcess.start(ToolProcessSpec(
             executableURL: cli, arguments: arguments, environment: CLISIGTERMHarness.childEnvironment(overriding: [:]),
             timeout: .seconds(120), label: "write-plan-\(format)"
@@ -204,11 +204,11 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         XCTAssertEqual(folders.map { $0["path"] as? String },
                        ["S1/result", "S1/result/out", "S2/result", "S2/result/out"]
                            .map { "\(Fixture.stagingFolder)/batches/batch-1/\($0)" })
-        XCTAssertFalse(artifacts.contains { $0["kind"] as? String == "staging-plan-tar" }, "the tars stay in the submit folder")
+        XCTAssertFalse(artifacts.contains { $0["kind"] as? String == "staging-plan-tar" }, "the tars stay in the plan folder")
     }
 
     /// Review of fix G3, fix 1 and the wrapper question. The human text of the same run names each result folder once and
-    /// says that run.dag makes it, so a person has no step to take, and says each plan tar stays in the submit folder.
+    /// says that run.dag makes it, so a person has no step to take, and says each plan tar stays in the plan folder.
     func testWritePlanTextNamesEachResultFolderToMake() throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
@@ -220,9 +220,26 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                 let line = "run.dag makes the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/\(made) before it submits the job of \(sample)"
                 XCTAssertEqual(run.stdout.components(separatedBy: line).count - 1, 1, "\(line) once in: \(run.stdout)")
             }
-            XCTAssertTrue(run.stdout.contains("\(sample)/plan.tar stays in the submit folder"), run.stdout)
+            XCTAssertTrue(run.stdout.contains("\(sample)/plan.tar stays in the plan folder"), run.stdout)
         }
         XCTAssertFalse(run.stdout.contains("before you submit"), "no folder is left to a person: \(run.stdout)")
+        // C5 ruling 3: the folder the command writes has one name, the plan folder, in every line it prints.
+        XCTAssertTrue(run.stdout.contains("Wrote the plan folder "), run.stdout)
+        XCTAssertTrue(run.stdout.contains(" for 2 sample(s)."), run.stdout)
+        XCTAssertFalse(run.stdout.contains("submit folder"), run.stdout)
+    }
+
+    /// C5 ruling 3: a dry run of the plan says that no plan folder was written, in the name the other lines use, and
+    /// writes none.
+    func testWritePlanDryRunSaysNoPlanFolderWasWritten() throws {
+        guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
+            throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
+        }
+        let run = try runWritePlan(cli: cli, format: "text", extra: ["--dry-run"])
+        XCTAssertTrue(run.succeeded, run.stderr)
+        XCTAssertTrue(run.stdout.contains("This was a dry run, so no plan folder was written."), run.stdout)
+        XCTAssertFalse(run.stdout.contains("submit folder"), run.stdout)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("batch-1").path))
     }
 
     /// A file that `--executor-manifest`, `--image` or `--image-tool-manifest` names and that is missing or holds `{}`

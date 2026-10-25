@@ -256,6 +256,22 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         }
     }
 
+    /// C5 ruling 3: a folder that already exists is refused in the one name the command uses for the folder it writes,
+    /// the plan folder, with the folder's name and what to do, and the folder is left as it was.
+    func testWritePlanRefusesAFolderThatExistsAndCallsItThePlanFolder() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let target = root.appendingPathComponent("taken", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+        XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(
+            recipeTemplate, request: request, rows: [try row("S1")], image: image, layout: layout, into: target
+        )) { error in
+            let refusal = error as? ExecutorPlanError
+            XCTAssertEqual(refusal?.field, "folder", "\(error)")
+            XCTAssertEqual(refusal?.reason, "The plan folder taken already exists, so name a new folder or remove this one.", "\(error)")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: target.path), [])
+    }
+
     /// The sample sanitizer names the folders of a batch (ARCH 4). `S 1` and `S_1` take `S_1` and `S_1-2`, the plan keeps
     /// each sample's own name, and the DAG, the plan folders and the plan tars follow the folder names.
     func testWritePlanNamesFoldersByTheSampleSanitizerAndKeepsTheSampleName() throws {

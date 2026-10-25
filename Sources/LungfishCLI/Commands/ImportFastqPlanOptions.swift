@@ -208,21 +208,21 @@ extension ImportCommand.FastqSubcommand {
                 for (row, name) in zip(rows.rows, names) {
                     reporter.text("  \(row.sampleName) in folder \(name): \(row.inputs.map(\.url.lastPathComponent).joined(separator: ", "))")
                 }
-                reporter.text("This was a dry run, so no submit folder was written.")
-                reporter.complete(message: "This was a dry run, so no submit folder was written.")
+                reporter.text("This was a dry run, so no plan folder was written.")
+                reporter.complete(message: "This was a dry run, so no plan folder was written.")
                 return
             }
             let batch = try ExecutorPlanBatchWriter.write(
                 recipeTemplate, request: template, rows: rows.rows, image: image, layout: layout,
                 requirements: options.jobRequirements, into: folder
             )
-            reporter.text("Wrote the submit folder \(batch.folder.path) for \(batch.samples.count) sample(s).")
+            reporter.text("Wrote the plan folder \(batch.folder.path) for \(batch.samples.count) sample(s).")
             for file in batch.files {
                 reporter.text("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? ""))
             }
             // Each job takes its plan tar from the submit folder, so the tar is not copied to the staging folder (C5 D15).
             for tar in batch.planTars {
-                reporter.text("  \(tar.size) bytes  \(tar.relativePath) stays in the submit folder, and the job of \(tar.sample) takes it from there")
+                reporter.text("  \(tar.size) bytes  \(tar.relativePath) stays in the plan folder, and the job of \(tar.sample) takes it from there")
             }
             // An upload makes no folder, so run.dag makes each folder a job returns files into before it submits the job (fix G3).
             for made in batch.folders {
@@ -399,7 +399,7 @@ extension ImportFastqReporter {
         CLIEventEmitter(enabled: true) { printEventLine($0) }.emitComplete(
             outputs: [folder.path] + samples.map { folder.appendingPathComponent($0, isDirectory: true).path },
             artifacts: staged + made,
-            message: "Wrote the submit folder for \(Set(files.compactMap(\.sample)).count) sample(s)"
+            message: "Wrote the plan folder for \(Set(files.compactMap(\.sample)).count) sample(s)"
         )
     }
 }

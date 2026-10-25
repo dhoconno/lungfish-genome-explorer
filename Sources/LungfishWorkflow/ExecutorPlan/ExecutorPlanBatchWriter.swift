@@ -236,7 +236,7 @@ package enum ExecutorPlanBatchWriter {
         let emissions = try rows.map { try recipeTemplate.emission(for: $0) }
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: folder.path) else {
-            throw ExecutorPlanError(field: "folder", reason: "The submit folder \(folder.lastPathComponent) already exists, so name a new folder or remove this one.")
+            throw ExecutorPlanError(field: "folder", reason: "The plan folder \(folder.lastPathComponent) already exists, so name a new folder or remove this one.")
         }
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
