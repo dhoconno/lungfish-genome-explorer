@@ -2,13 +2,14 @@
 """Build, strip and place the Linux executor that ships inside the app (CHTC program, lane C4-14).
 
 One build command serves `release.py package` and the x86-64 step of the Linux tier (scripts/linux/portable-tier.sh),
-so the tier builds a package's way and its scan covers the same code and strings (the file's SHA-256 differs with the
-scratch folder's path). The command uses the toolchain and Static Linux SDK pinned in scripts/linux/toolchain.json and
-keeps its SwiftPM scratch folder inside the checkout. It maps the scratch folder to
-/swiftpm-build and the checkout to /workspace, the two maps the app's own build uses (build-notarized-dmg.sh), for the C,
-C++ and Swift compilers in that order (QA's FC-Q2 ruling), so no build-machine path reaches the stripped file. It strips
-with the pinned toolchain's llvm-objcopy --strip-all, never xcrun strip. The unstripped binary still names home folders
-in its DWARF sections, so it goes only beside the dSYMs of the release archive and never into the app.
+so the tier builds a package's way and its scan covers the same code and strings. The command uses the toolchain and
+Static Linux SDK pinned in scripts/linux/toolchain.json and keeps its SwiftPM scratch folder inside the checkout. It maps
+the scratch folder to /swiftpm-build and the checkout to /workspace, the two maps the app's own build uses
+(build-notarized-dmg.sh), for the C, C++ and Swift compilers in that order (QA's FC-Q2 ruling), so no build-machine path
+reaches the stripped file. The link writes no build ID, and the strip, with the pinned toolchain's llvm-objcopy and never
+xcrun strip, removes the symbols and the compiler's .swift_modhash, so two checkouts at different paths give the same
+stripped bytes (lane C5 REPRO). The unstripped binary still names home folders in its DWARF sections, so it goes only
+beside the dSYMs of the release archive and never into the app.
 
 The app holds Contents/Resources/LinuxExecutor/x86_64/lungfish-executor with manifest.json beside it, outside the Tools
 folder that signing_pipeline.py signs as code, so the app's signature seals both as resources. The manifest states the
@@ -45,6 +46,13 @@ MANIFEST_NAME = "manifest.json"
 MAX_MANIFEST_BYTES = 64 * 1024
 SCRATCH_MAP_TARGET = "/swiftpm-build"
 CHECKOUT_MAP_TARGET = "/workspace"
+# Lane C5 REPRO built one commit in two checkouts, and the stripped files differed in two sections alone. lld fills
+# .note.gnu.build-id with a hash of the whole unstripped file, whose DWARF names the checkout's parent folder and the
+# clang module cache's hashes of paths, which no prefix map reaches, so the link writes no build ID. Each Swift object's
+# .swift_modhash holds the MD5 of its LLVM module, which the compiler names by the object's path and reads back only to
+# skip an unchanged object, so the strip removes the section.
+LINK_FLAGS = ("-Xlinker", "--build-id=none")
+STRIP_FLAGS = ("--strip-all", "--remove-section=.swift_modhash")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MANIFEST_FIELDS = frozenset(
     {
@@ -119,7 +127,7 @@ def build_arguments(
 ) -> list[str]:
     argv = [
         str(swift), "build", "-c", "release", "--swift-sdk", sdk_id, "--triple", triple,
-        "--product", PRODUCT, "--scratch-path", str(scratch),
+        "--product", PRODUCT, "--scratch-path", str(scratch), *LINK_FLAGS,
     ]
     if prefix_maps:
         argv += prefix_map_flags(scratch, checkout)
@@ -236,7 +244,7 @@ def build(
     shutil.copyfile(unstripped, kept)
     os.chmod(kept, 0o755)
     stripped = folder / PRODUCT
-    run([str(objcopy), "--strip-all", str(unstripped), str(stripped)], cwd=root, capture=False, env=environment)
+    run([str(objcopy), *STRIP_FLAGS, str(unstripped), str(stripped)], cwd=root, capture=False, env=environment)
     _regular(stripped, "the stripped executor")
     os.chmod(stripped, 0o755)
     manifest = {

@@ -56,7 +56,7 @@ class Fixture:
         if argv[1:3] == ["sdk", "list"]:
             return (PINS["staticSDK"]["id"] + "\n") if self.sdk_installed else "another-sdk\n"
         if argv[0].endswith("llvm-objcopy"):
-            Path(argv[3]).write_bytes(self.stripped)
+            Path(argv[-1]).write_bytes(self.stripped)
             return ""
         if argv[-1] == "--show-bin-path":
             return f"warning: one\n{self.products}\n"
@@ -84,7 +84,7 @@ class BuildCommandTests(unittest.TestCase):
 
         self.assertEqual(argv, [
             "/t/swift", "build", "-c", "release", "--swift-sdk", "sdk-id", "--triple", "x86_64-swift-linux-musl",
-            "--product", "lungfish-executor", "--scratch-path", "/c/build/s",
+            "--product", "lungfish-executor", "--scratch-path", "/c/build/s", "-Xlinker", "--build-id=none",
             "-Xcc", "-ffile-prefix-map=/c/build/s=/swiftpm-build",
             "-Xcxx", "-ffile-prefix-map=/c/build/s=/swiftpm-build",
             "-Xswiftc", "-file-prefix-map", "-Xswiftc", "/c/build/s=/swiftpm-build",
@@ -146,6 +146,24 @@ class BuildCommandTests(unittest.TestCase):
         })
         written = json.loads((stage / "LinuxExecutor/x86_64/manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(written, manifest)
+
+    def test_the_link_writes_no_build_id_and_the_strip_removes_the_module_hashes(self):
+        # Lane C5 REPRO built the base in two checkouts. The stripped files differed only in .note.gnu.build-id, which
+        # lld hashes from the whole unstripped file and its path-bound DWARF, and in .swift_modhash, the MD5 of each
+        # object's LLVM module, which is named by the object's path in the scratch folder.
+        fixture = Fixture()
+        self.addCleanup(fixture.cleanup)
+        stage = fixture.root / "build/stage"
+
+        fixture.build(self.module, stage)
+
+        build, bin_path, strip = fixture.commands[1:]
+        self.assertIn(["-Xlinker", "--build-id=none"], [build[index:index + 2] for index in range(len(build) - 1)])
+        self.assertEqual(bin_path, [*build, "--show-bin-path"])
+        self.assertEqual(strip, [
+            str(fixture.tools / "llvm-objcopy"), "--strip-all", "--remove-section=.swift_modhash",
+            str(fixture.products / "lungfish-executor"), str(stage / "LinuxExecutor/x86_64/lungfish-executor"),
+        ])
 
     def test_a_stage_folder_that_exists_is_refused(self):
         fixture = Fixture()
