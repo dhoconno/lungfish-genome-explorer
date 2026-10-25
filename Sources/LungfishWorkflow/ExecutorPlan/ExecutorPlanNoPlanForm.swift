@@ -9,7 +9,6 @@ import LungfishPortable
 /// what the user can change.
 package enum ExecutorPlanNoPlanForm: Error, Equatable, Sendable, LocalizedError {
     case riboDetector
-    case unfusedFastp(stepType: String)
     case interleavedToPaired
     case twoFilesWithNoBinning
     case gzipFileWithNoBinning
@@ -21,8 +20,6 @@ package enum ExecutorPlanNoPlanForm: Error, Equatable, Sendable, LocalizedError 
         switch self {
         case .riboDetector:
             return "This recipe removes ribosomal RNA with RiboDetector, which has no plan form in this build, so pass --no-remove-ribosomal-rna or import on this Mac without --write-plan."
-        case .unfusedFastp(let stepType):
-            return "This recipe runs its fastp step \(stepType) on its own, which has no plan form in this build, so pass --remove-duplicates to run fastp as one fused step or import on this Mac without --write-plan."
         case .interleavedToPaired:
             return "This recipe splits interleaved reads into R1 and R2 files, which has no plan form in this build, so import the sample as R1 and R2 files or import on this Mac without --write-plan."
         case .twoFilesWithNoBinning:
@@ -39,7 +36,7 @@ package enum ExecutorPlanNoPlanForm: Error, Equatable, Sendable, LocalizedError 
     }
 
     /// The refusals a template request meets before planning: more than two files, and each recipe step or conversion
-    /// with no plan form, named by its step type.
+    /// with no plan form, named by its step type. A lone fastp trim or dedup step has one (C5 lane BF, D18).
     package static func check(_ request: ExecutorPlanTemplateRequest) throws {
         if request.inputSuffixes.count > 2 { throw moreThanTwoFiles(count: request.inputSuffixes.count) }
         guard let recipe = request.recipe else { return }
@@ -48,7 +45,6 @@ package enum ExecutorPlanNoPlanForm: Error, Equatable, Sendable, LocalizedError 
                 let stepType = Swift.type(of: executor).typeID
                 switch stepType {
                 case "ribodetector-filter": throw riboDetector
-                case "fastp-trim", "fastp-dedup": throw unfusedFastp(stepType: stepType)
                 default: throw recipeStep(stepType: stepType)
                 }
             }

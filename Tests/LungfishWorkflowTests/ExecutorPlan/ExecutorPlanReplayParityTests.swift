@@ -29,12 +29,21 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     struct ParityCase: Sendable {
         let recipeName: String
         let removesRibosomalRNA: Bool
+        var removesDuplicates = true
+
+        /// The case's folder and its key in ``frozen``.
+        var name: String { removesDuplicates ? recipeName : recipeName + "-keep-duplicates" }
     }
 
     static let cases = [
         ParityCase(recipeName: "vsp2-target-enrichment", removesRibosomalRNA: false),
         ParityCase(recipeName: "wastewater-metagenomics", removesRibosomalRNA: true),
     ]
+
+    /// D18 (C5 lane BF M1): `--no-remove-duplicates` leaves the trim step to run fastp on its own.
+    static let keepingDuplicates = ParityCase(
+        recipeName: "vsp2-target-enrichment", removesRibosomalRNA: false, removesDuplicates: false
+    )
 
     /// R6. The in-process payload's E1 counts and E3 digest for each case, from this test's run at the lane's base
     /// `efcdc7e1c` (K4-M5a.md). A lane that changes a payload on purpose updates these with a prediction.
@@ -46,6 +55,11 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         "wastewater-metagenomics": PayloadLevels.Anchor(
             e1: PayloadLevels.E1(records: 196_598, bases: 29_517_836, pairs: 11_227, singles: 174_144),
             e3: "418ed25cea1d29bbd2c35ea9ca410df5601b71046219ae686ad5b508ebcc0e66"
+        ),
+        // C5 lane BF M1, from this test's first run with the lone trim's plan form. The in-process route is the base's.
+        "vsp2-target-enrichment-keep-duplicates": PayloadLevels.Anchor(
+            e1: PayloadLevels.E1(records: 1_067_470, bases: 172_256_541, pairs: 107_318, singles: 852_834),
+            e3: "9830c7b6cb7083aa2d90227c5f2e2a7aa4420542c92e5a4facda0d1603674fe4"
         ),
     ]
 
@@ -66,6 +80,15 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         for parity in Self.cases {
             try await replay(parity, shared: shared, root: root)
         }
+    }
+
+    /// D18 (C5 lane BF M1, BI:29 and QA:26). VSP2 with duplicates kept plans its lone trim step, and the replay at one
+    /// thread equals the in-process import at E0 to E3.
+    func testKeepingDuplicatesPlanReplayMatchesInProcessImport() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExecutorPlanReplayParity")
+        scratch = root
+        let shared = try await Self.preparedShared()
+        try await replay(Self.keepingDuplicates, shared: shared, root: root)
     }
 
     /// R1, the slice's bytes checked before either route runs, then the tools, the indexes and the Mac replay's
@@ -138,13 +161,13 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     }
 
     private func replay(_ parity: ParityCase, shared: Shared, root: URL) async throws {
-        let name = parity.recipeName
+        let name = parity.name
         let folder = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // R2 and R3. Each switch and setting is passed as an option, so both routes hold the same values and sources.
         let recipe = try XCTUnwrap(RecipeResolver.resolve(
-            name, in: RecipeRegistryV2.builtinRecipes(),
-            switchOptions: ["removeDuplicates": true, "removeRibosomalRNA": parity.removesRibosomalRNA]
+            parity.recipeName, in: RecipeRegistryV2.builtinRecipes(),
+            switchOptions: ["removeDuplicates": parity.removesDuplicates, "removeRibosomalRNA": parity.removesRibosomalRNA]
         ), name)
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: folder.appendingPathComponent("InProcess.lungfish", isDirectory: true), platform: .illumina,
@@ -297,7 +320,8 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         }
         XCTAssertEqual(recipeSteps.compactMap { $0.tool?.id },
                        ["fastp", "deacon"] + (parity.removesRibosomalRNA ? ["deacon"] : []) + ["fastp", "seqkit", "fastp"], name)
-        XCTAssertEqual(record.recipe?.turnedOffSteps.map(\.switchID), parity.removesRibosomalRNA ? [] : ["removeRibosomalRNA"], name)
+        XCTAssertEqual(record.recipe?.turnedOffSteps.map(\.switchID),
+                       (parity.removesDuplicates ? [] : ["removeDuplicates"]) + (parity.removesRibosomalRNA ? [] : ["removeRibosomalRNA"]), name)
 
         // R7. E4 is reported and never fails the test.
         let firstDifference = zip(inProcess.recordDigests, replayed.recordDigests).enumerated().first { $0.element.0 != $0.element.1 }?.offset

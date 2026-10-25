@@ -261,9 +261,15 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         assertRefused(.riboDetector) { try ExecutorPlanNoPlanForm.check(request) }
     }
 
-    func testWritePlanRefusesUnfusedFastp() throws {
-        let request = try templateRequest(recipe: recipe(["fastp-trim"]))
-        assertRefused(.unfusedFastp(stepType: "fastp-trim")) { try ExecutorPlanNoPlanForm.check(request) }
+    /// D18 (C5 lane BF M1). A lone trim step, the built-in recipe's when duplicates are kept, and a user recipe's lone
+    /// dedup step each have a plan form, so neither is refused before planning and each plans one fastp step.
+    func testWritePlanPlansALoneFastpStep() throws {
+        for type in ["fastp-trim", "fastp-dedup"] {
+            let request = try templateRequest(recipe: recipe([type]))
+            XCTAssertNoThrow(try ExecutorPlanNoPlanForm.check(request), type)
+            let recipeTemplate = try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24)
+            XCTAssertEqual(recipeTemplate.template.steps.filter { $0.kind == .recipe }.map { $0.tool?.id }, ["fastp"], type)
+        }
     }
 
     func testWritePlanRefusesInterleavedToPaired() throws {

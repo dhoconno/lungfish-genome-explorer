@@ -76,12 +76,12 @@ final class ExecutorPlanFolderWriterTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["marker.txt"])
     }
 
-    /// QA fix 9 (c) of the K4 part A review: a recipe step with no plan form refuses the plan by the `steps` field. A lone
-    /// trim is not fused, so it plans as a single step with no plan form yet.
+    /// QA fix 9 (c) of the K4 part A review: a recipe step with no plan form refuses the plan by the `steps` field.
+    /// RiboDetector has none (a lone trim has one since C5 lane BF, D18).
     func testPlanEmitterRefusesAStepWithNoPlanForm() throws {
         let pair = try ExecutorPlanTestSupport.writePair(root: root, "S")
-        let lone = Recipe(formatVersion: 1, id: "lone-trim", name: "Lone Trim", platforms: [.illumina], requiredInput: .paired,
-                          steps: [RecipeStep(type: "fastp-trim")])
+        let lone = Recipe(formatVersion: 1, id: "lone-ribodetector", name: "Lone RiboDetector", platforms: [.illumina],
+                          requiredInput: .paired, steps: [RecipeStep(type: "ribodetector-filter")])
         XCTAssertThrowsError(try ExecutorPlanEmitter.emission(
             ExecutorPlanTestSupport.request(root: root, "S", inputs: pair, clumping: .bbtools, recipe: lone),
             host: ExecutorPlanTestSupport.mac24

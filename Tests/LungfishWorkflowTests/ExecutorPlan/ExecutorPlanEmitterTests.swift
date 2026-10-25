@@ -384,6 +384,58 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(plan.steps.map(\.kind), [.recipe, .recipe, .interleave, .storage, .statistics, .qualityCount])
     }
 
+    /// D18 (C5 lane BF M1, BI:29). Keeping duplicates (`--no-remove-duplicates`) leaves the built-in recipe's trim step to
+    /// run fastp on its own. Its plan step runs the Mac's single-step argv token for token after XC-10's one strip
+    /// function at threads 1, and the plan names the trim's fastp report as an output. A user recipe's lone dedup step,
+    /// which writes no report, plans the same way.
+    func testLoneFastpStepsPlanTheMacArgvTokenForToken() async throws {
+        let pair = try writePair("S")
+        let runner = try fakeRunner()
+        let index = root.appendingPathComponent("databases/test-panhuman/panhuman-1.k31w15.idx")
+        try FileManager.default.createDirectory(at: index.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("deacon index test-panhuman".utf8).write(to: index)
+        let database = ExecutorPlanDatabaseFile(
+            record: try await RecipeDatabaseIdentity().record(databaseID: "test-panhuman", at: index)
+        )
+        var kept = try XCTUnwrap(RecipeResolver.resolve(
+            "vsp2-target-enrichment", in: RecipeRegistryV2.builtinRecipes(), switchOptions: ["removeDuplicates": false]
+        ))
+        for step in kept.steps.indices where kept.steps[step].type == "deacon-scrub" {
+            kept.steps[step].params?["database"] = .string("test-panhuman")
+        }
+        let lone = Recipe(formatVersion: 1, id: "lone-dedup", name: "Lone Dedup", platforms: [.illumina],
+                          requiredInput: .paired, steps: [RecipeStep(type: "fastp-dedup")])
+        let cases: [(recipe: Recipe, tools: [String], outputs: [String])] = [
+            (kept, ["fastp", "deacon", "fastp", "seqkit", "fastp"],
+             ["work/sample_trim_R1.fq.gz", "work/sample_trim_R2.fq.gz", "work/sample_trim_fastp_report.json"]),
+            (lone, ["fastp"], ["work/sample_dedup_R1.fq.gz", "work/sample_dedup_R2.fq.gz"]),
+        ]
+        for item in cases {
+            let (input, work) = try layOutWorkRoot(pair)
+            let result = try await RecipeEngine().execute(
+                recipe: item.recipe, input: input,
+                context: StepContext(workspace: work, threads: 1, sampleName: ExecutorPlanEmitter.workStem, runner: runner,
+                                     databasePaths: ["test-panhuman": index], progress: { _, _ in })
+            )
+            // The Mac's route maps its per-run report UUID (XC-10 B as amended by C4-3 C-2); the node's maps nothing.
+            let mac = recordedArguments(result).map { argv in
+                argv.map { V15Comparison.stripRoot($0, roots: [], names: V15RouteNames(reportUUID: true)) }
+            }
+            let plan = try ExecutorPlanEmitter.emit(
+                request("S", inputs: pair, clumping: .bbtools, recipe: item.recipe, databases: ["test-panhuman": database]),
+                host: Self.mac24
+            )
+            let recipeSteps = plan.steps.filter { $0.kind == .recipe }
+            let node = recipeSteps.map { step in step.arguments.map { V15Comparison.stripRoot($0, roots: []) } }
+            XCTAssertEqual(node, mac, item.recipe.id)
+            XCTAssertEqual(recipeSteps.map { $0.tool?.id }, item.tools, item.recipe.id)
+            XCTAssertEqual(recipeSteps.first?.outputs, item.outputs, item.recipe.id)
+            let first = try XCTUnwrap(recipeSteps.first, item.recipe.id)
+            let threads = try XCTUnwrap(first.arguments.firstIndex(of: "-w"), item.recipe.id)
+            XCTAssertEqual(first.arguments[threads + 1], "1", item.recipe.id)
+        }
+    }
+
     /// BIO's two parity cases of tally-r3: the merged recipe as VSP2 (rRNA removal off) and as wastewater (on), at
     /// threads 1, bbtools, a 4 GB heap, illumina4 and bgzip. Every recipe step's argv equals the in-process run's.
     func testMergedRecipeEmitsCompletePlanForBothRRNASettings() async throws {
