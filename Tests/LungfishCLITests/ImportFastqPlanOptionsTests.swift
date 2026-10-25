@@ -204,7 +204,8 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                        ["S1", "S2"].map { "\(Fixture.stagingFolder)/batches/batch-1/\($0)/out" })
     }
 
-    /// Review of fix G3, fix 1. The human text of the same run names each sample's payload folder once.
+    /// Review of fix G3, fix 1 and the wrapper question. The human text of the same run names each sample's payload folder
+    /// once and says that run.dag makes it, so a person has no step to take.
     func testWritePlanTextNamesEachPayloadFolderToMake() throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
@@ -212,9 +213,10 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         let run = try runWritePlan(cli: cli, format: "text")
         XCTAssertTrue(run.succeeded, run.stderr)
         for sample in ["S1", "S2"] {
-            let line = "make the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/out before you submit"
+            let line = "run.dag makes the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/out before it submits the job of \(sample)"
             XCTAssertEqual(run.stdout.components(separatedBy: line).count - 1, 1, "\(line) once in: \(run.stdout)")
         }
+        XCTAssertFalse(run.stdout.contains("before you submit"), "no folder is left to a person: \(run.stdout)")
     }
 
     /// A file that `--executor-manifest`, `--image` or `--image-tool-manifest` names and that is missing or holds `{}`

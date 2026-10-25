@@ -75,6 +75,30 @@ final class HTCondorDAGTests: XCTestCase {
         XCTAssertEqual(normalized(dag), normalized(other))
     }
 
+    /// A node that names its payload folder gets a `SCRIPT PRE` line after its VARS line that makes the folder on the access
+    /// point before DAGMan submits the node's job, since the payload's `file://` upload makes no folder (fix G3). A node
+    /// with no folder renders no script line, and a folder the script line cannot hold is refused.
+    func testDagMakesEachPayloadFolderBeforeItsJob() throws {
+        var first = Self.node("S1", diskGB: 4)
+        first.payloadFolder = "/staging/groups/g/1/lge/batches/b/S1/out"
+        var second = Self.node("S2", diskGB: 4)
+        second.payloadFolder = "/staging/groups/g/1/lge/batches/b/S2/out"
+        let dag = try HTCondorDAG.render([first, second, Self.node("S3", diskGB: 4)])
+        let lines = dag.split(separator: "\n").filter { !$0.hasPrefix("#") }
+        XCTAssertEqual(lines.map { $0.split(separator: " ").prefix(2).joined(separator: " ") }, [
+            "JOB S1", "VARS S1", "SCRIPT PRE", "JOB S2", "VARS S2", "SCRIPT PRE", "JOB S3", "VARS S3",
+        ])
+        XCTAssertEqual(lines.filter { $0.hasPrefix("SCRIPT") }, [
+            "SCRIPT PRE S1 /bin/mkdir -p /staging/groups/g/1/lge/batches/b/S1/out",
+            "SCRIPT PRE S2 /bin/mkdir -p /staging/groups/g/1/lge/batches/b/S2/out",
+        ])
+        for folder in ["/staging/groups/our lab/b/S1/out", "/staging/groups/g/b/S1/out; rm -rf /staging"] {
+            var node = Self.node("S1", diskGB: 4)
+            node.payloadFolder = folder
+            XCTAssertThrowsError(try HTCondorDAG.render([node]), "folder \(folder)")
+        }
+    }
+
     func testDAGRefusesNamesAndValuesDAGManWouldMisread() throws {
         XCTAssertThrowsError(try HTCondorDAG.render([Self.node("VSP2", diskGB: 4), Self.node("vsp2", diskGB: 4)])) { error in
             XCTAssertEqual(error as? HTCondorSubmitError, .duplicate(field: "sample", name: "vsp2"))

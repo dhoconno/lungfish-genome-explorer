@@ -15,12 +15,18 @@ public struct HTCondorDAGNode: Sendable, Equatable {
     public var planTarURL: String
     /// The sample's reads on `/staging`, each placed at its plan path by the wrapper.
     public var reads: [HTCondorStagedFile]
+    /// The sample's payload folder on `/staging`, which `run.dag` makes with a `SCRIPT PRE` on the access point before
+    /// DAGMan submits the node's job. The payload's upload to a `file://` URL makes no folder, and a job with no such
+    /// folder is held when it finishes and starts again from the beginning when released (fix G3). `nil` renders no script.
+    public var payloadFolder: String?
 
-    public init(sample: String, requestDiskGB: Int, planTarURL: String, reads: [HTCondorStagedFile]) {
+    public init(sample: String, requestDiskGB: Int, planTarURL: String, reads: [HTCondorStagedFile],
+                payloadFolder: String? = nil) {
         self.sample = sample
         self.requestDiskGB = requestDiskGB
         self.planTarURL = planTarURL
         self.reads = reads
+        self.payloadFolder = payloadFolder
     }
 }
 
@@ -58,6 +64,10 @@ public enum HTCondorDAG {
             ]
             lines.append("JOB \(node.sample) \(HTCondorSubmitTemplate.fileName)")
             lines.append("VARS \(node.sample) " + variables.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: " "))
+            // The payload's upload makes no folder, so the access point makes it before DAGMan submits the node's job.
+            if let folder = node.payloadFolder {
+                lines.append("SCRIPT PRE \(node.sample) /bin/mkdir -p \(folder)")
+            }
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -95,5 +105,9 @@ public enum HTCondorDAG {
             throw HTCondorSubmitError.invalidValue(field: "read list of \(node.sample)", rule: "is empty.")
         }
         try HTCondorValueRules.checkStagedFiles(node.reads, field: "read")
+        if let folder = node.payloadFolder {
+            // The names-only rule of every staging path, so the script line holds no space or shell character.
+            try HTCondorValueRules.checkStagingURL("file://\(folder)", field: "payload folder of \(node.sample)")
+        }
     }
 }

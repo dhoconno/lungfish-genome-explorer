@@ -105,6 +105,29 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertTrue(submit.contains(" = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz"), submit)
     }
 
+    /// The written `run.dag` makes each sample's payload folder before it submits the sample's job, the folder that
+    /// `staging-files.json` names, so no one makes a folder by hand (the review of fix G3, the wrapper question).
+    func testRunDagMakesEachSamplesPayloadFolderBeforeItsJob() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let rows = [try row("S1"), try row("S2")]
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: rows, image: image,
+                                          layout: layout, into: folder)
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        let lines = dag.split(separator: "\n").map(String.init)
+        let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self, from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
+        XCTAssertEqual(list.folders.map(\.stagingPath), [
+            "/staging/groups/g/1/lge-chtc-test/batches/batch/S1/out", "/staging/groups/g/1/lge-chtc-test/batches/batch/S2/out",
+        ])
+        for made in list.folders {
+            let script = "SCRIPT PRE \(made.sample) /bin/mkdir -p \(made.stagingPath)"
+            XCTAssertEqual(lines.filter { $0 == script }.count, 1, "\(script) once in: \(dag)")
+            let job = try XCTUnwrap(lines.firstIndex(of: "JOB \(made.sample) sample.sub"), dag)
+            XCTAssertEqual(lines.firstIndex(of: script).map { $0 > job }, true, "the script follows its node's JOB line")
+        }
+        XCTAssertEqual(lines.filter { $0.hasPrefix("SCRIPT ") }.count, 2, dag)
+    }
+
     /// The bbtools template request for `S1` and its recipe template, which the refusal tests below share.
     private func bbtoolsTemplate() throws -> (request: ExecutorPlanTemplateRequest, recipeTemplate: ExecutorPlanTemplate) {
         let request = try ExecutorPlanTestSupport.request(

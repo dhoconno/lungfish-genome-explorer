@@ -86,9 +86,11 @@ package struct ExecutorPlanBatchFile: Codable, Sendable, Equatable {
     package var source: String?
 }
 
-/// One folder to make in the staging folder before the submit. Each sample's job returns its payload by a `file://`
-/// remap into `batches/<batch>/<sample>/out/`, and that upload makes no folder: with none there the job is held at code
-/// 12 subcode 256, "Can't open ... for writing" (fix G3, tiny jobs 593396 and 593397).
+/// One folder in the staging folder that a sample's job returns its payload into. The job's `file://` remap writes into
+/// `batches/<batch>/<sample>/out/`, and that upload makes no folder: with none there the job is held at code 12 subcode
+/// 256, "Can't open ... for writing" (fix G3, tiny jobs 593396 and 593397). `run.dag` makes each folder with a
+/// `SCRIPT PRE` on the access point before it submits the sample's job, so no one makes it by hand, and
+/// `staging-files.json` states it as a fact for any reader or other launcher.
 package struct ExecutorPlanBatchFolder: Codable, Sendable, Equatable {
     package static let payloadRole = "payload-folder"
     package var role: String
@@ -269,8 +271,9 @@ package enum ExecutorPlanBatchWriter {
         let payloadFolder = (ExecutorPlanEmitter.payloadPath as NSString).deletingLastPathComponent
         for (index, emission) in emissions.enumerated() {
             let name = names[index]
+            let payloadPath = layout.samplePath(name, payloadFolder)
             folders.append(ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.payloadRole, sample: name,
-                                                   stagingPath: layout.samplePath(name, payloadFolder)))
+                                                   stagingPath: payloadPath))
             let planFolder = folder.appendingPathComponent(name, isDirectory: true)
             try ExecutorPlanFolderWriter.writeShared(emission, image: image.sif, stagedInputs: true, into: planFolder)
             let tarFolder = folder.appendingPathComponent(tarsFolderName).appendingPathComponent(name, isDirectory: true)
@@ -293,7 +296,7 @@ package enum ExecutorPlanBatchWriter {
             let inputBytes = inputs.reduce(Int64(0)) { $0 + $1.size }
             nodes.append(HTCondorDAGNode(
                 sample: name, requestDiskGB: rows[index].requestDiskGiB ?? defaultRequestDiskGiB(inputBytes: inputBytes),
-                planTarURL: ExecutorPlanStagingLayout.url(tarPath), reads: reads
+                planTarURL: ExecutorPlanStagingLayout.url(tarPath), reads: reads, payloadFolder: payloadPath
             ))
         }
         let submit = try HTCondorSubmitTemplate.render(HTCondorSubmitTemplateInput(
