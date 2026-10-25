@@ -505,9 +505,9 @@ final class FASTQBatchImporterTests: XCTestCase {
             XCTAssertNil(resolution.estimatedInputBytes, "auto reads no size: \(label)")
             XCTAssertNil(resolution.thresholdBytes, "auto compares no threshold: \(label)")
             XCTAssertEqual(result.wasClumpified, testCase.resolved != .none, label)
-            XCTAssertFalse(resolution.reason.contains("costs time and memory"), label)
+            XCTAssertNil(resolution.reason.range(of: "costs time and memory"), label)
             if testCase.resolved == .none {
-                XCTAssertTrue(resolution.reason.contains("high error rate"), label)
+                XCTAssertNotNil(resolution.reason.range(of: "high error rate"), label)
             }
         }
     }
