@@ -1156,9 +1156,10 @@ public enum FASTQBatchImporter {
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
             command: adoption?.argv ?? reproducibleImportCommand(pair: pair, config: config, durable: true, imported: importedPairing),
-            inputs: originalInputURLs.map {
+            // An adopt's inputs carry the plan's digests, and a CHTC job returns no input to hash (ARCH-X3 R-2).
+            inputs: (adoption?.inputs ?? originalInputURLs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: provenanceFormat(for: $0), role: .input)
-            }
+            })
                 + (sampleSheetInput.map { [$0] } ?? []),
             outputs: [
                 ProvenanceRecorder.fileRecord(url: stagingBundleFASTQURL, format: .fastq, role: .output),
@@ -1215,8 +1216,14 @@ public enum FASTQBatchImporter {
             ).merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
         )
         .runtime(adoption?.runtime ?? ProvenanceRuntimeIdentity())
-        for inputURL in originalInputURLs {
-            builder = try builder.input(inputURL, format: provenanceFormat(for: inputURL), role: .input)
+        if let adoption {
+            for input in adoption.inputs {
+                builder = try builder.consumedInputSnapshot(ProvenanceFileDescriptor(fileRecord: input))
+            }
+        } else {
+            for inputURL in originalInputURLs {
+                builder = try builder.input(inputURL, format: provenanceFormat(for: inputURL), role: .input)
+            }
         }
         if let sampleSheetURL = pair.sampleSheetURL {
             builder = try builder.input(sampleSheetURL, format: .text, role: .input)
@@ -1450,13 +1457,14 @@ public enum FASTQBatchImporter {
     /// A recipe step's replay argv, inputs and outputs in the envelope, one code path for the import and `fastq adopt`
     /// (QV-7, QV-23): the argv with each report token rewritten to the bundle's copy (nil when nothing changes), the
     /// run's input files and the step's databases, and its read files (the bundle FASTQ when the step keeps none) and
-    /// its copied reports.
+    /// its copied reports. An adopt passes `inputRecords`, its inputs with the plan's digests, so no input is hashed
+    /// (ARCH-X3 R-2).
     static func recipeProvenanceFiles(
         for result: RecipeStepResult, command: [String], originalInputURLs: [URL], bundleFASTQURL: URL,
-        stagingBundleURL: URL?, publishedBundleURL: URL?
+        stagingBundleURL: URL?, publishedBundleURL: URL?, inputRecords: [FileRecord]? = nil
     ) -> (durableReplayArgv: [String]?, inputs: [FileRecord], outputs: [FileRecord]) {
         let durable = durableRecipeStepArguments(command, pathRewrites: result.auxiliaryCommandPathRewrites)
-        let inputs = originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
+        let inputs = (inputRecords ?? originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) })
             + recipeDatabaseInputRecords(for: result)
         let outputs = recipePrimaryOutputRecords(for: result, legacyBundleFASTQURL: bundleFASTQURL)
             + result.auxiliaryOutputPaths.map {

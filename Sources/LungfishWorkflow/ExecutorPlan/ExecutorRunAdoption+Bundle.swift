@@ -18,6 +18,9 @@ struct ExecutorAdoptionProvenance: Sendable {
     var runtime: ProvenanceRuntimeIdentity
     /// The environment the signing key is read from.
     var signingEnvironment: [String: String]
+    /// The sample's input records as the preflight checked them, with the plan's SHA-256 and size, so the import hashes no
+    /// input: a CHTC job returns none (ARCH-X3 R-2).
+    var inputs: [FileRecord]
 }
 
 extension ExecutorRunAdoption {
@@ -36,7 +39,9 @@ extension ExecutorRunAdoption {
         let plan = run.plan
         let record = run.record
         // Every refusal that needs no bundle file comes first, and the dry run makes the same call (AMV1 SWIFT fix 1).
-        let (pair, inputs, bundleURL, recipe, statisticsTable) = try preflight(run, projectDirectory: projectDirectory, force: force)
+        let (pair, inputs, inputRecords, bundleURL, recipe, statisticsTable) = try preflight(
+            run, projectDirectory: projectDirectory, force: force
+        )
         let r1 = inputs[0]
         // The platform as the Mac decides it for a sample: the plan's request, resolved against the plan's inputs.
         let config = FASTQBatchImporter.sampleConfig(
@@ -133,7 +138,7 @@ extension ExecutorRunAdoption {
                 recipeFiles: recipeResults[step.argv].map {
                     FASTQBatchImporter.recipeProvenanceFiles(
                         for: $0, command: step.argv, originalInputURLs: inputs, bundleFASTQURL: stagedFASTQ,
-                        stagingBundleURL: staging, publishedBundleURL: bundleURL
+                        stagingBundleURL: staging, publishedBundleURL: bundleURL, inputRecords: inputRecords
                     )
                 },
                 payload: step.kind == .statistics ? payload : nil
@@ -147,7 +152,7 @@ extension ExecutorRunAdoption {
             runClock: ProvenanceRunClock(), statsStartedAt: Date(), statsCompletedAt: Date(), statsError: nil,
             adoption: ExecutorAdoptionProvenance(
                 resolvedParameters: adoptedParameters(ingestionResult), childStepIDs: Set(nodeSteps.map(\.id)),
-                argv: argv, runtime: runtimeIdentity(run), signingEnvironment: signingEnvironment
+                argv: argv, runtime: runtimeIdentity(run), signingEnvironment: signingEnvironment, inputs: inputRecords
             )
         )
         try Task.checkCancellation()
@@ -353,13 +358,15 @@ extension ExecutorRunAdoption {
     }
 
     /// Every refusal of the adopt that needs no bundle file, in the order the adopt meets them, for the dry run and the adopt
-    /// alike (AMV1 SWIFT fix 1, BIO fix 2): the bundle's place, the recipe this build holds, the record's seqkit table (present,
-    /// and a table the Mac's parse reads, refused with the statistics step's index) and the recipe steps the plan claims. It
-    /// writes nothing, so a run it passes can still fail on a write but never on a record it could have read.
+    /// alike (AMV1 SWIFT fix 1, BIO fix 2): the bundle's place, each input against the plan's pin (ARCH-X3 R-2), the recipe
+    /// this build holds, the record's seqkit table (present, and a table the Mac's parse reads, refused with the statistics
+    /// step's index) and the recipe steps the plan claims. It writes nothing, so a run it passes can still fail on a write
+    /// but never on a record it could have read.
     static func preflight(
         _ run: ExecutorAdoptedRun, projectDirectory: URL, force: Bool
-    ) throws -> (pair: SamplePair, inputs: [URL], url: URL, recipe: Recipe?, statistics: String) {
+    ) throws -> (pair: SamplePair, inputs: [URL], inputRecords: [FileRecord], url: URL, recipe: Recipe?, statistics: String) {
         let (pair, inputs, url) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
+        let inputRecords = try checkedInputs(run, inputs: inputs)
         let recipe = try resolvedRecipe(run.plan.recipe)
         let index = run.record.steps.firstIndex { $0.kind == .statistics }
         let field = index.map { "steps[\($0)]" } ?? "steps"
@@ -376,7 +383,62 @@ extension ExecutorRunAdoption {
             // AMV2 BIO fix 1: a report the run record names must be in the folder with the record's bytes, as the adopt demands.
             try checkRecipeReports(run)
         }
-        return (pair, inputs, url, recipe, statistics)
+        return (pair, inputs, inputRecords, url, recipe, statistics)
+    }
+
+    /// ARCH-X3 R-2: each input's file record at the path the adopt names, with the plan's SHA-256 and size. A CHTC job reads
+    /// its inputs from /staging and returns none, so the digest and size come from the record's checked input of the same
+    /// path, which must be the plan's pin. A file the folder holds there is hashed, and must be the pin too, so the Mac
+    /// replay and a folder with copied inputs keep the check; no other input is read. The field is the plan's input index.
+    static func checkedInputs(_ run: ExecutorAdoptedRun, inputs: [URL]) throws -> [FileRecord] {
+        let pins = run.plan.entries.filter { $0.role == .input }
+        return try zip(pins, inputs).enumerated().map { index, item -> FileRecord in
+            let (pin, url) = item
+            let field = "inputs[\(index)]"
+            let stated = run.record.inputs.first { $0.relativePath == pin.relativePath }
+            if let stated, stated.sha256 != pin.sha256 || stated.size != pin.size {
+                throw refusal(
+                    field,
+                    "The run record states SHA-256 \(stated.sha256) and \(stated.size) bytes for the input \(pin.relativePath), "
+                        + "and the plan pins \(pin.sha256) and \(pin.size) bytes."
+                )
+            }
+            let record = FileRecord(
+                path: url.path, sha256: pin.sha256, sizeBytes: UInt64(clamping: pin.size),
+                format: FASTQBatchImporter.provenanceFormat(for: url), role: .input
+            )
+            // Any item at the path is present, a link that leads nowhere as well, so it is read and never passed over.
+            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil else {
+                guard stated != nil else {
+                    throw refusal(
+                        field,
+                        "The run record states no digest for the input \(pin.relativePath), and the folder does not hold it. "
+                            + "Copy the file the plan pins (SHA-256 \(pin.sha256), \(pin.size) bytes) to \(url.path) and adopt again."
+                    )
+                }
+                return record
+            }
+            let file: ProvenanceFileDescriptor
+            do {
+                file = try ProvenanceFileDescriptor.file(url: url, role: .input)
+            } catch {
+                throw refusal(
+                    field,
+                    "The file \(url.path) cannot be read. Remove it, and the adopt takes the input's digest from the run record, "
+                        + "or make it readable."
+                )
+            }
+            let digest = file.checksumSHA256 ?? "none"
+            let size = file.fileSize.map { Int64(clamping: $0) } ?? -1
+            guard digest == pin.sha256, size == pin.size else {
+                throw refusal(
+                    field,
+                    "The file \(url.path) has SHA-256 \(digest) and \(size) bytes, and the plan pins \(pin.sha256) and \(pin.size) "
+                        + "bytes. Remove it, or replace it with the plan's input, and adopt again."
+                )
+            }
+            return record
+        }
     }
 
     /// The recipe steps the plan claims: the engine's plan of the recipe, as the Mac plans it for this sample, takes the record's

@@ -426,6 +426,126 @@ final class ExecutorRunAdoptionTests: XCTestCase {
             try FileManager.default.removeItem(at: changed.folder)
             try FileManager.default.removeItem(at: root.appendingPathComponent("S", isDirectory: true))
         }
+        // ARCH-X3 R-2: the four input refusals, each named by the plan's input index, the same from the dry run.
+        let inputCases: [(label: String, change: (inout Returned, PlanEntry) throws -> Void)] = [
+            ("an absent input the record does not state", { returned, pin in
+                returned.record.inputs = []
+                try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath))
+            }),
+            ("a record digest off the plan", { returned, pin in
+                for index in returned.record.inputs.indices where returned.record.inputs[index].relativePath == pin.relativePath {
+                    returned.record.inputs[index].sha256 = String(repeating: "d", count: 64)
+                }
+            }),
+            ("a present input off the plan", { returned, pin in
+                let url = returned.folder.appendingPathComponent(pin.relativePath)
+                var bytes = try Data(contentsOf: url)
+                bytes[1] ^= 0x01
+                try bytes.write(to: url)
+            }),
+            ("a present input that cannot be read", { returned, pin in
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0], ofItemAtPath: returned.folder.appendingPathComponent(pin.relativePath).path
+                )
+            }),
+        ]
+        for (label, change) in inputCases {
+            var changed = try returned(.bbtools)
+            let pin = try XCTUnwrap(changed.plan.entries.first { $0.role == .input }, label)
+            try change(&changed, pin)
+            try changed.write()
+            let dry = try XCTUnwrap(dryRunRefusal(changed), "\(label): the dry run passed a run the adopt refuses")
+            let outcome = await refusal(changed)
+            let refused = try XCTUnwrap(outcome, label)
+            XCTAssertEqual(dry.field, "inputs[0]", label)
+            XCTAssertEqual(refused.field, dry.field, label)
+            XCTAssertEqual(refused.reason, dry.reason, label)
+            XCTAssertTrue(refused.reason.hasSuffix("Nothing was imported."), refused.reason)
+            XCTAssertEqual(importedEntries(), [], label)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path), label)
+            try FileManager.default.removeItem(at: changed.folder)
+            try FileManager.default.removeItem(at: root.appendingPathComponent("S", isDirectory: true))
+        }
+    }
+
+    /// The plan's input entries of a returned folder, in the plan's order.
+    private func inputPins(_ returned: Returned) -> [PlanEntry] {
+        returned.plan.entries.filter { $0.role == .input }
+    }
+
+    /// ARCH-X3 R-2: a CHTC job reads its inputs from /staging and returns none, so the adopt takes each input's digest and
+    /// size from the record's checked inputs. With the inputs gone the dry run and the adopt pass, and the envelope's input
+    /// records, the run's and the import step's, carry the plan's SHA-256 and size.
+    func testAdoptTakesAbsentInputsFromRunRecord() async throws {
+        let returned = try returned(.bbtools)
+        let pins = inputPins(returned)
+        XCTAssertEqual(pins.count, 2)
+        for pin in pins { try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath)) }
+        XCTAssertNil(dryRunRefusal(returned))
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: returned.folder, projectDirectory: project)
+        let envelope = try envelope(bundle)
+        let importStep = try XCTUnwrap(envelope.steps.last)
+        XCTAssertEqual(importStep.toolName, "lungfish import fastq")
+        for pin in pins {
+            let file = try XCTUnwrap(
+                envelope.files.first { $0.role == .input && $0.path.hasSuffix("/" + pin.relativePath) }, pin.relativePath
+            )
+            XCTAssertEqual(file.checksumSHA256, pin.sha256, pin.relativePath)
+            XCTAssertEqual(file.fileSize.map { Int64($0) }, pin.size, pin.relativePath)
+            let stepInput = try XCTUnwrap(importStep.inputs.first { $0.path == file.path }, pin.relativePath)
+            XCTAssertEqual(stepInput.checksumSHA256, pin.sha256, pin.relativePath)
+            XCTAssertEqual(stepInput.fileSize.map { Int64($0) }, pin.size, pin.relativePath)
+        }
+    }
+
+    /// ARCH-X3 R-2: an input that is neither in the folder nor stated by the record is refused before any bundle file,
+    /// naming the plan's input index and the fix with the pin's SHA-256.
+    func testAdoptRefusesAbsentInputTheRecordDoesNotState() async throws {
+        var returned = try returned(.bbtools)
+        let pin = try XCTUnwrap(inputPins(returned).first)
+        returned.record.inputs = []
+        try returned.write()
+        try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath))
+        let outcome = await refusal(returned)
+        let refused = try XCTUnwrap(outcome)
+        XCTAssertEqual(refused.field, "inputs[0]")
+        XCTAssertTrue(refused.reason.contains("Copy the file the plan pins"), refused.reason)
+        XCTAssertTrue(refused.reason.contains(pin.sha256), refused.reason)
+        XCTAssertTrue(refused.reason.contains("\(pin.size) bytes"), refused.reason)
+        XCTAssertEqual(importedEntries(), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports/S.lungfishfastq").path))
+    }
+
+    /// ARCH-X3 R-2: a record that states another digest for an input than the plan pins is refused, naming both.
+    func testAdoptRefusesRecordInputDigestOffThePlan() async throws {
+        var returned = try returned(.bbtools)
+        let pin = try XCTUnwrap(inputPins(returned).first)
+        let index = try XCTUnwrap(returned.record.inputs.firstIndex { $0.relativePath == pin.relativePath })
+        let stated = String(repeating: "d", count: 64)
+        returned.record.inputs[index].sha256 = stated
+        try returned.write()
+        let outcome = await refusal(returned)
+        let refused = try XCTUnwrap(outcome)
+        XCTAssertEqual(refused.field, "inputs[0]")
+        XCTAssertTrue(refused.reason.contains(stated), refused.reason)
+        XCTAssertTrue(refused.reason.contains(pin.sha256), refused.reason)
+        XCTAssertEqual(importedEntries(), [])
+    }
+
+    /// ARCH-X3 R-2: an input file in the folder is still hashed, and one changed byte refuses the adopt with the fix.
+    func testAdoptRefusesPresentInputOffThePlan() async throws {
+        let returned = try returned(.bbtools)
+        let pin = try XCTUnwrap(inputPins(returned).first)
+        let url = returned.folder.appendingPathComponent(pin.relativePath)
+        var bytes = try Data(contentsOf: url)
+        bytes[1] ^= 0x01
+        try bytes.write(to: url)
+        let outcome = await refusal(returned)
+        let refused = try XCTUnwrap(outcome)
+        XCTAssertEqual(refused.field, "inputs[0]")
+        XCTAssertTrue(refused.reason.contains("Remove it, or replace it"), refused.reason)
+        XCTAssertTrue(refused.reason.contains(pin.sha256), refused.reason)
+        XCTAssertEqual(importedEntries(), [])
     }
 
     /// AMV1 BIO fix 2 (a): the seqkit table that becomes the sidecar's statistics must describe the payload. A record
