@@ -27,8 +27,8 @@ package enum ExecutorPlanBatchReadme {
         This folder holds one plan for each sample, in a folder named by the sample. It has two ways to run
         them. Use \(dag) on an HTCondor pool. Use \(script) on one machine with Apptainer or Docker, which
         can be a Linux machine or a Mac with Docker. \(jobs) lists the samples, one row each.
-        staging-files.json lists the files the jobs read, each with its size, its SHA-256 and the file on the
-        Mac to copy or link.
+        staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file
+        except the image with the file on the Mac to copy or link. The image is staged already.
 
 
         Run on an HTCondor pool
@@ -77,7 +77,8 @@ package enum ExecutorPlanBatchReadme {
            that job again by itself, at most twice, so leave it. Otherwise fix what the reason names. If it
            says an output file could not be sent back, that sample's job returned no reads. Read its run
            record, \(returned)\(record), and its log, <sample>/\(logs)/ in this folder, to see which step
-           stopped. A job refused before its first step leaves only the record.
+           stopped. A job the executor refuses before its first step leaves only the record. A job that
+           lge-job.sh refuses leaves no record, so read \(logs)/<sample>.err.
 
         3. Running the sample again replaces its run record, so copy it aside if it is there. Then remove
            the held job. HTCondor counts that sample as failed and goes on with the others:
@@ -155,7 +156,7 @@ package enum ExecutorPlanBatchReadme {
            sample is listed by name. Fix or rerun it, then adopt the whole batch again. The project must
            not already hold a bundle with the name of a sample of the batch, and the adopt refuses that
            sample if it does. To start over, delete those bundles from the project and adopt the batch
-           again. These are the four lines you may meet:
+           again. These are four of the lines you may meet:
 
            <sample>: its job returned nothing. The folder holds no \(record).
              (a held or removed job, or a copy not made)

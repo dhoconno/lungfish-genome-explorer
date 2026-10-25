@@ -412,6 +412,36 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertFalse(readme.lowercased().contains("chtc"), "the README names no site (O41)")
     }
 
+    /// The fact-check of lane CMD's strings (FC-CMD) found three README sentences false. A job that the executor
+    /// refuses leaves its record and one that `lge-job.sh` refuses leaves none, so that message is in
+    /// `logs/<sample>.err`. `staging-files.json` gives the image no file on the Mac, since the image is staged already.
+    /// The adopt can print more lines than the four the README lists. The text is read with its hard line breaks joined.
+    func testReadmeWordsThatTheFactCheckFoundFalseSayWhatTheCodeDoes() throws {
+        let written = try writeBatch(["S1"])
+        let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
+        let flat = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        for sentence in [
+            "A job the executor refuses before its first step leaves only the record. A job that lge-job.sh refuses leaves no record, so read logs/<sample>.err.",
+            "each with its size and its SHA-256, and each file except the image with the file on the Mac to copy or link. The image is staged already.",
+            "These are four of the lines you may meet:",
+        ] {
+            XCTAssertTrue(flat.contains(sentence), "\(sentence) is missing: \(flat)")
+        }
+        for stale in [
+            "A job refused before its first step",
+            "each with its size, its SHA-256 and the file on the Mac",
+            "These are the four lines you may meet:",
+        ] {
+            XCTAssertFalse(flat.contains(stale), "\(stale) is false: \(flat)")
+        }
+        // The list gives the image no file on the Mac and gives each read one, as the README now says.
+        let files = try JSONDecoder().decode(
+            ExecutorPlanBatchFiles.self, from: Data(contentsOf: written.folder.appendingPathComponent("staging-files.json"))
+        ).files
+        XCTAssertNil(try XCTUnwrap(files.first { $0.role == "image" }).source, "the image is staged already")
+        XCTAssertTrue(files.filter { $0.role == "input" }.allSatisfy { $0.source != nil }, "each read has its file on the Mac")
+    }
+
     /// UX-c5 section 4: the held-job steps come in order, the removal before the run again, each step is numbered, and the
     /// last one brings the results home and not the batch folder. A swap of two steps fails here.
     func testReadmeHeldJobStepsNameTheSample() throws {
