@@ -605,6 +605,38 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         }
     }
 
+    /// X6 D1: the import step's resolved `originalSizeBytes` is the size of the sample's inputs, and a 0 reads as a real size.
+    /// With the inputs gone the adopt takes it from the checked input records, which hold the plan's pins, so it is the two
+    /// pinned sizes added; with the inputs present it is the files' own size, which the Mac import records the same way.
+    /// The sidecar's `originalSizeBytes` is the plan's sum and agrees in both.
+    func testAdoptRecordsPlannedInputSizeWhenInputsAbsent() async throws {
+        let present = try ExecutorReturnedFolder.make(
+            root: root.appendingPathComponent("present", isDirectory: true), clumping: .bbtools, platform: "illumina"
+        )
+        let presentPins = inputPins(present)
+        XCTAssertEqual(presentPins.count, 2)
+        let presentSize = presentPins.reduce(Int64(0)) { $0 + $1.size }
+        XCTAssertGreaterThan(presentSize, 0)
+        let presentBundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: present.folder, projectDirectory: root.appendingPathComponent("present/Project.lungfish", isDirectory: true)
+        )
+        XCTAssertEqual(try envelope(presentBundle).options.resolvedDefaults["originalSizeBytes"], .integer(Int(presentSize)))
+
+        let absent = try ExecutorReturnedFolder.make(
+            root: root.appendingPathComponent("absent", isDirectory: true), clumping: .bbtools, platform: "illumina"
+        )
+        let pins = inputPins(absent)
+        XCTAssertEqual(pins.count, 2)
+        let planned = pins.reduce(Int64(0)) { $0 + $1.size }
+        XCTAssertGreaterThan(planned, 0)
+        XCTAssertEqual(absent.plan.sample.originalSizeBytes, planned, "the plan's sample size is its pins added")
+        for pin in pins { try FileManager.default.removeItem(at: absent.folder.appendingPathComponent(pin.relativePath)) }
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: absent.folder, projectDirectory: project)
+        XCTAssertEqual(try envelope(bundle).options.resolvedDefaults["originalSizeBytes"], .integer(Int(planned)))
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.appendingPathComponent("S.fastq.gz")))
+        XCTAssertEqual(sidecar.ingestion?.originalSizeBytes, planned)
+    }
+
     /// ARCH-X3 R-2: an input that is neither in the folder nor stated by the record is refused before any bundle file,
     /// naming the plan's input index and the fix with the pin's SHA-256.
     func testAdoptRefusesAbsentInputTheRecordDoesNotState() async throws {

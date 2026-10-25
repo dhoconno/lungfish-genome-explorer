@@ -1212,7 +1212,8 @@ public enum FASTQBatchImporter {
                 metadataURL: publishedMetadataURL,
                 csvMetadataURL: publishedCSVMetadataURL,
                 ingestionResult: ingestionResult,
-                unpairedReads: unpairedReads
+                unpairedReads: unpairedReads,
+                inputRecords: adoption?.inputs
             ).merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
         )
         .runtime(adoption?.runtime ?? ProvenanceRuntimeIdentity())
@@ -1838,7 +1839,8 @@ public enum FASTQBatchImporter {
         metadataURL: URL,
         csvMetadataURL: URL,
         ingestionResult: FASTQIngestionResult,
-        unpairedReads: UnpairedReadsLayout?
+        unpairedReads: UnpairedReadsLayout?,
+        inputRecords: [FileRecord]?
     ) -> [String: ParameterValue] {
         var parameters = provenanceParameters(pair: pair, config: config, bundleURL: bundleURL)
         parameters["inputReadCounts"] = unpairedReads.map { .dictionary($0.inputReadCounts) }
@@ -1859,7 +1861,9 @@ public enum FASTQBatchImporter {
         parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
         parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
         parameters["originalFilenames"] = .array(pair.inputFiles.map { .string($0.lastPathComponent) })
-        parameters["originalSizeBytes"] = .integer(Int(totalFileSize(pair.inputFiles)))
+        // An adopt measures no input, since a CHTC job returns none: it states the sizes of the records it checked (X6 D1).
+        let recordedSize = inputRecords.map { $0.reduce(UInt64(0)) { $0 &+ ($1.sizeBytes ?? 0) } }
+        parameters["originalSizeBytes"] = .integer(recordedSize.map { Int(clamping: $0) } ?? Int(totalFileSize(pair.inputFiles)))
         let sourceIsBAM = SequencingReadImportSource.isBAM(pair.r1)
         parameters["sourceFormat"] = .string(sourceIsBAM ? FileFormat.bam.rawValue : FileFormat.fastq.rawValue)
         parameters["materializedInputFormat"] = .string(FileFormat.fastq.rawValue)

@@ -18,8 +18,9 @@ struct ExecutorAdoptionProvenance: Sendable {
     var runtime: ProvenanceRuntimeIdentity
     /// The environment the signing key is read from.
     var signingEnvironment: [String: String]
-    /// The sample's input records as the preflight checked them, with the plan's SHA-256 and size, so the import hashes no
-    /// input: a CHTC job returns none (ARCH-X3 R-2).
+    /// The sample's input records as the preflight checked them, with the plan's SHA-256 and size, so the import hashes and
+    /// measures no input: a CHTC job returns none (ARCH-X3 R-2). The import step's `originalSizeBytes` is their sizes added
+    /// (X6 D1).
     var inputs: [FileRecord]
 }
 
