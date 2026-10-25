@@ -71,6 +71,25 @@ final class FASTQClumpingToolTests: XCTestCase {
         XCTAssertTrue(resolution.reason.contains("exceeds the BBTools clumpify memory budget"))
     }
 
+    /// Vote C4-4 D-6 (option 1; QA Q4-14, BIO B-D6-3, SWIFT SW4-13, UX U4-9): at a pinned 1 GB heap the automatic choice keeps
+    /// BBTools for an estimated input of at most half the heap, the `<=` at `ClumpingTool.swift:64`, and skips clumping one
+    /// byte above it, with the reason the Mac's import states. The pinned heap, not the host's memory, sets the threshold.
+    func testAutoAtAPinnedOneGBHeapSkipsClumpingJustAboveHalfTheHeap() {
+        let half: Int64 = 536_870_912
+        let atHalf = ClumpingTool.auto.resolve(estimatedInputBytes: half, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
+        XCTAssertEqual(atHalf.resolved, .bbtools)
+        XCTAssertEqual(atHalf.thresholdBytes, half)
+
+        let above = ClumpingTool.auto.resolve(estimatedInputBytes: half + 1, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
+        XCTAssertEqual(above.resolved, ClumpingTool.none)
+        XCTAssertEqual(above.thresholdBytes, half)
+        XCTAssertEqual(above.reason, "skipped clumping: estimated input exceeds the BBTools clumpify memory budget")
+
+        let below = ClumpingTool.auto.resolve(estimatedInputBytes: 349_495_473, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
+        XCTAssertEqual(below.resolved, .bbtools)
+        XCTAssertEqual(below.thresholdBytes, half)
+    }
+
     func testExplicitChoicesBypassAutoHeuristic() {
         XCTAssertEqual(ClumpingTool.bbtools.resolve(estimatedInputBytes: 100 * Self.gib, physicalMemoryBytes: 8 * Self.gib).resolved, .bbtools)
         XCTAssertEqual(ClumpingTool.trimGalore.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib).resolved, .trimGalore)
