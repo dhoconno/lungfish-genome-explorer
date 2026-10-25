@@ -139,17 +139,24 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
     func testRequestDiskIsTheLargerOfTheDefaultAndTheWorkRootRule() throws {
         let sif: Int64 = 396_402_688
         let tar: Int64 = 18_432
-        let cases: [(run: String, inputs: Int64, shared: Int64, disk: Int)] = [
-            ("SRR35520572", 422_847_301, 3_338_092_947, 10),
-            ("SRR24403534", 372_364_449, 3_348_200_894, 10),
-            ("SRR38262740", 94_232_530, 3_348_200_894, 9),
-            ("C079876", 61_600_000_000, 3_338_092_947, 366),
+        let vsp2 = "vsp2-target-enrichment", wastewater = "wastewater-metagenomics"
+        let cases: [(run: String, preset: String, inputs: Int64, shared: Int64, disk: Int)] = [
+            ("SRR35520572", vsp2, 422_847_301, 3_338_092_947, 10),
+            ("SRR24403534", wastewater, 372_364_449, 3_348_200_894, 10),
+            ("SRR38262740", wastewater, 94_232_530, 3_348_200_894, 9),
+            ("C079876", vsp2, 61_600_000_000, 3_338_092_947, 366),
+            ("WW10GB", wastewater, 10_000_000_000, 3_348_200_894, 128),
+            ("VSP210GB", vsp2, 10_000_000_000, 3_348_200_894, 63),
         ]
-        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor, 5.03)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: vsp2), 5.03)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: wastewater), 10.61)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: "a-preset-with-no-node"), 10.61, "the largest value")
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: nil), 10.61, "the largest value")
         XCTAssertEqual(ExecutorPlanBatchWriter.defaultRequestDiskGiB(inputBytes: 61_600_000_000), 181)
         for item in cases {
             let disk = ExecutorPlanBatchWriter.requestDiskGiB(inputBytes: item.inputs, imageBytes: sif, planTarBytes: tar,
-                                                              sharedBytes: item.shared)
+                                                              sharedBytes: item.shared,
+                workRootFactor: ExecutorPlanBatchWriter.workRootFactor(forPreset: item.preset))
             let node = HTCondorDAGNode(
                 sample: item.run, requestDiskGB: disk, planTarPath: "plan.tar",
                 reads: [HTCondorStagedFile(url: "file:///staging/g/\(item.run)/R1.fastq.gz", relativePath: "inputs/R1.fastq.gz")]
@@ -232,7 +239,7 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let rows = [try row("S1")]
         let cases = [
             (layout: ExecutorPlanStagingLayout(folder: "/staging/groups/g/1/lge-chtc-test", batch: "VSP2 test"),
-             field: "folder", names: "submit folder name"),
+             field: "folder", names: "plan folder name"),
             (layout: ExecutorPlanStagingLayout(folder: "/staging/groups/our lab/x", batch: "batch"),
              field: "stagingFolder", names: "--staging-folder"),
         ]
@@ -320,6 +327,38 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
         let base = "/staging/groups/g/1/lge-chtc-test/batches/batch/S1"
         XCTAssertTrue(dag.contains("SCRIPT PRE S1 /bin/mkdir -p \(base)/result \(base)/result/out \(base)/result/work\n"), dag)
+    }
+
+    /// CHTC-3d R4. The disk a batch asks for follows the recipe's resolved preset: the wastewater batch asks for more than
+    /// the VSP2 batch of the same reads, each at its own work root factor.
+    func testBatchDiskFollowsTheResolvedPreset() throws {
+        var asked: [String: Int] = [:]
+        for preset in ["wastewater-metagenomics", "vsp2-target-enrichment"] {
+            var request = try templateRequest(recipe: recipe(["fastp-dedup", "fastp-trim", "fastp-merge"]))
+            request.recipe?.resolution = RecipeResolution(
+                requestedName: preset, preset: RecipePreset(id: preset, name: preset, switches: [:]), switchSettings: []
+            )
+            let recipeTemplate = try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24)
+            let inputs = try ExecutorPlanTestSupport.writePair(root: root, "S1").map { url -> ExecutorPlanSourceFile in
+                let measured = try ExecutorPlanSourceFile.measuring(url)
+                return ExecutorPlanSourceFile(url: measured.url, sha256: measured.sha256, size: 5_000_000_000)
+            }
+            let folder = root.appendingPathComponent("preset-\(preset)", isDirectory: true)
+            let batch = try ExecutorPlanBatchWriter.write(
+                recipeTemplate, request: request, rows: [ExecutorPlanSampleRow(sampleName: "S1", inputs: inputs)],
+                image: image, layout: layout, into: folder
+            )
+            let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+            let vars = try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S1 ") }, dag)
+            let shared = batch.files.filter { $0.sample == nil && $0.role != "image" }.reduce(Int64(0)) { $0 + $1.size }
+            let tar = try XCTUnwrap(batch.planTars.first).size
+            let factor = preset == "wastewater-metagenomics" ? 10.61 : 5.03
+            let bytes = 396_402_688 + 2 * Double(tar) + Double(shared) + factor * 10_000_000_000
+            let expected = Int((1.25 * bytes / 1_073_741_824).rounded(.up))
+            XCTAssertTrue(vars.contains("request_disk=\"\(expected)GB\""), "\(preset) should ask \(expected) GB: \(vars)")
+            asked[preset] = expected
+        }
+        XCTAssertGreaterThan(try XCTUnwrap(asked["wastewater-metagenomics"]), try XCTUnwrap(asked["vsp2-target-enrichment"]))
     }
 
     // MARK: Steps with no plan form, one test each

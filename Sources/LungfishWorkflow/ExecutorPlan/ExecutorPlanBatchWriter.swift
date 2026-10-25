@@ -144,10 +144,23 @@ package enum ExecutorPlanBatchWriter {
     /// (C5 D13). A lab batch's job reads about 65 GB from the staging folder, so the batch reads at most ten such at once.
     package static let concurrentJobs = 10
 
-    /// The work root's peak over a sample's input bytes, one value for every recipe until lane X measures each: X3's
-    /// (5,463,083,200 − 3,338,092,947) / 422,847,301 = 5.0254, rounded up so the rule never asks less than X3 used
-    /// (CHTC-c5 ruling 3a).
-    package static let workRootFactor = 5.03
+    /// The work root's peak over a sample's input bytes, w, one value a preset (CHTC-3d R4). Wastewater is 10.61, the
+    /// larger of SRR24403534's (7,057,265,186 − 3,348,200,894) / 372,364,449 = 9.961 and SRR38262740's
+    /// (4,347,450,604 − 3,348,200,894) / 94,232,530 = 10.604, rounded up. VSP2 is 5.03, X3's SRR35520572 node,
+    /// (5,463,083,200 − 3,338,092,947) / 422,847,301 = 5.0254, rounded up so the rule never asks less than the node
+    /// used. A value rises when a node reads higher and falls only by a panel ruling after CH-10's full-size node.
+    package static let workRootFactors: [String: Double] = [
+        "vsp2-target-enrichment": 5.03,
+        "wastewater-metagenomics": 10.61,
+    ]
+
+    /// A preset with no node, or a batch with no preset, takes the largest value.
+    package static let largestWorkRootFactor = workRootFactors.values.max() ?? 10.61
+
+    /// The factor of the recipe's resolved preset id.
+    package static func workRootFactor(forPreset id: String?) -> Double {
+        id.flatMap { workRootFactors[$0] } ?? largestWorkRootFactor
+    }
 
     /// C4's disk rule: three times the sample's input bytes, rounded up to a whole GiB, plus 8 GiB for the image and the
     /// work files.
@@ -160,7 +173,7 @@ package enum ExecutorPlanBatchWriter {
     /// executor and every database the plan pins, I the sample's input bytes and w ``workRootFactor`` (CHTC-c5 ruling
     /// 3a, C5 D17). Every size is one the plan, the image record or the tar states, and none of it reaches a plan.
     package static func requestDiskGiB(inputBytes: Int64, imageBytes: Int64, planTarBytes: Int64, sharedBytes: Int64,
-                                       workRootFactor w: Double = workRootFactor) -> Int {
+                                       workRootFactor w: Double = largestWorkRootFactor) -> Int {
         let bytes = Double(imageBytes) + 2 * Double(planTarBytes) + Double(sharedBytes) + w * Double(inputBytes)
         let rule = Int((1.25 * bytes / Double(gib)).rounded(.up))
         return max(defaultRequestDiskGiB(inputBytes: inputBytes), rule)
@@ -183,7 +196,7 @@ package enum ExecutorPlanBatchWriter {
     /// real run and `--dry-run` make this one check.
     package static func checkLayout(_ layout: ExecutorPlanStagingLayout) throws {
         guard HTCondorValueRules.isName(layout.batch) else {
-            throw ExecutorPlanError(field: "folder", reason: "The submit folder name \(layout.batch) is also the batch's folder name on CHTC, so name it with letters, digits, _, . and - only.")
+            throw ExecutorPlanError(field: "folder", reason: "The plan folder name \(layout.batch) is also the batch's folder name in the staging folder, so name it with letters, digits, _, . and - only.")
         }
         do {
             try HTCondorValueRules.checkRelativePath(String(layout.folder.dropFirst()), field: "staging folder")
@@ -228,7 +241,8 @@ package enum ExecutorPlanBatchWriter {
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
             return try write(template, sources: recipeTemplate.sources, rows: rows, names: names, emissions: emissions,
-                             image: image, layout: layout, requirements: requirements, into: folder)
+                             image: image, layout: layout, requirements: requirements,
+                             workRootFactor: workRootFactor(forPreset: request.recipe?.resolution?.preset?.id), into: folder)
         } catch {
             try? fileManager.removeItem(at: folder)
             throw error
@@ -238,7 +252,7 @@ package enum ExecutorPlanBatchWriter {
     private static func write(
         _ template: PlanTemplate, sources: [String: URL], rows: [ExecutorPlanSampleRow], names: [String],
         emissions: [ExecutorPlanEmission], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
-        requirements: String?, into folder: URL
+        requirements: String?, workRootFactor factor: Double, into folder: URL
     ) throws -> ExecutorPlanBatch {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder.appendingPathComponent(logsFolderName), withIntermediateDirectories: false)
@@ -290,7 +304,8 @@ package enum ExecutorPlanBatchWriter {
             let inputBytes = inputs.reduce(Int64(0)) { $0 + $1.size }
             // The sheet's request_disk column wins over the rule.
             let disk = rows[index].requestDiskGiB ?? requestDiskGiB(
-                inputBytes: inputBytes, imageBytes: image.sif.size, planTarBytes: Int64(tarData.count), sharedBytes: sharedBytes
+                inputBytes: inputBytes, imageBytes: image.sif.size, planTarBytes: Int64(tarData.count), sharedBytes: sharedBytes,
+                workRootFactor: factor
             )
             nodes.append(HTCondorDAGNode(
                 sample: name, requestDiskGB: disk, planTarPath: HTCondorSubmitTemplate.planTarName, reads: reads,
