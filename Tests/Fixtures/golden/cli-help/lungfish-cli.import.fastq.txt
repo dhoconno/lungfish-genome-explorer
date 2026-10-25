@@ -102,8 +102,7 @@ OPTIONS:
                           in, which states the image's file name, SHA-256 and
                           size and its tool manifest's SHA-256 and size
         Optional with --write-plan. The app holds an image record and the plan
-        uses it. Name the one written when you built another image to use that
-        one instead.
+        uses it. Name the image.json of another image to use that one instead.
   --image-tool-manifest <file>
                           The image's tool manifest, the file image.json pins
         Optional with --write-plan. The plan pins each tool it runs from this
