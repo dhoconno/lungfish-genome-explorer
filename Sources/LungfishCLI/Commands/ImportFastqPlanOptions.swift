@@ -26,7 +26,7 @@ struct ImportFastqPlanOptions: ParsableArguments {
                 + "plan's heap, whatever its size, because clumpify splits a large sample into more groups to fit that "
                 + "heap. An import on this Mac with auto does the same at this Mac's clumpify heap. Reads that "
                 + "--platform names as ont, pacbio or unknown are not clumped with auto, because clumpify works well "
-                + "only on accurate reads; name --clumping-tool bbtools to clump them. A plan that names no platform "
+                + "only on accurate reads. Name --clumping-tool bbtools to clump them. A plan that names no platform "
                 + "is planned as short reads.",
             valueName: "folder"
         )
