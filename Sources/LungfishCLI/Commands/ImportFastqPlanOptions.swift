@@ -10,15 +10,15 @@ import LungfishWorkflow
 
 /// The options of `import fastq --write-plan`. With `--write-plan` the command plans the import once for the recipe and
 /// writes a CHTC submit folder in place of importing (ARCH Q-C4-8): `run.dag`, `sample.sub`, `lge-job.sh`, `logs/`,
-/// one plan folder a sample with its `staging.json`, each sample's `plan.tar` under `staging/` and
-/// `staging-files.json`. It starts no process and opens no connection, so a person copies the files and submits.
+/// one plan folder a sample with its `staging.json` and its `plan.tar`, and `staging-files.json`. It starts no process
+/// and opens no connection, so a person copies the files and submits.
 struct ImportFastqPlanOptions: ParsableArguments {
     @Option(
         name: .customLong("write-plan"),
         help: ArgumentHelp(
             "Write a CHTC submit folder to this new folder in place of importing",
             discussion: "The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan folder per sample named by "
-                + "its sample, each sample's plan.tar under staging/, and staging-files.json, which lists each file the "
+                + "its sample with the sample's plan.tar, and staging-files.json, which lists each file the "
                 + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
                 + "No file is imported and nothing is submitted, so --project is not needed. A sample sheet's "
                 + "request_disk column gives a sample's disk request in GB. With no --clumping-tool, or with "
@@ -71,12 +71,24 @@ struct ImportFastqPlanOptions: ParsableArguments {
         help: ArgumentHelp(
             "The absolute path of the group's staging folder on CHTC that the jobs read from",
             discussion: "Required with --write-plan. The image is in images/, each executor and database copy in "
-                + "shared/ under a name that starts with its SHA-256, and each sample's plan tar, reads and result in "
-                + "batches/<submit folder name>/<sample>/.",
+                + "shared/ under a name that starts with its SHA-256, each sample's reads in "
+                + "batches/<submit folder name>/<sample>/ and the files its job returns in "
+                + "batches/<submit folder name>/<sample>/result/.",
             valueName: "path"
         )
     )
     var stagingFolder: String?
+
+    @Option(
+        name: .customLong("job-requirements"),
+        help: ArgumentHelp(
+            "The machines the jobs may run on, as one HTCondor requirements expression, for --write-plan",
+            discussion: "It replaces the whole default, which asks for machines that can read the staging folder and "
+                + "run an EL9 or later system on an x86-64 CPU. Write it on one line. Leave it out to keep the default.",
+            valueName: "expression"
+        )
+    )
+    var jobRequirements: String?
 
     @Option(
         name: .customLong("plan-database"),
@@ -156,6 +168,7 @@ extension ImportCommand.FastqSubcommand {
                 // pass where the run would end for a fixed reason.
                 try ExecutorPlanNoPlanForm.check(recipeTemplate.template, request: template)
                 try ExecutorPlanBatchWriter.checkLayout(layout)
+                try ExecutorPlanBatchWriter.checkRequirements(options.jobRequirements)
                 let names = try ExecutorPlanBatchWriter.folderNames(for: rows.rows)
                 for (row, name) in zip(rows.rows, names) {
                     reporter.text("  \(row.sampleName) in folder \(name): \(row.inputs.map(\.url.lastPathComponent).joined(separator: ", "))")
@@ -165,13 +178,18 @@ extension ImportCommand.FastqSubcommand {
                 return
             }
             let batch = try ExecutorPlanBatchWriter.write(
-                recipeTemplate, request: template, rows: rows.rows, image: image, layout: layout, into: folder
+                recipeTemplate, request: template, rows: rows.rows, image: image, layout: layout,
+                requirements: options.jobRequirements, into: folder
             )
             reporter.text("Wrote the submit folder \(batch.folder.path) for \(batch.samples.count) sample(s).")
             for file in batch.files {
                 reporter.text("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? ""))
             }
-            // Each job's payload upload makes no folder, so run.dag makes it before it submits the job (fix G3).
+            // Each job takes its plan tar from the submit folder, so the tar is not copied to the staging folder (C5 D15).
+            for tar in batch.planTars {
+                reporter.text("  \(tar.size) bytes  \(tar.relativePath) stays in the submit folder, and the job of \(tar.sample) takes it from there")
+            }
+            // An upload makes no folder, so run.dag makes each folder a job returns files into before it submits the job (fix G3).
             for made in batch.folders {
                 reporter.text("  run.dag makes the folder \(made.stagingPath) before it submits the job of \(made.sample)")
             }
@@ -309,7 +327,7 @@ extension ImportCommand.FastqSubcommand {
 extension ImportFastqReporter {
     /// The `complete` line of a written submit folder: the paths of the submit folder and of each sample's plan folder
     /// as outputs (Q-C4-8), each file the jobs read from the staging folder as an artifact of kind `staging-<role>`, and
-    /// each folder the jobs write into there as one of kind `staging-payload-folder` with the sample as its role, so a
+    /// each folder the jobs write into there as one of kind `staging-result-folder` with the sample as its role, so a
     /// reader of events learns the folders as well as the files. The sizes and digests stay in `staging-files.json` and
     /// the human text, since a v2 event has no size field.
     func completePlan(folder: URL, samples: [String], files: [ExecutorPlanBatchFile], folders: [ExecutorPlanBatchFolder]) {

@@ -156,7 +156,7 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: markers.path), [],
                        "The planning step started a connection or submit command")
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
-        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging", "staging-files.json"])
+        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging-files.json"])
         for sample in ["S1", "S2"] {
             XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(sample)/plan.json").path), sample)
         }
@@ -185,9 +185,9 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
     }
 
     /// Review of fix G3, fix 1. A GUI or a script that reads the events never sees the human text, so the `complete`
-    /// event names each sample's payload folder as an artifact of kind `staging-payload-folder`, with the sample as its role
-    /// and the folder on the staging area as its path.
-    func testWritePlanCompleteEventNamesEachPayloadFolderToMake() throws {
+    /// event names each of a sample's result folders as an artifact of kind `staging-result-folder`, with the sample as
+    /// its role and the folder on the staging area as its path (C5 D1).
+    func testWritePlanCompleteEventNamesEachResultFolderToMake() throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
@@ -198,23 +198,28 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
         let complete = try XCTUnwrap(events.first { $0["event"] as? String == "complete" }, run.stdout)
         let artifacts = try XCTUnwrap(complete["artifacts"] as? [[String: Any]], run.stdout)
-        let folders = artifacts.filter { $0["kind"] as? String == "staging-payload-folder" }
-        XCTAssertEqual(folders.map { $0["role"] as? String }, ["S1", "S2"], "one payload folder a sample: \(artifacts)")
+        let folders = artifacts.filter { $0["kind"] as? String == "staging-result-folder" }
+        XCTAssertEqual(folders.map { $0["role"] as? String }, ["S1", "S1", "S2", "S2"], "two folders a sample: \(artifacts)")
         XCTAssertEqual(folders.map { $0["path"] as? String },
-                       ["S1", "S2"].map { "\(Fixture.stagingFolder)/batches/batch-1/\($0)/out" })
+                       ["S1/result", "S1/result/out", "S2/result", "S2/result/out"]
+                           .map { "\(Fixture.stagingFolder)/batches/batch-1/\($0)" })
+        XCTAssertFalse(artifacts.contains { $0["kind"] as? String == "staging-plan-tar" }, "the tars stay in the submit folder")
     }
 
-    /// Review of fix G3, fix 1 and the wrapper question. The human text of the same run names each sample's payload folder
-    /// once and says that run.dag makes it, so a person has no step to take.
-    func testWritePlanTextNamesEachPayloadFolderToMake() throws {
+    /// Review of fix G3, fix 1 and the wrapper question. The human text of the same run names each result folder once and
+    /// says that run.dag makes it, so a person has no step to take, and says each plan tar stays in the submit folder.
+    func testWritePlanTextNamesEachResultFolderToMake() throws {
         guard let cli = CLISIGTERMHarness.cliBinaryURL(for: Self.self) else {
             throw XCTSkip("Inject LUNGFISH_CLI with the resolved swiftbuild product or build it beside the test bundle")
         }
         let run = try runWritePlan(cli: cli, format: "text")
         XCTAssertTrue(run.succeeded, run.stderr)
         for sample in ["S1", "S2"] {
-            let line = "run.dag makes the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/out before it submits the job of \(sample)"
-            XCTAssertEqual(run.stdout.components(separatedBy: line).count - 1, 1, "\(line) once in: \(run.stdout)")
+            for made in ["result", "result/out"] {
+                let line = "run.dag makes the folder \(Fixture.stagingFolder)/batches/batch-1/\(sample)/\(made) before it submits the job of \(sample)"
+                XCTAssertEqual(run.stdout.components(separatedBy: line).count - 1, 1, "\(line) once in: \(run.stdout)")
+            }
+            XCTAssertTrue(run.stdout.contains("\(sample)/plan.tar stays in the submit folder"), run.stdout)
         }
         XCTAssertFalse(run.stdout.contains("before you submit"), "no folder is left to a person: \(run.stdout)")
     }
@@ -269,6 +274,29 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
                               "\(text): \(error)")
             }
         }
+    }
+
+    /// ARCH-c5 point 8. The batch's sheet is comma-separated, `samples.csv`, and its `request_disk` column gives one
+    /// sample's disk: S1 asks 40 GB in `run.dag`, and S2, whose cell is empty, asks what the writer's rule gives.
+    func testPlanReadsCommaSampleSheetRequestDisk() async throws {
+        let fixture = try writeFixture()
+        let sheet = root.appendingPathComponent("samples.csv")
+        let lines = ["sample,r1,r2,request_disk",
+                     "S1,\(fixture.reads[0].path),\(fixture.reads[1].path),40",
+                     "S2,\(fixture.reads[2].path),\(fixture.reads[3].path),"]
+        try (lines.joined(separator: "\n") + "\n").write(to: sheet, atomically: true, encoding: .utf8)
+        let folder = root.appendingPathComponent("sheet-batch", isDirectory: true)
+        let command = try ImportCommand.FastqSubcommand.parse(
+            ["--samplesheet", sheet.path] + fixture.planArguments(folder: folder)
+                + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools"]
+        )
+        try await command.run()
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        let vars = dag.split(separator: "\n").filter { $0.hasPrefix("VARS ") }
+        XCTAssertEqual(vars.count, 2, dag)
+        XCTAssertTrue(vars[0].hasPrefix("VARS S1 ") && vars[0].contains("request_disk=\"40GB\""), String(vars[0]))
+        // S2's reads are far under a GiB, so the rule gives the default: one GiB for the reads plus 8.
+        XCTAssertTrue(vars[1].hasPrefix("VARS S2 ") && vars[1].contains("request_disk=\"9GB\""), String(vars[1]))
     }
 
     // MARK: Fixture

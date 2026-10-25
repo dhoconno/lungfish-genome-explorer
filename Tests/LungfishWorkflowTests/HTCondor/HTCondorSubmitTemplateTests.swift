@@ -29,7 +29,7 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
             heapBytes: heapBytes,
             requestCpus: 1,
             payloadRelativePath: "out/sample.fastq.gz",
-            payloadStagingFolderURL: "\(staging)/h",
+            resultStagingFolderURL: "\(staging)/h",
             reportRelativePaths: reports
         )
     }
@@ -191,7 +191,8 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         )
         XCTAssertEqual(
             try value(of: "transfer_output_remaps", in: text),
-            "\"plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz\""
+            "\"plan/run-record.json = \(Self.staging)/h/$(sample)/result/run-record.json; "
+                + "plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/result/out/sample.fastq.gz\""
         )
         let words = try words(ofArguments: try value(of: "arguments", in: text))
         XCTAssertEqual(words[0].text, "lungfish-executor-\(Self.executorDigest)=bin/lungfish-executor")
@@ -228,8 +229,8 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
 
     /// ARCH Optional 1 and SWIFT Fix 2 of the lane V review set 2. The run record names each report the plan writes
     /// under `work/`, and the adopt reads it in the sample's returned folder, so the job returns each report there, at its
-    /// `work/` path, and nothing else under `work/`. HTCondor names a returned file after the last component of the
-    /// path it was listed by, so each report has a remap that puts it back under `work/`.
+    /// `work/` path, and nothing else under `work/`. Each report's remap, keyed by its listed path, puts it under the
+    /// sample's `result/work/` on the staging side (C5 D1).
     func testEachPlanReportComesHomeAtItsWorkPathAndNothingElseUnderWorkDoes() throws {
         let reports = ["work/sample_fused_fastp_report.json", "work/sample_deacon_summary.json"]
         let text = try HTCondorSubmitTemplate.render(Self.input(reports: reports))
@@ -240,9 +241,10 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         )
         XCTAssertEqual(
             try value(of: "transfer_output_remaps", in: text),
-            "\"plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/out/sample.fastq.gz; "
-                + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
-                + "sample_deacon_summary.json = work/sample_deacon_summary.json\""
+            "\"plan/run-record.json = \(Self.staging)/h/$(sample)/result/run-record.json; "
+                + "plan/out/sample.fastq.gz = \(Self.staging)/h/$(sample)/result/out/sample.fastq.gz; "
+                + "plan/work/sample_fused_fastp_report.json = \(Self.staging)/h/$(sample)/result/work/sample_fused_fastp_report.json; "
+                + "plan/work/sample_deacon_summary.json = \(Self.staging)/h/$(sample)/result/work/sample_deacon_summary.json\""
         )
         // The work folder holds the large intermediates, so it is never listed, and only the named reports come from it.
         let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
@@ -264,13 +266,60 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
             return (parts[0], parts.count == 2 ? parts[1] : "")
         }
         let urlRemaps = remaps.filter { $0.target.hasPrefix("file://") }
-        XCTAssertEqual(urlRemaps.map(\.key), ["plan/out/sample.fastq.gz"])
-        XCTAssertEqual(urlRemaps.map(\.target), ["\(Self.staging)/h/$(sample)/out/sample.fastq.gz"])
+        XCTAssertEqual(urlRemaps.map(\.key), ["plan/run-record.json", "plan/out/sample.fastq.gz",
+                                              "plan/work/sample_fused_fastp_report.json"])
+        XCTAssertEqual(urlRemaps[1].target, "\(Self.staging)/h/$(sample)/result/out/sample.fastq.gz")
         for remap in urlRemaps {
             XCTAssertTrue(files.contains(remap.key), "the URL remap's key \(remap.key) is a path transfer_output_files lists")
         }
-        // The access point applies a plain remap to the returned name, the last component, so each report keeps that key.
-        XCTAssertEqual(remaps.filter { !$0.target.hasPrefix("file://") }.map(\.key), ["sample_fused_fastp_report.json"])
+        // Every remap is a URL remap now, so no key is a bare last component.
+        XCTAssertEqual(remaps.filter { !$0.target.hasPrefix("file://") }.map(\.key), [])
+    }
+
+    /// D9. The default keeps staging, EL9 and x86-64. A plan's requirements value replaces the whole clause on the one
+    /// `requirements` line, and a value that would end that line or hide a character in it is refused.
+    func testJobRequirementsReplaceTheWholeClauseOnOneLine() throws {
+        var input = Self.input()
+        input.requirements = #"(TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")"#
+        let text = try HTCondorSubmitTemplate.render(input)
+        XCTAssertEqual(try value(of: "requirements", in: text), #"(TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")"#)
+        XCTAssertFalse(text.contains("HasCHTCStaging"), "the value replaces the whole default")
+        let refused = HTCondorSubmitError.invalidValue(
+            field: "job requirements",
+            rule: "are not one line of at most 4096 bytes with no line break, tab or other control character."
+        )
+        for bad in ["", "   ", "(A)\n(B)", "(A)\r", "(A)\t&& (B)", "(A)\u{0}", "(A)\u{2028}(B)", String(repeating: "A", count: 4097)] {
+            input.requirements = bad
+            XCTAssertThrowsError(try HTCondorSubmitTemplate.render(input), bad.debugDescription) { error in
+                XCTAssertEqual(error as? HTCondorSubmitError, refused, bad.debugDescription)
+            }
+        }
+    }
+
+    /// D1 (ARCH-c5 point 1). Each remap names one file: the run record, each report and the payload go to the sample's
+    /// `result/` folder on the staging side at the same relative path, each keyed by the path `transfer_output_files`
+    /// lists, since the execute point uploads a file to a `file://` remap only under that key (fix G3). The step logs
+    /// come home to the submit folder, so no remap names them.
+    func testRemapsRecordReportsAndPayloadUnderResultByListedPath() throws {
+        let reports = ["work/sample_fused_fastp_report.json", "work/sample_deacon_summary.json"]
+        let text = try HTCondorSubmitTemplate.render(Self.input(reports: reports))
+        let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
+        let remapValue = try value(of: "transfer_output_remaps", in: text)
+        XCTAssertTrue(remapValue.hasPrefix("\"") && remapValue.hasSuffix("\""), remapValue)
+        let remaps = remapValue.dropFirst().dropLast().components(separatedBy: "; ").map { pair -> (key: String, target: String) in
+            let parts = pair.components(separatedBy: " = ")
+            return (parts[0], parts.count == 2 ? parts[1] : "")
+        }
+        let result = "\(Self.staging)/h/$(sample)/result/"
+        XCTAssertEqual(remaps.map(\.key), files.filter { $0 != "plan/logs" }, "one remap a returned file but the logs")
+        for remap in remaps {
+            XCTAssertTrue(files.contains(remap.key), "the key \(remap.key) is a path transfer_output_files lists")
+            XCTAssertTrue(remap.target.hasPrefix(result), "\(remap.key) goes to \(remap.target)")
+            XCTAssertEqual(remap.target, result + remap.key.dropFirst("plan/".count), "\(remap.key) keeps its relative path")
+            XCTAssertFalse(remap.key.contains("logs") || remap.target.contains("logs"), "no remap names the logs")
+        }
+        XCTAssertEqual(Set(remaps.map(\.target)).count, remaps.count, "no two files land on one path")
+        XCTAssertTrue(files.contains("plan/logs"), "the step logs still come home to the submit folder")
     }
 
     func testTemplateRefusesReportsThatLeaveWorkOrShareAReturnedName() {

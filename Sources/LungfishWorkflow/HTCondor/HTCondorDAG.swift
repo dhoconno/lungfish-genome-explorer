@@ -11,38 +11,57 @@ public struct HTCondorDAGNode: Sendable, Equatable {
     /// The scratch disk the job asks for, in whole GiB, which the fill writes from the sample's input sizes (C4-05,
     /// CHTC-c4r2 4.1). It reaches the submit file's `request_disk` only, never a plan, an argument or the environment.
     public var requestDiskGB: Int
-    /// The sample's plan tar on `/staging`, whose last path component is ``HTCondorSubmitTemplate/planTarName``.
-    public var planTarURL: String
+    /// The sample's plan tar, a path of names relative to the sample's plan folder in the submit folder, the job's
+    /// `initialdir`, whose last component is ``HTCondorSubmitTemplate/planTarName``. The tar is small, so it travels from
+    /// the home submit folder and takes no file of the staging folder's quota (C5 D15).
+    public var planTarPath: String
     /// The sample's reads on `/staging`, each placed at its plan path by the wrapper.
     public var reads: [HTCondorStagedFile]
-    /// The sample's payload folder on `/staging`, which `run.dag` makes with a `SCRIPT PRE` on the access point before
-    /// DAGMan submits the node's job. The payload's upload to a `file://` URL makes no folder, and a job with no such
-    /// folder is held when it finishes and starts again from the beginning when released (fix G3). `nil` renders no script.
-    public var payloadFolder: String?
+    /// The folders on `/staging` that `run.dag` makes with one `SCRIPT PRE` on the access point before DAGMan submits the
+    /// node's job: the sample's result folder and the folder of each file the job uploads into it
+    /// (``HTCondorSubmitTemplate/resultFolders(payloadRelativePath:reportRelativePaths:)``). An upload to a `file://`
+    /// URL makes no folder, and a job with no such folder is held when it finishes and starts again from the beginning
+    /// when released (fix G3). An empty list renders no script.
+    public var resultFolders: [String]
 
-    public init(sample: String, requestDiskGB: Int, planTarURL: String, reads: [HTCondorStagedFile],
-                payloadFolder: String? = nil) {
+    public init(sample: String, requestDiskGB: Int, planTarPath: String, reads: [HTCondorStagedFile],
+                resultFolders: [String] = []) {
         self.sample = sample
         self.requestDiskGB = requestDiskGB
-        self.planTarURL = planTarURL
+        self.planTarPath = planTarPath
         self.reads = reads
-        self.payloadFolder = payloadFolder
+        self.resultFolders = resultFolders
     }
 }
 
 /// The text of `run.dag`: one `JOB` a sample, every one naming ``HTCondorSubmitTemplate/fileName``, and one `VARS` line
 /// a sample with its name, its disk request with a `GB` suffix (a bare number would be read as KiB, CHTC-c4r2 4.3), its
-/// inputs and the wrapper's placements of its reads.
+/// inputs and the wrapper's placements of its reads. After the last node every node joins one category that `MAXJOBS`
+/// throttles, and DAGMan writes each node's state to ``statusFileName`` (C5 D13, CHTC-c5 ruling 3b).
 public enum HTCondorDAG {
     /// The file name lane F's writer gives the DAG.
     public static let fileName = "run.dag"
 
+    /// The category every node joins, which `MAXJOBS` throttles.
+    public static let categoryName = "lge"
+
+    /// The file DAGMan rewrites with every node's state, held jobs among them, in the submit folder.
+    public static let statusFileName = "run.dag.status"
+
+    /// How often DAGMan rewrites ``statusFileName``, in seconds.
+    public static let statusFileSeconds = 60
+
     /// Words DAGMan reserves, which no node may take as its name.
     static let reservedNodeNames: Set<String> = ["PARENT", "CHILD", "ALL_NODES"]
 
-    public static func render(_ nodes: [HTCondorDAGNode]) throws -> String {
+    /// The DAG of `nodes`, with at most `maxJobs` of their jobs in the queue at once. The batch writer passes one value
+    /// for this and for the plain launcher's `--jobs` (C5 D13).
+    public static func render(_ nodes: [HTCondorDAGNode], maxJobs: Int) throws -> String {
         guard !nodes.isEmpty else {
             throw HTCondorSubmitError.invalidValue(field: "sample list", rule: "is empty.")
+        }
+        guard maxJobs >= 1 else {
+            throw HTCondorSubmitError.invalidValue(field: "number of jobs at once", rule: "is under 1.")
         }
         var seen = Set<String>()
         var lines = [
@@ -54,7 +73,7 @@ public enum HTCondorDAG {
             guard seen.insert(node.sample.uppercased()).inserted else {
                 throw HTCondorSubmitError.duplicate(field: "sample", name: node.sample)
             }
-            let inputs = ([node.planTarURL] + node.reads.map(\.url)).joined(separator: ", ")
+            let inputs = ([node.planTarPath] + node.reads.map(\.url)).joined(separator: ", ")
             let placements = node.reads.map(\.placement).joined(separator: " ")
             let variables = [
                 (HTCondorSubmitTemplate.sampleVariable, node.sample),
@@ -64,11 +83,16 @@ public enum HTCondorDAG {
             ]
             lines.append("JOB \(node.sample) \(HTCondorSubmitTemplate.fileName)")
             lines.append("VARS \(node.sample) " + variables.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: " "))
-            // The payload's upload makes no folder, so the access point makes it before DAGMan submits the node's job.
-            if let folder = node.payloadFolder {
-                lines.append("SCRIPT PRE \(node.sample) /bin/mkdir -p \(folder)")
+            // An upload makes no folder, so the access point makes every folder the job uploads into before DAGMan
+            // submits the node's job, in one line.
+            if !node.resultFolders.isEmpty {
+                lines.append("SCRIPT PRE \(node.sample) /bin/mkdir -p \(node.resultFolders.joined(separator: " "))")
             }
         }
+        // After the last node, so ALL_NODES names every one.
+        lines.append("CATEGORY ALL_NODES \(categoryName)")
+        lines.append("MAXJOBS \(categoryName) \(maxJobs)")
+        lines.append("NODE_STATUS_FILE \(statusFileName) \(statusFileSeconds)")
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -94,10 +118,11 @@ public enum HTCondorDAG {
         guard node.requestDiskGB >= 1 else {
             throw HTCondorSubmitError.invalidValue(field: "disk request of \(node.sample)", rule: "is under 1 GB.")
         }
-        try HTCondorValueRules.checkStagingURL(node.planTarURL, field: "plan tar URL of \(node.sample)")
-        guard HTCondorStagedFile(url: node.planTarURL, relativePath: "").transferName == HTCondorSubmitTemplate.planTarName else {
+        // A path of names relative to `initialdir`, never a URL, so the tar comes from the home submit folder.
+        try HTCondorValueRules.checkRelativePath(node.planTarPath, field: "plan tar path of \(node.sample)")
+        guard HTCondorValueRules.lastComponent(node.planTarPath) == HTCondorSubmitTemplate.planTarName else {
             throw HTCondorSubmitError.invalidValue(
-                field: "plan tar URL of \(node.sample)",
+                field: "plan tar path of \(node.sample)",
                 rule: "does not end in \(HTCondorSubmitTemplate.planTarName), the name the job wrapper unpacks."
             )
         }
@@ -105,9 +130,9 @@ public enum HTCondorDAG {
             throw HTCondorSubmitError.invalidValue(field: "read list of \(node.sample)", rule: "is empty.")
         }
         try HTCondorValueRules.checkStagedFiles(node.reads, field: "read")
-        if let folder = node.payloadFolder {
+        for folder in node.resultFolders {
             // The names-only rule of every staging path, so the script line holds no space or shell character.
-            try HTCondorValueRules.checkStagingURL("file://\(folder)", field: "payload folder of \(node.sample)")
+            try HTCondorValueRules.checkStagingURL("file://\(folder)", field: "result folder of \(node.sample)")
         }
     }
 }

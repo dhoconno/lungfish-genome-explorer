@@ -70,14 +70,19 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
     public var requestCpus: Int
     /// The stored payload's plan path, such as `out/sample.fastq.gz`.
     public var payloadRelativePath: String
-    /// The staging folder that receives each sample's payload under `<sample>/<payload path>`, so the payload never
-    /// reaches the home submit folder (CHTC-c4r2 4.6).
-    public var payloadStagingFolderURL: String
+    /// The staging folder under which each sample's job returns its result, `<sample>/result/`: the run record, each
+    /// report at its `work/` path and the payload at its `out/` path, so one copy of a sample's `result/` brings it home
+    /// and no payload reaches the home submit folder (C5 D1, CHTC-c4r2 4.6). Only the step logs come home there.
+    public var resultStagingFolderURL: String
     /// The plan's reports, each a plan path under `work/` such as `work/sample_fused_fastp_report.json`: the recipe
-    /// outputs that no later step reads (``HTCondorSubmitTemplate/reportRelativePaths(of:)``). Each one comes home to
-    /// the sample's folder at the same path, since the adopt reads it there (``HTCondorSubmitTemplate/render(_:)``).
-    /// Nothing else under `work/` comes home. A recipe with no report passes `[]`.
+    /// outputs that no later step reads (``HTCondorSubmitTemplate/reportRelativePaths(of:)``). Each one goes to the
+    /// sample's result folder at the same path, since the adopt reads it there (``HTCondorSubmitTemplate/render(_:)``).
+    /// Nothing else under `work/` is returned. A recipe with no report passes `[]`.
     public var reportRelativePaths: [String]
+    /// The machines the jobs may run on, one `requirements` expression that replaces the whole default
+    /// (``HTCondorSubmitTemplate/requirements``), or nil for the default (C5 D9). It must be one line with no control
+    /// character.
+    public var requirements: String?
 
     public init(
         containerImageURL: String,
@@ -86,8 +91,9 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
         heapBytes: Int64,
         requestCpus: Int,
         payloadRelativePath: String,
-        payloadStagingFolderURL: String,
-        reportRelativePaths: [String]
+        resultStagingFolderURL: String,
+        reportRelativePaths: [String],
+        requirements: String? = nil
     ) {
         self.containerImageURL = containerImageURL
         self.executor = executor
@@ -95,8 +101,9 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
         self.heapBytes = heapBytes
         self.requestCpus = requestCpus
         self.payloadRelativePath = payloadRelativePath
-        self.payloadStagingFolderURL = payloadStagingFolderURL
+        self.resultStagingFolderURL = resultStagingFolderURL
         self.reportRelativePaths = reportRelativePaths
+        self.requirements = requirements
     }
 }
 
@@ -117,8 +124,9 @@ public enum HTCondorSubmitTemplate {
     /// The file name lane F's writer gives the template, which every `JOB` line of `run.dag` names.
     public static let fileName = "sample.sub"
 
-    /// The margin for the JVM outside its heap and the compressor children. The first value, from K4's 4 GB heap in a
-    /// 12 GB request (`job2-z3.sub:14`). C4-06's job log reading replaces it.
+    /// The margin for the JVM outside its heap and the compressor children, first from K4's 4 GB heap in a 12 GB request
+    /// (`job2-z3.sub:14`). X3's job log would allow 5 GiB (ceil(1.25 × 4.51) − 1), but C5 keeps 8 GiB until the first
+    /// lab batch, the full-size job the margin was kept for, is read (CHTC-c5 ruling 3a, CHTC inventory S6).
     public static let memoryMarginBytes: Int64 = 8 << 30
 
     /// The largest request that still matches the regular pool (C4-04).
@@ -162,8 +170,18 @@ public enum HTCondorSubmitTemplate {
     /// The folder the plan tar unpacks to in the job's scratch folder.
     public static let planFolderName = "plan"
 
-    /// The plan tar's name in the job's scratch folder. Each sample's tar is staged under this name in its own folder.
+    /// The plan tar's name in the job's scratch folder. Each sample's tar sits under this name in its own plan folder of
+    /// the submit folder, the job's `initialdir`, and travels from there (C5 D15).
     public static let planTarName = "plan.tar"
+
+    /// The folder of the staging side that receives one sample's returned files, `<sample>/result/`.
+    public static let resultFolderName = "result"
+
+    /// The run record's name in the plan folder.
+    public static let runRecordName = "run-record.json"
+
+    /// The plan folder's step logs, which come home to the submit folder through `initialdir` and are never remapped.
+    public static let logsFolderName = "logs"
 
     /// The job wrapper's file name in the submit folder, beside `run.dag` and one level above each sample's plan folder.
     /// `condor_submit` resolves a relative `executable` against the folder it runs in, never against `initialdir`, so
@@ -204,11 +222,30 @@ public enum HTCondorSubmitTemplate {
         return steps.filter { $0.kind == .recipe }.flatMap(\.outputs).filter { !read.contains($0) }
     }
 
+    /// The files a job returns into its sample's result folder, each at its plan path: the run record, the payload and
+    /// each report, in the order `transfer_output_files` lists them (C5 D1).
+    package static func resultRelativePaths(payloadRelativePath: String, reportRelativePaths: [String]) -> [String] {
+        [runRecordName, payloadRelativePath] + reportRelativePaths
+    }
+
+    /// The folders under a sample's staging folder that must exist before its job ends: the result folder and the folder
+    /// of each returned file, in order, each once, such as `result`, `result/out` and `result/work`. An upload to a
+    /// `file://` URL makes no folder (fix G3), so `run.dag`'s `SCRIPT PRE` makes these.
+    package static func resultFolders(payloadRelativePath: String, reportRelativePaths: [String]) -> [String] {
+        var folders: [String] = []
+        for path in resultRelativePaths(payloadRelativePath: payloadRelativePath, reportRelativePaths: reportRelativePaths) {
+            let parent = ("\(resultFolderName)/\(path)" as NSString).deletingLastPathComponent
+            if !folders.contains(parent) { folders.append(parent) }
+        }
+        return folders
+    }
+
     /// The `sample.sub` text.
     ///
-    /// The DAG runs it with `initialdir` at the sample's own plan folder, named by the sample, so the run record and the
-    /// step logs come home to that folder, where the adopt reads them, and no two jobs write one file. `log`, `output`
-    /// and `error` follow `initialdir`, so they name `../logs/`, the submit folder's; `executable` does not.
+    /// The DAG runs it with `initialdir` at the sample's own plan folder, named by the sample, so the plan tar travels
+    /// from that folder and the step logs come home to it, and no two jobs write one file. The run record, the reports
+    /// and the payload go to the sample's result folder on the staging side. `log`, `output` and `error` follow
+    /// `initialdir`, so they name `../logs/`, the submit folder's; `executable` does not.
     public static func render(_ input: HTCondorSubmitTemplateInput) throws -> String {
         try validate(input)
         let memoryMiB = try requestMemoryMiB(heapBytes: input.heapBytes)
@@ -225,18 +262,20 @@ public enum HTCondorSubmitTemplate {
         let inputs = ["$(\(inputsVariable))"] + shared.map(\.url)
         let plan = planFolderName
         // The execute point uploads a file to a `file://` remap only when the remap's key is the path
-        // `transfer_output_files` lists it by. A key of the last component sends the payload to the access point, which
-        // holds the job at code 12 subcode 1, "Remap of output file resulted in a URL" (fix G3, node job 593391). The
-        // upload makes no folder, so the batch writer names the payload's folder to make before the submit.
+        // `transfer_output_files` lists it by. A key of the last component sends the file to the access point, which
+        // holds the job at code 12 subcode 1, "Remap of output file resulted in a URL" (fix G3, node job 593391). So
+        // the run record, the payload and each report are remapped, each by its listed path, into the sample's result
+        // folder on the staging side at its plan path, one file a remap (C5 D1). The upload makes no folder, so the
+        // batch writer names each folder to make before the submit. The adopt reads each report at its `work/` path
+        // (`ExecutorRunAdoption.recordedReports`), so the job returns each one and never the work folder, which holds the
+        // large intermediates. The step logs are listed with no remap and come home to the submit folder.
         let payloadListed = "\(plan)/\(input.payloadRelativePath)"
-        // The adopt reads each report in the returned folder at its `work/` path (`ExecutorRunAdoption.recordedReports`), so
-        // the job returns each one and never the work folder, which holds the large intermediates. HTCondor names a
-        // returned file after the last component of the path it was listed by, so a remap puts each report back.
         try HTCondorValueRules.checkReports(input.reportRelativePaths, payloadRelativePath: input.payloadRelativePath)
         let reports = input.reportRelativePaths
-        let outputs = ["\(plan)/run-record.json", "\(plan)/logs", payloadListed] + reports.map { "\(plan)/\($0)" }
-        let remaps = ["\(payloadListed) = \(input.payloadStagingFolderURL)/\(sample)/\(input.payloadRelativePath)"]
-            + reports.map { "\(HTCondorValueRules.lastComponent($0)) = \($0)" }
+        let outputs = ["\(plan)/\(runRecordName)", "\(plan)/\(logsFolderName)", payloadListed] + reports.map { "\(plan)/\($0)" }
+        let result = "\(input.resultStagingFolderURL)/\(sample)/\(resultFolderName)"
+        let remaps = resultRelativePaths(payloadRelativePath: input.payloadRelativePath, reportRelativePaths: reports)
+            .map { "\(plan)/\($0) = \(result)/\($0)" }
 
         let lines = [
             "# \(fileName) - written by Lungfish for one recipe of a CHTC batch. run.dag gives each job its sample's",
@@ -252,7 +291,7 @@ public enum HTCondorSubmitTemplate {
             "transfer_input_files = \(inputs.joined(separator: ", "))",
             "transfer_output_files = \(outputs.joined(separator: ", "))",
             "transfer_output_remaps = \"\(remaps.joined(separator: "; "))\"",
-            "requirements = \(requirements)",
+            "requirements = \(input.requirements ?? requirements)",
             "request_cpus = \(input.requestCpus)",
             "request_memory = \(memoryMiB)MB",
             "request_disk = $(\(requestDiskVariable))",
@@ -271,8 +310,11 @@ public enum HTCondorSubmitTemplate {
 
     private static func validate(_ input: HTCondorSubmitTemplateInput) throws {
         try HTCondorValueRules.checkStagingURL(input.containerImageURL, field: "container image URL")
-        try HTCondorValueRules.checkStagingFolderURL(input.payloadStagingFolderURL, field: "payload staging folder URL")
+        try HTCondorValueRules.checkStagingFolderURL(input.resultStagingFolderURL, field: "result staging folder URL")
         try HTCondorValueRules.checkRelativePath(input.payloadRelativePath, field: "payload path")
+        if let requirements = input.requirements {
+            try HTCondorValueRules.checkRequirements(requirements)
+        }
         guard input.requestCpus >= 1 else {
             throw HTCondorSubmitError.invalidValue(field: "CPU count", rule: "is not a whole number of at least 1.")
         }
@@ -336,6 +378,24 @@ enum HTCondorValueRules {
 
     static func checkStagingFolderURL(_ url: String, field: String) throws {
         try checkStagingURL(url, field: field)
+    }
+
+    /// The largest `requirements` value the template takes, in UTF-8 bytes.
+    static let requirementsByteLimit = 4096
+
+    /// A `requirements` value replaces the whole clause on its one line of `sample.sub`, so it is one line: not blank, at
+    /// most ``requirementsByteLimit`` bytes, and no control character or line separator, which would end the line or hide
+    /// in it (C5 D9). HTCondor reads the expression itself when the jobs are submitted.
+    static func checkRequirements(_ value: String) throws {
+        let breaks = value.unicodeScalars.contains { scalar in
+            [.control, .lineSeparator, .paragraphSeparator].contains(scalar.properties.generalCategory)
+        }
+        guard !value.trimmingCharacters(in: .whitespaces).isEmpty, value.utf8.count <= requirementsByteLimit, !breaks else {
+            throw HTCondorSubmitError.invalidValue(
+                field: "job requirements",
+                rule: "are not one line of at most \(requirementsByteLimit) bytes with no line break, tab or other control character."
+            )
+        }
     }
 
     /// Each file's URL and plan path, with no two transfer names or plan paths alike.

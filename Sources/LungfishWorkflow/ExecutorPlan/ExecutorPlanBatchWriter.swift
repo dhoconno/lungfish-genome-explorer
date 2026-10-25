@@ -53,8 +53,8 @@ package struct ExecutorPlanImageRecord: Decodable, Sendable, Equatable {
 }
 
 /// Where a batch's files sit in the group's staging folder. The image is `images/<file name>`, each executor and
-/// database copy `shared/<SHA-256>-<file name>`, one copy per SHA-256 for every batch (ARCH-c4r2 Point 2), and each
-/// sample's plan tar, reads and payload `batches/<batch>/<sample>/`.
+/// database copy `shared/<SHA-256>-<file name>`, one copy per SHA-256 for every batch (ARCH-c4r2 Point 2), each
+/// sample's reads `batches/<batch>/<sample>/` and its returned files `batches/<batch>/<sample>/result/` (C5 D1).
 package struct ExecutorPlanStagingLayout: Sendable, Equatable {
     /// An absolute path, such as `/staging/groups/<group>/<project>/lge-chtc-test`.
     package var folder: String
@@ -86,16 +86,27 @@ package struct ExecutorPlanBatchFile: Codable, Sendable, Equatable {
     package var source: String?
 }
 
-/// One folder in the staging folder that a sample's job returns its payload into. The job's `file://` remap writes into
-/// `batches/<batch>/<sample>/out/`, and that upload makes no folder: with none there the job is held at code 12 subcode
-/// 256, "Can't open ... for writing" (fix G3, tiny jobs 593396 and 593397). `run.dag` makes each folder with a
-/// `SCRIPT PRE` on the access point before it submits the sample's job, so no one makes it by hand, and
-/// `staging-files.json` states it as a fact for any reader or other launcher.
+/// One folder in the staging folder that a sample's job returns files into: its result folder
+/// `batches/<batch>/<sample>/result/` or the folder of one returned file in it, such as `result/out/`. A `file://` upload
+/// makes no folder: with none there the job is held at code 12 subcode 256, "Can't open ... for writing" (fix G3, tiny
+/// jobs 593396 and 593397). `run.dag` makes a sample's folders with one `SCRIPT PRE` on the access point before it
+/// submits the sample's job, so no one makes them by hand, and `staging-files.json` states each as a fact for any reader
+/// or other launcher.
 package struct ExecutorPlanBatchFolder: Codable, Sendable, Equatable {
-    package static let payloadRole = "payload-folder"
+    package static let resultRole = "result-folder"
     package var role: String
     package var sample: String
     package var stagingPath: String
+}
+
+/// One sample's plan tar in the submit folder, `<sample>/plan.tar`. The job takes it from there through `initialdir`, so
+/// it is no file of the staging folder, and its size and SHA-256 stay pinned here (C5 D15).
+package struct ExecutorPlanBatchTar: Sendable, Equatable {
+    package var sample: String
+    /// The tar's path in the submit folder.
+    package var relativePath: String
+    package var size: Int64
+    package var sha256: String
 }
 
 /// `staging-files.json` of a submit folder, the list `--format json` prints: the files to copy to the staging folder
@@ -114,21 +125,53 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
     package var samples: [String]
     package var files: [ExecutorPlanBatchFile]
     package var folders: [ExecutorPlanBatchFolder]
+    /// Each sample's plan tar in the submit folder, in sample order.
+    package var planTars: [ExecutorPlanBatchTar]
 }
 
 /// Writes the submit folder of one CHTC batch (ARCH Q-C4-8): `run.dag`, `sample.sub`, `lge-job.sh`, `logs/`, one plan
-/// folder a sample through the folder writer's shared mode, each sample's `plan.tar` under `staging/<sample>/`, and
+/// folder a sample through the folder writer's shared mode, each holding its sample's `plan.tar`, and
 /// `staging-files.json`, the files the jobs read from the staging folder. It starts no process and opens no connection:
 /// the lane copies the files and submits.
 package enum ExecutorPlanBatchWriter {
     package static let logsFolderName = "logs"
-    package static let tarsFolderName = "staging"
     private static let gib: Int64 = 1_073_741_824
 
-    /// The disk a job asks for when the sample sheet gives no `request_disk`: three times the sample's input bytes,
-    /// rounded up to a whole GiB, plus 8 GiB for the image and the work files. A first value for CHTC's review.
+    /// The most jobs of one batch that run at once: `run.dag`'s `MAXJOBS` and the plain launcher's `--jobs`, one value
+    /// (C5 D13). A lab batch's job reads about 65 GB from the staging folder, so the batch reads at most ten such at once.
+    package static let concurrentJobs = 10
+
+    /// The work root's peak over a sample's input bytes, one value for every recipe until lane X measures each: X3's
+    /// (5,463,083,200 − 3,338,092,947) / 422,847,301 = 5.0254, rounded up so the rule never asks less than X3 used
+    /// (CHTC-c5 ruling 3a).
+    package static let workRootFactor = 5.03
+
+    /// C4's disk rule: three times the sample's input bytes, rounded up to a whole GiB, plus 8 GiB for the image and the
+    /// work files.
     package static func defaultRequestDiskGiB(inputBytes: Int64) -> Int {
         Int((inputBytes * 3 + gib - 1) / gib) + 8
+    }
+
+    /// The disk a job asks for when the sample sheet gives no `request_disk`, in whole GiB: the larger of C4's rule
+    /// (``defaultRequestDiskGiB(inputBytes:)``) and ceil(1.25 × (SIF + 2 × tar + F + w × I) / GiB), where F is the
+    /// executor and every database the plan pins, I the sample's input bytes and w ``workRootFactor`` (CHTC-c5 ruling
+    /// 3a, C5 D17). Every size is one the plan, the image record or the tar states, and none of it reaches a plan.
+    package static func requestDiskGiB(inputBytes: Int64, imageBytes: Int64, planTarBytes: Int64, sharedBytes: Int64,
+                                       workRootFactor w: Double = workRootFactor) -> Int {
+        let bytes = Double(imageBytes) + 2 * Double(planTarBytes) + Double(sharedBytes) + w * Double(inputBytes)
+        let rule = Int((1.25 * bytes / Double(gib)).rounded(.up))
+        return max(defaultRequestDiskGiB(inputBytes: inputBytes), rule)
+    }
+
+    /// Refuses a `--job-requirements` value that the one `requirements` line of `sample.sub` cannot hold, before
+    /// anything is written. The real run and `--dry-run` make this one check (C5 D9).
+    package static func checkRequirements(_ requirements: String?) throws {
+        guard let requirements else { return }
+        do {
+            try HTCondorValueRules.checkRequirements(requirements)
+        } catch {
+            throw ExecutorPlanError(field: "requirements", reason: "The --job-requirements value is blank, longer than \(HTCondorValueRules.requirementsByteLimit) bytes, or holds a line break, a tab or another control character, so write it as one line.")
+        }
     }
 
     /// Refuses a batch name or a staging folder that a transfer line of `sample.sub` or `run.dag` cannot hold, before
@@ -163,14 +206,16 @@ package enum ExecutorPlanBatchWriter {
         return names
     }
 
+    /// Writes the submit folder. `requirements`, when given, replaces the whole `requirements` clause of `sample.sub`.
     @discardableResult
     package static func write(
         _ recipeTemplate: ExecutorPlanTemplate, request: ExecutorPlanTemplateRequest, rows: [ExecutorPlanSampleRow],
-        image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, into folder: URL
+        image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, requirements: String? = nil, into folder: URL
     ) throws -> ExecutorPlanBatch {
         let template = recipeTemplate.template
         try ExecutorPlanNoPlanForm.check(template, request: request)
         try checkLayout(layout)
+        try checkRequirements(requirements)
         let names = try folderNames(for: rows)
         let emissions = try rows.map { try recipeTemplate.emission(for: $0) }
         let fileManager = FileManager.default
@@ -180,7 +225,7 @@ package enum ExecutorPlanBatchWriter {
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
         do {
             return try write(template, sources: recipeTemplate.sources, rows: rows, names: names, emissions: emissions,
-                             image: image, layout: layout, into: folder)
+                             image: image, layout: layout, requirements: requirements, into: folder)
         } catch {
             try? fileManager.removeItem(at: folder)
             throw error
@@ -189,7 +234,8 @@ package enum ExecutorPlanBatchWriter {
 
     private static func write(
         _ template: PlanTemplate, sources: [String: URL], rows: [ExecutorPlanSampleRow], names: [String],
-        emissions: [ExecutorPlanEmission], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, into folder: URL
+        emissions: [ExecutorPlanEmission], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
+        requirements: String?, into folder: URL
     ) throws -> ExecutorPlanBatch {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder.appendingPathComponent(logsFolderName), withIntermediateDirectories: false)
@@ -200,24 +246,29 @@ package enum ExecutorPlanBatchWriter {
             files.append(ExecutorPlanBatchFile(role: entry.role.rawValue, sample: nil, stagingPath: layout.sharedPath(entry),
                                                size: entry.size, sha256: entry.sha256, source: sources[entry.relativePath]?.path))
         }
+        let sharedBytes = shared.reduce(Int64(0)) { $0 + $1.size }
+        // The adopt reads each report in the returned folder at its `work/` path, so the job returns the plan's reports
+        // (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1), into the sample's result folder.
+        let reports = HTCondorSubmitTemplate.reportRelativePaths(of: template.steps)
+        let resultFolders = HTCondorSubmitTemplate.resultFolders(
+            payloadRelativePath: ExecutorPlanEmitter.payloadPath, reportRelativePaths: reports
+        )
         var nodes: [HTCondorDAGNode] = []
         var folders: [ExecutorPlanBatchFolder] = []
-        let payloadFolder = (ExecutorPlanEmitter.payloadPath as NSString).deletingLastPathComponent
+        var tars: [ExecutorPlanBatchTar] = []
         for (index, emission) in emissions.enumerated() {
             let name = names[index]
-            let payloadPath = layout.samplePath(name, payloadFolder)
-            folders.append(ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.payloadRole, sample: name,
-                                                   stagingPath: payloadPath))
+            let made = resultFolders.map { layout.samplePath(name, $0) }
+            folders += made.map { ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.resultRole, sample: name, stagingPath: $0) }
             let planFolder = folder.appendingPathComponent(name, isDirectory: true)
             try ExecutorPlanFolderWriter.writeShared(emission, image: image.sif, stagedInputs: true, into: planFolder)
-            let tarFolder = folder.appendingPathComponent(tarsFolderName).appendingPathComponent(name, isDirectory: true)
-            try fileManager.createDirectory(at: tarFolder, withIntermediateDirectories: true)
-            let tar = tarFolder.appendingPathComponent(HTCondorSubmitTemplate.planTarName)
-            try DeterministicTarWriter().archive(entries: try tarEntries(of: planFolder), to: tar)
+            // The tar holds the plan folder as written, so its entries are read before the tar is written beside them.
+            let entries = try tarEntries(of: planFolder)
+            let tar = planFolder.appendingPathComponent(HTCondorSubmitTemplate.planTarName)
+            try DeterministicTarWriter().archive(entries: entries, to: tar)
             let tarData = try Data(contentsOf: tar)
-            let tarPath = layout.samplePath(name, HTCondorSubmitTemplate.planTarName)
-            files.append(ExecutorPlanBatchFile(role: "plan-tar", sample: name, stagingPath: tarPath, size: Int64(tarData.count),
-                                               sha256: DeterministicTarWriter.sha256(tarData), source: tar.path))
+            tars.append(ExecutorPlanBatchTar(sample: name, relativePath: "\(name)/\(HTCondorSubmitTemplate.planTarName)",
+                                             size: Int64(tarData.count), sha256: DeterministicTarWriter.sha256(tarData)))
             var reads: [HTCondorStagedFile] = []
             let inputs = emission.plan.entries.filter { $0.role == .input }
             for (slot, entry) in zip(template.inputs, inputs) {
@@ -228,9 +279,13 @@ package enum ExecutorPlanBatchWriter {
                                                    sha256: entry.sha256, source: emission.sources[entry.relativePath]?.path))
             }
             let inputBytes = inputs.reduce(Int64(0)) { $0 + $1.size }
+            // The sheet's request_disk column wins over the rule.
+            let disk = rows[index].requestDiskGiB ?? requestDiskGiB(
+                inputBytes: inputBytes, imageBytes: image.sif.size, planTarBytes: Int64(tarData.count), sharedBytes: sharedBytes
+            )
             nodes.append(HTCondorDAGNode(
-                sample: name, requestDiskGB: rows[index].requestDiskGiB ?? defaultRequestDiskGiB(inputBytes: inputBytes),
-                planTarURL: ExecutorPlanStagingLayout.url(tarPath), reads: reads, payloadFolder: payloadPath
+                sample: name, requestDiskGB: disk, planTarPath: HTCondorSubmitTemplate.planTarName, reads: reads,
+                resultFolders: made
             ))
         }
         let submit = try HTCondorSubmitTemplate.render(HTCondorSubmitTemplateInput(
@@ -239,12 +294,10 @@ package enum ExecutorPlanBatchWriter {
             databases: try shared.filter { $0.role == .database }.map { try staged($0, layout: layout) },
             heapBytes: Int64(template.storage.clumpifyHeapGB) * gib, requestCpus: template.storage.threads,
             payloadRelativePath: ExecutorPlanEmitter.payloadPath,
-            payloadStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder),
-            // The adopt reads each report in the returned folder at its `work/` path, so the job brings home the plan's
-            // reports (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1).
-            reportRelativePaths: HTCondorSubmitTemplate.reportRelativePaths(of: template.steps)
+            resultStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder),
+            reportRelativePaths: reports, requirements: requirements
         ))
-        let dag = try HTCondorDAG.render(nodes)
+        let dag = try HTCondorDAG.render(nodes, maxJobs: concurrentJobs)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let list = try encoder.encode(ExecutorPlanBatchFiles(files: files, folders: folders)) + Data("\n".utf8)
@@ -254,7 +307,7 @@ package enum ExecutorPlanBatchWriter {
         try DurableReplace.replace(Data(submit.utf8), named: HTCondorSubmitTemplate.fileName, in: folder)
         try DurableReplace.replace(list, named: ExecutorPlanBatchFiles.fileName, in: folder)
         try DurableReplace.replace(Data(dag.utf8), named: HTCondorDAG.fileName, in: folder)
-        return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders)
+        return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders, planTars: tars)
     }
 
     private static func staged(_ entry: PlanEntry?, layout: ExecutorPlanStagingLayout) throws -> HTCondorStagedFile {

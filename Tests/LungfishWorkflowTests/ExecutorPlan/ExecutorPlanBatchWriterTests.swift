@@ -42,9 +42,9 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
                                                       layout: layout, into: folder)
         XCTAssertEqual(batch.samples, ["S1", "S2"])
         let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
-        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging", "staging-files.json"])
+        XCTAssertEqual(names, ["S1", "S2", "lge-job.sh", "logs", "run.dag", "sample.sub", "staging-files.json"])
 
-        // Each sample's plan folder holds its plan, its staging.json and no read, executor or database.
+        // Each sample's plan folder holds its plan, its staging.json, its plan tar and no read, executor or database.
         for (index, sample) in ["S1", "S2"].enumerated() {
             let planFolder = folder.appendingPathComponent(sample)
             let plan = try ExecutionPlan.decode(Data(contentsOf: planFolder.appendingPathComponent("plan.json")))
@@ -53,7 +53,7 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
             for entry in plan.entries where entry.role != .recipe {
                 XCTAssertFalse(FileManager.default.fileExists(atPath: planFolder.appendingPathComponent(entry.relativePath).path), entry.relativePath)
             }
-            let tar = try DeterministicTarReader.entries(in: folder.appendingPathComponent("staging/\(sample)/plan.tar"))
+            let tar = try DeterministicTarReader.entries(in: folder.appendingPathComponent("\(sample)/plan.tar"))
             XCTAssertEqual(tar["plan/plan.json"], try Data(contentsOf: planFolder.appendingPathComponent("plan.json")))
             XCTAssertNotNil(tar["plan/staging.json"])
         }
@@ -64,10 +64,13 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertEqual(lines.filter { $0.hasPrefix("JOB ") }, ["JOB S1 sample.sub", "JOB S2 sample.sub"])
         let s1 = try XCTUnwrap(lines.first { $0.hasPrefix("VARS S1 ") })
         XCTAssertTrue(s1.contains("request_disk=\"40GB\""), s1)
-        XCTAssertTrue(s1.contains("sample_inputs=\"file:///staging/groups/g/1/lge-chtc-test/batches/batch/S1/plan.tar, file:///staging/groups/g/1/lge-chtc-test/batches/batch/S1/R1.fastq, file:///staging/groups/g/1/lge-chtc-test/batches/batch/S1/R2.fastq\""), s1)
+        XCTAssertTrue(s1.contains("sample_inputs=\"plan.tar, file:///staging/groups/g/1/lge-chtc-test/batches/batch/S1/R1.fastq, file:///staging/groups/g/1/lge-chtc-test/batches/batch/S1/R2.fastq\""), s1)
         let s2Bytes = rows[1].inputs.reduce(Int64(0)) { $0 + $1.size }
-        XCTAssertTrue(try XCTUnwrap(lines.first { $0.hasPrefix("VARS S2 ") })
-            .contains("request_disk=\"\(ExecutorPlanBatchWriter.defaultRequestDiskGiB(inputBytes: s2Bytes))GB\""))
+        let sharedBytes = recipeTemplate.template.entries.filter { $0.role == .executor || $0.role == .database }
+            .reduce(Int64(0)) { $0 + $1.size }
+        let s2Disk = ExecutorPlanBatchWriter.requestDiskGiB(inputBytes: s2Bytes, imageBytes: image.sif.size,
+                                                            planTarBytes: batch.planTars[1].size, sharedBytes: sharedBytes)
+        XCTAssertTrue(try XCTUnwrap(lines.first { $0.hasPrefix("VARS S2 ") }).contains("request_disk=\"\(s2Disk)GB\""))
 
         let submit = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
         XCTAssertTrue(submit.contains("container_image = file:///staging/groups/g/1/lge-chtc-test/images/lge-tools-eae819829358.sif\n"), submit)
@@ -76,9 +79,9 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
 
         // The list names each staged file with the size the plan, staging.json or the tar states.
         let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self, from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
-        XCTAssertEqual(list.files.map(\.role), ["image", "executor", "plan-tar", "input", "input", "plan-tar", "input", "input"])
-        XCTAssertEqual(list.files[3].size, rows[0].inputs[0].size)
-        XCTAssertEqual(list.files[3].source, rows[0].inputs[0].url.path)
+        XCTAssertEqual(list.files.map(\.role), ["image", "executor", "input", "input", "input", "input"])
+        XCTAssertEqual(list.files[2].size, rows[0].inputs[0].size)
+        XCTAssertEqual(list.files[2].source, rows[0].inputs[0].url.path)
         XCTAssertNil(list.files[0].source)
         let attributes = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("lge-job.sh").path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o755)
@@ -86,9 +89,9 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
 
     /// Fix G3. A `file://` upload makes no folder: G3's tiny jobs 593396 and 593397 were held at code 12 subcode 256,
     /// "Can't open .../out/sample.fastq.gz for writing", when the payload's folder did not exist, and 593394 returned the
-    /// payload when it did. So `staging-files.json` names each sample's payload folder to make before the submit, the
-    /// folder the submit file's remap writes into.
-    func testStagingListNamesEachSamplesPayloadFolderToMakeBeforeTheSubmit() throws {
+    /// payload when it did. So `staging-files.json` names each folder of a sample's result to make before the submit,
+    /// the folders the submit file's remaps write into (C5 D1): `result/` for the record and `result/out/` for the payload.
+    func testStagingListNamesEachSamplesResultFoldersToMakeBeforeTheSubmit() throws {
         let (request, recipeTemplate) = try bbtoolsTemplate()
         let rows = [try row("S1"), try row("S2")]
         let folder = root.appendingPathComponent("batch", isDirectory: true)
@@ -96,18 +99,20 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
                                                       layout: layout, into: folder)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
         let folders = try XCTUnwrap((object as? [String: Any])?["folders"] as? [[String: String]], "staging-files.json lists folders")
-        XCTAssertEqual(folders.map { $0["role"] }, ["payload-folder", "payload-folder"])
-        XCTAssertEqual(folders.map { $0["sample"] }, ["S1", "S2"])
-        let paths = ["/staging/groups/g/1/lge-chtc-test/batches/batch/S1/out", "/staging/groups/g/1/lge-chtc-test/batches/batch/S2/out"]
+        XCTAssertEqual(folders.map { $0["role"] }, Array(repeating: "result-folder", count: 4))
+        XCTAssertEqual(folders.map { $0["sample"] }, ["S1", "S1", "S2", "S2"])
+        let paths = ["S1/result", "S1/result/out", "S2/result", "S2/result/out"]
+            .map { "/staging/groups/g/1/lge-chtc-test/batches/batch/\($0)" }
         XCTAssertEqual(folders.map { $0["stagingPath"] }, paths)
-        XCTAssertEqual(batch.samples.count, folders.count)
+        XCTAssertEqual(batch.folders.map(\.stagingPath), paths)
         let submit = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
-        XCTAssertTrue(submit.contains(" = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz"), submit)
+        XCTAssertTrue(submit.contains(" = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/result/out/sample.fastq.gz"), submit)
+        XCTAssertTrue(submit.contains(" = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/result/run-record.json"), submit)
     }
 
-    /// The written `run.dag` makes each sample's payload folder before it submits the sample's job, the folder that
-    /// `staging-files.json` names, so no one makes a folder by hand (the review of fix G3, the wrapper question).
-    func testRunDagMakesEachSamplesPayloadFolderBeforeItsJob() throws {
+    /// The written `run.dag` makes each sample's result folders in one `SCRIPT PRE` line before it submits the sample's
+    /// job, the folders that `staging-files.json` names, so no one makes a folder by hand (the review of fix G3).
+    func testRunDagMakesEachSamplesResultFoldersBeforeItsJob() throws {
         let (request, recipeTemplate) = try bbtoolsTemplate()
         let rows = [try row("S1"), try row("S2")]
         let folder = root.appendingPathComponent("batch", isDirectory: true)
@@ -116,16 +121,99 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
         let lines = dag.split(separator: "\n").map(String.init)
         let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self, from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
-        XCTAssertEqual(list.folders.map(\.stagingPath), [
-            "/staging/groups/g/1/lge-chtc-test/batches/batch/S1/out", "/staging/groups/g/1/lge-chtc-test/batches/batch/S2/out",
-        ])
-        for made in list.folders {
-            let script = "SCRIPT PRE \(made.sample) /bin/mkdir -p \(made.stagingPath)"
+        XCTAssertEqual(Set(list.folders.map(\.sample)), ["S1", "S2"])
+        for sample in ["S1", "S2"] {
+            let made = list.folders.filter { $0.sample == sample }.map(\.stagingPath)
+            let script = "SCRIPT PRE \(sample) /bin/mkdir -p \(made.joined(separator: " "))"
             XCTAssertEqual(lines.filter { $0 == script }.count, 1, "\(script) once in: \(dag)")
-            let job = try XCTUnwrap(lines.firstIndex(of: "JOB \(made.sample) sample.sub"), dag)
+            let job = try XCTUnwrap(lines.firstIndex(of: "JOB \(sample) sample.sub"), dag)
             XCTAssertEqual(lines.firstIndex(of: script).map { $0 > job }, true, "the script follows its node's JOB line")
         }
         XCTAssertEqual(lines.filter { $0.hasPrefix("SCRIPT ") }.count, 2, dag)
+    }
+
+    /// D17 (CHTC-c5 ruling 3a). With no sheet value a job asks the larger of C4's rule and
+    /// ceil(1.25 × (SIF + 2 × tar + F + w × I) / GiB). S10's three runs keep C4's 10, 10 and 9 GB, a 61.6 GB sample asks
+    /// 366 GB where C4's rule asked 181, and the rendered `VARS` carries each value. A sheet value still wins.
+    func testRequestDiskIsTheLargerOfTheDefaultAndTheWorkRootRule() throws {
+        let sif: Int64 = 396_402_688
+        let tar: Int64 = 18_432
+        let cases: [(run: String, inputs: Int64, shared: Int64, disk: Int)] = [
+            ("SRR35520572", 422_847_301, 3_338_092_947, 10),
+            ("SRR24403534", 372_364_449, 3_348_200_894, 10),
+            ("SRR38262740", 94_232_530, 3_348_200_894, 9),
+            ("C079876", 61_600_000_000, 3_338_092_947, 366),
+        ]
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor, 5.03)
+        XCTAssertEqual(ExecutorPlanBatchWriter.defaultRequestDiskGiB(inputBytes: 61_600_000_000), 181)
+        for item in cases {
+            let disk = ExecutorPlanBatchWriter.requestDiskGiB(inputBytes: item.inputs, imageBytes: sif, planTarBytes: tar,
+                                                              sharedBytes: item.shared)
+            let node = HTCondorDAGNode(
+                sample: item.run, requestDiskGB: disk, planTarPath: "plan.tar",
+                reads: [HTCondorStagedFile(url: "file:///staging/g/\(item.run)/R1.fastq.gz", relativePath: "inputs/R1.fastq.gz")]
+            )
+            let dag = try HTCondorDAG.render([node], maxJobs: ExecutorPlanBatchWriter.concurrentJobs)
+            let vars = try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS ") })
+            XCTAssertTrue(vars.contains("request_disk=\"\(item.disk)GB\""), "\(item.run): \(vars)")
+        }
+
+        // The sheet's column wins over the rule, at the value the sheet gives.
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let folder = root.appendingPathComponent("sheet", isDirectory: true)
+        try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1", disk: 3), try row("S2")],
+                                          image: image, layout: layout, into: folder)
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        XCTAssertTrue(try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S1 ") }).contains("request_disk=\"3GB\""), dag)
+        XCTAssertTrue(try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S2 ") }).contains("request_disk=\"9GB\""), dag)
+    }
+
+    /// D9. A requirements value reaches the one `requirements` line of `sample.sub` whole, and a value that line cannot
+    /// hold is refused before any folder is written, with the option to change.
+    func testWritePlanJobRequirementsReplaceTheClauseOrAreRefused() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let value = #"(TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")"#
+        let folder = root.appendingPathComponent("requirements", isDirectory: true)
+        try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1")], image: image,
+                                          layout: layout, requirements: value, into: folder)
+        let submit = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
+        XCTAssertEqual(submit.split(separator: "\n").filter { $0.hasPrefix("requirements = ") }, ["requirements = \(value)"])
+        let refused = root.appendingPathComponent("refused", isDirectory: true)
+        XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1")],
+                                                               image: image, layout: layout, requirements: "(A)\n(B)",
+                                                               into: refused)) { error in
+            XCTAssertEqual((error as? ExecutorPlanError)?.field, "requirements", "\(error)")
+            XCTAssertTrue((error as? LocalizedError)?.errorDescription?.contains("--job-requirements") == true, "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: refused.path))
+    }
+
+    /// D15. Each sample's plan tar is about 18 KB, so the job takes it from the submit folder through `initialdir`, not
+    /// from the staging folder: the tar sits in the sample's own folder, VARS names it by a path relative to that folder,
+    /// and `staging-files.json` no longer lists it.
+    func testPlanTarComesFromTheSubmitFolderAndLeavesTheStagingList() throws {
+        let (request, recipeTemplate) = try bbtoolsTemplate()
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1"), try row("S2")], image: image,
+                                          layout: layout, into: folder)
+        let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self, from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
+        XCTAssertFalse(list.files.contains { $0.role == "plan-tar" || $0.stagingPath.hasSuffix("/plan.tar") }, "\(list.files)")
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        for sample in ["S1", "S2"] {
+            let tar = folder.appendingPathComponent("\(sample)/plan.tar")
+            let entries = try DeterministicTarReader.entries(in: tar)
+            XCTAssertEqual(entries["plan/plan.json"], try Data(contentsOf: folder.appendingPathComponent("\(sample)/plan.json")))
+            XCTAssertNil(entries["plan/plan.tar"], "the tar does not hold itself")
+            let vars = try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS \(sample) ") }, dag)
+            XCTAssertTrue(vars.contains("sample_inputs=\"plan.tar, file:///staging/"), String(vars))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("staging").path))
+        // The tar's size and SHA-256 stay pinned in the writer's result.
+        let batch = try ExecutorPlanBatchWriter.write(recipeTemplate, request: request, rows: [try row("S1")], image: image,
+                                                      layout: layout, into: root.appendingPathComponent("pinned", isDirectory: true))
+        let tar = try Data(contentsOf: root.appendingPathComponent("pinned/S1/plan.tar"))
+        XCTAssertEqual(batch.planTars, [ExecutorPlanBatchTar(sample: "S1", relativePath: "S1/plan.tar", size: Int64(tar.count),
+                                                             sha256: PortableDigest.sha256Hex(of: tar))])
     }
 
     /// The bbtools template request for `S1` and its recipe template, which the refusal tests below share.
@@ -176,9 +264,9 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
             let plan = try ExecutionPlan.decode(Data(contentsOf: folder.appendingPathComponent("\(name)/plan.json")))
             XCTAssertEqual(plan.sample.sampleName, sampleName, name)
         }
-        let tars = batch.files.filter { $0.role == "plan-tar" }
-        XCTAssertEqual(tars.map(\.sample), ["S_1", "S_1-2"])
-        XCTAssertTrue(try XCTUnwrap(tars.last).stagingPath.hasSuffix("/S_1-2/plan.tar"), tars.last?.stagingPath ?? "")
+        XCTAssertEqual(batch.planTars.map(\.sample), ["S_1", "S_1-2"])
+        XCTAssertEqual(batch.planTars.map(\.relativePath), ["S_1/plan.tar", "S_1-2/plan.tar"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("S_1-2/plan.tar").path))
     }
 
     /// The sanitizer keeps a `.`, which a DAG node name cannot hold, so the writer refuses the sample with the sample to
@@ -222,10 +310,15 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let remaps = try value(of: "transfer_output_remaps")
         XCTAssertEqual(
             remaps,
-            "\"plan/out/sample.fastq.gz = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/out/sample.fastq.gz; "
-                + "sample_fused_fastp_report.json = work/sample_fused_fastp_report.json; "
-                + "sample_merge_fastp_report.json = work/sample_merge_fastp_report.json\""
+            "\"" + ["run-record.json", "out/sample.fastq.gz", "work/sample_fused_fastp_report.json",
+                    "work/sample_merge_fastp_report.json"]
+                .map { "plan/\($0) = file:///staging/groups/g/1/lge-chtc-test/batches/batch/$(sample)/result/\($0)" }
+                .joined(separator: "; ") + "\""
         )
+        // The run.dag makes the reports' folder as well as the record's and the payload's.
+        let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
+        let base = "/staging/groups/g/1/lge-chtc-test/batches/batch/S1"
+        XCTAssertTrue(dag.contains("SCRIPT PRE S1 /bin/mkdir -p \(base)/result \(base)/result/out \(base)/result/work\n"), dag)
     }
 
     // MARK: Steps with no plan form, one test each
