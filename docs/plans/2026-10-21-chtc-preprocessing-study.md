@@ -591,15 +591,104 @@ Q-C4-12 (which Mac builds the Debug app that the laptop uses).
 | MO-S1 | Should the Mac's own `auto` follow the plan's rule? It changes the stored bytes of large Mac imports | The owner |
 | MO-B2 | Should clumpify follow the user's compression level? It changes compressed bytes | The owner |
 
+## C4, the Linux runner and the adopt (2026-10-24 to 25, session 5)
+
+Session 5 ran on the Mac Studio (galah) from 2026-10-24 10:32 to 2026-10-25 01:45. The records are in
+`~/lungfish-phase-records/chtc-program/c4/` (`notes.md`, `events.log`, `briefs/`, `lanes/`, `reviews/`, `rulings/`,
+`votes/`, `memos/`, `land/`, `factcheck/`, `llm/`). Lanes ran as `lge-worker` in their own worktrees, Opus 5.5 at effort
+xhigh for design and Sonnet 5.5 at effort max for fixes and landings. Reviews ran on Sonnet 5.5 at effort max, rulings
+and votes on Opus 5.5 at effort xhigh, with the CHTC seat on `general-purpose`.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O35 | CHTC test jobs from galah | "Yes. C4 lanes may submit test jobs on CHTC from galah and write under /staging/groups/oconnor_group/32748/lge-chtc-test/." | The lanes submit test jobs and write only there |
+| O36 | Disk on galah | "Yes, you may thin the local snapshots with tmutil thinlocalsnapshots / 400000000000 4 for this session." | 24 local snapshots thinned |
+| O37 | Containers | "CHTC only suppports apptainers." | Every CHTC job runs the Apptainer image. Docker is galah's local Linux test container only |
+| O38 | The study's data terms | "Yes,, we can access the reads from /staging" | Reads may be read on `/staging` |
+| O39 | Q-C4-1, the upload route | "The best thing to do is to use execute nodes and the files staged to /staging." | No upload from galah. Jobs read staged files on execute nodes |
+| O40 | Q-C4-12, the Debug app | "Its fine to install the Linux toolchain app to this mac. We shouldn't need anything from the laptop since all releases are cut from this machine." | Galah builds the Debug app with the Linux executor, and the laptop needs nothing |
+| O41 | The CHTC message | "There shouldn't be a specific CHTC message - we will want this tool to be generic so it can pre-process data on Linux and then import the pre-processed data into LGE on any machine running LGE." | The tool is generic: pre-process on any Linux machine, adopt on any Lungfish Mac. HTCondor is one launcher. No CHTC message |
+| O42 | The full-sample test | "We also shouldn't be using a 60GB file for testing after we have the Linux tool operational. This would be wasteful." | No full-size study sample as a test |
+| O43, O44 | The acceptance sample | "We can use any publicly available SRA dataset that is small to test the workflow instead of the 60GB test." Then "Yes, download SRR35520572 from ENA to galah and use it as the acceptance sample." | The acceptance sample is the public run SRR35520572 |
+
+**The lanes.** Wave 1 was S (the spawn lock made structural), I (the image build job and the SIF on `/staging` by
+digest), H (the HTCondor submit template, DAG, job wrapper and event-log reader), F (the plan template and sample fill,
+the shared folder mode, `import fastq --write-plan`), R (the Mac records its storage writer, level and clumpify groups)
+and B (the executor build, maps and strip in `release.py package`). Then A (the adopt, `import fastq --adopt`), P (the
+three parity tests on the closed V15 list), U (the Provenance rows of an adopted record, then the plan sheet and the
+Linux run adopt entry in the Import Center), V and W (the votes below applied), B M2 (the Debug app builds and places the
+executor, or states its absence with `--without-linux-executor`) and X (the acceptance run). Six landings put them on
+`chtc-c4`, each with the tests of its lanes, the 14 ratchets, the module map, the golden compare and the Linux tier.
+
+| Vote | Decisions |
+|---|---|
+| C4-3 | C-1: the Mac records the exit status and times of its deacon and merge steps (6 to 0). C-2: the one strip function also maps each route's work-file stem, the `work/` folder and the Mac's per-run report UUID to one placeholder, and inputs to R1 or R2 by digest (6 to 0). C-3: the executor records the interleave's `pigz -dc` launches, a fourth adopt-only step (6 to 0). C-4: the writer `bgzip`'s managed tool id is route-shaped, and the node refuses a writer `bgzip` off the plan's pin (5 to 1) |
+| C4-4 | D-1: peak memory is present on the adopted route only, and the Mac records none, as Phase 2.7's P4 holds (6 to 0). D-2: files and outputs match by digest and role, not index (6 to 0). D-3: an adopted report copy carries the sample's name, by the tie rule after 3 to 3. D-4: the reports compare by their parsed counts and rates (5 to 1). D-5: the adopted record names the payload's published path (4 to 2). D-6: C4-07's estimate clause is reported, not met, on this sample (6 to 0) |
+| C4-5 | E-1: the outputs of the V15-S5 decompressor steps are adopt-only too, so the node's interleave file is reported, never compared (5 to 1) |
+
+Rulings: ARCH-fill (the fill's home and conditions), QA-parity (the determinism excerpt, parent links by role, the
+Debug app's `--without-linux-executor`), CHTC-H2 (the memory margin from `peakResidentBytes`, 8 GiB for a first job,
+`ON_EXIT` kept, `request_disk` from DAG VARS), UX-XC26 (the plan sheet's words), QA-V15lines (28 parity lines sorted 7,
+18, 3), QA-W-lines and ARCH-X3 (below).
+
+**What CHTC taught the code.** Each item was found by a real job and fixed in this session.
+
+| Found by | Fact | Fix |
+|---|---|---|
+| G1, a node job | HTCondor returned only the record, logs and payload, so the plan's reports never came home | The template returns each report the plan names at its `work/` path, and never the intermediates |
+| X1, node 593391 held at 12/1 | A remap keyed by the payload's basename fails for a file listed with its path, and a missing destination folder holds the job at 12/256 | G3: the remap is keyed by the exact `transfer_output_files` string, and `run.dag` makes each payload folder with a `SCRIPT PRE /bin/mkdir -p` (DAG 593407 and job 593400 proved both) |
+| CHTC seat, CH-8 | HTCondor's disk figure is a sample taken every 300 s and at exit, not a peak | W0: the executor walks its run folder every 0.25 s during the storage step and records `storage.peakWorkRootBytes` |
+| X3 | The image's tools sit in one environment, `/opt/lge/env/bin`, so no `envs/<id>/` names a managed tool | R-1: the adopt names each image tool by its entry in the linux-64 lock (`bbtools`, `htslib`) |
+| X3 | A job returns no input reads, and the adopt refused without them, naming no fix | R-2: the adopt takes each input's digest and size from the run record, which the node checked against the plan, hashes the files only when present, and names the fix in each refusal |
+
+**The acceptance run.** SRR35520572 (PRJNA989177, Illumina NovaSeq 6000, paired, targeted capture of viral RNA,
+4,632,098 pairs, R1 210,030,850 and R2 212,816,451 bytes from ENA with its MD5 checked) was staged once under
+`lge-chtc-test/input-sra/`. The plan came from the landed writer at threads 1 with `--clumping-tool bbtools` and a 1 GB
+clumpify heap, the largest at which clumpify split the reads into more than one group (X0).
+
+| Check | Result |
+|---|---|
+| The node job | DAGMan 593411, node 593412 on `e4076` (`slot1_9`), exit 0 on its first start, no eviction. `run.dag`'s PRE script made the payload folder. Wall time 278 s (`TimeExecute`), the record's `wallSeconds` 276.6 |
+| C4-06, one read of the job log | Disk 4,882,060 KB used of 10,485,760 requested (HTCondor's sample), memory 2,572 MB of 9,216 (1 GiB heap plus the 8 GiB margin), and `peakImageSizeKB` 4,796,216 KiB against the record's largest peak 4,845,678,592 B (deacon), 1.35% apart |
+| The payload | 54,396,886 bytes, SHA-256 `36a55ca4...1493` on `/staging`, in the run record, and byte for byte equal to galah's own import of the same reads |
+| C4-07 | Clumpify ran 11 groups on its second launch, every read kept (901,718 merged plus 82,724 pairs in, 1,067,166 stored), `storage.peakWorkRootBytes` 5,463,083,200. The estimate clause is not met on this sample (349,495,473 against half the heap, 536,870,912), as D-6 reports it |
+| The adopt | `import fastq <returned folder> --adopt` with no input read in the folder: exit 0 |
+| E0 to E4 | Equal |
+| The closed V15 list | Every line equal or listed except the platform rows: with the reads absent the adopted record says no inference ran, 10 keys in 19 lines (`c4/lanes/X/X7.md`), the C5 line below |
+| The parity tests on the C079876 1,000,000-pair slice | 11 tests, 0 failures, no unlisted line (landing 6) |
+| The signal job K3B | Passed on landing 3's executor |
+
+**Findings carried out of C4.**
+
+- The adopted record says no platform inference ran when the input reads are absent, where the Mac's names its
+  inference (`platformConfidence`, `platformEvidence`, `platformVendorDetail`, the sidecar's `platformAssignment`). A
+  panel line for C5: the node records its own inference, or the adopt infers from the payload.
+- The stripped executor's bytes changed between landings 3 and 4 with no executor or Portable source change (the same
+  size, 58,829,344 bytes), so the build is not reproducible across worktrees. Plans pin the bytes a package ships, so a
+  release is unharmed, but B M3's packaging run must check it.
+- The plan sheet takes no recipe, so a recipe plan still needs the command line, and BIO rules that a long-read plan should
+  not default the clumping box on (Q-UX26-1).
+- `request_disk` for a full-size sample: CHTC-H2's formula needs the work and payload sizes of a C079876-size run, read
+  again from the first lab batch before its `request_memory`, `request_disk` and the 72-hour check are trusted (CH-10).
+  The 10,000,000-pair replay is dropped under O42.
+- B M3, the packaging run with notarization, and the GUI walk of the two new Import Center cards are not done.
+
+## Open questions that remain (2026-10-25, session 5)
+
+| Id | Question | Who answers |
+|---|---|---|
+| MO-S1 | Should the Mac's own `auto` follow the plan's rule? It changes the stored bytes of large Mac imports | The owner |
+| MO-B2 | Should clumpify follow the user's compression level? It changes compressed bytes | The owner |
+| Push | `chtc-c4` holds 110 commits on `origin/main`, not pushed | The owner's go |
+
 ## Next step
 
-C3 is complete, the program is on `main`, and the C4 pre-brief round is done. Phase 2.14 runs first (O33). C4 (the
-CHTC runner and the adopt) then runs on the Mac Studio in its own session from
-`~/lungfish-phase-records/chtc-program/CONTINUE-C4.md`, and C5 (batches and the lab's commands) in the session after.
+C4 is complete on `chtc-c4` (code head `4e0ee4016`, then this record), not pushed. C5 runs in its own session on the Mac Studio from
+`~/lungfish-phase-records/chtc-program/CONTINUE-C5.md`.
 
 | Step | Work |
 |---|---|
-| 1 | Write the C4 lane briefs from `c4/inv/C4-design.md`, `c4/votes/tally-c4.md`, `c4/votes/tally-c4r2.md` and `c3/votes/tally-r2.md` section 4.6 |
-| 2 | C4 lanes S, I, H, F, R and B in wave 1, then A, P, U and X as the inventory orders them |
-| 3 | One C079876 sample run on CHTC and adopted, equal at E0 to E3 |
-| 4 | C5, a batch of 32748, then a wastewater batch, the lab's commands, plain FASTQ with `samples.tsv` |
+| 1 | The owner's go to push `chtc-c4` to `main` (no merge commit), then a Preview |
+| 2 | C5's inventory: the platform line above, a plain Linux launcher beside HTCondor (O41: run a plan folder on any Linux machine with the image and adopt it on any Mac), batches with `samples.tsv`, the lab's commands, RiboDetector, an unfused fastp, interleaved-to-paired and storage `none` (Q-C4-13), and `request_disk` from a lab batch (CH-10) |
+| 3 | B M3, the packaging run with every QC18 proof and notarization, on the owner's go since it sends to Apple |
+| 4 | The first lab batch of 32748 on CHTC from the staged reads (O39), adopted and compared, then a wastewater batch |
