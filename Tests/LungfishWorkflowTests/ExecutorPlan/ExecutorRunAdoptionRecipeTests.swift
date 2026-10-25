@@ -371,4 +371,48 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         XCTAssertEqual(alone.inputReadCount, 1_000_000)
         XCTAssertEqual(alone.outputReadCount, 869_933)
     }
+
+    /// The envelope of an adopted bundle, by its provenance file.
+    private func envelope(of bundle: URL) throws -> ProvenanceEnvelope {
+        try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(
+            fromSidecar: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        ))
+    }
+
+    /// A step's outputs by file name, digest and size: the folders differ between two adopts, the files do not.
+    private func outputKeys(_ step: ProvenanceStep) -> [String] {
+        step.outputs.map { "\(URL(fileURLWithPath: $0.path).lastPathComponent)|\($0.checksumSHA256 ?? "nil")|\($0.fileSize.map { "\($0)" } ?? "nil")" }
+    }
+
+    /// Review R1-R2 fix 2 (ARCH-X3 R-2): a CHTC job returns none of its inputs, and the input records of every recipe step for
+    /// R1 and R2 then hold the plan's SHA-256 and size, which the adopt hands to `recipeProvenanceFiles` as `inputRecords`;
+    /// hashed from a missing file a record holds no digest. The step's outputs are those of the adopt that holds the
+    /// inputs. The plan names the platform, since one that leaves it to inference is refused without R1 (fix 1). The second
+    /// adopt reads the first one's returned folder, at `<root>/returned` beside `<root>/Project.lungfish` as `adopt` lays it out.
+    func testAdoptedRecipeStepsTakeAbsentInputsFromRunRecord() async throws {
+        let present = try await adopt(platform: "illumina", files: true)
+        let root = present.bundle.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let folder = root.appendingPathComponent("returned", isDirectory: true)
+        let pins = present.plan.entries.filter { $0.role == .input }
+        XCTAssertEqual(pins.count, 2)
+        for pin in pins { try FileManager.default.removeItem(at: folder.appendingPathComponent(pin.relativePath)) }
+        let bundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: folder, projectDirectory: root.appendingPathComponent("ProjectWithoutInputs.lungfish", isDirectory: true)
+        )
+        let steps = try envelope(of: bundle).steps
+        let reference = try present.envelope.steps
+        let recipeArgvs = present.record.steps.filter { $0.kind == .recipe }.map(\.argv)
+        XCTAssertFalse(recipeArgvs.isEmpty, "the record holds recipe steps")
+        for argv in recipeArgvs {
+            let label = argv.joined(separator: " ")
+            let step = try XCTUnwrap(steps.first { $0.argv == argv }, label)
+            for pin in pins {
+                let input = try XCTUnwrap(step.inputs.first { $0.path.hasSuffix("/" + pin.relativePath) }, "\(pin.relativePath) of \(label)")
+                XCTAssertEqual(input.checksumSHA256, pin.sha256, "\(pin.relativePath) of \(label)")
+                XCTAssertEqual(input.fileSize.map { Int64($0) }, pin.size, "\(pin.relativePath) of \(label)")
+            }
+            let before = try XCTUnwrap(reference.first { $0.argv == argv }, label)
+            XCTAssertEqual(outputKeys(step), outputKeys(before), label)
+        }
+    }
 }
