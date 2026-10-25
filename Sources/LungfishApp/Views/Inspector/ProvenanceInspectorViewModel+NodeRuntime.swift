@@ -10,7 +10,9 @@ import LungfishWorkflow
 /// C4-13).
 ///
 /// - Run level, once, in the Runtime section after Dependency Set: "Steps ran on", "Steps ran with", "Leftover
-///   processes", then "Reported by the launcher" with one row per site fact.
+///   processes", then "Reported by the launcher" with one row per site fact. The tool is generic and HTCondor is one
+///   launcher (owner O41), so a record that holds none of HTCondor's facts shows only the facts it passed, and the
+///   slot labels, units, Not recorded rows and "HTCondor job" row of OQ-5 belong to a record of HTCondor's.
 /// - Step level, on each node step after Command and Environment and before the storage lines and Inputs: "Version and
 ///   build", with the words for where the version came from.
 ///

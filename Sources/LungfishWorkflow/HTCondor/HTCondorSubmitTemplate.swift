@@ -129,7 +129,8 @@ public enum HTCondorSubmitTemplate {
     public static let unsetValue = "lge_unset"
 
     /// The machine-ad attributes passed as site facts, each under its own name. Spaced values such as
-    /// `ApptainerVersion` and `CondorVersion` wait for a node job that shows a form keeping them one argument.
+    /// `SingularityVersion` (HTCondor's name for the Apptainer version) and `CondorVersion` wait for a node job that
+    /// shows a form keeping them one argument.
     public static let machineAdAttributes = [
         "Machine", "Arch", "Microarch", "OpSysAndVer", "OpSysMajorVer", "OSKernelRelease", "Cpus", "Memory", "Disk",
     ]

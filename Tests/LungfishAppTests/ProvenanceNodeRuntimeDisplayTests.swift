@@ -10,6 +10,8 @@ import LungfishWorkflow
 /// C4-13 with UX rulings OQ-1 and OQ-5. An adopted record names where and with what binary its steps ran: once per
 /// run in the Runtime section after Dependency Set, and a "Version and build" row on each node step. A row shows only
 /// when the record holds its field, none is a warning, and a Mac import or a record written before C4 shows as it did.
+/// The tool is generic and HTCondor is one launcher (owner O41), so the words, units and Not recorded rows that belong
+/// to HTCondor show only for a record that holds HTCondor's own facts.
 @MainActor
 final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
     private static let executorSHA256 = String(repeating: "a", count: 64)
@@ -19,11 +21,23 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
     private static let sifSHA256 = "c425302599447ae0157523299b71ac5c170294537c58c1ca31bdc2bb1cfceb7c"
     private static let parentWalkWords = "Found through each process's parent only. A process that a tool detached from "
         + "its parent is not found and may still be running after the step ended."
+    /// The group row of a record that holds HTCondor's facts: its memory and disk gain a unit, so the facts are not all
+    /// shown as given.
     private static let launcherWords = "Passed in by the program that started the run, such as HTCondor. Lungfish shows "
-        + "them as given and did not check them."
+        + "them as given, except for the unit it adds to memory and disk, and did not check them."
+    /// The group row of a record from another launcher, UX's words of OQ-5: nothing is added to any fact.
+    private static let launcherWordsAsGiven = "Passed in by the program that started the run, such as HTCondor. Lungfish "
+        + "shows them as given and did not check them."
     private static let runLabels = ["Steps ran on", "Steps ran with", "Leftover processes", "Reported by the launcher"]
+    /// What the CHTC submit template passes for a node, cut to four facts: two it asks for and the job's ids.
+    private static let htcondorFacts = [
+        ProvenanceSiteFact(key: "Machine", value: "e4004.chtc.wisc.edu"), ProvenanceSiteFact(key: "Memory", value: "1024"),
+        ProvenanceSiteFact(key: "ClusterId", value: "593367"), ProvenanceSiteFact(key: "ProcId", value: "0"),
+    ]
 
-    /// The rows after Dependency Set, in order and once, and none of them on a step.
+    /// The rows after Dependency Set, in order and once, and none of them on a step. The record holds HTCondor's job
+    /// ids, so it shows OQ-5's rows: the slot's labels and units, a Not recorded row for each fact the template asks
+    /// for and the record lacks, and the job row.
     func testAdoptedRecordShowsNodeRuntimeRowsOnceAfterDependencySet() async throws {
         let model = try await loadedModel(record: try Self.adoptedRecord())
         let rows = model.runtimeRows.map { "\($0.label): \($0.value)" }
@@ -33,10 +47,10 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
             "Steps ran with: lungfish-executor build \(Self.executorCommit) (from the plan's pin), SHA-256 \(Self.executorSHA256)",
             "Leftover processes: \(Self.parentWalkWords)",
             "Reported by the launcher: \(Self.launcherWords)",
-            "Machine name: e4004.chtc.wisc.edu", "Memory: 1024 MiB", "HTCondor job: 593367.0",
+            "Machine name: e4004.chtc.wisc.edu", "Memory given to the job: 1024 MiB", "HTCondor job: 593367.0",
             "CPU architecture: Not recorded", "CPU microarchitecture: Not recorded", "Operating system: Not recorded",
-            "Operating system major version: Not recorded", "Kernel release: Not recorded", "CPUs: Not recorded",
-            "Disk: Not recorded",
+            "Operating system major version: Not recorded", "Kernel release: Not recorded",
+            "CPUs given to the job: Not recorded", "Disk given to the job: Not recorded",
         ])
         XCTAssertTrue(rows.contains("Container Image: \(Self.sif)"), "\(rows)")
         XCTAssertTrue(rows.contains("Container Digest: \(Self.sifSHA256)"), "\(rows)")
@@ -49,6 +63,26 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
             XCTAssertFalse(Self.runLabels.contains { copy.contains("\n\($0):") }, copy)
         }
         XCTAssertTrue(model.warnings.allSatisfy { !Self.runLabels.contains($0.title) }, "none is a warning")
+    }
+
+    /// Owner O41: a record from another launcher shows the facts it passed, under their keys and as given. It shows no
+    /// Not recorded row for a fact nobody asked it for, no "HTCondor job" row, and no HTCondor label or unit on a
+    /// number whose meaning its launcher did not state. The group row keeps UX's words of OQ-5.
+    func testRecordFromAnotherLauncherShowsOnlyTheFactsItPassed() async throws {
+        let facts = [
+            ProvenanceSiteFact(key: "Scheduler", value: "slurm"), ProvenanceSiteFact(key: "Machine", value: "node12"),
+            ProvenanceSiteFact(key: "Cpus", value: "8"), ProvenanceSiteFact(key: "Memory", value: "64000"),
+            ProvenanceSiteFact(key: "Disk", value: "512"),
+        ]
+        let model = try await loadedModel(record: try Self.adoptedRecord(siteFacts: facts))
+        let rows = model.runtimeRows.map { "\($0.label): \($0.value)" }
+        let start = try XCTUnwrap(model.runtimeRows.firstIndex { $0.label == "Reported by the launcher" })
+        XCTAssertEqual(Array(rows[start...]), [
+            "Reported by the launcher: \(Self.launcherWordsAsGiven)",
+            "Scheduler: slurm", "Machine name: node12", "Cpus: 8", "Memory: 64000", "Disk: 512",
+        ])
+        XCTAssertFalse(model.runtimeRows.contains { $0.value == "Not recorded" }, "\(rows)")
+        XCTAssertFalse(model.runtimeRows.contains { $0.label == "HTCondor job" }, "\(rows)")
     }
 
     /// An `imageManifest` step and the `planPin` counter step, which shows under its title.
@@ -133,7 +167,8 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
     /// counter step from the plan's pin.
     private static func adoptedRecord(
         counterBuild: String = ProvenanceNodeRuntimeDisplayTests.executorCommit,
-        executorBuild: String? = ProvenanceNodeRuntimeDisplayTests.executorCommit
+        executorBuild: String? = ProvenanceNodeRuntimeDisplayTests.executorCommit,
+        siteFacts: [ProvenanceSiteFact] = ProvenanceNodeRuntimeDisplayTests.htcondorFacts
     ) throws -> Data {
         try fixtureRecord { record in
             var runtime = record["runtimeIdentity"] as? [String: Any] ?? [:]
@@ -143,11 +178,7 @@ final class ProvenanceNodeRuntimeDisplayTests: XCTestCase {
                 kernelRelease: "5.14.0-620.el9.x86_64", machine: "x86_64", executorBuild: executorBuild,
                 executorSHA256: executorSHA256, orphanSweep: "parentWalkOnly"
             ))
-            runtime["siteFacts"] = try json([
-                ProvenanceSiteFact(key: "Machine", value: "e4004.chtc.wisc.edu"),
-                ProvenanceSiteFact(key: "Memory", value: "1024"),
-                ProvenanceSiteFact(key: "ClusterId", value: "593367"), ProvenanceSiteFact(key: "ProcId", value: "0"),
-            ])
+            runtime["siteFacts"] = try json(siteFacts)
             record["runtimeIdentity"] = runtime
             var steps = try XCTUnwrap(record["steps"] as? [[String: Any]])
             var counter = steps[0]

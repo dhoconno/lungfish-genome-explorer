@@ -288,28 +288,66 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         XCTAssertEqual(ProvenanceSiteFactRows.rows(runtime.siteFacts).count, 0)
     }
 
-    /// OQ-5's rows for the facts a CHTC slot gave: the group row first, a template fact under its label, Memory in
-    /// MiB and Disk in KiB, any other key under its own name, one job row, and each fact the CHTC template asks for
-    /// that the record lacks as Not recorded. Every key lane H's template passes has a label (lane U), and the
-    /// Apptainer and HTCondor versions it does not pass show no row.
+    /// OQ-5's rows for the facts a CHTC slot gave: the group row first, a template fact under its label, the slot's
+    /// CPUs, Memory and Disk labelled as the job's share with Memory in MiB and Disk in KiB, any other key under its own
+    /// name, one job row, and each fact the CHTC template asks for that the record lacks as Not recorded. Every key lane
+    /// H's template passes has a label (lane U), and the Apptainer and HTCondor versions it does not pass show no row.
+    /// The group row says the facts are shown as given except for the unit added to memory and disk.
     func testSiteFactRowsShowLauncherWordsLabelsAndUnits() {
         let facts = Self.chtcFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
         let rows = ProvenanceSiteFactRows.rows(facts).map { "\($0.label): \($0.value)" }
         XCTAssertEqual(rows, [
-            "Reported by the launcher: Passed in by the program that started the run, such as HTCondor. Lungfish shows them as given and did not check them.",
+            "Reported by the launcher: Passed in by the program that started the run, such as HTCondor. Lungfish shows them as given, except for the unit it adds to memory and disk, and did not check them.",
             "Machine name: e4004.chtc.wisc.edu", "CPU architecture: X86_64", "CPU microarchitecture: x86_64-v3",
             "Operating system: CentOS9", "Operating system major version: 9", "Kernel release: 5.14.0-620.el9.x86_64",
-            "CPUs: 1", "Memory: 1024 MiB", "Disk: 16777216 KiB", "HTCondor job: 593367.0",
+            "CPUs given to the job: 1", "Memory given to the job: 1024 MiB", "Disk given to the job: 16777216 KiB",
+            "HTCondor job: 593367.0",
         ])
         let withoutDisk = ProvenanceSiteFactRows.rows(facts.filter { $0.key != "Disk" }).map { "\($0.label): \($0.value)" }
-        XCTAssertEqual(withoutDisk.last, "Disk: Not recorded")
+        XCTAssertEqual(withoutDisk.last, "Disk given to the job: Not recorded")
         let odd = ProvenanceSiteFactRows.rows([
             ProvenanceSiteFact(key: "Memory", value: "1 GB"), ProvenanceSiteFact(key: "Machine", value: "undefined"),
             ProvenanceSiteFact(key: "ProcId", value: "3"),
         ], missingValue: "undefined").map { "\($0.label): \($0.value)" }
-        XCTAssertEqual(Array(odd.dropFirst().prefix(3)), ["Memory: 1 GB", "Machine name: Not recorded", "HTCondor job: Not recorded"])
+        XCTAssertEqual(
+            Array(odd.dropFirst().prefix(3)),
+            ["Memory given to the job: 1 GB", "Machine name: Not recorded", "HTCondor job: Not recorded"]
+        )
         XCTAssertEqual(ProvenanceSiteFactRows.rows([]).count, 0)
         XCTAssertEqual(ProvenanceSiteFactRows.rows(nil).count, 0)
+    }
+
+    /// Owner O41: the tool is generic and HTCondor is one launcher. A record from another launcher shows the facts it
+    /// passed under their keys and as given: no Not recorded row for a fact nobody asked it for, no job row, and no
+    /// HTCondor label or unit on a number whose meaning its launcher did not state. The group row keeps UX's words of
+    /// OQ-5, since nothing is added to any fact.
+    func testSiteFactRowsOfAnotherLauncherShowOnlyTheFactsItPassed() {
+        let facts = [("Scheduler", "slurm"), ("Machine", "node12"), ("Cpus", "8"), ("Memory", "64000"), ("Disk", "512")]
+            .map { ProvenanceSiteFact(key: $0.0, value: $0.1) }
+        let asGiven = "Reported by the launcher: Passed in by the program that started the run, such as HTCondor. Lungfish shows them as given and did not check them."
+        XCTAssertEqual(ProvenanceSiteFactRows.rows(facts).map { "\($0.label): \($0.value)" }, [
+            asGiven, "Scheduler: slurm", "Machine name: node12", "Cpus: 8", "Memory: 64000", "Disk: 512",
+        ])
+        let lone = ProvenanceSiteFactRows.rows([ProvenanceSiteFact(key: "Scheduler", value: "slurm")])
+        XCTAssertEqual(lone.map { "\($0.label): \($0.value)" }, [asGiven, "Scheduler: slurm"])
+    }
+
+    /// HTCondor's own facts are its job ids and its version string. A record that holds any one of them shows OQ-5's
+    /// rows: each fact the template asks for and the record lacks as Not recorded, and the job row, which reads Not
+    /// recorded when an id is missing.
+    func testSiteFactRowsOfHTCondorShowNotRecordedForEachFactAsked() {
+        let version = "$CondorVersion: 26.1.0 2026-10-01 BuildID: 961983 PackageID: 26.1.0-0.961983 GitSHA: 876fef81 RC $"
+        let asked = [
+            "Machine name: Not recorded", "CPU architecture: Not recorded", "CPU microarchitecture: Not recorded",
+            "Operating system: Not recorded", "Operating system major version: Not recorded", "Kernel release: Not recorded",
+            "CPUs given to the job: Not recorded", "Memory given to the job: Not recorded", "Disk given to the job: Not recorded",
+        ]
+        let versionOnly = ProvenanceSiteFactRows.rows([ProvenanceSiteFact(key: "CondorVersion", value: version)])
+            .map { "\($0.label): \($0.value)" }
+        XCTAssertEqual(Array(versionOnly.dropFirst()), ["HTCondor version: \(version)"] + asked + ["HTCondor job: Not recorded"])
+        let clusterOnly = ProvenanceSiteFactRows.rows([ProvenanceSiteFact(key: "ClusterId", value: "593367")])
+            .map { "\($0.label): \($0.value)" }
+        XCTAssertEqual(Array(clusterOnly.dropFirst()), ["HTCondor job: Not recorded"] + asked)
     }
 
     /// ARCH 5 and CLI-EQUIVALENCE: the adopted record is signed on the Mac and passes the check that `lungfish-cli
