@@ -21,7 +21,11 @@ struct ImportFastqPlanOptions: ParsableArguments {
                 + "its sample, each sample's plan.tar under staging/, and staging-files.json, which lists each file the "
                 + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
                 + "No file is imported and nothing is submitted, so --project is not needed. A sample sheet's "
-                + "request_disk column gives a sample's disk request in GB.",
+                + "request_disk column gives a sample's disk request in GB. With no --clumping-tool, or with "
+                + "--clumping-tool auto, the plan clumps every sample with BBTools clumpify at the plan's heap, "
+                + "whatever its size, because clumpify splits a large sample into more groups to fit that heap. An "
+                + "import on this Mac with auto skips clumping for a sample whose estimated size exceeds this Mac's "
+                + "clumpify memory budget.",
             valueName: "folder"
         )
     )
