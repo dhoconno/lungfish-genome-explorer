@@ -24,10 +24,11 @@ package enum ExecutorPlanBatchReadme {
         return """
         \(fileName) - how to run the batch \(batch) and bring its results back to the Mac. Written by Lungfish.
 
-        This folder holds one plan for each sample, in a folder named by the sample, and two ways to run
-        them: on an HTCondor pool with \(dag), or on one Linux machine with Apptainer or Docker with
-        \(script). \(jobs) lists the samples, one row each. staging-files.json lists the files the jobs
-        read, each with its size, its SHA-256 and the file on the Mac to copy.
+        This folder holds one plan for each sample, in a folder named by the sample. It has two ways to run
+        them. Use \(dag) on an HTCondor pool. Use \(script) on one machine with Apptainer or Docker, which
+        can be a Linux machine or a Mac with Docker. \(jobs) lists the samples, one row each.
+        staging-files.json lists the files the jobs read, each with its size, its SHA-256 and the file on the
+        Mac to copy.
 
 
         Run on an HTCondor pool
@@ -64,16 +65,23 @@ package enum ExecutorPlanBatchReadme {
 
         1. See which sample is held, and why:
 
-           condor_q -hold -af ClusterId ProcId DAGNodeName HoldReason
+           condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason
 
-           Each line gives the job's two numbers, the sample's name and the reason HTCondor gave.
-           To see every sample's state, read \(dag).status.
+           Each line gives the job's two numbers, the sample's name, the run's exit code and the reason
+           HTCondor gave. To see every sample's state, read \(dag).status. In \(logs)/<sample>.log a hold
+           shows as "Job was evicted" and then "Job was held". Both lines are one hold, not a move to
+           another machine.
 
-        2. Fix what the reason names. If it says an output file could not be sent back, that sample's
-           job returned no reads. Read its log, <sample>/\(logs)/ in this folder, to see which step stopped.
+        2. If the exit code is 0, the run finished and only sending its files back failed. HTCondor starts
+           that job again by itself, at most twice, so leave it. Otherwise fix what the reason names. If it
+           says an output file could not be sent back, that sample's job returned no reads. Read its run
+           record, \(returned)\(record), and its log, <sample>/\(logs)/ in this folder, to see which step
+           stopped. A job refused before its first step leaves only the record.
 
-        3. Remove the held job. HTCondor counts that sample as failed and goes on with the others:
+        3. Running the sample again replaces its run record, so copy it aside if it is there. Then remove
+           the held job. HTCondor counts that sample as failed and goes on with the others:
 
+           cp \(returned)\(record) <sample>/run-record-<ClusterId>.json
            condor_rm <ClusterId>.<ProcId>
 
         4. When the other samples have finished, the run stops and writes \(dag).rescue001, which lists
@@ -87,12 +95,13 @@ package enum ExecutorPlanBatchReadme {
            "Bring the results back to the Mac" says below.
 
 
-        Run on one Linux machine with Apptainer or Docker
+        Run on one machine with Apptainer or Docker
 
-        1. Copy this folder to the Linux machine.
+        1. Copy this folder to the machine that runs it, a Linux machine or a Mac with Docker.
 
         2. Make a data folder there that holds the files staging-files.json lists, each at its stagingPath
-           with \(staging)/ taken off the front: images/, shared/ and batches/\(batch)/.
+           with \(staging)/ taken off the front. That gives the folders shared/ and batches/\(batch)/, and
+           images/ for Apptainer. A Docker run reads no images/ folder.
 
         3. Run one of these from inside this folder:
 
@@ -100,9 +109,10 @@ package enum ExecutorPlanBatchReadme {
            sh \(script) --runtime docker --image <image> --data <data folder>
 
            Apptainer runs images/\(image.fileName) of the data folder, once its SHA-256 matches the plans.
-           Docker runs <image>, that file unpacked into a Docker image for linux/amd64.
+           Docker runs <image>, a Docker image for linux/amd64 made from that same file. The lab's
+           launcher-tier.sh image command makes one.
 
-        \(script) runs at most \(maxJobs) samples at once, the same number as \(dag); --jobs <n> changes it.
+        \(script) runs at most \(maxJobs) samples at once, the same number as \(dag). --jobs <n> changes it.
         --sample <name> runs one sample. Each sample works in its own folder under scratch/ in this folder,
         or under --scratch <folder>, which needs the free space of the sample's request_disk in \(dag).
 
@@ -118,15 +128,16 @@ package enum ExecutorPlanBatchReadme {
            files beside it.
 
         2. For every sample, copy the files inside \(result)/ into that sample's folder on the Mac, next to
-           plan.json. It is one step for both launchers and only the source differs: after an HTCondor
-           run, \(returned) on the machine that holds the staging folder; after a run of \(script), the Linux
-           machine's <sample>/\(result)/ in this folder. The slash after \(result) matters. Run this on the Mac,
-           from the folder that holds \(batch):
+           plan.json. It is one step for both launchers, and only the source differs. After an HTCondor
+           run the source is \(returned) on the machine that holds the staging folder. After a run of
+           \(script) it is <sample>/\(result)/ in this folder on the machine that ran it. The slash after
+           \(result) matters. Run this on the Mac, from the folder that holds \(batch):
 
            for sample in $(grep -v '^#' \(batch)/\(jobs) | cut -f 1); do rsync -a <source>/"$sample"/\(result)/ \(batch)/"$sample"/; done
 
            <source> is <host>:\(layout.batchFolder) after an HTCondor run, or <host>:<this folder on the
-           Linux machine> after a run of \(script).
+           machine that ran \(script)> after a run of \(script). When the files are on this Mac, <source>
+           is that folder alone, with no <host>:.
 
         3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux
            side, since the adopt must read the one the Mac wrote.

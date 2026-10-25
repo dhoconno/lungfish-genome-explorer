@@ -321,13 +321,16 @@ final class LinuxRunScriptTests: XCTestCase {
         let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
         let lines = [
             "condor_submit_dag run.dag",
-            "condor_q -hold -af ClusterId ProcId DAGNodeName HoldReason",
+            "condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason",
             "To see every sample's state, read run.dag.status.",
-            "Read its log, <sample>/logs/ in this folder, to see which step stopped.",
+            "<sample>/logs/ in this folder, to see which step",
             "condor_rm <ClusterId>.<ProcId>",
             "MAXJOBS lge 10", "--jobs <n> changes it",
             "sh run-local.sh --runtime apptainer --data <data folder>",
             "sh run-local.sh --runtime docker --image <image> --data <data folder>",
+            "Docker runs <image>, a Docker image for linux/amd64 made from that same file.",
+            "A Docker run reads no images/ folder.", "a Linux machine or a Mac with Docker",
+            "is that folder alone, with no <host>:.",
             "The adopt reads one folder for each sample: the plan.json your Mac wrote, with the job's",
             "for sample in $(grep -v '^#' batch/jobs.tsv | cut -f 1); do rsync -a <source>/\"$sample\"/result/ batch/\"$sample\"/; done",
             "<source> is <host>:/staging/groups/g/1/lge-test/batches/batch after an HTCondor run",
@@ -341,6 +344,7 @@ final class LinuxRunScriptTests: XCTestCase {
         for line in lines {
             XCTAssertTrue(readme.contains(line), line)
         }
+        XCTAssertFalse(readme.contains("Run on one Linux machine"), "a Mac with Docker runs the script too")
         let order = try ["The adopt reads one folder", "rsync -a", "Do not copy logs/", "--adopt --project", "To adopt the rest"]
             .map { try XCTUnwrap(readme.range(of: $0), $0).lowerBound }
         XCTAssertEqual(order, order.sorted())
@@ -372,14 +376,23 @@ final class LinuxRunScriptTests: XCTestCase {
         let written = try writeBatch(["S1"])
         let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
         let start = try XCTUnwrap(readme.range(of: "If a sample's job is held"))
-        let end = try XCTUnwrap(readme.range(of: "Run on one Linux machine", range: start.upperBound..<readme.endIndex))
+        let end = try XCTUnwrap(readme.range(of: "Run on one machine with Apptainer or Docker", range: start.upperBound..<readme.endIndex))
         let held = String(readme[start.upperBound..<end.lowerBound])
-        let commands = ["condor_q -hold -af ClusterId ProcId DAGNodeName HoldReason", "condor_rm <ClusterId>.<ProcId>",
+        let record = "/staging/groups/g/1/lge-test/batches/batch/<sample>/result/run-record.json"
+        let commands = ["condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason",
+                        "cp \(record) <sample>/run-record-<ClusterId>.json", "condor_rm <ClusterId>.<ProcId>",
                         "condor_submit_dag run.dag"]
         let places = try commands.map { try XCTUnwrap(held.range(of: $0), $0).lowerBound }
         XCTAssertEqual(places, places.sorted())
         let steps = try (1...5).map { try XCTUnwrap(held.range(of: "\n\($0). "), "step \($0)").lowerBound }
         XCTAssertEqual(steps, steps.sorted())
+        // CHTC-3d R1 to R3. Step 1 says a hold shows as an eviction and then a hold, which is one hold, and step 2 says
+        // HTCondor starts a job again by itself, at most twice, when the exit code is 0.
+        let step1 = held[steps[0]..<steps[1]], step2 = held[steps[1]..<steps[2]]
+        XCTAssertTrue(step2.contains("at most twice"), String(step2))
+        let evicted = try XCTUnwrap(step1.range(of: "Job was evicted"), String(step1)).lowerBound
+        let heldLine = try XCTUnwrap(step1.range(of: "Job was held"), String(step1)).lowerBound
+        XCTAssertLessThan(evicted, heldLine)
         XCTAssertTrue(held.contains("copy the results back to the Mac and adopt the batch"), held)
         XCTAssertFalse(held.contains("copy the batch folder back"), held)
         XCTAssertFalse(readme.lowercased().contains("chtc"))
