@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+import LungfishTestSupport
 @testable import LungfishPortable
 
 /// C4-4 D-4 (SWIFT SW4-8 and SW4-9, BIO B-D4-1 to B-D4-3, QA Q4-7 to Q4-9, CHTC CH-6, UX U4-6). A small fastp JSON and deacon
@@ -104,7 +105,7 @@ final class V15ParityReportTests: XCTestCase {
     /// so the adopted copy named with the emitter's stem still pairs with the Mac's. A planted count in one copy, recorded again
     /// with its new digest and size, gives one finding, and a copy that is not on disk gives one finding.
     func testReportCopiesPairByStepAndPositionNotByName() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("V15ParityReport-\(UUID().uuidString)", isDirectory: true)
+        let root = try TestTempDirectory.make(prefix: "V15ParityReport")
         defer { try? FileManager.default.removeItem(at: root) }
         let adoptedBundle = root.appendingPathComponent("adopted.lungfishfastq", isDirectory: true)
         let macBundle = root.appendingPathComponent("mac.lungfishfastq", isDirectory: true)
