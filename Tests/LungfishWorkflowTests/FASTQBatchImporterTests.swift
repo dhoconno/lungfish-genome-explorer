@@ -453,6 +453,65 @@ final class FASTQBatchImporterTests: XCTestCase {
         }
     }
 
+    /// C5 O49, D8 B: the Mac's runtime route decides `auto` platform first, through the `platform:` argument of
+    /// `runIngestionPipeline`. `ImportConfig` keeps `auto` for ONT, PacBio and Unknown and the ingestion config skips
+    /// clumping only for `none`, so a resolver that is not handed the platform would clump long reads.
+    func testIngestionResolvesAutoPlatformFirst() async throws {
+        let inputBytes = 20 * Self.gib
+        let memoryBytes = 64 * Self.gib
+        let config = FASTQIngestionConfig(
+            inputFiles: [URL(fileURLWithPath: "/data/Sample.fastq.gz")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/import-workspace"),
+            clumpingTool: .auto
+        )
+        let cases: [(platform: LungfishIO.SequencingPlatform?, resolved: ClumpingTool, reason: String)] = [
+            (.oxfordNanopore, .none, ClumpingTool.automaticLongReadReason),
+            (.pacbio, .none, ClumpingTool.automaticLongReadReason),
+            (.unknown, .none, ClumpingTool.automaticUnknownPlatformReason),
+            (.illumina, .bbtools, ClumpingTool.automaticClumpifyReason),
+            (nil, .bbtools, ClumpingTool.automaticClumpifyReason),
+        ]
+
+        for testCase in cases {
+            let label = testCase.platform?.rawValue ?? "no platform"
+            let result = try await FASTQBatchImporter.runIngestionPipeline(
+                sample: "Sample1",
+                config: config,
+                estimatedInputBytes: inputBytes,
+                physicalMemoryBytes: memoryBytes,
+                platform: testCase.platform,
+                log: nil,
+                invoke: { resolution in
+                    FASTQIngestionResult(
+                        outputFile: URL(fileURLWithPath: "/tmp/output.fastq.gz"),
+                        wasClumpified: resolution.resolved != .none,
+                        qualityBinning: .illumina4,
+                        originalFilenames: ["Sample.fastq.gz"],
+                        originalSizeBytes: inputBytes,
+                        finalSizeBytes: 1,
+                        pairingMode: .singleEnd,
+                        requestedClumpingTool: resolution.requested,
+                        resolvedClumpingTool: resolution.resolved,
+                        clumpingResolution: resolution
+                    )
+                }
+            )
+
+            let resolution = result.clumpingResolution
+            XCTAssertEqual(resolution.requested, .auto, label)
+            XCTAssertEqual(resolution.resolved, testCase.resolved, label)
+            XCTAssertEqual(resolution.resolvedSource, .default, label)
+            XCTAssertEqual(resolution.reason, testCase.reason, label)
+            XCTAssertNil(resolution.estimatedInputBytes, "auto reads no size: \(label)")
+            XCTAssertNil(resolution.thresholdBytes, "auto compares no threshold: \(label)")
+            XCTAssertEqual(result.wasClumpified, testCase.resolved != .none, label)
+            XCTAssertFalse(resolution.reason.contains("costs time and memory"), label)
+            if testCase.resolved == .none {
+                XCTAssertTrue(resolution.reason.contains("high error rate"), label)
+            }
+        }
+    }
+
     func testRecipeReadDeltaEventsEmitDeduplicationAndHumanScrubSummaries() throws {
         let info = RecipeAppliedInfo(
             recipeID: "vsp2-target-enrichment",

@@ -117,7 +117,7 @@ final class WorkflowPlatformPinTests: XCTestCase {
     func testImportConfigResolutionPerPlatform() {
         let project = URL(fileURLWithPath: "/tmp/pin.lungfish")
         let shortRead = ResolvedImport(optimizeStorage: true, clumpingTool: .auto, qualityBinning: .illumina4, compressionLevel: .balanced)
-        let longRead = ResolvedImport(optimizeStorage: false, clumpingTool: .none, qualityBinning: .illumina4, compressionLevel: .balanced)
+        let longRead = ResolvedImport(optimizeStorage: false, clumpingTool: .auto, qualityBinning: .illumina4, compressionLevel: .balanced)
         let expectedDefaults: [WorkflowPlatform: ResolvedImport] = [
             .illumina: shortRead, .ont: longRead, .pacbio: longRead, .ultima: shortRead,
         ]
@@ -128,15 +128,15 @@ final class WorkflowPlatformPinTests: XCTestCase {
                 expectedDefaults[platform], label
             )
 
-            // Clumping stays off for long-read platforms even when asked for.
+            // `auto` clumps nothing for long-read platforms even when storage optimisation is asked for, and a tool the user names wins (D8 B).
             let supportsClumping = platform == .illumina || platform == .ultima
             let forced = resolved(.init(projectDirectory: project, platform: platform, optimizeStorage: true))
             XCTAssertEqual(forced.optimizeStorage, supportsClumping, label)
-            XCTAssertEqual(forced.clumpingTool, supportsClumping ? .auto : .none, label)
+            XCTAssertEqual(forced.clumpingTool, .auto, label)
 
             let bbtools = resolved(.init(projectDirectory: project, platform: platform, clumpingTool: .bbtools))
-            XCTAssertEqual(bbtools.optimizeStorage, supportsClumping, label)
-            XCTAssertEqual(bbtools.clumpingTool, supportsClumping ? .bbtools : .none, label)
+            XCTAssertTrue(bbtools.optimizeStorage, label)
+            XCTAssertEqual(bbtools.clumpingTool, .bbtools, label)
 
             let off = resolved(.init(projectDirectory: project, platform: platform, optimizeStorage: false))
             XCTAssertEqual(off.optimizeStorage, false, label)
@@ -386,7 +386,7 @@ final class WorkflowPlatformPinTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["platformSource"], .string("given"))
         XCTAssertEqual(envelope.options.defaults["platform"], .string("auto"))
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(false))
-        XCTAssertEqual(envelope.options.defaults["clumpingTool"], .string("none"))
+        XCTAssertEqual(envelope.options.defaults["clumpingTool"], .string("auto"))
         XCTAssertEqual(envelope.options.defaults["compressionLevel"], .string("balanced"))
         XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string("illumina4"))
         let flag = try XCTUnwrap(envelope.argv.firstIndex(of: "--platform"))
@@ -398,5 +398,52 @@ final class WorkflowPlatformPinTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: sidecar) as? [String: Any])
         XCTAssertEqual(object["sequencingPlatform"] as? String, "oxfordNanopore")
         XCTAssertEqual(object["assemblyReadType"] as? String, "ontReads")
+    }
+
+    /// C5 O49, D8 B: an ONT import with the command's default `auto` clumps nothing, and its record says `auto` was asked
+    /// for, that the rule's default decided and why nothing was clumped. `ImportConfig` keeps `auto` for ONT, so the
+    /// batch route must hand the platform to the resolver for this to hold.
+    func testONTAutoImportClumpsNothingAndTheRecordSaysWhy() async throws {
+        let root = try TestTempDirectory.make(prefix: "workflow-platform-pin-auto")
+        defer { TestTempDirectory.cleanup(root) }
+        let sourceDir = root.appendingPathComponent("source", isDirectory: true)
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        // Plain FASTQ: clumpify hung on a plain text file named .gz when the platform did not reach the resolver.
+        let reads = sourceDir.appendingPathComponent("Nano.fastq")
+        try "@0a1b2c3d-4e5f-6789-abcd-ef0123456789 runid=abc123 read=1 ch=1\nACGTACGT\n+\nIIIIIIII\n"
+            .write(to: reads, atomically: true, encoding: .utf8)
+
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL,
+            platform: .ont,
+            recipe: nil,
+            qualityBinning: QualityBinningScheme.none,
+            threads: 1
+        )
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [SamplePair(sampleName: "Nano", r1: reads, r2: nil)],
+            config: config,
+            log: nil
+        )
+        XCTAssertEqual(result.completed, 1, "Import should succeed. Errors: \(result.errors)")
+
+        let provenanceURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("Nano.lungfishfastq", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceData = PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: provenanceData)
+        let resolved = envelope.options.resolvedDefaults
+
+        XCTAssertEqual(resolved["requestedClumpingTool"], .string("auto"))
+        XCTAssertEqual(resolved["resolvedClumpingTool"], .string("none"))
+        XCTAssertEqual(resolved["wasClumpified"], .boolean(false))
+        XCTAssertEqual(resolved["resolvedClumpingToolSource"], .string("default"))
+        XCTAssertEqual(resolved["clumpingResolutionReason"], .string(ClumpingTool.automaticLongReadReason))
+        XCTAssertEqual(resolved["clumpingEstimatedInputBytes"], .null)
+        XCTAssertEqual(resolved["clumpingThresholdBytes"], .null)
     }
 }

@@ -28,7 +28,8 @@ final class ImportConfigTests: XCTestCase {
             platform: .ont
         )
         XCTAssertFalse(config.optimizeStorage)
-        XCTAssertEqual(config.clumpingTool, .none)
+        // ONT with no flags keeps auto, which clumps nothing for long reads (D8 B).
+        XCTAssertEqual(config.clumpingTool, .auto)
         XCTAssertEqual(config.qualityBinning, .illumina4)
     }
 
@@ -48,15 +49,16 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertTrue(config.forceReimport)
     }
 
-    func testImportConfigDoesNotEnableShortReadClumpingForONT() {
+    func testImportConfigHonoursANamedClumpingToolForONT() {
         let config = FASTQBatchImporter.ImportConfig(
             projectDirectory: URL(fileURLWithPath: "/tmp/test.lungfish"),
             platform: .ont,
             clumpingTool: .bbtools
         )
 
-        XCTAssertFalse(config.optimizeStorage)
-        XCTAssertEqual(config.clumpingTool, .none)
+        // A tool the user named wins on every platform (D8 B).
+        XCTAssertTrue(config.optimizeStorage)
+        XCTAssertEqual(config.clumpingTool, .bbtools)
     }
 
     func testImportConfigRecipeQualityBinningFallback() {
@@ -68,7 +70,7 @@ final class ImportConfigTests: XCTestCase {
         )
         XCTAssertEqual(config.qualityBinning, .illumina4, "PacBio takes the import default, illumina4")
         XCTAssertFalse(config.optimizeStorage)
-        XCTAssertEqual(config.clumpingTool, .none)
+        XCTAssertEqual(config.clumpingTool, .auto)
     }
 
     func testImportConfigDefaultThreads() {
