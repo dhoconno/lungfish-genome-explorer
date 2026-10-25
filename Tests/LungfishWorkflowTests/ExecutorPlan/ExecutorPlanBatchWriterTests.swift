@@ -351,9 +351,11 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         var asked: [String: Int] = [:]
         for preset in ["wastewater-metagenomics", "vsp2-target-enrichment"] {
             var request = try templateRequest(recipe: recipe(["fastp-dedup", "fastp-trim", "fastp-merge"]))
-            request.recipe?.resolution = RecipeResolution(
-                requestedName: preset, preset: RecipePreset(id: preset, name: preset, switches: [:]), switchSettings: []
-            )
+            // The resolution is the shipped resolver's own, so the table's key is tied to the recipe file's preset id.
+            let real = try XCTUnwrap(RecipeResolver.resolve(preset, in: RecipeRegistryV2.allRecipes()), preset)
+            XCTAssertEqual(real.resolution?.preset?.id, preset)
+            XCTAssertNotNil(ExecutorPlanBatchWriter.workRootFactors[preset], "\(preset) has a work root factor of its own")
+            request.recipe?.resolution = real.resolution
             let recipeTemplate = try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24)
             let inputs = try ExecutorPlanTestSupport.writePair(root: root, "S1").map { url -> ExecutorPlanSourceFile in
                 let measured = try ExecutorPlanSourceFile.measuring(url)
@@ -375,6 +377,16 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
             asked[preset] = expected
         }
         XCTAssertGreaterThan(try XCTUnwrap(asked["wastewater-metagenomics"]), try XCTUnwrap(asked["vsp2-target-enrichment"]))
+
+        // `--recipe vsp2` is the short name the CLI's own refusal suggests, and it must reach the VSP2 preset and not the
+        // largest value. A bare recipe id carries no preset, so its batch asks for the largest value.
+        let recipes = RecipeRegistryV2.allRecipes()
+        let short = try XCTUnwrap(RecipeResolver.resolve("vsp2", in: recipes))
+        XCTAssertEqual(short.resolution?.preset?.id, "vsp2-target-enrichment")
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: short.resolution?.preset?.id), 5.03)
+        let bare = try XCTUnwrap(RecipeResolver.resolve("illumina-paired-cleanup", in: recipes))
+        XCTAssertNil(bare.resolution?.preset)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: bare.resolution?.preset?.id), 10.61)
     }
 
     // MARK: Steps with no plan form, one test each
