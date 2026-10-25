@@ -28,12 +28,12 @@ package enum ExecutorPlanBatchReadme {
         them. Use \(dag) on an HTCondor pool. Use \(script) on one machine with Apptainer or Docker, which
         can be a Linux machine or a Mac with Docker. \(jobs) lists the samples, one row each.
         staging-files.json lists the files the jobs read, each with its size, its SHA-256 and the file on the
-        Mac to copy.
+        Mac to copy or link.
 
 
         Run on an HTCondor pool
 
-        1. Copy each file staging-files.json lists to its stagingPath, below \(staging).
+        1. Copy or link each file staging-files.json lists to its stagingPath, below \(staging).
 
         2. Copy this folder to the machine you submit from, and run this from inside it:
 
@@ -50,8 +50,9 @@ package enum ExecutorPlanBatchReadme {
         requirements line of sample.sub.
 
         The sample sheet of a batch is a comma-separated file, samples.csv, with a header line and one line for
-        each sample. The columns sample, r1 and r2 name the sample and its two read files, and a relative path is
-        read from the folder that holds the sheet. The optional column request_disk gives that sample's disk
+        each sample. Lungfish reads it on the Mac, when it writes the batch with --samplesheet samples.csv.
+        The columns sample, r1 and r2 name the sample and its two read files, and a relative path is read
+        from the folder that holds the sheet. The optional column request_disk gives that sample's disk
         request in whole GB in place of the size Lungfish works out, and an empty cell keeps that size:
 
            sample,r1,r2,request_disk
@@ -99,9 +100,10 @@ package enum ExecutorPlanBatchReadme {
 
         1. Copy this folder to the machine that runs it, a Linux machine or a Mac with Docker.
 
-        2. Make a data folder there that holds the files staging-files.json lists, each at its stagingPath
-           with \(staging)/ taken off the front. That gives the folders shared/ and batches/\(batch)/, and
-           images/ for Apptainer. A Docker run reads no images/ folder.
+        2. Make a data folder there and copy or link into it each file staging-files.json lists, at its
+           stagingPath with \(staging)/ taken off the front. That gives the folders shared/ and
+           batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine
+           that reaches the staging folder, \(staging) can be the data folder.
 
         3. Run one of these from inside this folder:
 
@@ -118,6 +120,8 @@ package enum ExecutorPlanBatchReadme {
 
         Each sample leaves <sample>/\(result)/ with its run record, its reports and its reads, and
         <sample>/\(logs)/ with its step logs. \(logs)/<sample>.out and \(logs)/<sample>.err hold the run's output.
+        Those are the logs of the job. \(script) prints its progress to its own output, a line when a
+        sample starts and a line when it finishes. It prints none of the job's output.
         \(script) skips a sample that has a \(result)/ folder, so running it again runs only the samples
         that returned nothing. Delete a sample's \(result)/ folder to run that sample again.
 
@@ -137,7 +141,8 @@ package enum ExecutorPlanBatchReadme {
 
            <source> is <host>:\(layout.batchFolder) after an HTCondor run, or <host>:<this folder on the
            machine that ran \(script)> after a run of \(script). When the files are on this Mac, <source>
-           is that folder alone, with no <host>:.
+           is that folder alone, with no <host>:. The rsync command reaches <host> through your ssh setup,
+           so a name from your ssh config works.
 
         3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux
            side, since the adopt must read the one the Mac wrote.
@@ -147,13 +152,16 @@ package enum ExecutorPlanBatchReadme {
            lungfish-cli import fastq \(batch) --adopt --project <project>
 
            A batch is adopted whole: when any sample is refused, nothing is imported and each refused
-           sample is listed by name. Fix or rerun it, then adopt the whole batch again. These are the
-           three lines you may meet:
+           sample is listed by name. Fix or rerun it, then adopt the whole batch again. The project must
+           not already hold a bundle with the name of a sample of the batch, and the adopt refuses that
+           sample if it does. To start over, delete those bundles from the project and adopt the batch
+           again. These are the four lines you may meet:
 
            <sample>: its job returned nothing. The folder holds no \(record).
              (a held or removed job, or a copy not made)
            <sample>: its job returned no reads. The payload <path> is missing from the folder.
            <sample>: The job's files are in the folder \(result). Copy everything inside \(result) into the folder <sample>, next to plan.json.
+           <sample>: The project already holds the bundle <bundle>.
 
         5. When the adopt stops after some samples (a full disk, a cancel), the bundles it made stay
            whole and are named in the message: delete them from the project and adopt the batch again.

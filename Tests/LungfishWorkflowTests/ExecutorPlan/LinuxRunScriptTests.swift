@@ -274,6 +274,18 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertEqual(try recordedRuns("apptainer-exec.").count, 0)
     }
 
+    /// C5 ruling 6: a Docker run with no `--image` is refused in the README's words for the image, a Docker image for
+    /// linux/amd64 made from the batch's file, and names the lab's command that makes one. No sample runs.
+    func testDockerRefusesARunWithNoImageAndNamesHowToMakeOne() throws {
+        let written = try writeBatch(["S1"])
+        let run = try launch(written, ["--runtime", "docker", "--data", written.data.path])
+        XCTAssertEqual(run.status, 2, run.err)
+        XCTAssertTrue(run.err.contains("A Docker run needs --image, a Docker image for linux/amd64 made from the batch's image lge-tools-test.sif. The lab's launcher-tier.sh image command makes one. No sample ran."), run.err)
+        XCTAssertFalse(run.err.contains("unpacked"), run.err)
+        XCTAssertFalse(exists(written, "S1/result"))
+        XCTAssertEqual(try recordedRuns("docker-run.").count, 0)
+    }
+
     /// A plan tar that is not the bytes the writer pinned in `jobs.tsv` does not run, and the other samples do.
     func testRunRefusesAPlanTarThatIsNotThePlanLungfishWrote() throws {
         let written = try writeBatch(["S1", "S2"])
@@ -368,6 +380,36 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertNil(sheet.entries.last?.metadata["request_disk"])
         // A relative path is read from the folder that holds the sheet, as the README says.
         XCTAssertEqual(sheet.entries.first?.r1.path, root.appendingPathComponent("S1_R1.fastq.gz").path)
+    }
+
+    /// Lane X's findings from the first run on a lab machine: the README says "copy or link" for each listed file, names
+    /// `--samplesheet samples.csv` and that the Mac reads the sheet when the batch is written, says the staging folder
+    /// can be the data folder, says what `run-local.sh` prints and where the job's logs are, says the copy loop's
+    /// `rsync` uses the ssh setup for the host, and says the project must not hold a bundle of a sample's name and how to
+    /// start over. The text is read with its hard line breaks joined, so a new wrap does not move a pin.
+    func testReadmeAnswersTheFindingsOfALabMembersFirstRun() throws {
+        let written = try writeBatch(["S1"])
+        let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
+        let flat = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let staging = "/staging/groups/g/1/lge-test"
+        let sentences = [
+            "Copy or link each file staging-files.json lists to its stagingPath, below \(staging).",
+            "the file on the Mac to copy or link.",
+            "Make a data folder there and copy or link into it each file staging-files.json lists",
+            "Lungfish reads it on the Mac, when it writes the batch with --samplesheet samples.csv.",
+            "On a machine that reaches the staging folder, \(staging) can be the data folder.",
+            "logs/<sample>.err hold the run's output. Those are the logs of the job.",
+            "run-local.sh prints its progress to its own output, a line when a sample starts and a line when it finishes. It prints none of the job's output.",
+            "The rsync command reaches <host> through your ssh setup, so a name from your ssh config works.",
+            "The project must not already hold a bundle with the name of a sample of the batch",
+            "To start over, delete those bundles from the project and adopt the batch again.",
+            "<sample>: The project already holds the bundle <bundle>.",
+        ]
+        for sentence in sentences {
+            XCTAssertTrue(flat.contains(sentence), sentence)
+        }
+        XCTAssertFalse(flat.contains("Copy each file"), "a file may be linked as well as copied")
+        XCTAssertFalse(readme.lowercased().contains("chtc"), "the README names no site (O41)")
     }
 
     /// UX-c5 section 4: the held-job steps come in order, the removal before the run again, each step is numbered, and the

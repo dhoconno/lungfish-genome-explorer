@@ -194,7 +194,7 @@ package enum LinuxRunScript {
           runtime_fact=$(fact \#(Fact.containerRuntime.rawValue) Apptainer)
           image_fact=$(fact \#(Fact.imageSHA256.rawValue) "$image_sha")
         else
-          [ -n "$image" ] || refuse "A Docker run needs --image, the batch's image \#(image.fileName) unpacked into a Docker image for linux/amd64."
+          [ -n "$image" ] || refuse "A Docker run needs --image, a Docker image for linux/amd64 made from the batch's image \#(image.fileName). The lab's launcher-tier.sh image command makes one."
           image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null) || refuse "Docker has no image $image."
           version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
           runtime_fact=$(fact \#(Fact.containerRuntime.rawValue) Docker)
