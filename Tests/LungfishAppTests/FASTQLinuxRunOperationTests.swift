@@ -159,6 +159,138 @@ final class FASTQLinuxRunOperationTests: XCTestCase {
         }
     }
 
+    // MARK: A returned batch folder (C5 D2 a, UX-c5 point 7)
+
+    private static let project = URL(fileURLWithPath: "/data/Project.lungfish", isDirectory: true)
+    private static let batchBundles = ["A", "B", "C"].map { "/data/Project.lungfish/Imports/\($0).lungfishfastq" }
+
+    /// Three bundles end the row with the sample count and all three bundles, never with the last bundle's name alone.
+    func testLinuxRunRowEndNamesSampleCountForBatch() {
+        let bundles = Self.batchBundles.map { URL(fileURLWithPath: $0) }
+        XCTAssertEqual(
+            FASTQIngestionService.linuxRunRowEnd(.init(bundles: bundles), planFolder: Self.project),
+            .completed(detail: "Imported 3 samples", bundleURLs: bundles)
+        )
+    }
+
+    /// One bundle keeps the words of the adopt of one plan folder, "Imported <bundle>".
+    func testLinuxRunRowEndKeepsOneBundleWords() {
+        let bundle = URL(fileURLWithPath: "/data/Project.lungfish/Imports/S1.lungfishfastq")
+        XCTAssertEqual(
+            FASTQIngestionService.linuxRunRowEnd(.init(bundles: [bundle]), planFolder: Self.project),
+            .completed(detail: "Imported S1.lungfishfastq", bundleURLs: [bundle])
+        )
+    }
+
+    /// UX 3: each sample's step reaches the row's detail while the batch adopt runs, in the sheet batch's form, and the
+    /// row then ends Completed with the sample count and every bundle, which the sidebar hears of.
+    func testBatchAdoptRowShowsEachSampleThenTheCount() async throws {
+        let steps = ["Checking 3 of 3: C\u{2026}", "Adopting 1 of 3: A\u{2026}", "Adopting 2 of 3: B\u{2026}"]
+        let outputs = Self.batchBundles.map { #""\#($0)""# }.joined(separator: ",")
+        let artifacts = Self.batchBundles.map { #"{"kind":"fastq","path":"\#($0)","role":"bundle"}"# }.joined(separator: ",")
+        let gate = FileManager.default.temporaryDirectory.appendingPathComponent("linux-run-gate-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: gate) }
+        try installStubCLI(
+            printing: [Self.startLine] + steps.enumerated().map { index, step in
+                #"{"event":"progress","message":"\#(step)","progress":0.\#(index + 2),"schemaVersion":2}"#
+            },
+            thenWaitingFor: gate,
+            printing: [
+                #"{"artifacts":[\#(artifacts)],"event":"complete","message":"Adopted 3 samples","outputs":[\#(outputs)],"progress":1,"schemaVersion":2}"#,
+            ]
+        )
+        let handed = OSAllocatedUnfairLock(initialState: [URL]())
+        let id = try XCTUnwrap(startAdoptRow(handed: handed), "the adopt row did not start")
+        let shown = await rowWhen(id) { $0.detail == steps[2] }
+        XCTAssertEqual(shown?.detail, steps[2], "the last step reached the row's detail while the adopt ran")
+        XCTAssertEqual(shown?.state, .running)
+        try Data().write(to: gate)
+        let ended = await rowAfterItEnds(id)
+        let row = try XCTUnwrap(ended)
+        XCTAssertEqual(row.state, .completed, "the row reads \"\(row.detail)\"")
+        XCTAssertEqual(row.detail, "Imported 3 samples")
+        XCTAssertEqual(row.bundleURLs.map(\.path), Self.batchBundles)
+        XCTAssertEqual(handed.withLock { $0 }.map(\.path), Self.batchBundles, "the sidebar hears of every bundle")
+    }
+
+    /// A write failure after bundle 2 of 3 fails the row with the CLI's message as its detail and the three lines as its
+    /// error detail. It never reads Completed or Completed with Warnings, and the runner hands over no bundle.
+    func testBatchAdoptRowFailsOnWriteFailure() async throws {
+        let message = "The adopt failed after 2 of 3 samples. There is not enough space on the disk."
+        let detail = "Imported: A.lungfishfastq, B.lungfishfastq.\nNot imported: C.\n"
+            + "To adopt the rest, delete the imported bundles and adopt the batch again."
+        let row = try await failedBatchRow(message: message, detail: detail, status: 64)
+        XCTAssertEqual(row.state, .failed)
+        XCTAssertEqual(row.detail, message)
+        XCTAssertEqual(row.errorMessage, message)
+        XCTAssertEqual(row.errorDetail, detail)
+        XCTAssertEqual(row.bundleURLs, [])
+    }
+
+    /// A refusal fails the row with "Nothing was imported." and lists each refused sample in the error detail.
+    func testBatchAdoptRowFailsOnRefusalAndListsEachSample() async throws {
+        let message = "2 of 3 samples were refused. Nothing was imported."
+        let detail = "B: its job returned nothing. The folder holds no run-record.json.\n"
+            + "C: its job returned no reads. The payload out/C.fastq.gz is missing from the folder.\n"
+            + "Fix or rerun each refused sample on the Linux machine, then adopt the whole batch again."
+        let row = try await failedBatchRow(message: message, detail: detail, status: 3)
+        XCTAssertEqual(row.state, .failed)
+        XCTAssertEqual(row.detail, message)
+        XCTAssertEqual(row.errorDetail, detail)
+        XCTAssertEqual(row.bundleURLs, [])
+    }
+
+    /// The row of a batch adopt whose stand-in CLI prints two adopted steps and then `failed` with `message` and
+    /// `detail`, exiting with `status`.
+    private func failedBatchRow(message: String, detail: String, status: Int32) async throws -> OperationCenter.Item {
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+        let escaped = detail.replacingOccurrences(of: "\n", with: "\\n")
+        try installStubCLI(printing: [
+            Self.startLine,
+            #"{"event":"progress","message":"Adopted A as A.lungfishfastq","progress":0.4,"schemaVersion":2}"#,
+            #"{"detail":"\#(escaped)","error":"\#(message)","event":"failed","schemaVersion":2}"#,
+        ], status: status)
+        let handed = OSAllocatedUnfairLock(initialState: [URL]())
+        let id = try XCTUnwrap(startAdoptRow(handed: handed), "the adopt row did not start")
+        let ended = await rowAfterItEnds(id)
+        XCTAssertEqual(handed.withLock { $0 }, [], "no bundle is handed over for a failed batch")
+        return try XCTUnwrap(ended)
+    }
+
+    /// A stand-in `lungfish-cli` that prints `first`, waits until `gate` exists, prints `then` and exits 0.
+    private func installStubCLI(printing first: [String], thenWaitingFor gate: URL, printing then: [String]) throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("linux-run-stub-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let firstFile = folder.appendingPathComponent("first.ndjson")
+        let thenFile = folder.appendingPathComponent("then.ndjson")
+        try (first.joined(separator: "\n") + "\n").write(to: firstFile, atomically: true, encoding: .utf8)
+        try (then.joined(separator: "\n") + "\n").write(to: thenFile, atomically: true, encoding: .utf8)
+        let script = "#!/bin/sh\ncat '\(firstFile.path)'\nwhile [ ! -e '\(gate.path)' ]; do sleep 0.05; done\n"
+            + "cat '\(thenFile.path)'\nexit 0\n"
+        let cli = folder.appendingPathComponent("lungfish-cli")
+        try script.write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let prior = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        addTeardownBlock {
+            if let prior { setenv("LUNGFISH_CLI_PATH", prior, 1) } else { unsetenv("LUNGFISH_CLI_PATH") }
+            try? FileManager.default.removeItem(at: folder)
+        }
+    }
+
+    /// The row once `condition` holds, or its last state when `timeout` passes.
+    private func rowWhen(
+        _ id: UUID, timeout: Duration = .seconds(15), _ condition: (OperationCenter.Item) -> Bool
+    ) async -> OperationCenter.Item? {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let item = OperationCenter.shared.items.first(where: { $0.id == id }), condition(item) { return item }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return OperationCenter.shared.items.first { $0.id == id }
+    }
+
     private static let startLine = #"{"event":"start","message":"Starting FASTQ import","progress":0,"schemaVersion":2}"#
 
     /// A stand-in `lungfish-cli` that prints `lines` and exits with `status`. With `readyFile` it prints them, writes

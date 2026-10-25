@@ -104,6 +104,11 @@ extension FASTQIngestionService {
             let cancelled = error == "Import cancelled" || error == "Import cancelled before it started"
             return cancelled ? .cancelled : .failedByRunner
         }
+        // A returned batch folder makes a bundle a sample, so the row names the count and links every bundle, the
+        // CLI's `Adopted 3 samples` (C5 D2 a, UX-c5 point 7).
+        if outcome.bundles.count > 1 {
+            return .completed(detail: "Imported \(outcome.bundles.count) samples", bundleURLs: outcome.bundles)
+        }
         if let bundle = outcome.bundles.last {
             return .completed(detail: "Imported \(bundle.lastPathComponent)", bundleURLs: outcome.bundles)
         }

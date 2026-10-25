@@ -12,7 +12,7 @@ extension ImportCenterViewModel {
         ImportCardInfo(
             id: "fastq-linux-plan",
             title: "Plan for a Linux Machine",
-            description: "Write the files that pre-process FASTQ reads on a Linux machine or cluster, with HTCondor's sample.sub and run.dag. Nothing is imported.",
+            description: "Write the files that reorder, compress and count FASTQ reads on a Linux machine, run with HTCondor or with the plain launcher. Nothing is imported.",
             sfSymbol: "doc.badge.gearshape",
             fileHint: ".fastq.gz, .fq.gz, .fastq, .fq (files or one folder)",
             tab: .sequencingReads,
@@ -34,9 +34,10 @@ extension ImportCenterViewModel {
         ImportCardInfo(
             id: "linux-run-result",
             title: "Linux Run Result",
-            description: "Import a plan folder that a run on a Linux machine or cluster returned, as one FASTQ bundle with the run's record.",
+            description: "Import a plan folder that a run on a Linux machine returned, as one FASTQ bundle a sample with the run's record.",
             sfSymbol: "arrow.down.doc",
-            fileHint: "a returned plan folder with plan.json and run-record.json",
+            // The README's copy step for a batch, in one sentence (BADOPT review, the sample's folder).
+            fileHint: "a returned plan folder, or a returned batch folder: for every sample, copy the files inside result/ into that sample's folder on the Mac, next to plan.json",
             tab: .sequencingReads,
             importKind: .openPanel(
                 configuration: .init(
@@ -55,7 +56,7 @@ extension ImportCenterViewModel {
         case .fastq:    return "Select FASTQ files or folders to import"
         case .fastqSampleSheet: return "Select a FASTQ sample sheet CSV to import"
         case .fastqLinuxPlan: return "Select the FASTQ files, or one folder of them, to plan for a Linux machine"
-        case .linuxRunResult: return "Select a plan folder that a Linux run returned"
+        case .linuxRunResult: return "Select a plan folder or a batch folder that a Linux run returned"
         case .ontRun:   return "Select an ONT output directory to import"
         case .bam:      return "Select BAM or CRAM alignment files to import"
         case .vcf:      return "Select VCF variant files to import"
