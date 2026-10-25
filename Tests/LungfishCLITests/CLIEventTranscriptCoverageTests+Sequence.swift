@@ -47,9 +47,14 @@ enum SequenceEditFixture {
         try "chr1\t16\t6\t16\t17\n".write(
             to: bundleURL.appendingPathComponent("genome/sequence.fa.fai"), atomically: true, encoding: .utf8
         )
+        // A fixed date, so two bundles made a second apart have the same manifest bytes and an app-against-CLI test
+        // that compares their input digests does not depend on the clock.
+        let fixedDate = Date(timeIntervalSince1970: 1_767_225_600)
         let manifest = BundleManifest(
             name: name,
             identifier: "org.lungfish.test.sequence-edit",
+            createdDate: fixedDate,
+            modifiedDate: fixedDate,
             source: SourceInfo(organism: "Test", assembly: name),
             genome: GenomeInfo(
                 path: "genome/sequence.fa",
