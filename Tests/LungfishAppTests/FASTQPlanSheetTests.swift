@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishCore
 import LungfishPortable
+import LungfishTestSupport
 import LungfishWorkflow
 
 /// CHTC C4 lane U milestone 2, C4-12 as UX-XC26 words it. Each assertion reads a control, the argv or a written file.
@@ -28,17 +29,20 @@ final class FASTQPlanSheetTests: XCTestCase {
     private static let popupTitles = ["BBTools clumpify", "Trim Galore --clumpify"]
 
     /// The plan's defaults do not depend on the batch's size: a 1 MB and a 200 GB Illumina batch both open with the box
-    /// on and BBTools clumpify, and the command asks for `bbtools`.
-    func testPlanSheetDefaultsToBBToolsForEveryBatchSize() throws {
+    /// on and BBTools clumpify once the platform is detected, and the command asks for `bbtools`. Each file starts with
+    /// Illumina headers and is sparse after them.
+    func testPlanSheetDefaultsToBBToolsForEveryBatchSize() async throws {
         let fixture = try writeFixture()
+        let headers = try Data(contentsOf: PlatformHeaderFixtures.url("illumina-novaseq6000.fastq"))
         var argvs: [[String]] = []
-        for (name, bytes) in [("small_R1.fastq.gz", Int64(1_048_576)), ("large_R1.fastq.gz", Int64(200) * 1_000_000_000)] {
+        for (name, bytes) in [("small_R1.fastq", Int64(1_048_576)), ("large_R1.fastq", Int64(200) * 1_000_000_000)] {
             let reads = root.appendingPathComponent(name)
-            FileManager.default.createFile(atPath: reads.path, contents: nil)
+            FileManager.default.createFile(atPath: reads.path, contents: headers)
             let handle = try FileHandle(forWritingTo: reads)
             try handle.truncate(atOffset: UInt64(bytes))
             try handle.close()
             let sheet = makeSheet(inputs: [reads], fixture: fixture)
+            await sheet.platformDetection?.value
             XCTAssertEqual(sheet.clumpifyCheckbox.state, .on, name)
             XCTAssertEqual(sheet.clumpingToolPopup.itemTitles, Self.popupTitles, name)
             XCTAssertEqual(sheet.clumpingToolPopup.titleOfSelectedItem, "BBTools clumpify", name)
@@ -54,6 +58,8 @@ final class FASTQPlanSheetTests: XCTestCase {
     func testPlanSheetWritesTheToolItShows() async throws {
         let fixture = try writeFixture()
         let sheet = makeSheet(inputs: [fixture.readsFolder], fixture: fixture)
+        await sheet.platformDetection?.value
+        XCTAssertEqual(sheet.clumpifyCheckbox.state, .on, "the fixture's reads are Illumina reads")
 
         let onFolder = root.appendingPathComponent("plan-on", isDirectory: true)
         let onRequest = try XCTUnwrap(sheet.request(planFolder: onFolder))
@@ -143,6 +149,79 @@ final class FASTQPlanSheetTests: XCTestCase {
         XCTAssertNil(withExecutor.writeButton.accessibilityHelp())
     }
 
+    // MARK: The platform-first default (C5 D8 B)
+
+    /// A long-read batch opens with the box clear once its platform is detected, and the popup and its label disabled
+    /// while it is. The box stays tickable: ticking it enables the popup and asks for BBTools clumpify, and the sheet adds
+    /// no sentence of its own.
+    func testPlanSheetClearsBoxForLongReadBatch() async throws {
+        let fixture = try writeFixture()
+        let sheet = makeSheet(inputs: [PlatformHeaderFixtures.url("ont-minknow-full.fastq")], fixture: fixture)
+        await sheet.platformDetection?.value
+        XCTAssertEqual(sheet.clumpifyCheckbox.state, .off)
+        XCTAssertTrue(sheet.clumpifyCheckbox.isEnabled, "the box stays tickable")
+        XCTAssertFalse(sheet.clumpingToolPopup.isEnabled)
+        XCTAssertFalse(sheet.clumpingToolLabel.isEnabled)
+        XCTAssertTrue(sheet.clumpingToolLineLabel.isHidden)
+        let clear = try XCTUnwrap(sheet.request(planFolder: root.appendingPathComponent("plan")))
+        XCTAssertTrue(clear.arguments.contains("--no-optimize-storage"))
+        XCTAssertNil(Self.value(after: "--clumping-tool", in: clear.arguments))
+
+        sheet.clumpifyCheckbox.performClick(nil)
+        XCTAssertEqual(sheet.clumpifyCheckbox.state, .on)
+        XCTAssertTrue(sheet.clumpingToolPopup.isEnabled)
+        let ticked = try XCTUnwrap(sheet.request(planFolder: root.appendingPathComponent("plan")))
+        XCTAssertEqual(Self.value(after: "--clumping-tool", in: ticked.arguments), "bbtools")
+        XCTAssertFalse(ticked.arguments.contains("--no-optimize-storage"))
+    }
+
+    func testPlanSheetArgvClumpsAnIlluminaBatch() async throws {
+        try await assertPlanArgv(for: "illumina-novaseq6000.fastq", clumps: true)
+    }
+
+    func testPlanSheetArgvClumpsAnElementBatch() async throws {
+        try await assertPlanArgv(for: "element-aviti.fastq", clumps: true)
+    }
+
+    func testPlanSheetArgvClumpsAnMGIBatch() async throws {
+        try await assertPlanArgv(for: "mgi-dnbseq.fastq", clumps: true)
+    }
+
+    func testPlanSheetArgvSkipsClumpingForAnONTBatch() async throws {
+        try await assertPlanArgv(for: "ont-minknow-full.fastq", clumps: false)
+    }
+
+    func testPlanSheetArgvSkipsClumpingForAPacBioBatch() async throws {
+        try await assertPlanArgv(for: "pacbio-revio-ccs.fastq", clumps: false)
+    }
+
+    func testPlanSheetArgvSkipsClumpingForAnUnknownBatch() async throws {
+        try await assertPlanArgv(for: "sra-renamed-short.fastq", clumps: false)
+    }
+
+    /// The box the sheet opens with for the batch `fixtureName` follows `ClumpingTool.automaticChoice(for:)` of the
+    /// platform the Import flow detects, and the argv asks for BBTools clumpify or `--no-optimize-storage`.
+    private func assertPlanArgv(
+        for fixtureName: String, clumps: Bool, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let fixture = try writeFixture()
+        let reads = PlatformHeaderFixtures.url(fixtureName)
+        let platform = FASTQPlanSheetModel.detectedPlatform(of: [reads])
+        XCTAssertEqual(
+            ClumpingTool.automaticChoice(for: platform).tool != .none, clumps,
+            "\(fixtureName) reads as \(platform)", file: file, line: line
+        )
+        let sheet = makeSheet(inputs: [reads], fixture: fixture)
+        await sheet.platformDetection?.value
+        XCTAssertEqual(sheet.clumpifyCheckbox.state, clumps ? .on : .off, fixtureName, file: file, line: line)
+        let request = try XCTUnwrap(sheet.request(planFolder: root.appendingPathComponent("plan")), file: file, line: line)
+        XCTAssertEqual(
+            Self.value(after: "--clumping-tool", in: request.arguments), clumps ? "bbtools" : nil, fixtureName,
+            file: file, line: line
+        )
+        XCTAssertEqual(request.arguments.contains("--no-optimize-storage"), !clumps, fixtureName, file: file, line: line)
+    }
+
     /// The Import sheet offers no Automatic: its popup holds BBTools clumpify and Trim Galore only.
     func testImportSheetOffersNoAutomatic() throws {
         let sheet = FASTQImportConfigSheet(
@@ -203,9 +282,11 @@ final class FASTQPlanSheetTests: XCTestCase {
     private func writeFixture() throws -> Fixture {
         let reads = root.appendingPathComponent("reads", isDirectory: true)
         try FileManager.default.createDirectory(at: reads, withIntermediateDirectories: true)
-        for sample in ["S1", "S2"] {
+        // Illumina headers, so the sheet opens with the box on for these short reads (D8 B).
+        for (index, sample) in ["S1", "S2"].enumerated() {
             for mate in [1, 2] {
-                try "@\(sample)a/\(mate)\nACGTACGTAC\n+\nIIIIIIIIII\n@\(sample)b/\(mate)\nTTGGCCAATT\n+\nIIIIIIIIII\n"
+                let header = { (y: Int) in "@A00488:61:HMLGNDSXX:4:1101:\(1000 + index):\(y) \(mate):N:0:ATCACG+TTAGGC" }
+                try "\(header(5678))\nACGTACGTAC\n+\nFFFFFFFFFF\n\(header(5679))\nTTGGCCAATT\n+\nFFFFFFFFFF\n"
                     .write(to: reads.appendingPathComponent("\(sample)_R\(mate).fastq"), atomically: true, encoding: .utf8)
             }
         }

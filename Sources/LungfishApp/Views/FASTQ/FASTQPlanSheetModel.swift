@@ -4,15 +4,17 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 /// What the plan sheet shows and the `import fastq --write-plan` command it runs. The sheet writes the files that
 /// pre-process reads on a Linux machine or cluster through the command line's own route, so the folder is the one
 /// `ExecutorPlanBatchWriter.write` writes for that command, and the Operations row records the same command.
 ///
-/// The clumping defaults are the plan's own (C4-12): Optimize storage is on with BBTools clumpify for every batch, and
-/// neither comes from the Import sheet's size test against this Mac's clumpify memory budget. The sheet offers no
-/// Automatic and sends the tool it shows (UX-XC26), so the plan records the tool with source `option`.
+/// The clumping default is platform first, the one rule of `ClumpingTool.automaticChoice(for:)` that the Import sheet
+/// and `auto` also follow (C5 D8 B): Optimize storage opens on with BBTools clumpify for short reads of any size, and
+/// clear for ONT, PacBio and Unknown reads. The sheet offers no Automatic and sends the tool it shows (UX-XC26), so
+/// the plan records the tool with source `option`, or `--no-optimize-storage` with the box clear.
 nonisolated enum FASTQPlanSheetModel {
     static let title = "Plan for a Linux Machine"
     /// UX's C3 sentence for a build with no executor folder (UX-r2:129-130, UX-XC26 item 2).
@@ -26,7 +28,6 @@ nonisolated enum FASTQPlanSheetModel {
     static let writeButtonTitle = "Write Plan\u{2026}"
     static let chooserMessage = "Name a new folder for the plan. Nothing is imported and nothing is submitted."
     static let clumpingToolChoices: [ClumpingTool] = [.bbtools, .trimGalore]
-    static let defaultOptimizeStorage = true
     static let defaultClumpingTool: ClumpingTool = .bbtools
     static let defaultThreads = 8
     static let defaultClumpifyHeapGB = 16
@@ -58,6 +59,27 @@ nonisolated enum FASTQPlanSheetModel {
             return nil
         }
         return (image, toolManifest)
+    }
+
+    /// The batch's platform as the Import flow detects it: the `auto` platform of the first sample `import fastq` makes
+    /// of `inputs` (files, or one folder whose top level holds them), from its first read headers, and Unknown when
+    /// they say nothing a choice can act on (UX's Q-UX26-1 answer). It reads a file, so it never runs on the main actor.
+    static func detectedPlatform(of inputs: [URL]) -> LungfishIO.SequencingPlatform {
+        var isFolder: ObjCBool = false
+        let pairs: [SamplePair]
+        if inputs.count == 1, FileManager.default.fileExists(atPath: inputs[0].path, isDirectory: &isFolder), isFolder.boolValue {
+            pairs = (try? FASTQBatchImporter.detectPairsFromDirectory(inputs[0])) ?? []
+        } else {
+            pairs = FASTQBatchImporter.detectPairs(from: inputs)
+        }
+        guard let first = pairs.first else { return .unknown }
+        return FASTQBatchImporter.resolvePlatform(for: first, request: .auto).platform
+    }
+
+    /// Whether the box opens on for a batch of `platform` (C5 D8 B): on for short reads, clear for ONT, PacBio and
+    /// Unknown. A nil platform, before the detection ends, opens it on.
+    static func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform?) -> Bool {
+        ClumpingTool.automaticChoice(for: platform).tool != ClumpingTool.none
     }
 
     /// The line under the popup: none with the box clear, the BBTools line, or the Import sheet's Trim Galore words.

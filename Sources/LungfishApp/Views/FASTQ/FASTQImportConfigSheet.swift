@@ -590,29 +590,22 @@ public final class FASTQImportConfigSheet: NSViewController {
         Self.binningChoices.firstIndex(of: QualityBinningScheme.importDefault) ?? 0
     }
 
+    /// The box's default is the one platform-first rule of `auto` (C5 D8 B): on for short reads of any size, since
+    /// clumpify's groups=auto splits a large input to fit its heap (D5), and clear for ONT, PacBio and Unknown. It reads
+    /// no file size, so nothing here touches the disk on the main actor.
     private func defaultOptimizeStorage(for platform: LungfishIO.SequencingPlatform) -> Bool {
-        switch platform {
-        case .illumina, .element, .mgi, .ultima:
-            // Inputs too large for the clumpify memory budget default to no
-            // reordering. Trim Galore is never substituted silently because it
-            // trims and filters reads; users may still choose it explicitly.
-            return ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved != .none
-        case .oxfordNanopore, .pacbio, .unknown:
-            return false
-        }
+        ClumpingTool.automaticChoice(for: platform).tool != ClumpingTool.none
     }
 
     private var clumpingToolChoices: [ClumpingTool] {
         [.bbtools, .trimGalore]
     }
 
+    /// The popup shows the tool `auto` names for the platform, and BBTools clumpify while the box is clear. Trim Galore
+    /// is never chosen for the user, since it trims and filters reads.
     private func defaultClumpingTool() -> ClumpingTool {
-        let resolved = ClumpingTool.auto.resolve(estimatedInputBytes: totalInputSizeBytes()).resolved
-        return resolved == .none ? .bbtools : resolved
-    }
-
-    private func totalInputSizeBytes() -> Int64 {
-        pairs.reduce(Int64(0)) { $0 + $1.totalSizeBytes }
+        let tool = ClumpingTool.automaticChoice(for: selectedPlatform()).tool
+        return tool == ClumpingTool.none ? .bbtools : tool
     }
 
     /// The popup's platform, or the detected one while it shows "Detected per sample".

@@ -41,6 +41,11 @@ final class FASTQPlanSheet: NSViewController {
     let noExecutorLabel = NSTextField(wrappingLabelWithString: FASTQPlanSheetModel.noExecutorSentence)
     let writeButton = NSButton(title: FASTQPlanSheetModel.writeButtonTitle, target: nil, action: nil)
     let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+    /// The detection of the batch's platform, which reads the first read headers off the main actor (SWIFT 2). The box
+    /// opens on, as for a batch whose platform is not known yet, and the detection's end sets it from
+    /// `ClumpingTool.automaticChoice(for:)` unless the box was clicked first (C5 D8 B).
+    private(set) var platformDetection: Task<Void, Never>?
+    private var optimizeStorageChosenByUser = false
 
     /// - Parameters:
     ///   - inputs: The read files, or one folder whose top level holds them, as `import fastq` takes them.
@@ -78,7 +83,7 @@ final class FASTQPlanSheet: NSViewController {
         let stagingHelp = Self.secondaryLabel(FASTQPlanSheetModel.stagingHelp)
         threadsField.setAccessibilityLabel("Threads per job")
         heapField.setAccessibilityLabel("Clumpify memory in GB")
-        clumpifyCheckbox.state = FASTQPlanSheetModel.defaultOptimizeStorage ? .on : .off
+        clumpifyCheckbox.state = FASTQPlanSheetModel.defaultOptimizeStorage(for: nil) ? .on : .off
         clumpifyCheckbox.target = self
         clumpifyCheckbox.action = #selector(clumpingControlsChanged(_:))
         for tool in FASTQPlanSheetModel.clumpingToolChoices {
@@ -146,6 +151,19 @@ final class FASTQPlanSheet: NSViewController {
             stagingHelp.widthAnchor.constraint(lessThanOrEqualToConstant: 340),
         ])
         updateControls()
+        detectPlatformOffMainActor()
+    }
+
+    private func detectPlatformOffMainActor() {
+        let inputs = inputs
+        platformDetection = Task { [weak self] in
+            let platform = await Task.detached(priority: .userInitiated) {
+                FASTQPlanSheetModel.detectedPlatform(of: inputs)
+            }.value
+            guard let self, !Task.isCancelled, !self.optimizeStorageChosenByUser else { return }
+            self.clumpifyCheckbox.state = FASTQPlanSheetModel.defaultOptimizeStorage(for: platform) ? .on : .off
+            self.updateControls()
+        }
     }
 
     private static func secondaryLabel(_ text: String) -> NSTextField {
@@ -183,7 +201,10 @@ final class FASTQPlanSheet: NSViewController {
         writeButton.isEnabled = request(planFolder: URL(fileURLWithPath: "/")) != nil
     }
 
-    @objc private func clumpingControlsChanged(_ sender: Any) { updateControls() }
+    @objc private func clumpingControlsChanged(_ sender: Any) {
+        if (sender as AnyObject) === clumpifyCheckbox { optimizeStorageChosenByUser = true }
+        updateControls()
+    }
 
     @objc private func fieldsChanged(_ sender: Any) { updateControls() }
 
@@ -203,6 +224,7 @@ final class FASTQPlanSheet: NSViewController {
     }
 
     private func dismissSheet() {
+        platformDetection?.cancel()
         guard let window = view.window else { return }
         if let parent = window.sheetParent { parent.endSheet(window) } else { window.close() }
     }

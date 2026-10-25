@@ -190,7 +190,7 @@ struct FASTQImportConfigurationTests {
     }
 
     @MainActor
-    @Test("FASTQ import sheet defaults storage tool from file size and memory")
+    @Test("FASTQ import sheet opens Optimize storage on for short reads of every size")
     func importSheetDefaultsStorageToolFromInputSize() throws {
         let smallURL = try Self.temporaryFASTQ(named: "small.fastq.gz", byteCount: 1_048_576)
         let largeURL = try Self.temporaryFASTQ(named: "large.fastq.gz", byteCount: 40 * Self.gib)
@@ -212,12 +212,33 @@ struct FASTQImportConfigurationTests {
         largeSheet.loadViewIfNeeded()
 
         #expect(smallSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools)
-        // Large inputs never silently switch to Trim Galore:
-        // storage optimization defaults off and the tool popup stays on BBTools.
+        // C5 D8 B and D5: the default is platform first and reads no size, since clumpify's groups=auto splits a large
+        // input into more groups to fit its heap. A 40 GiB Illumina input opens on with BBTools clumpify, as a small one
+        // does, and never switches to Trim Galore.
         #expect(largeSheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools)
-        let largeOptimizeCheckbox = largeSheet.view.fastqImportDescendants(of: NSButton.self)
-            .first { $0.title == "Optimize storage (reorder reads for better compression)" }
-        #expect(largeOptimizeCheckbox?.state == .off)
+        for sheet in [smallSheet, largeSheet] {
+            let optimizeCheckbox = sheet.view.fastqImportDescendants(of: NSButton.self)
+                .first { $0.title == "Optimize storage (reorder reads for better compression)" }
+            #expect(optimizeCheckbox?.state == .on)
+        }
+    }
+
+    @MainActor
+    @Test("FASTQ import sheet opens Optimize storage clear for ONT, PacBio and Unknown reads")
+    func importSheetClearsStorageForLongAndUnknownReads() throws {
+        let sourceURL = try Self.temporaryFASTQ(named: "reads.fastq.gz", byteCount: 1_048_576)
+        defer { try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent()) }
+        for platform: LungfishIO.SequencingPlatform in [.oxfordNanopore, .pacbio, .unknown, .illumina, .element] {
+            let sheet = FASTQImportConfigSheet(pairs: [FASTQFilePair(r1: sourceURL, r2: nil)], detectedPlatform: platform)
+            sheet.loadViewIfNeeded()
+            let checkbox = try #require(sheet.view.fastqImportDescendants(of: NSButton.self)
+                .first { $0.title == "Optimize storage (reorder reads for better compression)" })
+            let clumps = ClumpingTool.automaticChoice(for: platform).tool != .none
+            #expect(checkbox.state == (clumps ? .on : .off), "\(platform)")
+            #expect(checkbox.isEnabled, "the box stays tickable for \(platform)")
+            #expect(sheet.view.fastqImportStorageToolPopup()?.isEnabled == clumps, "\(platform)")
+            #expect(sheet.view.fastqImportStorageToolPopup()?.selectedClumpingTool == .bbtools, "\(platform)")
+        }
     }
 
     @MainActor
