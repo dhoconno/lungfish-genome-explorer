@@ -46,8 +46,16 @@ package enum ExecutorPlanBatchReadme {
 
         The jobs ask for machines that reach the staging folder, run EL9 or later and are x86-64. On another
         pool, write the batch again with --job-requirements '<expression>', which replaces that whole
-        requirements line of sample.sub. A sample sheet, samples.csv, is comma-separated; its request_disk
-        column, in whole GB, sets that sample's disk request in place of the size Lungfish works out.
+        requirements line of sample.sub.
+
+        The sample sheet of a batch is a comma-separated file, samples.csv, with a header line and one line for
+        each sample. The columns sample, r1 and r2 name the sample and its two read files, and a relative path is
+        read from the folder that holds the sheet. The optional column request_disk gives that sample's disk
+        request in whole GB in place of the size Lungfish works out, and an empty cell keeps that size:
+
+           sample,r1,r2,request_disk
+           S1,S1_R1.fastq.gz,S1_R2.fastq.gz,40
+           S2,S2_R1.fastq.gz,S2_R2.fastq.gz,
 
 
         If a sample's job is held

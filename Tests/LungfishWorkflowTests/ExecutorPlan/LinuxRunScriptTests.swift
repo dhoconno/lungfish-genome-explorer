@@ -93,8 +93,8 @@ final class LinuxRunScriptTests: XCTestCase {
     }
 
     /// A batch of BBTools plans and the data folder a lab makes from `staging-files.json`: each listed file at its path
-    /// below the staging folder, with the stand-in executor in the executor's place.
-    private func writeBatch(_ samples: [String]) throws -> Written {
+    /// below the staging folder, with the stand-in executor (and its `gate`) in the executor's place.
+    private func writeBatch(_ samples: [String], gate: Gate = .open) throws -> Written {
         let request = try ExecutorPlanTestSupport.request(
             root: root, samples[0], inputs: ExecutorPlanTestSupport.writePair(root: root, samples[0]), clumping: .bbtools
         ).templateRequest
@@ -121,24 +121,47 @@ final class LinuxRunScriptTests: XCTestCase {
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             switch file.role {
             case "image": try sif.write(to: target)
-            case "executor": try executorScript(reports: reports).write(to: target, atomically: true, encoding: .utf8)
+            case "executor": try executorScript(reports: reports, gate: gate).write(to: target, atomically: true, encoding: .utf8)
             default: try FileManager.default.copyItem(atPath: try XCTUnwrap(file.source), toPath: target.path)
             }
         }
         return Written(folder: folder, data: data, batch: batch, reports: reports)
     }
 
+    /// What the executor stand-in does around its work, so a test can see how many samples run together (QA 2, C5 D13).
+    /// `exclusive` takes `<marks>/busy` before it writes the record and exits 9 at once when another executor holds it,
+    /// so a sample that ran beside another has no record and no `result/`. `meeting` writes `<marks>/in.<pid>` and waits
+    /// up to 30 seconds for a second `in.*` file, so it finishes only when two samples run together.
+    private enum Gate {
+        case open, exclusive, meeting
+    }
+
     /// The executor's stand-in, started in the plan folder: it records its arguments as the run record and writes the
     /// payload, each report, a step log and a work file that no job returns, beside the plan.json the tar held.
-    private func executorScript(reports: [String]) -> String {
-        var lines = [
-            "#!/bin/sh", "printf '%s\\n' \"$@\" > run-record.json", "mkdir -p out work logs",
+    private func executorScript(reports: [String], gate: Gate = .open) -> String {
+        var lines = ["#!/bin/sh"]
+        switch gate {
+        case .open:
+            break
+        case .exclusive:
+            lines += ["mkdir '\(marks.path)/busy' || exit 9", "sleep 1"]
+        case .meeting:
+            lines += [
+                ": > '\(marks.path)/in.'$$", "tries=0", "while true; do", "  n=0",
+                "  for f in '\(marks.path)'/in.*; do [ -e \"$f\" ] && n=$((n + 1)); done",
+                "  [ \"$n\" -ge 2 ] && break", "  tries=$((tries + 1))", "  [ \"$tries\" -le 300 ] || exit 9",
+                "  sleep 0.1", "done",
+            ]
+        }
+        lines += [
+            "printf '%s\\n' \"$@\" > run-record.json", "mkdir -p out work logs",
             "echo reads > \(ExecutorPlanEmitter.payloadPath)", "echo intermediate > work/intermediate.fastq",
             "echo step > logs/step-1.log",
         ]
         for report in reports {
             lines += ["mkdir -p \((report as NSString).deletingLastPathComponent)", "echo report > \(report)"]
         }
+        if gate == .exclusive { lines.append("rmdir '\(marks.path)/busy'") }
         return (lines + ["exit 0"]).joined(separator: "\n") + "\n"
     }
 
@@ -148,7 +171,7 @@ final class LinuxRunScriptTests: XCTestCase {
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [written.folder.appendingPathComponent(LinuxRunScript.fileName).path] + arguments,
             environment: ProcessInfo.processInfo.environment.merging(["PATH": path]) { $1 },
-            timeout: .seconds(120), label: "run-local"
+            timeout: .seconds(30), label: "run-local"
         )).waitBlocking()
         return (Int(result.status), result.stdoutText, result.stderrText)
     }
@@ -324,6 +347,64 @@ final class LinuxRunScriptTests: XCTestCase {
         for name in ["README.txt", "run-local.sh", "jobs.tsv"] {
             let text = try String(contentsOf: written.folder.appendingPathComponent(name), encoding: .utf8)
             XCTAssertFalse(text.lowercased().contains("chtc"), "\(name) names a site")
+        }
+    }
+
+    /// ARCH-c5 point 8: the README's `samples.csv` example is a sheet Lungfish reads, with a `request_disk` cell and an
+    /// empty one, so the example and `FASTQSampleSheet` cannot drift apart.
+    func testReadmeSampleSheetExampleIsASheetLungfishReads() throws {
+        let written = try writeBatch(["S1"])
+        let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
+        let lines = readme.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        let header = try XCTUnwrap(lines.firstIndex(of: "sample,r1,r2,request_disk"), "The README has no samples.csv example")
+        let csv = Array(lines.dropFirst(header).prefix(3)).joined(separator: "\n") + "\n"
+        let sheet = try FASTQSampleSheet.parse(csv: csv, sourceURL: root.appendingPathComponent("samples.csv"))
+        XCTAssertEqual(sheet.entries.map(\.sampleName), ["S1", "S2"])
+        XCTAssertEqual(sheet.entries.first?.metadata["request_disk"], "40")
+        XCTAssertNil(sheet.entries.last?.metadata["request_disk"])
+        // A relative path is read from the folder that holds the sheet, as the README says.
+        XCTAssertEqual(sheet.entries.first?.r1.path, root.appendingPathComponent("S1_R1.fastq.gz").path)
+    }
+
+    /// UX-c5 section 4: the held-job steps come in order, the removal before the run again, each step is numbered, and the
+    /// last one brings the results home and not the batch folder. A swap of two steps fails here.
+    func testReadmeHeldJobStepsNameTheSample() throws {
+        let written = try writeBatch(["S1"])
+        let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
+        let start = try XCTUnwrap(readme.range(of: "If a sample's job is held"))
+        let end = try XCTUnwrap(readme.range(of: "Run on one Linux machine", range: start.upperBound..<readme.endIndex))
+        let held = String(readme[start.upperBound..<end.lowerBound])
+        let commands = ["condor_q -hold -af ClusterId ProcId DAGNodeName HoldReason", "condor_rm <ClusterId>.<ProcId>",
+                        "condor_submit_dag run.dag"]
+        let places = try commands.map { try XCTUnwrap(held.range(of: $0), $0).lowerBound }
+        XCTAssertEqual(places, places.sorted())
+        let steps = try (1...5).map { try XCTUnwrap(held.range(of: "\n\($0). "), "step \($0)").lowerBound }
+        XCTAssertEqual(steps, steps.sorted())
+        XCTAssertTrue(held.contains("copy the results back to the Mac and adopt the batch"), held)
+        XCTAssertFalse(held.contains("copy the batch folder back"), held)
+        XCTAssertFalse(readme.lowercased().contains("chtc"))
+    }
+
+    /// QA 2 and C5 D13: `--jobs` is the most samples running together, and the script runs that many at once. The
+    /// `exclusive` executor fails a sample that overlaps another, so `--jobs 1` finishing all three samples shows they
+    /// ran one at a time; the `meeting` executor finishes only when a second sample runs beside it, so `--jobs 2`
+    /// finishing both shows two ran together.
+    func testJobsCapsTheSamplesRunningAtOnce() throws {
+        let serial = try writeBatch(["S1", "S2", "S3"], gate: .exclusive)
+        let one = try launch(serial, ["--runtime", "docker", "--image", "lge-test:1", "--data", serial.data.path, "--jobs", "1"])
+        XCTAssertEqual(one.status, 0, one.err)
+        for sample in ["S1", "S2", "S3"] {
+            XCTAssertTrue(exists(serial, "\(sample)/result/run-record.json"), "\(sample) ran beside another sample: \(one.err)")
+        }
+
+        // The second batch takes the first one's place.
+        try FileManager.default.removeItem(at: serial.folder)
+        try FileManager.default.removeItem(at: serial.data)
+        let pair = try writeBatch(["S1", "S2"], gate: .meeting)
+        let two = try launch(pair, ["--runtime", "docker", "--image", "lge-test:1", "--data", pair.data.path, "--jobs", "2"])
+        XCTAssertEqual(two.status, 0, two.err)
+        for sample in ["S1", "S2"] {
+            XCTAssertTrue(exists(pair, "\(sample)/result/run-record.json"), "\(sample) did not run beside the other sample: \(two.err)")
         }
     }
 }
