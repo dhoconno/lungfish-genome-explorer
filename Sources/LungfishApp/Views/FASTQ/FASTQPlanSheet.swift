@@ -235,8 +235,18 @@ final class FASTQPlanSheet: NSViewController {
         panel.prompt = "Write Plan"
         panel.nameFieldStringValue = "lungfish-plan"
         panel.canCreateDirectories = true
-        // The panel runs app-modal over the sheet, so its answer arrives on the main actor with no escape hatch.
-        done(panel.runModal() == .OK ? panel.url : nil)
+        // The panel never blocks the main thread. It slides down over the plan sheet's own window when there is one and
+        // otherwise opens as its own window, and either way its answer reaches `done` on the main actor, since this
+        // function and the handlers it passes are main-actor code.
+        if let window {
+            panel.beginSheetModal(for: window) { response in
+                done(response == .OK ? panel.url : nil)
+            }
+        } else {
+            panel.begin { response in
+                done(response == .OK ? panel.url : nil)
+            }
+        }
     }
 
     /// Presents the sheet on `window`.
