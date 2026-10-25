@@ -56,7 +56,7 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
             e1: PayloadLevels.E1(records: 196_598, bases: 29_517_836, pairs: 11_227, singles: 174_144),
             e3: "418ed25cea1d29bbd2c35ea9ca410df5601b71046219ae686ad5b508ebcc0e66"
         ),
-        // C5 lane BF M1, from this test's first run with the lone trim's plan form. The in-process route is the base's.
+        // C5 lane BF M1. The in-process import with duplicates kept, from a run at the lane base bf9fa9479 (no plan form there) and equal again at the lane head. Predicted before the run: every key above the duplicates-removed anchor, records = 2 x pairs + singles, a different E3.
         "vsp2-target-enrichment-keep-duplicates": PayloadLevels.Anchor(
             e1: PayloadLevels.E1(records: 1_067_470, bases: 172_256_541, pairs: 107_318, singles: 852_834),
             e3: "9830c7b6cb7083aa2d90227c5f2e2a7aa4420542c92e5a4facda0d1603674fe4"
