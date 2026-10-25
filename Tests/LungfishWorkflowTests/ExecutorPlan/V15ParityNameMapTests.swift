@@ -97,6 +97,50 @@ final class V15ParityNameMapTests: XCTestCase {
         XCTAssertNotEqual(V15Comparison.stripRoot("inputs/R1.fastq.gz", roots: [], names: names), mac("<external>/C079876_S1_1M_R1.fastq.gz"))
     }
 
+    // MARK: QA-W-lines P1: the sidecar's report copy paths
+
+    /// The Mac's fused report copy without the report UUID that the Mac's name ends with before `.json`.
+    private let sidecarCopy = "/p/Project.lungfish/Imports/C079876_S1.lungfishfastq/metadata/recipe-step-artifacts/"
+        + "1-1-remove-duplicate-reads-adapter-quality-trim-C079876_S1_fused_fastp_report"
+
+    /// The findings for the sidecar's `stepResults[0].auxiliaryOutputPaths` when each route holds one copy path.
+    private func sidecarCopyFindings(adopted: String, mac macPath: String) -> [V15Finding] {
+        var comparison = V15Comparison(roots: [.adopted: [returned], .mac: [scratch]], payloadFileNames: [])
+        comparison.names = [.adopted: nodeNames, .mac: macNames]
+        func sidecar(_ copy: String) -> [String: Any] {
+            let step: [String: Any] = ["auxiliaryOutputPaths": [copy]]
+            let applied: [String: Any] = ["stepResults": [step]]
+            let ingestion: [String: Any] = ["recipeApplied": applied]
+            return ["ingestion": ingestion]
+        }
+        comparison.walk(sidecar(adopted), sidecar(macPath), path: ["sidecar"])
+        return comparison.findings
+    }
+
+    /// QA-W-lines P1 (C4-3 C-2, ARCH A-C2-2, the D-3 fact row of C4-4): the sidecar's `auxiliaryOutputPaths` names the same
+    /// report copies as the steps' `outputs[n].path`, so V15-26 reads it through the one strip function. The Mac's fused report
+    /// copy ends `_<report UUID>.json` and the adopted copy does not, and that UUID is the only difference the function
+    /// removes. Another sample's stem, another step number, or a UUID on the adopted copy alone still fails.
+    func testSidecarReportCopyPathMapsOnlyTheMacReportUUID() {
+        let adoptedCopy = sidecarCopy + ".json"
+        let macCopy = sidecarCopy + "_\(reportUUID).json"
+        let same = sidecarCopyFindings(adopted: adoptedCopy, mac: macCopy)
+        XCTAssertEqual(same.count, 0, same.map(\.description).joined(separator: "\n"))
+
+        let planted = [
+            ("another sample's stem", sidecarCopyFindings(
+                adopted: adoptedCopy, mac: macCopy.replacingOccurrences(of: "-C079876_S1_", with: "-C079876_S2_"))),
+            ("another step number", sidecarCopyFindings(
+                adopted: adoptedCopy, mac: macCopy.replacingOccurrences(of: "/1-1-", with: "/1-2-"))),
+            ("a UUID on the adopted copy alone", sidecarCopyFindings(adopted: macCopy, mac: adoptedCopy)),
+        ]
+        for (name, found) in planted {
+            XCTAssertEqual(found.count, 1, "\(name): \(found.map(\.description).joined(separator: "\n"))")
+            XCTAssertEqual(found.first?.key.hasSuffix("auxiliaryOutputPaths"), true, "\(name): \(found.first?.key ?? "")")
+            XCTAssertEqual(found.first?.why.hasPrefix("V15-26"), true, "\(name): \(found.first?.why ?? "")")
+        }
+    }
+
     // MARK: C4-4 D-5: the payload token of `argv`
 
     private let publishedPayload = "@/Imports/C079876_S1.lungfishfastq/C079876_S1.fastq.gz"
