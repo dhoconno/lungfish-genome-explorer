@@ -195,19 +195,23 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
             let adopted = try await adopt(files: true, sample: sample, project: project)
             let names = try adopted.reportCopies
             XCTAssertFalse(names.isEmpty, "the bundle holds the recipe's reports")
-            for name in names {
-                XCTAssertTrue(name.contains("-\(sample)_"), "\(name) names the sample \(sample)")
-                XCTAssertFalse(name.contains("-\(work)_"), "\(name) keeps the plan's work stem")
-            }
             let results = try XCTUnwrap(adopted.sidecar.ingestion?.recipeApplied?.stepResults)
             let rewrites = results.flatMap { result in result.auxiliaryCommandPathRewrites.map { (result, $0.key, $0.value) } }
             XCTAssertEqual(rewrites.count, names.count, "one rewrite for each copy")
+            XCTAssertEqual(
+                Set(rewrites.map { URL(fileURLWithPath: $0.2).lastPathComponent }), Set(names), "the rewrites reach every copy the bundle holds"
+            )
             for (result, key, value) in rewrites {
                 XCTAssertTrue(key.hasPrefix("work/\(work)_"), "the rewrite is keyed by the node's path: \(key)")
                 XCTAssertEqual(result.commandArguments?.contains(key), true, "the argv keeps the node's name \(key)")
-                XCTAssertTrue(names.contains(URL(fileURLWithPath: value).lastPathComponent), "\(value) is a copy the bundle holds")
+                // A copy's name ends with the work file's name, the sample's name standing where the work stem led.
+                let renamed = sample + String(URL(fileURLWithPath: key).lastPathComponent.dropFirst(work.count))
+                XCTAssertTrue(
+                    URL(fileURLWithPath: value).lastPathComponent.hasSuffix("-" + renamed), "\(value) names the sample \(sample), not the work stem"
+                )
             }
-            let recorded = try adopted.envelope.steps.flatMap(\.outputs).map(\.path).filter { $0.contains("recipe-step-artifacts/") }
+            let recorded = try adopted.envelope.steps.flatMap(\.outputs).map(\.path)
+                .filter { URL(fileURLWithPath: $0).deletingLastPathComponent().lastPathComponent == "recipe-step-artifacts" }
             XCTAssertEqual(Set(recorded.map { URL(fileURLWithPath: $0).lastPathComponent }), Set(names), "the envelope names each copy")
             copies[sample] = Set(names)
         }
@@ -230,14 +234,16 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         XCTAssertEqual(envelope.files.filter { $0.checksumSHA256 == digest }.map(\.role.rawValue).sorted(), ["input", "output"])
         XCTAssertFalse(envelope.files.contains { $0.path == node }, "no file entry keeps the node's payload path")
 
-        let writer = try XCTUnwrap(envelope.steps.first { $0.toolName == "bgzip" && $0.argv.contains(">") }, "the storage writer")
+        let writer = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "bgzip" && $0.argv.dropLast().last == ">" }, "the storage writer"
+        )
         XCTAssertEqual(writer.argv.last, node, "the argv stays as the node ran it")
         XCTAssertEqual(writer.durableReplayArgv?.last, published)
         XCTAssertTrue(writer.reproducibleCommand.hasSuffix(published), writer.reproducibleCommand)
         XCTAssertEqual(writer.outputs.map(\.path), [published])
         XCTAssertEqual(writer.outputs.map(\.checksumSHA256), [digest])
 
-        let statistics = try XCTUnwrap(envelope.steps.first { $0.argv.contains("stats") }, "the statistics step")
+        let statistics = try XCTUnwrap(envelope.steps.first { $0.argv.first == "stats" }, "the statistics step")
         XCTAssertTrue(statistics.argv.contains(node), "the argv stays as the node ran it: \(statistics.argv)")
         XCTAssertEqual(statistics.durableReplayArgv?.contains(node), false)
         XCTAssertEqual(statistics.durableReplayArgv?.contains(published), true, "\(statistics.durableReplayArgv ?? [])")

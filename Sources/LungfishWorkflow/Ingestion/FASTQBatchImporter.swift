@@ -1103,33 +1103,6 @@ public enum FASTQBatchImporter {
         return materialized
     }
 
-    /// A report copy's name: `<step>-<artifact>-<slug>-` and the work file's name. With `stem`, a work file name that
-    /// leads with the work stem and `_` takes the sample name in its place, and any other name is kept as it is.
-    static func recipeArtifactFilename(
-        stepIndex: Int,
-        artifactIndex: Int,
-        stepName: String,
-        sourceURL: URL,
-        stem: (work: String, sample: String)? = nil
-    ) -> String {
-        var source = sourceURL.lastPathComponent
-        if let stem, source.hasPrefix(stem.work + "_") {
-            source = stem.sample + source.dropFirst(stem.work.count)
-        }
-        let stem = stepName
-            .lowercased()
-            .unicodeScalars
-            .map { scalar -> String in
-                CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
-            }
-            .joined()
-        let slug = String(stem)
-            .split(separator: "-")
-            .joined(separator: "-")
-            .prefix(48)
-        return "\(stepIndex + 1)-\(artifactIndex + 1)-\(slug)-\(source)"
-    }
-
     // MARK: - Provenance
 
     static func writeImportProvenance(
