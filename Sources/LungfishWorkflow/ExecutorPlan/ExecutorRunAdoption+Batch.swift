@@ -187,8 +187,32 @@ extension ExecutorRunAdoption {
         signingEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         progress: @Sendable (ExecutorBatchAdoptProgress) -> Void = { _ in }
     ) async throws(ExecutorBatchAdoptError) -> [URL] {
-        // BADOPT M1: the stub the frozen ends fail against; M2 writes the batch.
-        throw .notABatch("The batch adopt is not written yet. Nothing was imported.")
+        let samples = try sampleFolders(in: batchFolder)
+        let checked = try checkBatch(samples, projectDirectory: projectDirectory, force: force, policy: policy, progress: progress)
+        // Each envelope's argv is the command that ran, the batch folder's (CLI-EQUIVALENCE, "Built from what runs").
+        let argv = [CLICommandIdentity.executableName] + cliArguments(
+            resultFolder: batchFolder, projectDirectory: projectDirectory, force: force, eventsOn: eventsOn
+        )
+        var adopted: [URL] = []
+        for (index, sample) in checked.enumerated() {
+            let left = checked[index...].map(\.name)
+            if Task.isCancelled { throw .cancelled(adopted: adopted, notAdopted: left, sampleCount: checked.count) }
+            progress(.adopting(sample: sample.name, index: index + 1, count: checked.count))
+            // SW:10: `writeBundle` only, never the public `adopt`, so no sample's folder is read twice. Its own staging
+            // bundle is removed on any throw, and the bundles before it stay whole.
+            do {
+                adopted.append(try await writeBundle(
+                    sample.run, projectDirectory: projectDirectory, force: force, argv: argv, signingEnvironment: signingEnvironment
+                ))
+            } catch is CancellationError {
+                throw .cancelled(adopted: adopted, notAdopted: left, sampleCount: checked.count)
+            } catch {
+                let sentence = (error as? ExecutorAdoptRefusal)?.cause ?? error.localizedDescription
+                throw .writeFailed(adopted: adopted, notAdopted: left, sampleCount: checked.count, error: sentence)
+            }
+            progress(.adopted(sample: sample.name, index: index + 1, count: checked.count, bundle: adopted[index]))
+        }
+        return adopted
     }
 
     /// `--dry-run` of a batch: every preflight with nothing written, and the sample names the bundles would take.
