@@ -17,8 +17,8 @@ import LungfishPortable
 ///    plan path. The executor's own check then hashes every file against the plan.
 /// 4. It `exec`s the executor from its plan path, so SIGTERM reaches the executor with no shell between.
 ///
-/// Exit codes: 2 for a refusal before the executor starts and 64 for a usage error, which `retry_until` never retries,
-/// and 1 for a failure to unpack or move a file, which another machine may not repeat.
+/// Exit codes: 2 for a refusal before the executor starts and 64 for a usage error, and 1 for a failure to unpack or
+/// move a file, which another machine may not repeat.
 public enum HTCondorJobWrapper {
     public static var fileName: String { HTCondorSubmitTemplate.wrapperFileName }
 
@@ -35,14 +35,13 @@ public enum HTCondorJobWrapper {
         let usage = ExecutorExitCode.usage
         return #"""
         #!/bin/sh
-        # \#(name) - written by Lungfish (HTCondorJobWrapper) for every job of a CHTC batch.
+        # \#(name) - written by Lungfish (HTCondorJobWrapper) for every job of an HTCondor batch.
         # Usage: \#(name) <name>=<path>... -- [<executor argument>]...
         # Each <name> is a file HTCondor transferred into the scratch folder and <path> its place in the unpacked plan
         # folder. The first is the executor, which this script runs with exec. It reads no machine ad: the node's facts
         # arrive as --site-fact arguments that HTCondor expanded, and a fact whose value is \#(unset) is dropped, so the
-        # run record shows it as not recorded. Exit \#(refused) is a refusal and \#(usage) a usage error, which retry_until
-        # never retries, and \#(failed) a failure that may pass on another machine. It never exits 3, which is the
-        # executor's interrupted run.
+        # run record shows it as not recorded. Exit \#(refused) is a refusal and \#(usage) a usage error, and \#(failed) a
+        # failure that may pass on another machine. It never exits 3, which is the executor's interrupted run.
         set -u
 
         refuse() {

@@ -147,15 +147,14 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         }
     }
 
-    func testRetryUntilNeverRetriesRefusalOrUsage() throws {
+    /// CHTC-3d R1. A job held at code 12 after its run exited 0 is released, twice at most. No line retries a run that
+    /// failed, since a run without every listed output is held and no retry rule sees its exit code.
+    func testOnlyAnUploadHoldOfARunThatPassedIsReleased() throws {
         let text = try HTCondorSubmitTemplate.render(Self.input())
-        XCTAssertEqual(try value(of: "max_retries", in: text), "3")
-        let retryUntil = try value(of: "retry_until", in: text)
-        XCTAssertEqual(retryUntil, "(ExitCode =?= 0) || (ExitCode =?= 2) || (ExitCode =?= 64)")
-        let ending = Set(try matches(retryUntil, #"(?<==\?= )[0-9]+"#).compactMap { Int32($0) })
-        XCTAssertEqual(ending, [0, 2, 64], "success, a refusal and a usage error end the job")
-        XCTAssertFalse(ending.contains(1), "a failed run retries")
-        XCTAssertFalse(ending.contains(3), "an interrupted run retries")
+        XCTAssertEqual(try value(of: "periodic_release", in: text),
+                       "(HoldReasonCode =?= 12) && (ExitCode =?= 0) && (NumHolds < 3)")
+        let lines = text.split(separator: "\n").map(String.init)
+        XCTAssertFalse(lines.contains { $0.hasPrefix("max_retries") || $0.hasPrefix("retry_until") }, text)
         XCTAssertEqual(try value(of: "kill_sig", in: text), "SIGTERM")
     }
 

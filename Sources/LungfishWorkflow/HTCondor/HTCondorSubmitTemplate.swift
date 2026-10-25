@@ -169,16 +169,9 @@ public enum HTCondorSubmitTemplate {
     public static let requirements =
         #"(TARGET.HasCHTCStaging == true) && (TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")"#
 
-    /// Up to three retries of a failed (1) or interrupted (3) run. Success, a refusal and a usage error end the job,
-    /// since a refusal repeats on every attempt (C4-08). HTCondor reschedules an evicted job on its own.
-    public static let maxRetries = 3
-
-    /// The exit codes that end the job with no retry.
-    public static let finalExitCodes: [Int32] = [ExecutorExitCode.succeeded, ExecutorExitCode.refused, ExecutorExitCode.usage]
-
-    public static var retryUntil: String {
-        finalExitCodes.map { "(ExitCode =?= \($0))" }.joined(separator: " || ")
-    }
+    /// Releases, at most twice, a job held sending its files back (code 12) after its run exited 0, such as a stalled
+    /// upload (C-FAIL P). A run without every listed output is held, so no retry rule sees its exit code (CHTC-3d R1).
+    public static let periodicRelease = "(HoldReasonCode =?= 12) && (ExitCode =?= 0) && (NumHolds < 3)"
 
     /// The signal a vacate or removal sends. The wrapper `exec`s the executor, so it reaches the executor directly.
     public static let killSignal = "SIGTERM"
@@ -294,7 +287,7 @@ public enum HTCondorSubmitTemplate {
             .map { "\(plan)/\($0) = \(result)/\($0)" }
 
         let lines = [
-            "# \(fileName) - written by Lungfish for one recipe of a CHTC batch. run.dag gives each job its sample's",
+            "# \(fileName) - written by Lungfish for one recipe of an HTCondor batch. run.dag gives each job its sample's",
             "# \(sampleVariable), \(requestDiskVariable), \(inputsVariable) and "
                 + "\(placementsVariable) through VARS.",
             "universe = container",
@@ -311,8 +304,7 @@ public enum HTCondorSubmitTemplate {
             "request_cpus = \(input.requestCpus)",
             "request_memory = \(memoryMiB)MB",
             "request_disk = $(\(requestDiskVariable))",
-            "max_retries = \(maxRetries)",
-            "retry_until = \(retryUntil)",
+            "periodic_release = \(periodicRelease)",
             "kill_sig = \(killSignal)",
             "log = ../logs/\(sample).log",
             "output = ../logs/\(sample).out",

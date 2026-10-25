@@ -65,7 +65,7 @@ public enum HTCondorDAG {
         }
         var seen = Set<String>()
         var lines = [
-            "# \(fileName) - written by Lungfish for a CHTC batch. One JOB a sample, each with its own VARS.",
+            "# \(fileName) - written by Lungfish for an HTCondor batch. One JOB a sample, each with its own VARS.",
         ]
         for node in nodes {
             try validate(node)
