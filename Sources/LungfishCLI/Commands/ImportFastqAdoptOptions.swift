@@ -162,13 +162,21 @@ extension ImportCommand.FastqSubcommand {
                 return
             }
             let (adoptForce, eventsOn) = (force, reporter.eventsOn)
-            let outcome = await runCancellingOnSIGTERM {
-                try await ExecutorRunAdoption.adoptBatch(
-                    batchFolder: folder, projectDirectory: projectDirectory, force: adoptForce, eventsOn: eventsOn,
-                    progress: progress
-                )
+            // The window's Cancel is a SIGTERM. The helper turns any failure that is not a `CancellationError` into a bare
+            // one once a signal arrived, which would hide the batch's own typed end ("Adopt cancelled after 1 of 2 samples."
+            // and the bundles it kept). The closure therefore hands the typed end back as a value, and the helper sees a
+            // failure only when the command is cancelled with no typed end (BADOPT review fix 1).
+            let outcome = await runCancellingOnSIGTERM { () async -> Result<[URL], ExecutorBatchAdoptError> in
+                do throws(ExecutorBatchAdoptError) {
+                    return .success(try await ExecutorRunAdoption.adoptBatch(
+                        batchFolder: folder, projectDirectory: projectDirectory, force: adoptForce, eventsOn: eventsOn,
+                        progress: progress
+                    ))
+                } catch {
+                    return .failure(error)
+                }
             }
-            let bundles = try outcome.get()
+            let bundles = try outcome.get().get()
             Self.printAdoptSummary(reporter, formatter, adopted: bundles.count, notAdopted: 0, started: started)
             reporter.complete(message: "Adopted \(ExecutorRunAdoption.samplesPhrase(bundles.count))")
         } catch let error as ExecutorBatchAdoptError {
