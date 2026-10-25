@@ -233,6 +233,67 @@ final class ExecutorAdoptParityTests: XCTestCase {
                        "C4-3 C-3: exactly four steps only the adopt route holds")
     }
 
+    // MARK: Two bundles made outside the test (lane X, X3-6)
+
+    /// Lane X's acceptance compare: the adopt of a plan folder a Linux run returned, against a Mac import of the same
+    /// sample, both made before the test. `LUNGFISH_PARITY_ADOPTED_BUNDLE` and `LUNGFISH_PARITY_MAC_BUNDLE` name the two
+    /// bundles and `LUNGFISH_PARITY_RETURNED_DIR` the returned folder the adopt read. The adopted bundle sits at the project
+    /// path the Mac import wrote, with the Mac project moved aside, as `routes(_:)` arranges for its own runs. E0 to E3
+    /// must be equal and every V15 finding fails, as for the test's own runs; E4 is reported.
+    func testReturnedRunAdoptEqualsMacImportFromEnvironment() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let adopted = environment["LUNGFISH_PARITY_ADOPTED_BUNDLE"], !adopted.isEmpty,
+              let mac = environment["LUNGFISH_PARITY_MAC_BUNDLE"], !mac.isEmpty,
+              let returned = environment["LUNGFISH_PARITY_RETURNED_DIR"], !returned.isEmpty else {
+            throw XCTSkip("Set LUNGFISH_PARITY_ADOPTED_BUNDLE, LUNGFISH_PARITY_MAC_BUNDLE and LUNGFISH_PARITY_RETURNED_DIR")
+        }
+        let (routes, levels) = try await Self.routes(
+            adoptedBundle: URL(fileURLWithPath: adopted), macBundle: URL(fileURLWithPath: mac),
+            returned: URL(fileURLWithPath: returned)
+        )
+        let name = routes.name
+        // E0. The run succeeded on the plan the folder holds, and each plan step ran its plan argv.
+        let planBytes = try Data(contentsOf: routes.returned.appendingPathComponent(ExecutorRunAdoption.planFileName))
+        XCTAssertEqual(routes.record.exitCode, 0, "\(name) E0 exit")
+        XCTAssertEqual(routes.record.plan?.sha256, ExecutorPlanReplayParityTests.sha256(planBytes), "\(name) E0 plan digest")
+        XCTAssertEqual(routes.record.plan?.size, Int64(planBytes.count), "\(name) E0 plan size")
+        for step in routes.plan.steps where !step.arguments.isEmpty {
+            let ran = try XCTUnwrap(routes.record.steps.first { $0.id == step.id }, "\(name) \(step.id)")
+            XCTAssertTrue(ran.argv == step.arguments || Array(ran.argv.dropFirst()) == step.arguments,
+                          "\(name) E0 \(step.id): \(ran.argv) against \(step.arguments)")
+        }
+        // E1 to E3 on the two payloads, E4 reported.
+        print("PARITY-LEVELS case=\(name) route=mac records=\(levels.mac.e1.records) bases=\(levels.mac.e1.bases) pairs=\(levels.mac.e1.pairs) singles=\(levels.mac.e1.singles) e2=\(levels.mac.e2) e3=\(levels.mac.e3) e4=\(levels.mac.e4)")
+        print("PARITY-LEVELS case=\(name) route=adopted records=\(levels.adopted.e1.records) bases=\(levels.adopted.e1.bases) pairs=\(levels.adopted.e1.pairs) singles=\(levels.adopted.e1.singles) e2=\(levels.adopted.e2) e3=\(levels.adopted.e3) e4=\(levels.adopted.e4)")
+        XCTAssertEqual(levels.adopted.e1, levels.mac.e1, "\(name) E1")
+        XCTAssertEqual(levels.adopted.e2, levels.mac.e2, "\(name) E2")
+        XCTAssertEqual(levels.adopted.e3, levels.mac.e3, "\(name) E3")
+        let comparison = try compare(routes, envelope: true, sidecar: true)
+        assertNoFinding(comparison, name)
+    }
+
+    /// The `Routes` of two bundles made outside the test, with each payload's levels.
+    private static func routes(
+        adoptedBundle: URL, macBundle: URL, returned: URL
+    ) async throws -> (routes: Routes, levels: (mac: PayloadLevels, adopted: PayloadLevels)) {
+        let plan = try ExecutionPlan.decode(Data(contentsOf: returned.appendingPathComponent(ExecutorRunAdoption.planFileName)))
+        let record = try ExecutorRunRecord.decode(Data(contentsOf: returned.appendingPathComponent(ExecutorRunRecord.fileName)))
+        let sampleName = plan.sample.sampleName
+        let payloadName = "\(sampleName).fastq.gz"
+        let mac = try PayloadLevels.measure(macBundle.appendingPathComponent(payloadName))
+        let adopted = try PayloadLevels.measure(adoptedBundle.appendingPathComponent(payloadName))
+        let macRow = try await NativeToolRunner.shared.run(
+            .seqkit, arguments: ["stats", "-a", "-T", macBundle.appendingPathComponent(payloadName).path], timeout: 900
+        )
+        guard macRow.isSuccess else {
+            try ToolAvailability.skipOrFail("seqkit stats of the Mac bundle's payload exited \(macRow.exitCode): \(macRow.stderr)")
+        }
+        let routes = Routes(name: sampleName, project: adoptedBundle.deletingLastPathComponent().deletingLastPathComponent(),
+                            macBundle: macBundle, adoptedBundle: adoptedBundle, returned: returned, plan: plan, record: record,
+                            e4Equal: mac.e4 == adopted.e4, macStatisticsTable: macRow.stdout, sampleName: sampleName)
+        return (routes, (mac, adopted))
+    }
+
     // MARK: The two routes
 
     struct Routes {
@@ -246,6 +307,8 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let e4Equal: Bool
         /// A seqkit stats table of the Mac bundle's payload, for the value columns no sidecar key holds (AMV1 BIO fix 3).
         let macStatisticsTable: String
+        /// The sample, which names the payload and its sidecar in both bundles (lane X3-6: a bundle made outside the test).
+        var sampleName = ExecutorPlanReplayParityTests.sampleName
     }
 
     private func routes(_ parity: ExecutorPlanReplayParityTests.ParityCase) async throws -> Routes {
@@ -429,7 +492,7 @@ final class ExecutorAdoptParityTests: XCTestCase {
     private func compare(
         _ routes: Routes, envelope: Bool, sidecar: Bool, editAdoptedSteps: ((inout [[String: Any]]) -> Void)? = nil
     ) throws -> V15Comparison {
-        let payloadName = "\(ExecutorPlanReplayParityTests.sampleName).fastq.gz"
+        let payloadName = "\(routes.sampleName).fastq.gz"
         let macFASTQ = routes.macBundle.appendingPathComponent(payloadName)
         let adoptedFASTQ = routes.adoptedBundle.appendingPathComponent(payloadName)
         let sidecarName = FASTQMetadataStore.metadataURL(for: macFASTQ).lastPathComponent
@@ -546,7 +609,7 @@ final class ExecutorAdoptParityTests: XCTestCase {
         let target = URL(fileURLWithPath: folder).appendingPathComponent("\(name)-\(routes.name)", isDirectory: true)
         try? FileManager.default.removeItem(at: target)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        let payloadName = "\(ExecutorPlanReplayParityTests.sampleName).fastq.gz"
+        let payloadName = "\(routes.sampleName).fastq.gz"
         for (route, bundle) in [("adopted", routes.adoptedBundle), ("mac", routes.macBundle)] {
             try FileManager.default.copyItem(at: bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
                                              to: target.appendingPathComponent("\(route)-envelope.json"))
