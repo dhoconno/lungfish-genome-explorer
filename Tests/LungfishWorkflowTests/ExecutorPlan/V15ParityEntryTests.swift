@@ -180,4 +180,59 @@ final class V15ParityEntryTests: XCTestCase {
         XCTAssertEqual(missing.map(\.key), ["envelope.output.checksumSHA256"], text(missing))
         XCTAssertEqual(missing.first?.why, "the adopted envelope names no payload digest (QA Q4-13)")
     }
+
+    private let mixed = "work/sample_mixed.fastq"
+
+    /// The adopted record's three node-only decompressor steps (C4-3 C-3) as the harness reads them: the last one lists `outputs`.
+    private func decompressorExcusers(outputs: [[String: Any]]) -> [V15AdoptOnlyInput] {
+        let none = [[String: Any]]()
+        let steps: [[String: Any]] = [
+            ["id": "p1", "toolName": "pigz", "inputs": [entry("input", "work/sample_lengthfilter_merged.fq.gz", "eeee")], "outputs": none],
+            ["id": "p2", "toolName": "pigz", "inputs": [entry("input", "work/sample_lengthfilter_unmerged_R1.fq.gz", "e1e1")], "outputs": none],
+            ["id": "p3", "toolName": "pigz", "inputs": [entry("input", "work/sample_lengthfilter_unmerged_R2.fq.gz", "e2e2")], "outputs": outputs],
+            ["id": "run", "toolName": "lungfish-executor"],
+            ["id": "adopt", "toolName": "lungfish import fastq"],
+        ]
+        let roles = V15StepRoles.adopted(
+            steps, executorToolName: "lungfish-executor", adoptToolName: "lungfish import fastq",
+            nodeKinds: [V15Roles.decompressor, V15Roles.decompressor, V15Roles.decompressor])
+        return V15AdoptOnlyInput.inputs(of: roles)
+    }
+
+    /// C4-5 E-1 option 1 (QA-W-lines P2, BIO B-E1-1 to B-E1-3): the adopt-only entries are the inputs and the outputs of the steps
+    /// V15-S5 names. The interleave's mixed file is the last decompressor step's output and no Mac entry has it, so it passes only
+    /// when that step lists it with the same role, digest and path, once for each list, and it is reported with the step's name.
+    func testAdoptOnlyDecompressorOutputListedByItsStep() {
+        let listing = decompressorExcusers(outputs: [entry("output", mixed, "aaaa")])
+        for key in ["files", "outputs"] {
+            let listed = compare(adopted + [entry("output", mixed, "aaaa")], mac, adoptOnly: listing, key: key)
+            XCTAssertEqual(text(listed.findings), "", "the mixed file in \(key)")
+            let lines = listed.reported.filter { $0.contains("sample_mixed") }
+            XCTAssertEqual(lines.count, 1, listed.reported.description)
+            for part in ["PARITY-REPORTED line=V15-S5", "step=decompressor#3", "work/sample_mixed.fastq", "output", "aaaa"] {
+                XCTAssertTrue(lines.first?.contains(part) == true, "\(part) in \(lines)")
+            }
+        }
+        // Each of these is exactly one finding.
+        let wrongDigest = compare(adopted + [entry("output", mixed, "bbbb")], mac, adoptOnly: listing).findings
+        XCTAssertEqual(wrongDigest.count, 1, "the step lists aaaa, the entry holds bbbb: \(text(wrongDigest))")
+        let unlisted = compare(adopted + [entry("output", mixed, "aaaa")], mac, adoptOnly: decompressorExcusers(outputs: [])).findings
+        XCTAssertEqual(unlisted.count, 1, "no step lists the entry: \(text(unlisted))")
+        XCTAssertTrue(text(unlisted).contains("sample_mixed"), text(unlisted))
+        let macOnly = compare(adopted, mac + [entry("output", "\(scratch)/C079876_S1_mixed.fastq", "aaaa")], adoptOnly: listing).findings
+        XCTAssertEqual(macOnly.count, 1, "an output step excuses an adopted entry and never a Mac-only one: \(text(macOnly))")
+        XCTAssertEqual(macOnly.first?.adopted, "absent", text(macOnly))
+        // BIO B-E1-2: the path must be the one the step lists, and one step output excuses one entry for each list.
+        let otherPath = compare(adopted + [entry("output", "work/other_mixed.fastq", "aaaa")], mac, adoptOnly: listing).findings
+        XCTAssertEqual(otherPath.count, 1, "the digest alone does not excuse an output: \(text(otherPath))")
+        XCTAssertTrue(text(otherPath).contains("other_mixed"), text(otherPath))
+        let twice = compare(adopted + [entry("output", mixed, "aaaa"), entry("output", mixed, "aaaa")], mac, adoptOnly: listing)
+        XCTAssertEqual(twice.findings.count, 1, "a second entry of the same path and digest: \(text(twice.findings))")
+        XCTAssertEqual(twice.reported.filter { $0.contains("sample_mixed") }.count, 1, twice.reported.description)
+        // B-E1-1 names the same SHA-256: an output with no digest on either side proves nothing.
+        var undigested = entry("output", mixed, "aaaa")
+        undigested["checksumSHA256"] = nil
+        let noDigest = compare(adopted + [undigested], mac, adoptOnly: decompressorExcusers(outputs: [undigested])).findings
+        XCTAssertEqual(noDigest.count, 1, "no digest on the step's output or the entry: \(text(noDigest))")
+    }
 }

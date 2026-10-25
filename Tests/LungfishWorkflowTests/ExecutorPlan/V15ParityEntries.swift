@@ -4,24 +4,42 @@
 
 import Foundation
 
-/// One input of a V15-S5 step of the adopted record, with the step it belongs to. An adopted `files` entry that no Mac entry
-/// matches passes only when one of these has its role and digest (ARCH A-D2-3, BIO B-D2-2).
+/// One input or output of a V15-S5 step of the adopted record, with the step it belongs to. An adopted `files` or `outputs` entry
+/// that no Mac entry matches passes only when one of these has its role and digest (ARCH A-D2-3, BIO B-D2-2), and for an output
+/// of the step also its path (C4-5 E-1, BIO B-E1-1).
 struct V15AdoptOnlyInput {
     let step: String
     let entry: [String: Any]
+    /// True when the step lists the entry in its `outputs` (C4-5 E-1), false when it lists it in its `inputs` (C4-4 D-2).
+    var isOutput = false
 
-    /// The inputs of each decompressor step, found by the step's role and never by a path pattern or an index.
+    /// The inputs and the outputs of each decompressor step, found by the step's role and never by a path pattern or an index.
     static func inputs(of roles: V15StepRoles) -> [V15AdoptOnlyInput] {
         var number = 0
         var found: [V15AdoptOnlyInput] = []
         for step in roles.steps {
             guard let id = step["id"] as? String, roles.role(ofID: id) == V15Roles.decompressor else { continue }
             number += 1
+            let name = "\(V15Roles.decompressor)#\(number)"
             for entry in step["inputs"] as? [[String: Any]] ?? [] {
-                found.append(V15AdoptOnlyInput(step: "\(V15Roles.decompressor)#\(number)", entry: entry))
+                found.append(V15AdoptOnlyInput(step: name, entry: entry))
+            }
+            for entry in step["outputs"] as? [[String: Any]] ?? [] {
+                found.append(V15AdoptOnlyInput(step: name, entry: entry, isOutput: true))
             }
         }
         return found
+    }
+
+    /// Whether this step entry excuses an adopted entry that no Mac entry matches. An input matches on role and digest (BIO B-D2-2).
+    /// An output matches on role, digest and path, all present, since both entries come from the adopted route and the path is
+    /// the raw one (BIO B-E1-1).
+    func excuses(role: String, _ adopted: [String: Any]) -> Bool {
+        let digest = entry["checksumSHA256"] as? String
+        guard entry["role"] as? String == role, digest == adopted["checksumSHA256"] as? String else { return false }
+        guard isOutput else { return true }
+        let path = entry["path"] as? String
+        return digest != nil && path != nil && path == adopted["path"] as? String
     }
 }
 
@@ -82,7 +100,8 @@ extension V15Comparison {
     /// C4-4 D-2 (SWIFT SW4-4, ARCH A-D2-1 to A-D2-3, BIO B-D2-1 and B-D2-2, QA Q4-4): the entries of the run's `files` or
     /// `outputs` pair one to one as a multiset on role and SHA-256, never by index, and a pair then compares as the walk
     /// compares any object. An entry that pairs with nothing is one finding with its path, role and digest, unless an input of
-    /// a V15-S5 step has its role and digest (reported), and an entry of each route with one role and path but two digests is one finding.
+    /// a V15-S5 step has its role and digest as an input, or its role, digest and path as an output (C4-5 E-1; reported, one step
+    /// entry for one entry of each list), and an entry of each route with one role and path but two digests is one finding.
     mutating func compareEntries(_ adopted: [Any], _ mac: [Any], path: [String]) {
         var macPool = entries(mac, route: .mac)
         var unmatched: [Entry] = []
@@ -99,16 +118,14 @@ extension V15Comparison {
                 let partner = macPool.remove(at: index)
                 findings.append(V15Finding(key: name, adopted: Self.describe(entry.object), mac: Self.describe(partner.object),
                                            why: "D-2: the entry's role and path match on both routes and its digest or size differs"))
-            } else if let index = excusers.firstIndex(where: {
-                $0.entry["role"] as? String == entry.role && $0.entry["checksumSHA256"] as? String == entry.object["checksumSHA256"] as? String
-            }) {
+            } else if let index = excusers.firstIndex(where: { $0.excuses(role: entry.role, entry.object) }) {
                 let step = excusers.remove(at: index).step
                 reported.append("PARITY-REPORTED line=V15-S5 key=\(name) step=\(step) \(Self.describe(entry.object))")
             } else {
                 findings.append(V15Finding(
                     key: name, adopted: Self.describe(entry.object), mac: "absent",
                     why: "D-2: an entry only the adopt route holds: no Mac entry has its role and digest (or its role and path, for a digest "
-                        + "XC-1 or D-4 never compares), and no V15-S5 step names it as an input"))
+                        + "XC-1 or D-4 never compares), and no V15-S5 step names it as an input or an output"))
             }
         }
         for entry in macPool {
