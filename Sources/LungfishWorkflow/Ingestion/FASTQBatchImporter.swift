@@ -440,13 +440,14 @@ public enum FASTQBatchImporter {
         )
     }
 
-    /// Resolves the storage tool once for an ingestion invocation and records
+    /// Resolves the storage tool once for an ingestion invocation, for reads of `platform` (nil names none), and records
     /// any filtering disclosure before the invocation begins.
     static func runIngestionPipeline(
         sample: String,
         config: FASTQIngestionConfig,
         estimatedInputBytes: Int64? = nil,
         physicalMemoryBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory),
+        platform: LungfishIO.SequencingPlatform? = nil,
         log: (@Sendable (ImportLogEvent) -> Void)?,
         invoke: @escaping @Sendable (ClumpingToolResolution) async throws -> FASTQIngestionResult
     ) async throws -> FASTQIngestionResult {
@@ -455,7 +456,8 @@ public enum FASTQBatchImporter {
         let resolution = config.clumpingTool.resolve(
             estimatedInputBytes: estimatedBytes,
             physicalMemoryBytes: physicalMemoryBytes,
-            pinnedHeapGB: config.clumpifyHeapGB
+            pinnedHeapGB: config.clumpifyHeapGB,
+            platform: platform
         )
         if let message = resolution.resolved.operationNotice {
             log?(.notice(sample: sample, message: message))
@@ -767,6 +769,7 @@ public enum FASTQBatchImporter {
             let ingestionResult = try await runIngestionPipeline(
                 sample: pair.sampleName,
                 config: ingestionConfig,
+                platform: config.sequencingPlatform,
                 log: log,
                 invoke: { clumpingResolution in
                     try await pipeline.run(
@@ -1820,7 +1823,7 @@ public enum FASTQBatchImporter {
             "recipe": .string("none"),
             "qualityBinning": .string(ImportConfig.commandDefaultQualityBinning.rawValue),
             "optimizeStorage": .boolean(config.sequencingPlatform.supportsStorageClumping),
-            "clumpingTool": .string(config.sequencingPlatform.supportsStorageClumping ? ClumpingTool.default.rawValue : ClumpingTool.none.rawValue),
+            "clumpingTool": .string(ClumpingTool.default.rawValue),
             "compressionLevel": .string(CompressionLevel.balanced.rawValue),
             "threads": .integer(ImportConfig.hostThreadCount),
             "clumpifyHeapGB": .null,
@@ -1855,11 +1858,7 @@ public enum FASTQBatchImporter {
         parameters["wasClumpified"] = .boolean(ingestionResult.wasClumpified)
         parameters["requestedClumpingTool"] = .string(ingestionResult.requestedClumpingTool.rawValue)
         parameters["resolvedClumpingTool"] = .string(ingestionResult.resolvedClumpingTool.rawValue)
-        parameters["clumpingEstimatedInputBytes"] = .integer(Int(ingestionResult.clumpingResolution.estimatedInputBytes))
-        parameters["clumpingPhysicalMemoryBytes"] = .integer(Int(ingestionResult.clumpingResolution.physicalMemoryBytes))
         parameters.merge(hostChoiceParameters(config: config, ingestionResult: ingestionResult)) { _, choice in choice }
-        parameters["clumpingThresholdBytes"] = .integer(Int(ingestionResult.clumpingResolution.thresholdBytes))
-        parameters["clumpingResolutionReason"] = .string(ingestionResult.clumpingResolution.reason)
         parameters["originalFilenames"] = .array(pair.inputFiles.map { .string($0.lastPathComponent) })
         // An adopt measures no input, since a CHTC job returns none: it states the sizes of the records it checked (X6 D1).
         let recordedSize = inputRecords.map { $0.reduce(UInt64(0)) { $0 &+ ($1.sizeBytes ?? 0) } }
@@ -1909,7 +1908,7 @@ public enum FASTQBatchImporter {
             "--threads", String(config.threads),
         ] + (config.clumpifyHeapGB.map { ["--clumpify-heap-gb", String($0)] } ?? [])
         command += config.newRecipe?.switchOptionArguments ?? []
-        if !config.optimizeStorage {
+        if !config.optimizeStorage && config.clumpingTool == .none {
             command.append("--no-optimize-storage")
         }
         if config.forceReimport {

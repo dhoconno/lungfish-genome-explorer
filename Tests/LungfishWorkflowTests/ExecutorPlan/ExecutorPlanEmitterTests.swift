@@ -105,7 +105,8 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(plan.clumping.requested, .auto)
         XCTAssertEqual(plan.clumping.resolved, .bbtools)
         XCTAssertEqual(plan.clumping.heapBytes, 4_294_967_296)
-        XCTAssertEqual(plan.clumping.reason, "The automatic clumping choice names BBTools clumpify for every sample, at the plan's heap and with no size estimate, because clumpify's groups=auto compares its memory estimate for each input with the memory available in that heap and splits a large input into more groups.")
+        XCTAssertEqual(plan.clumping.reason, ClumpingTool.automaticClumpifyReason)
+        XCTAssertTrue(plan.clumping.reason.contains("at the clumpify heap"))
         XCTAssertEqual(plan.clumping.resolvedSource, .default)
         XCTAssertEqual(plan.storage.clumpingToolSource, .default)
         let paths = keyPaths(try JSONSerialization.jsonObject(with: plan.encoded())).keys
@@ -287,20 +288,23 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             estimatedInputBytes: FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: large),
             physicalMemoryBytes: 25_769_803_776, pinnedHeapGB: 1
         )
-        XCTAssertEqual(macLarge.resolved, .none)
-        XCTAssertEqual(macLarge.reason, "skipped clumping: estimated input exceeds the BBTools clumpify memory budget")
+        // C5 O49: the Mac's auto follows the plan's rule, so the large sample clumps on the Mac as well.
+        XCTAssertEqual(macLarge.resolved, .bbtools)
+        XCTAssertEqual(macLarge.reason, ClumpingTool.automaticClumpifyReason)
         let macSmall = ClumpingTool.auto.resolve(
             estimatedInputBytes: FASTQIngestionPipeline.estimatedUncompressedInputBytes(for: small),
             physicalMemoryBytes: 25_769_803_776, pinnedHeapGB: 1
         )
         XCTAssertEqual(macSmall.resolved, .bbtools)
+        XCTAssertEqual(macSmall.reason, macLarge.reason)
 
         let planS = try ExecutorPlanEmitter.emit(request("S", inputs: small, clumping: .auto, heapGB: 1), host: Self.mac24)
         let planL = try ExecutorPlanEmitter.emit(request("L", inputs: large, clumping: .auto, heapGB: 1), host: Self.mac24)
         XCTAssertEqual(planS.clumping, planL.clumping)
         XCTAssertEqual(planS.clumping.resolved, .bbtools)
         XCTAssertEqual(planS.clumping.heapBytes, 1_073_741_824)
-        XCTAssertEqual(planS.clumping.reason, ExecutorPlanEmitter.automaticClumpingReason)
+        XCTAssertEqual(planS.clumping.reason, ClumpingTool.automaticClumpifyReason)
+        XCTAssertEqual(planS.clumping.reason, macLarge.reason, "the Mac and the plan state one reason")
         XCTAssertEqual(planS.clumping.resolvedSource, .default)
 
         let pathsS = keyPaths(try JSONSerialization.jsonObject(with: planS.encoded()))
@@ -314,6 +318,41 @@ final class ExecutorPlanEmitterTests: XCTestCase {
         XCTAssertEqual(differing, allowed, "Plans differ outside QA's list: \(differing.subtracting(allowed).sorted())")
         let inputEntries = planL.entries.filter { $0.role == .input }
         XCTAssertEqual(inputEntries.map(\.size), [629_145_600, 629_145_600])
+    }
+
+    /// MOS1 (O49, D8 B), QA 1 red test 3 on the plan route: the plan decides platform first. ONT, PacBio and Unknown resolve
+    /// `auto` to no clumping with source `default` and a reason that cites the error rate and never "costs time and
+    /// memory", short reads and a plan that names no platform clump, and a named tool wins with source `option`.
+    func testPlanResolvesAutoPlatformFirst() throws {
+        let pair = try writePair("S")
+        func clumping(_ platform: String?, _ tool: ClumpingTool) throws -> PlanClumpingChoice {
+            var chosen = try request("S", inputs: pair, clumping: tool)
+            chosen.sample.platform = platform
+            return try ExecutorPlanEmitter.emit(chosen, host: Self.mac24).clumping
+        }
+        for platform in ["ont", "pacbio", "unknown"] {
+            let choice = try clumping(platform, .auto)
+            XCTAssertEqual(choice.requested, .auto, platform)
+            XCTAssertEqual(choice.resolved, PlanClumpingTool.none, platform)
+            XCTAssertEqual(choice.resolvedSource, .default, platform)
+            XCTAssertEqual(choice.heapBytes, 4_294_967_296, platform)
+            XCTAssertFalse(choice.reason.contains("costs time and memory"), platform)
+        }
+        for platform in ["ont", "pacbio"] {
+            XCTAssertTrue(try clumping(platform, .auto).reason.contains("high error rate"), platform)
+        }
+        let unnamed = try clumping(nil, .auto)
+        for platform in [nil, "illumina", "element", "mgi", "ultima"] {
+            let choice = try clumping(platform, .auto)
+            XCTAssertEqual(choice.resolved, .bbtools, platform ?? "no platform")
+            XCTAssertEqual(choice.resolvedSource, .default, platform ?? "no platform")
+            XCTAssertEqual(choice.reason, unnamed.reason, platform ?? "no platform")
+        }
+        let named = try clumping("ont", .bbtools)
+        XCTAssertEqual(named.requested, .bbtools)
+        XCTAssertEqual(named.resolved, .bbtools)
+        XCTAssertEqual(named.resolvedSource, .option)
+        XCTAssertEqual(named.reason, "explicit clumping tool selection")
     }
 
     /// The shared stand-ins of `RecipeToolFakes` (QA review fix 1 of K4 part A).

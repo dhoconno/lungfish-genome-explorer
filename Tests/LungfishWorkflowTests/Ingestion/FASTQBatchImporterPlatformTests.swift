@@ -183,13 +183,15 @@ final class FASTQBatchImporterPlatformTests: XCTestCase {
             ).resolved(with: FASTQBatchImporter.resolvePlatform(for: spots, request: request))
         }
 
+        // C5 O49, D8 B: `auto` stays the request and the platform decides it. Unknown reads clump nothing under `auto`,
+        // also when the import asks for storage optimisation without naming a tool, and a named tool wins.
         let byDefault = resolved(.auto)
         XCTAssertEqual(byDefault.sequencingPlatform, .unknown)
         XCTAssertFalse(byDefault.optimizeStorage)
-        XCTAssertEqual(byDefault.clumpingTool, ClumpingTool.none)
+        XCTAssertEqual(byDefault.clumpingTool, .auto)
 
         let asked = resolved(.auto, optimizeStorage: true)
-        XCTAssertTrue(asked.optimizeStorage)
+        XCTAssertFalse(asked.optimizeStorage)
         XCTAssertEqual(asked.clumpingTool, .auto)
         let sheet = resolved(.given(.unknown), clumpingTool: .bbtools)
         XCTAssertTrue(sheet.optimizeStorage)
@@ -201,7 +203,9 @@ final class FASTQBatchImporterPlatformTests: XCTestCase {
 
         for longReads in [LungfishIO.SequencingPlatform.oxfordNanopore, .pacbio] {
             XCTAssertFalse(resolved(.given(longReads), optimizeStorage: true).optimizeStorage, longReads.rawValue)
-            XCTAssertFalse(resolved(.given(longReads), clumpingTool: .bbtools).optimizeStorage, longReads.rawValue)
+            // A tool the user named wins on every platform (D8 B).
+            XCTAssertTrue(resolved(.given(longReads), clumpingTool: .bbtools).optimizeStorage, longReads.rawValue)
+            XCTAssertEqual(resolved(.given(longReads), clumpingTool: .bbtools).clumpingTool, .bbtools, longReads.rawValue)
         }
         XCTAssertTrue(resolved(.given(.illumina)).optimizeStorage)
     }

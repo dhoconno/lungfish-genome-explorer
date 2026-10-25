@@ -172,8 +172,6 @@ package struct ExecutorPlanEmission: Sendable {
 /// Builds the plan of one sample from the recipe engine's `[PlannedStep]`. It reads no file and writes nothing
 /// (ARCH round 3, ruling 2), and the folder writer stages and writes what it returns.
 package enum ExecutorPlanEmitter {
-    /// UX's round 3 sentence, the reason of every automatic clumping choice, never composed per sample.
-    package static let automaticClumpingReason = "The automatic clumping choice names BBTools clumpify for every sample, at the plan's heap and with no size estimate, because clumpify's groups=auto compares its memory estimate for each input with the memory available in that heap and splits a large input into more groups."
     /// The stem of every work file, so the plans of two samples differ only in their sample values and digests.
     package static let workStem = "sample"
     package static let executorPath = "bin/lungfish-executor"
@@ -182,33 +180,36 @@ package enum ExecutorPlanEmitter {
     static let root = URL(fileURLWithPath: "/lungfish-plan-root", isDirectory: true)
     static let workspace = root.appendingPathComponent("work", isDirectory: true)
 
-    /// The clumping entry. `auto` names `bbtools` at the plan's heap with no estimate and source `default`. A named
-    /// `bbtools`, `trim-galore` or `none` goes through the Mac's own `ClumpingTool.resolve` at the pinned heap, source
-    /// `option`, and Trim Galore's entry carries the notice the local import logs before its storage step (ARCH A5).
+    /// The platform a plan names, or nil when it names none (`--platform auto`, which the plan writer cannot decide
+    /// without reading the reads), so the platform restricts nothing and `auto` clumps as it does for short reads.
+    static func namedPlatform(_ name: String?) -> LungfishIO.SequencingPlatform? {
+        guard let name, case .given(let platform)? = ImportPlatformRequest(cliValue: name) else { return nil }
+        return platform
+    }
+
+    /// The clumping entry, from the one rule the Mac's import calls too, `ClumpingTool.resolve`, at the plan's pinned
+    /// heap (C5 O49, D5, D8 B). `auto` is decided platform first: short reads clump with BBTools clumpify at the clumpify
+    /// heap with no estimate, and ONT, PacBio and Unknown reads clump nothing, both with source `default`. A named
+    /// `bbtools`, `trim-galore` or `none` wins on every platform with source `option`, and Trim Galore's entry carries
+    /// the notice the local import logs before its storage step (ARCH A5).
     package static func clumpingChoice(
-        requested: ClumpingTool, heapGB: Int, host: ExecutorPlanHostFacts
+        requested: ClumpingTool, heapGB: Int, host: ExecutorPlanHostFacts,
+        platform: LungfishIO.SequencingPlatform? = nil
     ) throws -> PlanClumpingChoice {
-        switch requested {
-        case .auto:
-            return PlanClumpingChoice(
-                requested: .auto, resolved: .bbtools, resolvedSource: .default,
-                heapBytes: Int64(heapGB) * 1_073_741_824, reason: automaticClumpingReason
-            )
-        case .bbtools, .trimGalore, .none:
-            // A named tool reads no estimate, so 0 decides nothing and the plan carries none of it.
-            let resolution = requested.resolve(
-                estimatedInputBytes: 0, physicalMemoryBytes: host.physicalMemoryBytes, pinnedHeapGB: heapGB
-            )
-            guard let request = PlanClumpingRequest(rawValue: resolution.requested.rawValue),
-                  let resolved = PlanClumpingTool(rawValue: resolution.resolved.rawValue) else {
-                throw ExecutorPlanError(field: "storage.clumpingTool", reason: "The clumping tool \(requested.rawValue) has no plan form.")
-            }
-            return PlanClumpingChoice(
-                requested: request, resolved: resolved, resolvedSource: .option,
-                heapBytes: resolution.clumpifyHeapBytes, reason: resolution.reason,
-                operationNotice: resolution.resolved.operationNotice
-            )
+        // The estimate is read by no decision of the plan, so 0 decides nothing and the plan carries none of it.
+        let resolution = requested.resolve(
+            estimatedInputBytes: 0, physicalMemoryBytes: host.physicalMemoryBytes, pinnedHeapGB: heapGB,
+            platform: platform
+        )
+        guard let request = PlanClumpingRequest(rawValue: resolution.requested.rawValue),
+              let resolved = PlanClumpingTool(rawValue: resolution.resolved.rawValue) else {
+            throw ExecutorPlanError(field: "storage.clumpingTool", reason: "The clumping tool \(requested.rawValue) has no plan form.")
         }
+        return PlanClumpingChoice(
+            requested: request, resolved: resolved, resolvedSource: resolution.resolvedSource,
+            heapBytes: resolution.clumpifyHeapBytes, reason: resolution.reason,
+            operationNotice: resolution.resolved.operationNotice
+        )
     }
 
     /// The plan, checked by the decoder's own rules, so the Mac refuses what the node would.
@@ -226,7 +227,10 @@ package enum ExecutorPlanEmitter {
     /// the settings and the executor, recipe and database entries, with one slot per input. It reads no input file.
     package static func template(_ request: ExecutorPlanTemplateRequest, host: ExecutorPlanHostFacts) throws -> ExecutorPlanTemplate {
         let settings = request.storage
-        let clumping = try clumpingChoice(requested: settings.requestedClumpingTool, heapGB: settings.clumpifyHeapGB, host: host)
+        let clumping = try clumpingChoice(
+            requested: settings.requestedClumpingTool, heapGB: settings.clumpifyHeapGB, host: host,
+            platform: namedPlatform(request.platform)
+        )
         let plannedSteps: [PlannedStep]
         let recipeIdentity: PlanRecipeIdentity?
         switch (request.recipe, request.recipeFile) {

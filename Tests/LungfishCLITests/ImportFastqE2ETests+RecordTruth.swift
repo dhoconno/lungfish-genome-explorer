@@ -400,7 +400,10 @@ extension ImportFastqE2ETests {
         XCTAssertEqual(resolved["clumpingHeapBytes"], .integer(ranHeap * 1_073_741_824))
         XCTAssertEqual(resolved["clumpifyHeapSource"], .string("host"))
         XCTAssertEqual(resolved["resolvedClumpingTool"], .string("bbtools"))
-        XCTAssertEqual(resolved["resolvedClumpingToolSource"], .string("host"))
+        // C5 D5: the tool's source is the rule's (`default` for auto), the heap keeps the host as its source.
+        XCTAssertEqual(resolved["resolvedClumpingToolSource"], .string("default"))
+        XCTAssertEqual(resolved["clumpingEstimatedInputBytes"], .null)
+        XCTAssertEqual(resolved["clumpingThresholdBytes"], .null)
     }
 
     /// `--threads`, `--clumping-tool` and `--clumpify-heap-gb` pin each choice. The record names each as the

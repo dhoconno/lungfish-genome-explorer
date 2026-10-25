@@ -153,20 +153,15 @@ extension FASTQBatchImporter {
             self.requestedCompressionLevel = compressionLevel
             // An explicit value wins, then the recipe's declared value, then the import default.
             self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? Self.commandDefaultQualityBinning
-            // Short reads are reordered for storage unless asked not to.
-            // Unknown reads only when asked (optimizeStorage or a clumping
-            // tool), since they may be long. Long reads never are.
-            let requestedClumping = optimizeStorage ?? clumpingTool.map(\.isClumpingEnabled)
-            let resolvedOptimizeStorage: Bool
-            if sequencingPlatform.supportsStorageClumping {
-                resolvedOptimizeStorage = requestedClumping ?? true
-            } else if sequencingPlatform == .unknown {
-                resolvedOptimizeStorage = requestedClumping ?? false
-            } else {
-                resolvedOptimizeStorage = false
-            }
-            self.optimizeStorage = resolvedOptimizeStorage
-            self.clumpingTool = resolvedOptimizeStorage ? (clumpingTool ?? .default) : .none
+            // Platform first, one rule for this import, a plan and both sheets (C5 O49, D8 B). `--no-optimize-storage`
+            // stores without clumping, a tool the user named wins on every platform, and `auto`, which also stands for
+            // nothing named, is what `ClumpingTool.automaticChoice(for:)` says of the platform: short reads clump,
+            // ONT, PacBio and Unknown reads do not. `auto` is kept, so the record states the rule that decided.
+            let storage = ClumpingTool.storageRequest(
+                optimizeStorage: optimizeStorage, tool: clumpingTool, platform: sequencingPlatform
+            )
+            self.optimizeStorage = storage.optimizeStorage
+            self.clumpingTool = storage.tool
             self.compressionLevel = compressionLevel ?? .balanced
             self.threads = threads
             self.threadsSource = threadsSource

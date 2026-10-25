@@ -400,7 +400,8 @@ final class FASTQBatchImporterTests: XCTestCase {
         let expectedMessage = "Trim Galore --clumpify also performs adapter/quality filtering and may remove short reads."
         let cases: [(requested: ClumpingTool, inputBytes: Int64, memoryBytes: Int64, resolved: ClumpingTool)] = [
             (.trimGalore, 1 * Self.gib, 64 * Self.gib, .trimGalore),
-            (.auto, 20 * Self.gib, 64 * Self.gib, .none),
+            // C5 O49: the Mac's auto follows the plan's rule, so an input over half the heap clumps as well.
+            (.auto, 20 * Self.gib, 64 * Self.gib, .bbtools),
             (.bbtools, 20 * Self.gib, 64 * Self.gib, .bbtools),
             (.none, 20 * Self.gib, 64 * Self.gib, .none),
             (.auto, 1 * Self.gib, 64 * Self.gib, .bbtools),

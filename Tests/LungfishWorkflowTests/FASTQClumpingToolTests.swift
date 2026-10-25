@@ -1,5 +1,7 @@
 import XCTest
 import LungfishCore
+import LungfishIO
+import LungfishPortable
 @testable import LungfishWorkflow
 
 final class FASTQClumpingToolTests: XCTestCase {
@@ -43,7 +45,9 @@ final class FASTQClumpingToolTests: XCTestCase {
         XCTAssertNil(ClumpingTool.none.operationNotice)
     }
 
-    func testAutoChoosesBBToolsWhenEstimatedInputIsSafelyBelowHeapThreshold() {
+    /// C5 O49, D5: `auto` is one rule. It names BBTools clumpify at the clumpify heap, reads no estimate and compares no
+    /// threshold, and its source is `default`.
+    func testAutoChoosesBBToolsAtTheClumpifyHeapWithNoEstimate() {
         let resolution = ClumpingTool.auto.resolve(
             estimatedInputBytes: 10 * Self.gib,
             physicalMemoryBytes: 64 * Self.gib
@@ -54,46 +58,57 @@ final class FASTQClumpingToolTests: XCTestCase {
         // ManagedJavaHeapPolicy: 35 % of 64 GB = 22 GB, so a second managed
         // tool (e.g. a 16 GB Kraken2 database) can be resident at the same time.
         XCTAssertEqual(resolution.clumpifyHeapBytes, 22 * Self.gib)
-        XCTAssertEqual(resolution.thresholdBytes, (22 * Self.gib) / 2)
+        XCTAssertNil(resolution.estimatedInputBytes, "auto reads no estimate, as the plan has none")
+        XCTAssertNil(resolution.thresholdBytes, "auto compares nothing with half the heap")
+        XCTAssertEqual(resolution.reason, ClumpingTool.automaticClumpifyReason)
+        XCTAssertEqual(resolution.resolvedSource, .default)
     }
 
-    func testAutoSkipsClumpingWhenEstimatedInputMayPressureBBToolsHeap() {
-        // Auto never silently substitutes Trim
-        // Galore, which also filters/trims reads, for a memory reason alone.
-        // Above the BBTools clumpify budget, auto now skips clumping entirely
-        // rather than picking a tool with side effects the user did not request.
-        let resolution = ClumpingTool.auto.resolve(
-            estimatedInputBytes: 20 * Self.gib,
-            physicalMemoryBytes: 64 * Self.gib
-        )
-
-        XCTAssertEqual(resolution.resolved, .none)
-        XCTAssertTrue(resolution.reason.contains("exceeds the BBTools clumpify memory budget"))
-    }
-
-    /// Vote C4-4 D-6 (option 1; QA Q4-14, BIO B-D6-3, SWIFT SW4-13, UX U4-9): at a pinned 1 GB heap the automatic choice keeps
-    /// BBTools for an estimated input of at most half the heap, the `<=` at `ClumpingTool.swift:64`, and skips clumping one
-    /// byte above it, with the reason the Mac's import states. The pinned heap, not the host's memory, sets the threshold.
-    func testAutoAtAPinnedOneGBHeapSkipsClumpingJustAboveHalfTheHeap() {
+    /// C5 O49 (replaces the C4-4 D-6 skip): at a pinned 1 GB heap `auto` clumps at every size, below, at and above half the
+    /// heap, since clumpify's groups=auto splits a large input to fit the heap. The pinned heap, not the host's memory,
+    /// sets the heap.
+    func testAutoAtAPinnedOneGBHeapClumpsAtEverySize() {
         let half: Int64 = 536_870_912
-        let atHalf = ClumpingTool.auto.resolve(estimatedInputBytes: half, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
-        XCTAssertEqual(atHalf.resolved, .bbtools)
-        XCTAssertEqual(atHalf.thresholdBytes, half)
+        for size in [349_495_473, half, half + 1, 20 * Self.gib] {
+            let resolution = ClumpingTool.auto.resolve(estimatedInputBytes: size, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
+            XCTAssertEqual(resolution.resolved, .bbtools, "\(size)")
+            XCTAssertEqual(resolution.clumpifyHeapBytes, Self.gib, "\(size)")
+            XCTAssertEqual(resolution.reason, ClumpingTool.automaticClumpifyReason, "\(size)")
+            XCTAssertNil(resolution.thresholdBytes, "\(size)")
+        }
+    }
 
-        let above = ClumpingTool.auto.resolve(estimatedInputBytes: half + 1, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
-        XCTAssertEqual(above.resolved, ClumpingTool.none)
-        XCTAssertEqual(above.thresholdBytes, half)
-        XCTAssertEqual(above.reason, "skipped clumping: estimated input exceeds the BBTools clumpify memory budget")
-
-        let below = ClumpingTool.auto.resolve(estimatedInputBytes: 349_495_473, physicalMemoryBytes: 64 * Self.gib, pinnedHeapGB: 1)
-        XCTAssertEqual(below.resolved, .bbtools)
-        XCTAssertEqual(below.thresholdBytes, half)
+    /// D8 B: platform first. Short reads and a caller that names no platform clump, ONT and PacBio clump nothing with a
+    /// reason that cites the error rate, Unknown clumps nothing, and a named tool wins with source `option`.
+    func testAutoIsDecidedPlatformFirstAndANamedToolWins() {
+        for platform in [LungfishIO.SequencingPlatform?.none, .illumina, .element, .mgi, .ultima] {
+            let resolution = ClumpingTool.auto.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib, platform: platform)
+            XCTAssertEqual(resolution.resolved, .bbtools, platform?.rawValue ?? "no platform")
+            XCTAssertEqual(resolution.reason, ClumpingTool.automaticClumpifyReason)
+        }
+        for platform in [LungfishIO.SequencingPlatform.oxfordNanopore, .pacbio] {
+            let resolution = ClumpingTool.auto.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib, platform: platform)
+            XCTAssertEqual(resolution.resolved, ClumpingTool.none, platform.rawValue)
+            XCTAssertEqual(resolution.resolvedSource, .default, platform.rawValue)
+            XCTAssertTrue(resolution.reason.contains("high error rate"), resolution.reason)
+            XCTAssertFalse(resolution.reason.contains("costs time and memory"), resolution.reason)
+        }
+        let unknown = ClumpingTool.auto.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib, platform: .unknown)
+        XCTAssertEqual(unknown.resolved, ClumpingTool.none)
+        XCTAssertEqual(unknown.reason, ClumpingTool.automaticUnknownPlatformReason)
+        let named = ClumpingTool.bbtools.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib, platform: .oxfordNanopore)
+        XCTAssertEqual(named.resolved, .bbtools)
+        XCTAssertEqual(named.resolvedSource, .option)
     }
 
     func testExplicitChoicesBypassAutoHeuristic() {
         XCTAssertEqual(ClumpingTool.bbtools.resolve(estimatedInputBytes: 100 * Self.gib, physicalMemoryBytes: 8 * Self.gib).resolved, .bbtools)
         XCTAssertEqual(ClumpingTool.trimGalore.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib).resolved, .trimGalore)
         XCTAssertEqual(ClumpingTool.none.resolve(estimatedInputBytes: 1, physicalMemoryBytes: 64 * Self.gib).resolved, .none)
+        let named = ClumpingTool.bbtools.resolve(estimatedInputBytes: 5, physicalMemoryBytes: 64 * Self.gib)
+        XCTAssertEqual(named.estimatedInputBytes, 5, "a named tool keeps the size the caller measured")
+        XCTAssertEqual(named.thresholdBytes, 11 * Self.gib)
+        XCTAssertEqual(named.reason, "explicit clumping tool selection")
     }
 
     func testTrimGaloreArgumentsUseClumpifyAndMinimumTwoCores() {
