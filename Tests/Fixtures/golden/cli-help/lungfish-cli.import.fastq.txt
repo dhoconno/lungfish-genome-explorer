@@ -8,8 +8,9 @@ ARGUMENTS:
 
 OPTIONS:
   --samplesheet <samplesheet>
-                          CSV sample sheet with sample,r1,r2 columns and
-                          optional metadata columns
+                          CSV sample sheet, such as samples.csv, with
+                          sample,r1,r2 columns, an optional request_disk column
+                          and optional metadata columns
   -p, --project <project> Path to .lungfish project directory, required unless
                           --write-plan is given
   --platform <platform>   Sequencing platform: auto, illumina, ont, pacbio,
@@ -73,8 +74,8 @@ OPTIONS:
   --clumping-tool <clumping-tool>
                           Storage optimization tool: auto, bbtools,
                           trim-galore, none (default: platform-specific)
-  --write-plan <folder>   Write a CHTC submit folder to this new folder in
-                          place of importing
+  --write-plan <folder>   Write a plan folder for a run on a Linux machine to
+                          this new folder in place of importing
         The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan
         folder per sample named by its sample with the sample's plan.tar, and
         staging-files.json, which lists each file the jobs read from the
@@ -95,23 +96,26 @@ OPTIONS:
   --executor-manifest <file>
                           The manifest.json beside the Linux lungfish-executor,
                           which states its SHA-256, size and build
-        Required with --write-plan. This build of the app holds no Linux
-        executor yet, so you name the manifest of one you built.
+        Optional with --write-plan. The app holds a Linux executor and the plan
+        uses it. Name the manifest of one you built to use that one instead.
   --image <file>          The image.json of the container image the jobs run
                           in, which states the image's file name, SHA-256 and
                           size and its tool manifest's SHA-256 and size
-        Required with --write-plan. This build of the app holds no image record
-        yet, so you name the one written when the image was built.
+        Optional with --write-plan. The app holds an image record and the plan
+        uses it. Name the one written when you built another image to use that
+        one instead.
   --image-tool-manifest <file>
                           The image's tool manifest, the file image.json pins
-        Required with --write-plan. The plan pins each tool it runs from this
-        file.
-  --staging-folder <path> The absolute path of the group's staging folder on
-                          CHTC that the jobs read from
+        Optional with --write-plan. The plan pins each tool it runs from this
+        file, which the image record pins. The app holds the file of its own
+        image record and uses it when you name none.
+  --staging-folder <path> The absolute path of the folder on the Linux machine
+                          that the jobs read the image, the executor and the
+                          reads from
         Required with --write-plan. The image is in images/, each executor and
         database copy in shared/ under a name that starts with its SHA-256,
-        each sample's reads in batches/<submit folder name>/<sample>/ and the
-        files its job returns in batches/<submit folder name>/<sample>/result/.
+        each sample's reads in batches/<plan folder name>/<sample>/ and the
+        files its job returns in batches/<plan folder name>/<sample>/result/.
   --job-requirements <expression>
                           The machines the jobs may run on, as one HTCondor
                           requirements expression, for --write-plan
