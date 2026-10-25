@@ -493,10 +493,11 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
 
     // MARK: - Where the app's route fails and the leaf does not (ruling on A47 M3, section 3)
 
-    /// Item (b). When `auto` resolves clumping to `none` (an input above half the Java heap), the
-    /// app's route compresses the file, removes the original, and then fails with "pipeline
-    /// completed without clumpifying reads", leaving no sidecar and no record. The leaf warns,
-    /// finishes, and records before it removes the original.
+    /// Item (b). When `auto` resolves clumping to `none`, the app's route compresses the file,
+    /// removes the original, and then fails with "pipeline completed without clumpifying reads",
+    /// leaving no sidecar and no record. The leaf warns, finishes, and records before it removes
+    /// the original. Since C5 O49 (MOS1) `auto` resolves to `none` by platform alone, for ONT,
+    /// PacBio and Unknown reads, and never by size: short reads clump at any size, in groups.
     func testClumpingResolvedToNoneWarnsAndRecordsBeforeRemoval() async throws {
         try await requireCompressor()
         let root = try TestTempDirectory.make(prefix: "fastq-ingest-none")
@@ -505,8 +506,13 @@ final class FastqIngestLeafDurabilityTests: XCTestCase {
         try Self.reads.write(to: input, atomically: true, encoding: .utf8)
         let digest = try ProvenanceFileHasher.sha256(of: input)
         let output = root.appendingPathComponent("reads.fastq.gz")
-        let resolution = ClumpingTool.default.resolve(estimatedInputBytes: Int64.max / 4)
-        XCTAssertEqual(resolution.resolved, ClumpingTool.none, "an input far above the heap budget resolves to none")
+        let resolution = ClumpingTool.default.resolve(estimatedInputBytes: Int64.max / 4, platform: .oxfordNanopore)
+        XCTAssertEqual(ClumpingTool.default, ClumpingTool.auto, "the command's default is auto")
+        XCTAssertEqual(resolution.resolved, ClumpingTool.none, "auto resolves to none for ONT reads, at any size")
+        XCTAssertEqual(
+            ClumpingTool.default.resolve(estimatedInputBytes: Int64.max / 4, platform: .illumina).resolved, ClumpingTool.bbtools,
+            "the same size on short reads resolves to bbtools, so the size is not what makes this run skip"
+        )
 
         let probe = IngestRemovalMomentProbe(watching: [input]) {
             IngestPublishMoment.read(root: root, original: input, output: output)
