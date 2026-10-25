@@ -223,6 +223,29 @@ final class ExecutorRunAdoptionRecipeTests: XCTestCase {
         XCTAssertEqual(copies["S"]?.isDisjoint(with: copies["T"] ?? []), true, "two samples' copies never share a name")
     }
 
+    /// BADOPT review fix 4 (QA 1): the refusal of a record that holds recipe steps this build's plan of the recipe does not
+    /// take ends with ` Nothing was imported.` once. `refusal` adds that sentence to the reason of every refusal, so the
+    /// reason of the lane's base read it twice, and the cause, which a batch's refusal line uses, holds it nowhere. The
+    /// returned folder is the recipe adopt's own, and the recipe this build holds keeps its first step only, so the record's
+    /// other recipe steps have no planned step to take them.
+    func testRecipeStepsRefusalEndsWithNothingWasImportedOnce() async throws {
+        _ = try await adopt()
+        let root = try XCTUnwrap(scratch.last)
+        let run = try ExecutorRunAdoption.check(root.appendingPathComponent("returned", isDirectory: true), policy: .release)
+        let held = try ExecutorRunAdoption.preflight(
+            run, projectDirectory: root.appendingPathComponent("Project.lungfish", isDirectory: true), force: true
+        )
+        var recipe = try XCTUnwrap(held.recipe)
+        recipe.steps = Array(recipe.steps.prefix(1))
+        XCTAssertThrowsError(try ExecutorRunAdoption.claimedRecipeSteps(run, recipe: recipe, paired: held.inputs.count > 1)) { error in
+            guard let refusal = error as? ExecutorAdoptRefusal else { return XCTFail("\(error)") }
+            XCTAssertEqual(refusal.field, "steps")
+            XCTAssertEqual(refusal.reason.components(separatedBy: "Nothing was imported.").count, 2, refusal.reason)
+            XCTAssertTrue(refusal.reason.hasSuffix(" Nothing was imported."), refusal.reason)
+            XCTAssertEqual(refusal.cause.components(separatedBy: "Nothing was imported.").count, 1, refusal.cause)
+        }
+    }
+
     /// Vote C4-4 D-5 (option 2; ARCH A-D5-1 and A-D5-3, BIO B-D5-1 and B-D5-2, UX U4-3 and U4-7, CHTC CH-4 and CH-7): the
     /// storage writer and the statistics step keep the node's `out/<payload>` in their argv, and their replay argv, command
     /// and the writer's output name the published payload, the run's own output. The statistics step lists that payload as
