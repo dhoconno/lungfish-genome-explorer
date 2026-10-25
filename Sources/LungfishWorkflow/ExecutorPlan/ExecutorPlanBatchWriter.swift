@@ -73,7 +73,7 @@ package struct ExecutorPlanStagingLayout: Sendable, Equatable {
     package var batchFolder: String { "\(folder)/batches/\(batch)" }
     package func samplePath(_ sample: String, _ name: String) -> String { "\(batchFolder)/\(sample)/\(name)" }
     /// A path this layout gives, below ``folder``, which is how `jobs.tsv` names it below a plain run's data folder.
-    package func relativePath(_ path: String) -> String { String(path.dropFirst(folder.count + 1)) }
+    package func pathBelowFolder(_ path: String) -> String { String(path.dropFirst(folder.count + 1)) }
     static func url(_ path: String) -> String { "file://\(path)" }
 }
 
@@ -252,7 +252,7 @@ package enum ExecutorPlanBatchWriter {
         let sharedBytes = shared.reduce(Int64(0)) { $0 + $1.size }
         // jobs.tsv names the executor first, then each database, then the reads: the order lge-job.sh takes them.
         let sharedPlacements = (shared.filter { $0.role == .executor } + shared.filter { $0.role == .database })
-            .map { "\(layout.relativePath(layout.sharedPath($0)))=\($0.relativePath)" }
+            .map { "\(layout.pathBelowFolder(layout.sharedPath($0)))=\($0.relativePath)" }
         var jobs: [LinuxRunJob] = []
         // The adopt reads each report in the returned folder at its `work/` path, so the job returns the plan's reports
         // (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1), into the sample's result folder.
@@ -283,7 +283,7 @@ package enum ExecutorPlanBatchWriter {
                 let readName = (slot.relativePath as NSString).lastPathComponent
                 let path = layout.samplePath(name, readName)
                 reads.append(HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(path), relativePath: slot.relativePath))
-                placements.append("\(layout.relativePath(path))=\(slot.relativePath)")
+                placements.append("\(layout.pathBelowFolder(path))=\(slot.relativePath)")
                 files.append(ExecutorPlanBatchFile(role: "input", sample: name, stagingPath: path, size: entry.size,
                                                    sha256: entry.sha256, source: emission.sources[entry.relativePath]?.path))
             }

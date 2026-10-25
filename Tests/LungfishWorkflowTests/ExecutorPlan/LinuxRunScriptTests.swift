@@ -117,7 +117,7 @@ final class LinuxRunScriptTests: XCTestCase {
         let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self,
                                             from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
         for file in list.files {
-            let target = data.appendingPathComponent(layout.relativePath(file.stagingPath))
+            let target = data.appendingPathComponent(layout.pathBelowFolder(file.stagingPath))
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             switch file.role {
             case "image": try sif.write(to: target)
@@ -306,7 +306,7 @@ final class LinuxRunScriptTests: XCTestCase {
             let reads = plan.entries.filter { $0.role == .input }.map(\.relativePath)
             XCTAssertEqual(lines[index + 1].split(separator: "\t").map(String.init), [
                 sample, "\(sample)/plan.tar", written.batch.planTars[index].sha256,
-                "\(layout.relativePath(executor.stagingPath))=\(executorPath)",
+                "\(layout.pathBelowFolder(executor.stagingPath))=\(executorPath)",
                 "batches/batch/\(sample)/R1.fastq=\(reads[0])", "batches/batch/\(sample)/R2.fastq=\(reads[1])",
             ])
         }
