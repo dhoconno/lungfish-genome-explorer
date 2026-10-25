@@ -99,12 +99,15 @@ package struct ExecutorReturnedFolder {
     }
 
     /// Emits the plan of a small pair under `root`, writes its folder as `returned-<clumping>` with a two-read payload,
-    /// and writes a succeeded record whose every step ran the plan's argv.
-    package static func make(root: URL, clumping: ClumpingTool, siteFacts: [PlanKeyValue] = []) throws -> ExecutorReturnedFolder {
+    /// and writes a succeeded record whose every step ran the plan's argv. `platform` is the `--platform` value the plan
+    /// states for the sample, and nil leaves the platform to inference (`auto`).
+    package static func make(
+        root: URL, clumping: ClumpingTool, siteFacts: [PlanKeyValue] = [], platform: String? = nil
+    ) throws -> ExecutorReturnedFolder {
         let pair = try ExecutorPlanTestSupport.writePair(root: root, "S")
-        let emission = try ExecutorPlanEmitter.emission(
-            ExecutorPlanTestSupport.request(root: root, "S", inputs: pair, clumping: clumping), host: ExecutorPlanTestSupport.mac24
-        )
+        var request = try ExecutorPlanTestSupport.request(root: root, "S", inputs: pair, clumping: clumping)
+        if let platform { request.sample.platform = platform }
+        let emission = try ExecutorPlanEmitter.emission(request, host: ExecutorPlanTestSupport.mac24)
         let folder = root.appendingPathComponent("returned-\(clumping.rawValue)", isDirectory: true)
         let planFile = try ExecutorPlanFolderWriter.write(emission, into: folder)
         let planBytes = try Data(contentsOf: planFile)

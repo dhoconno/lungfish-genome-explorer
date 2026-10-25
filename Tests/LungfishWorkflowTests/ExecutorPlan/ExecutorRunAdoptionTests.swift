@@ -511,11 +511,80 @@ final class ExecutorRunAdoptionTests: XCTestCase {
         returned.plan.entries.filter { $0.role == .input }
     }
 
+    /// Review R1-R2 fix 1 (a), BIO 4: a plan that leaves the platform to inference cannot be adopted from a folder that holds
+    /// no R1, since the adopt would record an Unknown platform with no read class and say nothing. The adopt and the dry run
+    /// refuse alike, naming the field `platform`, the file to copy with the pin's SHA-256, and "adopt again".
+    func testAdoptRefusesAutoPlatformWhenInputAbsent() async throws {
+        let returned = try returned(.bbtools)
+        XCTAssertNil(returned.plan.sample.platform, "the plan leaves the platform to inference")
+        let pins = inputPins(returned)
+        XCTAssertEqual(pins.count, 2)
+        for pin in pins { try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath)) }
+        let dry = try XCTUnwrap(dryRunRefusal(returned), "the dry run passed a run the adopt refuses")
+        let outcome = await refusal(returned)
+        let refused = try XCTUnwrap(outcome, "the adopt took an automatic platform from a folder with no reads")
+        XCTAssertEqual(refused.field, "platform")
+        XCTAssertTrue(refused.reason.contains("adopt again"), refused.reason)
+        XCTAssertTrue(refused.reason.contains(pins[0].sha256), refused.reason)
+        XCTAssertTrue(refused.reason.contains("\(pins[0].size) bytes"), refused.reason)
+        XCTAssertTrue(refused.reason.contains(pins[0].relativePath), refused.reason)
+        XCTAssertTrue(refused.reason.hasSuffix("Nothing was imported."), refused.reason)
+        XCTAssertEqual(dry.field, refused.field)
+        XCTAssertEqual(dry.reason, refused.reason)
+        XCTAssertEqual(importedEntries(), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports").path))
+    }
+
+    /// Review R1-R2 fix 1 (b), BIO 4: a plan that names the platform keeps it, given, with the read class it implies. With no
+    /// R1 in the folder the envelope's `platformConfidence`, `platformEvidence` and `platformVendorDetail` and the sidecar's
+    /// `platformAssignment` state that no inference ran; with the reads present they are the inference's own.
+    func testAdoptStatesNoInferenceForGivenPlatformWhenInputAbsent() async throws {
+        let notInferred = "The returned folder holds no reads, so the platform was not inferred from them."
+        let present = try ExecutorReturnedFolder.make(
+            root: root.appendingPathComponent("present", isDirectory: true), clumping: .bbtools, platform: "illumina"
+        )
+        let r1 = present.folder.appendingPathComponent(try XCTUnwrap(inputPins(present).first).relativePath)
+        let inferred = PlatformInference.infer(fromFASTQ: r1)
+        XCTAssertNotEqual(inferred.evidence, [notInferred])
+        let presentBundle = try await ExecutorRunAdoption.adopt(
+            resultFolder: present.folder, projectDirectory: root.appendingPathComponent("present/Project.lungfish", isDirectory: true)
+        )
+        let kept = try envelope(presentBundle).options.explicit
+        XCTAssertEqual(kept["platformSource"], .string("given"))
+        XCTAssertEqual(kept["platformConfidence"], .string(inferred.confidence.rawValue))
+        XCTAssertEqual(kept["platformEvidence"], .array(inferred.evidence.map { ParameterValue.string($0) }))
+        XCTAssertEqual(kept["platformVendorDetail"], inferred.vendorDetail.map { ParameterValue.string($0) } ?? ParameterValue.null)
+
+        let absent = try ExecutorReturnedFolder.make(
+            root: root.appendingPathComponent("absent", isDirectory: true), clumping: .bbtools, platform: "illumina"
+        )
+        for pin in inputPins(absent) { try FileManager.default.removeItem(at: absent.folder.appendingPathComponent(pin.relativePath)) }
+        XCTAssertNil(dryRunRefusal(absent))
+        let bundle = try await ExecutorRunAdoption.adopt(resultFolder: absent.folder, projectDirectory: project)
+        let options = try envelope(bundle).options.explicit
+        XCTAssertEqual(options["platformSource"], .string("given"))
+        XCTAssertEqual(options["platformConfidence"], .string("none"))
+        XCTAssertEqual(options["platformEvidence"], .array([.string(notInferred)]))
+        XCTAssertEqual(options["platformVendorDetail"], ParameterValue.null)
+        let sidecar = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.appendingPathComponent("S.fastq.gz")))
+        XCTAssertEqual(sidecar.sequencingPlatform, .illumina)
+        XCTAssertEqual(sidecar.assemblyReadType, .illuminaShortReads)
+        let assignment = try XCTUnwrap(sidecar.platformAssignment)
+        XCTAssertEqual(assignment.source, .given)
+        XCTAssertEqual(assignment.platform, .illumina)
+        XCTAssertEqual(assignment.readClass, .illuminaShortReads)
+        XCTAssertEqual(assignment.confidence?.rawValue, "none")
+        XCTAssertEqual(assignment.evidence, [notInferred])
+        XCTAssertEqual(assignment.sampledRecords, 0)
+        XCTAssertNil(assignment.vendorDetail)
+    }
+
     /// ARCH-X3 R-2: a CHTC job reads its inputs from /staging and returns none, so the adopt takes each input's digest and
     /// size from the record's checked inputs. With the inputs gone the dry run and the adopt pass, and the envelope's input
-    /// records, the run's and the import step's, carry the plan's SHA-256 and size.
+    /// records, the run's and the import step's, carry the plan's SHA-256 and size. The plan names the platform, since one
+    /// that leaves it to inference is refused without R1 (review R1-R2 fix 1).
     func testAdoptTakesAbsentInputsFromRunRecord() async throws {
-        let returned = try returned(.bbtools)
+        let returned = try ExecutorReturnedFolder.make(root: root, clumping: .bbtools, platform: "illumina")
         let pins = inputPins(returned)
         XCTAssertEqual(pins.count, 2)
         for pin in pins { try FileManager.default.removeItem(at: returned.folder.appendingPathComponent(pin.relativePath)) }

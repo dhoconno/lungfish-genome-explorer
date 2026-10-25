@@ -43,11 +43,12 @@ extension ExecutorRunAdoption {
             run, projectDirectory: projectDirectory, force: force
         )
         let r1 = inputs[0]
-        // The platform as the Mac decides it for a sample: the plan's request, resolved against the plan's inputs.
-        let config = FASTQBatchImporter.sampleConfig(
-            for: pair,
-            config: importConfig(plan, recipe: recipe, projectDirectory: projectDirectory, paired: inputs.count > 1, force: force),
-            log: nil
+        // The platform as the Mac decides it for a sample: the plan's request, resolved against the plan's R1. A folder that
+        // holds no R1 keeps a named platform and states that no inference ran (review R1-R2 fix 1); the preflight has refused
+        // a plan that leaves the platform to inference.
+        let config = platformResolved(
+            importConfig(plan, recipe: recipe, projectDirectory: projectDirectory, paired: inputs.count > 1, force: force),
+            for: pair, readsReturned: holdsItem(at: r1)
         )
         let metadataPairs = Dictionary(plan.sample.sampleSheet.map { ($0.key, $0.value) }, uniquingKeysWith: { $1 })
 
@@ -315,7 +316,7 @@ extension ExecutorRunAdoption {
         let level: CompressionLevel = plan.storage.compressionLevel <= 1 ? .fast : (plan.storage.compressionLevel >= 9 ? .maximum : .balanced)
         return FASTQBatchImporter.ImportConfig(
             projectDirectory: projectDirectory,
-            platform: plan.sample.platform.flatMap(ImportPlatformRequest.init(cliValue:)) ?? .auto,
+            platform: platformRequest(plan),
             newRecipe: recipe, qualityBinning: plan.storage.qualityBinning,
             optimizeStorage: plan.clumping.requested != .none,
             clumpingTool: ClumpingTool(rawValue: plan.clumping.requested.rawValue), compressionLevel: level,
@@ -358,8 +359,8 @@ extension ExecutorRunAdoption {
     }
 
     /// Every refusal of the adopt that needs no bundle file, in the order the adopt meets them, for the dry run and the adopt
-    /// alike (AMV1 SWIFT fix 1, BIO fix 2): the bundle's place, each input against the plan's pin (ARCH-X3 R-2), the recipe
-    /// this build holds, the record's seqkit table (present, and a table the Mac's parse reads, refused with the statistics
+    /// alike (AMV1 SWIFT fix 1, BIO fix 2): the bundle's place, each input against the plan's pin (ARCH-X3 R-2), the reads an
+    /// automatic platform is inferred from (review R1-R2 fix 1), the recipe this build holds, the record's seqkit table (present, and a table the Mac's parse reads, refused with the statistics
     /// step's index) and the recipe steps the plan claims. It writes nothing, so a run it passes can still fail on a write
     /// but never on a record it could have read.
     static func preflight(
@@ -367,6 +368,7 @@ extension ExecutorRunAdoption {
     ) throws -> (pair: SamplePair, inputs: [URL], inputRecords: [FileRecord], url: URL, recipe: Recipe?, statistics: String) {
         let (pair, inputs, url) = try plannedBundle(run, projectDirectory: projectDirectory, force: force)
         let inputRecords = try checkedInputs(run, inputs: inputs)
+        try requireReadsForInferredPlatform(run, inputs: inputs)
         let recipe = try resolvedRecipe(run.plan.recipe)
         let index = run.record.steps.firstIndex { $0.kind == .statistics }
         let field = index.map { "steps[\($0)]" } ?? "steps"
@@ -408,7 +410,7 @@ extension ExecutorRunAdoption {
                 format: FASTQBatchImporter.provenanceFormat(for: url), role: .input
             )
             // Any item at the path is present, a link that leads nowhere as well, so it is read and never passed over.
-            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil else {
+            guard holdsItem(at: url) else {
                 guard stated != nil else {
                     throw refusal(
                         field,
@@ -439,6 +441,56 @@ extension ExecutorRunAdoption {
             }
             return record
         }
+    }
+
+    /// Whether any item sits at `url`. A link that leads nowhere counts, because `attributesOfItem` is an lstat, so the inputs
+    /// check, the platform check and the platform's resolution agree on which inputs the folder holds.
+    static func holdsItem(at url: URL) -> Bool {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+    }
+
+    /// The platform the plan requests: its `--platform` value, and `auto` when the plan states none the import reads.
+    static func platformRequest(_ plan: ExecutionPlan) -> ImportPlatformRequest {
+        plan.sample.platform.flatMap(ImportPlatformRequest.init(cliValue:)) ?? .auto
+    }
+
+    /// Review R1-R2 fix 1 (a), BIO 4. The Mac decides an automatic platform from the first reads of R1, and a CHTC job returns
+    /// none, so the adopt would record an Unknown platform with no read class and print nothing. It refuses instead and names
+    /// the file to copy. A plan that names the platform needs no read here (`platformResolved`). The dry run takes this
+    /// refusal by calling `preflight`.
+    static func requireReadsForInferredPlatform(_ run: ExecutorAdoptedRun, inputs: [URL]) throws {
+        guard case .auto = platformRequest(run.plan), let r1 = inputs.first, !holdsItem(at: r1),
+              let pin = run.plan.entries.first(where: { $0.role == .input }) else { return }
+        throw refusal(
+            "platform",
+            "The plan leaves the platform to be inferred from the reads, and the folder does not hold \(r1.path). "
+                + "Copy the file the plan pins (SHA-256 \(pin.sha256), \(pin.size) bytes) there and adopt again."
+        )
+    }
+
+    /// What the envelope's `platformEvidence` and the sidecar's `platformAssignment` say when a plan named the platform and the
+    /// folder holds no R1 to infer it from.
+    static let platformNotInferredEvidence = "The returned folder holds no reads, so the platform was not inferred from them."
+
+    /// The import's configuration with the sample's platform decided: as the Mac decides it, from the plan's request and R1
+    /// (`sampleConfig`), unless R1 is absent from the folder and the plan names the platform (review R1-R2 fix 1 (b), BIO 4).
+    /// Then the platform stays the plan's, with the read class it implies and the source `given`, and the inference is stated
+    /// as not run: confidence `none`, one evidence line, no vendor detail and no sampled record. The Mac's own inference is
+    /// held by no record, so none is taken from anywhere, and the evidence of a missing file ("No complete FASTQ records
+    /// could be read.") is not left to read as a damaged one.
+    static func platformResolved(
+        _ config: FASTQBatchImporter.ImportConfig, for pair: SamplePair, readsReturned: Bool
+    ) -> FASTQBatchImporter.ImportConfig {
+        guard !readsReturned, case .given(let platform) = config.platformRequest else {
+            return FASTQBatchImporter.sampleConfig(for: pair, config: config, log: nil)
+        }
+        return config.resolved(with: ImportPlatformResolution(
+            platform: platform, readClass: FASTQAssemblyReadType(sequencingPlatform: platform), source: .given,
+            inference: PlatformInference(
+                platform: .unknown, readClass: nil, confidence: .none, evidence: [platformNotInferredEvidence], sampledRecords: 0
+            ),
+            contradiction: nil
+        ))
     }
 
     /// The recipe steps the plan claims: the engine's plan of the recipe, as the Mac plans it for this sample, takes the record's
