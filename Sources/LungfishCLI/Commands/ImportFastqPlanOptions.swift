@@ -98,7 +98,7 @@ struct ImportFastqPlanOptions: ParsableArguments {
                 + "the reads:\n"
                 + "printf 'file\\tbytes\\tsha256\\n' > staged-reads.tsv\n"
                 + "for f in /absolute/folder/*.fastq.gz; do\n"
-                + "printf '%s\\t%s\\t%s\\n' \"$f\" \"$(stat -c %s \"$f\")\" \\\n"
+                + "printf '%s\\t%s\\t%s\\n' \"$f\" \"$(stat -L -c %s \"$f\")\" \\\n"
                 + "\"$(sha256sum \"$f\" | cut -d ' ' -f 1)\" >> staged-reads.tsv\n"
                 + "done",
             valueName: "file"
