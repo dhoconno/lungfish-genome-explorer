@@ -232,7 +232,8 @@ def screen_state():
         foundation.CFRelease(key)
         return bool(value) and bool(foundation.CFBooleanGetValue(value))
     try:
-        return {"onConsole": flag("kCGSessionOnConsoleKey"), "locked": flag("CGSSessionScreenIsLocked")}
+        # kCGSessionOnConsoleKey is the string kCGSSessionOnConsoleKey (CGSession.h).
+        return {"onConsole": flag("kCGSSessionOnConsoleKey"), "locked": flag("CGSSessionScreenIsLocked")}
     finally:
         foundation.CFRelease(session)
 
