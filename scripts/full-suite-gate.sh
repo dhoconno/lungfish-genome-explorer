@@ -60,6 +60,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT" || exit 1
+# A ratchet run by a test of a tier must not write a lower baseline, since a changed source file ends
+# a gate with "source changed during gate" (scripts/ratchets/ratchet_baseline.py).
+export LUNGFISH_RATCHET_READ_ONLY=1
 
 # Canonical profiles are an additive frontend; legacy tier/filter coverage stays exact.
 for argument in "$@"; do

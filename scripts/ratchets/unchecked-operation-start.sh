@@ -139,4 +139,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    import ratchet_baseline
+    sys.exit(ratchet_baseline.run(main, sys.argv[1:], BASELINE_FILE))

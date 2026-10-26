@@ -43,6 +43,7 @@ class TreeCase(unittest.TestCase):
     def make_repo(self, files):
         self.script.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(SCRIPT, self.script)
+        shutil.copy(SCRIPT.with_name("ratchet_baseline.py"), self.script.parent / "ratchet_baseline.py")
         self.write_files(files)
 
     def write_files(self, files):

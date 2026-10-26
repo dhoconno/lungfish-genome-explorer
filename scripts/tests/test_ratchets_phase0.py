@@ -18,6 +18,7 @@ def make_repo(tmp_path, script, files):
     dest_dir = tmp_path / "scripts" / script.parent.name
     dest_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(script, dest_dir / script.name)
+    shutil.copy(SCRIPTS / "ratchets/ratchet_baseline.py", dest_dir / "ratchet_baseline.py")
     for rel, text in files.items():
         path = tmp_path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
