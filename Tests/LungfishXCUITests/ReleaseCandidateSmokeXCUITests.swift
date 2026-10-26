@@ -24,7 +24,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
                       "The window \(frame) must stay inside a visible screen \(ReleaseSmokeScreen.visibleFrames())")
     }
 
-    /// OBS-W6 class. The Inspector shows only the blocks of the result now on screen.
+    /// OBS-W6. The Inspector shows only the blocks of the result now on screen. A NAO-MGS result's block, titled
+    /// "NAO-MGS Result", stayed at the top of the Inspector for the next Kraken2 and TaxTriage result, so the
+    /// task opens the NAO-MGS result first and wants that block gone at every later step.
     @MainActor
     func testReleaseCandidateInspectorShowsOnlyTheCurrentResult() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -32,19 +34,24 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
         try robot.launch()
         robot.openProject(project)
-        let steps = [("kraken2", "Classification Result"), ("esviritu", "Viral Detection Result"),
-                     ("taxtriage", "Comprehensive Triage Result")]
+        let naoMgsBlock = "NAO-MGS Result"
+        let steps = [("naomgs", naoMgsBlock), ("kraken2", "Classification Result"), ("taxtriage", "Comprehensive Triage Result")]
         var previous: String?
         for (folder, title) in steps {
             ReleaseSmokeFixtures.openSidebarItem(containing: folder, in: robot.app)
+            if folder == "naomgs" { ReleaseSmokeFixtures.closeMissingDatabaseSheet(in: robot.app) }
             let block = robot.app.staticTexts[title].firstMatch
             if !block.waitForExistence(timeout: 10) {
                 robot.app.buttons["main-window-toggle-inspector"].firstMatch.click()
             }
             XCTAssertTrue(block.waitForExistence(timeout: 10), "The Inspector shows \(title) for the \(folder) result")
             if let previous {
-                XCTAssertTrue(robot.app.staticTexts[previous].firstMatch.waitForNonExistence(timeout: 5),
-                              "The Inspector still shows \(previous) after the \(folder) result opened")
+                XCTAssertTrue(robot.app.staticTexts[naoMgsBlock].firstMatch.waitForNonExistence(timeout: 5),
+                              "The NAO-MGS block stays in the Inspector after the \(folder) result opened")
+                if previous != naoMgsBlock {
+                    XCTAssertTrue(robot.app.staticTexts[previous].firstMatch.waitForNonExistence(timeout: 5),
+                                  "The Inspector still shows \(previous) after the \(folder) result opened")
+                }
             }
             previous = title
         }
@@ -111,7 +118,7 @@ enum ReleaseSmokeScreen {
 
 @MainActor
 enum ReleaseSmokeFixtures {
-    /// A project holding the Kraken2, EsViritu and TaxTriage results of `Tests/Fixtures/analyses`.
+    /// A project holding the Kraken2, EsViritu and TaxTriage results of `Tests/Fixtures/analyses` and a NAO-MGS result.
     static func makeClassifierResultsProject(named name: String) throws -> URL {
         let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: name)
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
@@ -121,11 +128,40 @@ enum ReleaseSmokeFixtures {
         for (folder, tool) in results {
             let destination = analyses.appendingPathComponent(folder, isDirectory: true)
             try FileManager.default.copyItem(at: LungfishFixtureCatalog.analyses.appendingPathComponent(folder), to: destination)
-            let metadata: [String: Any] = ["created": ISO8601DateFormatter().string(from: Date()), "isBatch": false, "tool": tool]
-            try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
-                .write(to: destination.appendingPathComponent("analysis-metadata.json"))
+            try writeAnalysisMetadata(tool: tool, in: destination)
         }
+        try writeNaoMgsResult(in: analyses.appendingPathComponent("naomgs-2026-01-15T09-00-00", isDirectory: true))
         return project
+    }
+
+    /// A NAO-MGS result holding its `manifest.json` with one cached taxon row. The app shows the cached row and the
+    /// result's Inspector block from the manifest alone, then says in a sheet that `hits.sqlite` is missing. The
+    /// database needs the app's own NAO-MGS code or an NCBI Taxonomy install to build, and the runner has neither.
+    static func writeNaoMgsResult(in folder: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let row: [String: Any] = ["sample": "S1", "taxId": 28875, "name": "Fixture virus alpha", "hitCount": 3,
+                                  "uniqueReadCount": 3, "avgIdentity": 99.1, "avgBitScore": 226.0, "avgEditDistance": 1.0,
+                                  "pcrDuplicateCount": 0, "accessionCount": 1, "topAccessions": ["KU048583.1"]]
+        let manifest: [String: Any] = ["formatVersion": "1.0", "sampleName": "S1", "importDate": "2026-01-15T09:00:00Z",
+                                       "sourceFilePath": "virus_hits_final.tsv.gz", "hitCount": 3, "taxonCount": 1,
+                                       "topTaxon": "Fixture virus alpha", "topTaxonId": 28875,
+                                       "fetchedAccessions": [String](), "cachedTaxonRows": [row]]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: folder.appendingPathComponent("manifest.json"))
+        try writeAnalysisMetadata(tool: "naomgs", in: folder)
+    }
+
+    /// Writes the `analysis-metadata.json` that files one result of `tool` under Analyses.
+    static func writeAnalysisMetadata(tool: String, in folder: URL) throws {
+        let metadata: [String: Any] = ["created": ISO8601DateFormatter().string(from: Date()), "isBatch": false, "tool": tool]
+        try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+            .write(to: folder.appendingPathComponent("analysis-metadata.json"))
+    }
+
+    /// Closes the sheet that says the NAO-MGS result has no `hits.sqlite`, so the sidebar takes clicks again.
+    static func closeMissingDatabaseSheet(in app: XCUIApplication) {
+        let ok = app.sheets.buttons["OK"].firstMatch
+        if ok.waitForExistence(timeout: 10) { ok.click() }
     }
 
     /// A ZIP holding one reference bundle named `name`, in a folder of its own.
