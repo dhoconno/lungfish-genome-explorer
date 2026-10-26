@@ -70,7 +70,7 @@ EXPECTED_TOOLCHAIN = {
 EXPECTED_GATES = {
     # null runs the smoke as the console user, unlocked, with the candidate in a fresh home.
     "appSmokeAccount": None,
-    "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
+    "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateTreeWindowStaysOnScreen', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateInspectorShowsOnlyTheCurrentResult', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateDroppedZipLandsItsBundle', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords'],
     "dependencyPolicy": "manifest",
     # False until the XCUI smoke of appSmokeTests runs unattended on the release Mac, which needs
     # Automation Mode without authentication there (lane UIP report, phase 3.0).

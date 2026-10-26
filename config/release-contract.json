@@ -79,7 +79,11 @@
       "LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus",
       "LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen",
       "LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership",
-      "LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser"
+      "LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateTreeWindowStaysOnScreen",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateInspectorShowsOnlyTheCurrentResult",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateDroppedZipLandsItsBundle",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords"
     ],
     "appSmokeAccount": null,
     "dependencyPolicy": "manifest",

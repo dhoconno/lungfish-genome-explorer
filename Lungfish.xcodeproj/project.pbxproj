@@ -25,6 +25,7 @@
 		F1E2D3C4B5A6978877665571 /* DatabaseSearchXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665573 /* DatabaseSearchXCUITests.swift */; };
 		F1E2D3C4B5A6978877665572 /* LungfishAppRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665574 /* LungfishAppRobot.swift */; };
 		F1E2D3C4B5A6978877665586 /* ProjectLifecycleXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665594 /* ProjectLifecycleXCUITests.swift */; };
+		C3A0E1D2B4F5061728394A01 /* ReleaseCandidateSmokeXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A0E1D2B4F5061728394A02 /* ReleaseCandidateSmokeXCUITests.swift */; };
 		F1E2D3C4B5A6978877665587 /* MainWindowNavigationXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665595 /* MainWindowNavigationXCUITests.swift */; };
 		F1E2D3C4B5A6978877665588 /* LungfishUITestLaunchOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665596 /* LungfishUITestLaunchOptions.swift */; };
 		F1E2D3C4B5A6978877665589 /* LungfishFixtureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665597 /* LungfishFixtureCatalog.swift */; };
@@ -55,6 +56,7 @@
 		F1E2D3C4B5A6978877665574 /* LungfishAppRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/LungfishAppRobot.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665575 /* LungfishXCUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LungfishXCUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1E2D3C4B5A6978877665594 /* ProjectLifecycleXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/ProjectLifecycleXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		C3A0E1D2B4F5061728394A02 /* ReleaseCandidateSmokeXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/ReleaseCandidateSmokeXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665595 /* MainWindowNavigationXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/MainWindowNavigationXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665596 /* LungfishUITestLaunchOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/LungfishUITestLaunchOptions.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665597 /* LungfishFixtureCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/LungfishFixtureCatalog.swift; sourceTree = SOURCE_ROOT; };
@@ -145,6 +147,7 @@
 				F1E2D3C4B5A69788776655A1 /* MappingXCUITests.swift */,
 				F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */,
 				F1E2D3C4B5A6978877665594 /* ProjectLifecycleXCUITests.swift */,
+				C3A0E1D2B4F5061728394A02 /* ReleaseCandidateSmokeXCUITests.swift */,
 				F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */,
 				F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */,
 				F1E2D3C4B5A6978877665579 /* TestSupport */,
@@ -387,6 +390,7 @@
 				F1E2D3C4B5A69788776655A2 /* MappingRobot.swift in Sources */,
 				F1E2D3C4B5A69788776655A8 /* PrimerTrimXCUITests.swift in Sources */,
 				F1E2D3C4B5A6978877665586 /* ProjectLifecycleXCUITests.swift in Sources */,
+				C3A0E1D2B4F5061728394A01 /* ReleaseCandidateSmokeXCUITests.swift in Sources */,
 				F1E2D3C4B5A6978877665592 /* ProjectLifecycleRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665593 /* SystemPanelRobot.swift in Sources */,
 				F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */,
