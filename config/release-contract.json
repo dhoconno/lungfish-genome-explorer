@@ -83,7 +83,8 @@
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateTreeWindowStaysOnScreen",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateInspectorShowsOnlyTheCurrentResult",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateDroppedZipLandsItsBundle",
-      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords"
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder"
     ],
     "appSmokeAccount": null,
     "dependencyPolicy": "manifest",

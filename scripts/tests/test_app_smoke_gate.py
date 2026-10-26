@@ -143,6 +143,7 @@ class AppSmokeGateTests(unittest.TestCase):
             (root / "config").mkdir()
             shutil.copyfile(ROOT / "config/release-contract.json", root / "config/release-contract.json")
             (root / "Tests/Fixtures/analyses").mkdir(parents=True)
+            (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
             lock = root / "Package.resolved"
             lock.write_text("retained pinned-source sentinel")
             calls = []

@@ -27,6 +27,7 @@ enum LungfishFixtureCatalog {
 
     static let sarscov2 = fixturesRoot.appendingPathComponent("sarscov2", isDirectory: true)
     static let analyses = fixturesRoot.appendingPathComponent("analyses", isDirectory: true)
+    static let kraken2Mini = fixturesRoot.appendingPathComponent("kraken2-mini", isDirectory: true)
     static let assemblyUI = fixturesRoot.appendingPathComponent("assembly-ui", isDirectory: true)
 
     static var cliBinaryURL: URL? {

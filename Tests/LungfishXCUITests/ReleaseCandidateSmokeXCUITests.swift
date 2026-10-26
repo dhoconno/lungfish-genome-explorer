@@ -57,6 +57,43 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         }
     }
 
+    /// OBS-W4. Extract from a Kraken2 result renamed in the sidebar reads and writes the result's own folder, not the
+    /// folder its sidecar names. Before the fix, Extract handed over the stored folder and the command refused it with
+    /// "Classification result not found". The task waits for `extracted-*` in the renamed folder, which the command
+    /// makes before it runs any tool, so the fresh home needs no seqkit, and a run that then stops on a missing tool
+    /// still passes.
+    @MainActor
+    func testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let project = try ReleaseSmokeFixtures.makeKraken2ResultProject(named: "ReleaseExtract-\(UUID().uuidString)")
+        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        let renamed = project.appendingPathComponent("Analyses/kraken2-renamed-smoke", isDirectory: true)
+        try robot.launch()
+        robot.openProject(project)
+        ReleaseSmokeFixtures.renameSidebarItem(containing: ReleaseSmokeFixtures.kraken2Folder, to: renamed.lastPathComponent,
+                                               in: robot.app)
+        let moved = NSPredicate { _, _ in FileManager.default.fileExists(atPath: renamed.path) }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: moved, object: nil)], timeout: 30), .completed,
+                       "The sidebar renames the result's folder")
+        ReleaseSmokeFixtures.openSidebarItem(containing: renamed.lastPathComponent, in: robot.app)
+        let drawer = robot.app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@",
+                                                            "Toggle Taxa Collections Drawer", "Collections")).firstMatch
+        XCTAssertTrue(drawer.waitForExistence(timeout: 15), "The Kraken2 result shows its Collections button")
+        drawer.click()
+        let extract = robot.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Extract all taxa in")).firstMatch
+        XCTAssertTrue(extract.waitForExistence(timeout: 10), "The collections drawer offers Extract")
+        extract.click()
+        let landed = NSPredicate { _, _ in !ReleaseSmokeFixtures.paths(in: renamed, named: "extracted-").isEmpty }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: nil)], timeout: 30), .completed,
+                       "Extract writes extracted-* inside the renamed result's own folder")
+        let refusal = "Classification result not found"
+        XCTAssertFalse(robot.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@",
+                                                                  refusal, refusal)).firstMatch.exists,
+                       "Extract refuses the renamed result as not found")
+        XCTAssertEqual(ReleaseSmokeFixtures.paths(in: project, named: ReleaseSmokeFixtures.kraken2Folder).count, 0,
+                       "No folder of the old result name appears in the project")
+    }
+
     /// OBS-W8. A ZIP dropped on the sidebar lands its bundle in the project and leaves no staging folder.
     @MainActor
     func testReleaseCandidateDroppedZipLandsItsBundle() throws {
@@ -188,8 +225,28 @@ enum ReleaseSmokeFixtures {
         return folder.appendingPathComponent("EscapingLink.zip")
     }
 
-    /// Clicks the first sidebar row whose words contain `text`, opening the Analyses group when needed.
-    static func openSidebarItem(containing text: String, in app: XCUIApplication) {
+    /// The folder of the Kraken2 result `makeKraken2ResultProject` writes, before the task renames it.
+    static let kraken2Folder = "kraken2-2026-01-15T16-00-00"
+
+    /// A project holding the Kraken2 result of `Tests/Fixtures/kraken2-mini/SRR35517702` with its reads, whose sidecar
+    /// names the result's folder by absolute path, as a real run writes it.
+    static func makeKraken2ResultProject(named name: String) throws -> URL {
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: name)
+        let result = project.appendingPathComponent("Analyses/\(kraken2Folder)", isDirectory: true)
+        try FileManager.default.createDirectory(at: result.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: LungfishFixtureCatalog.kraken2Mini.appendingPathComponent("SRR35517702"), to: result)
+        let sidecar = result.appendingPathComponent("classification-result.json")
+        var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sidecar)) as? [String: Any])
+        var config = try XCTUnwrap(stored["config"] as? [String: Any])
+        config["outputDirectory"] = result.absoluteString
+        stored["config"] = config
+        try JSONSerialization.data(withJSONObject: stored, options: [.prettyPrinted, .sortedKeys]).write(to: sidecar)
+        try writeAnalysisMetadata(tool: "kraken2", in: result)
+        return project
+    }
+
+    /// The first sidebar row whose words contain `text`, opening the Analyses group when needed.
+    static func sidebarRow(containing text: String, in app: XCUIApplication) -> XCUIElement {
         let outline = app.outlines["sidebar-outline"].firstMatch
         let matching = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", text, text)
         let item = outline.staticTexts.matching(matching).firstMatch
@@ -200,7 +257,28 @@ enum ReleaseSmokeFixtures {
             app.typeKey(.rightArrow, modifierFlags: [.option])
         }
         XCTAssertTrue(item.waitForExistence(timeout: 10), "The sidebar shows a row for \(text)")
-        item.click()
+        return item
+    }
+
+    /// Clicks the first sidebar row whose words contain `text`.
+    static func openSidebarItem(containing text: String, in app: XCUIApplication) {
+        sidebarRow(containing: text, in: app).click()
+    }
+
+    /// Renames the first sidebar row whose words contain `text` to `name` through its Rename… menu item.
+    static func renameSidebarItem(containing text: String, to name: String, in app: XCUIApplication) {
+        let row = sidebarRow(containing: text, in: app)
+        row.click()
+        row.rightClick()
+        let rename = app.menuItems["Rename\u{2026}"].firstMatch
+        XCTAssertTrue(rename.waitForExistence(timeout: 5), "The sidebar row offers Rename\u{2026}")
+        rename.click()
+        let field = app.sheets.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "The Rename sheet shows the name")
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(name)
+        app.sheets.buttons["Rename"].firstMatch.click()
     }
 
     /// Shows `file` in a Finder window and drags it onto `target`, then closes that window.
