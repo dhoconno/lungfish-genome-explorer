@@ -153,13 +153,26 @@ struct ReleaseAppSmokeRobot {
     }
 
     func chooseNativePath(_ url: URL) {
-        let panel = app.sheets.firstMatch.exists ? app.sheets.firstMatch : app.dialogs.firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        // The panel comes a moment after the menu click, as a sheet on the window, a dialog or a window of its own.
+        let candidates = [app.sheets.firstMatch, app.dialogs.firstMatch,
+                          app.windows.matching(NSPredicate(format: "title == %@", "Open Project Folder")).firstMatch]
+        let deadline = Date().addingTimeInterval(10)
+        var found: XCUIElement?
+        while found == nil, Date() < deadline {
+            found = candidates.first { $0.waitForExistence(timeout: 1) }
+        }
+        guard let panel = found else {
+            failShowingScreen("No open panel came within 10 s of Open Project Folder\u{2026}")
+            return
+        }
         panel.click()
         app.typeKey("g", modifierFlags: [.command, .shift])
         let goSheet = app.sheets.element(boundBy: panel.elementType == .sheet ? 1 : 0)
         let input = goSheet.textFields.firstMatch
-        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        guard input.waitForExistence(timeout: 5) else {
+            failShowingScreen("The open panel (\(panel.elementType.rawValue)) shows no Go to Folder field")
+            return
+        }
         input.click()
         input.typeKey("a", modifierFlags: .command)
         input.typeText(url.path)
@@ -168,6 +181,15 @@ struct ReleaseAppSmokeRobot {
         XCTAssertTrue(open.waitForExistence(timeout: 5))
         XCTAssertTrue(open.isEnabled)
         open.click()
+    }
+
+    /// Fails with what the app shows, attached in full and written into the run's log.
+    func failShowingScreen(_ reason: String) {
+        let screen = XCTAttachment(string: app.debugDescription)
+        screen.name = reason
+        screen.lifetime = .keepAlways
+        XCTContext.runActivity(named: reason) { $0.add(screen) }
+        XCTFail("\(reason). The app shows:\n\(app.debugDescription)")
     }
 }
 
