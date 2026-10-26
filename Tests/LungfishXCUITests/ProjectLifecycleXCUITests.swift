@@ -88,6 +88,13 @@ struct ReleaseAppSmokeRobot {
         }
         let homes = try XCTUnwrap(environment["LUNGFISH_RELEASE_SMOKE_HOME"], "The gate names a fresh candidate home")
         candidateURL = URL(fileURLWithPath: path).standardizedFileURL
+        // A copy already running would be taken over or ended by the launch, so the smoke stops instead.
+        let identifier = try XCTUnwrap(Bundle(url: candidateURL)?.bundleIdentifier, "The candidate has no bundle identifier")
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+        guard running.isEmpty else {
+            throw NSError(domain: "ReleaseAppSmokeRobot", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "Lungfish is already running as process \(running[0].processIdentifier). Quit every copy of Lungfish and run the smoke again, since the run would take over that copy."])
+        }
         // The gate makes one empty home per selected test, named for the test. The sandboxed
         // runner may not create a folder outside its own container, so it creates nothing here.
         let name = testName.hasSuffix("()") ? String(testName.dropLast(2)) : testName
