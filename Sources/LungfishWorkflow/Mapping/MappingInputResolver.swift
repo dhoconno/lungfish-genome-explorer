@@ -69,11 +69,11 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
                 + "Short-read inputs: \(shortReads.joined(separator: ", ")). "
                 + "Map them apart, one run for the long reads and one for the short reads."
         case .poolMixesMateFileForms(let interleaved, let mateFiles):
-            return "These inputs of read pairs cannot be pooled into one run, because some hold their pairs in one "
-                + "interleaved file and others in an R1 and an R2 file. "
-                + "Interleaved inputs: \(interleaved.joined(separator: ", ")). "
-                + "Inputs of R1 and R2 files: \(mateFiles.joined(separator: ", ")). "
-                + "Map them apart, one run for each kind, or map each input on its own."
+            return "These inputs of read pairs cannot be pooled into one run, because a pool keeps every pair only when all of its inputs store their pairs the same way. "
+                + "Inputs with the pairs in one interleaved file: \(interleaved.joined(separator: ", ")). "
+                + "Inputs with the pairs in an R1 file and an R2 file: \(mateFiles.joined(separator: ", ")). "
+                + "Nothing was mapped. Map each kind in its own run, which gives one BAM for each kind, "
+                + "or join the inputs into one bundle first (Merge Into New Bundle in the app) and map that bundle."
         }
     }
 }
