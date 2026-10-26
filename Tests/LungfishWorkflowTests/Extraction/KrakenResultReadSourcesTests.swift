@@ -155,6 +155,62 @@ final class KrakenResultReadSourcesTests: XCTestCase {
         }
     }
 
+    // MARK: - A copied project (W4-COPY-SOURCE)
+
+    private func copiedProject() -> ProjectCopyResultFixture {
+        ProjectCopyResultFixture(root: root.appendingPathComponent("copied-project", isDirectory: true))
+    }
+
+    /// Both projects hold the bundle, as a project copied in Finder does while the original is kept. The copy's
+    /// Extract and BLAST read the copy's bundle, never the original's, so the copy still works once the original
+    /// is deleted.
+    func testRecordedInputsOfACopiedProjectNameTheCopysReadsWhileTheOriginalIsKept() throws {
+        let project = copiedProject()
+        let bundle = "Imports/s.lungfishfastq"
+        try project.makeRead(at: project.old(bundle))
+        try project.makeRead(at: project.copy(bundle))
+        var config = project.config(inputFiles: [project.old(bundle)])
+        config.originalInputFiles = [project.old(bundle)]
+        try project.writeResult(config: config)
+
+        let inputs = try KrakenResultReadSources.recordedInputs(of: try ClassificationResult.load(from: project.loadedFolder))
+
+        XCTAssertEqual(inputs.map { $0.standardizedFileURL.path }, [project.copy(bundle).standardizedFileURL.path])
+    }
+
+    /// A result copied into another project that has not got the reads still reads them in the project it came
+    /// from while that project is kept, as it did before. Nothing that worked stops working.
+    func testRecordedInputsOfACopyThatLacksTheReadsNameTheOriginalsWhileItIsKept() throws {
+        let project = copiedProject()
+        let bundle = "Imports/s.lungfishfastq"
+        try project.makeRead(at: project.old(bundle))
+        var config = project.config(inputFiles: [project.old(bundle)])
+        config.originalInputFiles = [project.old(bundle)]
+        try project.writeResult(config: config)
+
+        let inputs = try KrakenResultReadSources.recordedInputs(of: try ClassificationResult.load(from: project.loadedFolder))
+
+        XCTAssertEqual(inputs.map { $0.standardizedFileURL.path }, [project.old(bundle).standardizedFileURL.path])
+    }
+
+    /// The reads are in neither project. The error says what happened and what to try next, in the words the
+    /// Extract alert, the BLAST alert and the CLI all show (UX ruling of 2026-10-26).
+    func testAResultWhoseReadsAreInNeitherProjectSaysWhatToTry() throws {
+        let project = copiedProject()
+        let bundle = "Imports/s.lungfishfastq"
+        var config = project.config(inputFiles: [project.old(bundle)])
+        config.originalInputFiles = [project.old(bundle)]
+        try project.writeResult(config: config)
+        let loaded = try ClassificationResult.load(from: project.loadedFolder)
+
+        XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded)) { error in
+            guard case ClassifierExtractionError.kraken2SourceMissing = error else {
+                return XCTFail("the missing source error, not \(error)")
+            }
+            XCTAssertEqual(error.localizedDescription, ProjectCopyResultFixture.missingReadsWords)
+        }
+    }
+
     // MARK: - BLAST
 
     /// BLAST verification reads the same files in the same order, and takes

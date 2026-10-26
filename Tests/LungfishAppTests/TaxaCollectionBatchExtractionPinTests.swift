@@ -140,7 +140,9 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error.localizedDescription,
-                "Kraken2 source FASTQ could not be located. The source file may have been moved or deleted."
+                "The FASTQ reads this Kraken2 result was made from are missing. They are not in this project or where the run "
+                    + "recorded them. Put their bundle back into this project and try again, or run the classification again in "
+                    + "this project."
             )
         }
         let folder = extractedFolder(of: try ClassificationResult.load(from: fixtures.singleEnd), TaxaCollectionFixtures.collection)

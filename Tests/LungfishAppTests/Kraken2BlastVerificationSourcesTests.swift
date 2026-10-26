@@ -84,6 +84,31 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         }
     }
 
+    /// A Kraken2 result whose read files are gone fails the BLAST request with the refusal Extract shows, which says
+    /// what to try, and not with "No sequences provided for BLAST verification", which says nothing about the
+    /// reads (W4-COPY-SOURCE, UX ruling of 2026-10-26).
+    func testAMissingSourceFailsWithTheWordsOfExtract() async throws {
+        let shape = try XCTUnwrap(Kraken2BlastShapes(in: root).all.first)
+        let gone = root.appendingPathComponent("gone/reads.fastq")
+        do {
+            _ = try await kraken2BlastVerificationRequest(
+                taxonName: "Target virus",
+                taxId: Kraken2BlastShapes.target,
+                tree: shape.result.tree,
+                classificationOutput: shape.result.outputURL,
+                sourceInputs: [gone],
+                readCount: 20,
+                service: BlastService()
+            )
+            XCTFail("a request over read files that are gone is refused")
+        } catch ClassifierExtractionError.kraken2SourceMissing {
+            let words = ClassifierExtractionError.kraken2SourceMissing.localizedDescription
+            XCTAssertTrue(words.contains("Put their bundle back into this project"), words)
+        } catch {
+            XCTFail("the same refusal as Extract, not \"\(error.localizedDescription)\"")
+        }
+    }
+
     // MARK: - Helpers
 
     /// The request the viewer's BLAST row builds for taxon 100 of `result`,
