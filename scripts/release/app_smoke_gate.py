@@ -395,7 +395,8 @@ def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--app", type=Path, required=True)
-    parser.add_argument("--channel", choices=["stable"], required=True)
+    # The package route passes stable. preview smokes an installed Preview, such as a pre-fix app for a red run.
+    parser.add_argument("--channel", choices=["stable", "preview"], required=True)
     parser.add_argument("--output", type=Path, required=True,
                         help="new evidence folder (the candidate's fresh home goes in the temporary folder)")
     parser.add_argument("--derived-data", type=Path, required=True)

@@ -175,6 +175,14 @@ class AppSmokeGateTests(unittest.TestCase):
             self.assertIn("-skipPackageUpdates", build)
             self.assertEqual(lock.read_text(), "retained pinned-source sentinel")
 
+    def test_the_gate_takes_a_stable_or_preview_candidate_only(self):
+        import app_smoke_gate
+        base = ["--root", ".", "--app", "Candidate.app", "--output", "evidence", "--derived-data", "dd", "--channel"]
+        for channel in ("stable", "preview"):
+            self.assertEqual(app_smoke_gate.argument_parser().parse_args(base + [channel]).channel, channel)
+        with self.assertRaises(SystemExit):
+            app_smoke_gate.argument_parser().parse_args(base + ["beta"])
+
     def test_console_user_unlocked_session_with_a_fresh_candidate_home_is_accepted(self):
         contract = load_contract(ROOT / "config/release-contract.json")
         with tempfile.TemporaryDirectory() as temporary:

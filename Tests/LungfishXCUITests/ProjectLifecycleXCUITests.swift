@@ -113,8 +113,9 @@ struct ReleaseAppSmokeRobot {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         let bundle = try XCTUnwrap(Bundle(url: candidateURL))
-        XCTAssertEqual(bundle.object(forInfoDictionaryKey: "LungfishReleaseChannel") as? String, "stable")
-        XCTAssertEqual(ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_CHANNEL"], "stable")
+        let channel = try XCTUnwrap(ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_CHANNEL"],
+                                    "The gate names the candidate's channel")
+        XCTAssertEqual(bundle.object(forInfoDictionaryKey: "LungfishReleaseChannel") as? String, channel)
         let identifier = try XCTUnwrap(bundle.bundleIdentifier)
         let matching = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
             .filter { $0.bundleURL?.standardizedFileURL == candidateURL }
