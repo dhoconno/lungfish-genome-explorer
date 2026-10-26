@@ -50,7 +50,11 @@ def _legacy_selection(tier: str) -> dict:
         cwd=ROOT, capture_output=True, text=True, check=True,
         env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable},
     )
-    return json.loads(result.stdout)
+    selection = json.loads(result.stdout)
+    # loadFlakes joined the selection with KNOWN_LOAD_FLAKES, after the frozen fixture was written.
+    # test_load_flake_quarantine.py pins it, so the frozen comparison leaves it out.
+    selection.pop("loadFlakes", None)
+    return selection
 
 
 def _frozen_legacy_selection(tier: str) -> dict:

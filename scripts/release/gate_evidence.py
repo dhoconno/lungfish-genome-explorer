@@ -535,6 +535,55 @@ def serial_class(test):
     return test.split("/", 1)[0]
 
 
+# Load flakes (docs/contracts/VERIFICATION-ORDER.md, rule "Timed-out waits"). full-suite-gate.sh lists in
+# KNOWN_LOAD_FLAKES the tests that fail only under load and passes each as --load-flake. A listed test still runs
+# in the primary attempt and is never skipped. When every failure of that attempt is a listed test and nothing else
+# went wrong, each failed test runs once more alone (role "load-flake-rerun"), and the run is authorized when every
+# rerun passes. A second failure leaves it red. validate_result re-derives this from the retained attempts, so a
+# result cannot claim a clearance that its attempts do not show.
+LOAD_FLAKE_RERUN_SECONDS = 10 * 60
+LOAD_FLAKE_ID = re.compile(r"^[^\s/]+(?:/[^\s/]+)+$")
+
+
+def load_flake_failures(primary, listed):
+    """The failed tests of a primary attempt when every one is a listed load flake and nothing else went wrong,
+    else None. Nothing else went wrong means a plain test failure exit with every selected test completed, and
+    no error beyond the two that a failed test itself causes in analyze_attempt (a crash, a missing test, a hang,
+    a skip under --require-tools or an unexplained diagnostic gives None)."""
+    harnesses = primary.get("harnesses")
+    if (not listed or not isinstance(harnesses, dict) or primary.get("exitStatus") != 1
+            or primary.get("intervention") is not None):
+        return None
+    failed = sorted({test for h in harnesses.values() for test in h.get("failedTests", [])})
+    explained = {"failure diagnostic in runner output"}
+    explained |= {name + " failed or incomplete" for name, h in harnesses.items() if h.get("failures")}
+    if (not failed or any(test not in listed for test in failed)
+            or any(error not in explained for error in primary.get("errors", []))
+            or any(not h.get("completed") or h.get("missingTests") or h.get("unexpectedTests")
+                   for h in harnesses.values())):
+        return None
+    return failed
+
+
+def validate_load_flake_reruns(result, attempts):
+    """Check a run of more than one attempt that claims a load flake clearance and return its primary attempt,
+    whose own failure the reruns clear. Any other shape cannot authorize a candidate."""
+    listed = result.get("options", {}).get("loadFlakes")
+    if (not isinstance(listed, list) or len(attempts) < 2 or attempts[0].get("role") != "authoritative"
+            or any(attempt.get("role") != "load-flake-rerun" for attempt in attempts[1:])):
+        raise EvidenceError("retried gate cannot authorize candidate")
+    failed = load_flake_failures(attempts[0], listed)
+    if failed is None or len(attempts) - 1 != len(failed):
+        raise EvidenceError("retried gate cannot authorize candidate")
+    for test, rerun in zip(failed, attempts[1:]):
+        alone = [name for h in rerun.get("harnesses", {}).values() for name in h.get("selectedTests", [])]
+        if alone != [test]:
+            raise EvidenceError("load flake rerun did not select its test alone")
+    if not isinstance(result.get("loadFlakes"), dict) or result["loadFlakes"].get("failed") != failed:
+        raise EvidenceError("load flake record differs from the retained attempts")
+    return attempts[0]
+
+
 def class_filter(suite, selection_filter, discovered, chosen, exclude):
     """A --filter that selects, among the discovered tests, exactly the tests of one class that the
     run's selection holds. The class's own pattern serves when the selection takes the whole class,
@@ -640,6 +689,9 @@ def run_swift_gate(args):
     sdk_path = (directory / "sdk-path.log").read_text().strip()
     runtime["sdkPath"] = sdk_path
     discoveries, attempts, errors = [], [], []
+    listed, flaky = sorted(set(getattr(args, "load_flake", None) or [])), None
+    if any(LOAD_FLAKE_ID.fullmatch(test) is None for test in listed):
+        errors.append("a load flake is not a test identifier of the form Target.Class/test")
     selection = {"xctest": [], "swift-testing": []}
     try:
         if sdk["exitStatus"] or sdk.get("intervention") is not None:
@@ -664,6 +716,9 @@ def run_swift_gate(args):
             discovered_tests = {"xctest": xctests, "swift-testing": sorted(discovered_swift_tests(
                 directory / "discover-swift-testing.log",
                 directory / "discovered-swift-testing.jsonl"))}
+            stale = [test for test in listed if test not in set(xctests) | set(discovered_tests["swift-testing"])]
+            if stale:
+                raise EvidenceError("KNOWN_LOAD_FLAKES names no discovered test, so it is stale: " + ", ".join(stale))
             if profile:
                 audit(catalog, xctests + discovered_tests["swift-testing"])
             selection = {harness: selected(tests, args.filter, args.skip)
@@ -720,7 +775,16 @@ def run_swift_gate(args):
         # green retry means only that the class does not fail alone.
         failed = [t for h in primary["harnesses"].values() for t in h["failedTests"] if t != "<run>"]
         classes = sorted({t.split("/")[0] for t in failed})
-        if primary["exitStatus"] == 1 and all(h["completed"] for h in primary["harnesses"].values()) and 1 <= len(classes) <= 12:
+        flaky = load_flake_failures(primary, listed)
+        if flaky:
+            # Every failure is a listed load flake and nothing else went wrong. Each one runs once more alone, which is
+            # the retry, so no class-wide diagnostic retry follows. A rerun is bound well under the tier's budget.
+            rerun_bound = min(LOAD_FLAKE_RERUN_SECONDS, timeout_seconds or LOAD_FLAKE_RERUN_SECONDS)
+            for index, test in enumerate(flaky):
+                include = "^" + re.escape(test) + "$"
+                chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
+                attempt(f"load-flake-{index}", include, "", False, "load-flake-rerun", chosen, rerun_bound)
+        elif primary["exitStatus"] == 1 and all(h["completed"] for h in primary["harnesses"].values()) and 1 <= len(classes) <= 12:
             for index, suite in enumerate(classes):
                 include = "^" + re.escape(suite) + "(/|$)"
                 chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
@@ -733,14 +797,30 @@ def run_swift_gate(args):
         errors.append("source changed during gate")
     result = {"schemaVersion": 1, "kind": "swift", "source": source, "runtime": runtime,
               "argv": args.gate_argv[1:] if args.gate_argv[:1] == ["--"] else args.gate_argv, "startedAt": started, "endedAt": now(),
-              "options": {"tier": args.tier, "filter": args.filter, "skip": args.skip, "parallel": args.parallel, "requireTools": args.require_tools},
+              "options": {"tier": args.tier, "filter": args.filter, "skip": args.skip, "parallel": args.parallel, "requireTools": args.require_tools,
+                          "loadFlakes": listed},
               "identityCommand": version, "sdkCommand": sdk, "discovery": discoveries, "attempts": attempts,
               "errors": errors}
     if class_bound is not None:
         result["classBound"] = class_bound
-    # Every authoritative attempt decides: the one primary attempt, or each class of a split run.
+    # Every authoritative attempt decides: the one primary attempt, or each class of a split run. A primary attempt
+    # whose only failures are listed load flakes is cleared when each one passed alone on its rerun.
     authoritative = [a for a in attempts if a["role"] == "authoritative"]
-    result["authorized"] = bool(authoritative) and all(a["passed"] for a in authoritative) and not errors
+    reruns = [a for a in attempts if a["role"] == "load-flake-rerun"]
+    cleared = bool(flaky) and len(reruns) == len(flaky) and all(a["passed"] for a in reruns)
+    if flaky:
+        passed = [test for test, rerun in zip(flaky, reruns) if rerun["passed"]]
+        result["loadFlakes"] = {"listed": listed, "failed": flaky, "passedAlone": passed,
+                                "failedAlone": [test for test in flaky if test not in passed]}
+        notes = [f"GATE LOAD FLAKE: {test} failed in the tier under load and passed alone on a rerun"
+                 if test in passed else
+                 f"GATE LOAD FLAKE FAILED AGAIN: {test} failed in the tier and failed again alone, so the tier is red"
+                 for test in flaky]
+        (directory / "load-flakes.txt").write_text("".join(note + "\n" for note in notes))
+        for note in notes:
+            print(note, flush=True)
+    result["authorized"] = (bool(authoritative) and (all(a["passed"] for a in authoritative) or cleared)
+                            and not errors)
     if profile:
         result["options"].update(profile=profile, workers=args.workers)
         result["catalogSha256"] = hashlib.sha256((root / "config/test-catalog.json").read_bytes()).hexdigest()
@@ -855,11 +935,15 @@ def validate_result(result, source):
         if any(command.get("intervention") is not None for command in commands):
             raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
+        cleared = None
         if "classBound" in result:
             validate_class_split(result["classBound"], attempts)
         elif len(attempts) != 1 or attempts[0].get("role") != "authoritative":
-            raise EvidenceError("retried gate cannot authorize candidate")
+            # More than one attempt authorizes only when load flake reruns clear the primary attempt's failures.
+            cleared = validate_load_flake_reruns(result, attempts)
         for attempt in attempts:
+            if attempt is cleared:
+                continue
             harnesses = attempt.get("harnesses", {})
             if attempt.get("exitStatus") != 0 or attempt.get("passed") is not True or attempt.get("errors") or not harnesses:
                 raise EvidenceError("authoritative gate did not pass")
@@ -1467,6 +1551,10 @@ def main():
     swift.add_argument("--skip", default="")
     swift.add_argument("--parallel", action="store_true")
     swift.add_argument("--require-tools", action="store_true")
+    swift.add_argument("--load-flake", action="append", default=[], metavar="TEST",
+                       help="A test of KNOWN_LOAD_FLAKES in full-suite-gate.sh, as Target.Class/test. It still runs. "
+                            "When it is the only failure of the primary attempt, it runs once more alone, and a pass "
+                            "there leaves the run green and names the test as a load flake in the evidence.")
     swift.add_argument("--timeout-seconds", type=int, default=None,
                         help="Overall wall-clock budget for the primary test-runner attempt. "
                              "Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "

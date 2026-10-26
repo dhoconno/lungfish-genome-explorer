@@ -135,6 +135,8 @@ LOG="$LOG_DIR/gate-${STAMP}-${SHA}.log"
 # --- Green bar (canonical definition) ---------------------------------------
 # A run is GREEN iff this gate exits 0: zero XCTest failures, zero swift-testing
 # failures, and (under --require-tools) zero skips in the conformance suites.
+# One exception: a failure of a test listed in KNOWN_LOAD_FLAKES (below) counts as
+# green when that test is the only failure and it passes alone on a rerun.
 # There are no standing known-environmental failures: the formerly-failing
 # environmental tests (GenotypeRealBundleSmokeTests, ZhangArtifactCanaryTests,
 # VCFRobustnessTests) now skip cleanly when their env vars/fixtures are absent.
@@ -198,6 +200,19 @@ KNOWN_HANGING_TESTS=''
 # column) was implemented and the tests were reconciled.
 # Remove an entry as soon as its decision is made and the test is fixed.
 KNOWN_PREEXISTING_FAILURES=''
+# Load flakes (docs/contracts/VERIFICATION-ORDER.md, rule "Timed-out waits"). A test that fails
+# only under load twice in one phase moves to this list, and one lane a phase clears it. An entry
+# is one exact test id, Target.Class/test for XCTest or Target.Suite/test() for Swift Testing,
+# with a comment above it that names its two record lines. A listed test still runs in every
+# tier and is never added to SKIP. When a listed test fails and every other test passed,
+# scripts/release/gate_evidence.py runs that test once more alone at the end of the run. A pass
+# there leaves the tier green, and the summary and the evidence (load-flakes.txt and loadFlakes
+# in gate.result.json) name the test as a load flake. A second failure leaves the tier red. An
+# entry that names no discovered test fails the run as stale. The list is part of the canonical
+# selection (--describe-selection prints it), so evidence made with another list never covers a
+# commit. Empty at Phase 3.0, because no test failed under load and passed alone twice in one
+# phase in the records of Phases 2.12 to 2.14.
+KNOWN_LOAD_FLAKES=()
 # A LungfishAppTests class whose name ends in ReplayTests replays a recorded
 # lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
 # it runs serially in the integration tier. A name rule, not a list, so a new
@@ -258,7 +273,7 @@ fi
 EFFECTIVE_TIER="${TIER:-full}"
 if [ -z "$TIER" ] && [ -n "$FILTER" ]; then EFFECTIVE_TIER=custom; fi
 if [ "$DESCRIBE_SELECTION" -eq 1 ]; then
-    "${LUNGFISH_RELEASE_PYTHON:-python3}" -c 'import json,sys; print(json.dumps(dict(zip(("tier","filter","skip"), sys.argv[1:4]), parallel=sys.argv[4]=="1", requireTools=sys.argv[5]=="1")))' "$EFFECTIVE_TIER" "$FILTER" "$SKIP" "$PARALLEL" "$REQUIRE_TOOLS"
+    "${LUNGFISH_RELEASE_PYTHON:-python3}" -c 'import json,sys; print(json.dumps(dict(zip(("tier","filter","skip"), sys.argv[1:4]), parallel=sys.argv[4]=="1", requireTools=sys.argv[5]=="1", loadFlakes=sorted(set(sys.argv[6:])))))' "$EFFECTIVE_TIER" "$FILTER" "$SKIP" "$PARALLEL" "$REQUIRE_TOOLS" ${KNOWN_LOAD_FLAKES[@]+"${KNOWN_LOAD_FLAKES[@]}"}
     exit $?
 fi
 mkdir -p "$LOG_DIR"
@@ -286,6 +301,11 @@ run_gate() {
     local command=("${LUNGFISH_RELEASE_PYTHON:-python3}" "$SCRIPT_DIR/release/gate_evidence.py" swift
         --root "$PROJECT_ROOT" --output "$EVIDENCE_DIR" --tier "$EFFECTIVE_TIER"
         --filter "$FILTER" --skip "$SKIP")
+    # A listed load flake still runs. The evidence tool reruns it alone when it is the only failure.
+    local flake
+    for flake in ${KNOWN_LOAD_FLAKES[@]+"${KNOWN_LOAD_FLAKES[@]}"}; do
+        command+=(--load-flake "$flake")
+    done
     [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
     [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")
@@ -336,6 +356,8 @@ else
             # So does a class of a split run that ran out of its bound or never started.
             [ -f "$EVIDENCE_DIR/class-timeouts.txt" ] && cat "$EVIDENCE_DIR/class-timeouts.txt"
         fi
+        # A listed load flake that failed in the tier is named whatever the verdict, on a pass and on a fail.
+        [ -f "$EVIDENCE_DIR/load-flakes.txt" ] && cat "$EVIDENCE_DIR/load-flakes.txt"
         exit $status
     else
         run_gate
