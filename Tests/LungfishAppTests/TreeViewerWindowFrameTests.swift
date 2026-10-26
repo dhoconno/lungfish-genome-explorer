@@ -7,6 +7,7 @@ import XCTest
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishPhylogeneticsUI
 
 /// obs-22. On the packaged walk of 2026-10-24 the main window grew from 2560x1049 to
 /// 2560x1315 when a `.lungfishtree` was selected and to 2560x2163 on a subtree, its bottom
@@ -98,6 +99,43 @@ final class TreeViewerWindowFrameTests: XCTestCase {
         try viewer.displayPhylogeneticTreeBundle(at: subtreeURL)
         window.layoutIfNeeded()
         assertWindow(window, keeps: frameBefore, inside: visibleFrame, after: "selecting the subtree")
+    }
+
+    /// The app installs the tree view before any layout, so it is 0 points wide when the summary
+    /// is first set. At the base the toolbar height came from a 1-point-wide summary, which
+    /// needs no tall screen to show, so this is red at the base on the tree step as well.
+    func testToolbarKeepsItsStartingHeightUntilTheViewHasAWidth() throws {
+        let treeURL = tempDir.appendingPathComponent(
+            "known-sarcopterygian mitochondrial genomes IQ-TREE.lungfishtree",
+            isDirectory: true
+        )
+        _ = try PhylogeneticTreeBundleImporter.importTree(
+            from: fixtureTree(),
+            to: treeURL,
+            options: .init(supportLabels: ["UFBoot"], tipLabelMap: Self.tipNames)
+        )
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view  // never laid out, 0 points wide, as the app installs it
+        try controller.displayBundle(at: treeURL)
+        XCTAssertEqual(
+            controller.testingPrimaryContentMetrics.toolbarHeight, 76, accuracy: 0.5,
+            "before its first layout the toolbar keeps its starting height, it was set from a 1-point-wide summary"
+        )
+
+        // The width arrives later, as for a window restored from saved state or a second window.
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        host.isReleasedWhenClosed = false
+        self.window = host  // tearDown closes it
+        host.contentViewController = controller
+        host.layoutIfNeeded()
+        let laidOut = controller.testingPrimaryContentMetrics.toolbarHeight
+        XCTAssertGreaterThanOrEqual(laidOut, 76, "with a width the toolbar is measured at that width")
+        XCTAssertLessThan(laidOut, 200, "at 1200 points the summary is a line or two, not a column")
     }
 
     private func assertWindow(
