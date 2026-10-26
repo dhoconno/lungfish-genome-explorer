@@ -198,15 +198,18 @@ with `python3 scripts/test.py list --profile ui`, `--profile extended` or
 running it. They do not independently authorize a release.
 
 Real-app graphical checks run `python3 scripts/release/app_smoke_gate.py`, the command
-of the `ui` profile, in the console user's unlocked session on the release Mac.
-A null `gates.appSmokeAccount` means the console user, and a name there binds the run
-to that account. The gate refuses a locked screen at the start or the end, a session
-that is not on the console and a uid of zero. It makes a fresh home for each test and
-a copy of the fixtures the tests read, and fails when the candidate writes its
-preferences or saved state into the account home. It keeps the exact selection and
-completion, the source and app identities, the logs and the xcresult hashes. If the
-committed contract requires graphical evidence, a missing, skipped or incomplete
-result blocks that policy.
+of the `ui` profile, as the console user in an unlocked session on the release Mac, in
+a fresh launch home for each test. A null `gates.appSmokeAccount` means the console user,
+and a name there binds the run to that account. The gate refuses a locked screen at the
+start or the end, a session that is not on the console and a uid of zero. It makes a
+fresh launch home for each test and a copy of the fixtures the tests read. A fresh home
+alone does not isolate the account. Once a project opens, the candidate writes its
+preferences into the account's `~/Library/Preferences`, and the gate reports that change
+and fails the run. It keeps the exact selection and completion, the source and app
+identities, the logs and the xcresult hashes. Until backlog row SMOKE-ISOLATION lands,
+the smoke is a diagnostic and not a release gate, and `gates.appSmokeRequired` stays
+false. If the committed contract requires graphical evidence, a missing, skipped or
+incomplete result blocks that policy.
 
 ## Test profiles and build reuse
 
