@@ -18,12 +18,21 @@ struct ViewerFigureReadDrawer {
     let frame: ViewerFigureFrame
     let readHeight: Double
     let refBytes: [UInt8]?
+    /// Whether the frame is in the live view's base tier, where it fills a mismatch's whole cell.
+    let baseTier: Bool
 
     init(options: ViewerFigureReadTrack.Options, frame: ViewerFigureFrame, readHeight: Double) {
         self.options = options
         self.frame = frame
         self.readHeight = readHeight
         self.refBytes = options.referenceSequence.map(ReadTrackRenderer.uppercaseASCIIBytes)
+        self.baseTier = ReadTrackRenderer.zoomTier(scale: frame.scale) == .base
+    }
+
+    /// Whether the drawer can place the mismatch marks of `read`. It needs a reference over the window, the read's
+    /// MD tag or a CIGAR `X`, as the live view does. Without one it draws none.
+    func placesMismatches(_ read: AlignedRead) -> Bool {
+        refBytes != nil || read.mdTag != nil || read.cigar.contains(where: { $0.op == .seqMismatch })
     }
 
     /// Draws `read` with its top at `y`, and returns false for a read narrower than the live
@@ -109,12 +118,30 @@ struct ViewerFigureReadDrawer {
         canvas.strokeSegments(edges, lineWidth: 0.5, stroke)
     }
 
+    /// The mismatch marks of `read` by the live view's rule at the figure's zoom, each in its base's colour at the
+    /// tick's alpha (OBS-W7). In the base tier a mark fills the cell of each base `ReadTrackRenderer.drawReadBases`
+    /// fills as a mismatch, from the walk the two share, `forEachBaseTierBase`. The figure keeps the packed body
+    /// there and leaves the letters out, so the cell takes the tick's paint. In the packed tier, and in the base tier
+    /// with only CIGAR `X` to go by, a mark is the tick `drawMismatchTicks` draws from `forEachPackedMismatch`, one
+    /// for each pixel column.
     private func mismatches(_ read: AlignedRead, y: Double, into canvas: inout ViewerFigureCanvas) {
+        guard placesMismatches(read) else { return }
         let mdPositions: Set<Int>? = refBytes == nil
             ? read.mdTag.map { ReadTrackRenderer.mismatchPositionsFromMDTagNonisolated($0, readStart: read.position) }
             : nil
-        guard refBytes != nil || mdPositions != nil || read.cigar.contains(where: { $0.op == .seqMismatch }) else { return }
-        let tickWidth = max(1.0, min(1.0 / frame.scale, 3.2))
+        if baseTier, refBytes != nil || mdPositions != nil {
+            let cellWidth = 1.0 / frame.scale
+            ReadTrackRenderer.forEachBaseTierBase(
+                read: read, refBytes: refBytes, referenceStart: options.referenceStart,
+                mdMismatchPositions: mdPositions, maskedPositions: []
+            ) { refPos, resolved in
+                guard resolved.renderClass == .mismatch else { return }
+                canvas.fill(ViewerFigureRect(x: x(refPos), y: y, width: cellWidth, height: readHeight),
+                            ViewerFigurePaint(Self.baseRole(resolved.upperByte), alpha: 0.92))
+            }
+            return
+        }
+        let tickWidth = baseTier ? 1.0 / frame.scale : max(1.0, min(1.0 / frame.scale, 3.2))
         var lastPixel = Int.min
         ReadTrackRenderer.forEachPackedMismatch(
             read: read, refBytes: refBytes, referenceStart: options.referenceStart,

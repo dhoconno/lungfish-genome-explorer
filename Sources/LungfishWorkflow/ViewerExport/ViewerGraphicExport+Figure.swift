@@ -225,16 +225,28 @@ extension ViewerGraphicExport {
                 let referenceURL = info.format == .cram ? manifest.genome.map { bundle.resolved($0.path) } : nil
                 let aliases = alignmentAliases ?? bundle.alignmentChromosomeAliases()
                 alignmentAliases = aliases
+                // The bundle's sequence, which the read track compares the reads with to place the mismatch marks
+                // as the live view does, with the files the sequence track would read (OBS-W7).
+                let genomeFiles = manifest.genome.map { genome in
+                    ViewerFigureSequenceTrack(
+                        fastaURL: bundle.resolved(genome.path), indexURL: bundle.resolved(genome.indexPath),
+                        gzipIndexURL: genome.gzipIndexPath.map { bundle.resolved($0) }
+                    )
+                }
                 let track = ViewerFigureReadTrack(
                     trackID: id,
                     source: .init(
                         alignmentPath: alignmentURL.path, indexPath: indexURL.path, format: info.format,
-                        referenceFastaPath: referenceURL?.path, chromosomeAliases: aliases.map
+                        referenceFastaPath: referenceURL?.path, chromosomeAliases: aliases.map,
+                        mismatchReference: genomeFiles.map {
+                            .init(fastaURL: $0.fastaURL, indexURL: $0.indexURL, gzipIndexURL: $0.gzipIndexURL)
+                        }
                     ),
                     height: height ?? defaultReadHeight, options: options
                 )
                 builders.append(track)
-                inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? []) + aliases.opened
+                inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? []) + (genomeFiles?.inputFiles ?? [])
+                    + aliases.opened
                 facts.append(ViewerGraphicTrackFact(id: id, kind: "alignment", displayMode: "packed", height: track.height))
             } else if let info = manifest.variants.first(where: { $0.id == id }) {
                 guard let databasePath = info.databasePath else {

@@ -235,9 +235,75 @@ extension ReadTrackRenderer {
         let savedTextMatrix = context.textMatrix
         context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
 
+        // `forEachBaseTierBase` walks the aligned bases and classifies each from its RAW (unmasked) SEQ
+        // byte through `resolveBaseRender`, the one rule this loop, its tests and the figure's read track
+        // (`ViewerFigureReadDrawer`) share, so a '=' is recognized before any lossy uppercase masking.
+        forEachBaseTierBase(
+            read: read, refBytes: refBytes, referenceStart: referenceStart,
+            mdMismatchPositions: mdMismatchPositions, maskedPositions: maskedPositions
+        ) { refPos, resolved in
+            let x = frame.screenPosition(for: Double(refPos))
+            let renderClass = resolved.renderClass
+            let upperByte = resolved.upperByte
+
+            let glyph: CGGlyph
+            let glyphWidth: CGFloat
+            let color: CGColor
+
+            switch renderClass {
+            case .mismatch:
+                // Mismatches: colored background fill + white letter (Geneious-style)
+                let baseColor = colorForByte(upperByte, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
+                context.setFillColor(baseColor.copy(alpha: 0.55) ?? baseColor)
+                context.fill(CGRect(x: x, y: y, width: cellWidth, height: readHeight))
+                glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
+                glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
+                // White letter on colored background for readability
+                color = CGColor(gray: 1.0, alpha: max(alpha, 0.9))
+            case .neutralN:
+                // N is always a neutral letter — never a dot, regardless of match verdict.
+                glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
+                glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
+                color = colorN
+            case .match where renderMatchesAsDots:
+                // Dot mode: matches (including SAM '=') shown as dots
+                glyph = cache.dotGlyph
+                glyphWidth = cache.dotAdvance.width
+                color = matchDotAlpha
+            case .match:
+                // Full sequence mode: matches shown as nucleotide-colored letters.
+                // A '=' has no letter identity of its own; resolveBaseRender already
+                // substituted the reference base for `upperByte` in that case.
+                glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
+                glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
+                color = colorForByte(upperByte, a: matchColorA, t: matchColorT, c: matchColorC, g: matchColorG, n: matchColorN)
+            }
+
+            let drawX = x + (cellWidth - glyphWidth) / 2
+            context.setFillColor(color)
+            var g = glyph
+            var pos = CGPoint(x: drawX, y: baselineY)
+            CTFontDrawGlyphs(font, &g, &pos, 1, context)
+        }
+
+        context.textMatrix = savedTextMatrix
+        context.restoreGState()
+    }
+
+    /// Walks the aligned bases of `read`, its CIGAR `M`, `=` and `X` operations, in reference order and reports each
+    /// with its base-tier class from `resolveBaseRender`. A masked position and a base past the end of SEQ are
+    /// skipped. `drawReadBases` draws every base it reports and the figure's read track fills the cell of each
+    /// mismatch, so the viewer and an exported image mark the same bases (OBS-W7).
+    static func forEachBaseTierBase(
+        read: AlignedRead,
+        refBytes: [UInt8]?,
+        referenceStart: Int,
+        mdMismatchPositions: Set<Int>?,
+        maskedPositions: Set<Int>,
+        _ body: (_ refPos: Int, _ resolved: ResolvedBaseRender) -> Void
+    ) {
         // Use UTF-8 view for zero-allocation iteration
         var seqIterator = read.sequence.utf8.makeIterator()
-
         var refPos = read.position
         for op in read.cigar {
             switch op.op {
@@ -248,87 +314,24 @@ extension ReadTrackRenderer {
                         refPos += 1
                         continue
                     }
-
-                    let x = frame.screenPosition(for: Double(refPos))
-
-                    // Resolves the render classification and the byte used for letter-mode
-                    // glyph/color lookups from the RAW (unmasked) SEQ byte — this is the single
-                    // source of truth the draw loop and its tests both go through, so a '=' is
-                    // guaranteed to be recognized before any lossy uppercase masking happens.
-                    let resolved = resolveBaseRender(
-                        rawReadByte: readByte,
-                        cigarOp: op.op,
-                        refBytes: refBytes,
-                        refPos: refPos,
-                        referenceStart: referenceStart,
-                        mdMismatchPositions: mdMismatchPositions
-                    )
-                    let renderClass = resolved.renderClass
-                    let upperByte = resolved.upperByte
-
-                    let glyph: CGGlyph
-                    let glyphWidth: CGFloat
-                    let color: CGColor
-
-                    switch renderClass {
-                    case .mismatch:
-                        // Mismatches: colored background fill + white letter (Geneious-style)
-                        let baseColor = colorForByte(upperByte, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
-                        context.setFillColor(baseColor.copy(alpha: 0.55) ?? baseColor)
-                        context.fill(CGRect(x: x, y: y, width: cellWidth, height: readHeight))
-                        glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
-                        glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
-                        // White letter on colored background for readability
-                        color = CGColor(gray: 1.0, alpha: max(alpha, 0.9))
-                    case .neutralN:
-                        // N is always a neutral letter — never a dot, regardless of match verdict.
-                        glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
-                        glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
-                        color = colorN
-                    case .match where renderMatchesAsDots:
-                        // Dot mode: matches (including SAM '=') shown as dots
-                        glyph = cache.dotGlyph
-                        glyphWidth = cache.dotAdvance.width
-                        color = matchDotAlpha
-                    case .match:
-                        // Full sequence mode: matches shown as nucleotide-colored letters.
-                        // A '=' has no letter identity of its own; resolveBaseRender already
-                        // substituted the reference base for `upperByte` in that case.
-                        glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
-                        glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
-                        color = colorForByte(upperByte, a: matchColorA, t: matchColorT, c: matchColorC, g: matchColorG, n: matchColorN)
-                    }
-
-                    let drawX = x + (cellWidth - glyphWidth) / 2
-                    context.setFillColor(color)
-                    var g = glyph
-                    var pos = CGPoint(x: drawX, y: baselineY)
-                    CTFontDrawGlyphs(font, &g, &pos, 1, context)
-
+                    body(refPos, resolveBaseRender(
+                        rawReadByte: readByte, cigarOp: op.op, refBytes: refBytes, refPos: refPos,
+                        referenceStart: referenceStart, mdMismatchPositions: mdMismatchPositions
+                    ))
                     refPos += 1
                 }
-
-            case .softClip:
-                // Soft clips are rendered by drawSoftClipExtensions; here we just advance the query index
+            case .softClip, .insertion:
+                // Soft clips are drawn by drawSoftClipExtensions and insertions by their markers, so the walk only
+                // advances the query index.
                 for _ in 0..<op.length {
                     _ = seqIterator.next()
                 }
-
-            case .insertion:
-                for _ in 0..<op.length {
-                    _ = seqIterator.next()
-                }
-
             case .deletion, .skip:
                 refPos += op.length
-
             case .hardClip, .padding:
                 break
             }
         }
-
-        context.textMatrix = savedTextMatrix
-        context.restoreGState()
     }
 
     /// Returns color for an ASCII byte (uppercase). Zero-allocation.

@@ -91,9 +91,15 @@ final class ViewerFigureReadTrackTests: XCTestCase {
             trackID: "reads", kind: .readRowCap, reason: "rows past the track height of 10 points", count: 3
         )])
         let coverage = try draw(Fixture.packed, end: 10_000)
-        XCTAssertTrue(coverage.items.isEmpty)
+        XCTAssertTrue(fills(coverage, .forwardRead).isEmpty, "no read above 2 bases a point, as in the live view")
+        let coverageLines = coverage.items.compactMap { item -> String? in
+            if case .text(let line) = item { line.string } else { nil }
+        }
+        XCTAssertEqual(coverageLines, [
+            "Reads and mismatch marks not drawn at 10.0 bases per point. Export 2000 bases or fewer at this width to draw them.",
+        ], "the line in place of the live view's line that asks for a closer zoom (OBS-W7)")
         XCTAssertEqual(coverage.omissions, [ViewerFigureOmission(
-            trackID: "reads", kind: .scaleMode, reason: "reads drawn as coverage above 2 bases per point", count: 7
+            trackID: "reads", kind: .scaleMode, reason: "reads and mismatch marks above 2 bases per point", count: 7
         )])
         let base = try draw([Fixture.read("b", 10)], end: 400)
         XCTAssertEqual(fills(base, .forwardRead).first?.height, 14, "base-tier rows")
