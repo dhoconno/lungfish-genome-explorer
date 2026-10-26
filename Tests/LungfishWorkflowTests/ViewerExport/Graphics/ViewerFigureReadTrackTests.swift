@@ -35,10 +35,10 @@ final class ViewerFigureReadTrackTests: XCTestCase {
     private typealias Fixture = ViewerFigureReadFixture
 
     private func draw(
-        _ reads: [AlignedRead], end: Double = 1_000, height: Double = 100,
+        _ reads: [AlignedRead], start: Double = 0, end: Double = 1_000, height: Double = 100,
         options: ViewerFigureReadTrack.Options = .init()
     ) throws -> ViewerFigureCanvas {
-        let frame = ViewerFigureFrame(chromosome: "chr1", start: 0, end: end, pixelWidth: 1_000)
+        let frame = ViewerFigureFrame(chromosome: "chr1", start: start, end: end, pixelWidth: 1_000)
         var canvas = ViewerFigureCanvas()
         try ViewerFigureReadTrack(source: nil, height: height, options: options)
             .draw(reads, into: &canvas, frame: frame, area: ViewerFigureRect(x: 0, y: 0, width: 1_000, height: height))
@@ -143,6 +143,17 @@ final class ViewerFigureReadTrackTests: XCTestCase {
         XCTAssertEqual(tallLeft, [8], "no row cap, and 8 in rows 12 to 19 past the bar")
         XCTAssertEqual(footnote(tall), "+\(tallLeft.reduce(0, +)) reads not shown (track height 100 points)")
         XCTAssertTrue(fills(tall, .forwardRead).allSatisfy { $0.y + $0.height <= 84 }, "the bar never covers a drawn read")
+    }
+
+    /// BIO's ruling on F1 of W7 (OBS-W7). The packed tier's row cap once dropped each read that starts left of the
+    /// window's first pixel and the footnote counted it under "max 75 rows" with 74 rows free. A read that crosses
+    /// the window's left edge, one on its first base and one inside it are all drawn, and none is counted.
+    func testReadsCrossingTheLeftEdgeAreDrawnAndNotCountedUnderTheRowCap() throws {
+        let reads = [Fixture.read("left", 450), Fixture.read("first", 500), Fixture.read("inside", 700)]
+        let canvas = try draw(reads, start: 500, end: 1_500)
+        XCTAssertEqual(fills(canvas, .forwardRead).count, 3, "one body for each of the three reads that overlap the window")
+        XCTAssertTrue(canvas.omissions.isEmpty, "no read is left out, so the record names none, \(canvas.omissions)")
+        XCTAssertNil(footnote(canvas), "no read is left out, so the image carries no footnote")
     }
 
     func testSourceMapsTheReferenceNameToTheAlignmentContig() {

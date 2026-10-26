@@ -96,6 +96,36 @@ final class ReadRowAllocatorTests: XCTestCase {
         }
     }
 
+    // MARK: - Reads that start left of the first pixel
+
+    private func answer(_ placement: ReadRowAllocator.Placement) -> String {
+        if case .placed(let row) = placement { return "placed(row: \(row))" }
+        return "overflow"
+    }
+
+    /// BIO's ruling on F1 of W7 (OBS-W7). A capped allocator once seeded every row's end at -1, so a read that starts
+    /// left of pixel 1 (one that crosses the window's left edge, or starts on its first base) could never open a row
+    /// and counted as row-cap overflow. An empty capped row now ends at minus infinity, so a read at any pixel opens it.
+    func testCappedRowsTakeReadsThatStartLeftOfTheFirstPixel() {
+        var allocator = ReadRowAllocator(rowCap: 2)
+        XCTAssertEqual(
+            answer(allocator.place(startPx: -40, endPx: 100, gap: 2)), "placed(row: 0)",
+            "a read that starts left of the window takes the first empty row"
+        )
+        XCTAssertEqual(
+            answer(allocator.place(startPx: 0, endPx: 30, gap: 2)), "placed(row: 1)",
+            "a read on the first pixel takes the second empty row"
+        )
+        XCTAssertEqual(
+            answer(allocator.place(startPx: 0.5, endPx: 20, gap: 2)), "overflow",
+            "both rows are taken, so the cap counts this read as overflow"
+        )
+        XCTAssertEqual(
+            answer(allocator.place(startPx: 40, endPx: 60, gap: 2)), "placed(row: 1)",
+            "row 1 ended at 30, so a read at 40 fits after the gap of 2"
+        )
+    }
+
     // MARK: - Oracle equivalence
 
     func testHeapPackerMatchesLinearOracleOverRandomInputs() {
