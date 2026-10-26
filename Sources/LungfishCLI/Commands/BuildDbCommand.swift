@@ -198,10 +198,11 @@ func updateUniqueReadsInDB(
         }
     }
 
-    // Update reads_aligned (total mapped) and unique_reads (non-duplicate mapped)
-    // from the BAM. reads_aligned is overwritten with the authoritative BAM count
-    // (samtools view -c -F 0x4) replacing the pipeline TSV value. A reported
-    // accession with mapped reads must have at least one unique read.
+    // Update reads_aligned (total mapped) and unique_reads (non-duplicate mapped) from the BAM,
+    // replacing the pipeline TSV values.
+    // reads_aligned/read_count and unique_reads come from the BAM's primary records only (samtools view -c -F 0x904,
+    // and -F 0xD04 after markdup), so each read counts once, as EsViritu's own read_count does.
+    // A reported accession with mapped reads must have at least one unique read.
     let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
@@ -217,7 +218,7 @@ func updateUniqueReadsInDB(
     for (i, row) in rowsToProcess.enumerated() {
         let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
         // A row keeps the counts it was parsed with when a count fails, and so does each row of a BAM whose
-        // markdup failed, whose 0x404 count would call every mapped read unique (BIO's Q-A3 item 6).
+        // markdup failed, whose 0xD04 count would call every mapped read unique (BIO's Q-A3 item 6).
         guard FileManager.default.fileExists(atPath: bamFullPath), !unmarked.contains(bamFullPath) else { continue }
 
         let cacheKey = "\(bamFullPath)\t\(row.accession)"
@@ -231,7 +232,7 @@ func updateUniqueReadsInDB(
                 unique = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x404  // unmapped + duplicate
+                    flagFilter: 0xD04  // unmapped + secondary + duplicate + supplementary
                 )
                 uniqueCache[cacheKey] = unique
             } catch {
@@ -247,7 +248,7 @@ func updateUniqueReadsInDB(
                 total = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accession: row.accession,
-                    flagFilter: 0x4  // unmapped only (includes duplicates)
+                    flagFilter: 0x904  // unmapped + secondary + supplementary, duplicates kept
                 )
                 totalCache[cacheKey] = total
             } catch {

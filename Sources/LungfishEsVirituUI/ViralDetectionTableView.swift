@@ -512,7 +512,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Reads column
         let readsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.reads))
         readsCol.title = "Reads"
-        readsCol.headerToolTip = "Mapped read count supporting this viral detection."
+        readsCol.headerToolTip = "Reads mapped to this reference, each read counted once at its primary alignment, as EsViritu counts them."
         readsCol.width = 70
         readsCol.minWidth = 50
         readsCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.reads, ascending: false)
@@ -521,7 +521,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Unique Reads column
         let uniqueReadsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.uniqueReads))
         uniqueReadsCol.title = "Unique Reads"
-        uniqueReadsCol.headerToolTip = "Deduplicated read count for this viral detection."
+        uniqueReadsCol.headerToolTip = "Reads mapped to this reference after samtools markdup sets duplicates aside, each read counted once at its primary alignment."
         uniqueReadsCol.width = 85
         uniqueReadsCol.minWidth = 60
         uniqueReadsCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.uniqueReads, ascending: false)

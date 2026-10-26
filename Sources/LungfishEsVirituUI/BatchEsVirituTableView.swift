@@ -39,8 +39,10 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
             BatchColumnSpec(identifier: .esv_name,        title: "Name",         width: 220, minWidth: 100, defaultAscending: true),
             BatchColumnSpec(identifier: .esv_family,      title: "Family",       width: 130, minWidth: 70,  defaultAscending: true),
             BatchColumnSpec(identifier: .esv_assembly,    title: "Assembly",     width: 130, minWidth: 70,  defaultAscending: true),
-            BatchColumnSpec(identifier: .esv_reads,       title: "Reads",        width: 80,  minWidth: 50,  defaultAscending: false),
-            BatchColumnSpec(identifier: .esv_uniqueReads, title: "Unique Reads", width: 90,  minWidth: 55,  defaultAscending: false),
+            BatchColumnSpec(identifier: .esv_reads,       title: "Reads",        width: 80,  minWidth: 50,  defaultAscending: false,
+                            toolTip: "Reads mapped to this reference, each read counted once at its primary alignment, as EsViritu counts them."),
+            BatchColumnSpec(identifier: .esv_uniqueReads, title: "Unique Reads", width: 90,  minWidth: 55,  defaultAscending: false,
+                            toolTip: "Reads mapped to this reference after samtools markdup sets duplicates aside, each read counted once at its primary alignment."),
             BatchColumnSpec(identifier: .esv_rpkmf,       title: "RPKMF",        width: 80,  minWidth: 50,  defaultAscending: false),
             BatchColumnSpec(identifier: .esv_coverage,    title: "Coverage",     width: 80,  minWidth: 50,  defaultAscending: false),
         ]
