@@ -2701,17 +2701,15 @@ final class MapCommandRegressionTests: XCTestCase {
 
     // MB-5: multi-input semantics must be stated explicitly so CLI users
     // don't discover "pools into one sample" only after a multi-sample run.
+    // 3.0 lane MAP reworded the paragraph to say what a pool keeps and where it
+    // stops, so the words are checked by meaning, with the source's line breaks
+    // collapsed. Several inputs are one run of one sample, and per-sample
+    // results need one run for each sample.
     func testDiscussionStatesMultiInputIsOneSampleNotBatch() {
-        XCTAssertTrue(
-            MapCommand.configuration.discussion.contains(
-                "Multiple inputs are treated as one sample's reads"
-            )
-        )
-        XCTAssertTrue(
-            MapCommand.configuration.discussion.contains(
-                "invoke once per sample for per-sample results"
-            )
-        )
+        let discussion = MapCommand.configuration.discussion
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(discussion.contains("Several inputs are pooled into one run of one sample"), discussion)
+        XCTAssertTrue(discussion.contains("Run the command once per sample for per-sample results"), discussion)
     }
 
     func testHelpMentionsMapperAndReadMappingPack() {
