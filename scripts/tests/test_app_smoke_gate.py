@@ -163,3 +163,50 @@ class AppSmokeGateTests(unittest.TestCase):
             self.assertIn("-onlyUsePackageVersionsFromResolvedFile", build)
             self.assertIn("-skipPackageUpdates", build)
             self.assertEqual(lock.read_text(), "retained pinned-source sentinel")
+
+    def test_console_user_unlocked_session_with_a_fresh_candidate_home_is_accepted(self):
+        contract = load_contract(ROOT / "config/release-contract.json")
+        with tempfile.TemporaryDirectory() as temporary:
+            session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
+                       "accountHome": "/Users/owner", "candidateHome": str(Path(temporary) / "candidate-home"),
+                       "cleanState": True, "existingState": []}
+            validate_isolated_session(session, contract)
+            refused = {"locked screen": {"locked": True}, "lock state unknown": {"locked": None},
+                       "not the console user": {"consoleUser": "someone-else"},
+                       "candidate shares the account home": {"candidateHome": "/Users/owner"},
+                       "relative candidate home": {"candidateHome": "candidate-home"},
+                       "existing candidate state": {"cleanState": False, "existingState": ["/x/.lungfish"]}}
+            for name, change in refused.items():
+                with self.subTest(name=name), self.assertRaises(EvidenceError):
+                    validate_isolated_session({**session, **change}, contract)
+            configured = SimpleNamespace(gates=SimpleNamespace(appSmokeAccount="lungfish-release-qa"))
+            with self.assertRaises(EvidenceError):
+                validate_isolated_session(session, configured)
+            validate_isolated_session({**session, "username": "lungfish-release-qa",
+                                       "consoleUser": "lungfish-release-qa"}, configured)
+
+    def test_locked_or_unknown_screen_makes_the_session_inactive(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "candidate-home"
+            home.mkdir()
+            for state, locked in (({"onConsole": True, "locked": True}, True), (None, True),
+                                  ({"onConsole": False, "locked": False}, False)):
+                with self.subTest(state=state), patch.object(app_smoke_gate, "screen_state", return_value=state):
+                    session = app_smoke_gate.graphical_session(home)
+                    self.assertFalse(session["active"])
+                    self.assertEqual(session["locked"], locked)
+                    self.assertEqual(session["candidateHome"], str(home))
+
+    def test_account_state_notices_a_rewritten_candidate_preference(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            preferences = home / "Library/Preferences/com.lungfish.browser.plist"
+            preferences.parent.mkdir(parents=True)
+            preferences.write_text("owner preference sentinel")
+            before = app_smoke_gate.account_state(home, "com.lungfish.browser")
+            self.assertEqual(before, app_smoke_gate.account_state(home, "com.lungfish.browser"))
+            preferences.write_text("written by a candidate that ignored its own home")
+            self.assertNotEqual(before, app_smoke_gate.account_state(home, "com.lungfish.browser"))
+            self.assertEqual(preferences.read_text(), "written by a candidate that ignored its own home")

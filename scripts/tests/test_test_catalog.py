@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +115,21 @@ class CatalogTests(unittest.TestCase):
             self.catalog.profile_options(self.data, 'made-up')
         with self.assertRaises(ValueError):
             self.catalog.profile_options(self.data, 'headless', require_tools=True)
+
+    def test_ui_profile_runs_the_exact_candidate_xcui_smoke_gate(self):
+        command = self.data['profiles']['ui']['nativeXCUITestCommand']
+        self.assertEqual(command[0], 'python3')
+        script = ROOT / command[1]
+        self.assertTrue(script.is_file(), command[1] + ' does not exist')
+        sys.path.insert(0, str(script.parent))
+        spec = importlib.util.spec_from_file_location('app_smoke_gate_from_catalog', script)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        arguments = gate.argument_parser().parse_args(command[2:])
+        self.assertEqual(arguments.channel, 'stable')
+        self.assertTrue(any(command[1] in note and 'gates.appSmokeTests' in note for note in self.data['notes']),
+                        'the catalog notes must say the ui profile runs the XCUI smoke through the gate script')
+        self.assertFalse(any('remain explicit app-smoke diagnostics' in note for note in self.data['notes']))
 
 if __name__ == '__main__':
     unittest.main()
