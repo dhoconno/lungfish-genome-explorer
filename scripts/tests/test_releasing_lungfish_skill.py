@@ -133,7 +133,15 @@ fi
     def test_validator_rejects_graphical_account_authority_drift(self):
         self.assert_authority_mutation_fails(
             "docs/release/sparkle-updates.md",
-            lambda text: text.replace("`lungfish-release-qa` macOS account", "`personal-user` macOS account"),
+            lambda text: text.replace("A null `gates.appSmokeAccount` means the console user",
+                                      "Use the `personal-user` macOS account"),
+            "graphical",
+        )
+
+    def test_validator_rejects_a_named_account_the_sections_do_not_name(self):
+        self.assert_authority_mutation_fails(
+            "config/release-contract.json",
+            lambda text: text.replace('"appSmokeAccount": null', '"appSmokeAccount": "lungfish-release-qa"'),
             "graphical",
         )
 

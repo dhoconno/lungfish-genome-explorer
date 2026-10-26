@@ -470,8 +470,11 @@ def validate_authority_texts(
     graphical_sections = [markdown_section(texts[name], "Optional graphical diagnostics")
                           for name in graphical_authorities]
     account = contract.get("gates", {}).get("appSmokeAccount")
+    # A null account means the console user, so each section names that session instead.
+    marker = (f"`{account}` macOS account" if account
+              else "A null `gates.appSmokeAccount` means the console user")
     for name, section in zip(graphical_authorities, graphical_sections):
-        if not section or not account or f"`{account}` macOS account" not in section:
+        if not section or marker not in " ".join(section.split()):
             errors.append(f"{name} omits canonical graphical account isolation")
         elif section.strip() != graphical_sections[0].strip():
             errors.append(f"{name} graphical authority differs from the release skill")

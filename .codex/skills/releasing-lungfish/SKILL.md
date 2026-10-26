@@ -247,13 +247,16 @@ with `python3 scripts/test.py list --profile ui`, `--profile extended` or
 `--profile tool-conformance`; inspect the declared command and prerequisites before
 running it. They do not independently authorize a release.
 
-Real-app graphical checks require the disposable `lungfish-release-qa` macOS account
-in `gates.appSmokeAccount`, an active logged-in graphical session, and a dedicated
-Mac or VM with no user projects or credentials. A `HOME` override is not isolation.
-The harness rejects existing app state and retains exact selection/completion,
-source/app identities, logs and xcresult hashes. Restore a clean account before a
-new diagnostic; the harness does not erase state. If the committed contract explicitly
-requires graphical evidence, missing, skipped or incomplete results block that policy.
+Real-app graphical checks run `python3 scripts/release/app_smoke_gate.py`, the command
+of the `ui` profile, in the console user's unlocked session on the release Mac.
+A null `gates.appSmokeAccount` means the console user, and a name there binds the run
+to that account. The gate refuses a locked screen at the start or the end, a session
+that is not on the console and a uid of zero. It makes a fresh home for each test and
+a copy of the fixtures the tests read, and fails when the candidate writes its
+preferences or saved state into the account home. It keeps the exact selection and
+completion, the source and app identities, the logs and the xcresult hashes. If the
+committed contract requires graphical evidence, a missing, skipped or incomplete
+result blocks that policy.
 
 
 ## Durable signing recovery
