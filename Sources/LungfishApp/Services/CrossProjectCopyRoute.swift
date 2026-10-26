@@ -76,6 +76,14 @@ enum CrossProjectCopyRoute {
         return Run(outputs: result.outputs, message: result.message)
     }
 
+    /// The launch the sidebar's drop copies with. The app runs the command on `CLIBundleBuildRunner`, which
+    /// needs the bundled `lungfish-cli`. A test binds its own launch here, so a drop in a unit test copies in the
+    /// test process and starts no subprocess. The launch is task-local, so nothing can assign it, and the drop
+    /// reads it in the task that starts the copy.
+    enum LaunchSeam {
+        @TaskLocal static var launch: Launch = CrossProjectCopyRoute.launchCommand
+    }
+
     /// Copies the item with the command for the row `operationID` and returns where it landed, throwing
     /// `CancellationError` once a cancel is acknowledged on the row. The command logs each source item the
     /// project lacks on the row, and the record is read, never written, after it exits.

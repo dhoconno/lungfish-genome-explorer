@@ -178,3 +178,52 @@ struct LGEZipImportResolver {
     }
 
 }
+
+/// Shows the person why a dropped archive was not imported.
+///
+/// The live presenter puts a sheet on the window it is given and shows an application-modal alert with none. A
+/// test binds a recording presenter through ``LGEZipImportFailureSeam``, because an application-modal alert in
+/// a unit test waits for a click that never comes.
+protocol LGEZipImportFailurePresenting: Sendable {
+    /// Shows `title` over `message` on `window`, or application-modal when `window` is nil.
+    @MainActor func present(title: String, message: String, on window: NSWindow?)
+}
+
+/// The presenter the app runs with.
+///
+/// The application-modal alert goes through `NSApp.presentError`, as ``LiveNoProjectAlertPresenter`` does, because
+/// the project rules forbid calling `runModal` (agents/process/PROJECT-LEAD-AGENT.md).
+struct LiveLGEZipImportFailurePresenter: LGEZipImportFailurePresenting {
+    @MainActor func present(title: String, message: String, on window: NSWindow?) {
+        if let window {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.applyLungfishBranding()
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            NSApp.presentError(Refusal(title: title, message: message))
+        }
+    }
+
+    /// The refusal as an error, which AppKit shows as an application-modal alert holding the title in bold over
+    /// the message.
+    private struct Refusal: LocalizedError {
+        let title: String
+        let message: String
+
+        var errorDescription: String? { title }
+        var recoverySuggestion: String? { message }
+    }
+}
+
+/// The presenter the dropped-archive refusal reads.
+///
+/// The default is the live presenter. Only a test binds another, with `$presenter.withValue`, to record what the
+/// refusal hands over. The presenter is task-local, so nothing can assign it, and the drop reads it on the main
+/// actor in the task that follows the drop.
+enum LGEZipImportFailureSeam {
+    @TaskLocal static var presenter: any LGEZipImportFailurePresenting = LiveLGEZipImportFailurePresenter()
+}

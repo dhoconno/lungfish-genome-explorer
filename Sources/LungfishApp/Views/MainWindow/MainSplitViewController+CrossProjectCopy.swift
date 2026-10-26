@@ -132,7 +132,7 @@ extension MainSplitViewController {
         intoProject projectURL: URL,
         requestedFolder: URL?,
         operationID: UUID,
-        launch: CrossProjectCopyRoute.Launch = CrossProjectCopyRoute.launchCommand
+        launch: CrossProjectCopyRoute.Launch = CrossProjectCopyRoute.LaunchSeam.launch
     ) async -> Result<CrossProjectCopyRoute.Landed, any Error> {
         do {
             return .success(try await CrossProjectCopyRoute.copy(
