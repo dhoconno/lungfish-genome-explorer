@@ -123,6 +123,33 @@ final class MapCommandResolutionTests: XCTestCase {
         XCTAssertEqual(paired.layoutResolution.layout, .pairedFiles)
     }
 
+    /// MAP-PAIRED-UNBOUND (3.0 lane MAP). `--paired` binds two files as R1 and
+    /// R2. A bundle of R1 and R2 files beside a loose file gives three files and
+    /// two such bundles give four, which no flag can bind. The run stops with
+    /// words that name every file and say what to try, where it used to pool
+    /// them as single reads without a message.
+    func testPairedThatCannotBindItsFilesIsRefusedWithTheirNames() async throws {
+        let first = try makeMateFileBundle("first")
+        let second = try makeMateFileBundle("second")
+        let loose = root.appendingPathComponent("other.fastq")
+        try Self.fastq(["o1"]).write(to: loose, atomically: true, encoding: .utf8)
+
+        let cases: [(inputs: [URL], files: [String])] = [
+            ([first, loose], ["first_R1.fastq", "first_R2.fastq", "other.fastq"]),
+            ([first, second], ["first_R1.fastq", "first_R2.fastq", "second_R1.fastq", "second_R2.fastq"]),
+        ]
+        for (inputs, files) in cases {
+            await XCTAssertThrowsErrorAsync(try await resolve(inputs, pairedEnd: true)) { error in
+                XCTAssertTrue(error is MappingInputResolverError, "an input refusal, which the CLI shows as MapRunFailure.input: \(error)")
+                let message = error.localizedDescription
+                for name in files + inputs.map(\.lastPathComponent) {
+                    XCTAssertTrue(message.contains(name), "the refusal names \(name): \(message)")
+                }
+                XCTAssertTrue(message.contains("--paired"), "the refusal says what to try: \(message)")
+            }
+        }
+    }
+
     func testADemuxGroupBundleIsRefusedBeforeAnythingIsWritten() async throws {
         let bundle = try makeBundle("group")
         try Self.saveDerivedManifest(
@@ -181,6 +208,24 @@ final class MapCommandResolutionTests: XCTestCase {
         let url = imports.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// A `fullPaired` bundle whose reads are `<name>_R1.fastq` and `<name>_R2.fastq`.
+    private func makeMateFileBundle(_ name: String) throws -> URL {
+        let bundle = try makeBundle(name)
+        try Self.fastq(["\(name)1/1", "\(name)2/1"])
+            .write(to: bundle.appendingPathComponent("\(name)_R1.fastq"), atomically: true, encoding: .utf8)
+        try Self.fastq(["\(name)1/2", "\(name)2/2"])
+            .write(to: bundle.appendingPathComponent("\(name)_R2.fastq"), atomically: true, encoding: .utf8)
+        try Self.saveDerivedManifest(
+            in: bundle,
+            name: name,
+            rootFile: "\(name)_R1.fastq",
+            payload: .fullPaired(r1Filename: "\(name)_R1.fastq", r2Filename: "\(name)_R2.fastq"),
+            kind: .interleaveReformat,
+            pairing: .pairedEnd
+        )
+        return bundle
     }
 
     private static func saveDerivedManifest(

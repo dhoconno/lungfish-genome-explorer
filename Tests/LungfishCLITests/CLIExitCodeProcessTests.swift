@@ -5,6 +5,7 @@
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
@@ -321,6 +322,55 @@ final class CLIExitCodeProcessTests: XCTestCase {
 
         XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
         XCTAssertTrue(combinedOutput(result).contains("Paired-end mode requires exactly 2 input files"))
+    }
+
+    /// MAP-PAIRED-UNBOUND (3.0 lane MAP). `map --paired` with a bundle of R1
+    /// and R2 files and a loose file has three files to bind. It exits with the
+    /// input error and names every file before any mapper runs, where it used
+    /// to pool the three files as single reads without a message.
+    func testMapPairedThatCannotBindItsFilesExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundle = tempDir.appendingPathComponent("mates.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@m1/1\nACGT\n+\nIIII\n".write(to: bundle.appendingPathComponent("mates_R1.fastq"), atomically: true, encoding: .utf8)
+        try "@m1/2\nACGT\n+\nIIII\n".write(to: bundle.appendingPathComponent("mates_R2.fastq"), atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .interleaveReformat)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "mates",
+                parentBundleRelativePath: ".",
+                rootBundleRelativePath: ".",
+                rootFASTQFilename: "mates_R1.fastq",
+                payload: .fullPaired(r1Filename: "mates_R1.fastq", r2Filename: "mates_R2.fastq"),
+                lineage: [operation],
+                operation: operation,
+                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                pairingMode: .pairedEnd,
+                sequenceFormat: .fastq
+            ),
+            in: bundle
+        )
+        let loose = tempDir.appendingPathComponent("other.fastq")
+        try "@o1\nACGT\n+\nIIII\n".write(to: loose, atomically: true, encoding: .utf8)
+        let reference = tempDir.appendingPathComponent("ref.fa")
+        try ">ref\nACGTACGTACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "map", bundle.path, loose.path,
+            "--paired",
+            "--reference", reference.path,
+            "--output-dir", tempDir.appendingPathComponent("mapped", isDirectory: true).path,
+            "--quiet",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue, combinedOutput(result))
+        for name in ["mates_R1.fastq", "mates_R2.fastq", "other.fastq", "--paired"] {
+            XCTAssertTrue(combinedOutput(result).contains(name), "the refusal names \(name): \(combinedOutput(result))")
+        }
     }
 
     func testEsVirituMissingInputExitsWithInputError() throws {
