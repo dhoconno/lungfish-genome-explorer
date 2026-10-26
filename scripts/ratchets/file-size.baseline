@@ -66,7 +66,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2843
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 902
-Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 871
+Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 870
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4059
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1827
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2040
@@ -139,10 +139,10 @@ Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
-Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4635
+Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4592
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1766
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1256
-Sources/LungfishWorkflow/Conda/CondaManager.swift 1414
+Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
