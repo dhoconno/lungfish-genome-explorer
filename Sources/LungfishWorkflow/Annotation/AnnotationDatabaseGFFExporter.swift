@@ -18,7 +18,9 @@ public enum AnnotationDatabaseGFFExporter {
     /// type, start, end, score, strand, phase, attributes. `source` and
     /// `score` are emitted as `.` since the database does not preserve them.
     /// Column 9 is the record's stored attributes without the import's internal
-    /// keys (see `columnNine(for:fallbackID:)`). When a record has no attributes
+    /// keys and with each list attribute (`Parent`, `Dbxref` and the others of
+    /// `GFF3Writer.listAttributeKeys`) written with its separators (see
+    /// `columnNine(for:fallbackID:)`). When a record has no attributes
     /// we fall back to `ID=<its row-key ID>;Name=<name>` so downstream tools
     /// (iVar's `-g`) still see a parseable identifier that no other record shares.
     ///
@@ -64,15 +66,34 @@ public enum AnnotationDatabaseGFFExporter {
         return kept.joined(separator: ";")
     }
 
-    /// Column 9 of every line `record` writes. It is the kept pairs, or for a record that keeps none
+    /// Column 9 of every line `record` writes. It is the kept pairs with each list pair written as a list (see
+    /// `writingListPairs(in:)`), or for a record that keeps none
     /// `ID=<fallbackID>;Name=<its name, encoded as GFF3Writer encodes a value>`, so downstream tools (iVar's `-g`) still
     /// see a parseable identifier. `fallbackID` is the record's row-key ID from `claimIdentifiers(of:)`, which no other
     /// ID of the file shares (BIO ruling on lane 13.20 M2).
     static func columnNine(for record: AnnotationDatabaseRecord, fallbackID: String) -> String {
         guard let kept = keptPairs(of: record) else {
-            return "ID=\(fallbackID);Name=\(GFF3Writer.encodeAttributeValue(record.name))"
+            return "ID=\(fallbackID);Name=\(GFF3Writer.encodeAttributeValue(record.name, forKey: "Name"))"
         }
-        return sharesRowKeyID(record, kept: kept) ? "ID=\(fallbackID);" + kept : kept
+        let pairs = writingListPairs(in: kept)
+        return sharesRowKeyID(record, kept: kept) ? "ID=\(fallbackID);" + pairs : pairs
+    }
+
+    /// `pairs` with each pair of a list attribute (`GFF3Writer.listAttributeKeys`) written as `GFF3Writer` writes it,
+    /// in its stored place. The import stores every comma of a value as `%2C`, since the reader had merged the
+    /// separators and the escaped commas of the value (BIO ruling on GFF3-MULTIVALUE). So the value is decoded as the
+    /// import reads a stored value, and `GFF3Writer.encodeAttributeValue(_:forKey:)` splits it on its commas, encodes
+    /// each item and joins them with a bare comma. A stored `Dbxref=a%2Cb` leaves as `Dbxref=a,b`. Every other pair
+    /// stays byte for byte, and a string with no list pair comes back unchanged.
+    private static func writingListPairs(in pairs: String) -> String {
+        pairs.split(separator: ";", omittingEmptySubsequences: false).map { pair -> String in
+            let text = String(pair)
+            guard let key = attributeKey(of: pair), GFF3Writer.listAttributeKeys.contains(key),
+                  let equals = text.firstIndex(of: "="),
+                  let decoded = AnnotationDatabase.parseAttributes(text)[key]
+            else { return text }
+            return String(text[...equals]) + GFF3Writer.encodeAttributeValue(decoded, forKey: key)
+        }.joined(separator: ";")
     }
 
     /// Whether a record that keeps `kept` writes its row-key ID before them: it writes more than one line and its kept

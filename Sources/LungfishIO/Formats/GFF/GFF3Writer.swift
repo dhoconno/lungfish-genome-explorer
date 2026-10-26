@@ -268,15 +268,15 @@ public final class GFF3Writer {
 
         let pairs = sortedKeys.compactMap { key -> String? in
             guard let value = attributes[key] else { return nil }
-            let encodedValue = Self.encodeAttributeValue(value)
+            let encodedValue = Self.encodeAttributeValue(value, forKey: key)
             return "\(key)=\(encodedValue)"
         }
 
         return pairs.joined(separator: ";")
     }
 
-    /// Encodes an attribute value for column 9. The leaf (`AnnotationDatabaseGFFExporter`) encodes the `Name=` it
-    /// writes for a row with no attributes through this function, so both writers encode a value the same way.
+    /// Encodes one value, or one item of a list, for column 9, every comma included. A caller that knows the key of
+    /// the attribute calls `encodeAttributeValue(_:forKey:)`, which keeps the separators of a list attribute.
     public static func encodeAttributeValue(_ value: String) -> String {
         // Encode special characters that have meaning in GFF3 attributes
         // Order matters: encode % first to avoid double-encoding
@@ -288,6 +288,24 @@ public final class GFF3Writer {
             .replacingOccurrences(of: ",", with: "%2C")
             .replacingOccurrences(of: "\t", with: "%09")
             .replacingOccurrences(of: "\n", with: "%0A")
+    }
+
+    /// The attributes whose value is a list, in which an unescaped comma separates the items (BIO ruling on
+    /// GFF3-MULTIVALUE). `Note` is free text and holds commas, so it is not one, and no other attribute is.
+    public static let listAttributeKeys: Set<String> = ["Parent", "Alias", "Dbxref", "Ontology_term", "Derives_from"]
+
+    /// Encodes the value of attribute `key` for column 9. Both writers go through this function, the writer for every
+    /// attribute it writes and the leaf (`AnnotationDatabaseGFFExporter`) for the `Name=` of a row with no attributes
+    /// and for each stored list pair. The value of a list attribute (`listAttributeKeys`) is split on `,`, each item is
+    /// encoded by `encodeAttributeValue(_:)` and the items are joined with a bare comma, so a `Parent` of two IDs and
+    /// a `Dbxref` list keep their items. The reader merges a separator and an escaped comma into one comma, so every
+    /// comma in the value of these keys reads as a separator, and no ID or cross-reference is expected to hold one.
+    /// The value of every other key goes through `encodeAttributeValue(_:)` whole, so its commas stay `%2C`.
+    public static func encodeAttributeValue(_ value: String, forKey key: String) -> String {
+        guard listAttributeKeys.contains(key) else { return encodeAttributeValue(value) }
+        return value.split(separator: ",", omittingEmptySubsequences: false)
+            .map { encodeAttributeValue(String($0)) }
+            .joined(separator: ",")
     }
 
     private func annotationToFeatures(_ annotation: SequenceAnnotation, identifiers: GFF3ExportIdentifiers) -> [GFF3Feature] {

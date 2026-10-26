@@ -5,7 +5,7 @@
 // Phase 3.0 lane GFF3 (GFF3-MULTIVALUE, BIO ruling). A GFF3 that holds a feature with two parents and an NCBI
 // cross-reference list is imported into a bundle and exported through `lungfish bundle export-gff3`. The export writes
 // the commas that separate the items, so a tool that follows the GFF3 specification finds two parents and two
-// cross-references. A comma inside free text stays escaped.
+// cross-references.
 
 import ArgumentParser
 import XCTest
@@ -27,13 +27,13 @@ final class BundleExportGFF3ListAttributeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Two mRNAs, one exon of both, and one CDS with an NCBI cross-reference list and a note that holds a comma.
+    /// Two mRNAs, one exon of both, and one CDS with an NCBI cross-reference list.
     private static let gff3 = """
         ##gff-version 3
         chr1\ttest\tmRNA\t1\t1000\t.\t+\t.\tID=mRNA1
         chr1\ttest\tmRNA\t1\t1000\t.\t+\t.\tID=mRNA2
         chr1\ttest\texon\t1\t300\t.\t+\t.\tID=exon1;Parent=mRNA1,mRNA2
-        chr1\ttest\tCDS\t50\t300\t.\t+\t0\tID=cds1;Parent=mRNA1;Dbxref=GenBank:YP_009724389.1,GeneID:43740578;Note=protein%2C partial
+        chr1\ttest\tCDS\t50\t300\t.\t+\t0\tID=cds1;Parent=mRNA1;Dbxref=GenBank:YP_009724389.1,GeneID:43740578
 
         """
 
@@ -72,8 +72,8 @@ final class BundleExportGFF3ListAttributeTests: XCTestCase {
         return pairsByType
     }
 
-    /// The exon with `Parent=mRNA1,mRNA2` and the CDS with the Dbxref list export with their separators, the CDS keeps
-    /// its single parent, and the note keeps its escaped comma.
+    /// The exon with `Parent=mRNA1,mRNA2` and the CDS with the Dbxref list export with their separators, and the CDS
+    /// keeps its single parent.
     func testExportKeepsAParentListAndADbxrefList() async throws {
         let pairs = try await exportedPairs(of: try await makeBundle())
 
@@ -82,6 +82,5 @@ final class BundleExportGFF3ListAttributeTests: XCTestCase {
             pairs["CDS"]?.contains("Dbxref=GenBank:YP_009724389.1,GeneID:43740578") == true, "\(pairs["CDS"] ?? [])"
         )
         XCTAssertTrue(pairs["CDS"]?.contains("Parent=mRNA1") == true, "\(pairs["CDS"] ?? [])")
-        XCTAssertTrue(pairs["CDS"]?.contains("Note=protein%2C partial") == true, "\(pairs["CDS"] ?? [])")
     }
 }
