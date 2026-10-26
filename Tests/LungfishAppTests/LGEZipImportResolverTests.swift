@@ -215,6 +215,32 @@ final class LGEZipImportResolverTests: XCTestCase {
         )
     }
 
+    /// A `.tmp` folder that was in the project before the batch stays, since the batch removes only the one it made.
+    /// Every project has one after its first tool run, and a refused drop leaves the project as it was (OBS-W9).
+    func testCleanupKeepsATempFolderThatWasThereBefore() throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let sourceRoot = root.appendingPathComponent("source", isDirectory: true)
+        let temp = projectURL.appendingPathComponent(".tmp", isDirectory: true)
+        try fileManager.createDirectory(at: temp, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+        try "not an LGE object\n".write(
+            to: sourceRoot.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8
+        )
+        let archiveURL = root.appendingPathComponent("Plain.zip")
+        try runZip(workingDirectory: sourceRoot, archiveURL: archiveURL, entries: ["README.txt"])
+
+        let batch = try LGEZipImportResolver().resolve(urls: [archiveURL], projectURL: projectURL)
+        XCTAssertEqual(batch.failures.map(\.kind), [.noRecognizedLGEObject])
+        batch.cleanup()
+
+        XCTAssertTrue(fileManager.fileExists(atPath: temp.path), "the .tmp folder that was there before the batch stays")
+        XCTAssertEqual(
+            try? fileManager.contentsOfDirectory(atPath: temp.path), [],
+            "the batch removes its own folder and leaves the .tmp folder empty"
+        )
+    }
+
     /// The failure sheet's words for each way an archive can fail. The link sentence is the panel's wording for
     /// OBS-W9. The others say what happened and what to try next, and are checked by their meaning.
     func testRefusalWordsSayWhyAndWhatToTry() {
