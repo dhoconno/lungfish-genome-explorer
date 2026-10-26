@@ -664,7 +664,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(bundleDisplaySource.contains("func reloadReferenceBundleAfterAnnotationTrackMutation("))
         XCTAssertTrue(bundleDisplaySource.contains("viewerView.setReferenceBundle(context.bundle)"))
         XCTAssertTrue(bundleDisplaySource.contains("index.buildIndex(bundle: context.bundle"))
-        XCTAssertTrue(bundleDisplaySource.contains("annotationDrawerView?.setSearchIndex(index)"))
+        XCTAssertTrue(bundleDisplaySource.contains("completeAnnotationIndexHandoff(index, for: context.bundle)"))
         XCTAssertTrue(bundleDisplaySource.contains("viewerView.invalidateAnnotationTile()"))
     }
 
