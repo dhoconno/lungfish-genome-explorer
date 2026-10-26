@@ -205,11 +205,15 @@ extension ViewerViewController {
             projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
             windowStateScope: windowStateScope
         )
+        // The folder the result was loaded from, where its files are, which `ClassificationResult.load(from:)`
+        // also names in `config.outputDirectory`. The row's project and both folders of the command come from
+        // it, so a result renamed, moved or copied after its run never extracts from or into the folder its
+        // run stored (OBS-W4).
+        let resultFolder = classResult.outputURL.deletingLastPathComponent()
         let arguments = ViewerViewController.taxaCollectionExtractionArguments(
             collection: collection,
-            resultDirectory: classResult.config.outputDirectory,
-            outputDirectory: classResult.config.outputDirectory
-                .appendingPathComponent("extracted-\(collection.id)")
+            resultDirectory: resultFolder,
+            outputDirectory: resultFolder.appendingPathComponent("extracted-\(collection.id)")
         )
         ViewerViewController.beginTaxaCollectionExtractionOperation(
             collection: collection,

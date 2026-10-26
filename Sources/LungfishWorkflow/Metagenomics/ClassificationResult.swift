@@ -226,6 +226,12 @@ extension ClassificationResult {
     /// The taxonomy tree is rebuilt by parsing the `.kreport` file referenced
     /// in the sidecar. If Bracken output exists, it is merged into the tree.
     ///
+    /// The result names the folder it was loaded from. A run stores the absolute folder it wrote into, and a
+    /// result renamed, moved or copied with its project no longer sits there, so the loaded
+    /// ``ClassificationConfig/outputDirectory`` is `directory`, and a file the run kept inside its folder
+    /// follows it. A file outside the folder, the reads the run was given and the database, stays as stored.
+    /// Reading never writes, so the sidecar on disk is unchanged (OBS-W4).
+    ///
     /// - Parameter directory: The directory containing `classification-result.json`
     ///   and the referenced output files.
     /// - Returns: A fully reconstituted ``ClassificationResult``.
@@ -241,7 +247,7 @@ extension ClassificationResult {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let sidecar = try decoder.decode(PersistedClassificationResult.self, from: data)
-        let config = Self.resolvingRelativeConfigURLs(sidecar.config, relativeTo: directory)
+        let config = Self.resolvingConfigURLs(sidecar.config, loadedFrom: directory)
 
         // Resolve file paths relative to the directory.
         let reportURL = directory.appendingPathComponent(sidecar.reportPath)
@@ -287,20 +293,34 @@ extension ClassificationResult {
         )
     }
 
-    private static func resolvingRelativeConfigURLs(
+    /// Resolves every URL of a stored config against `directory`, the folder the sidecar was read from.
+    ///
+    /// A relative URL resolves against `directory`. A run stores absolute URLs, so a result renamed, moved or
+    /// copied after its run keeps the folder it was made in. When that folder is not `directory` it is replaced
+    /// by `directory`, and an absolute URL inside it, such as a mate staged under `.lungfish-classify-inputs`,
+    /// follows it, as `TaxTriageResultViewController.relocatedResult` follows its folder. An absolute URL outside
+    /// it stays as stored. A result that was not moved changes nothing (OBS-W4).
+    private static func resolvingConfigURLs(
         _ config: ClassificationConfig,
-        relativeTo directory: URL
+        loadedFrom directory: URL
     ) -> ClassificationConfig {
+        let storedFolder = storedFolderPath(of: config, unlessLoadedFrom: directory)
+        func resolve(_ url: URL) -> URL {
+            guard url.isFileURL, url.path.hasPrefix("/") else {
+                return resolvePersistedURL(url, relativeTo: directory)
+            }
+            return storedFolder.map { relocate(url, from: $0, to: directory) } ?? url
+        }
         var resolved = ClassificationConfig(
             goal: config.goal,
-            inputFiles: config.inputFiles.map { resolvePersistedURL($0, relativeTo: directory) },
+            inputFiles: config.inputFiles.map(resolve),
             isPairedEnd: config.isPairedEnd,
             interleavedInput: config.interleavedInput,
             inputLayout: config.inputLayout,
             databaseName: config.databaseName,
             inputFormat: config.inputFormat,
             databaseVersion: config.databaseVersion,
-            databasePath: resolvePersistedURL(config.databasePath, relativeTo: directory),
+            databasePath: resolve(config.databasePath),
             databaseDigest: config.databaseDigest,
             databaseCatalogID: config.databaseCatalogID,
             databaseInstallationRecipe: config.databaseInstallationRecipe,
@@ -310,16 +330,32 @@ extension ClassificationResult {
             threads: config.threads,
             memoryMapping: config.memoryMapping,
             quickMode: config.quickMode,
-            outputDirectory: resolvePersistedURL(config.outputDirectory, relativeTo: directory),
+            outputDirectory: resolve(config.outputDirectory),
             extraArguments: config.extraArguments
         )
         resolved.sampleDisplayName = config.sampleDisplayName
-        resolved.originalInputFiles = config.originalInputFiles?.map {
-            resolvePersistedURL($0, relativeTo: directory)
-        }
-        resolved.singleReadFiles = config.singleReadFiles.map { resolvePersistedURL($0, relativeTo: directory) }
+        resolved.originalInputFiles = config.originalInputFiles?.map(resolve)
+        resolved.singleReadFiles = config.singleReadFiles.map(resolve)
         resolved.plansReadSet = config.plansReadSet
         return resolved
+    }
+
+    /// The standardized path of the folder the run stored, or nil when the sidecar stores no absolute folder or
+    /// stores `directory` itself, which are the results that were not moved.
+    private static func storedFolderPath(of config: ClassificationConfig, unlessLoadedFrom directory: URL) -> String? {
+        let stored = config.outputDirectory
+        guard stored.isFileURL, stored.path.hasPrefix("/") else { return nil }
+        let path = stored.standardizedFileURL.path
+        return path == directory.standardizedFileURL.path ? nil : path
+    }
+
+    /// `directory` when `url` is the stored folder, the same place under `directory` when `url` lies inside it,
+    /// and `url` otherwise. A sibling whose name starts with the folder's name lies outside it.
+    private static func relocate(_ url: URL, from storedFolder: String, to directory: URL) -> URL {
+        let path = url.standardizedFileURL.path
+        if path == storedFolder { return directory }
+        guard path.hasPrefix(storedFolder + "/") else { return url }
+        return directory.appendingPathComponent(String(path.dropFirst(storedFolder.count + 1)))
     }
 
     private static func resolvePersistedURL(_ url: URL, relativeTo directory: URL) -> URL {
