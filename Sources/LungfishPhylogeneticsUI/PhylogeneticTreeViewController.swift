@@ -381,16 +381,16 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
 
     private func updatePrimaryContentGeometry() {
         guard isViewLoaded else { return }
-        let availableWidth = max(1, view.bounds.width - 24)
-        let summaryHeight = measuredTextHeight(
-            summaryLabel.stringValue,
-            font: summaryLabel.font,
-            width: availableWidth
-        )
-        let toolbarContentHeight = toolbarContentView?.fittingSize.height ?? 0
-        let toolbarHeight = max(76, ceil(8 + summaryHeight + 7 + toolbarContentHeight + 7))
-        if abs((toolbarHeightConstraint?.constant ?? 0) - toolbarHeight) > 0.5 {
-            toolbarHeightConstraint?.constant = toolbarHeight
+        // Before its first layout the view is 0 wide. The summary measured at 1 point set a required toolbar
+        // height of hundreds of points that grew the window past the screen (obs-22), so viewDidLayout measures it.
+        let availableWidth = view.bounds.width - 24
+        if availableWidth > 0 {
+            let summaryHeight = measuredTextHeight(summaryLabel.stringValue, font: summaryLabel.font, width: availableWidth)
+            let toolbarContentHeight = toolbarContentView?.fittingSize.height ?? 0
+            let toolbarHeight = max(76, ceil(8 + summaryHeight + 7 + toolbarContentHeight + 7))
+            if abs((toolbarHeightConstraint?.constant ?? 0) - toolbarHeight) > 0.5 {
+                toolbarHeightConstraint?.constant = toolbarHeight
+            }
         }
 
         let titleHeight = nodeDrawerTitle.font?.boundingRectForFont.height ?? 0
