@@ -81,6 +81,10 @@ struct ReleaseAppSmokeRobot {
     let candidateURL: URL
     let launchHome: URL
 
+    /// Process ids of the candidate copies this runner launched, so a later task tells its own leftover copy
+    /// from one the smoke did not start.
+    private static var startedBySmoke: Set<pid_t> = []
+
     init(testName: String = #function) throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["LUNGFISH_RELEASE_SMOKE_APP"] else {
@@ -88,9 +92,11 @@ struct ReleaseAppSmokeRobot {
         }
         let homes = try XCTUnwrap(environment["LUNGFISH_RELEASE_SMOKE_HOME"], "The gate names a fresh candidate home")
         candidateURL = URL(fileURLWithPath: path).standardizedFileURL
-        // A copy already running would be taken over or ended by the launch, so the smoke stops instead.
+        // A copy already running would be taken over or ended by the launch, so the smoke stops instead. A copy an
+        // earlier task of this run started is the smoke's own, and this launch replaces it.
         let identifier = try XCTUnwrap(Bundle(url: candidateURL)?.bundleIdentifier, "The candidate has no bundle identifier")
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { !$0.isTerminated }
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { !$0.isTerminated && !Self.startedBySmoke.contains($0.processIdentifier) }
         guard running.isEmpty else {
             throw NSError(domain: "ReleaseAppSmokeRobot", code: 2, userInfo: [NSLocalizedDescriptionKey:
                 "Lungfish is already running as process \(running[0].processIdentifier). Quit every copy of Lungfish and run the smoke again, since the run would take over that copy."])
@@ -111,6 +117,11 @@ struct ReleaseAppSmokeRobot {
 
     func launch() throws {
         app.launch()
+        if let identifier = Bundle(url: candidateURL)?.bundleIdentifier {
+            // init refused every copy the smoke did not start, so each copy running now is the smoke's own.
+            Self.startedBySmoke.formUnion(NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+                .map(\.processIdentifier))
+        }
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         let bundle = try XCTUnwrap(Bundle(url: candidateURL))
         let channel = try XCTUnwrap(ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_CHANNEL"],
@@ -124,7 +135,7 @@ struct ReleaseAppSmokeRobot {
     }
 
     func openProject(_ url: URL) {
-        menu("File", item: "Open Project Folder...")
+        menu("File", item: "Open Project Folder\u{2026}")
         chooseNativePath(url)
         XCTAssertTrue(window(url).waitForExistence(timeout: 15))
     }
