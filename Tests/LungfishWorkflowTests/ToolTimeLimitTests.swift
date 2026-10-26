@@ -96,7 +96,7 @@ final class ToolTimeLimitTests: XCTestCase {
         XCTAssertTrue(offenders.isEmpty,
                       "An analysis tool has no wall-clock limit by default. Remove the default, or list it in keptDefaults with its reason:\n"
                       + offenders.joined(separator: "\n"))
-        let stale = Self.keptDefaults.filter { !seen.contains("\($0.file) \($0.line)") }.map { "\($0.file) \($0.line)" }
+        let stale = Self.keptDefaults.map { "\($0.file) \($0.line)" }.filter { !seen.contains($0) }
         XCTAssertTrue(stale.isEmpty, "keptDefaults names a default that no longer exists:\n" + stale.joined(separator: "\n"))
     }
 
