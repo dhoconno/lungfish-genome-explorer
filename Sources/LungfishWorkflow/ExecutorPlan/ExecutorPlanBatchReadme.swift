@@ -12,7 +12,7 @@ package enum ExecutorPlanBatchReadme {
     package static let fileName = "README.txt"
 
     /// `stagedReads` says that reads of the batch are in the staging folder already (C6 ruling STAGED), which changes
-    /// three passages. A batch with no staged read keeps the text it always had, byte for byte (ARCH 7).
+    /// two passages, `listed` and `dataFolders`. A batch with no staged read keeps the text of ruling X6 (ARCH 7).
     package static func text(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int,
                              stagedReads: Bool) -> String {
         let batch = layout.batch

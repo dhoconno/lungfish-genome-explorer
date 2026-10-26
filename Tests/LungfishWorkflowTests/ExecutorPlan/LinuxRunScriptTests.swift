@@ -409,11 +409,11 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertEqual(files.filter { $0.source == nil }.map(\.role), ["image"], "the image is the one file with no source")
     }
 
-    /// Lane X's findings from the first run on a lab machine: the README says "copy or link" for each listed file, names
-    /// `--samplesheet samples.csv` and that the Mac reads the sheet when the batch is written, says the staging folder
-    /// can be the data folder, says what `run-local.sh` prints and where the job's logs are, says the copy loop's
-    /// `rsync` uses the ssh setup for the host, and says the project must not hold a bundle of a sample's name and how to
-    /// start over. The text is read with its hard line breaks joined, so a new wrap does not move a pin.
+    /// Lane X's findings from the first run on a lab machine: the README says "copy or link" for each listed file that
+    /// has a source, names `--samplesheet samples.csv` and that the Mac reads the sheet when the batch is written, says
+    /// the staging folder can be the data folder, says what `run-local.sh` prints and where the job's logs are, says the
+    /// copy loop's `rsync` uses the ssh setup for the host, and says the project must not hold a bundle of a sample's
+    /// name and how to start over. The text is read with its hard line breaks joined, so a new wrap does not move a pin.
     func testReadmeAnswersTheFindingsOfALabMembersFirstRun() throws {
         let written = try writeBatch(["S1"])
         let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
