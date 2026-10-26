@@ -1637,7 +1637,7 @@ final class BatchInspectorSectionTests: XCTestCase {
     /// Setting `batchOperationTool` to a non-nil value persists correctly.
     func testSettingBatchOperationToolMakesItNonNil() {
         let vm = DocumentSectionViewModel()
-        vm.batchOperationTool = "Kraken2"
+        vm.showResultBlock(.operationDetails(.init(tool: "Kraken2")))
         XCTAssertEqual(vm.batchOperationTool, "Kraken2")
     }
 
@@ -1646,7 +1646,9 @@ final class BatchInspectorSectionTests: XCTestCase {
     /// `batchOperationParameters` stores and retrieves arbitrary key-value pairs.
     func testBatchOperationParametersStoresKeyValuePairs() {
         let vm = DocumentSectionViewModel()
-        vm.batchOperationParameters = ["Database": "standard-2024-01", "Confidence": "0.2"]
+        vm.showResultBlock(.operationDetails(.init(
+            tool: "Kraken2", parameters: ["Database": "standard-2024-01", "Confidence": "0.2"]
+        )))
 
         XCTAssertEqual(vm.batchOperationParameters["Database"], "standard-2024-01")
         XCTAssertEqual(vm.batchOperationParameters["Confidence"], "0.2")
@@ -1659,10 +1661,10 @@ final class BatchInspectorSectionTests: XCTestCase {
     func testBatchSourceSampleURLsStoresSampleEntries() {
         let vm = DocumentSectionViewModel()
         let testURL = URL(fileURLWithPath: "/tmp/SampleA.lungfishfastq")
-        vm.batchSourceSampleURLs = [
+        vm.showResultBlock(.operationDetails(.init(tool: "Kraken2", sourceSamples: [
             (sampleId: "SampleA", bundleURL: testURL),
             (sampleId: "SampleB", bundleURL: nil),
-        ]
+        ])))
 
         XCTAssertEqual(vm.batchSourceSampleURLs.count, 2)
         XCTAssertEqual(vm.batchSourceSampleURLs[0].sampleId, "SampleA")

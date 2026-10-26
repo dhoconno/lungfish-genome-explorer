@@ -244,10 +244,12 @@ private enum SummaryText {
         return ([line] + children(of: element).map { dump($0, depth: depth + 1) }).joined(separator: "\n")
     }
 
-    /// The label, the modern value and the legacy value, which for a SwiftUI text node echoes its text.
+    /// The label, the modern value and the legacy value, which for a SwiftUI text node echoes its text. A table cell
+    /// proxy has no modern value and raises when asked, so the modern value is read only where it answers.
     private static func strings(of element: NSObject) -> [String] {
         let label = (element as AnyObject).accessibilityLabel?() ?? nil
-        let value = element.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue() as? String
+        let selector = NSSelectorFromString("accessibilityValue")
+        let value = element.responds(to: selector) ? element.perform(selector)?.takeUnretainedValue() as? String : nil
         let legacy = element.accessibilityAttributeValue(.value) as? String
         return [label, value, legacy].compactMap { $0 }
     }

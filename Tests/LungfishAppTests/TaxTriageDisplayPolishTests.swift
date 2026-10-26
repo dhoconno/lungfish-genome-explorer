@@ -14,7 +14,7 @@ final class TaxTriageDisplayPolishTests: XCTestCase {
         let viewModel = DocumentSectionViewModel()
         XCTAssertTrue(viewModel.showsMetagenomicsSelectionPrompt)
 
-        viewModel.batchOperationTool = "TaxTriage"
+        viewModel.showResultBlock(.operationDetails(.init(tool: "TaxTriage")))
         XCTAssertFalse(
             viewModel.showsMetagenomicsSelectionPrompt,
             "The Summary tab asked for a result above that result's Operation Details"

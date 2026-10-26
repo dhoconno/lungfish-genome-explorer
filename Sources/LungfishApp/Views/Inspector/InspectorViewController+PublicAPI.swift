@@ -961,7 +961,8 @@ extension InspectorViewController {
         viewModel.documentSectionViewModel.bundleAttachmentStore = attachments
     }
 
-    /// Updates the Inspector with batch operation details for display in the Result Summary tab.
+    /// Shows a classifier run's Operation Details in the Result Summary tab. The Summary holds one result block, so
+    /// these replace a NAO-MGS or NVD block left by the result shown before (walk OBS-W6).
     ///
     /// - Parameters:
     ///   - tool: Human-readable tool name (e.g. "Kraken2").
@@ -974,18 +975,14 @@ extension InspectorViewController {
         timestamp: Date?,
         sourceSamples: [(sampleId: String, bundleURL: URL?)]
     ) {
-        viewModel.documentSectionViewModel.batchOperationTool = tool
-        viewModel.documentSectionViewModel.batchOperationParameters = parameters
-        viewModel.documentSectionViewModel.batchOperationTimestamp = timestamp
-        viewModel.documentSectionViewModel.batchSourceSampleURLs = sourceSamples
+        viewModel.documentSectionViewModel.showResultBlock(.operationDetails(.init(
+            tool: tool, parameters: parameters, timestamp: timestamp, sourceSamples: sourceSamples
+        )))
     }
 
-    /// Clears batch operation details from the Inspector.
+    /// Clears the Summary's result block (Operation Details, or a NAO-MGS or NVD block) for a result that has none.
     func clearBatchOperationDetails() {
-        viewModel.documentSectionViewModel.batchOperationTool = nil
-        viewModel.documentSectionViewModel.batchOperationParameters = [:]
-        viewModel.documentSectionViewModel.batchOperationTimestamp = nil
-        viewModel.documentSectionViewModel.batchSourceSampleURLs = []
+        viewModel.documentSectionViewModel.showResultBlock(nil)
     }
 
 }

@@ -169,13 +169,21 @@ public final class DocumentSectionViewModel {
         self.fastqDerivativeManifest = manifest
     }
 
-    // MARK: - NAO-MGS Metadata
+    // MARK: - Result Blocks (NAO-MGS, NVD, Operation Details)
 
-    /// NAO-MGS manifest when displaying a surveillance result.
-    var naoMgsManifest: NaoMgsManifest?
+    /// NAO-MGS manifest when displaying a surveillance result. Set through ``showResultBlock(_:)``.
+    private(set) var naoMgsManifest: NaoMgsManifest?
 
-    /// Updates the view model with NAO-MGS manifest data.
-    func updateNaoMgsManifest(_ manifest: NaoMgsManifest?) {
+    /// NVD manifest when displaying an NVD result bundle. Set through ``showResultBlock(_:)``.
+    private(set) var nvdManifest: NvdManifest?
+
+    /// Shows a NAO-MGS result's block, which replaces any document mode and any other result's block.
+    func updateNaoMgsManifest(_ manifest: NaoMgsManifest?) { showResultDocument(manifest.map { .naoMgs($0) }) }
+
+    /// Shows an NVD result's block, which replaces any document mode and any other result's block.
+    func updateNvdManifest(_ manifest: NvdManifest?) { showResultDocument(manifest.map { .nvd($0) }) }
+
+    private func showResultDocument(_ block: InspectorResultBlock?) {
         mappingDocument = nil
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
@@ -184,29 +192,20 @@ public final class DocumentSectionViewModel {
         mhcReferenceBundleDocument = nil
         primerSchemeDocument = nil
         viralReconDocument = nil
-        self.naoMgsManifest = manifest
+        showResultBlock(block)
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
     }
 
-    // MARK: - NVD Metadata
-
-    /// NVD manifest when displaying an NVD result bundle.
-    var nvdManifest: NvdManifest?
-
-    /// Updates the view model with NVD manifest data.
-    func updateNvdManifest(_ manifest: NvdManifest?) {
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        self.nvdManifest = manifest
-        referenceTrackCapabilities = nil
-        clearAlignmentTrackInventory()
+    /// Holds `block` as the Summary's one result block, or none. A block belongs to the result on screen, so a route
+    /// that shows a result names its block here, or nil when the result has none, and no block outlives its result.
+    func showResultBlock(_ block: InspectorResultBlock?) {
+        naoMgsManifest = block?.naoMgsManifest
+        nvdManifest = block?.nvdManifest
+        batchOperationTool = block?.operationDetails?.tool
+        batchOperationParameters = block?.operationDetails?.parameters ?? [:]
+        batchOperationTimestamp = block?.operationDetails?.timestamp
+        batchSourceSampleURLs = block?.operationDetails?.sourceSamples ?? []
     }
 
     /// Updates the view model with mapping-document data and clears other document modes.
@@ -598,19 +597,19 @@ public final class DocumentSectionViewModel {
         analysisManifestEntries = manifest.analyses.sorted { $0.timestamp > $1.timestamp }
     }
 
-    // MARK: - Batch Operation Details
+    // MARK: - Batch Operation Details (one result block, set through ``showResultBlock(_:)``)
 
     /// The tool name for a batch operation (e.g. "Kraken2", "EsViritu"), or nil when not in batch context.
-    var batchOperationTool: String?
+    private(set) var batchOperationTool: String?
 
     /// Key-value parameters from the batch manifest (e.g. database name, confidence threshold).
-    var batchOperationParameters: [String: String] = [:]
+    private(set) var batchOperationParameters: [String: String] = [:]
 
     /// Timestamp from the batch manifest header indicating when the batch was created.
-    var batchOperationTimestamp: Date?
+    private(set) var batchOperationTimestamp: Date?
 
     /// Source sample entries for the batch, each pairing a sample ID with its originating bundle URL (if resolvable).
-    var batchSourceSampleURLs: [(sampleId: String, bundleURL: URL?)] = []
+    private(set) var batchSourceSampleURLs: [(sampleId: String, bundleURL: URL?)] = []
 
     // MARK: - Cross-Project Copy
 
