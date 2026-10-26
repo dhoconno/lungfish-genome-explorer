@@ -33,6 +33,14 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
     /// `--paired` binds exactly two files as R1 and R2, and the inputs, named
     /// by `inputs`, resolve to the other number of files named by `files`.
     case pairedInputsCannotBind(inputs: [String], files: [String])
+    /// A pool holds inputs of read pairs beside inputs of single reads, or an
+    /// input of pairs and single reads, so no one layout keeps every pair.
+    case poolMixesPairsAndSingleReads(pairs: [String], singleReads: [String], pairsAndSingleReads: [String])
+    /// A pool holds Oxford Nanopore or PacBio inputs beside short-read inputs.
+    case poolMixesLongAndShortReads(longReads: [String], shortReads: [String])
+    /// A pool of paired inputs holds some as one interleaved file and others
+    /// as an R1 and an R2 file.
+    case poolMixesMateFileForms(interleaved: [String], mateFiles: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -46,6 +54,26 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
                 + "\(files.joined(separator: ", ")). "
                 + "A bundle of R1 and R2 files maps as pairs on its own, without --paired. "
                 + "Give --paired only the R1 file and the R2 file, or map each input on its own."
+        case .poolMixesPairsAndSingleReads(let pairs, let singleReads, let pairsAndSingleReads):
+            let groups = [
+                ("Inputs of read pairs", pairs),
+                ("Inputs of single reads", singleReads),
+                ("Inputs of pairs and single reads", pairsAndSingleReads),
+            ].filter { !$0.1.isEmpty }.map { "\($0.0): \($0.1.joined(separator: ", "))." }
+            return "These inputs cannot be pooled into one run, because a pool keeps the pairs of its inputs "
+                + "only when every input holds read pairs. \(groups.joined(separator: " ")) "
+                + "Map them apart, one run for the inputs of read pairs and one for the others, or map each input on its own."
+        case .poolMixesLongAndShortReads(let longReads, let shortReads):
+            return "These inputs cannot be pooled into one run, because they mix long reads and short reads. "
+                + "Oxford Nanopore or PacBio inputs: \(longReads.joined(separator: ", ")). "
+                + "Short-read inputs: \(shortReads.joined(separator: ", ")). "
+                + "Map them apart, one run for the long reads and one for the short reads."
+        case .poolMixesMateFileForms(let interleaved, let mateFiles):
+            return "These inputs of read pairs cannot be pooled into one run, because some hold their pairs in one "
+                + "interleaved file and others in an R1 and an R2 file. "
+                + "Interleaved inputs: \(interleaved.joined(separator: ", ")). "
+                + "Inputs of R1 and R2 files: \(mateFiles.joined(separator: ", ")). "
+                + "Map them apart, one run for each kind, or map each input on its own."
         }
     }
 }
@@ -63,7 +91,11 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
 /// pairing the plan found, so a sample of only single reads or only pairs
 /// keeps its command. Loose files pair only when the caller says so
 /// (`--paired`, or the window's two loose files named as mates), and two
-/// bundles are never paired with each other.
+/// bundles are never paired with each other. Several inputs without
+/// `--paired` are one pool, planned input by input
+/// (``MappingPooledInputs/pairedPool(_:pairsMates:resolver:into:progress:)``),
+/// so a pool of paired inputs keeps each input's own pairs, a pool of single
+/// reads maps as one file of single reads, and a pool that mixes them stops.
 public enum MappingInputResolver {
 
     /// The capability `tool` takes reads with in `modeID`, or nil when the
@@ -138,6 +170,33 @@ public enum MappingInputResolver {
                 return try await readSetResolution(request: request, plan: plan, bundleURL: bundleURL, materializer: reusing)
             }
             bundlePlan = (bundleURL, plan)
+        }
+
+        // Several inputs that are not bound as R1 and R2 are one pool. Each is
+        // planned on its own, so a pool of paired inputs keeps every input's
+        // pairs and a pool that mixes kinds stops before any join
+        // (MAP-POOLED-PAIRS). A pool of single reads is joined further down.
+        if inputURLs.count > 1, !request.pairedEnd, explicitLayout == nil,
+           let pooled = try await MappingPooledInputs.pairedPool(
+               inputURLs,
+               pairsMates: readPairingCapability(tool: request.tool, modeID: request.modeID) != nil,
+               resolver: ReadSetResolver(materializationDirectory: directory, materializer: reusing),
+               into: directory,
+               progress: progress
+           ) {
+            let resolved = await reusing.withMaterializationTimes(pooled.resolved)
+            let resolvedRequest = request
+                .withInputFASTQURLs(resolved.executionInputURLs, pairedEnd: pooled.pairedEnd)
+                .withInputLineage(resolved)
+                .withInputLayout(pooled.layoutResolution.layout)
+                // The lineage names every input the pool joined, not the first only.
+                .withOriginalInputFASTQURLs(inputURLs.map(\.standardizedFileURL))
+            return MappingResolvedInputs(
+                request: resolvedRequest,
+                layoutResolution: pooled.layoutResolution,
+                sequenceInputs: resolved,
+                readSetPlan: nil
+            )
         }
 
         var resolved = try await ResolvedSequenceInputs.resolve(

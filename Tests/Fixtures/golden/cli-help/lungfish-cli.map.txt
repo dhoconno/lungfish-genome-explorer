@@ -10,8 +10,14 @@ from the required BBTools environment and is available once the managed
 toolchain
 is provisioned.
 
-Multiple inputs are treated as one sample's reads (--paired binds exactly two
-files as R1/R2 of that sample); invoke once per sample for per-sample results.
+Several inputs are pooled into one run of one sample. Inputs of read pairs keep
+their pairs and inputs of single reads map as single reads. A pool that mixes
+the
+two, or mixes long and short reads, stops before the run. --paired instead
+binds
+exactly two files as the R1 and R2 reads of one sample. Run the command once
+per
+sample for per-sample results.
 
 USAGE: lungfish-cli map [<options>] <fastq-files> ... --reference <reference>
 
