@@ -307,6 +307,62 @@ final class TaxonomyCollectionsExtractTests: XCTestCase {
         XCTAssertFalse(OperationCenter.shared.items.contains { !before.contains($0.id) }, "a refusal begins no row")
     }
 
+    // MARK: - A result that holds no reads to extract (the 2026-10-26 meeting, row 69 of the 2.13 walk)
+
+    /// A CZ-ID import holds no per-read source IDs and its host never wires the drawer's Extract, so the press
+    /// did nothing and showed no words. It shows the alert and begins no row.
+    func testExtractInACzIdResultSaysWhy() async throws {
+        let bundle = root.appendingPathComponent("cz-id-imported", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let report = bundle.appendingPathComponent("classification.kreport")
+        try TaxaCollectionFixtures.kreport.write(to: report, atomically: true, encoding: .utf8)
+        let config = ClassificationConfig(
+            inputFiles: [report], isPairedEnd: false, databaseName: "CZ-ID", databasePath: bundle, outputDirectory: bundle
+        )
+        let result = ClassificationResult(
+            config: config, tree: try KreportParser.parse(url: report), reportURL: report, outputURL: report,
+            brackenURL: nil, runtime: 1, toolVersion: "8.4", provenanceId: nil
+        )
+        let manifest = CzIdImportManifest(
+            schemaVersion: "1", sampleName: "Sample-CZ-001", projectId: nil, pipelineVersion: "8.4",
+            ntDatabaseVersion: nil, nrDatabaseVersion: nil, sourceFiles: [], rowCount: 3
+        )
+        let host = CzIdResultViewController()
+        host.configure(result: result, manifest: manifest, bundleURL: bundle)
+        _ = host.view
+        let taxonomy = try XCTUnwrap(host.taxonomyViewControllerForTesting)
+        let shown = recordRefusals()
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        try harness.pressExtract(TaxaCollectionFixtures.collection, on: taxonomy)
+
+        XCTAssertEqual(shown.all, [
+            "Could not extract reads | CZ-ID imports do not include per-read source IDs, so reads cannot be extracted "
+                + "from this result. To extract reads, classify the sample's FASTQ in Lungfish and extract from that result.",
+        ])
+        XCTAssertFalse(OperationCenter.shared.items.contains { !before.contains($0.id) }, "a refusal begins no row")
+    }
+
+    /// A Kraken2 result copied into a project without its reads has a reason of its own for read-level actions
+    /// being off (`readLevelActionsUnavailableReason`). The CZ-ID words are false for it, so the drawer gives it
+    /// none. Extract runs and ends with the words of the missing source, as it did (passes at the base).
+    func testExtractInAResultCopiedWithoutItsReadsIsNotRefusedWithTheCzIdWords() async throws {
+        let batch = try TwoSampleKraken2Batch(in: root)
+        let taxonomy = try harness.openFromSidebar(batch, showing: [TwoSampleKraken2Batch.sampleA])
+        taxonomy.readLevelActionsUnavailableReason = "Source reads are not in this project (sample-A_reads.fastq)"
+        taxonomy.readLevelActionsAvailable = false
+        let shown = recordRefusals()
+        let collection = TaxaCollectionFixtures.collection
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        try harness.pressExtract(collection, on: taxonomy)
+
+        let began = await DrawerExtractHarness.waitForNewRow(titled: "Extract \(collection.name)", excluding: before)
+        let id = try XCTUnwrap(began, "Extract began no Operations row")
+        XCTAssertEqual(shown.all, [], "no refusal in the drawer, the extraction says what is missing")
+        await DrawerExtractHarness.waitUntilEnded(id)
+    }
+
     /// Records what the drawer's alert would show, in place of a sheet no test could answer.
     private func recordRefusals() -> EventLog {
         let log = EventLog()
