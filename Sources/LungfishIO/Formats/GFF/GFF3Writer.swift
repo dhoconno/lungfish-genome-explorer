@@ -318,9 +318,13 @@ public final class GFF3Writer {
         attributes["ID"] = row.map { identifiers.exportedID(of: $0) } ?? annotation.id.uuidString
         attributes["Name"] = annotation.name
 
-        // Add note if present
+        // Add the note. An annotation read from an annotation database keeps its stored `Note=` pair as the qualifier
+        // `Note` and leaves `note` nil (`AnnotationDatabaseRecord.toAnnotation`), so the qualifier is the note then.
+        // `note` wins when both are set, so a note is written once, and the qualifier loop below skips `Note`.
         if let note = annotation.note {
             attributes["Note"] = note
+        } else if let stored = annotation.qualifiers["Note"] {
+            attributes["Note"] = stored.values.joined(separator: ",")
         }
 
         // Add qualifiers
