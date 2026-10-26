@@ -511,7 +511,7 @@ enum EsVirituRunLevel {
         for (sample, bam) in bamURLs {
             let counted = try ProvenanceFileDescriptor.file(url: bam, format: .bam, role: .input)
             for row in 1...rows {
-                for flags in ["1028", "4"] {
+                for flags in ["3332", "2308"] {
                     add(samtools(["view", "-c", "-F", flags, bam.path, "ACC\(row)"], inputs: [counted]), "\(sample) row count")
                 }
             }

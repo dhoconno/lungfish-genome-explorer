@@ -89,7 +89,7 @@ private enum ReadCountRun {
           view)
             case "$2" in
               -H) printf '@HD\\tVN:1.6\\n@PG\\tID:samtools.1\\tPN:samtools\\tCL:samtools markdup in out\\n' ;;
-              -c) if [ "$4" = "4" ] && [ -n "$6" ]; then \(totalCount); else echo 2; fi ;;
+              -c) if [ "$4" = "2308" ] && [ -n "$6" ]; then \(totalCount); else echo 2; fi ;;
             esac ;;
           *) exit 1 ;;
         esac

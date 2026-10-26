@@ -185,7 +185,14 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
               exit 0
             fi
             if [ "$count" -eq 1 ]; then
-              if [ "$flag" = "1028" ]; then
+              # A count of a row passes the ruled flags, 2308 for Reads and 3332 for Unique Reads. The count of a whole
+              # BAM that markdup takes has no accession and passes 4 and 1028. Any other pair is refused.
+              case "${accession:+row}:$flag" in
+                row:3332|:1028) kind=unique ;;
+                row:2308|:4) kind=total ;;
+                *) exit 1 ;;
+              esac
+              if [ "$kind" = "unique" ]; then
                 case "$accession" in
                   NC_045512.2) echo 25 ;;
                   OM695287.1) echo 20 ;;
@@ -292,7 +299,7 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
             )
         }
 
-        // Verify unique_reads values in DB are consistent with samtools view -c -F 0x404
+        // Verify unique_reads values in DB are consistent with samtools view -c -F 0xD04
         let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
         let db = try TaxTriageDatabase(at: dbURL)
         let samples = try db.fetchSamples()
@@ -305,7 +312,7 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
             let expected = try MarkdupService.countReads(
                 bamURL: bamURL,
                 accession: row.primaryAccession!,
-                flagFilter: 0x404,
+                flagFilter: 0xD04,
                 samtoolsPath: samtoolsPath
             )
             let normalizedExpected = row.readsAligned > 0 ? max(expected, 1) : 0
