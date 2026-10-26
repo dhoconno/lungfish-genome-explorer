@@ -493,7 +493,7 @@ private struct MappingViewSettingsSection: View {
 /// Shows pipeline/run information when a TaxTriage, EsViritu, or Kraken2
 /// result is displayed. Re-uses DocumentSectionViewModel data when available,
 /// otherwise shows a "No result information" placeholder.
-private struct MetagenomicsResultSummarySection: View {
+struct MetagenomicsResultSummarySection: View {
     @Bindable var viewModel: DocumentSectionViewModel
     @Bindable var twelveSViewModel: TwelveSResultDisplaySectionViewModel
     let windowStateScope: WindowStateScope?
