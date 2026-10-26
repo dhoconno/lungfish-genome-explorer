@@ -143,6 +143,39 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         viewer.clearBundleDisplay()
     }
 
+    /// The mapping viewport builds its own index and assigns it straight to the viewer, with no notification and no
+    /// helper call (`ReferenceBundleViewportController.swift`). Its drawer exists before that index does, so the
+    /// viewer's own observer must give the drawer the words for a build that ends with no index, and take them away
+    /// when a later index is healthy (the review of lane DRAWER, blocker 1).
+    func testAnIndexAssignedStraightToTheViewerShowsAndTakesAwayTheWords() async throws {
+        let bundleName = "Direct Missing Fixture"
+        let words = "\(Self.failureWordsStart) \(bundleName), because its annotation database "
+            + "is missing or cannot be read. Reopen the bundle, and if this repeats, import its annotations again."
+        let bundle = try makeBundle(named: bundleName, annotationRows: 0, writesAnnotationDatabase: false)
+        let viewer = try showBundle(at: bundle)
+        viewer.openAnnotationDrawerIfBundleHasData()
+        let drawer = try XCTUnwrap(viewer.annotationDrawerView)
+        let reference = try XCTUnwrap(viewer.viewerView.currentReferenceBundle)
+
+        let failed = AnnotationSearchIndex()
+        failed.buildIndex(bundle: reference, chromosomes: [])
+        viewer.annotationSearchIndex = failed
+        await assertDrawerSays(words, drawer: drawer, route: "direct assignment")
+
+        try writeAnnotationDatabase(rows: 2, into: bundle)
+        let repaired = AnnotationSearchIndex()
+        repaired.buildIndex(bundle: reference, chromosomes: [])
+        viewer.annotationSearchIndex = repaired
+        let filled = await waitUntil(budget: Self.drawerBudget) { drawer.totalAnnotationCount == 2 }
+        XCTAssertTrue(filled, "The drawer holds the repaired bundle's annotations.")
+        XCTAssertFalse(
+            Self.readableText(in: drawer).contains(where: { $0.contains(Self.failureWordsStart) }),
+            "The words of the earlier failed build are gone."
+        )
+
+        viewer.clearBundleDisplay()
+    }
+
     // MARK: - Assertions
 
     private func assertDrawerSays(

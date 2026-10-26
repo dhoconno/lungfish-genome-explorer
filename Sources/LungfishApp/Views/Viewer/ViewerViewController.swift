@@ -444,7 +444,7 @@ public class ViewerViewController: NSViewController {
             }
             // If the drawer exists and index is ready, populate it
             if let index = annotationSearchIndex, !index.isBuilding, let drawer = annotationDrawerView {
-                drawer.setSearchIndex(index)
+                attachAnnotationIndexToDrawer(index)
             }
         }
     }
