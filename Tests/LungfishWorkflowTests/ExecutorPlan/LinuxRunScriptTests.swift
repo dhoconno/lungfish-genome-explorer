@@ -382,6 +382,33 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertEqual(sheet.entries.first?.r1.path, root.appendingPathComponent("S1_R1.fastq.gz").path)
     }
 
+    /// Ruling X6 (R-README), the finding of the CASPER batch's lab run. Step 1 copies the files of `staging-files.json` that
+    /// have a `source`, and leaves a file in `shared/` that is already there, since the jobs of other batches read it. The
+    /// list is what the step reads: every file in `shared/` is named by its SHA-256, so one with the listed size is the same
+    /// file, and the image is the one file with no `source`. The text is read with its hard line breaks joined.
+    func testReadmeSaysWhichFilesToCopyAndLeavesSharedFilesInPlace() throws {
+        let written = try writeBatch(["S1"])
+        let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
+        let flat = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let staging = "/staging/groups/g/1/lge-test"
+        for sentence in [
+            "For each file in staging-files.json that has a source, copy or link that source to the file's stagingPath, below \(staging).",
+            "The name of a file in shared/ starts with its SHA-256, so a file already there with the listed size is the same file. Leave it, and never copy over it, since the jobs of other batches may be reading it.",
+        ] {
+            XCTAssertTrue(flat.contains(sentence), "\(sentence) is missing: \(flat)")
+        }
+        let files = try JSONDecoder().decode(
+            ExecutorPlanBatchFiles.self, from: Data(contentsOf: written.folder.appendingPathComponent("staging-files.json"))
+        ).files
+        let shared = files.filter { $0.stagingPath.contains("/shared/") }
+        XCTAssertFalse(shared.isEmpty, "the batch lists files in shared/")
+        for file in shared {
+            XCTAssertTrue((file.stagingPath as NSString).lastPathComponent.hasPrefix("\(file.sha256)-"),
+                          "\(file.stagingPath) is named by its SHA-256 and a dash")
+        }
+        XCTAssertEqual(files.filter { $0.source == nil }.map(\.role), ["image"], "the image is the one file with no source")
+    }
+
     /// Lane X's findings from the first run on a lab machine: the README says "copy or link" for each listed file, names
     /// `--samplesheet samples.csv` and that the Mac reads the sheet when the batch is written, says the staging folder
     /// can be the data folder, says what `run-local.sh` prints and where the job's logs are, says the copy loop's
@@ -393,7 +420,7 @@ final class LinuxRunScriptTests: XCTestCase {
         let flat = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let staging = "/staging/groups/g/1/lge-test"
         let sentences = [
-            "Copy or link each file staging-files.json lists to its stagingPath, below \(staging).",
+            "For each file in staging-files.json that has a source, copy or link that source to the file's stagingPath, below \(staging).",
             "the file on the Mac to copy or link.",
             "Make a data folder there and copy or link into it each file staging-files.json lists",
             "Lungfish reads it on the Mac, when it writes the batch with --samplesheet samples.csv.",
@@ -422,7 +449,7 @@ final class LinuxRunScriptTests: XCTestCase {
         let flat = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         for sentence in [
             "A job the executor refuses before its first step leaves only the record. A job that lge-job.sh refuses leaves no record, so read logs/<sample>.err.",
-            "each with its size and its SHA-256, and each file except the image with the file on the Mac to copy or link. The image is staged already.",
+            "each with its size and its SHA-256. Each file other than the image also has a source, the file on the Mac to copy or link. The image is staged already.",
             "These are four of the lines you may meet:",
         ] {
             XCTAssertTrue(flat.contains(sentence), "\(sentence) is missing: \(flat)")
@@ -430,6 +457,8 @@ final class LinuxRunScriptTests: XCTestCase {
         for stale in [
             "A job refused before its first step",
             "each with its size, its SHA-256 and the file on the Mac",
+            "each file except the image with the file on the Mac to copy or link",
+            "Copy or link each file staging-files.json lists",
             "These are the four lines you may meet:",
         ] {
             XCTAssertFalse(flat.contains(stale), "\(stale) is false: \(flat)")

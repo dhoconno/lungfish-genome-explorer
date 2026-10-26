@@ -43,9 +43,9 @@ final class ImportFastqStagedReadsTests: XCTestCase {
     ]
     private static let digest = String(repeating: "e", count: 64)
 
-    /// The SHA-256 of `README.txt` that the base `61c4fe041` writes for a batch of reads on the Mac named `batch`, in
-    /// the staging folder above, with the image `lge-tools-test.sif`.
-    private static let baseReadmeSHA256 = "d549cc1fd3978f22263e96c31a118aa4f98f96d754171f0fcf4e600f8594c02d"
+    /// The SHA-256 of `README.txt` that a batch of reads on the Mac named `batch` gets, in the staging folder above,
+    /// with the image `lge-tools-test.sif`. It moved from d549cc1fd397 once, in ruling X6 R-README (`listed`, step 1).
+    private static let baseReadmeSHA256 = "b13aadd4a75cc1607d0a528cfccabcf51bd1c70243dbb9d8ebf19e514f54a63f"
 
     // MARK: What a staged plan writes
 
@@ -177,15 +177,13 @@ final class ImportFastqStagedReadsTests: XCTestCase {
         }
     }
 
-    /// The three sentences a README of staged reads says in place of the base's.
+    /// The two sentences a README of staged reads says in place of the base's.
     private static let stagedReadmeSentences = [
-        "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file except the image and the reads with the file on the Mac to copy or link. The image and the reads are in the staging folder already, and each job checks each read against its size and SHA-256 before any step runs.",
-        "1. Copy or link each file staging-files.json lists with a file on the Mac to its stagingPath, below \(staging).",
+        "staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file other than the image and the reads also has a source, the file on the Mac to copy or link. The image and the reads are in the staging folder already, and each job checks each read against its size and SHA-256 before any step runs.",
         "That gives the folders shared/ and the folders that hold the reads, and images/ for Apptainer.",
     ]
     private static let macReadmeSentences = [
-        "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file except the image with the file on the Mac to copy or link. The image is staged already.",
-        "1. Copy or link each file staging-files.json lists to its stagingPath, below \(staging).",
+        "staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file other than the image also has a source, the file on the Mac to copy or link. The image is staged already.",
         "That gives the folders shared/ and batches/batch/, and images/ for Apptainer.",
     ]
 
@@ -198,11 +196,11 @@ final class ImportFastqStagedReadsTests: XCTestCase {
             XCTAssertTrue(readme.contains(sentence), "The README lacks: \(sentence)\n\(readme)")
         }
         XCTAssertFalse(readme.contains("The image is staged already."), readme)
-        XCTAssertFalse(readme.contains("1. Copy or link each file staging-files.json lists to its stagingPath"), readme)
+        XCTAssertTrue(readme.contains("The name of a file in shared/ starts with its SHA-256, so a file already there with the listed size is the same file. Leave it, and never copy over it, since the jobs of other batches may be reading it."), readme)
     }
 
     /// ARCH 7. A batch of reads on the Mac keeps the base's README byte for byte, and a batch of staged reads differs from
-    /// it only in the three sentences.
+    /// it only in the two sentences.
     func testReadmeWithoutStagedReadsIsUnchanged() async throws {
         let fixture = try writeFixture()
         let macReads = try writeMacPair("S1")

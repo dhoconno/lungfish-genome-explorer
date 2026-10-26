@@ -145,13 +145,14 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
             ("SRR24403534", wastewater, 372_364_449, 3_348_200_894, 10),
             ("SRR38262740", wastewater, 94_232_530, 3_348_200_894, 9),
             ("C079876", vsp2, 61_600_000_000, 3_338_092_947, 366),
-            ("WW10GB", wastewater, 10_000_000_000, 3_348_200_894, 128),
+            ("WW10GB", wastewater, 10_000_000_000, 3_348_200_894, 146),
             ("VSP210GB", vsp2, 10_000_000_000, 3_348_200_894, 63),
+            ("SRR35904062", wastewater, 14_818_933_598, 3_348_200_734, 214),
         ]
         XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: vsp2), 5.03)
-        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: wastewater), 10.61)
-        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: "a-preset-with-no-node"), 10.61, "the largest value")
-        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: nil), 10.61, "the largest value")
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: wastewater), 12.14)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: "a-preset-with-no-node"), 12.14, "the largest value")
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: nil), 12.14, "the largest value")
         XCTAssertEqual(ExecutorPlanBatchWriter.defaultRequestDiskGiB(inputBytes: 61_600_000_000), 181)
         for item in cases {
             let disk = ExecutorPlanBatchWriter.requestDiskGiB(inputBytes: item.inputs, imageBytes: sif, planTarBytes: tar,
@@ -174,6 +175,33 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
         XCTAssertTrue(try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S1 ") }).contains("request_disk=\"3GB\""), dag)
         XCTAssertTrue(try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S2 ") }).contains("request_disk=\"9GB\""), dag)
+    }
+
+    /// Ruling X6 (R-W). The disk a job asks for covers the work root peak of every node measured so far, with the margin
+    /// of 1.25 on SIF + 2 × tar + W. SRR35904062 kept 54% of its pairs and its work root peaked at 183,159,736,799 B, so
+    /// the 10.61 of the C5 ruling asked 188 GiB (201,863,462,912 B) where 229,445,224,279 B were needed. Each node is the
+    /// preset, input bytes I, shared bytes F and peak W that CHTC-3d and X6b measured, and the assertion reads the request.
+    func testRequestCoversEveryMeasuredNodeWithItsMargin() throws {
+        let sif: Int64 = 396_402_688
+        let tar: Int64 = 19_968
+        let vsp2 = "vsp2-target-enrichment", wastewater = "wastewater-metagenomics"
+        let nodes: [(run: String, preset: String, inputs: Int64, shared: Int64, peak: Int64)] = [
+            ("SRR35520572", vsp2, 422_847_301, 3_338_092_947, 5_463_083_200),
+            ("SRR24403534", wastewater, 372_364_449, 3_348_200_894, 7_057_265_186),
+            ("SRR38262740", wastewater, 94_232_530, 3_348_200_894, 4_347_450_604),
+            ("SRR38294966", wastewater, 1_903_551_385, 3_348_200_734, 15_439_472_501),
+            ("SRR35904062", wastewater, 14_818_933_598, 3_348_200_734, 183_159_736_799),
+            ("SRR38294075", wastewater, 17_867_191_578, 3_348_200_734, 46_390_092_149),
+        ]
+        for node in nodes {
+            let disk = ExecutorPlanBatchWriter.requestDiskGiB(
+                inputBytes: node.inputs, imageBytes: sif, planTarBytes: tar, sharedBytes: node.shared,
+                workRootFactor: ExecutorPlanBatchWriter.workRootFactor(forPreset: node.preset)
+            )
+            let asked = Double(disk) * 1_073_741_824
+            let needed = 1.25 * (Double(sif) + 2 * Double(tar) + Double(node.peak))
+            XCTAssertTrue(asked >= needed, "\(node.run) asks \(disk) GiB, \(asked) B, where \(needed) B cover its work root peak of \(node.peak) B")
+        }
     }
 
     /// D9. A requirements value reaches the one `requirements` line of `sample.sub` whole, and a value that line cannot
@@ -370,7 +398,7 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
             let vars = try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS S1 ") }, dag)
             let shared = batch.files.filter { $0.sample == nil && $0.role != "image" }.reduce(Int64(0)) { $0 + $1.size }
             let tar = try XCTUnwrap(batch.planTars.first).size
-            let factor = preset == "wastewater-metagenomics" ? 10.61 : 5.03
+            let factor = preset == "wastewater-metagenomics" ? 12.14 : 5.03
             let bytes = 396_402_688 + 2 * Double(tar) + Double(shared) + factor * 10_000_000_000
             let expected = Int((1.25 * bytes / 1_073_741_824).rounded(.up))
             XCTAssertTrue(vars.contains("request_disk=\"\(expected)GB\""), "\(preset) should ask \(expected) GB: \(vars)")
@@ -386,7 +414,7 @@ final class ExecutorPlanBatchWriterTests: XCTestCase {
         XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: short.resolution?.preset?.id), 5.03)
         let bare = try XCTUnwrap(RecipeResolver.resolve("illumina-paired-cleanup", in: recipes))
         XCTAssertNil(bare.resolution?.preset)
-        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: bare.resolution?.preset?.id), 10.61)
+        XCTAssertEqual(ExecutorPlanBatchWriter.workRootFactor(forPreset: bare.resolution?.preset?.id), 12.14)
     }
 
     // MARK: Steps with no plan form, one test each
