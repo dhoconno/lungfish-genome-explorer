@@ -143,6 +143,27 @@ final class TaxTriageNoReferenceRowTests: XCTestCase {
         XCTAssertTrue(vc.testingIsDetailPaneCollapsed, "a row with no reference closes the alignment pane")
     }
 
+    // MARK: - Words
+
+    /// The pane that would show the alignments of a row with no reference stays shut, so the action bar says why.
+    /// Before the words, a person who selected the row met a closed pane under the text "1 row selected".
+    func testARowWithNoReferenceSaysSo() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let recorder = RecordedAlignmentViewer()
+        let vc = makeController(fixture, recorder: recorder)
+        let info = vc.testActionBar.infoLabel
+
+        try select([Self.withReference], in: vc) { recorder.requests.count >= 1 }
+        XCTAssertEqual(info.stringValue, "1 row selected", "a row that has a reference keeps the plain count")
+
+        try select([Self.withoutReference], in: vc) { vc.testingIsDetailPaneCollapsed }
+        XCTAssertEqual(info.stringValue, "No reference was recorded for this organism in this sample.")
+
+        try select([Self.withReference], in: vc) { !vc.testingIsDetailPaneCollapsed }
+        XCTAssertEqual(info.stringValue, "1 row selected", "the sentence belongs to the row and does not stay on the bar")
+    }
+
     // MARK: - Fixture
 
     private func makeController(
