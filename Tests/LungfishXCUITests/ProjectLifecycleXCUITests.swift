@@ -72,17 +72,31 @@ final class ProjectLifecycleXCUITests: XCTestCase {
 }
 
 /// Uses the assembled Release app and ordinary UI, without DEBUG fixture hooks.
+///
+/// Every launch gets a fresh home under the gate's `LUNGFISH_RELEASE_SMOKE_HOME`, so the candidate
+/// starts as on a new Mac and writes nothing into the account that runs the smoke.
 @MainActor
 struct ReleaseAppSmokeRobot {
     let app: XCUIApplication
     let candidateURL: URL
+    let launchHome: URL
 
     init() throws {
-        guard let path = ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_APP"] else {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["LUNGFISH_RELEASE_SMOKE_APP"] else {
             throw XCTSkip("Selected only by the exact-candidate graphical release gate")
         }
+        let homes = try XCTUnwrap(environment["LUNGFISH_RELEASE_SMOKE_HOME"], "The gate names a fresh candidate home")
         candidateURL = URL(fileURLWithPath: path).standardizedFileURL
+        launchHome = URL(fileURLWithPath: homes, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: launchHome.appendingPathComponent("Library/Preferences", isDirectory: true),
+            withIntermediateDirectories: true
+        )
         app = XCUIApplication(url: candidateURL)
+        app.launchEnvironment["HOME"] = launchHome.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = launchHome.path
     }
 
     func launch() throws {

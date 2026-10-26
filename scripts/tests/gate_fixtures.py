@@ -238,7 +238,9 @@ def make_app_smoke_fixture(directory, source, app, contract_path):
     runfile.write_bytes(plistlib.dumps({"TestConfigurations": [{"TestTargets": [{
         "BlueprintName": "LungfishXCUITests", "UITargetAppPath": str(app),
         "OnlyTestIdentifiers": [i.split("/", 1)[1] for i in identifiers], "SkipTestIdentifiers": [],
-        "EnvironmentVariables": {"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": "stable"}}]}]}))
+        "EnvironmentVariables": {"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": "stable",
+                                 "LUNGFISH_RELEASE_SMOKE_HOME": "/Users/fixture-owner/evidence.home"}}]}]}))
+    account = json.loads(contract_path.read_text())["gates"]["appSmokeAccount"] or "fixture-owner"
     commands = [{"argv": argv, "exitStatus": 0, "files": [record(directory / (name + ".log"), directory)]}
                 for name, argv in (("xcode-version", ["xcodebuild", "-version"]),
                                    ("sdk-version", ["xcrun", "--sdk", "macosx", "--show-sdk-version"]),
@@ -251,8 +253,10 @@ def make_app_smoke_fixture(directory, source, app, contract_path):
                   {"path": "Release/LungfishXCUITests-Runner.app/Contents/MacOS/LungfishXCUITests-Runner", "sha256": "a" * 64, "sizeBytes": 1},
                   {"path": "Release/LungfishXCUITests-Runner.app/Contents/PlugIns/LungfishXCUITests.xctest/Contents/MacOS/LungfishXCUITests", "sha256": "b" * 64, "sizeBytes": 1}],
               "selectedTests": identifiers, "graphicalSession": {"active": True, "uid": 501,
-                  "username": json.loads(contract_path.read_text())["gates"]["appSmokeAccount"],
-                  "home": "/Users/lungfish-release-qa", "cleanState": True, "existingState": []},
+                  "locked": False, "onConsole": True, "lockedAtEnd": False,
+                  "username": account, "consoleUser": account, "accountHome": "/Users/fixture-owner",
+                  "candidateHome": "/Users/fixture-owner/evidence.home", "cleanState": True, "existingState": []},
+              "accountState": {"bundleIdentifier": "com.lungfish.browser", "before": [], "after": []},
               "authorized": True, "errors": [], "commands": commands,
               "files": [record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]}
     write_json(directory / "app-smoke.result.json", result)

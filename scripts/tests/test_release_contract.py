@@ -68,11 +68,12 @@ EXPECTED_TOOLCHAIN = {
 }
 
 EXPECTED_GATES = {
-    "appSmokeAccount": "lungfish-release-qa",
+    # null runs the smoke as the console user, unlocked, with the candidate in a fresh home.
+    "appSmokeAccount": None,
     "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser'],
     "dependencyPolicy": "manifest",
-    # False until the owner creates the dedicated lungfish-release-qa macOS account the
-    # real-app smoke runs under. Flip both together.
+    # False until the XCUI smoke of appSmokeTests runs unattended on the release Mac, which needs
+    # Automation Mode without authentication there (lane UIP report, phase 3.0).
     "appSmokeRequired": False,
     # Documentation no test reads: unit-tier evidence carries across changes to these paths
     # (docs/contracts/VERIFICATION-ORDER.md). Grow it only with proof that nothing reads the path.

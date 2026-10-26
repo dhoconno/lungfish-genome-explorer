@@ -25,6 +25,9 @@ class AppSmokeGateTests(unittest.TestCase):
             "missing graphical session": lambda r: r.update(graphicalSession={"active": False, "uid": 501}),
             "ordinary user account": lambda r: r["graphicalSession"].update(username="ordinary-user"),
             "existing Stable state": lambda r: r["graphicalSession"].update(cleanState=False),
+            "screen locked at the end": lambda r: r["graphicalSession"].update(lockedAtEnd=True),
+            "candidate wrote the account state": lambda r: r["accountState"].update(after=[["/p", 1, 2]]),
+            "runner given another home": lambda r: r["graphicalSession"].update(candidateHome="/Users/fixture-owner/other.home"),
             "different app": lambda r: r.update(appPayloadSHA256="f" * 64),
             "different source": lambda r: r["source"].update(commit="b" * 40),
             "zero tests": lambda r: r.update(selectedTests=[]),
@@ -82,8 +85,8 @@ class AppSmokeGateTests(unittest.TestCase):
             state.write_text("real user state sentinel")
             existing = profile_paths(home)
             self.assertIn(str(state.parent), existing)
-            session = {"username": "lungfish-release-qa", "home": str(home),
-                       "cleanState": not existing, "existingState": existing}
+            session = {"username": "owner", "consoleUser": "owner", "locked": False, "accountHome": "/Users/owner",
+                       "candidateHome": str(home), "cleanState": not existing, "existingState": existing}
             with self.assertRaises(EvidenceError):
                 validate_isolated_session(session, load_contract(ROOT / "config/release-contract.json"))
             self.assertEqual(state.read_text(), "real user state sentinel")
@@ -148,8 +151,11 @@ class AppSmokeGateTests(unittest.TestCase):
                 log.write_text("26.5\n" if name == "sdk-version" else "deliberate fake build stop\n")
                 return {"argv": argv, "exitStatus": 1 if name == "build-ui-runner" else 0,
                         "files": [file_record(log, directory)]}
-            session = {"active": True, "uid": 501, "username": "lungfish-release-qa",
-                       "home": str(root / "disposable-home"), "cleanState": True, "existingState": []}
+            (root / "Candidate.app/Contents").mkdir(parents=True)
+            (root / "Candidate.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
+            session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
+                       "accountHome": str(root / "owner-home"), "candidateHome": str(root / "evidence.home"),
+                       "cleanState": True, "existingState": []}
             args = SimpleNamespace(root=root, app=root / "Candidate.app", output=root / "evidence",
                                    channel="stable", derived_data=root / "DerivedData")
             with patch.object(app_smoke_gate, "source_identity", return_value={"clean": True, "commit": "a" * 40}), \

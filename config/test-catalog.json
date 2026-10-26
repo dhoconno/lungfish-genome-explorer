@@ -3,7 +3,7 @@
   "policyVersion": "2026-09-05-headless-v1",
   "notes": [
     "release is source verification only; candidate artifact checks and publication authority belong to release.py",
-    "All native XCUITests remain explicit app-smoke diagnostics. Profile execution never infers artifact authority.",
+    "The ui profile runs the XCUI smoke of gates.appSmokeTests (config/release-contract.json) through scripts/release/app_smoke_gate.py on the exact candidate app, in the console user's unlocked session. Other native XCUITests stay diagnostics, and profile execution never infers artifact authority.",
     "New SwiftPM targets fail the inventory audit until explicitly classified.",
     "No source evidence reuse: exact runtime and test binary binding is not yet implemented."
   ],
@@ -252,7 +252,18 @@
       "requireTools": false,
       "pythonModules": [],
       "nativeXCUITestCommand": [
-        "scripts/release/app-smoke-gate.sh"
+        "python3",
+        "scripts/release/app_smoke_gate.py",
+        "--root",
+        ".",
+        "--app",
+        "<candidate Lungfish.app>",
+        "--channel",
+        "stable",
+        "--output",
+        "<new evidence folder>",
+        "--derived-data",
+        "<Xcode derived data folder>"
       ]
     },
     "tool-conformance": {

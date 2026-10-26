@@ -40,6 +40,11 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     if session.get("active") is not True or not isinstance(session.get("uid"), int) or session["uid"] <= 0:
         raise EvidenceError("app smoke lacks an active logged-in graphical session")
     validate_isolated_session(session, contract)
+    if session.get("lockedAtEnd") is not False:
+        raise EvidenceError("app smoke screen locked before the tests ended")
+    account = result.get("accountState", {})
+    if not account.get("bundleIdentifier") or "before" not in account or account.get("before") != account.get("after"):
+        raise EvidenceError("app smoke candidate wrote into the account's own state")
     files = {}
     for record in result.get("files", []):
         relative = Path(record["path"])
@@ -87,6 +92,7 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     if (not result.get("appPath") or target.get("UITargetAppPath") != result["appPath"]
             or environment.get("LUNGFISH_RELEASE_SMOKE_APP") != result["appPath"]
             or environment.get("LUNGFISH_RELEASE_SMOKE_CHANNEL") != channel
+            or environment.get("LUNGFISH_RELEASE_SMOKE_HOME") != session.get("candidateHome")
             or target.get("OnlyTestIdentifiers") != [name.split("/", 1)[1] for name in only]
             or target.get("SkipTestIdentifiers")):
         raise EvidenceError("app smoke runner was not bound to the declared candidate and selection")
@@ -153,14 +159,18 @@ def runner_identity(products):
     return [file_record(Path(products) / path, Path(products)) for path in paths]
 
 
-def configure_xctestrun(path, destination, app, identifiers, channel):
+def configure_xctestrun(path, destination, app, identifiers, channel, home=None):
     document = plistlib.loads(Path(path).read_bytes())
     target = ui_target(document)
     target["UITargetAppPath"] = str(app)
     target["OnlyTestIdentifiers"] = [name.split("/", 1)[1] for name in identifiers]
     target["SkipTestIdentifiers"] = []
-    target.setdefault("EnvironmentVariables", {}).update({
-        "LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": channel})
+    environment = target.setdefault("EnvironmentVariables", {})
+    environment.update({"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": channel})
+    if home is not None:
+        # ReleaseAppSmokeRobot launches the candidate with HOME and CFFIXED_USER_HOME in a fresh
+        # folder under this one, so a first launch sees no Lungfish state and writes none of its own.
+        environment["LUNGFISH_RELEASE_SMOKE_HOME"] = str(home)
     # Preserve __TESTROOT__ resolution when retaining the rewritten file elsewhere.
     def expand(value):
         if isinstance(value, str): return value.replace("__TESTROOT__", str(Path(path).parent))
@@ -181,19 +191,87 @@ def profile_paths(home):
 
 
 def validate_isolated_session(session, contract):
-    if (session.get("username") != contract.gates.appSmokeAccount
-            or not isinstance(session.get("home"), str) or not Path(session["home"]).is_absolute()
+    """The console user's unlocked session (or the configured account's) with a fresh candidate home.
+
+    A null gates.appSmokeAccount means the console user, so the owner's own unlocked session on
+    the release Mac runs the smoke. The candidate never sees that account's Lungfish state, since
+    it launches with its home in candidateHome, which must be new, empty and not the account home.
+    """
+    expected = contract.gates.appSmokeAccount or session.get("consoleUser")
+    home, candidate = session.get("accountHome"), session.get("candidateHome")
+    if (not expected or session.get("username") != expected or session.get("consoleUser") != expected
+            or session.get("locked") is not False
+            or not isinstance(home, str) or not isinstance(candidate, str)
+            or not Path(home).is_absolute() or not Path(candidate).is_absolute() or Path(candidate) == Path(home)
             or session.get("cleanState") is not True or session.get("existingState") != []):
-        raise EvidenceError("real-app smoke requires the dedicated disposable account and clean Lungfish state")
+        raise EvidenceError("real-app smoke requires the console user's unlocked session and a fresh candidate home")
 
 
-def graphical_session():
+def screen_state():
+    """onConsole and locked from CoreGraphics' session dictionary, or None without a graphical session."""
+    if sys.platform != "darwin":
+        return None
+    import ctypes
+    graphics = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    foundation = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    graphics.CGSessionCopyCurrentDictionary.restype = ctypes.c_void_p
+    foundation.CFStringCreateWithCString.restype = ctypes.c_void_p
+    foundation.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    foundation.CFDictionaryGetValue.restype = ctypes.c_void_p
+    foundation.CFDictionaryGetValue.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    foundation.CFBooleanGetValue.restype = ctypes.c_bool
+    foundation.CFBooleanGetValue.argtypes = [ctypes.c_void_p]
+    foundation.CFRelease.argtypes = [ctypes.c_void_p]
+    session = graphics.CGSessionCopyCurrentDictionary()
+    if not session:
+        return None
+
+    def flag(name):
+        key = foundation.CFStringCreateWithCString(None, name.encode(), 0x08000100)
+        value = foundation.CFDictionaryGetValue(session, key)
+        foundation.CFRelease(key)
+        return bool(value) and bool(foundation.CFBooleanGetValue(value))
+    try:
+        return {"onConsole": flag("kCGSessionOnConsoleKey"), "locked": flag("CGSSessionScreenIsLocked")}
+    finally:
+        foundation.CFRelease(session)
+
+
+def graphical_session(candidate_home):
     uid = os.stat("/dev/console").st_uid
     account = pwd.getpwuid(os.getuid())
-    existing = profile_paths(account.pw_dir)
-    return {"uid": uid, "active": sys.platform == "darwin" and uid > 0 and uid == os.getuid(),
-            "username": account.pw_name, "home": account.pw_dir,
+    try:
+        console = pwd.getpwuid(uid).pw_name if uid > 0 else None
+    except KeyError:
+        console = None
+    state = screen_state()
+    locked = state is None or state.get("locked") is not False
+    on_console = bool(state and state.get("onConsole"))
+    existing = profile_paths(candidate_home)
+    return {"uid": uid, "active": sys.platform == "darwin" and uid > 0 and uid == os.getuid() and on_console and not locked,
+            "locked": locked, "onConsole": on_console, "username": account.pw_name, "consoleUser": console,
+            "accountHome": account.pw_dir, "candidateHome": str(candidate_home),
             "cleanState": not existing, "existingState": existing}
+
+
+def account_state(home, bundle_identifier):
+    """Size and mtime of the candidate's own preference and saved-state files in the account home."""
+    home = Path(home)
+    records = []
+    for base in (home / "Library/Preferences" / (bundle_identifier + ".plist"),
+                 home / "Library/Saved Application State" / (bundle_identifier + ".savedState")):
+        for path in [base, *sorted(base.rglob("*"))] if base.is_dir() else [base]:
+            if path.exists():
+                status = path.stat()
+                records.append([str(path), status.st_size, status.st_mtime_ns])
+    return records
+
+
+def candidate_bundle_identifier(app):
+    identifier = plistlib.loads((Path(app) / "Contents/Info.plist").read_bytes()).get("CFBundleIdentifier")
+    if not isinstance(identifier, str) or not identifier:
+        raise EvidenceError("candidate app has no bundle identifier")
+    return identifier
 
 
 def receipt_authority(root):
@@ -206,6 +284,9 @@ def receipt_authority(root):
 def run(args):
     root, app, directory = args.root.resolve(), args.app.resolve(), args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
+    # Beside the evidence, not in it, since the candidate's preferences may flush after the run.
+    candidate_home = directory.with_name(directory.name + ".home")
+    candidate_home.mkdir(exist_ok=False)
     contract = load_contract(root / "config/release-contract.json")
     source = source_identity(root)
     payload = receipt_authority(root)._payload_digest(app)
@@ -215,10 +296,12 @@ def run(args):
               "selectedTests": identifiers, "startedAt": now(), "runtime": runtime_identity(),
               "commands": [], "files": [], "errors": [], "authorized": False}
     try:
-        result["graphicalSession"] = graphical_session()
-        if not result["graphicalSession"]["active"]:
-            raise EvidenceError("real-app smoke requires the active logged-in graphical user")
-        validate_isolated_session(result["graphicalSession"], contract)
+        result["graphicalSession"] = session = graphical_session(candidate_home)
+        if not session["active"]:
+            raise EvidenceError("real-app smoke requires the active logged-in graphical user with the screen unlocked")
+        validate_isolated_session(session, contract)
+        bundle = candidate_bundle_identifier(app)
+        result["accountState"] = {"bundleIdentifier": bundle, "before": account_state(session["accountHome"], bundle)}
         if not source["clean"]:
             raise EvidenceError("real-app smoke requires a clean candidate source checkout")
         version = command_record(["xcodebuild", "-version"], root, directory, "xcode-version")
@@ -243,7 +326,7 @@ def run(args):
         compiled_configuration = select_xctestrun(products, result["sdkVersion"])
         result["runnerIdentity"] = runner_identity(products)
         runfile = directory / "candidate.xctestrun"
-        configure_xctestrun(compiled_configuration, runfile, app, identifiers, args.channel)
+        configure_xctestrun(compiled_configuration, runfile, app, identifiers, args.channel, home=candidate_home)
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runfile),
                    "-destination", "platform=macOS,arch=arm64", "-parallel-testing-enabled", "NO",
                    "-resultBundlePath", str(directory / "run.xcresult")]
@@ -251,6 +334,15 @@ def run(args):
         executed = command_record(command, root, directory, "real-app-tests")
         selection = {"xctest": [name.replace("/", ".", 1) for name in identifiers], "swift-testing": []}
         result["commands"].append(analyze_attempt(directory, executed, selection, False, True))
+        ending = screen_state()
+        session["lockedAtEnd"] = ending is None or ending.get("locked") is not False
+        result["accountState"]["after"] = account_state(session["accountHome"], bundle)
+        result["candidateStateAfter"] = sorted(p for child in candidate_home.iterdir() for p in profile_paths(child))
+        if session["lockedAtEnd"]:
+            raise EvidenceError("the screen locked during the graphical smoke. Keep the session awake and run it again")
+        if result["accountState"]["after"] != result["accountState"]["before"]:
+            raise EvidenceError("the candidate wrote its preferences or saved state into the account home. "
+                                "Quit every copy of Lungfish in this account and run it again")
         if not executed["passed"] or "** TEST SUCCEEDED **" not in (directory / executed["files"][0]["path"]).read_text():
             raise EvidenceError("app smoke failed or did not complete every selected method")
         if runner_identity(products) != result["runnerIdentity"]:
@@ -269,14 +361,19 @@ def run(args):
     print("PASS exact-candidate real-app smoke: " + str(path))
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--channel", choices=["stable"], required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True,
+                        help="new evidence folder; the candidate's fresh home is made beside it as <output>.home")
     parser.add_argument("--derived-data", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = argument_parser().parse_args()
     try:
         run(args)
         return 0

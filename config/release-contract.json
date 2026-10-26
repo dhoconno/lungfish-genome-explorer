@@ -81,7 +81,7 @@
       "LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership",
       "LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser"
     ],
-    "appSmokeAccount": "lungfish-release-qa",
+    "appSmokeAccount": null,
     "dependencyPolicy": "manifest",
     "appSmokeRequired": false,
     "releaseNeutralPaths": [

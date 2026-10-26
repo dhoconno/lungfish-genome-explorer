@@ -124,7 +124,7 @@ class GateContract:
     focusedReleaseTests: tuple[str, ...]
     channels: Mapping[str, tuple[GateStep, ...]]
     appSmokeTests: tuple[str, ...]
-    appSmokeAccount: str
+    appSmokeAccount: str | None
     dependencyPolicy: str = "installed"
     appSmokeRequired: bool = True
     releaseNeutralPaths: tuple[str, ...] = ()
@@ -330,9 +330,10 @@ def _parse_gates(raw: Any) -> GateContract:
         for test in app_smoke
     ) or len(set(app_smoke)) != len(app_smoke):
         raise ValueError("app smoke must select unique explicit XCTest methods")
+    # null runs the smoke as the console user, whose unlocked session it checks (app_smoke_gate.py).
     account = value["appSmokeAccount"]
-    if not isinstance(account, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,30}", account) is None:
-        raise ValueError("app smoke requires an explicit disposable account name")
+    if account is not None and (not isinstance(account, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,30}", account) is None):
+        raise ValueError("app smoke account must be null (the console user) or a macOS account name")
     dependency_policy = value.get("dependencyPolicy", "installed")
     if dependency_policy not in {"installed", "manifest"}:
         raise ValueError("unknown dependency policy")
