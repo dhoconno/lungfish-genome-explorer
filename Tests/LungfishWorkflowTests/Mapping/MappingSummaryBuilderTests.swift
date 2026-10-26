@@ -103,7 +103,7 @@ final class MappingSummaryBuilderTests: XCTestCase {
             XCTAssertEqual(step, "samtools view | samtools coverage")
             XCTAssertEqual(seconds, 1)
             XCTAssertEqual(error.localizedDescription,
-                           "samtools view | samtools coverage did not finish within 1 seconds and was stopped")
+                           "samtools view | samtools coverage was stopped after 1 second by its time limit. Run it again with no time limit or a longer one.")
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 20, "the sleeping view was not stopped")
     }

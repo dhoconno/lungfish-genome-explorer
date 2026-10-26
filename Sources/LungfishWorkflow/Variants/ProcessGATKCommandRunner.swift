@@ -19,16 +19,17 @@ public enum ProcessGATKCommandRunnerError: Error, LocalizedError, Sendable, Equa
         case .outputIncomplete(_, _, let detail):
             return detail
         case .timedOut(let executable, let seconds):
-            return "\(executable) timed out after \(Int(seconds)) seconds and was stopped."
+            return CondaToolTimeLimit.stoppedWords(executable, seconds: seconds)
         }
     }
 }
 
 public struct ProcessGATKCommandRunner: GATKCommandRunning {
     public let environment: [String: String]
+    /// The wall-clock limit in seconds. The default, `.infinity`, is no limit.
     public let timeout: TimeInterval
 
-    public init(environment: [String: String] = [:], timeout: TimeInterval = 24 * 60 * 60) {
+    public init(environment: [String: String] = [:], timeout: TimeInterval = .infinity) {
         self.environment = environment
         self.timeout = timeout
     }

@@ -11,7 +11,7 @@ public struct ManagedGATKCommandRunner: GATKCommandRunning {
 
     public init(
         condaManager: CondaManager = .shared,
-        timeout: TimeInterval = 24 * 60 * 60
+        timeout: TimeInterval = .infinity
     ) {
         self.condaManager = condaManager
         self.timeout = timeout

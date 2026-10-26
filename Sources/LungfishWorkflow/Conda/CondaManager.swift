@@ -51,7 +51,7 @@ public enum CondaError: Error, LocalizedError, Sendable {
         case .diskSpaceError(let msg):
             return "Insufficient disk space: \(msg)"
         case .timeout(let tool, let seconds):
-            return "Tool '\(tool)' timed out after \(Int(seconds)) seconds"
+            return CondaToolTimeLimit.stoppedWords("Tool '\(tool)'", seconds: seconds)
         case .micromambaUnusable(let path, let reason):
             return "Micromamba at \(path) is unusable: \(reason)"
         }

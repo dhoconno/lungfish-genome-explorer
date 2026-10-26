@@ -16,7 +16,7 @@ public struct ProcessONTGenotypingPysamFilterRunner: ONTGenotypingPysamFiltering
 
     public init(
         condaManager: CondaManager = .shared,
-        timeout: TimeInterval = 86_400
+        timeout: TimeInterval = .infinity
     ) {
         self.condaManager = condaManager
         self.timeout = timeout

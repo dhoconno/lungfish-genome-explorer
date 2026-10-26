@@ -19,7 +19,7 @@ public enum MappingSummaryBuilderError: Error, LocalizedError, Sendable {
         case .samtoolsViewFailed(let detail):
             return "samtools view failed: \(detail)"
         case .samtoolsTimedOut(let step, let seconds):
-            return "\(step) did not finish within \(Int(seconds.rounded(.up))) seconds and was stopped"
+            return CondaToolTimeLimit.stoppedWords(step, seconds: seconds)
         }
     }
 }
@@ -69,7 +69,7 @@ public enum MappingSummaryBuilder {
         totalReads: Int,
         readGroupIDs: Set<String> = [],
         runner: NativeToolRunner = .shared,
-        timeout: TimeInterval = 3_600,
+        timeout: TimeInterval = .infinity,
         includeUnmappedReferenceRows: Bool = true,
         reportWarning: (@Sendable (String) -> Void)? = nil
     ) async throws -> MappingContigSummaryTable {
@@ -89,7 +89,7 @@ public enum MappingSummaryBuilder {
         totalReads: Int,
         toolVersion: String,
         runner: NativeToolRunner = .shared,
-        timeout: TimeInterval = 3_600,
+        timeout: TimeInterval = .infinity,
         includeUnmappedReferenceRows: Bool = true
     ) async throws -> MappingSummaryWithSteps {
         let inputs = [

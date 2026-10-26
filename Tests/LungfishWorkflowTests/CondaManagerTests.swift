@@ -656,7 +656,10 @@ final class CondaManagerTests: XCTestCase {
 
     func testTimeoutErrorDescription() {
         let error = CondaError.timeout(tool: "kraken2", seconds: 60)
-        XCTAssertEqual(error.errorDescription, "Tool 'kraken2' timed out after 60 seconds")
+        XCTAssertEqual(
+            error.errorDescription,
+            "Tool 'kraken2' was stopped after 60 seconds by its time limit. Run it again with no time limit or a longer one."
+        )
     }
 
     func testMicromambaNotFoundErrorDescription() {
