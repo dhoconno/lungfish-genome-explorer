@@ -671,6 +671,10 @@ extension MainSplitViewController {
                         error: errorMessage
                     )
                 }
+                LGEZipImportResolver.presentRefusal(
+                    of: LGEZipImportFailure.failures(ofThrown: error, sources: allURLs),
+                    on: self?.view.window
+                )
             }
         }
     }
@@ -690,6 +694,7 @@ extension MainSplitViewController {
                 error: failure.message
             )
         }
+        LGEZipImportResolver.presentRefusal(of: zipImportBatch.failures, on: view.window)
 
         let importPlan = makeSidebarImportPlan(for: zipImportBatch.sourceURLs)
         let partition = Self.partitionDroppedSources(importPlan.sourceURLs)

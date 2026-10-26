@@ -16,7 +16,60 @@ struct LGEZipImportFailure: Sendable, Equatable {
 
     let sourceURL: URL
     let kind: Kind
+    /// The failure in one sentence that names the archive, for the log and the drop's completion notice.
     let message: String
+    /// Why the archive was not imported, in the words the failure sheet shows. It never names the archive, since the
+    /// sheet's title does.
+    let reason: String
+}
+
+extension LGEZipImportFailure {
+    /// Why an extraction failed, in words about the archive and not about the tool.
+    static func reason(forExtractionError error: Error) -> String {
+        switch error {
+        case GeneiousArchiveToolError.unsafeArchive:
+            // `GeneiousArchiveTool.extract` reports only links here, the ones that
+            // `SafeZipExtractor.verifySymbolicLinksStayInside` refuses.
+            return "It holds a link to a file outside the archive, so Lungfish did not import it."
+        case GeneiousArchiveToolError.unsafeMemberPath:
+            return "It holds a file whose path leaves the archive's own folder, so Lungfish did not import it."
+        case GeneiousArchiveToolError.unzipFailed(_, _, let stderr):
+            let detail = stderr.split(separator: "\n").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            let tool = detail.isEmpty ? "" : " The unzip tool reported \u{201C}\(detail)\u{201D}."
+            return "Lungfish could not unpack it, so it did not import it. Check that the ZIP is complete, then drop it again." + tool
+        default:
+            return "Lungfish could not unpack it, so it did not import it. \(error.localizedDescription)"
+        }
+    }
+
+    /// The failures of a drop whose resolution threw. The throw ends the drop before anything is imported, so each
+    /// dropped item failed.
+    static func failures(ofThrown error: Error, sources: [URL]) -> [LGEZipImportFailure] {
+        let reason = "Lungfish could not make a working folder in the project, so it did not import it. "
+            + "Check that you can write to the project folder, then try again. (\(error.localizedDescription))"
+        return sources.map {
+            LGEZipImportFailure(sourceURL: $0, kind: .extractionFailed, message: error.localizedDescription, reason: reason)
+        }
+    }
+}
+
+/// The one sheet that tells the person which archives were not imported and why.
+struct LGEZipImportRefusal: Equatable, Sendable {
+    let title: String
+    let text: String
+
+    /// One failure names its archive in the title and gives its reason as the text. Several share one sheet, which
+    /// lists each archive with its reason. There is no refusal when nothing failed.
+    init?(failures: [LGEZipImportFailure]) {
+        guard let first = failures.first else { return nil }
+        if failures.count == 1 {
+            title = "Could not import \(first.sourceURL.lastPathComponent)"
+            text = first.reason
+        } else {
+            title = "Could not import \(failures.count) items"
+            text = failures.map { "\($0.sourceURL.lastPathComponent)\n\($0.reason)" }.joined(separator: "\n\n")
+        }
+    }
 }
 
 final class LGEZipImportBatch: @unchecked Sendable {
@@ -45,6 +98,16 @@ final class LGEZipImportBatch: @unchecked Sendable {
         for url in cleanupURLs {
             try? fileManager.removeItem(at: url)
         }
+        // A project's `.tmp` folder that this leaves empty goes too, so a refused ZIP leaves the project as it was.
+        // `rmdir` removes an empty folder and no other, so it never takes the folder of an operation that started
+        // meanwhile.
+        for parent in Set(cleanupURLs.map { $0.deletingLastPathComponent() }) where Self.isProjectTempFolder(parent) {
+            _ = rmdir(parent.path)
+        }
+    }
+
+    private static func isProjectTempFolder(_ url: URL) -> Bool {
+        url.lastPathComponent == ProjectTempDirectory.tempRoot(for: url.deletingLastPathComponent()).lastPathComponent
     }
 
     deinit {
@@ -90,7 +153,8 @@ struct LGEZipImportResolver {
                         LGEZipImportFailure(
                             sourceURL: standardizedURL,
                             kind: .noRecognizedLGEObject,
-                            message: "\(standardizedURL.lastPathComponent) does not contain a recognized Lungfish object."
+                            message: "\(standardizedURL.lastPathComponent) does not contain a recognized Lungfish object.",
+                            reason: "It holds no Lungfish bundle, so Lungfish did not import it. Drop a ZIP that holds one bundle."
                         )
                     )
                 default:
@@ -98,7 +162,8 @@ struct LGEZipImportResolver {
                         LGEZipImportFailure(
                             sourceURL: standardizedURL,
                             kind: .multipleRecognizedLGEObjects,
-                            message: "\(standardizedURL.lastPathComponent) contains multiple Lungfish objects; import one archive per object."
+                            message: "\(standardizedURL.lastPathComponent) contains multiple Lungfish objects; import one archive per object.",
+                            reason: "It holds more than one Lungfish bundle, so Lungfish did not import it. Drop one ZIP for each bundle."
                         )
                     )
                 }
@@ -107,7 +172,8 @@ struct LGEZipImportResolver {
                     LGEZipImportFailure(
                         sourceURL: standardizedURL,
                         kind: .extractionFailed,
-                        message: error.localizedDescription
+                        message: error.localizedDescription,
+                        reason: LGEZipImportFailure.reason(forExtractionError: error)
                     )
                 )
             }
@@ -130,6 +196,15 @@ struct LGEZipImportResolver {
         return try await Task.detached(priority: .userInitiated) {
             try LGEZipImportResolver(archiveTool: archiveTool).resolve(urls: urls, projectURL: projectURL)
         }.value
+    }
+
+    /// Tells the person which of the dropped archives were not imported and why, in one sheet on `window`. The
+    /// failures of a batch and the failures of a resolution that threw reach it the same way, and nothing shows when
+    /// there are none.
+    @MainActor
+    static func presentRefusal(of failures: [LGEZipImportFailure], on window: NSWindow?) {
+        guard let refusal = LGEZipImportRefusal(failures: failures) else { return }
+        LGEZipImportFailureSeam.presenter.present(title: refusal.title, message: refusal.text, on: window)
     }
 
     /// The "Import Failed" sheet the menu import shows when the ZIP resolution throws.
