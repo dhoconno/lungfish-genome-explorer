@@ -90,10 +90,9 @@ struct ReleaseAppSmokeRobot {
         candidateURL = URL(fileURLWithPath: path).standardizedFileURL
         launchHome = URL(fileURLWithPath: homes, isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: launchHome.appendingPathComponent("Library/Preferences", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        // Only the home itself. The runner may not create a Library/Preferences folder, and
+        // cfprefsd keeps the candidate's preferences for this home without one.
+        try FileManager.default.createDirectory(at: launchHome, withIntermediateDirectories: true)
         app = XCUIApplication(url: candidateURL)
         app.launchEnvironment["HOME"] = launchHome.path
         app.launchEnvironment["CFFIXED_USER_HOME"] = launchHome.path
