@@ -42,13 +42,16 @@ enum CrossProjectCopyRoute {
     /// The argv after `lungfish-cli` that copies `itemURL` into `projectURL`, in the words the command records.
     /// An item inside a project is named by its path inside that project with `--source-project`, and a folder
     /// the person dropped onto by its path inside `projectURL`. A Finder item in no project keeps its absolute
-    /// path, and so does a folder outside `projectURL`, which the command refuses.
+    /// path, and so does a folder outside `projectURL`, which the command refuses. An item in a project's `.tmp`
+    /// folder, such as a ZIP the sidebar unpacked, came from no project, so it keeps its absolute path too and the
+    /// command gives no source project.
     static func arguments(itemURL: URL, projectURL: URL, requestedFolder: URL?) -> [String] {
         let item = itemURL.standardizedFileURL
         let target = projectURL.standardizedFileURL
         var arguments = ["project", "copy-item"]
         if let holder = ProjectTempDirectory.findProjectRoot(item.deletingLastPathComponent())?.standardizedFileURL,
-           let relative = ProjectItemLinkRewriter.descendantPath(of: item, in: holder) {
+           let relative = ProjectItemLinkRewriter.descendantPath(of: item, in: holder),
+           !CrossProjectItemCopier.isInProjectTempFolder(relativePath: relative, project: holder) {
             arguments += [relative, "--source-project", holder.path]
         } else {
             arguments.append(item.path)

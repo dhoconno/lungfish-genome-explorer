@@ -168,6 +168,10 @@ package enum CrossProjectItemCopier {
     ///   project-relative parent folder, so `Analyses/Reviewed/` stays grouped
     ///   and `Reference Sequences/` stays where references go.
     /// - A Finder drop from outside any project uses the kind's convention.
+    /// - An item in a project's temp folder, such as a ZIP the sidebar just
+    ///   unpacked, is staged work and not a place the item lives. The folder it
+    ///   sits in goes when the work ends, so the item uses the kind's convention
+    ///   too, and the copy outlives the staging folder.
     package static func destinationFolder(
         for kind: ItemKind,
         sourceURL: URL,
@@ -200,13 +204,21 @@ package enum CrossProjectItemCopier {
             let crossesBundle = components.contains { URL(fileURLWithPath: $0).pathExtension.lowercased().hasPrefix("lungfish") }
             let mirrored = components.reduce(target) { $0.appendingPathComponent($1, isDirectory: true) }
             let mirroredUnderAnalyses = components.first == AnalysesFolder.directoryName
-            if !crossesBundle, !kind.mustLiveUnderAnalyses || mirroredUnderAnalyses {
+            let staged = isInProjectTempFolder(relativePath: relativeParent, project: sourceProjectURL)
+            if !crossesBundle, !staged, !kind.mustLiveUnderAnalyses || mirroredUnderAnalyses {
                 return mirrored
             }
         }
 
         let relative = kind.defaultRelativeFolder
         return relative.isEmpty ? target : target.appendingPathComponent(relative, isDirectory: true)
+    }
+
+    /// Whether `relativePath`, a path inside `project`, starts in the project's temp folder. An item there is
+    /// staged work, such as a ZIP the sidebar just unpacked, and it came from no project.
+    package static func isInProjectTempFolder(relativePath: String, project: URL) -> Bool {
+        relativePath.split(separator: "/").first.map(String.init)
+            == ProjectTempDirectory.tempRoot(for: project).lastPathComponent
     }
 
     /// `name.ext`, then `name-2.ext`, `name-3.ext`, ... until free.
