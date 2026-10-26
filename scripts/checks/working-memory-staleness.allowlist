@@ -5,6 +5,7 @@ docs/issues/2026-05-09-docs-039-gatk-first-class-integration.md  # backlog of re
 docs/issues/2026-05-09-followups-from-evaluation-sweep.md  # backlog of record, 16 issues still open
 docs/issues/2026-05-09-technical-gaps-from-documentation.md  # backlog of record, 40 issues, to be split into GitHub issues
 docs/plans/2026-09-12-primalscheme-selected-set-review.md  # docs/features/pcr-primer-design.md links it, delete once that link goes
+docs/plans/2026-10-21-chtc-preprocessing-study.md  # CHTC program decision record (C0 to C6, closed 2026-10-26); the Phase 3 carry-in of docs/plans/2026-10-02-architecture-program.md cites it, delete when Phase 3 closes those rows
 docs/plans/study-questions/  # deferred by the owner on 2026-09-27, the approved design and pilot pages must survive
 docs/superpowers/plans/2026-09-15-allele-aware-primal-scheme.md  # allele-aware PrimalScheme program, 19 plan steps still open
 docs/superpowers/plans/2026-09-16-selective-discovery-history.md  # native-fork work for the allele-aware program, no commit in this repo
