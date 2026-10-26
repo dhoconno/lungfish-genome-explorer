@@ -1610,9 +1610,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// What the `kraken2 export table` leaf reads for the shown table (Phase 2.12 lane 12.33, ARCH ruling on F1, C5).
     /// On the database route that is `kraken2.sqlite` and the picked samples, sorted, which the leaf reads as the
     /// table's samples. On the sidecar route it is the sidecar of the folder the result was loaded from, with no
-    /// sample. The folder is the report's, since `ClassificationResult.load(from:)` sets it to the loaded folder
-    /// while `config.outputDirectory` keeps the absolute path the run was saved with, which a moved or copied
-    /// folder no longer holds. Nil when the view holds neither route, or when no sample is picked, since the leaf
+    /// sample. The folder is the report's, which `ClassificationResult.load(from:)` sets to the loaded folder
+    /// and, since OBS-W4, also names in `config.outputDirectory`, so a moved or copied result reads its own
+    /// sidecar. Nil when the view holds neither route, or when no sample is picked, since the leaf
     /// reads no `--sample` as every sample.
     func taxonomyExportSource() -> (sourceURL: URL, samples: [String])? {
         if let kraken2Database {
