@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 3.0 lane TT-FUZZY-NAME. The lookup that `TaxTriageResultViewController` ran in place now lives here as
-// plain functions of the name, the map and the read counts, so a test can call it without a window. This commit
-// moves it with its behaviour unchanged.
+// Phase 3.0 lane TT-FUZZY-NAME. The lookup that `TaxTriageResultViewController` ran in place lives here as plain
+// functions of the name, the map and the read counts, so a test can call it without a window. A BIO ruling of
+// 2026-10-26 narrowed it to the exact normalized name (docs/plans/BACKLOG.md, TT-FUZZY-NAME).
 
 import Foundation
 
@@ -36,41 +36,18 @@ enum TaxTriageAccessionLookup {
         }
     }
 
-    /// The accessions that `mapping` holds for `normalizedOrganismName`, ranked by read support, or nil.
+    /// The accessions that `mapping` holds under exactly `normalizedOrganismName`, ranked by read support, or nil.
+    ///
+    /// The name is a key or it is not. A key that contains the name, a name that contains a key and a key whose
+    /// tokens mostly agree are other organisms (type 1 and type 16, the 6A and 6B species, two serotypes), so none
+    /// of them answers. Nil sends the row to the words of a row that has no reference of its own.
     nonisolated static func accessions(
         for normalizedOrganismName: String,
         in mapping: [String: [String]],
         readCounts: [String: Int]
     ) -> [String]? {
-        guard !normalizedOrganismName.isEmpty else { return nil }
-
-        if let exact = mapping[normalizedOrganismName], !exact.isEmpty {
-            return rankedByReadSupport(exact, readCounts: readCounts)
-        }
-        if let fuzzy = mapping.first(where: { key, _ in
-            key.contains(normalizedOrganismName) || normalizedOrganismName.contains(key)
-        }) {
-            return rankedByReadSupport(fuzzy.value, readCounts: readCounts)
-        }
-
-        // Token-overlap fallback handles minor source typos/variant formatting
-        // (e.g. missing first character, shortened years like /40 vs /1940).
-        let best = mapping.max { lhs, rhs in
-            tokenSimilarity(lhs.key, normalizedOrganismName) < tokenSimilarity(rhs.key, normalizedOrganismName)
-        }
-        if let best, tokenSimilarity(best.key, normalizedOrganismName) >= 0.75 {
-            return rankedByReadSupport(best.value, readCounts: readCounts)
-        }
-        return nil
-    }
-
-    private nonisolated static func tokenSimilarity(_ lhs: String, _ rhs: String) -> Double {
-        let lhsTokens = Set(lhs.split(separator: " ").map(String.init))
-        let rhsTokens = Set(rhs.split(separator: " ").map(String.init))
-        guard !lhsTokens.isEmpty, !rhsTokens.isEmpty else { return 0 }
-        let intersection = lhsTokens.intersection(rhsTokens).count
-        let denominator = max(lhsTokens.count, rhsTokens.count)
-        guard denominator > 0 else { return 0 }
-        return Double(intersection) / Double(denominator)
+        guard !normalizedOrganismName.isEmpty,
+              let exact = mapping[normalizedOrganismName], !exact.isEmpty else { return nil }
+        return rankedByReadSupport(exact, readCounts: readCounts)
     }
 }
