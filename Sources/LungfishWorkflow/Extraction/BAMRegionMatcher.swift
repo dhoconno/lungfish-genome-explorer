@@ -92,9 +92,11 @@ public enum BAMRegionMatcher {
         bamURL: URL,
         runner: NativeToolRunner
     ) async throws -> [String] {
+        // A header read is a short probe, so it keeps a limit of its own now that the default is no limit.
         let result = try await runner.run(
             .samtools,
-            arguments: ["view", "-H", bamURL.path]
+            arguments: ["view", "-H", bamURL.path],
+            timeout: 60
         )
 
         guard result.isSuccess else {

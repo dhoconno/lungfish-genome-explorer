@@ -923,7 +923,7 @@ final class NativeToolRunnerTests: XCTestCase {
         let error = NativeToolError.timeout("bgzip", 300)
         XCTAssertNotNil(error.errorDescription)
         XCTAssertTrue(error.errorDescription!.contains("bgzip"))
-        XCTAssertTrue(error.errorDescription!.contains("300"))
+        XCTAssertTrue(error.errorDescription!.contains("5 minutes") && error.errorDescription!.contains("time limit"))
     }
 
     // MARK: - Bounded stderr capture (TailBuffer)

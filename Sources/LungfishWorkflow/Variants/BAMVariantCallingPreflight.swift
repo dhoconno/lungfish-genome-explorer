@@ -326,9 +326,11 @@ public actor BAMVariantCallingPreflight {
     public static func readBAMHeader(
         alignmentURL: URL
     ) async throws -> String {
+        // A header read is a short probe, so it keeps a limit of its own now that the default is no limit.
         let result = try await NativeToolRunner.shared.run(
             .samtools,
-            arguments: ["view", "-H", alignmentURL.path]
+            arguments: ["view", "-H", alignmentURL.path],
+            timeout: 60
         )
         guard result.isSuccess else {
             throw BAMVariantCallingPreflightError.bamHeaderReadFailed(result.stderr)

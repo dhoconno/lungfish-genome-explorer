@@ -91,7 +91,7 @@ public enum NativeToolError: Error, LocalizedError, Sendable {
         case .executionFailed(let tool, let code, let stderr):
             return "Tool '\(tool)' failed with exit code \(code): \(stderr)"
         case .timeout(let tool, let seconds):
-            return "Tool '\(tool)' timed out after \(Int(seconds)) seconds"
+            return CondaToolTimeLimit.stoppedWords("Tool '\(tool)'", seconds: seconds)
         case .invalidArguments(let reason):
             return "Invalid arguments: \(reason)"
         case .missingProvenancePolicy(let tool):
@@ -133,8 +133,8 @@ public actor NativeToolRunner {
     /// App identity used to resolve the managed-storage namespace (injectable for tests).
     let appIdentity: LungfishAppIdentity
 
-    /// Default timeout for tool execution (5 minutes).
-    private let defaultTimeout: TimeInterval = 300
+    /// A run whose caller passes no timeout has no wall-clock limit (SCOPE-AND-DELIVERY.md, Tool run time). A probe sets its own.
+    private let defaultTimeout: TimeInterval = .infinity
 
     /// Bundled tool versions, loaded from tool-versions.json at launch.
     public static let bundledVersions: [String: String] = {
