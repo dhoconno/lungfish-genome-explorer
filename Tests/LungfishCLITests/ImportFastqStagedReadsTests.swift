@@ -142,8 +142,9 @@ final class ImportFastqStagedReadsTests: XCTestCase {
             .map { "\(Self.staging)/batches/batch/\($0)" })
     }
 
-    /// Each job reads its reads where they sit: `run.dag` names them by `file://` and their own path, `jobs.tsv` places
-    /// each by its path below the staging folder at its plan slot, and D17's disk rule runs on the list's sizes.
+    /// Each job reads its reads where they sit: `run.dag` names them by `file://` and their own path and places each by
+    /// its file name at its plan slot, `jobs.tsv` places each by its path below the staging folder at its plan slot, and
+    /// D17's disk rule runs on the list's sizes.
     func testStagedDAGAndJobsTableReadInPlace() async throws {
         let fixture = try writeFixture()
         let folder = root.appendingPathComponent("batch", isDirectory: true)
@@ -161,6 +162,10 @@ final class ImportFastqStagedReadsTests: XCTestCase {
             for (read, slot) in zip(reads, slots) {
                 XCTAssertTrue(fields.contains("input-casper/\(read.name)=\(slot)"), "\(fields)")
             }
+            // The wrapper takes a transferred file by its name, so the sample's VARS line places each read by its own file
+            // name at its plan slot, whatever the slot calls the file.
+            let placed = zip(reads, slots).map { "\($0.name)=\($1)" }.joined(separator: " ")
+            XCTAssertTrue(vars.contains("sample_placements=\"\(placed)\""), vars)
             let tar = try XCTUnwrap(try FileManager.default.attributesOfItem(
                 atPath: folder.appendingPathComponent("\(sample)/plan.tar").path
             )[.size] as? NSNumber).int64Value
