@@ -384,6 +384,8 @@ def run(args):
     result["files"] = [file_record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]
     path = directory / "app-smoke.result.json"
     write_json(path, result)
+    if result["errors"]:
+        raise EvidenceError(" ".join(result["errors"]) + " Evidence: " + str(path))
     digest = file_record(path, directory)["sha256"]
     verify_result(path, digest, source, args.channel, payload, contract)
     print("PASS exact-candidate real-app smoke: " + str(path))
