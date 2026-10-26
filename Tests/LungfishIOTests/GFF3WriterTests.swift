@@ -652,4 +652,104 @@ final class GFF3WriterTests: XCTestCase {
         let content = try String(contentsOf: url, encoding: .utf8)
         XCTAssertTrue(content.contains("Note=This is a test note"))
     }
+
+    // MARK: - List attributes (3.0 lane GFF3, BIO ruling on GFF3-MULTIVALUE)
+
+    /// The column 9 pairs of the first feature line of the GFF3 file at `url`.
+    private func firstLinePairs(of url: URL) throws -> [String] {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let line = try XCTUnwrap(text.split(separator: "\n").first { !$0.hasPrefix("#") })
+        let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
+        XCTAssertEqual(columns.count, 9, "\(line)")
+        return columns.last.map { $0.split(separator: ";").map(String.init) } ?? []
+    }
+
+    /// A feature with two parents and an NCBI cross-reference list keeps the commas that separate the items, so a
+    /// reader that follows the GFF3 specification finds two parents and two cross-references. A comma inside free
+    /// text stays escaped.
+    func testListAttributesKeepTheirSeparators() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let feature = GFF3Feature(
+            seqid: "chr1", source: "test", type: "CDS", start: 100, end: 500, score: nil, strand: .forward, phase: 0,
+            attributes: [
+                "ID": "cds1",
+                "Parent": "mRNA1,mRNA2",
+                "Dbxref": "GenBank:YP_009724389.1,GeneID:43740578",
+                "Note": "protein, partial",
+            ]
+        )
+
+        try await GFF3Writer.write([feature], to: url)
+
+        let pairs = try firstLinePairs(of: url)
+        XCTAssertTrue(pairs.contains("Parent=mRNA1,mRNA2"), "\(pairs)")
+        XCTAssertTrue(pairs.contains("Dbxref=GenBank:YP_009724389.1,GeneID:43740578"), "\(pairs)")
+        XCTAssertTrue(pairs.contains("Note=protein%2C partial"), "\(pairs)")
+    }
+
+    /// Each of the five list attributes (`Parent`, `Alias`, `Dbxref`, `Ontology_term`, `Derives_from`) encodes every
+    /// item and joins them with a bare comma. A key that only starts like one, and every other attribute, keeps `%2C`.
+    func testEveryListAttributeEncodesItsItemsAndOtherAttributesKeepTheirEscapes() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let feature = GFF3Feature(
+            seqid: "chr1", source: "test", type: "gene", start: 1, end: 90, score: nil, strand: .forward, phase: nil,
+            attributes: [
+                "ID": "gene1",
+                "Alias": "locus 1,x;y,100%",
+                "Ontology_term": "GO:0006412,SO:0000316",
+                "Derives_from": "t1,t2",
+                "product": "a,b",
+                "Parent_note": "c,d",
+            ]
+        )
+
+        try await GFF3Writer.write([feature], to: url)
+
+        let pairs = try firstLinePairs(of: url)
+        XCTAssertEqual(pairs.first, "ID=gene1")
+        for expected in [
+            "Alias=locus 1,x%3By,100%25", "Ontology_term=GO:0006412,SO:0000316", "Derives_from=t1,t2",
+            "product=a%2Cb", "Parent_note=c%2Cd",
+        ] {
+            XCTAssertTrue(pairs.contains(expected), "\(expected) in \(pairs)")
+        }
+    }
+
+    /// An annotation whose qualifier holds several values, such as the cross-references of a record read from GenBank,
+    /// writes them as one list.
+    func testQualifierValuesOfAListAttributeWriteAsOneList() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "cds1", chromosome: "chr1", start: 99, end: 500, strand: .forward,
+            qualifiers: [
+                "Dbxref": AnnotationQualifier(["GenBank:YP_009724389.1", "GeneID:43740578"]),
+                "Parent": AnnotationQualifier(["mRNA1", "mRNA2"]),
+            ]
+        )
+
+        try await GFF3Writer.write([annotation], to: url)
+
+        let pairs = try firstLinePairs(of: url)
+        XCTAssertTrue(pairs.contains("Parent=mRNA1,mRNA2"), "\(pairs)")
+        XCTAssertTrue(pairs.contains("Dbxref=GenBank:YP_009724389.1,GeneID:43740578"), "\(pairs)")
+    }
+
+    /// Guard, which passes at the base. The reader splits a value only after it decodes it, so a list written with
+    /// separators and a list written with `%2C` read back as the same value, and the fix changes nothing a re-import sees.
+    func testAListWrittenWithSeparatorsReadsBackAsTheSameValue() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let feature = GFF3Feature(
+            seqid: "chr1", source: "test", type: "exon", start: 1, end: 90, score: nil, strand: .forward, phase: nil,
+            attributes: ["ID": "exon1", "Parent": "mRNA1,mRNA2"]
+        )
+
+        try await GFF3Writer.write([feature], to: url)
+
+        let features = try await GFF3Reader().readAll(from: url)
+        XCTAssertEqual(features.first?.attributes["Parent"], "mRNA1,mRNA2")
+    }
 }
