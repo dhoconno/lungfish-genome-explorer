@@ -89,8 +89,27 @@ enum MappingPooledInputsFixture {
     /// `<directory>/<name>.lungfishfastq/<name>.fastq`, the bundle of one import.
     /// With `gzipped` the payload is `<name>.fastq.gz`, as a physical import keeps
     /// it, written with `/usr/bin/gzip`.
+    /// With `platform` the file's sidecar records that sequencing platform, as an
+    /// import does.
     @discardableResult
-    static func writeBundle(named name: String, fastq: String, in directory: URL, gzipped: Bool = false) throws -> URL {
+    static func writeBundle(
+        named name: String,
+        fastq: String,
+        in directory: URL,
+        gzipped: Bool = false,
+        platform: SequencingPlatform? = nil
+    ) throws -> URL {
+        let bundle = try writeBundlePayload(named: name, fastq: fastq, in: directory, gzipped: gzipped)
+        if let platform {
+            FASTQMetadataStore.save(
+                PersistedFASTQMetadata(ingestion: nil, readClassification: nil, sequencingPlatform: platform),
+                for: fastqURL(in: bundle)
+            )
+        }
+        return bundle
+    }
+
+    private static func writeBundlePayload(named name: String, fastq: String, in directory: URL, gzipped: Bool) throws -> URL {
         let bundle = directory.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let plain = bundle.appendingPathComponent("\(name).fastq")
@@ -119,7 +138,27 @@ enum MappingPooledInputsFixture {
     /// A bundle that holds an R1 file and an R2 file (a paired import listed in
     /// `source-files.json`), as ResolvedSequenceInputsTests builds one. Returns
     /// the bundle and its two files, R1 first.
+    ///
+    /// With `platform` the R1 file's sidecar records that platform, as a paired
+    /// import does. The read-set plan pairs two chunks named as R1 and R2 only
+    /// for a short-read platform (`docs/contracts/READ-PAIRING.md`, L4).
     static func writeMateFileBundle(
+        named name: String,
+        interleaved: String,
+        in directory: URL,
+        platform: SequencingPlatform? = nil
+    ) throws -> (bundle: URL, files: [URL]) {
+        let written = try writeMateFilePayload(named: name, interleaved: interleaved, in: directory)
+        if let platform {
+            FASTQMetadataStore.save(
+                PersistedFASTQMetadata(ingestion: nil, readClassification: nil, sequencingPlatform: platform),
+                for: written.files[0]
+            )
+        }
+        return written
+    }
+
+    private static func writeMateFilePayload(
         named name: String,
         interleaved: String,
         in directory: URL

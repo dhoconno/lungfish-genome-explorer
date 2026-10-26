@@ -9,8 +9,13 @@
 // refused three. The resolver now joins the execution files of an unbound pool
 // into one FASTQ in the run's input folder, and the record and the argv both
 // say single reads. The check C2 fixture is built in MappingPooledInputsFixture.
-// The pairs of each bundle are lost in a pooled run and stay the Phase 3 row
-// MAP-POOLED-PAIRS, so no test here claims that a pool keeps its pairs.
+//
+// Phase 3.0 lane MAP (MAP-POOLED-PAIRS, BIO-C2 Q2). Each pooled input is
+// planned on its own. A pool of single-read inputs is the one file above. A
+// pool of paired inputs keeps every input's pairs, as one interleaved file or
+// as one pooled R1 and one pooled R2 file. A pool that mixes pairs and single
+// reads, long and short reads, or interleaved and R1 and R2 inputs stops
+// before anything is written, with words that name the inputs.
 
 import Foundation
 import XCTest
@@ -38,14 +43,13 @@ final class MappingPooledInputsTests: XCTestCase {
 
     // MARK: - Fix 1, the join
 
-    /// Two interleaved bundles reach minimap2 as one query file that holds
+    /// Two bundles of single reads reach minimap2 as one query file that holds
     /// bundle A's bytes then bundle B's. minimap2 `-x sr` reads at most two
-    /// query files and groups reads by equal name, so a pool must arrive as one
-    /// stream that `--frag=no` keeps from pairing. Nothing here claims that the
-    /// two bundles' samples would pair, since with distinct names they do not.
+    /// query files and groups reads by equal name, so a pool of single reads
+    /// arrives as one stream that `--frag=no` keeps from pairing.
     func testTwoPooledBundlesReachMinimap2AsOneQueryFile() async throws {
-        let a = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
-        let b = try pairBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+        let a = try singleBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try singleBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
 
         let resolved = try await resolve([a, b], tool: .minimap2)
         let command = try MappingCommandBuilder.buildCommand(for: resolved.request)
@@ -71,27 +75,81 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertEqual(Array(command.arguments[(preset + 1)...].prefix(2)), ["sr", "--frag=no"])
     }
 
-    /// A bundle that holds R1 and R2 files gives two execution files, so two
-    /// such bundles pooled give four members and one query file.
-    func testTwoPooledBundlesThatEachHoldR1AndR2FilesJoinAllFourMembers() async throws {
-        let a = try Fixture.writeMateFileBundle(
-            named: "mateA",
-            interleaved: Fixture.interleavedFASTQ(prefix: "a", starts: Fixture.bundleAStarts),
-            in: imports
-        )
-        let b = try Fixture.writeMateFileBundle(
-            named: "mateB",
-            interleaved: Fixture.interleavedFASTQ(prefix: "b", starts: Fixture.bundleBStarts),
-            in: imports
-        )
+    /// MAP-POOLED-PAIRS. Two bundles that each hold an R1 and an R2 file pool
+    /// into one R1 file (A's R1 then B's) and one R2 file (A's R2 then B's),
+    /// bound as a pair, so record i of the pooled R1 is still the mate of
+    /// record i of the pooled R2. Every mapper reads them as R1 and R2.
+    func testTwoPooledBundlesOfR1AndR2FilesKeepTheirPairsInPooledR1AndR2Files() async throws {
+        let a = try mateFileBundle("mateA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try mateFileBundle("mateB", prefix: "b", starts: Fixture.bundleBStarts)
 
-        let resolved = try await resolve([a.bundle, b.bundle], tool: .minimap2)
-        let command = try MappingCommandBuilder.buildCommand(for: resolved.request)
+        for tool in [MappingTool.minimap2, .bwaMem2, .bowtie2, .bbmap] {
+            let resolved = try await resolve([a.bundle, b.bundle], tool: tool)
+            let request = resolved.request
 
-        XCTAssertEqual(try queryFiles(in: command).count, 1, "four files of two bundles reach minimap2 as one query file")
-        let members = resolved.sequenceInputs.inputs.flatMap(\.concatenatedFrom)
-        XCTAssertEqual(members, (a.files + b.files).map(\.standardizedFileURL))
-        XCTAssertEqual(resolved.layoutResolution.reason, "4 input files are pooled as single reads.")
+            XCTAssertEqual(request.inputFASTQURLs.count, 2, "\(tool): one pooled R1 file and one pooled R2 file")
+            XCTAssertTrue(request.pairedEnd, "\(tool): the pooled files are bound as R1 and R2")
+            XCTAssertEqual(request.inputLayout, .pairedFiles, "\(tool)")
+            XCTAssertEqual(request.readLayoutPlan.handling, .asPairs, "\(tool): the record says pairs")
+            let pooled = try XCTUnwrap(request.inputFASTQURLs.count == 2 ? request.inputFASTQURLs : nil)
+            XCTAssertEqual(
+                try ReadSetFixtures.readNames(in: pooled[0]),
+                ["a1/1", "a2/1", "a3/1", "a4/1", "b1/1", "b2/1", "b3/1", "b4/1"],
+                "\(tool): A's R1 records then B's"
+            )
+            XCTAssertEqual(
+                try ReadSetFixtures.readNames(in: pooled[1]),
+                ["a1/2", "a2/2", "a3/2", "a4/2", "b1/2", "b2/2", "b3/2", "b4/2"],
+                "\(tool): A's R2 records then B's, in step with the R1 file"
+            )
+            XCTAssertEqual(request.originalInputFASTQURLs, [a.bundle.standardizedFileURL, b.bundle.standardizedFileURL])
+            let arguments = try MappingCommandBuilder.buildCommand(for: request).arguments
+            switch tool {
+            case .minimap2, .bwaMem2:
+                XCTAssertEqual(Array(arguments.suffix(2)), pooled.map(\.path), "\(tool) reads the two files as mates")
+                XCTAssertFalse(arguments.contains("--frag=no"), "\(tool)")
+                XCTAssertFalse(arguments.contains("-p"), "\(tool)")
+            case .bowtie2:
+                let r1 = try XCTUnwrap(arguments.firstIndex(of: "-1"))
+                XCTAssertEqual(Array(arguments[r1...].prefix(4)), ["-1", pooled[0].path, "-2", pooled[1].path])
+            case .bbmap:
+                XCTAssertTrue(arguments.contains("in=\(pooled[0].path)"))
+                XCTAssertTrue(arguments.contains("in2=\(pooled[1].path)"))
+            }
+        }
+    }
+
+    /// MAP-POOLED-PAIRS. Two interleaved bundles pool into one interleaved file,
+    /// A's pairs then B's, and every mapper pairs it: minimap2 by adjacent names
+    /// without `--frag=no`, bwa-mem2 with `-p`, bowtie2 with `--interleaved` and
+    /// BBMap with `interleaved=t`. The record says interleaved pairs.
+    func testPooledInterleavedBundlesKeepTheirPairsOnEveryMapper() async throws {
+        let a = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try pairBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+        for tool in [MappingTool.minimap2, .bwaMem2, .bowtie2, .bbmap] {
+            let resolved = try await resolve([a, b], tool: tool)
+            let request = resolved.request
+
+            XCTAssertEqual(request.inputLayout, .strictlyInterleaved, "\(tool): the record says interleaved pairs")
+            XCTAssertEqual(request.readLayoutPlan.handling, .asPairs, "\(tool)")
+            XCTAssertFalse(request.pairedEnd, "\(tool): one interleaved file")
+            XCTAssertEqual(request.inputFASTQURLs.count, 1, "\(tool)")
+            let joined = try XCTUnwrap(request.inputFASTQURLs.first)
+            let expectedBytes = try Data(contentsOf: Fixture.fastqURL(in: a)) + Data(contentsOf: Fixture.fastqURL(in: b))
+            XCTAssertEqual(try? Data(contentsOf: joined), expectedBytes, "\(tool): bundle A's pairs then bundle B's")
+            XCTAssertEqual(request.originalInputFASTQURLs, [a.standardizedFileURL, b.standardizedFileURL])
+            let arguments = try MappingCommandBuilder.buildCommand(for: request).arguments
+            switch tool {
+            case .minimap2:
+                XCTAssertFalse(arguments.contains("--frag=no"), "minimap2 pairs adjacent mates of a pool of pairs")
+            case .bwaMem2:
+                XCTAssertTrue(arguments.contains("-p"), "bwa-mem2 pairs adjacent mates with -p")
+            case .bowtie2:
+                XCTAssertTrue(arguments.contains("--interleaved"))
+            case .bbmap:
+                XCTAssertTrue(arguments.contains("interleaved=t"))
+            }
+        }
     }
 
     /// Only a pooled short-read run gets `--frag=no`. The argv of a run on one
@@ -146,11 +204,11 @@ final class MappingPooledInputsTests: XCTestCase {
 
     // MARK: - The record and the argv agree
 
-    /// The record's `inputLayout` names what the argv makes each mapper do: one
-    /// stream of single reads, with no flag that pairs records (BIO 4).
+    /// The record's `inputLayout` names what the argv makes each mapper do with
+    /// a pool of single reads: one stream, with no flag that pairs records (BIO 4).
     func testPooledRecordLayoutMatchesTheMapperArgv() async throws {
-        let a = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
-        let b = try pairBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
+        let a = try singleBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try singleBundle("poolB", prefix: "b", starts: Fixture.bundleBStarts)
         for tool in [MappingTool.minimap2, .bwaMem2, .bowtie2, .bbmap] {
             let request = try await resolve([a, b], tool: tool).request
             XCTAssertEqual(request.inputLayout, .singleEnd, "\(tool): the record says single reads")
@@ -173,23 +231,52 @@ final class MappingPooledInputsTests: XCTestCase {
         }
     }
 
-    /// A pool of one interleaved bundle and one single-end bundle never reaches
-    /// BBMap as `interleaved=t`, which pairs a mixed file blindly by position
-    /// (MappingTool+ReadLayout), whichever bundle comes first.
-    func testMixedLayoutPoolNeverReachesBBMapAsInterleaved() async throws {
+    // MARK: - MAP-POOLED-PAIRS, the pools that stop
+
+    /// A pool of an interleaved bundle and a single-read bundle cannot keep the
+    /// pairs of one without pairing the reads of the other, and a bundle of
+    /// pairs and single reads is both. Such a pool stops before anything is
+    /// written, in either order and on every mapper, and the words name each
+    /// bundle and say to map them apart. It used to map every read single.
+    func testAPoolOfPairedAndSingleReadBundlesIsRefusedWithTheirNames() async throws {
         let interleaved = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
-        let single = try Fixture.writeBundle(
-            named: "poolS",
-            fastq: Fixture.singleReadsFASTQ(prefix: "s", starts: Fixture.bundleBStarts),
-            in: imports
-        )
-        for inputs in [[interleaved, single], [single, interleaved]] {
-            let resolved = try await resolve(inputs, tool: .bbmap)
-            let arguments = try MappingCommandBuilder.buildCommand(for: resolved.request).arguments
-            XCTAssertFalse(arguments.contains("interleaved=t"), "\(inputs.map(\.lastPathComponent))")
-            XCTAssertTrue(arguments.contains("interleaved=f"), "\(inputs.map(\.lastPathComponent))")
-            XCTAssertEqual(resolved.request.inputLayout, .singleEnd)
+        let single = try singleBundle("poolS", prefix: "s", starts: Fixture.bundleBStarts)
+        let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
+        let pools = [[interleaved, single], [single, interleaved], [interleaved, fixtures.mixedRoot]]
+        for (inputs, tool) in zip(pools, [MappingTool.bbmap, .minimap2, .bowtie2]) {
+            let request = request(inputs, tool: tool)
+            await assertRefused(request, naming: inputs.map(\.lastPathComponent), saying: "apart")
         }
+    }
+
+    /// An Oxford Nanopore or PacBio bundle pooled with a short-read bundle stops
+    /// before anything is written, even when both hold single reads, and the
+    /// words name the bundles by platform.
+    func testAPoolOfLongAndShortReadBundlesIsRefusedWithTheirNames() async throws {
+        let long = try Fixture.writeBundle(
+            named: "nanopore",
+            fastq: Fixture.singleReadsFASTQ(prefix: "n", starts: Fixture.bundleAStarts),
+            in: imports,
+            platform: .oxfordNanopore
+        )
+        let short = try Fixture.writeBundle(
+            named: "illumina",
+            fastq: Fixture.singleReadsFASTQ(prefix: "i", starts: Fixture.bundleBStarts),
+            in: imports,
+            platform: .illumina
+        )
+        for (inputs, tool) in [([long, short], MappingTool.minimap2), ([short, long], .bbmap)] {
+            await assertRefused(request(inputs, tool: tool), naming: inputs.map(\.lastPathComponent), saying: "long reads")
+        }
+    }
+
+    /// A pool of paired bundles keeps its pairs in one form, so an interleaved
+    /// bundle and a bundle of R1 and R2 files stop with words that name both.
+    func testAPoolOfInterleavedAndMateFileBundlesIsRefusedWithTheirNames() async throws {
+        let interleaved = try pairBundle("poolA", prefix: "a", starts: Fixture.bundleAStarts)
+        let mates = try mateFileBundle("mateB", prefix: "b", starts: Fixture.bundleBStarts)
+        let inputs = [interleaved, mates.bundle]
+        await assertRefused(request(inputs, tool: .minimap2), naming: inputs.map(\.lastPathComponent), saying: "interleaved")
     }
 
     // MARK: - SWIFT 4 and 5, the join in the run's scratch
@@ -296,15 +383,17 @@ final class MappingPooledInputsTests: XCTestCase {
     /// BIO 2 and 6. A pool of virtual bundles had one `fastq materialize` step
     /// before the join, which says which bundle made which file. The record keeps
     /// that step, with both bundles as inputs and both materialized files as
-    /// outputs, and then the `cat` step that reads those two files.
+    /// outputs, and then the `cat` step that reads those two files. Both bundles
+    /// hold only pairs, so the pool keeps them (MAP-POOLED-PAIRS).
     func testPooledVirtualBundlesKeepOneMaterializationStepEach() async throws {
         let fixtures = try ReadSetFixtures(in: root.appendingPathComponent("fixtures", isDirectory: true))
-        let virtual = [fixtures.subsetOfSingle, fixtures.subsetOfInterleaved]
+        let virtual = [fixtures.subsetOfInterleaved, fixtures.subsetOfRepair]
 
         let resolved = try await MappingInputResolver.resolve(
             request: request(virtual, tool: .minimap2),
             materializer: fixtures.materializer
         )
+        XCTAssertEqual(resolved.request.inputLayout, .strictlyInterleaved, "two virtual bundles of pairs keep their pairs")
         let members = resolved.sequenceInputs.inputs.flatMap(\.concatenatedFrom).map { $0.standardizedFileURL.path }
         XCTAssertEqual(members.count, 2, "the pool joins the two materialized files")
         let steps = try ManagedMappingPipeline().mappingInputMaterializationSteps(for: resolved.request)
@@ -364,6 +453,48 @@ final class MappingPooledInputsTests: XCTestCase {
 
     private func pairBundle(_ name: String, prefix: String, starts: [Int]) throws -> URL {
         try Fixture.writeBundle(named: name, fastq: Fixture.interleavedFASTQ(prefix: prefix, starts: starts), in: imports)
+    }
+
+    private func singleBundle(_ name: String, prefix: String, starts: [Int]) throws -> URL {
+        try Fixture.writeBundle(named: name, fastq: Fixture.singleReadsFASTQ(prefix: prefix, starts: starts), in: imports)
+    }
+
+    /// A bundle of an R1 and an R2 file from an Illumina import.
+    private func mateFileBundle(_ name: String, prefix: String, starts: [Int]) throws -> (bundle: URL, files: [URL]) {
+        try Fixture.writeMateFileBundle(
+            named: name,
+            interleaved: Fixture.interleavedFASTQ(prefix: prefix, starts: starts),
+            in: imports,
+            platform: .illumina
+        )
+    }
+
+    /// `request` stops with an input refusal whose words name every one of
+    /// `names` and hold `phrase`, and the run's input folder is not written.
+    private func assertRefused(
+        _ request: MappingRunRequest,
+        naming names: [String],
+        saying phrase: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let label = "\(request.tool) on \(names.joined(separator: ", "))"
+        do {
+            let resolved = try await MappingInputResolver.resolve(
+                request: request,
+                materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [:])
+            )
+            XCTFail("\(label): the pool must stop, it mapped \(resolved.request.inputLayout?.rawValue ?? "an unknown layout")", file: file, line: line)
+        } catch {
+            XCTAssertTrue(error is MappingInputResolverError, "\(label): an input refusal, got \(error)", file: file, line: line)
+            let message = error.localizedDescription
+            for name in names {
+                XCTAssertTrue(message.contains(name), "\(label): the refusal names \(name): \(message)", file: file, line: line)
+            }
+            XCTAssertTrue(message.contains(phrase), "\(label): the refusal says \(phrase): \(message)", file: file, line: line)
+        }
+        let folder = MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(label): nothing is written", file: file, line: line)
     }
 
     private func resolve(_ inputs: [URL], tool: MappingTool) async throws -> MappingResolvedInputs {
