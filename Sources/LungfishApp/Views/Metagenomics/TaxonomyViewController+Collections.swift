@@ -206,6 +206,8 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         case resultNotFound
         /// The table shows several samples, so no one sample is the one to extract.
         case chooseOneSample
+        /// The result holds no per-read source IDs to extract by, as a CZ-ID import, whose host never wires Extract.
+        case noPerReadSourceIDs
 
         static let title = "Could not extract reads"
 
@@ -215,6 +217,9 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
                 "Lungfish could not find the classification result for the sample shown. Open the result again from the sidebar, then choose Extract."
             case .chooseOneSample:
                 "Choose one sample, then choose Extract."
+            case .noPerReadSourceIDs:
+                "CZ-ID imports do not include per-read source IDs, so reads cannot be extracted from this result. "
+                    + "To extract reads, classify the sample's FASTQ in Lungfish and extract from that result."
             }
         }
     }
@@ -227,7 +232,17 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
     /// ``ClassificationResult`` off the main thread and hands that to ``onBatchExtract`` back on the main
     /// actor. Several samples shown together name no one sample, so Extract says so and starts nothing,
     /// since one output would mix samples a scientist keeps apart. A refusal shows the alert (row 69).
+    ///
+    /// A view with no host that runs an extraction (``onBatchExtract`` unset), or with read-level actions off and
+    /// no reason of its own, as a CZ-ID import, has no per-read source IDs to extract by. The press says so and
+    /// starts nothing, where it used to do nothing and show nothing. A result copied without its reads has a
+    /// reason of its own (``readLevelActionsUnavailableReason``), and its extraction ends with the words of the
+    /// missing source, so the CZ-ID words, which are false for it, are never shown for it.
     func extractCollectionFromDrawer(_ collection: TaxaCollection) {
+        guard onBatchExtract != nil, readLevelActionsAvailable || readLevelActionsUnavailableReason != nil else {
+            refuseExtraction(.noPerReadSourceIDs)
+            return
+        }
         if let result = classificationResult {
             onBatchExtract?(collection, result)
             return
