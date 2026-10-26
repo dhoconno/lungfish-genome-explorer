@@ -297,6 +297,13 @@ if [ "$UNRESOLVED" -eq 0 ] && [ "${#PUSHED_COMMITS[@]}" -gt 0 ]; then
     fi
 fi
 
+# Git runs this hook with GIT_DIR and related variables set. A test that runs
+# git in its own temporary repository would inherit them and change this one
+# instead: on 2026-10-26 the TaxTriage tests set core.bare and a test user in
+# .git/config, which broke every checkout. The gate runs without them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR \
+    GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_QUARANTINE_PATH
+
 echo "pre-push: running unit-tier gate (use --no-verify to skip)..."
 if "$REPO_ROOT/scripts/full-suite-gate.sh" --tier unit; then
     exit 0
