@@ -45,6 +45,39 @@ final class ViewerWindowFrameProbeTests: XCTestCase {
         assertFrameKept(window, after: "showing an assembly result")
     }
 
+    /// B2. The MHC viewer hosts its SwiftUI viewport with the default sizing options, which the
+    /// two primer hosts turn off because SwiftUI's ideal size outranked the window's own size.
+    /// A reference FASTA with one unwrapped line has the widest ideal size the viewport can
+    /// have, so it is the case most likely to widen the window.
+    func testDisplayingAnMHCReferenceBundleKeepsTheWindowFrame() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViewerWindowFrameProbeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let bundleURL = tempRoot.appendingPathComponent("MCM.lungfishmhcref", isDirectory: true)
+        try MHCReferenceBundleSidebarTests.writeMHCReferenceBundle(at: bundleURL, name: "MCM")
+        let unwrappedSequence = String(repeating: "ACGT", count: 2_500)
+        try ">M1 MHC-B exon 2 amplicon\n\(unwrappedSequence)\n".write(
+            to: bundleURL.appendingPathComponent("reference.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let model = try MHCReferenceBundleViewportModel.load(bundleURL: bundleURL)
+
+        let viewer = ViewerViewController()
+        let window = hostWindow(for: viewer)
+        window.layoutIfNeeded()
+        XCTAssertEqual(window.frame, Self.probeFrame, "the window starts at the probe frame")
+
+        viewer.displayMHCReferenceBundle(model, onEditHaplotypes: {})
+        let hostingView = try XCTUnwrap(viewer.mhcReferenceBundleViewController?.view)
+        let sized = await waitUntil(budget: .standard) {
+            window.layoutIfNeeded()
+            return hostingView.fittingSize.width > 0
+        }
+        XCTAssertTrue(sized, "SwiftUI sized the viewport within the standard budget")
+        assertFrameKept(window, after: "showing an MHC reference bundle")
+    }
+
     private func hostWindow(for viewer: ViewerViewController) -> NSWindow {
         let window = NSWindow(
             contentRect: Self.probeFrame,
