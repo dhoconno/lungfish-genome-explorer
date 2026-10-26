@@ -24,7 +24,9 @@ final class ReadRowAllocatorTests: XCTestCase {
         maxRows: Int?
     ) -> (packed: [(row: Int, read: AlignedRead)], overflow: Int) {
         let rowCap = maxRows.flatMap { $0 > 0 ? $0 : nil }
-        var rowEndPixels = rowCap.map { [CGFloat](repeating: -1, count: $0) } ?? []
+        // An empty capped row ends at minus infinity, as in the allocator. The oracle moved with it on BIO's ruling
+        // for F1 of W7, since a seed of -1 dropped every read that starts left of pixel 1 as overflow.
+        var rowEndPixels = rowCap.map { [CGFloat](repeating: -.infinity, count: $0) } ?? []
         var packed: [(Int, AlignedRead)] = []
         var overflow = 0
 

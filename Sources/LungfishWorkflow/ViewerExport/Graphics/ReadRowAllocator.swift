@@ -73,7 +73,8 @@ struct ReadRowAllocator {
     private let rowCap: Int?
 
     /// Number of rows currently in use (only meaningful when `rowCap == nil`;
-    /// with a cap all `rowCap` rows exist from the start, seeded to `-1`).
+    /// with a cap all `rowCap` rows exist from the start, each ending at minus
+    /// infinity so a read at any pixel can open it).
     private(set) var rowCount: Int
 
     /// - Parameters:
@@ -87,11 +88,13 @@ struct ReadRowAllocator {
         capacity = leaves
         tree = [CGFloat](repeating: .infinity, count: leaves * 2)
         if let rowCap {
-            // Every capped row exists immediately, seeded to the same -1 the
-            // linear scan used, so row 0 is available to the first read.
+            // Every capped row exists immediately. An empty capped row ends at
+            // minus infinity, so a read at any pixel can open it, including a
+            // read that starts left of the window's first pixel. A seed of -1
+            // dropped such a read as overflow (BIO's ruling on F1 of W7).
             rowCount = rowCap
             for index in 0..<rowCap {
-                tree[capacity + index] = -1
+                tree[capacity + index] = -.infinity
             }
             rebuildInternalNodes()
         } else {
