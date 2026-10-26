@@ -117,6 +117,28 @@ final class ViewerFigureReadTrackTests: XCTestCase {
         XCTAssertEqual(fills(canvas, .quaternarySystemFill), [ViewerFigureRect(x: 0, y: 84, width: 1_000, height: 16)])
     }
 
+    private func footnote(_ canvas: ViewerFigureCanvas) -> String? {
+        canvas.items.compactMap { item -> String? in
+            if case .text(let line) = item, line.string.hasPrefix("+") { line.string } else { nil }
+        }.first
+    }
+
+    /// The footnote under the reads counts every read the rows left out, past the row cap and past the track's
+    /// height, as the record's `readRowCap` entries do (OBS-W7). The walk's image said 46 where the record said 46
+    /// and 170.
+    func testExportReadFootnoteCountsEveryOmittedRead() throws {
+        let stacked = (0..<80).map { Fixture.read("r\($0)", 100) }
+        let both = try draw(stacked, height: 100)
+        let bothLeft = both.omissions.filter { $0.kind == .readRowCap }.compactMap(\.count)
+        XCTAssertEqual(bothLeft, [5, 63], "5 past the 75-row cap, and 63 in rows 12 to 74 past the bar at 84 points")
+        XCTAssertEqual(footnote(both), "+\(bothLeft.reduce(0, +)) reads not shown (max 75 rows, track height 100 points)")
+        let tall = try draw(Array(stacked.prefix(20)), height: 100)
+        let tallLeft = tall.omissions.filter { $0.kind == .readRowCap }.compactMap(\.count)
+        XCTAssertEqual(tallLeft, [8], "no row cap, and 8 in rows 12 to 19 past the bar")
+        XCTAssertEqual(footnote(tall), "+\(tallLeft.reduce(0, +)) reads not shown (track height 100 points)")
+        XCTAssertTrue(fills(tall, .forwardRead).allSatisfy { $0.y + $0.height <= 84 }, "the bar never covers a drawn read")
+    }
+
     func testSourceMapsTheReferenceNameToTheAlignmentContig() {
         let plain = ViewerFigureReadTrack.Source(alignmentPath: "a.bam", indexPath: "a.bam.bai")
         XCTAssertEqual(plain.alignmentChromosome(for: "chr1"), "chr1", "with no map the name is handed over unchanged")
