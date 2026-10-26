@@ -25,8 +25,8 @@ import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
 
-/// The live form, over a crafted BAM and the BAMs of `esviritu-mini`, with the managed samtools, whose markdup marks
-/// each BAM in place (2.9 O5). `LUNGFISH_REQUIRE_TOOLS=1` turns a missing samtools into a failure. The stand-in form is
+/// The live form, over a crafted BAM and the BAMs of `esviritu-mini` and `taxtriage-mini`, with the managed samtools,
+/// whose markdup marks each BAM in place (2.9 O5). `LUNGFISH_REQUIRE_TOOLS=1` turns a missing samtools into a failure. The stand-in form is
 /// the scripted samtools of `BuildDbCommandMarkdupTests`, which answers each count by its flag and so pins the flags.
 final class BuildDbEsVirituReadCountFlagsLiveConformanceTests: XCTestCase {
     private var root: URL!
@@ -97,6 +97,41 @@ final class BuildDbEsVirituReadCountFlagsLiveConformanceTests: XCTestCase {
             }
         }
         XCTAssertEqual(rows.count, 16, "14 rows of SRR35517703 and 2 rows of SRR35517705")
+    }
+
+    /// The real-data pin of the ruled meaning on TaxTriage rows (BIO's review of lane ESV, SF1). Two of the three
+    /// `taxtriage-mini` BAMs hold supplementary records of split reads whose primary record sits on the same contig, so
+    /// three rows count one read less than they did while the count passed alignment records. Before the change those
+    /// rows read 31, 17 and 993 Reads and 23, 11 and 277 Unique Reads. SRR35517703 holds no supplementary record, so its
+    /// row keeps 9 reads, the count that TaxTriage's own report holds for it. `updateUniqueReadsInDB` is one function for
+    /// both tools, so this is the number-level guard of the TaxTriage Reads and Unique Reads columns.
+    func testTaxTriageMiniCountsASplitReadOnceAtItsPrimaryAlignment() async throws {
+        _ = try await ToolAvailability.require("samtools", environment: "samtools")
+        let fixture = BuildDbStreamCapture.fixturesFolder.appendingPathComponent("taxtriage-mini", isDirectory: true)
+        let result = root.appendingPathComponent("taxtriage-mini", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: result)
+
+        try await BuildDbCommand.TaxTriageSubcommand.parse([result.path, "-q"]).run()
+
+        let database = try TaxTriageDatabase(at: result.appendingPathComponent("taxtriage.sqlite"))
+        let rows = try database.fetchRows(samples: try database.fetchSamples().map(\.sample))
+        func row(_ sample: String, _ accession: String) throws -> TaxTriageTaxonomyRow {
+            let matches = rows.filter { $0.sample == sample && $0.primaryAccession == accession }
+            XCTAssertEqual(matches.count, 1, "one row for \(sample) \(accession)")
+            return try XCTUnwrap(matches.first, "a row for \(sample) \(accession)")
+        }
+
+        let split702 = try row("SRR35517702", "NC_045512.2")
+        XCTAssertEqual(split702.readsAligned, 30, "SRR35517702 NC_045512.2 holds 31 records, one of them the supplementary of read 4096958")
+        XCTAssertEqual(split702.uniqueReads, 22, "the supplementary record is not a duplicate, so Unique Reads drops with Reads")
+        let shortSplit705 = try row("SRR35517705", "NC_045512.2")
+        XCTAssertEqual(shortSplit705.readsAligned, 16, "SRR35517705 NC_045512.2 holds 17 records, one of them the supplementary of read 2920")
+        XCTAssertEqual(shortSplit705.uniqueReads, 10, "the supplementary record is not a duplicate, so Unique Reads drops with Reads")
+        let longSplit705 = try row("SRR35517705", "NC_074583.1")
+        XCTAssertEqual(longSplit705.readsAligned, 983, "SRR35517705 NC_074583.1 holds 993 records, ten of them supplementary")
+        XCTAssertEqual(longSplit705.uniqueReads, 267, "the ten supplementary records are not duplicates, so Unique Reads drops with Reads")
+        let whole703 = try row("SRR35517703", "NC_045512.2")
+        XCTAssertEqual(whole703.readsAligned, 9, "SRR35517703 holds no supplementary record, so its count stays as TaxTriage's own report has it")
     }
 
     // MARK: - Staging
