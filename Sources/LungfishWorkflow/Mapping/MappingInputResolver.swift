@@ -30,6 +30,9 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
     case layoutForPairedBundle(name: String)
     /// The read-set plan has a shape a mapper cannot be handed.
     case unsupportedReadSetPlan(String)
+    /// `--paired` binds exactly two files as R1 and R2, and the inputs, named
+    /// by `inputs`, resolve to the other number of files named by `files`.
+    case pairedInputsCannotBind(inputs: [String], files: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -37,6 +40,12 @@ public enum MappingInputResolverError: LocalizedError, Sendable, Equatable {
             return "--read-layout describes one input file; \(name) holds R1 and R2 files."
         case .unsupportedReadSetPlan(let detail):
             return "The reads cannot be handed to the mapper: \(detail)"
+        case .pairedInputsCannotBind(let inputs, let files):
+            return "--paired binds exactly two files as the R1 and R2 reads of one sample, "
+                + "but \(inputs.joined(separator: " and ")) hold \(files.count) file\(files.count == 1 ? "" : "s"): "
+                + "\(files.joined(separator: ", ")). "
+                + "A bundle of R1 and R2 files maps as pairs on its own, without --paired. "
+                + "Give --paired only the R1 file and the R2 file, or map each input on its own."
         }
     }
 }
@@ -138,7 +147,16 @@ public enum MappingInputResolver {
             concatenateUnpairedFiles: true,
             progress: progress
         )
-        var pairedEnd = request.pairedEnd && resolved.executionInputURLs.count == 2
+        // `--paired` binds exactly two files. Inputs that resolve to another
+        // number of files stop here with their names, where they used to be
+        // pooled as single reads without a message (MAP-PAIRED-UNBOUND).
+        if request.pairedEnd, resolved.executionInputURLs.count != 2 {
+            throw MappingInputResolverError.pairedInputsCannotBind(
+                inputs: inputURLs.map(\.lastPathComponent),
+                files: resolved.executionInputURLs.map(\.lastPathComponent)
+            )
+        }
+        var pairedEnd = request.pairedEnd
         if let bundlePlan, resolved.resolvedAsMatePair {
             if bundlePlan.plan.sourceLayout == .pairedFiles {
                 pairedEnd = true

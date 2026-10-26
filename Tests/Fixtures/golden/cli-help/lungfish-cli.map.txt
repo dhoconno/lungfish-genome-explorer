@@ -16,8 +16,9 @@ files as R1/R2 of that sample); invoke once per sample for per-sample results.
 USAGE: lungfish-cli map [<options>] <fastq-files> ... --reference <reference>
 
 ARGUMENTS:
-  <fastq-files>           Input sequence file(s). Provide two files for
-                          paired-end mapping.
+  <fastq-files>           Input sequence files or .lungfishfastq bundles. Two
+                          files map as the R1 and R2 reads of one sample only
+                          with --paired.
 
 OPTIONS:
   --reference <reference> Reference FASTA file to align against
@@ -51,7 +52,10 @@ OPTIONS:
   --rg-pl <rg-pl>         BAM read-group platform/PL (default: mapper preset
                           platform)
   --rg-pu <rg-pu>         BAM read-group platform unit/PU (default: sample name)
-  --paired                Input files are paired-end reads
+  --paired                Bind exactly two input files as the R1 and R2 reads
+                          of one sample. Inputs that hold another number of
+                          files, such as a bundle of R1 and R2 files beside
+                          another input, are refused.
   --read-layout <read-layout>
                           How the records of a single input file relate: auto,
                           single-end, interleaved (every record is followed by

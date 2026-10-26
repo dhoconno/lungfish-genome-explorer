@@ -39,7 +39,7 @@ struct MapCommand: AsyncParsableCommand {
         """
     )
 
-    @Argument(help: "Input sequence file(s). Provide two files for paired-end mapping.")
+    @Argument(help: "Input sequence files or .lungfishfastq bundles. Two files map as the R1 and R2 reads of one sample only with --paired.")
     var fastqFiles: [String]
 
     @Option(name: .customLong("reference"), help: "Reference FASTA file to align against")
@@ -102,7 +102,10 @@ struct MapCommand: AsyncParsableCommand {
     @Option(name: .customLong("rg-pu"), help: "BAM read-group platform unit/PU (default: sample name)")
     var readGroupPlatformUnit: String?
 
-    @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
+    @Flag(
+        name: .customLong("paired"),
+        help: "Bind exactly two input files as the R1 and R2 reads of one sample. Inputs that hold another number of files, such as a bundle of R1 and R2 files beside another input, are refused."
+    )
     var pairedEnd: Bool = false
 
     @Option(
