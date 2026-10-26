@@ -250,7 +250,7 @@ The six exit checks of Phase 3.
 The budget of Phase 3 is five sessions, about $6,000 measured, and at $9,000 the manager stops for the owner. The audit's dissent is recorded in its report. Both science seats would run a science session before any viewport code, and both teams would have left the eleven later viewer migrations until user work touched them, which O70 overrode.
 
 ## Carry-in from Phase 2.13
-
+Moved into `docs/plans/BACKLOG.md` by Phase 3.0 (BACKLOG-MOVE) on 2026-10-26. The rows below are the record and are not open here.
 Phase 3.0 moves these carry-in sections, the next two included, into `docs/plans/BACKLOG.md`, each row with its effect on results or users, and the owner ranks them (`docs/contracts/SCOPE-AND-DELIVERY.md`). Until then these sections are the backlog. A row becomes a lane only when it earns one under that contract.
 
 Written at the end of Phase 2.13 from its records, at the program head `8190b9000` that Preview 2026.10.22 is published from. The full rows are in `docs/plans/2026-10-20-phase-2-13.md`, which holds the Moved out rows in `## Moved out of 2.13`, the decisions MD1 to MD108 and the owner directions O23 to O26 in `### Decisions` and the publish in `## Release`. The walk of 2.13 ended on 2026-10-22 and added O27 to O30, MD109 to MD120 and the walk rows at the end of `## Moved out of 2.13` (MD119). Phase 2.14 runs before 3.1 (MD110), and the walk rows join this carry-in for the Phase 3 start vote. The carry-in has four parts, the Moved out rows by field, the held tier 3 lanes, the Known limits that end "This is a Phase 3 candidate" and the standing directions. Two rows name a sub-phase, S-13.14-Q1 and K10-S8, and both say Phase 3d. S-M3-Q2 says a later plan. Every other row says Phase 3 or Phase 3 candidate, and the panel places it at the start of the Phase 3 session.
@@ -336,7 +336,7 @@ O26 (2026-10-21 16:07) is a standing direction for every release. Release notes 
 UNIT-TIER-CADENCE. No unit tier ran between 2026-10-20 and the 2.13 candidate, and five stale tests reached it (MD94). `docs/contracts/RUNNING-A-PHASE-SESSION.md` gets the rule that a unit tier runs after about every 10 landings, which the closing monitor of 2.13 writes (`exit/QA.md:156`). MD90 also added a habit for landings, that a landing that changes export text runs the Conformance pins of that export (`rg -l` on the changed literal in Tests) and not only its unit suites.
 
 ## Carry-in from Phase 2.14
-
+Moved into `docs/plans/BACKLOG.md` by Phase 3.0 (BACKLOG-MOVE) on 2026-10-26. The rows below are the record and are not open here.
 Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/phase-2-14`. Preview 2026.10.23 build 11097 is published from `1ec9ee27d`, `main` is `21b7825b5` plus the records commit that adds this section, and Stable is blocked. QA's exit verdict is "Phase 2 exit Met with Phase 3 rows" (`exit/QA.md:235`), and the owner check list `docs/reports/2026.10.23-owner-checks.md` still blocks Stable. The packaged re-walk of 2026-10-24 added four Stable blockers, the owner added OBS-W7 as a fifth, and items are left for the owner.
 
 ### First rows for Phase 3.1
@@ -351,7 +351,7 @@ Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/p
 `## Moved out of 2.14` in `docs/plans/2026-10-23-phase-2-14.md` holds every other row, among them the Phase 3 rows of the exit review and the rows carried from 2.13 that its table did not hold. The Known limits of the open findings are in `docs/reports/2026.10.23-technical.md`. The CHTC program's C4 resumes from `~/lungfish-phase-records/chtc-program/CONTINUE-C4.md` in its own session, since O33 put 2.14 first.
 
 ## Carry-in from the CHTC program
-
+Moved into `docs/plans/BACKLOG.md` by Phase 3.0 (BACKLOG-MOVE) on 2026-10-26. The rows below are the record and are not open here.
 Written at the close of the CHTC program (C0 to C6) from `docs/plans/2026-10-21-chtc-preprocessing-study.md` and the session records in `~/lungfish-phase-records/chtc-program/c6` (`SCR` below). It places the 19 rows that C5 moved out (`~/lungfish-phase-records/chtc-program/c5/record/C6-list.md`, `C6-list.md` below) and the rows C6 found. FC-META found no False item (`SCR/factcheck/FC-META.md:9-14`), so it adds no row.
 
 ### Phase 3 rows
