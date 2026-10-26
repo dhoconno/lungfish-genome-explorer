@@ -114,6 +114,45 @@ final class CrossProjectItemCopierTests: XCTestCase {
         ) ?? url.path
     }
 
+    // MARK: - An item staged in a project's temp folder (OBS-W8)
+
+    /// The sidebar unpacks a dropped ZIP into `<project>/.tmp/sidebar-zip-import-*` and deletes that folder once the
+    /// copy ends. The copy used to mirror the item's folder inside its project, so it landed beside the staged item
+    /// and went with it, while the row read Completed.
+    func testItemInTargetTempFolderLandsInKindDefaultFolder() throws {
+        let staged = try makeReadBundle(".tmp/sidebar-zip-import-X/S.lungfishfastq", in: targetProject)
+        let imports = targetProject.appendingPathComponent("Imports", isDirectory: true)
+
+        let folder = CrossProjectItemCopier.destinationFolder(
+            for: .fastqBundle, sourceURL: staged, sourceProjectURL: targetProject,
+            targetProjectURL: targetProject, requestedFolder: nil
+        )
+        XCTAssertEqual(folder.standardizedFileURL.path, imports.standardizedFileURL.path)
+
+        let outcome = try CrossProjectItemCopier.copy(itemAt: staged, intoProject: targetProject, identity: .neutral)
+        XCTAssertEqual(
+            outcome.destinationURL.standardizedFileURL.path,
+            imports.appendingPathComponent("S.lungfishfastq").standardizedFileURL.path
+        )
+        XCTAssertTrue(fm.fileExists(atPath: outcome.destinationURL.appendingPathComponent("reads.fastq").path))
+        XCTAssertEqual(
+            try fm.contentsOfDirectory(atPath: staged.deletingLastPathComponent().path), ["S.lungfishfastq"],
+            "nothing is copied beside the staged item, where the batch's cleanup would delete it"
+        )
+    }
+
+    /// The rule holds for an item staged in another project's temp folder too, which no source folder names.
+    func testItemInAnotherProjectsTempFolderLandsInKindDefaultFolderOfTheTarget() throws {
+        let staged = try makeReadBundle(".tmp/sidebar-zip-import-Y/S.lungfishfastq", in: sourceProject)
+
+        let outcome = try CrossProjectItemCopier.copy(itemAt: staged, intoProject: targetProject, identity: .neutral)
+
+        XCTAssertEqual(
+            outcome.destinationURL.standardizedFileURL.path,
+            targetProject.appendingPathComponent("Imports/S.lungfishfastq").standardizedFileURL.path
+        )
+    }
+
     // MARK: - Kraken 2 (the reported case)
 
     func testKrakenResultCopiesWholeIsRecognisedAndReportsMissingReads() throws {

@@ -52,6 +52,22 @@ final class CrossProjectCopyRouteTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: targetProject.path), [], "the app copied nothing")
     }
 
+    /// A ZIP the sidebar unpacked sits in the open project's `.tmp` folder. It came from no project, so the command
+    /// names its absolute path and no source project, and the row's recorded command repeats the same landing.
+    func testAZipStagedItemIsNamedByItsPathWithNoSourceProject() throws {
+        let staged = targetProject.appendingPathComponent(".tmp/sidebar-zip-import-X/S.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n".write(to: staged.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            CrossProjectCopyRoute.arguments(itemURL: staged, projectURL: targetProject, requestedFolder: nil),
+            [
+                "project", "copy-item", staged.standardizedFileURL.path,
+                "--project", targetProject.standardizedFileURL.path, "--format", "json",
+            ]
+        )
+    }
+
     func testTheCancelIsReturnedSoTheDropShowsNoAlert() async throws {
         let item = try makeReferenceBundle()
 
