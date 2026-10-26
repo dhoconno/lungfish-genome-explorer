@@ -215,6 +215,8 @@ KNOWN_PREEXISTING_FAILURES=''
 # selection (--describe-selection prints it), so evidence made with another list never covers a
 # commit. Empty at Phase 3.0, because no test failed under load and passed alone twice in one
 # phase in the records of Phases 2.12 to 2.14.
+# The rerun applies to a run of one attempt, the unit and full tiers. The integration tier runs each class
+# alone and never reruns a listed test, so an entry for a test that only that tier runs has no effect.
 KNOWN_LOAD_FLAKES=()
 # A LungfishAppTests class whose name ends in ReplayTests replays a recorded
 # lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
