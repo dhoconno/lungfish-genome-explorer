@@ -337,7 +337,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
                   viewerController.currentBundleURL?.standardizedFileURL == bundle.url.standardizedFileURL,
                   viewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL
             else { return }
-            viewerController.annotationSearchIndex = index
+            viewerController.completeAnnotationIndexHandoff(index, for: bundle)
             // Wire annotation database to inspector selection view model for qualifier enrichment
             inspectorController?.selectionSectionViewModel.annotationDatabase = index.annotationDatabase
             // Wire reference bundle for on-the-fly CDS translation computation

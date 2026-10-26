@@ -22,6 +22,9 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
     /// and ends the moment the condition holds.
     private static let drawerBudget = WaitBudget.standard.raised(to: .seconds(30))
 
+    /// The first words of the sentence a drawer shows when a build ends with no index.
+    private static let failureWordsStart = "The annotation table could not be built for"
+
     private var scratch: URL!
 
     override func setUp() async throws {
@@ -59,6 +62,10 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         XCTAssertFalse(drawer.isLoading)
         XCTAssertEqual(drawer.totalAnnotationCount, 3, "The drawer holds the bundle's annotation count.")
         XCTAssertTrue(drawer.searchIndex === index, "The drawer holds the index the route built.")
+        XCTAssertFalse(
+            Self.readableText(in: drawer).contains(where: { $0.contains(Self.failureWordsStart) }),
+            "A build that found its table shows no failure words."
+        )
 
         viewer.clearBundleDisplay()
     }
@@ -70,7 +77,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
     /// the bundle's name and no Retry button.
     func testAnIndexBuildThatEndsWithNoIndexSaysSo() async throws {
         let bundleName = "Missing Table Fixture"
-        let words = "The annotation table could not be built for \(bundleName), because its annotation database "
+        let words = "\(Self.failureWordsStart) \(bundleName), because its annotation database "
             + "is missing or cannot be read. Reopen the bundle, and if this repeats, import its annotations again."
 
         // The bundle-display route.
@@ -108,6 +115,34 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         notifiedViewer.clearBundleDisplay()
     }
 
+    /// The words belong to the build that ended with no index. When the bundle is repaired and the route builds
+    /// again, the drawer shows its annotations and the words are gone.
+    func testAHealthyBuildTakesTheWordsOfAnEarlierFailedBuildAway() async throws {
+        let bundle = try makeBundle(named: "Repaired Fixture", annotationRows: 0, writesAnnotationDatabase: false)
+        let viewer = try showBundle(at: bundle)
+        viewer.openAnnotationDrawerIfBundleHasData()
+        let drawer = try XCTUnwrap(viewer.annotationDrawerView)
+
+        try viewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundle)
+        XCTAssertTrue(
+            Self.readableText(in: drawer).contains(where: { $0.contains(Self.failureWordsStart) }),
+            "Precondition: the failed build shows its words."
+        )
+
+        try writeAnnotationDatabase(rows: 2, into: bundle)
+        try viewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundle)
+        let index = try XCTUnwrap(viewer.annotationSearchIndex)
+        let settled = await waitUntil(budget: Self.drawerBudget) { !index.isBuilding && !drawer.isLoading }
+        XCTAssertTrue(settled, "The drawer stayed in its loading state after the repaired build ended.")
+        XCTAssertEqual(drawer.totalAnnotationCount, 2, "The drawer holds the repaired bundle's annotations.")
+        XCTAssertFalse(
+            Self.readableText(in: drawer).contains(where: { $0.contains(Self.failureWordsStart) }),
+            "The words of the earlier failed build are gone."
+        )
+
+        viewer.clearBundleDisplay()
+    }
+
     // MARK: - Assertions
 
     private func assertDrawerSays(
@@ -126,6 +161,15 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
             readable.contains(where: { $0.localizedCaseInsensitiveContains("Retry") }),
             "The words offer no Retry button.", file: file, line: line
         )
+
+        // The words are laid out where a person reads them, inside the drawer and wrapped to a readable width.
+        drawer.superview?.layoutSubtreeIfNeeded()
+        guard let notice = drawer.subviews.first(where: { $0.identifier == AnnotationDrawerIndexHandoff.noticeIdentifier }) else {
+            return XCTFail("The words sit in no view of the drawer.", file: file, line: line)
+        }
+        XCTAssertGreaterThan(notice.frame.height, 0, "The words have a height.", file: file, line: line)
+        XCTAssertLessThanOrEqual(notice.frame.width, 520.5, "The words wrap at a readable width.", file: file, line: line)
+        XCTAssertTrue(drawer.bounds.contains(notice.frame), "The words lie inside the drawer.", file: file, line: line)
     }
 
     /// Every string a person can read in the drawer, from its visible labels, fields and button titles.
@@ -143,12 +187,14 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
 
     // MARK: - Fixture
 
-    /// Shows the bundle through the bundle-display route the way the reference-bundle tests do. No window
-    /// controller is involved, so no index exists until a route builds one.
+    /// Shows the bundle through the bundle-display route the way the reference-bundle tests do, in a viewer of a
+    /// real size. No window controller is involved, so no index exists until a route builds one.
     private func showBundle(at bundle: URL) throws -> ViewerViewController {
         let viewer = ViewerViewController()
         _ = viewer.view
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
         try viewer.displayBundle(at: bundle, mode: .sequence(name: "chr1", restoreViewState: false))
+        viewer.view.layoutSubtreeIfNeeded()
         return viewer
     }
 
@@ -176,16 +222,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
             .write(to: bundle.appendingPathComponent("genome/sequence.fa"), atomically: true, encoding: .utf8)
         try "chr1\t3000\t6\t60\t61\n"
             .write(to: bundle.appendingPathComponent("genome/sequence.fa.fai"), atomically: true, encoding: .utf8)
-
-        if writesAnnotationDatabase {
-            let bed = scratch.appendingPathComponent("genes-\(UUID().uuidString).bed")
-            let rows = (0..<annotationRows).map { "chr1\t\(1_000 + $0 * 300)\t\(1_200 + $0 * 300)\tgene-\($0)\t0\t+\n" }
-            try rows.joined().write(to: bed, atomically: true, encoding: .utf8)
-            _ = try AnnotationDatabase.createFromBED(
-                bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/genes.db")
-            )
-            try fileManager.removeItem(at: bed)
-        }
+        if writesAnnotationDatabase { try writeAnnotationDatabase(rows: annotationRows, into: bundle) }
 
         try BundleManifest(
             name: name,
@@ -203,5 +240,16 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
             recordStore: nil
         ).save(to: bundle)
         return bundle
+    }
+
+    /// Writes `annotations/genes.db` into the bundle from `rows` BED rows, the file its manifest names.
+    private func writeAnnotationDatabase(rows: Int, into bundle: URL) throws {
+        let bed = scratch.appendingPathComponent("genes-\(UUID().uuidString).bed")
+        let records = (0..<rows).map { "chr1\t\(1_000 + $0 * 300)\t\(1_200 + $0 * 300)\tgene-\($0)\t0\t+\n" }
+        try records.joined().write(to: bed, atomically: true, encoding: .utf8)
+        _ = try AnnotationDatabase.createFromBED(
+            bedURL: bed, outputURL: bundle.appendingPathComponent("annotations/genes.db")
+        )
+        try FileManager.default.removeItem(at: bed)
     }
 }

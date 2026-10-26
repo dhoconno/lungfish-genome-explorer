@@ -107,7 +107,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // Connect to search index if opening and index is available
         if isAnnotationDrawerOpen, let index = annotationSearchIndex {
             if !index.isBuilding {
-                annotationDrawerView?.setSearchIndex(index)
+                attachAnnotationIndexToDrawer(index)
             }
         }
     }
@@ -138,7 +138,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         if !isAnnotationDrawerOpen {
             toggleAnnotationDrawer()
         } else if let index = annotationSearchIndex, !index.isBuilding {
-            annotationDrawerView?.setSearchIndex(index)
+            attachAnnotationIndexToDrawer(index)
         }
     }
 
@@ -195,7 +195,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
         // Populate if index is ready, otherwise drawer defaults to loading state
         if let index = annotationSearchIndex, !index.isBuilding {
-            drawer.setSearchIndex(index)
+            attachAnnotationIndexToDrawer(index)
         }
 
         annotDrawerLogger.info("configureAnnotationDrawer: Created annotation drawer")

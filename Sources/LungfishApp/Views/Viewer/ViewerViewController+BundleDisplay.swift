@@ -101,8 +101,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             self.viewerView.invalidateVariantFormatHoverCache()
         }
         index.buildIndex(bundle: context.bundle, chromosomes: context.chromosomes)
-        annotationSearchIndex = index
-        annotationDrawerView?.setSearchIndex(index)
+        completeAnnotationIndexHandoff(index, for: context.bundle)
         viewerView.invalidateAnnotationTile()
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
