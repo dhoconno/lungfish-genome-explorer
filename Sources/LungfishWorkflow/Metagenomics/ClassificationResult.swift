@@ -298,22 +298,41 @@ extension ClassificationResult {
     /// A relative URL resolves against `directory`. A run stores absolute URLs, so a result renamed, moved or
     /// copied after its run keeps the folder it was made in. When that folder is not `directory` it is replaced
     /// by `directory`, and an absolute URL inside it, such as a mate staged under `.lungfish-classify-inputs`,
-    /// follows it, as `TaxTriageResultViewController.relocatedResult` follows its folder. An absolute URL outside
-    /// it stays as stored. A result that was not moved changes nothing (OBS-W4).
+    /// follows it, as `TaxTriageResultViewController.relocatedResult` follows its folder (OBS-W4).
+    ///
+    /// The reads the run was given follow the project the same way (W4-COPY-SOURCE). When the stored folder and
+    /// `directory` lie in two projects, a read of `originalInputFiles`, `inputFiles` or `singleReadFiles` that
+    /// lies inside the stored project is placed at the same place inside the project that holds `directory`, but
+    /// only when every read that moves exists there. Otherwise all three lists stay as stored, so one read set
+    /// never takes its files from two projects, and a copy that lacks its reads keeps reading the original's
+    /// while that is kept. Any other absolute URL stays as stored, and a result that was not moved changes nothing.
     private static func resolvingConfigURLs(
         _ config: ClassificationConfig,
         loadedFrom directory: URL
     ) -> ClassificationConfig {
         let storedFolder = storedFolderPath(of: config, unlessLoadedFrom: directory)
-        func resolve(_ url: URL) -> URL {
+        let projects = storedFolder.flatMap { storedAndLoadedProjects(storedFolder: $0, loadedFolder: directory) }
+        func resolve(_ url: URL, inLoadedProject: Bool = false) -> URL {
             guard url.isFileURL, url.path.hasPrefix("/") else {
                 return resolvePersistedURL(url, relativeTo: directory)
             }
-            return storedFolder.map { relocate(url, from: $0, to: directory) } ?? url
+            guard let storedFolder else { return url }
+            let inFolder = relocate(url, from: storedFolder, to: directory)
+            guard inFolder == url, inLoadedProject, let projects else { return inFolder }
+            return relocate(url, from: projects.stored, to: projects.loaded)
+        }
+        let readLists = [config.inputFiles, config.originalInputFiles ?? [], config.singleReadFiles]
+        var reads = readLists.map { $0.map { resolve($0) } }
+        if projects != nil {
+            let inProject = readLists.map { $0.map { resolve($0, inLoadedProject: true) } }
+            let moved = zip(reads.joined(), inProject.joined()).filter { $0 != $1 }.map { $1 }
+            if !moved.isEmpty, moved.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
+                reads = inProject
+            }
         }
         var resolved = ClassificationConfig(
             goal: config.goal,
-            inputFiles: config.inputFiles.map(resolve),
+            inputFiles: reads[0],
             isPairedEnd: config.isPairedEnd,
             interleavedInput: config.interleavedInput,
             inputLayout: config.inputLayout,
@@ -334,8 +353,8 @@ extension ClassificationResult {
             extraArguments: config.extraArguments
         )
         resolved.sampleDisplayName = config.sampleDisplayName
-        resolved.originalInputFiles = config.originalInputFiles?.map(resolve)
-        resolved.singleReadFiles = config.singleReadFiles.map(resolve)
+        resolved.originalInputFiles = config.originalInputFiles == nil ? nil : reads[1]
+        resolved.singleReadFiles = reads[2]
         resolved.plansReadSet = config.plansReadSet
         return resolved
     }
@@ -347,6 +366,19 @@ extension ClassificationResult {
         guard stored.isFileURL, stored.path.hasPrefix("/") else { return nil }
         let path = stored.standardizedFileURL.path
         return path == directory.standardizedFileURL.path ? nil : path
+    }
+
+    /// The project the run stored and the project that holds `directory`, as standardized paths, when they are two
+    /// projects. Nil when either folder lies in no `.lungfish` project or both lie in the same one.
+    private static func storedAndLoadedProjects(
+        storedFolder: String,
+        loadedFolder directory: URL
+    ) -> (stored: String, loaded: URL)? {
+        guard let stored = ProjectTempDirectory.findProjectRoot(URL(fileURLWithPath: storedFolder, isDirectory: true)),
+              let loaded = ProjectTempDirectory.findProjectRoot(directory) else { return nil }
+        let storedPath = stored.standardizedFileURL.path
+        let loadedProject = loaded.standardizedFileURL
+        return storedPath == loadedProject.path ? nil : (storedPath, loadedProject)
     }
 
     /// `directory` when `url` is the stored folder, the same place under `directory` when `url` lies inside it,

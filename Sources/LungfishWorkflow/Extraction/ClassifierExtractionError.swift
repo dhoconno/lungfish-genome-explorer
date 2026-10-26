@@ -32,7 +32,9 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// The Kraken2 taxonomy tree could not be loaded from disk.
     case kraken2TreeMissing(URL)
 
-    /// The Kraken2 source FASTQ could not be located on disk.
+    /// The Kraken2 source FASTQ is in neither the project that holds the result nor where the run recorded it.
+    /// The words say to put the read bundle back into the project or classify again there, and the Extract
+    /// alert, the BLAST alert and the CLI all show them (W4-COPY-SOURCE).
     case kraken2SourceMissing
 
     /// A per-sample samtools invocation failed.
@@ -80,7 +82,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
         case .kraken2TreeMissing(let url):
             return "Kraken2 taxonomy tree not found: \(url.lastPathComponent)"
         case .kraken2SourceMissing:
-            return "Kraken2 source FASTQ could not be located. The source file may have been moved or deleted."
+            return "The FASTQ reads this Kraken2 result was made from are missing. "
+                + "They are not in this project or where the run recorded them. "
+                + "Put their bundle back into this project and try again, "
+                + "or run the classification again in this project."
         case .samtoolsFailed(let sampleId, let stderr):
             return "samtools view failed for sample '\(sampleId)': \(stderr)"
         case .clipboardCapExceeded(let requested, let cap):

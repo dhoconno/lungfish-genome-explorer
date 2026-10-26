@@ -374,6 +374,11 @@ func kraken2BlastVerificationRequest(
         ).blastReadSources
     } catch is CancellationError {
         throw CancellationError()
+    } catch let error as ClassifierExtractionError {
+        // The reads are missing, so the BLAST alert shows the words Extract shows, which say where they should be
+        // and what to try, and not "No sequences provided" (W4-COPY-SOURCE).
+        taxonomyLogger.error("BLAST: could not resolve the source reads of this classification: \(error.localizedDescription, privacy: .public)")
+        throw error
     } catch {
         taxonomyLogger.error("BLAST: could not resolve the source reads of this classification: \(error.localizedDescription, privacy: .public)")
         throw BlastServiceError.noSequences
