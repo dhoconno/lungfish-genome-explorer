@@ -27,13 +27,13 @@ final class BundleExportGFF3ListAttributeTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Two mRNAs, one exon of both, and one CDS with an NCBI cross-reference list.
+    /// Two mRNAs, one exon of both, and one CDS with an NCBI cross-reference list and a note.
     private static let gff3 = """
         ##gff-version 3
         chr1\ttest\tmRNA\t1\t1000\t.\t+\t.\tID=mRNA1
         chr1\ttest\tmRNA\t1\t1000\t.\t+\t.\tID=mRNA2
         chr1\ttest\texon\t1\t300\t.\t+\t.\tID=exon1;Parent=mRNA1,mRNA2
-        chr1\ttest\tCDS\t50\t300\t.\t+\t0\tID=cds1;Parent=mRNA1;Dbxref=GenBank:YP_009724389.1,GeneID:43740578
+        chr1\ttest\tCDS\t50\t300\t.\t+\t0\tID=cds1;Parent=mRNA1;Dbxref=GenBank:YP_009724389.1,GeneID:43740578;Note=protein%2C partial
 
         """
 
@@ -82,5 +82,13 @@ final class BundleExportGFF3ListAttributeTests: XCTestCase {
             pairs["CDS"]?.contains("Dbxref=GenBank:YP_009724389.1,GeneID:43740578") == true, "\(pairs["CDS"] ?? [])"
         )
         XCTAssertTrue(pairs["CDS"]?.contains("Parent=mRNA1") == true, "\(pairs["CDS"] ?? [])")
+    }
+
+    /// The CDS keeps the `Note` its row stores. The converter that reads a row sets the qualifier `Note` and leaves
+    /// `note` empty, so the export takes the qualifier. A comma in the text leaves as `%2C`.
+    func testExportKeepsAStoredNote() async throws {
+        let pairs = try await exportedPairs(of: try await makeBundle())
+
+        XCTAssertTrue(pairs["CDS"]?.contains("Note=protein%2C partial") == true, "\(pairs["CDS"] ?? [])")
     }
 }

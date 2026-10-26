@@ -752,4 +752,35 @@ final class GFF3WriterTests: XCTestCase {
         let features = try await GFF3Reader().readAll(from: url)
         XCTAssertEqual(features.first?.attributes["Parent"], "mRNA1,mRNA2")
     }
+
+    /// An annotation read from an annotation database keeps its stored `Note=` pair as the qualifier `Note` and leaves
+    /// `note` nil, so the writer takes the qualifier as the note. A comma in the text leaves as `%2C`.
+    func testANoteHeldAsAQualifierIsWritten() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "cds1", chromosome: "chr1", start: 99, end: 500, strand: .forward,
+            qualifiers: ["Note": AnnotationQualifier("protein, partial")]
+        )
+
+        try await GFF3Writer.write([annotation], to: url)
+
+        let pairs = try firstLinePairs(of: url)
+        XCTAssertEqual(pairs.filter { $0.hasPrefix("Note=") }, ["Note=protein%2C partial"], "\(pairs)")
+    }
+
+    /// Guard, which passes at the base. `note` wins over a stored `Note` qualifier, so a note is written once.
+    func testANoteOnTheAnnotationWinsAndIsWrittenOnce() async throws {
+        let url = createTempFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let annotation = SequenceAnnotation(
+            type: .cds, name: "cds1", chromosome: "chr1", start: 99, end: 500, strand: .forward,
+            qualifiers: ["Note": AnnotationQualifier("stored")], note: "typed"
+        )
+
+        try await GFF3Writer.write([annotation], to: url)
+
+        let pairs = try firstLinePairs(of: url)
+        XCTAssertEqual(pairs.filter { $0.hasPrefix("Note=") }, ["Note=typed"], "\(pairs)")
+    }
 }
