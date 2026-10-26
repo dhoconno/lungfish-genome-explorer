@@ -165,7 +165,10 @@ class AppSmokeGateTests(unittest.TestCase):
                  patch.object(app_smoke_gate, "graphical_session", return_value=session), \
                  patch.object(app_smoke_gate, "receipt_authority", return_value=SimpleNamespace(_payload_digest=lambda _: "a" * 64)), \
                  patch.object(app_smoke_gate, "command_record", side_effect=command):
-                with self.assertRaises(EvidenceError): app_smoke_gate.run(args)
+                with self.assertRaises(EvidenceError) as raised:
+                    app_smoke_gate.run(args)
+            # The console shows the reason the run stopped, not only the generic verify line.
+            self.assertIn("runner build or Xcode identity failed", str(raised.exception))
             build = next(argv for argv in calls if "build-for-testing" in argv)
             self.assertIn("-disableAutomaticPackageResolution", build)
             self.assertIn("-onlyUsePackageVersionsFromResolvedFile", build)
