@@ -183,11 +183,20 @@ Sub-phases (owner directive of 2026-10-05). Phase 2 runs as fourteen small sub-p
 | 2.13 | The deletion of every key 2.12 ships, no Process() outside the process primitive, one provenance writer, the record-fact rows and the rows 2.12 cut, then the Phase 2 exit review last | 2.12 | none |
 | 2.14 | The owner's Linux FASTQ preprocessing work (O29) with an ARCH intake and a review per field, and the walk's fixes: W1-T (Viral Recon staging off the main actor), the Stable blockers rows 69 and 20, obs-6, obs-11 and obs-14, and obs-13 and obs-10 if checks C2 and C4 confirm them. Its Preview is the Stable candidate, and Phase 2 ends with it (2.13 plan MD110 to MD116, MD120) | 2.13 | none, the owner answered on 2026-10-22 (O30) |
 
-## Phase 3, Stable first, then the surface contract and the RNA-seq groundwork
+## Phase 3, Stable first, then the surface contract
 
 The independent audit of Phases 1 and 2 rescoped this phase on 2026-10-26 (`docs/reports/2026-10-26-phase-1-2-audit/SUMMARY.md`, rules in `docs/contracts/SCOPE-AND-DELIVERY.md`). Both audit teams found that the six sub-phases of 2026-10-17 would cost about $4,000 to $9,000 and two to three weeks, migrate about twenty viewports and add no user capability, while no Stable release had shipped since `v2026.9.78` and nothing of R17 existed. The sub-phase table at the end of this section replaces the six sub-phases. The task table of 2026-10-02 and its corrected premises stay as the design of each task, and a task that the new table defers waits until user work touches its files.
 
-Outcome. A lab on Stable gets the October result fixes within 14 days of the start of 3.0, switches between results without a stale or blank viewer, reads plain words when a run fails, and can cite the database behind every classifier's calls. The audit set the scope of Phase 3, so no inventory or memo stage runs for it. ARCH reads each sub-phase plan, and the panel reviews the Phase 3 exit.
+Outcome. A lab on Stable gets the October result fixes within 14 days of the start of 3.0, switches between results without a stale or blank viewer, reads plain words when a run fails, and can cite the database behind every classifier's calls. A new kind of result then needs no App edit beyond its registration. The audit set the scope of Phase 3, so no inventory or memo stage runs for it. ARCH reads each sub-phase plan, and the panel reviews the Phase 3 exit.
+
+Owner answers of 2026-10-26, given after reading the audit.
+
+| Id | Question | The owner's choice, quoted | What it sets |
+|---|---|---|---|
+| O67 | Push the audit's contracts | "Yes, we should push." | The audit's contracts and this rescope bind, the panel at plan and exit and the monitor once a session included |
+| O68 | When RNA-seq work runs | "We should defer work on RNAseq until we are done with all of the Phases." | The RNA-seq groundwork leaves Phase 3. Phase 5 starts after Phases 3 and 4 exit, and the aligner, quantifier and DE engine question waits for it |
+| O69 | Keep the measurement contracts | "Yes, we should keep the measurement contracts because while we have a nice breakdown with the current model, this may change once new models become available." | `docs/contracts/LLM-EVIDENCE.md`, `docs/contracts/CLAUDE-CODE-PRACTICES.md` and the weekly check stay |
+| O70 | The eleven later viewer migrations | "If part of the goal of phase 3 is the 11 viewer migrations, we should add these as phase 3.3, unless it makes more sense to defer them to another planned phase." | They finish R1, Phase 3's goal, and Phase 4's ViewerViewController split builds on them, so they stay in Phase 3. With RNA-seq gone they take the free 3.2 slot |
 
 Entry criteria. Phase 2 exit, and the routing table test from R1 captured against current behaviour. That test exists (`Tests/LungfishAppTests/SafetyNets/RoutingTableSafetyNetTests.swift`) and pins what each kind opens and binds, but it observes no drawer, toolbar, Inspector tab or switch between two kinds, so 3.1 widens it at the base before any host code.
 
@@ -222,23 +231,23 @@ Sub-phases (audit of 2026-10-26, replacing the six sub-phases of 2026-10-17). Ea
 
 | Id | Scope | Depends on | Budget | Owner decisions needed first |
 |---|---|---|---|---|
-| 3.0 | Stable. The five Stable blockers OBS-W4, OBS-W6, OBS-W7, OBS-W8 and OBS-W9, each red test first, then obs-22. Point the `ui` profile at `scripts/release/app_smoke_gate.py` (`config/test-catalog.json:255` names a script that never existed) with an XCUI smoke of about ten tasks. Cut the owner check list to at most 20 rows. A packaged walk with the owner at the Mac, then promote to Stable. Beside these, lanes that touch no viewer file take the 3.0 rows of `docs/plans/BACKLOG.md` (MAP-POOLED-PAIRS, MAP-PAIRED-UNBOUND, ESV-READCOUNT-FLAGS, TOOL-TIME-LIMIT, WAIT-QUARANTINE and GEN-MAP), and one documentation lane does BACKLOG-MOVE | Phase 2 exit | 1 session, about $500 | Rows 17, 35 and 13 of `docs/reports/2026.10.24-owner-checks.md`, and the aligner, quantifier and DE engine that 3.2 needs, which the manager asks at the start of 3.0 |
+| 3.0 | Stable. The five Stable blockers OBS-W4, OBS-W6, OBS-W7, OBS-W8 and OBS-W9, each red test first, then obs-22. Point the `ui` profile at `scripts/release/app_smoke_gate.py` (`config/test-catalog.json:255` names a script that never existed) with an XCUI smoke of about ten tasks. Cut the owner check list to at most 20 rows. A packaged walk with the owner at the Mac, then promote to Stable. Beside these, lanes that touch no viewer file take the 3.0 rows of `docs/plans/BACKLOG.md` (MAP-POOLED-PAIRS, MAP-PAIRED-UNBOUND, ESV-READCOUNT-FLAGS, TOOL-TIME-LIMIT, WAIT-QUARANTINE and GEN-MAP), and one documentation lane does BACKLOG-MOVE | Phase 2 exit | 1 session, about $500 | Rows 17, 35 and 13 of `docs/reports/2026.10.24-owner-checks.md`, which the manager asks at the start of 3.0 |
 | 3.1 | The quality net, then the classifier core. A view-switch test in a real window for every kind (one viewer installed, only the current Inspector blocks, the frame inside the screen) and one alert presenter in plain words. Database identity for EsViritu, TaxTriage and NAO-MGS. Then 3a's ResultViewport, ViewportHost and SurfaceRegistry with TwelveS and PrimerAnalysis as exemplars, then NaoMgs, EsViritu, TaxTriage, Nvd, Kraken2 (its view moved into a leaf by pure move first) and CzId, with 3e's ClassifierResultActions folded in. Each migration is one revertible PR closed by its view-switch test and a short walk. Ends with a Stable | 3.0 | 2 sessions, about $2,500 | The label set of 3e, ruled by UX at entry |
-| 3.2 | RNA-seq groundwork, beside 3.1 since it shares no file with the viewer work. 5a ReferenceIndexCache, 5b the annotation input with its contig check, 5c CountMatrix, ExperimentDesign and recorded strandedness, empty LungfishRNASeq and LungfishRNASeqUI targets so new code is not born in LungfishWorkflow, and tool identity from the descriptor (R2) for new tools | 3.0's Stable | 1 session, about $800 | The aligner, quantifier and DE engine (open since 2026-10-02) |
-| Deferred | The other eleven viewport migrations (genotype, MSA, phylogenetics, assembly, the FASTA collection, FASTQ dataset, VCF dataset, MHC reference and Quick Look views, mapping and reference), 3b beyond the registry path for new kinds, 3c beyond a lint on new `Notification.Name` declarations, 3d beyond refuse-and-name-the-holder, and the old 3.1's frozen row texts, per-kind accessibility snapshot gate, classifier export byte pins and new ratchets other than viewport hides. The read-ID and unique-count pins of the classifiers stay | User work that touches the files | none | none |
+| 3.2 | The other viewer kinds onto ViewportHost, one revertible PR each closed by its view-switch test and a short walk, in the order of the task table above. Genotype, MSA, phylogenetics and assembly, then the FASTA collection, FASTQ dataset, VCF dataset, MHC reference and Quick Look views, then mapping and reference last. Then the hide list and the optional viewer slots are deleted, and 3b's sidebar registry over BundleKindRegistry retires the three prefix tables with one read-only fallback for manifest-less legacy bundles. Ends with a Stable | 3.1 | 2 sessions, about $3,000 | [6] GEN tags, only if a lane touches those notes |
+| Deferred | 3c's typed event layer beyond a lint on new `Notification.Name` declarations, 3d's OperationLauncher beyond refuse-and-name-the-holder, and the old 3.1's frozen row texts, per-kind accessibility snapshot gate, classifier export byte pins and new ratchets other than viewport hides. The read-ID and unique-count pins of the classifiers stay | User work that touches the files, and Phase 5 for 3d, where RNA-seq brings the first new launch kind | none | none |
 
 The six exit checks of Phase 3.
 
 | Check | Passes when |
 |---|---|
-| 1 | Stable shipped from 3.0 and again at the end of 3.1, no more than 14 days apart. |
+| 1 | Stable shipped from 3.0 and again at the end of 3.1 and of 3.2, each no more than 14 days after the one before. |
 | 2 | No S1 or S2 finding is open. |
 | 3 | The XCUI smoke and the view-switch test of every kind pass on the packaged candidate in a session that does not lock. |
 | 4 | A stub surface and a stub bundle kind in a test target open from the sidebar with no App edit beyond registration, and the five classifiers share one action component whose extraction tests check read IDs against known lists. |
 | 5 | Every classifier records its database by name, version and checksum. |
-| 6 | 5a to 5c have landed and the first RNA-seq surface is started on the registry. Without the owner's choice of aligner, quantifier and DE engine, check 4's stub surface stands in. |
+| 6 | Every viewer kind opens through ViewportHost, the hide list and the optional viewer slots are gone, and the sidebar routes every kind through the registry with one read-only fallback for legacy bundles. |
 
-The budget of Phase 3 is four sessions, about $3,800 measured, and at $5,700 the manager stops for the owner. The audit's dissent is recorded in its report. Team B's engineering seat would split LungfishWorkflow (4d) before RNA-seq, and both science seats would run a science session before any viewport code.
+The budget of Phase 3 is five sessions, about $6,000 measured, and at $9,000 the manager stops for the owner. The audit's dissent is recorded in its report. Both science seats would run a science session before any viewport code, and both teams would have left the eleven later viewer migrations until user work touched them, which O70 overrode.
 
 ## Carry-in from Phase 2.13
 
@@ -395,7 +404,7 @@ Written at the close of the CHTC program (C0 to C6) from `docs/plans/2026-10-21-
 
 ## Phase 4, god-object splits and module splits (weeks 8 to 12)
 
-The audit of 2026-10-26 ranks 4c (TrackRenderer) and 4d (the LungfishWorkflow split) first, and the rest of Phase 4 waits for user work that touches its files.
+The audit of 2026-10-26 ranks 4c (TrackRenderer) and 4d (the LungfishWorkflow split) first. The panel plans Phase 4 at its start under `docs/contracts/SCOPE-AND-DELIVERY.md`, and a task that no user outcome needs goes to the backlog.
 
 Entry criteria. Phase 3 exit, characterization tests captured per extracted responsibility, byte-identical genotype export fixtures in place.
 
@@ -410,9 +419,9 @@ Entry criteria. Phase 3 exit, characterization tests captured per extracted resp
 
 Exit criteria. No file over 3,000 lines in UI modules, build-time measurement published. Rollback. Every move is a pure-move commit, reverted as a unit.
 
-## Phase 5, RNA-seq prerequisites and the first surface built on the contracts (weeks 10 to 14, overlaps Phase 4)
+## Phase 5, RNA-seq prerequisites and the first surface built on the contracts (after Phases 3 and 4)
 
-Entry criteria. 5a to 5c run as Phase 3.2, after 3.0's Stable, and need no Phase 3 exit. 5d and 5e need the Phase 3 exit. The owner has chosen the aligner (STAR or HISAT2) and quantifier (salmon or kallisto) and confirmed the DE engine (R with DESeq2 or edgeR, or a native alternative).
+Entry criteria. Phases 3 and 4 exit, since RNA-seq work waits until the other phases are done (owner O68 of 2026-10-26). The owner has chosen the aligner (STAR or HISAT2) and quantifier (salmon or kallisto) and confirmed the DE engine (R with DESeq2 or edgeR, or a native alternative).
 
 | Task | Finding | Files | Model | Lane | Acceptance |
 |---|---|---|---|---|---|

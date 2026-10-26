@@ -110,7 +110,7 @@ Ranked by rough cost. The rows overlap, so they do not add up.
 | Process governance and release ceremony | Over | Panel at plan and exit, one monitor run a session, Previews only with something to show |
 | Stable releases | Under, the most | Stable on a clock, before any Phase 3 refactor |
 | Automated GUI checks and packaged walks | Under | An XCUI smoke and a view-switch test bind every candidate |
-| The surface contract (R1) and RNA-seq groundwork (R17) | Under | The core of Phase 3, with RNA-seq groundwork beside it |
+| The surface contract (R1) and RNA-seq groundwork (R17) | Under | The core of Phase 3. RNA-seq waits for Phase 5 by your answer O68 |
 | Database identity, truth sets and large samples | Under | Database identity in 3.1, and no default wall-clock limit on tools (a 3,600 s default stopped EsViritu) |
 | Words people read when something fails | Under | One alert presenter, and a failure with no words is an S2 finding |
 
@@ -119,19 +119,20 @@ Ranked by rough cost. The rows overlap, so they do not add up.
 Both teams say Phase 3 should not run as planned. Its six sub-phases would migrate about 20 viewports, cost about
 $4,000 to $9,000 and two to three weeks, and give users no new capability while R17 and Stable wait. Its core is right,
 because one viewport slot ends the stale-view class behind about five of the 13 Stable blockers. The plan in
-`docs/plans/2026-10-02-architecture-program.md` now reads as below.
+`docs/plans/2026-10-02-architecture-program.md` now reads as below, after your answers of 2026-10-26 (O67 to O70).
 
 | Sub-phase | Content | Budget |
 |---|---|---|
 | 3.0 Stable | The five Stable blockers and obs-22, a working `ui` profile with an XCUI smoke, a check list of at most 20 rows, and a packaged walk with you at the Mac, then Stable. Science rows that touch no viewer file run beside them | 1 session, about $500 |
 | 3.1 Quality net and classifier core | A view-switch test for every kind, one alert presenter and database identity for three classifiers. Then the viewport host and registry with the classifier views and their shared actions. Ends with a Stable | 2 sessions, about $2,500 |
-| 3.2 RNA-seq groundwork, beside 3.1 | The reference index cache, annotation input checks, the count matrix with strandedness, and empty RNA-seq targets | 1 session, about $800 |
-| Deferred | The other eleven viewport migrations, and the typed event layer and launcher beyond what new work needs | Until user work touches them |
+| 3.2 The other viewer kinds | The eleven later viewer migrations, one revertible change each, then the hide list and optional slots deleted and the sidebar routed through the registry. Ends with a Stable | 2 sessions, about $3,000 |
+| Deferred | The typed event layer and the launcher beyond what new work needs, and all RNA-seq work, which waits for Phase 5 after Phases 3 and 4 | Until user work touches them |
 
 Phase 3 ends when six checks pass. Two Stables ship no more than 14 days apart. No S1 or S2 finding is open. The XCUI
 smoke and the view-switch tests pass on the packaged app. A stub surface opens with no App edit and the classifiers
-share one action component. Every classifier records its database. The RNA-seq groundwork has landed. The budget is four
-sessions, about $3,800, with a stop for your decision at $5,700.
+share one action component. Every classifier records its database. Every viewer kind opens through the viewport host. The
+budget is five sessions, about $6,000, with a stop for your decision at $9,000. Both teams would have left the eleven
+later migrations until user work touched them, and your answer O70 kept them in Phase 3.
 
 ## What changed in the contracts
 
@@ -148,24 +149,25 @@ Everything is on branch `audit/phase-1-2` and is not pushed.
 | The program plan and `docs/plans/BACKLOG.md` (new) | The Phase 3 rescope with its outcome, budget and exit checks, a note on Phase 4, and the backlog seed with the rows 3.0 takes |
 | `.claude/agents/llm-efficiency-monitor.md`, `CLAUDE-CODE-PRACTICES.md`, `ADDING-AN-OPERATION.md`, `RUNNING-A-TOOL.md`, the surface checklist, `AGENTS.md`, the contract index and three module guides | The same rules where these files said the opposite, and two stale rows about `Process()` |
 
-## Decisions for you
+## Your answers
 
-1. Accept the rescope and the contract changes, then push the branch. Two changes reverse your own directions. The
-   panel no longer leads every session (2026-10-11), and the monitor no longer runs at every checkpoint (2026-10-11 and
-   2026-10-15). Both teams recommended this, and Team B noted that it needs your word.
-2. Choose the aligner, quantifier and DE engine for RNA-seq. The question has been open since 2026-10-02 and 3.2 needs
-   the answer.
-3. Rank the backlog once 3.0 has moved the carry-in rows into it.
-4. Decide whether to keep the LLM measurement contracts, `LLM-EVIDENCE.md` and `CLAUDE-CODE-PRACTICES.md` with its
-   weekly check. One seat would retire them, and both teams left the call to you.
+The audit asked you four things on 2026-10-26, and the program plan records your answers as O67 to O70.
+
+1. You accepted the rescope and the contract changes, including the two that reverse your directions of 2026-10-11 and
+   2026-10-15 (the panel at plan and exit, the monitor once a session), and the branch was pushed (O67).
+2. RNA-seq work waits until the other phases are done, so Phase 5 starts after Phases 3 and 4, and the aligner question
+   waits for it (O68).
+3. The LLM measurement contracts stay, since the measured breakdown may change with new models (O69).
+4. The eleven later viewer migrations stay in Phase 3, as 3.2 (O70).
+
+The backlog still needs your ranking once 3.0 has moved the carry-in rows into it.
 
 ## Where the teams disagreed
 
 - Team B's GUI seat holds that the length was not warranted by what users received. Both chairs say partly, since the
   calendar held and the early science was essential.
 - Team B's engineering seat would split LungfishWorkflow (Phase 4d) before RNA-seq, and both science seats would run a
-  science session before any viewport code. The rescoped plan runs science lanes beside 3.0 and the RNA-seq groundwork
-  beside 3.1 instead.
+  science session before any viewport code. The rescoped plan runs science lanes beside 3.0, and RNA-seq now waits for Phase 5 (O68).
 - On Stable timing, Team A asked for promotion within seven days of a walk, and Team B for a Stable at least every 14
   days with result fixes within three working days. The contract takes 14 days for the clock and seven for result
   fixes.
