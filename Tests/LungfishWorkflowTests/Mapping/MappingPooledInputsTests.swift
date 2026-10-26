@@ -380,6 +380,41 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertEqual(join.outputs.map(\.path), [resolved.request.inputFASTQURLs[0].standardizedFileURL.path])
     }
 
+    /// MAP-POOLED-PAIRS, BIO 6. A pool of bundles that each hold an R1 and an R2
+    /// file is joined as two files, one pooled R1 and one pooled R2 in the same
+    /// input order, and the record holds one `cat` step for each. The R1 step
+    /// reads every bundle's R1 file and the R2 step every bundle's R2 file, each
+    /// member with its sha256, so a pooled mate file traces back to the bundles
+    /// that made it. Before this lane the same pool was one `cat` step that read
+    /// all four files into one file of single reads.
+    func testAPooledMateFileRunRecordsOneCatStepForEachPooledFile() async throws {
+        let a = try mateFileBundle("mateA", prefix: "a", starts: Fixture.bundleAStarts)
+        let b = try mateFileBundle("mateB", prefix: "b", starts: Fixture.bundleBStarts)
+
+        let resolved = try await resolve([a.bundle, b.bundle], tool: .minimap2)
+        let pooled = resolved.request.inputFASTQURLs
+        XCTAssertEqual(pooled.count, 2, "one pooled R1 file and one pooled R2 file")
+        let steps = try ManagedMappingPipeline().mappingInputMaterializationSteps(for: resolved.request)
+
+        let joins = steps.filter { $0.toolName == SequenceInputConcatenation.toolName }
+        XCTAssertEqual(joins.count, 2, "each pooled file is recorded as its own cat step")
+        guard joins.count == 2, pooled.count == 2 else { return }
+        for (index, label) in ["R1", "R2"].enumerated() {
+            let join = joins[index]
+            XCTAssertEqual(
+                join.inputs.map(\.path),
+                [a.files[index], b.files[index]].map { $0.standardizedFileURL.path },
+                "the \(label) step reads bundle A's \(label) file then bundle B's"
+            )
+            XCTAssertTrue(join.inputs.allSatisfy { $0.sha256 != nil }, "every \(label) member is recorded with its sha256")
+            XCTAssertEqual(
+                join.outputs.map(\.path),
+                [pooled[index].standardizedFileURL.path],
+                "the \(label) step writes the pooled \(label) file"
+            )
+        }
+    }
+
     /// BIO 2 and 6. A pool of virtual bundles had one `fastq materialize` step
     /// before the join, which says which bundle made which file. The record keeps
     /// that step, with both bundles as inputs and both materialized files as
