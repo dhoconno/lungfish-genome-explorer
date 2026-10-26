@@ -1659,15 +1659,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private nonisolated func uniqueAccessionsPreservingOrder(_ accessions: [String]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        ordered.reserveCapacity(accessions.count)
-        for accession in accessions where !accession.isEmpty {
-            if seen.insert(accession).inserted {
-                ordered.append(accession)
-            }
-        }
-        return ordered
+        TaxTriageAccessionLookup.uniquePreservingOrder(accessions)
     }
 
     private nonisolated func normalizedOrganismName(_ value: String) -> String {
@@ -1675,38 +1667,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func rankAccessionsByReadSupport(_ accessions: [String]) -> [String] {
-        let unique = uniqueAccessionsPreservingOrder(accessions)
-        return unique.sorted { lhs, rhs in
-            let lhsReads = accessionMappedReadCounts[lhs] ?? 0
-            let rhsReads = accessionMappedReadCounts[rhs] ?? 0
-            if lhsReads != rhsReads {
-                return lhsReads > rhsReads
-            }
-            return lhs < rhs
-        }
+        TaxTriageAccessionLookup.rankedByReadSupport(accessions, readCounts: accessionMappedReadCounts)
     }
 
     private func lookupAccessions(for normalizedOrganismName: String, in mapping: OrganismAccessionMap) -> [String]? {
-        guard !normalizedOrganismName.isEmpty else { return nil }
-
-        if let exact = mapping[normalizedOrganismName], !exact.isEmpty {
-            return rankAccessionsByReadSupport(exact)
-        }
-        if let fuzzy = mapping.first(where: { key, _ in
-            key.contains(normalizedOrganismName) || normalizedOrganismName.contains(key)
-        }) {
-            return rankAccessionsByReadSupport(fuzzy.value)
-        }
-
-        // Token-overlap fallback handles minor source typos/variant formatting
-        // (e.g. missing first character, shortened years like /40 vs /1940).
-        let best = mapping.max { lhs, rhs in
-            tokenSimilarity(lhs.key, normalizedOrganismName) < tokenSimilarity(rhs.key, normalizedOrganismName)
-        }
-        if let best, tokenSimilarity(best.key, normalizedOrganismName) >= 0.75 {
-            return rankAccessionsByReadSupport(best.value)
-        }
-        return nil
+        TaxTriageAccessionLookup.accessions(for: normalizedOrganismName, in: mapping, readCounts: accessionMappedReadCounts)
     }
 
     private func accessions(for row: TaxTriageTableRow, sampleId: String? = nil) -> [String]? {
@@ -1748,16 +1713,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return sampleResolved
         }
         return lookupAccessions(for: normalized, in: organismToAccessions)
-    }
-
-    private func tokenSimilarity(_ lhs: String, _ rhs: String) -> Double {
-        let lhsTokens = Set(lhs.split(separator: " ").map(String.init))
-        let rhsTokens = Set(rhs.split(separator: " ").map(String.init))
-        guard !lhsTokens.isEmpty, !rhsTokens.isEmpty else { return 0 }
-        let intersection = lhsTokens.intersection(rhsTokens).count
-        let denominator = max(lhsTokens.count, rhsTokens.count)
-        guard denominator > 0 else { return 0 }
-        return Double(intersection) / Double(denominator)
     }
 
     private nonisolated func resolveBamIndex(for bamURL: URL, allOutputFiles: [URL]) -> URL? {
