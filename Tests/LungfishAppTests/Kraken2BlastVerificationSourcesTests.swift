@@ -103,7 +103,7 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
             XCTFail("a request over read files that are gone is refused")
         } catch ClassifierExtractionError.kraken2SourceMissing {
             let words = ClassifierExtractionError.kraken2SourceMissing.localizedDescription
-            XCTAssertTrue(words.contains("Put their bundle back into this project"), words)
+            XCTAssertTrue(words.contains("then open this result again and try again"), words)
         } catch {
             XCTFail("the same refusal as Extract, not \"\(error.localizedDescription)\"")
         }

@@ -140,9 +140,9 @@ final class TaxaCollectionBatchExtractionPinTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error.localizedDescription,
-                "The FASTQ reads this Kraken2 result was made from are missing. They are not in this project or where the run "
-                    + "recorded them. Put their bundle back into this project and try again, or run the classification again in "
-                    + "this project."
+                "The FASTQ reads this Kraken2 result was made from could not be found or read. Put their files or bundle back in "
+                    + "the same place in this project, or where the run recorded them, then open this result again and try again. "
+                    + "Or run the classification again in this project."
             )
         }
         let folder = extractedFolder(of: try ClassificationResult.load(from: fixtures.singleEnd), TaxaCollectionFixtures.collection)

@@ -82,10 +82,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
         case .kraken2TreeMissing(let url):
             return "Kraken2 taxonomy tree not found: \(url.lastPathComponent)"
         case .kraken2SourceMissing:
-            return "The FASTQ reads this Kraken2 result was made from are missing. "
-                + "They are not in this project or where the run recorded them. "
-                + "Put their bundle back into this project and try again, "
-                + "or run the classification again in this project."
+            return "The FASTQ reads this Kraken2 result was made from could not be found or read. "
+                + "Put their files or bundle back in the same place in this project, "
+                + "or where the run recorded them, then open this result again and try again. "
+                + "Or run the classification again in this project."
         case .samtoolsFailed(let sampleId, let stderr):
             return "samtools view failed for sample '\(sampleId)': \(stderr)"
         case .clipboardCapExceeded(let requested, let cap):

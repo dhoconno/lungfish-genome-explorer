@@ -13,11 +13,11 @@ import Foundation
 
 struct ProjectCopyResultFixture {
     /// The words of `ClassifierExtractionError.kraken2SourceMissing` as the UX ruling of 2026-10-26 gives them,
-    /// so the Extract alert, the BLAST alert and the CLI read the same (`meeting/R2-UX.md:17`).
-    static let missingReadsWords = "The FASTQ reads this Kraken2 result was made from are missing. "
-        + "They are not in this project or where the run recorded them. "
-        + "Put their bundle back into this project and try again, "
-        + "or run the classification again in this project."
+    /// so the Extract alert, the BLAST alert and the CLI read the same (`reviews/EXT-UX.md`).
+    static let missingReadsWords = "The FASTQ reads this Kraken2 result was made from could not be found or read. "
+        + "Put their files or bundle back in the same place in this project, "
+        + "or where the run recorded them, then open this result again and try again. "
+        + "Or run the classification again in this project."
 
     let oldProject: URL
     let copyProject: URL
