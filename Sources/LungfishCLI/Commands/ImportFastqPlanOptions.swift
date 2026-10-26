@@ -76,8 +76,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
             "The absolute path of the folder on the Linux machine that the jobs read the image, the executor and the reads from",
             discussion: "Required with --write-plan. The image is in images/, each executor and database copy in "
                 + "shared/ under a name that starts with its SHA-256, each sample's reads in "
-                + "batches/<plan folder name>/<sample>/ and the files its job returns in "
-                + "batches/<plan folder name>/<sample>/result/.",
+                + "batches/<plan folder name>/<sample>/, or where the sample sheet names them when --staged-reads is "
+                + "given, and the files its job returns in batches/<plan folder name>/<sample>/result/.",
             valueName: "path"
         )
     )

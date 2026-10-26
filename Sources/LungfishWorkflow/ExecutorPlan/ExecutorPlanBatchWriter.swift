@@ -54,7 +54,8 @@ package struct ExecutorPlanImageRecord: Decodable, Sendable, Equatable {
 
 /// Where a batch's files sit in the group's staging folder. The image is `images/<file name>`, each executor and
 /// database copy `shared/<SHA-256>-<file name>`, one copy per SHA-256 for every batch (ARCH-c4r2 Point 2), each
-/// sample's reads `batches/<batch>/<sample>/` and its returned files `batches/<batch>/<sample>/result/` (C5 D1).
+/// sample's reads `batches/<batch>/<sample>/`, or where the sample sheet names them when `--staged-reads` is given, and
+/// its returned files `batches/<batch>/<sample>/result/` (C5 D1).
 package struct ExecutorPlanStagingLayout: Sendable, Equatable {
     /// An absolute path, such as `/staging/groups/<group>/<project>/lge-chtc-test`.
     package var folder: String
