@@ -30,15 +30,18 @@ final class ExecutorPlanStagedReadTests: XCTestCase {
     private let layout = ExecutorPlanStagingLayout(folder: staging, batch: "batch")
 
     /// Writes a batch of one row, S1, whose reads are named only by `paths`, with the bbtools template of a pair of the
-    /// same file endings on this Mac.
-    private func write(stagedPaths paths: [String], into folder: URL) throws {
+    /// same file endings on this Mac. The row has one input file a path, or one for each of `inputPaths` when a test
+    /// gives them, so that a count of staged paths other than the count of input files can be written.
+    private func write(stagedPaths paths: [String], inputPaths: [String]? = nil, into folder: URL) throws {
         let request = try ExecutorPlanTestSupport.request(
             root: root, "S1", inputs: ExecutorPlanTestSupport.writePair(root: root, "S1"), clumping: .bbtools
         ).templateRequest
         let template = try ExecutorPlanEmitter.template(request, host: ExecutorPlanTestSupport.mac24)
         let row = ExecutorPlanSampleRow(
             sampleName: "S1",
-            inputs: paths.map { ExecutorPlanSourceFile(url: URL(fileURLWithPath: $0), sha256: ExecutorPlanTestSupport.digest, size: 1_000) },
+            inputs: (inputPaths ?? paths).map {
+                ExecutorPlanSourceFile(url: URL(fileURLWithPath: $0), sha256: ExecutorPlanTestSupport.digest, size: 1_000)
+            },
             stagedPaths: paths
         )
         try ExecutorPlanBatchWriter.write(template, request: request, rows: [row], image: image, layout: layout, into: folder)
@@ -73,6 +76,54 @@ final class ExecutorPlanStagedReadTests: XCTestCase {
             XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(
                 field: "stagedPaths",
                 reason: "The read \(path) of sample S1 is inside the folder \(Self.staging)/batches/batch, where this batch's jobs write, so keep the reads outside it."
+            ))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a refused batch writes no folder")
+    }
+
+    /// The writer takes one staged path for each input file. A row that names another count, fewer or more, is refused in
+    /// the sample's own words, and no folder is written. No caller but the CLI reaches this, and the CLI builds both lists
+    /// from the same files.
+    func testBatchWriterRefusesStagedPathsOfAnotherCountThanInputs() throws {
+        let r1 = "\(Self.staging)/input-casper/S1_R1.fastq"
+        let r2 = "\(Self.staging)/input-casper/S1_R2.fastq"
+        let r3 = "\(Self.staging)/input-casper/S1_R3.fastq"
+        let cases: [(staged: [String], inputs: [String], words: String)] = [
+            ([r1], [r1, r2], "The sample S1 names 1 reads in the staging folder for its 2 input files."),
+            ([r1, r2, r3], [r1, r2], "The sample S1 names 3 reads in the staging folder for its 2 input files."),
+        ]
+        for (index, row) in cases.enumerated() {
+            let folder = root.appendingPathComponent("count-\(index)", isDirectory: true)
+            XCTAssertThrowsError(try write(stagedPaths: row.staged, inputPaths: row.inputs, into: folder), row.words) { error in
+                XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(field: "stagedPaths", reason: row.words))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(row.words): a refused batch writes no folder")
+        }
+    }
+
+    /// A job takes each file it reads by its name, so two staged reads of one name are refused whatever their folders,
+    /// and no folder is written.
+    func testBatchWriterRefusesStagedReadsOfOneFileName() throws {
+        let paths = ["\(Self.staging)/run-a/S1.fastq", "\(Self.staging)/run-b/S1.fastq"]
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        XCTAssertThrowsError(try write(stagedPaths: paths, into: folder)) { error in
+            XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(
+                field: "stagedPaths",
+                reason: "The R1 and R2 of sample S1 are both named S1.fastq, and a job takes each file by its name, so rename one."
+            ))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a refused batch writes no folder")
+    }
+
+    /// A folder or file name below the staging folder with a character other than letters, digits, _, . and - is refused,
+    /// since a job's file transfer cannot hold it, and no folder is written.
+    func testBatchWriterRefusesStagedPathWithAnotherCharacter() throws {
+        let path = "\(Self.staging)/input casper/S1_R1.fastq"
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        XCTAssertThrowsError(try write(stagedPaths: [path, "\(Self.staging)/input-casper/S1_R2.fastq"], into: folder)) { error in
+            XCTAssertEqual(error as? ExecutorPlanError, ExecutorPlanError(
+                field: "stagedPaths",
+                reason: "The read \(path) of sample S1 has a name with a character other than letters, digits, _, . and -, which a job's file transfer cannot hold, so rename it."
             ))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a refused batch writes no folder")
