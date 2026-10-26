@@ -1091,20 +1091,19 @@ public actor CondaManager {
             // A declared step's observer is bound around the spec, whose environment change reads it, and the one
             // launch, and never around the micromamba probes above (RECORDING-PROVENANCE.md, the observer hook).
             result = try await ToolProcessObservation.$observer.withValue(observer ?? ToolProcessObservation.observer) {
-                try await ToolProcess.run(
-                    ToolProcessSpec(
-                        executableURL: micromambaPath,
-                        arguments: args,
-                        environment: processEnvironment,
-                        workingDirectory: workingDirectory,
-                        timeout: CondaFamilyProcess.limit(seconds: timeout),
-                        terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
-                        label: name,
-                        environmentChange: observedEnvironmentChange(of: processEnvironment),
-                        identityHint: environment
-                    ),
-                    onEvent: CondaFamilyProcess.lineForwarder(stdout: stdoutHandler, stderr: stderrHandler)
+                let spec = ToolProcessSpec(
+                    executableURL: micromambaPath,
+                    arguments: args,
+                    environment: processEnvironment,
+                    workingDirectory: workingDirectory,
+                    timeout: CondaFamilyProcess.limit(seconds: timeout),
+                    terminationGracePeriod: CondaFamilyProcess.terminationGracePeriod,
+                    label: name,
+                    environmentChange: observedEnvironmentChange(of: processEnvironment),
+                    identityHint: environment
                 )
+                CondaToolTimeLimit.specProbe?(spec)
+                return try await ToolProcess.run(spec, onEvent: CondaFamilyProcess.lineForwarder(stdout: stdoutHandler, stderr: stderrHandler))
             }
         } catch ToolProcessError.timedOut {
             logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s and was terminated")
