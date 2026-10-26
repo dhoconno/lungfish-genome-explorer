@@ -114,8 +114,9 @@ OPTIONS:
                           reads from
         Required with --write-plan. The image is in images/, each executor and
         database copy in shared/ under a name that starts with its SHA-256,
-        each sample's reads in batches/<plan folder name>/<sample>/ and the
-        files its job returns in batches/<plan folder name>/<sample>/result/.
+        each sample's reads in batches/<plan folder name>/<sample>/, or where
+        the sample sheet names them when --staged-reads is given, and the files
+        its job returns in batches/<plan folder name>/<sample>/result/.
   --staged-reads <file>   A tab-separated list of reads already in the staging
                           folder, with each read's absolute path, size in bytes
                           and SHA-256, for --write-plan with --samplesheet
@@ -129,7 +130,7 @@ OPTIONS:
         the reads:
         printf 'file\tbytes\tsha256\n' > staged-reads.tsv
         for f in /absolute/folder/*.fastq.gz; do
-        printf '%s\t%s\t%s\n' "$f" "$(stat -c %s "$f")" \
+        printf '%s\t%s\t%s\n' "$f" "$(stat -L -c %s "$f")" \
         "$(sha256sum "$f" | cut -d ' ' -f 1)" >> staged-reads.tsv
         done
   --job-requirements <expression>
