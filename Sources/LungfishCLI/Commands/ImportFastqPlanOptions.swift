@@ -212,8 +212,15 @@ extension ImportCommand.FastqSubcommand {
             guard samplesheet != nil, input.isEmpty else {
                 throw refuse("A plan of staged reads takes its samples from a sample sheet, so pass --samplesheet and no input paths.")
             }
-            guard platform.lowercased() != "auto" else {
+            // A name that is no platform is refused too: the adopt reads such a plan as `auto` and, with no R1 to read,
+            // refuses every sample after the whole run (review of lane STAGED, Fix 1).
+            switch ImportPlatformRequest(cliValue: platform) {
+            case .given?:
+                break
+            case .auto?:
                 throw refuse("Lungfish does not read reads in the staging folder, so it cannot infer their platform. Pass --platform, such as --platform illumina.")
+            case nil:
+                throw refuse("Unknown platform '\(platform)'. Valid: \(ImportPlatformRequest.cliValues.filter { $0 != "auto" }.joined(separator: ", "))")
             }
         }
         let folder = URL(fileURLWithPath: folderPath, isDirectory: true)

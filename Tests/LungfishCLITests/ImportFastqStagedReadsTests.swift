@@ -274,6 +274,16 @@ final class ImportFastqStagedReadsTests: XCTestCase {
         }
     }
 
+    /// A name that is no platform is refused as the Mac import refuses it, with `auto` left out of the list since a plan
+    /// of staged reads cannot infer a platform. A plan that carried it would run on CHTC, and the adopt would then
+    /// refuse every sample, because it cannot read a platform from reads that never came back.
+    func testStagedReadsWithUnknownPlatformIsRefused() throws {
+        let fixture = try writeFixture()
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        try assertRefused(fixture.stagedArguments(folder: folder, platform: ["--platform", "illumnia"]), folder: folder,
+                          says: "Unknown platform 'illumnia'. Valid: illumina, ont, pacbio, element, mgi, ultima, unknown")
+    }
+
     // MARK: Refusals of the list
 
     func testUnreadableStagedReadsListIsRefused() throws {
