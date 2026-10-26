@@ -1,6 +1,6 @@
 # CHTC preprocessing study, panel decisions (2026-10-21)
 
-Status: active. C0 to C3 are complete and the C4 pre-brief round is done. C4 and C5 run on the Mac Studio after Phase 2.14.
+Status: complete. C0 to C6 are complete. The program closed on 2026-10-26 with C6 (session 7 on the Mac Studio). Its open rows are Phase 3 rows or Known limits in "Carry-in from the CHTC program" of docs/plans/2026-10-02-architecture-program.md.
 
 This record holds the panel's decisions on running Lungfish Genome Explorer (LGE) FASTQ preprocessing recipes on CHTC
 HTCondor execute nodes. It began as a design study. The program's code landed on branch `chtc-program` and reached `main` with C3 on 2026-10-23. The briefs, the six inventories
@@ -787,24 +787,261 @@ BIOQA-X1 (the parity list's V15-29 and V15-30).
 | Q-C5-C6 | The fetch route for lab payloads of GBs: the access point, as C4 and C5 did, or CHTC's transfer server | The owner |
 | C6 scope | Which C6 rows run before the first lab batch of 32748 | The owner, with the panel |
 
+## C6, reads staged on Linux and the CASPER batch (2026-10-25 to 26, session 7)
+
+C6 ran in its own session on the Mac Studio (galah). It started from `main` = `origin/main` at `61c4fe0415c5a9227333b4fad16c61025c509129`, which holds C4 and C5 and Preview 2026.10.24. The manager integrated on branch `claude/chtc-c6-d57400` (`SCR/briefs/rules-c6-all.md:7`). In this section `SCR` is `~/lungfish-phase-records/chtc-program/c6`, and a source such as `X6b.md:136` is a line of a lane file there.
+
+### The owner's rows of C6
+
+Quoted as in `SCR/notes.md:57-66`.
+
+| Id | Question | Owner's words | What it sets |
+|---|---|---|---|
+| O53 | What C6 is for | "We easily have multi-TB execute nodes. I'm not sure the 32748 raw reads are still on the staging server. Lets find three wastewater datasets that we can use for testing, and then test against that, running the wastewater preset with ribodepletion and human read depletion and clumpify." | Three public wastewater runs replace the 32748 batch. Disk on a node is not a limit (C6-DISK's slot question closed) |
+| O54 | Which data | "Use three wastewater datasets from https://www.ncbi.nlm.nih.gov/bioproject/1247874" | PRJNA1247874 (CASPER, SecureBio, NovaSeq X, RNA metagenomic) |
+| O55 | Which runs, and where they go | "Yes, these three are fine. But why do we need to download to Galah first? Why not just download directly to /staging on CHTC?" | SRR38294966 (1.90 GB), SRR35904062 (14.82 GB), SRR38294075 (17.87 GB), downloaded from ENA straight to /staging by CHTC jobs |
+| O56 | Mac copy | "Only the small run (Recommended)" | Superseded by O59 |
+| O57 | Q-C5-C6 fetch route | "Access point rsync (Recommended)" | Results come home by the README's rsync through the access point. transfer.chtc.wisc.edu is named for larger batches, untested |
+| O58 | The exit | "Yes, that exit (Recommended)" | As amended by O59: the batch runs, every node exits 0, the batch adopts, figures recorded, only fixes the batch shows, the 19 C6 rows placed, record complete |
+| O59 | Staged reads | "I don't think its critical to compare the mac ouptut to the CHTC output. It is more critical to ensure that the files that live on Linux are processed in a way that allows the processed reads to be imported into LGE." | No Mac comparison, and galah downloads nothing. Lane STAGED: `--write-plan` must plan reads it never holds (today it hashes each on the Mac, `ImportFastqPlanOptions.swift:289`) |
+| O60 | Overnight | "I'm going to be away so have the experts solve any issues arising overnight." | Owner away from about 20:55. The panel rules on any issue the batch shows (ruling by lge-expert on opus at xhigh, a fix lane, a review, a landing on `claude/chtc-c6-d57400`, fast-forward only). Still waits for the owner: push, Preview, any new download, removal of leftover scratch, any new rm, kill or git form. A lost CHTC master cannot be reopened (Tailscale approval), so record it and stop CHTC work |
+
+### Why the 32748 batch was replaced
+
+O53 doubted that the 32748 raw reads were still on the staging server. The inventory of the access point found no 32748 raw reads (`SCR/notes.md:15`, `SCR/x/ap-inventory.log`). Its listing of `shared/` shows the executor files, the panhuman index (3,279,263,603 B) and the ribokmers index (10,107,947 B) and nothing else (`ap-inventory.log:355-363`). O53 and O54 replaced the batch with three public wastewater runs of PRJNA1247874. O55 sent them from ENA straight to `/staging` by CHTC jobs, so no Mac and no access point carried them. O59 dropped the comparison with the Mac. It asked instead that files that live on Linux be processed so that the processed reads import into LGE.
+
+### Ruling STAGED and lane STAGED
+
+The problem. `--write-plan` hashed every read on the Mac (`ImportFastqPlanOptions.swift:289`, `SCR/notes.md:65`), and the CASPER reads exist only on `/staging` (O55, O59).
+
+Ruling STAGED (`SCR/rulings/STAGED.md:8-22`, lge-expert on opus at xhigh). One new plan option, `--staged-reads <list>`, used only with `--write-plan` and `--samplesheet`. The list is a tab-separated file made on the Linux machine that holds the reads, with a line a read giving `file`, `bytes` and `sha256`. The sample sheet's `r1` and `r2` are those absolute paths inside `--staging-folder`. The writer takes each read's size and SHA-256 from the list and never opens the read. Each job names the read where it sits, and `staging-files.json` lists it with no Mac file. `--platform` must name the platform. The node checks each read against the plan's pin before any tool runs, and the adopt already takes each input's digest from the run record. No byte of `Sources/LungfishExecutor` or `Sources/LungfishPortable` changes, and the plan sheet stays local-file only. The votes were ARCH yes, BIO yes on 2, 4, 5 and 6, QA yes on 1, 2, 4, 5 and 6, UX yes on 1, 5 and 7, and SWIFT yes on 5 and 6 (`STAGED.md:21-22`).
+
+| Step | Result | Source |
+|---|---|---|
+| Lane STAGED (lge-worker, opus, xhigh, 117 calls) | Two commits. `f8be2ea66462f4912cebbe75109717bc1c35b612` holds the list parser `ImportFastqStagedReads.swift` (new, 120 lines), the option and its checks, the writer's staged path, the README passages and two test classes. `bff7e7ced2154c2b9f97bf5f95aaf760c32949b9` holds the two cli-help captures and the module map | `lanes/STAGED/STAGED.md:50-51`, `:143` |
+| Red at the base | `ImportFastqStagedReadsTests` 23 tests, 34 failures, exit 1, since `--staged-reads` did not parse. `ExecutorPlanStagedReadTests` did not compile | `STAGED.md:15`, `:30-31` |
+| Green at the head | `ImportFastqStagedReadsTests` 23 tests, `ExecutorPlanStagedReadTests` 2, `ImportFastqPlanOptionsTests` 17, `ExecutorPlanBatchWriterTests` 18, `ExecutorRunAdoptionTests` 27, `ImportFastqBatchAdoptTests` 11, 0 failures each. All 14 ratchets at baseline | `STAGED.md:55-62` |
+| Dry run of the ruling's section 10 command | Exit 0, and no plan folder written | `STAGED.md:83-95` |
+| Review (lge-expert, sonnet, max) | "Merge after fixes" with one numbered fix. Fix 1 was that a `--platform` that names no platform passed the guard and was written into the plan, so the adopt would refuse every sample after the CHTC run. Seven Optional findings | `reviews/STAGED.md:9-14`, `:217-238` |
+| Fact-check (manual-fidelity-reviewer, sonnet, max) | True 2, Partly 3, False 0, Unknown 0. The help's `stat -c %s` gave a symbolic link the link's own size. README passage 3 kept `batches/<batch>/`. The `--staging-folder` help said reads sit in `batches/<plan folder name>/<sample>/`. The manual's access-point word was stronger than O35 | `factcheck/FC-STAGED.md:9-22`, `:134` |
+| Landing (lge-worker, sonnet, max) | Head `7e6eb78f2c95a477d1b43f75ea9ce8f4a2664760`, ten commits over `61c4fe041` by `git merge --ff-only`, with fixes F1 to F6 each in its own commit. `ImportFastqStagedReadsTests` red at `bff7e7ced` (24 tests, 4 failures) and green at the head (24 tests, 0 failures). `LinuxRunScriptTests`, never run before, passed 12 of 12 | `land/land-STAGED.md:14-15`, `:34-43`, `:47-51`, `:87` |
+
+The ruling's section 10 gave the command that lane X6 ran for the three runs (`SCR/rulings/STAGED.md:262-296`) with 8 threads, a clumpify heap of 16 GB, the wastewater recipe and `--platform illumina`.
+
+### Lane FETCH, the reads onto /staging
+
+Lane FETCH (`SCR/lanes/FETCH/FETCH.md`, lge-worker on opus at xhigh, records only, no commit) pulled the three runs from ENA to `/staging` with CHTC jobs.
+
+The master was running (pid 32829). The group quota read 136,165 of 150,000 GB and 2,916,255 of 3,000,000 files, so 13,835 GB and 83,745 files were free (`FETCH.md:11-12`).
+
+M2, the first attempt. Cluster 594620 ran one `curl` a file and was submitted 2026-10-25 19:21:11 CDT (`FETCH.md:35`). ENA closed two connections after 96,831,745 and 82,833,408 bytes, about 1.5 MB/s, and `--retry 5` does not retry `curl` exit 18. Two jobs held at code 12 subcode 256 with ExitCode 3, nothing reached `input-casper/`, and the three jobs were removed with `condor_rm` (`FETCH.md:38-56`). The fix, `fetch.sh` version 2, gets each file as 8 byte ranges at once. Each range resumes from its own size, up to 200 tries 15 s apart. The ranges join in order, the size must equal ENA's byte count, and `md5sum -c` runs (`FETCH.md:58-67`). Cluster 594631 was submitted 2026-10-25 19:34:10 CDT and ended "All jobs done." at 20:31:53 CDT with no hold (`FETCH.md:69-80`). The container test did not reach the resume path. SRR38294075 then resumed 48 ranges after `SSL_ERROR_SYSCALL` drops, and every resumed file passed `md5sum -c` (`FETCH.md:66-67`, `:114-115`).
+
+M3, the check. `input-casper/` holds nine files. The six FASTQ files match ENA's byte count, `ls -la` and the job's `stat -c %s`, and pass `md5sum -c` in the job. The manifest is `SCR/x/casper-manifest.tsv` and the sums are `SCR/x/casper-SHA256SUMS`. No file was hashed on the access point and nothing on `/staging` was removed (`FETCH.md:84-100`).
+
+| File | ENA bytes = `ls -la` = job `stat -c %s` | `md5sum -c` in the job | sha256 |
+|---|---|---|---|
+| SRR38294966_1.fastq.gz | 1,005,139,490 | OK | `78edc5c6...28352421` |
+| SRR38294966_2.fastq.gz | 898,411,895 | OK | `70370a70...7eda82` |
+| SRR35904062_1.fastq.gz | 7,708,771,820 | OK | `bc08c104...896c0bf2` |
+| SRR35904062_2.fastq.gz | 7,110,161,778 | OK | `b299787f...94999f9f` |
+| SRR38294075_1.fastq.gz | 8,720,618,551 | OK | `a1a2c675...27cd9c398` |
+| SRR38294075_2.fastq.gz | 9,146,573,027 | OK | `04f89874...f5c9b093` |
+
+The job table (`FETCH.md:102-109`).
+
+| Job | Run | Host | Starts | Exit | Wall | DiskUsage KiB | BytesRecvd | BytesSent | Download rate (job's own timing) | Ranges resumed | Holds |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 594631.0 | SRR38294966 | slot1_39@e4014 | 1 | 0 | 449 s | 2,000,000 | 3,997 | 1,903,552,949 | `_1` 4.77 MB/s (210.8 s), `_2` 6.96 MB/s (129.1 s) | 2 | none |
+| 594631.1 | SRR35904062 | slot1_48@e4050 | 1 | 0 | 2,856 s | 15,000,000 | 3,997 | 14,818,934,835 | `_1` 7.07 MB/s (1,090.0 s), `_2` 8.29 MB/s (857.7 s) | 0 | none |
+| 594631.2 | SRR38294075 | slot1_32@e2471 | 1 | 0 | 3,431 s | 17,500,000 | 3,997 | 17,867,200,426 | `_1` 6.00 MB/s (1,453.5 s), `_2` 6.13 MB/s (1,491.7 s) | 48 | none |
+| 594620.0 | SRR38294966 (v1) | slot1_55@e4064 | 1 | 3 | 69 s | 100 | 2,161 | 0 | about 1.5 MB/s before the drop | none | one, code 12, removed |
+| 594620.1 | SRR35904062 (v1) | slot1_42@e4029 | 1 | 3 | 50 s | 100 | 2,161 | 0 | about 1.5 MB/s before the drop | none | one, code 12, removed |
+| 594620.2 | SRR38294075 (v1) | slot1_55@e4017 | 1 | none | 396 s | 400,000 | 2,161 | 0 | 1.03 MB/s | none | none, removed while running |
+
+The group quota grew by about 34.6 GB and 9 files (`FETCH.md:115-116`). C6-RELEASE was not observed. No exit-0 hold at code 12 happened in cluster 594631 (`FETCH.md:78-80`).
+
+### The batch, lanes X6a and X6b
+
+Lane X6a (`SCR/lanes/X6/X6a.md`) wrote the batch from the staged manifest and submitted the DAG. Its Handoff table (`X6a.md:166-176`).
+
+| Item | Value |
+|---|---|
+| DAGMan | **594741**, submitted 20:59:22 CDT from `oconnor-ap4000:/home/dhoconno/lge-chtc-test/c6-x6/` |
+| Nodes | SRR38294966 **594744**, SRR35904062 **594745**, SRR38294075 **594746** (each `.0`) |
+| Nodes log | `/home/dhoconno/lge-chtc-test/c6-x6/run.dag.nodes.log` |
+| DAGMan log | `run.dag.dagman.out` (debug) and `run.dag.dagman.log` (DAGMan's own job events) in the same folder |
+| Node status file | `run.dag.status`, every 60 s |
+| Job logs | `logs/<sample>.log`, `.out`, `.err` in the same folder |
+| Results on `/staging` | `/staging/groups/oconnor_group/32748/lge-chtc-test/batches/c6-x6/<sample>/result/` |
+| DAG end | `run.dag.dagman.out` ends with "All jobs Completed!" |
+
+The state 7 min 25 s after the submit, at 21:06:47 (`X6a.md:128-135`). All three nodes ran on `oconnor` machines, so the 72-hour limit (O28) held for each (`X6a.md:139-140`).
+
+| Node | ClusterId | Host | RequestCpus | RequestMemory (MiB) | RequestDisk (KiB) | Holds |
+|---|---|---|---|---|---|---|
+| SRR38294966 | 594744 | slot2_7@oconnor2002 | 8 | 24576 | 29,360,128 (28 GiB) | none |
+| SRR35904062 | 594745 | slot2_1@oconnor2000 | 8 | 24576 | 197,132,288 (188 GiB) | none |
+| SRR38294075 | 594746 | slot2_1@oconnor2007 | 8 | 24576 | 236,978,176 (226 GiB) | none |
+
+X6a saw five things its brief did not foresee (`X6a.md:146-150`). `condor_wait` on an empty nodes log returns at once. One `ls -la` of four files on `/staging` took about 3 minutes. The image has no `source` in `staging-files.json`. Only the three home `plan.tar` files were hashed on the access point. Each sample's `recipe/` holds `illumina-paired-cleanup.recipe.json` while `plan.json` names `wastewater-metagenomics`.
+
+Lane X6b (`SCR/lanes/X6/X6b.md`, lge-worker on opus at xhigh) checked the batch, fetched it home, adopted it and read the figures. The pass check (`X6b.md:13-75`).
+
+| Node | Host | Events (CDT) | RemoteWallClockTime | DiskUsage of request | Memory (HTCondor) | CpusUsage | Bytes received, sent |
+|---|---|---|---|---|---|---|---|
+| SRR38294966, 594744 | slot2_7@oconnor2002 | 000 21:00:08, 001 21:04:52, 005 21:13:47 | 597 s | 12,500,000 of 29,360,128 KiB, 42.6% | 74 MB (the 5-minute sample missed the deacon steps) | 2.78 of 8 | 5,648,178,111 and 272,626,844 |
+| SRR35904062, 594745 | slot2_1@oconnor2000 | 000 21:00:08, 001 21:07:09, 005 00:36:52 | 12,783 s (3.55 h) | 175,000,000 of 197,132,288 KiB, 88.8% | 12,208 MB, RSS 9.72 GiB, of 24,576 MB | 2.84 of 8 | 18,563,560,324 and 4,190,986,857 |
+| SRR38294075, 594746 | slot2_1@oconnor2007 | 000 21:00:33, 001 21:07:13, 005 21:42:00 | 2,290 s | 45,000,000 of 236,978,176 KiB, 19.0% | 12,208 MB, RSS 9.73 GiB, of 24,576 MB | 4.23 of 8 | 21,611,818,304 and 502,392,622 |
+
+Every node ended "Normal termination (return value 0)" with `NumJobStarts` 1 and no hold. DAGMan 594741 ended with ExitCode 0 after 13,053 s, 20:59:22 to 00:36:55, and `run.dag.dagman.out` ends "All jobs Completed!" (`X6b.md:37-38`, `:75`). `run.dag.nodes.log` holds nine events, `000`, `001` and `005` for each node, and no `004`, `012` or `013`, so C6-RELEASE's `periodic_release` did not fire (`X6b.md:41-43`).
+
+The fetch, the check and the adopt (`X6b.md:79-88`).
+
+| Step | Result |
+|---|---|
+| Fetch | The README's rsync loop, each rsync rc 0, 1 min 54 s and 4.96 GB in all. Payloads 272,194,599, 4,190,524,311 and 501,944,765 B |
+| Check | Each returned file hashed against the run record: 8 EQUAL and 0 DIFFERENT a sample, and each payload's SHA-256 equals `payloads[0].sha256` |
+| Adopt | Into the new project `SCR/x/X6/adopt.lungfish`, exit 0, "Adopted    : 3", "Not adopted: 0", "Duration   : 16.4s" |
+| Copy, not move | Each returned payload stays beside the bundle's copy, so the Mac holds the 4.96 GB twice |
+| `provenance verify` on the three bundles | Exit 64 each time, "Workflow execution failed: Signature artifact is missing". The adopt of a Mac with no signing key writes `"signatures" : [ ]` (`X6b.md:92-105`) |
+
+The per-sample figures of the adopted bundles (`X6b.md:109-121`, with each figure's source key at `:107-121`). The step counts are pairs and the reads-out figure counts records (`X6b.md:123-125`).
+
+| Figure | SRR38294966 | SRR35904062 | SRR38294075 |
+|---|---|---|---|
+| Reads in, R1 + R2 records | 39,979,120 | 501,311,756 | 305,836,222 |
+| Read pairs in | 19,989,560 | 250,655,878 | 152,918,111 |
+| Duplication rate | 0.0994 | 0.4426 | 0.8086 |
+| Pairs after dedup and trim | 8,104,756 | 135,229,346 | 26,433,616 |
+| Human reads removed, panhuman | 221,094 of 16,209,512 (1.36%) | 4,992,210 of 270,458,692 (1.85%) | 1,510,726 of 52,867,232 (2.86%) |
+| rRNA reads removed, ribokmers | 1,177,266 of 15,988,418 (7.36%) | 101,923,840 of 265,466,482 (38.39%) | 23,938,134 of 51,356,506 (46.61%) |
+| Merged reads | 5,038,327 | 66,593,213 | 13,069,113 |
+| Pairs kept | 461,758 | 15,104,918 | 453,037 |
+| Reads out | 5,961,843 | 96,803,049 | 13,975,187 |
+| Clumpify groups | 1, 1, 1 | **35, 15, 35** | 1, 1, 1 |
+| Clumpify memory estimate, against "Memory Available: 13396 MB" | 2,563, 2,563, 3,623 MB | 47,306, 18,957, 47,306 MB | 2,475, 2,475, 8,274 MB |
+
+The per-node figures (`X6b.md:127-138`). F is the executor 58,829,184 B, the panhuman index 3,279,263,603 B and the ribokmers index 10,107,947 B, 3,348,200,734 B in all (`staging-files.json`). The image is 396,402,688 B and the plan tar 19,968 B. I is R1 plus R2 and W is the `peakWorkRootBytes` of the record's clumpify `storage` step. w = (W − F) / I and n = ceil(1.25 × (SIF + 2 × tar + F + w × I) / GiB). The writer's wastewater w was 10.61 (`ExecutorPlanBatchWriter.swift:156` at `7e6eb78f2`).
+
+| Node | I | peakWorkRootBytes | w | n at this w, against the request | DiskUsage of the request | Memory, the record's largest step, against 24,576 MB | wallSeconds (record), RemoteWallClockTime |
+|---|---|---|---|---|---|---|---|
+| SRR38294966 594744 | 1,903,551,385 | 15,439,472,501 | 6.352 | 19 GB, of 28 GiB | 12,500,000 of 29,360,128 KiB, 42.6% | 5,821,562,880 B (clumpify), 22.6% | 524.2 s, 597 s |
+| SRR35904062 594745 | 14,818,933,598 | 183,159,736,799 | **12.134** | **214 GB, above the 188 GiB asked** | 175,000,000 of 197,132,288 KiB, **88.8%** | 17,681,547,264 B (clumpify), 68.6% | 12,505.7 s, 12,783 s |
+| SRR38294075 594746 | 17,867,191,578 | 46,390,092,149 | 2.409 | 55 GB, of 226 GiB | 45,000,000 of 236,978,176 KiB, 19.0% | 10,425,794,560 B (clumpify), 40.5% | 2,076.4 s, 2,290 s |
+
+HTCondor's own memory figures miss the clumpify peak. `ResidentSetSize_RAW` was 10,191,312 KiB against the record's 17.68 GB for SRR35904062, and 50,908 KiB for SRR38294966's 10-minute job, so the record's `peakResidentBytes` is the figure (`X6b.md:140-142`). SRR35904062's time went to fastp 2,033.8 s, clumpify 4,420.9 s with 35 groups, seqkit statistics 1,643.2 s, seqkit length filter 1,015.8 s and pigz 766.6 s, at 2.84 of 8 CPUs (`X6b.md:144-145`).
+
+Scaled to a 100 GB run, I = 100,000,000,000 B (`X6b.md:147-161`).
+
+| Node | Scale | W for 100 GB | n for 100 GB (the writer at w 10.61 gave 1,240 GB) | DiskUsage for 100 GB | Wall for 100 GB | RemoteWallClockTime for 100 GB |
+|---|---|---|---|---|---|---|
+| SRR38294966 | 52.533 | 638.5 GB | 744 GB | 479.5 GB | 27,540 s, 7.65 h | 31,362 s, 8.71 h |
+| SRR35904062 | 6.748 | 1,216.7 GB | **1,417 GB** | 1,187.7 GB (1,106.2 GiB) | 84,390 s, 23.44 h | 86,261 s, **23.96 h** |
+| SRR38294075 | 5.597 | 244.2 GB | 285 GB | 240.7 GB | 11,621 s, 3.23 h | 12,817 s, 3.56 h |
+
+Memory does not scale with I. The largest step is clumpify, whose heap the plan fixes at 16 GB, and clumpify splits into more groups rather than grow, so the figure for 100 GB is the largest measured peak, 17.68 GB, 68.6% of the request. Wall time is linear here and is a floor, since a 100 GB run splits into more groups (`X6b.md:152-155`). No figure passes the 72-hour limit (O28). At SRR35904062's w a 100 GB sample needs 1,417 GB against the writer's 1,240 GB, and the request would leave the same thin margin as the job here, 188 GiB asked and 166.9 GiB used (`X6b.md:163-165`).
+
+### Ruling X6 and lane X6-FIX
+
+Ruling X6 (`SCR/rulings/X6.md`, lge-expert on opus at xhigh, ARCH leading) ruled on what the batch showed (`X6.md:8-23`).
+
+- **R-W.** Raise the wastewater w from 10.61 to 12.14, SRR35904062's 12.134 rounded up, by the standing rule at `ExecutorPlanBatchWriter.swift:153` ("A value rises when a node reads higher"). The form, max(C4 default, n), and the margin of 1.25 stay. The rule asked SRR35904062 for 188 GiB, 201,863,462,912 B. Its work root peaked at 183.16 GB, so SIF + 2 × tar + W was 90.9% of the request, and the margin left 9.1% (`X6.md:35-40`).
+- **R-README.** Rewrite the passages that say which files to copy (README lines 6-7 and 14). Name the `source` key, and say to leave a file in `shared/` that is already there. Read literally, step 1 copies 3.35 GB over files that other batches' jobs read (`X6.md:146-152`).
+- **R-PV.** No code change. A Mac import signs only when `LUNGFISH_PROVENANCE_SIGNING_KEY` or `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` is set (`ProvenanceSigning.swift:108-121`), so an unsigned adopted bundle is expected on galah. The adopt's own checks and X6b's 8 EQUAL a sample stand in for "provenance verify passes", and the record lane adds one signed re-adopt (`X6.md:104-133`).
+
+The votes were R-W 4 to 0, R-PV 4 to 0 and R-README 3 to 1, with UX voting to add X6b finding 4 now (`X6.md:23`). The ruling's table of the five wastewater nodes (`X6.md:27-33`).
+
+| Node | I (R1 + R2) | F | W | w = (W − F) / I | Source |
+|---|---|---|---|---|---|
+| SRR24403534, 594053 | 372,364,449 | 3,348,200,894 | 7,057,265,186 | 9.961 | `c5/rulings/CHTC-3d.md:89` |
+| SRR38262740, 594045 | 94,232,530 | 3,348,200,894 | 4,347,450,604 | 10.604 | `c5/rulings/CHTC-3d.md:90` |
+| SRR38294966, 594744 | 1,903,551,385 | 3,348,200,734 | 15,439,472,501 | 6.352 | `X6b.md:136` |
+| SRR35904062, 594745 | 14,818,933,598 | 3,348,200,734 | 183,159,736,799 | **12.134** | `X6b.md:137` |
+| SRR38294075, 594746 | 17,867,191,578 | 3,348,200,734 | 46,390,092,149 | 2.409 | `X6b.md:138` |
+
+The C5 row of C-FAIL and X (line 736) reads "wastewater 10.61", which was C5's state. Ruling X6 raised w to 12.14 in commit `bfc5d08f5cb0ef9c819bbaf72db76a6f4aec863f` (review O3, `SCR/reviews/X6FIX.md:156`), and the 2026.10.24 release notes and report keep 10.61 for that release and stay as written.
+
+Lane X6-FIX (`SCR/lanes/X6FIX/X6FIX.md`, lge-worker on sonnet at effort max, head `4eaa00fbd7d4433d3afea92208e975cd574740ac`) made the two code changes in two commits, the fix first and the tests second (`X6FIX.md:9-22`). It touched no file under `Sources/LungfishExecutor`, `Sources/LungfishPortable` or `Sources/LungfishApp`. Red at the base, the new writer test failed on SRR35904062 alone ("asks 188 GiB, 201863462912.0 B, where 229445224278.75 B cover its work root peak of 183159736799 B") and the new README test failed on both new sentences. After the change the writer asks 214 GiB, 229,780,750,336 B (`X6FIX.md:29-46`). Each class ran alone with 0 failures. The counts were `ExecutorPlanBatchWriterTests` 19, `LinuxRunScriptTests` 13, `ImportFastqStagedReadsTests` 24, `ImportFastqPlanOptionsTests` 17 and `HTCondorDAGTests` 6 (`X6FIX.md:50-56`). All 14 ratchets stayed at their baselines and the golden compare matched, cli-help 321, mapping 9, classifiers 24 and genotype 133 files (`X6FIX.md:71-85`). Its review (`SCR/reviews/X6FIX.md`, lge-expert on sonnet at effort max, ARCH seat, with the README fact-check) says "Merge" with no numbered fix. Every new or changed README sentence is True against the code and the written `staging-files.json`, and the head lands by `git merge --ff-only 4eaa00fbd7d4433d3afea92208e975cd574740ac` (`reviews/X6FIX.md:11-21`).
+
+The commits of C6 at the base of the record lane (`git log 61c4fe041..4eaa00fbd`, oldest first).
+
+| Commit | Subject |
+|---|---|
+| `f8be2ea66462f4912cebbe75109717bc1c35b612` | Plan reads that exist only in the Linux staging folder with --staged-reads |
+| `bff7e7ced2154c2b9f97bf5f95aaf760c32949b9` | Recapture the import fastq help for --staged-reads and regenerate the module map |
+| `8bd74af943fcdb49368aa70e03caceb8d4b997fd` | Refuse an unknown --platform name in a plan of staged reads |
+| `5fbc8081acafc25e48e68151a9e0e35e42be2898` | Give a symbolic link its file's size in the staged-reads help command |
+| `d97e9b0011d57aca2cac195173c68051e507dfd5` | Name the reads' folders in the README of a staged batch |
+| `7282d4c3adb2265bf860dd7ad7a0578bf7f84b83` | Say where a staged plan's reads sit in the --staging-folder help |
+| `b9bbbe8a5addbb98b63bc824b173fe59bef89fe4` | Recapture the cli-help goldens for the staged-reads help fixes |
+| `ac808cbf3d33ac126530c74ea43540abb8d15779` | Test the batch writer's count, same-name and character refusals |
+| `3ed3f238e440f66cda6fde298af40ea3417a0791` | Pin the staged read placements of a sample's DAG line |
+| `7e6eb78f2c95a477d1b43f75ea9ce8f4a2664760` | Regenerate the module map for the line counts of the STAGED fixes |
+| `bfc5d08f5cb0ef9c819bbaf72db76a6f4aec863f` | Raise the wastewater w to 12.14 and say which files the README copies |
+| `4eaa00fbd7d4433d3afea92208e975cd574740ac` | Test the 12.14 w against every measured node and the README's copy step |
+
+### FC-META, two facts in an adopted bundle's metadata
+
+X6b had noticed that an adopted bundle's metadata says the returned folder holds no reads and reads `single_end` beside merged and paired classes, and BIO asked whether either was a false fact (`X6.md:254-259`). FC-META (`SCR/factcheck/FC-META.md`, lge-expert on sonnet at effort max, seat BIO) read the code at `7e6eb78f2` and the three bundles (`FC-META.md:3`, `:9-14`).
+
+| Id | Verdict | In one line |
+|---|---|---|
+| M1 | True | "Reads" means the plan's pinned input R1 (`inputs/R1.fastq.gz`), which a CHTC job does not return. The adopt wrote the D7 C sentence that V15-29 pins, and the assignment records illumina as `given`. The wording is loose English, a panel call and not a defect |
+| M2 | True | `single_end` with `detected` beside merged, paired_r1 and paired_r2 is what a Mac import writes for the same recipe, by the same two functions. C5's Mac and adopted bundles of SRR24403534 and SRR38262740 carry the same values |
+
+No fix for either id. If the panel wants "no input reads (R1)" in place of "holds no reads", five places change together (`FC-META.md:34`).
+
+### M1, the signed re-adopt (ruling X6, R-PV item 3)
+
+The record lane adopted `SCR/x/X6/c6-x6` again into the new project `SCR/x/X6/adopt-signed.lungfish`. It set `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` to a throwaway key in a scratch file, which it never wrote into a record and deleted afterwards. It set `LUNGFISH_STORAGE_ROOT` to the C4 scratch root and ran lane X6-FIX's `lungfish-cli` at `4eaa00fbd` by its absolute path (`SCR/rulings/X6.md:126-133`). The adopt ended exit 0 with "Adopted    : 3", "Not adopted: 0" and "Duration   : 19.8s". `provenance verify` on each of the three bundles, one call a bundle, printed "Signature valid" and no other first line (`SCR/lanes/REC/REC.md`).
+
+| Bundle | Verify | Provider | Provenance SHA-256 |
+|---|---|---|---|
+| `Imports/SRR38294966.lungfishfastq` | Signature valid | lungfish-local-deterministic-v1 | `7cddd491b342c6cd256f5d6292461ff9a22c7c6fd041593a01fe491fc7746b81` |
+| `Imports/SRR35904062.lungfishfastq` | Signature valid | lungfish-local-deterministic-v1 | `f236aec9c5cc1e524d3f7c4ed95d30d2b79fb28b156d3ad3773ba56b3b761f70` |
+| `Imports/SRR38294075.lungfishfastq` | Signature valid | lungfish-local-deterministic-v1 | `c80180cc3a4cf5871aa2e2ea025a3746a87c5149635770c7a855917ed28aadf0` |
+
+The first adopt, with no key, left the same three bundles with "Signature artifact is missing" (`X6b.md:92-99`). With a key each bundle gained a `.signature.json` and a `.pub` beside its sidecar. So an adopted bundle verifies when a signing key was set as the adopt ran, and K2 states the other case.
+
+### The exit, as the owner set it (O58 as amended by O59)
+
+`SCR/notes.md:64` gives the exit. One line a part.
+
+| Part | State | Evidence |
+|---|---|---|
+| The batch runs | Met | DAGMan 594741 ended "All jobs Completed!" with status 0 at 00:36:55 (`X6b.md:37-38`) |
+| Every node exits 0 | Met | 594744, 594745 and 594746 each ended with ExitCode 0, `NumJobStarts` 1 and no hold (`X6b.md:24-26`, `:75`) |
+| Files that live on Linux are processed so that the processed reads import into LGE (O59) | Met | The reads were never on a Mac. The adopt imported all three samples, "Adopted    : 3" and "Not adopted: 0" (`X6b.md:86`), and did so again in the signed project (M1 above) |
+| The batch adopts, and provenance verify passes | Met | The first adopt passed its own checks and X6b's 8 EQUAL a sample (`X6b.md:83-86`). The signed re-adopt printed "Signature valid" for all three bundles (M1 above). The unsigned bundles say "Signature artifact is missing", which is K2 |
+| Figures recorded | Met | The per-sample, per-node and 100 GB tables above (`X6b.md:109-161`) |
+| Only fixes the batch shows | Met | Ruling X6 chose two fixes, w 12.14 and the README's copy step, and no change to `provenance verify` (`X6.md:8-21`). Lane X6-FIX made them (`X6FIX.md:9-14`), and its review says "Merge" with no numbered fix (`reviews/X6FIX.md:13`) |
+| The 19 C6 rows placed | Met | "Carry-in from the CHTC program" in `docs/plans/2026-10-02-architecture-program.md`, with the rows C6 found |
+| Record complete | Met | This section and the check list below |
+
+## Open questions that remain (2026-10-26, session 7)
+
+| Id | Question | State |
+|---|---|---|
+| Q-C5-C6 | The fetch route for lab payloads of GBs, the access point or CHTC's transfer server | Answered by O57. The access point's rsync carried the results home. `transfer.chtc.wisc.edu` is named for larger batches and is untested |
+| C6 scope | Which C6 rows run before the first lab batch of 32748 | Answered by O53 to O59. Three CASPER runs replaced the 32748 batch, lane STAGED and lane FETCH ran, and there was no Mac comparison |
+| Q-STAGED-1 | Should the adopted record name each staged read's staging path, which needs a plan or adopt change | The ruling's default stands, No (`SCR/rulings/STAGED.md:320`) |
+| Q-STAGED-2 | Single-end and long-read staged batches, since a sheet row needs an R2 | Refused, and carried to Phase 3 with the review's Optional 1 (`STAGED.md:321`, `reviews/STAGED.md:219-220`) |
+| Q-STAGED-3 | Accept `sha256sum` form or uppercase digests as well | The default stands, one form (`STAGED.md:322`) |
+| Q-STAGED-4 | A plan sheet form for staged reads | Phase 3 (`STAGED.md:323`) |
+| Q-STAGED-5 | X6's heap of 16 GB and 8 threads against the job logs' usage | The default stands (`STAGED.md:324`). The nodes used 2.78 to 4.23 of 8 CPUs and the largest clumpify peak was 17.68 GB of the 24,576 MB asked (`X6b.md:52`, `:62`, `:72`, `:136-138`) |
+| New open questions | None | No file above names another |
+
 ## The owner's check list for the merge
 
 | # | Check | State |
 |---|---|---|
-| 1 | Go for the push of `chtc-c4` and C5 to `main`, fast-forward only, at the head and count the manager states | The owner's word in chat, after the manager states the head and the commit count |
-| 2 | Go for the publish of Preview 2026.10.24 from that head | The owner's word in chat, with the head stated again |
+| 1 | Go for the push of `claude/chtc-c6-d57400` to `main`, fast-forward only | The owner's word in chat, after the manager states the head and the commit count |
+| 2 | Go for any Preview from that head | The owner's word |
 | 3 | The GUI walk rows of `docs/reports/2026.10.24-owner-checks.md` (the plan sheet's clumping box for a short-read and a long-read batch, the Linux Run Result card on a plan folder, a batch folder and a refusal, the Provenance tab of an adopted bundle) | Open, before Stable |
-| 4 | Be at the Mac for C-CLEAN (O52): C4's scratch folders on `/staging` and the access point go one literal path a call | After the publish, with the owner at the Mac |
+| 4 | Remove the program's scratch, one literal path a call. On `/staging` C5's `c5-cfail`, `c5-x1`, `c5-x2`, the `c3-*` folders, `c4-s`, `input/` and `out/`, and C6's `input-casper/` (34.6 GB) and `batches/c6-x6/`. On the access point `32748-c0-slice0`, `c3-*`, `c5-cfail`, `c5-x`, `c6-fetch` and `c6-x6`. On galah `SCR/x/X6` (two projects and the returned payloads) | With the owner at the Mac |
 | 5 | Archive CHTC session 5's desktop session (local_f75edcf7) | The owner's yes |
 | 6 | Whether galah's Docker image `lge-tools:eae819829358` (from LAUNCH M3) stays | The owner's word |
 
 ## Next step
 
-C5 is complete on the C5 branch, then this record. C6 runs in its own session on the Mac Studio from
-`~/lungfish-phase-records/chtc-program/CONTINUE-C6.md`.
-
-| Step | Work |
-|---|---|
-| 1 | The first lab batch of 32748 on CHTC from the staged reads (O39), adopted and compared, with CH-10's disk and memory read again |
-| 2 | The C6 rows the owner picks: plan-time platform inference, clumpify's group order, the "Sample sheet…" control, storage `none`, V11's `collect`, RiboDetector |
-| 3 | The GUI walk of the Import Center's Linux cards on the published Preview |
+The program is complete. Phase 3 carries its rows, which are in "Carry-in from the CHTC program" of `docs/plans/2026-10-02-architecture-program.md`.

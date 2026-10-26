@@ -324,6 +324,58 @@ Written at the end of Phase 2.14 from its records in `~/lungfish-phase-records/p
 
 `## Moved out of 2.14` in `docs/plans/2026-10-23-phase-2-14.md` holds every other row, among them the Phase 3 rows of the exit review and the rows carried from 2.13 that its table did not hold. The Known limits of the open findings are in `docs/reports/2026.10.23-technical.md`. The CHTC program's C4 resumes from `~/lungfish-phase-records/chtc-program/CONTINUE-C4.md` in its own session, since O33 put 2.14 first.
 
+## Carry-in from the CHTC program
+
+Written at the close of the CHTC program (C0 to C6) from `docs/plans/2026-10-21-chtc-preprocessing-study.md` and the session records in `~/lungfish-phase-records/chtc-program/c6` (`SCR` below). It places the 19 rows that C5 moved out (`~/lungfish-phase-records/chtc-program/c5/record/C6-list.md`, `C6-list.md` below) and the rows C6 found. FC-META found no False item (`SCR/factcheck/FC-META.md:9-14`), so it adds no row.
+
+### Phase 3 rows
+
+| Row | Words | Source |
+|---|---|---|
+| C6-SHEET, with Q-STAGED-4 | The Import Center's "Sample sheet…" control for a plan (cut first, panel cut order). With it, a plan sheet form for staged reads, since the plan sheet offers none | `C6-list.md:5`, `SCR/rulings/STAGED.md:314`, `:323` |
+| C6-NONE | Storage `none` for one gzip file and for two files | `C6-list.md:6` |
+| C6-V11 | Plain FASTQ for Linux users. A `collect` subcommand with a Portable writer and a `docs/formats/` page, on BIO's terms, with a node run on the first lab batch | `C6-list.md:7` |
+| C6-RIBO | RiboDetector on Linux. It is not in the image, and new streaming pair code moves the executor pin | `C6-list.md:8` |
+| C6-I2P | Interleaved to paired on the plan route | `C6-list.md:9` |
+| C6-MAINACTOR | The Import FASTQ sheet still detects the platform on the main actor (pre-existing). The plan sheet now detects off it | `C6-list.md:11` |
+| C6-CLUMP-ORDER | A clumpify launch above 1 group stores reads in an order that varies run to run, since two fetch threads hand groups to the writer as they finish. Run five Mac imports of SRR24403534 with `fetchthreads=1` (order, time, memory), then vote between that argv and an order-free chart sample. Either narrows or deletes V15-30. SRR35904062 ran 35 groups on CHTC | `C6-list.md:21`, `SCR/lanes/X6/X6b.md:120` |
+| C6-RELEASE-LOCK | A `release.py package` that fails at its gates leaves a `.lock-ready.*` file in the release cache namespace, and the next package refuses it ("unsupported top-level entry") until it is removed by hand | `C6-list.md:23` |
+| C6-PLATFORM and C6-V15-29 | For plans of Mac reads, the node records its own platform inference (D7 A), or the plan infers it from the pinned R1. The adopted record keeps "not inferred" until then, and D7's C6 row deletes V15-29. A plan of staged reads must name `--platform`, and a name Lungfish does not know is refused. FC-META found the adopted record's sentence True with loose wording. If the panel wants "no input reads (R1)", five places change together | `C6-list.md:10`, `:22`, `SCR/rulings/STAGED.md:152-163`, `SCR/reviews/STAGED.md:163-215`, `SCR/factcheck/FC-META.md:11`, `:34` |
+| C6-RELEASE, with CH-10 | `periodic_release` (CHTC-3d R1) was not seen in C6 either. No node and no FETCH job held with exit 0 at code 12 | `C6-list.md:15`, `SCR/lanes/FETCH/FETCH.md:78-80`, `SCR/lanes/X6/X6b.md:41-43` |
+| P3-W (C6-DISK), with CH-10 | The disk rule's w is one value a preset, the largest node so far. Five wastewater nodes read 2.41 to 12.13, following how much of its reads a sample keeps after duplicate, human and rRNA removal, which the Mac does not know when it writes a plan. With CH-10's full-size node, find a request that follows the sample, or a larger request after a disk hold. Lower w only by a panel ruling. C6 read five wastewater nodes and raised w to 12.14 | `SCR/rulings/X6.md:241`, `C6-list.md:16` |
+| P3-PV | `provenance verify` on a record with no signature prints "Workflow execution failed: Signature artifact is missing: `<path>`" and exits 64. Freeze those words, then print "This record carries no signature, so there is nothing to verify: `<sidecar>`. Lungfish signs a record only when LUNGFISH_PROVENANCE_SIGNING_KEY or LUNGFISH_PROVENANCE_SIGNING_KEY_FILE is set as it is written." with the exit code the CLI exit-code contract sets. UX's vote asked that the words and the exit code are set together | `SCR/rulings/X6.md:242`, `:206` |
+| P3-R1 | README, before the submit. Check that each read of a staged batch is at its stagingPath with the listed size, and leave the reads as they are until every job has run. A read missing from the staging folder holds its job with no record | `SCR/rulings/X6.md:243` (X6a finding 4) |
+| P3-R2 | README. The sample sheet passage names only Mac paths. Say that with --staged-reads, r1 and r2 are absolute paths in the staging folder, each with a row of the list (file, bytes, sha256) | `SCR/rulings/X6.md:244` (X6a finding 5) |
+| P3-R3 | README. A local run of a staged batch takes the reads from the staging folder (34.6 GB here), since they have no source on the Mac | `SCR/rulings/X6.md:245` (X6a finding 6) |
+| P3-R4, with C6-TRANSFER | README. Name RSYNC_RSH or rsync -e for a host that needs ssh -F, give the size of the copy home (the payloads, 4.96 GB in 1 min 54 s here), and name a transfer host for larger batches (O57) | `SCR/rulings/X6.md:246` (X6b findings 1 and 2, C5 finding 5), `C6-list.md:17` |
+| P3-R5 | README. "Do not copy logs/" is for a run of run-local.sh. An HTCondor result/ holds no logs/ | `SCR/rulings/X6.md:247` (X6b finding 3) |
+| P3-R6 | README. When no project is at `<project>`, the adopt makes one there | `SCR/rulings/X6.md:248` (X6b finding 4) |
+| P3-R7 | README. The adopt copies each payload into its bundle and leaves the returned copy, so the Mac needs the payloads' space twice, and `<sample>/out/` may be deleted after the adopt | `SCR/rulings/X6.md:249` (X6b finding 5) |
+| P3-R8 | README. A last step for the staging folder, saying when batches/`<batch>`/`<sample>`/result/ and staged reads may be removed | `SCR/rulings/X6.md:250` (X6b finding 6) |
+| P3-R9 | README, the local route. Step 2 still says "copy or link into it each file staging-files.json lists", and its last sentence lets the staging folder be the data folder, so a reader who does both repeats the overwrite that ruling X6's R-README removed from the HTCondor route. Say "Copy or link into it each file that has a source, and leave a staged read where it is. When the staging folder is the data folder, copy nothing." Say too that a file in `shared/` with a size other than the listed one is cut short and is copied again | `SCR/reviews/X6FIX.md:155` (review Optional 2), `ExecutorPlanBatchReadme.swift:28-32` and `:122-124` |
+| Q-STAGED-2 and the review's Optional 1 | Single-end and long-read staged batches. A sheet row needs an R2, so the sheet refuses them. A long-read `--platform` with staged pairs is not refused today. A guard would sit beside the platform guards and its words need a UX ruling | `SCR/rulings/STAGED.md:321`, `SCR/reviews/STAGED.md:219-220` |
+| Staged long-path words (review Optional 5) | A path over 1,024 bytes below the staging folder, or a name over 255 bytes, gets the words "a character other than letters, digits, _, . and -". Give such a path its own words after a UX ruling | `SCR/reviews/STAGED.md:231-233` |
+| The help's wrap under 65 columns (FC-S2) | The longest line of the help's list command is 65 columns with its indent, and ArgumentParser wraps help to the terminal width, so a narrower terminal may break a line in two. Not run. `COLUMNS=60 lungfish-cli import fastq --help` would settle it | `SCR/factcheck/FC-STAGED.md:64` |
+| `run-local.sh`'s header for a staged batch | The generated header says "images/, shared/ and batches/`<batch>`/" (`LinuxRunScript.swift:65-66`), which a staged batch does not match, since its reads sit where the sample sheet names them. The landing left it out of scope | `SCR/factcheck/FC-STAGED.md:130`, `SCR/land/land-STAGED.md:131-132` |
+| A documented job for staging public reads | ENA closes long downloads. FETCH's `fetch.sh` (8 resumable byte ranges a file) staged the reads, and it is a lab recipe and not a product route | `SCR/lanes/FETCH/FETCH.md:38-67`, `:123`, `SCR/notes.md:49` |
+
+### Known limits
+
+| Row | Words | Source |
+|---|---|---|
+| K1 (C6-DISK) | A wastewater job asks for 12.14 times the size of its read files, plus the image, the executor and the databases, and a quarter more. A sample that keeps more of its reads after duplicate removal and trimming than SRR35904062 (54% of its pairs) can need more, so give it a request_disk in the sample sheet. C6 read five wastewater nodes and raised w to 12.14 | `SCR/rulings/X6.md:251`, `:12-14` |
+| K2 | Lungfish signs a record only when LUNGFISH_PROVENANCE_SIGNING_KEY or LUNGFISH_PROVENANCE_SIGNING_KEY_FILE is set. An adopted bundle on a Mac with no key has no signature, and `lungfish-cli provenance verify` reports "Signature artifact is missing" for it. With a key set as the adopt ran, all three CASPER bundles verified "Signature valid" | `SCR/rulings/X6.md:252`, `SCR/lanes/REC/REC.md` |
+| C6-TRANSFER | Results of the CASPER batch came home by the access point's rsync (O57). `transfer.chtc.wisc.edu` needs a NetID and Duo and is untested. P3-R4 carries the README words | `SCR/notes.md:63`, `C6-list.md:17` |
+| C6-SIDEBAR | After a failed or cancelled batch adopt, the k bundles show by the file watcher within 3 s (10 s on a non-native volume). No change is needed unless the walk shows otherwise | `C6-list.md:12` |
+| C6-DOCKERPIN | A Docker run's adopted record names the SIF in `containerImage` and `containerDigest`. Only `ContainerImageID` names the Docker image | `C6-list.md:13` |
+| C6-EMULATOR | The Docker tier does not show which x86_64 emulator ran (Rosetta, its wrapper or QEMU) | `C6-list.md:14` |
+| C6-FACTFORM | `run-local.sh`'s site facts differ in form from HTCondor's. They are `x86_64` against `X86_64`, `centos9` against `CentOS9`, and a short name against a full name | `C6-list.md:18` |
+| C6-REFUSED | F's refused record's `outcome` was not read before the rescue replaced it. The README now says to copy the record aside first | `C6-list.md:19` |
+| C6-REQS | The default requirements line names the pool's `HasCHTCStaging` attribute. `--job-requirements` replaces it on another pool | `C6-list.md:20` |
+| A list with a zero-byte file is refused whole | Every line of the staged-reads list is checked when the list is read, so one zero-byte file (a failed download) refuses the whole list, even when no sheet row names it. Remove it or leave it out of the glob | `SCR/factcheck/FC-STAGED.md:59` |
+| Node speed | SRR35904062 ran on `oconnor2000` at 2.84 of 8 CPUs for 12,783 s, against 2,290 s for a larger file (SRR38294075) elsewhere. Wall time follows the machine. The 100 GB figure there is 24.0 h (23.96 h), under the 72-hour limit | `SCR/lanes/X6/X6b.md:62`, `:137-138`, `:160` |
+| HTCondor's memory figures | They miss the clumpify peak. The record's `peakResidentBytes` holds it, 17.68 GB for SRR35904062 against 9.72 GiB from HTCondor | `SCR/lanes/X6/X6b.md:61`, `:140-142` |
+
 ## Phase 4, god-object splits and module splits (weeks 8 to 12)
 
 Entry criteria. Phase 3 exit, characterization tests captured per extracted responsibility, byte-identical genotype export fixtures in place.
