@@ -229,6 +229,63 @@ final class ImportFilesCancelAlertTests: XCTestCase {
         }
     }
 
+    // MARK: - A refused ZIP (Phase 3.0 lane ZIP, OBS-W9)
+
+    /// File > Import Files... on a ZIP that holds a link to a file outside the archive shows the sheet a drop
+    /// shows, once. It names the archive and says why. The counts alert that ends the request stays, since it is
+    /// right for a batch that mixes imports and refusals, and the project is left as it was. The sheet's
+    /// presenter is read in the call that starts the import, because the import continues in a task that does
+    /// not inherit this test's binding.
+    func testARefusedZipOnTheMenuRouteIsExplainedInOneSheet() async throws {
+        let zip = try makeReadBundleZip(name: "SRR12486983-abslink", absoluteLinkTo: "/etc/hosts")
+        let before = try projectListing()
+        let sheets = RecordingZipFailurePresenter()
+        let outcome = RecordingImportFilesOutcomePresenter()
+        LGEZipImportFailureSeam.$presenter.withValue(sheets) {
+            AppDelegate.ImportFilesOutcomeSeam.$presenter.withValue(outcome) {
+                delegate.importProjectFilesFromURLs([zip], in: controller)
+            }
+        }
+        _ = await waitUntil(timeout: .seconds(30)) { !outcome.presentations.isEmpty }
+
+        XCTAssertEqual(sheets.messages, [
+            RecordingZipFailurePresenter.Message(
+                title: "Could not import SRR12486983-abslink.zip",
+                text: "It holds a link to a file outside the archive, so Lungfish did not import it."
+            ),
+        ])
+        XCTAssertEqual(outcome.presentations.map(\.outcome.failed), [1], "the request still ends in its counts alert")
+        XCTAssertEqual(try projectListing(), before, "the import leaves the project as it was, with no bundle and no .tmp folder")
+    }
+
+    /// The error the resolution throws, here a project folder that takes no new entry, shows the same sheet. It
+    /// was the raw "Import Failed" sheet before, and nothing at all when the import had no window.
+    func testAMenuImportThatCannotMakeItsWorkingFolderIsExplainedInOneSheet() async throws {
+        try XCTSkipIf(getuid() == 0, "root writes into a folder that has no write permission")
+        let zip = try makeReadBundleZip(name: "SRR12486983")
+        let before = try projectListing()
+        let sheets = RecordingZipFailurePresenter()
+        let outcome = RecordingImportFilesOutcomePresenter()
+        // The sidebar can still read the folder, but the import cannot make its .tmp folder in it.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: project.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: project.path) }
+        LGEZipImportFailureSeam.$presenter.withValue(sheets) {
+            AppDelegate.ImportFilesOutcomeSeam.$presenter.withValue(outcome) {
+                delegate.importProjectFilesFromURLs([zip], in: controller)
+            }
+        }
+        // A resolution that throws ends the request at its sheet and shows no counts alert. The sheet the import
+        // showed before the fix also ends this wait, so a failing run reports its assertions at once.
+        let window = try XCTUnwrap(controller.window)
+        _ = await waitUntil(timeout: .seconds(30)) { !sheets.messages.isEmpty || window.attachedSheet != nil }
+
+        XCTAssertEqual(sheets.messages.count, 1, "one sheet for the import: \(sheets.messages)")
+        XCTAssertEqual(sheets.messages.first?.title, "Could not import SRR12486983.zip")
+        XCTAssertTrue(sheets.messages.first?.text.contains("working folder") == true, "\(sheets.messages)")
+        XCTAssertTrue(outcome.presentations.isEmpty, "a resolution that throws ends the request with no counts alert")
+        XCTAssertEqual(try projectListing(), before)
+    }
+
     // MARK: - The live presenter
 
     /// The live presenter shows the alert as a sheet on a given window, in the outcome's words.
@@ -301,6 +358,39 @@ final class ImportFilesCancelAlertTests: XCTestCase {
         let button = Self.buttons(in: window.attachedSheet?.contentView).first { $0.title == title }
         XCTAssertNotNil(button, "the sheet has no \(title) button")
         button?.performClick(nil)
+    }
+
+    /// A ZIP of one read bundle in the sources folder. With `absoluteLinkTo` the bundle also holds a link to that
+    /// path, which Lungfish refuses (OBS-W9). `zip -y` stores the link as a link and does not follow it.
+    private func makeReadBundleZip(name: String, absoluteLinkTo target: String? = nil) throws -> URL {
+        let fm = FileManager.default
+        let stage = root.appendingPathComponent("zip-stage-\(name)", isDirectory: true)
+        let bundle = stage.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@read1\nACGTACGTAC\n+\nIIIIIIIIII\n".write(
+            to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8
+        )
+        if let target {
+            try fm.createSymbolicLink(atPath: bundle.appendingPathComponent("link").path, withDestinationPath: target)
+        }
+        let archive = sources.appendingPathComponent("\(name).zip")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.currentDirectoryURL = stage
+        process.arguments = ["-qry", archive.path, bundle.lastPathComponent]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        return archive
+    }
+
+    /// Every path under the project, relative to it and sorted, so a folder the import made and left shows. The
+    /// sidebar writes its search index into a project when it opens one, at a time the import does not choose, so
+    /// the index files stay out of the listing.
+    private func projectListing() throws -> [String] {
+        try FileManager.default.subpathsOfDirectory(atPath: project.path)
+            .filter { !$0.hasPrefix(".universal-search.db") }
+            .sorted()
     }
 
     /// A text file that imports into the project.
