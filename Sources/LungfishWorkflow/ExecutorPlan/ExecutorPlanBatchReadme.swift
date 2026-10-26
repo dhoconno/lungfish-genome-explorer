@@ -18,13 +18,13 @@ package enum ExecutorPlanBatchReadme {
         let batch = layout.batch
         let staging = layout.folder
         let listed = stagedReads
-            ? "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file\n"
-                + "except the image and the reads with the file on the Mac to copy or link. The image and the reads are\n"
-                + "in the staging folder already, and each job checks each read against its size and SHA-256 before any\n"
-                + "step runs."
-            : "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file\n"
-                + "except the image with the file on the Mac to copy or link. The image is staged already."
-        let copied = stagedReads ? "each file staging-files.json lists with a file on the Mac" : "each file staging-files.json lists"
+            ? "staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file\n"
+                + "other than the image and the reads also has a source, the file on the Mac to copy or link. The\n"
+                + "image and the reads are in the staging folder already, and each job checks each read against its\n"
+                + "size and SHA-256 before any step runs."
+            : "staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file\n"
+                + "other than the image also has a source, the file on the Mac to copy or link. The image is staged\n"
+                + "already."
         let dataFolders = stagedReads
             ? "   the folders that hold the reads, and images/ for Apptainer. A Docker run reads no images/ folder.\n"
                 + "   On a machine that reaches the staging folder, \(staging) can be the data folder."
@@ -48,7 +48,10 @@ package enum ExecutorPlanBatchReadme {
 
         Run on an HTCondor pool
 
-        1. Copy or link \(copied) to its stagingPath, below \(staging).
+        1. For each file in staging-files.json that has a source, copy or link that source to the file's
+           stagingPath, below \(staging). The name of a file in shared/ starts with its SHA-256, so a file
+           already there with the listed size is the same file. Leave it, and never copy over it, since the
+           jobs of other batches may be reading it.
 
         2. Copy this folder to the machine you submit from, and run this from inside it:
 

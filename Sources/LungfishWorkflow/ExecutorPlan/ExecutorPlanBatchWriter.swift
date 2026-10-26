@@ -146,18 +146,19 @@ package enum ExecutorPlanBatchWriter {
     /// (C5 D13). A lab batch's job reads about 65 GB from the staging folder, so the batch reads at most ten such at once.
     package static let concurrentJobs = 10
 
-    /// The work root's peak over a sample's input bytes, w, one value a preset (CHTC-3d R4). Wastewater is 10.61, the
-    /// larger of SRR24403534's (7,057,265,186 − 3,348,200,894) / 372,364,449 = 9.961 and SRR38262740's
-    /// (4,347,450,604 − 3,348,200,894) / 94,232,530 = 10.604, rounded up. VSP2 is 5.03, X3's SRR35520572 node,
+    /// The work root's peak over a sample's input bytes, w, one value a preset (CHTC-3d R4, ruling X6). Wastewater is
+    /// 12.14, the largest of five nodes, SRR35904062's (183,159,736,799 − 3,348,200,734) / 14,818,933,598 = 12.134,
+    /// rounded up. The others read 9.961 (SRR24403534), 10.604 (SRR38262740), 6.352 (SRR38294966) and 2.409
+    /// (SRR38294075), since w follows how much of its reads a sample keeps. VSP2 is 5.03, X3's SRR35520572 node,
     /// (5,463,083,200 − 3,338,092,947) / 422,847,301 = 5.0254, rounded up so the rule never asks less than the node
     /// used. A value rises when a node reads higher and falls only by a panel ruling after CH-10's full-size node.
     package static let workRootFactors: [String: Double] = [
         "vsp2-target-enrichment": 5.03,
-        "wastewater-metagenomics": 10.61,
+        "wastewater-metagenomics": 12.14,
     ]
 
     /// A preset with no node, or a batch with no preset, takes the largest value.
-    package static let largestWorkRootFactor = workRootFactors.values.max() ?? 10.61
+    package static let largestWorkRootFactor = workRootFactors.values.max() ?? 12.14
 
     /// The factor of the recipe's resolved preset id.
     package static func workRootFactor(forPreset id: String?) -> Double {
