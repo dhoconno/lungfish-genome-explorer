@@ -78,7 +78,8 @@ package struct ExecutorPlanStagingLayout: Sendable, Equatable {
 }
 
 /// One file a batch's jobs read from the staging folder: where it goes, its size and SHA-256 as the plan, `staging.json`
-/// or the tar states them, and the Mac file to copy there (nil for the image, which is staged already).
+/// or the tar states them, and the Mac file to copy there (nil for a file already in the staging folder: the image and
+/// staged reads).
 package struct ExecutorPlanBatchFile: Codable, Sendable, Equatable {
     package var role: String
     package var sample: String?
@@ -205,6 +206,50 @@ package enum ExecutorPlanBatchWriter {
         }
     }
 
+    /// Refuses a staged read (C6 ruling STAGED) that is not a file inside the staging folder, whose names below it a
+    /// transfer line cannot hold, or that lies in the batch's own folder, where the jobs write, before anything is
+    /// written. The writer and `import fastq --staged-reads`, its dry run too, make this one check, so no staged path
+    /// reaches ``ExecutorPlanStagingLayout/pathBelowFolder(_:)`` unchecked.
+    package static func checkStagedRead(_ path: String, sample: String, layout: ExecutorPlanStagingLayout) throws {
+        let prefix = layout.folder + "/"
+        let below = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : ""
+        let names = below.split(separator: "/", omittingEmptySubsequences: false)
+        guard !below.isEmpty, !names.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+            throw ExecutorPlanError(field: "stagedPaths", reason: "The read \(path) of sample \(sample) is not inside the staging folder \(layout.folder). With --staged-reads every read is a file in the staging folder, named by its absolute path, so plan reads on this Mac in a batch of their own.")
+        }
+        do {
+            try HTCondorValueRules.checkRelativePath(below, field: "staged read")
+        } catch {
+            throw ExecutorPlanError(field: "stagedPaths", reason: "The read \(path) of sample \(sample) has a name with a character other than letters, digits, _, . and -, which a job's file transfer cannot hold, so rename it.")
+        }
+        guard !path.hasPrefix(layout.batchFolder + "/") else {
+            throw ExecutorPlanError(field: "stagedPaths", reason: "The read \(path) of sample \(sample) is inside the folder \(layout.batchFolder), where this batch's jobs write, so keep the reads outside it.")
+        }
+    }
+
+    /// Refuses a sample whose staged reads share a file name. A job takes each file it reads by its name, so two reads of
+    /// one name would land on one file in the job's folder.
+    package static func checkStagedReadNames(_ paths: [String], sample: String) throws {
+        let names = paths.map { ($0 as NSString).lastPathComponent }
+        guard let name = names.first(where: { name in names.filter { $0 == name }.count > 1 }) else { return }
+        throw ExecutorPlanError(field: "stagedPaths", reason: "The R1 and R2 of sample \(sample) are both named \(name), and a job takes each file by its name, so rename one.")
+    }
+
+    /// Each row's staged reads, one path an input, by ``checkStagedRead(_:sample:layout:)`` and
+    /// ``checkStagedReadNames(_:sample:)``.
+    private static func checkStagedReads(of rows: [ExecutorPlanSampleRow], layout: ExecutorPlanStagingLayout) throws {
+        for row in rows {
+            guard let paths = row.stagedPaths else { continue }
+            guard paths.count == row.inputs.count else {
+                throw ExecutorPlanError(field: "stagedPaths", reason: "The sample \(row.sampleName) names \(paths.count) reads in the staging folder for its \(row.inputs.count) input files.")
+            }
+            for path in paths {
+                try checkStagedRead(path, sample: row.sampleName, layout: layout)
+            }
+            try checkStagedReadNames(paths, sample: row.sampleName)
+        }
+    }
+
     /// The folder name of each row, which is also its `staging/` folder, its DAG node and its job log. It is the name
     /// the sample sanitizer gives (`SampleFolderNaming`, which TaxTriage and Viral Recon share), with a suffix when two
     /// samples take one name, and it must be a name the DAG can hold. The real run and `--dry-run` make this one check.
@@ -232,6 +277,7 @@ package enum ExecutorPlanBatchWriter {
         try ExecutorPlanNoPlanForm.check(template, request: request)
         try checkLayout(layout)
         try checkRequirements(requirements)
+        try checkStagedReads(of: rows, layout: layout)
         let names = try folderNames(for: rows)
         let emissions = try rows.map { try recipeTemplate.emission(for: $0) }
         let fileManager = FileManager.default
@@ -293,13 +339,16 @@ package enum ExecutorPlanBatchWriter {
             var reads: [HTCondorStagedFile] = []
             var placements = sharedPlacements
             let inputs = emission.plan.entries.filter { $0.role == .input }
-            for (slot, entry) in zip(template.inputs, inputs) {
-                let readName = (slot.relativePath as NSString).lastPathComponent
-                let path = layout.samplePath(name, readName)
+            // A staged read (C6 ruling STAGED) is read where it sits, so it has no Mac file to copy and no sample path.
+            let stagedPaths = rows[index].stagedPaths
+            for (position, (slot, entry)) in zip(template.inputs, inputs).enumerated() {
+                let path = stagedPaths?[position]
+                    ?? layout.samplePath(name, (slot.relativePath as NSString).lastPathComponent)
                 reads.append(HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(path), relativePath: slot.relativePath))
                 placements.append("\(layout.pathBelowFolder(path))=\(slot.relativePath)")
+                let source = stagedPaths == nil ? emission.sources[entry.relativePath]?.path : nil
                 files.append(ExecutorPlanBatchFile(role: "input", sample: name, stagingPath: path, size: entry.size,
-                                                   sha256: entry.sha256, source: emission.sources[entry.relativePath]?.path))
+                                                   sha256: entry.sha256, source: source))
             }
             let inputBytes = inputs.reduce(Int64(0)) { $0 + $1.size }
             // The sheet's request_disk column wins over the rule.
@@ -339,7 +388,8 @@ package enum ExecutorPlanBatchWriter {
             payloadRelativePath: ExecutorPlanEmitter.payloadPath, reportRelativePaths: reports
         )
         let run = LinuxRunScript.text(batch: layout.batch, image: image.sif, resultPaths: resultPaths, maxJobs: concurrentJobs)
-        let readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs)
+        let readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs,
+                                                  stagedReads: rows.contains { $0.stagedPaths != nil })
         try DurableReplace.replace(Data(LinuxRunScript.jobsTable(jobs).utf8), named: LinuxRunScript.jobsFileName, in: folder)
         try DurableReplace.replace(Data(run.utf8), named: LinuxRunScript.fileName, in: folder)
         try fileManager.setAttributes([.posixPermissions: 0o755],

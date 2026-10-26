@@ -111,17 +111,22 @@ package struct ExecutorPlanSampleRow: Sendable, Equatable {
     package var sampleSheet: [PlanKeyValue]
     /// The job's `request_disk` in whole GiB, a submit value.
     package var requestDiskGiB: Int?
+    /// Each input's absolute path in the Linux staging folder, R1 then R2, for reads that are there already and never on
+    /// this Mac (C6 ruling STAGED), or nil for reads on this Mac. A submit value as `requestDiskGiB` is: each job reads
+    /// the read where it sits, and `split()` keeps the paths out of the plan, which pins a read by its SHA-256 and size.
+    package var stagedPaths: [String]?
 
     /// With `originalFilenames` nil, each input is named by its file's last path component.
     package init(
         sampleName: String, inputs: [ExecutorPlanSourceFile], originalFilenames: [String]? = nil,
-        sampleSheet: [PlanKeyValue] = [], requestDiskGiB: Int? = nil
+        sampleSheet: [PlanKeyValue] = [], requestDiskGiB: Int? = nil, stagedPaths: [String]? = nil
     ) {
         self.sampleName = sampleName
         self.inputs = inputs
         self.originalFilenames = originalFilenames ?? inputs.map(\.url.lastPathComponent)
         self.sampleSheet = sampleSheet
         self.requestDiskGiB = requestDiskGiB
+        self.stagedPaths = stagedPaths
     }
 
     package func split() -> ExecutorPlanSampleSplit {

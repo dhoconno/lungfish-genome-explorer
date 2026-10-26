@@ -11,9 +11,26 @@ import Foundation
 package enum ExecutorPlanBatchReadme {
     package static let fileName = "README.txt"
 
-    package static func text(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int) -> String {
+    /// `stagedReads` says that reads of the batch are in the staging folder already (C6 ruling STAGED), which changes
+    /// three passages. A batch with no staged read keeps the text it always had, byte for byte (ARCH 7).
+    package static func text(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int,
+                             stagedReads: Bool) -> String {
         let batch = layout.batch
         let staging = layout.folder
+        let listed = stagedReads
+            ? "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file\n"
+                + "except the image and the reads with the file on the Mac to copy or link. The image and the reads are\n"
+                + "in the staging folder already, and each job checks each read against its size and SHA-256 before any\n"
+                + "step runs."
+            : "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file\n"
+                + "except the image with the file on the Mac to copy or link. The image is staged already."
+        let copied = stagedReads ? "each file staging-files.json lists with a file on the Mac" : "each file staging-files.json lists"
+        let dataFolders = stagedReads
+            ? "   batches/\(batch)/, and images/ for Apptainer. It also gives the folders that hold the reads.\n"
+                + "   A Docker run reads no images/ folder. On a machine that reaches the staging folder, \(staging)\n"
+                + "   can be the data folder."
+            : "   batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine\n"
+                + "   that reaches the staging folder, \(staging) can be the data folder."
         let returned = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.resultFolderName)/"
         let script = LinuxRunScript.fileName
         let jobs = LinuxRunScript.jobsFileName
@@ -27,13 +44,12 @@ package enum ExecutorPlanBatchReadme {
         This folder holds one plan for each sample, in a folder named by the sample. It has two ways to run
         them. Use \(dag) on an HTCondor pool. Use \(script) on one machine with Apptainer or Docker, which
         can be a Linux machine or a Mac with Docker. \(jobs) lists the samples, one row each.
-        staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file
-        except the image with the file on the Mac to copy or link. The image is staged already.
+        \(listed)
 
 
         Run on an HTCondor pool
 
-        1. Copy or link each file staging-files.json lists to its stagingPath, below \(staging).
+        1. Copy or link \(copied) to its stagingPath, below \(staging).
 
         2. Copy this folder to the machine you submit from, and run this from inside it:
 
@@ -103,8 +119,7 @@ package enum ExecutorPlanBatchReadme {
 
         2. Make a data folder there and copy or link into it each file staging-files.json lists, at its
            stagingPath with \(staging)/ taken off the front. That gives the folders shared/ and
-           batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine
-           that reaches the staging folder, \(staging) can be the data folder.
+        \(dataFolders)
 
         3. Run one of these from inside this folder:
 

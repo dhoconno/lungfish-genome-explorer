@@ -19,7 +19,8 @@ struct ImportFastqPlanOptions: ParsableArguments {
             "Write a plan folder for a run on a Linux machine to this new folder in place of importing",
             discussion: "The folder holds run.dag, sample.sub, lge-job.sh, logs/, one plan folder per sample named by "
                 + "its sample with the sample's plan.tar, and staging-files.json, which lists each file the "
-                + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there. "
+                + "jobs read from the staging folder with its size, its SHA-256 and the file on this Mac to copy there, "
+                + "or none for a read already in the staging folder. "
                 + "jobs.tsv and run-local.sh run the same plans on one Linux machine with Apptainer or Docker, and "
                 + "README.txt gives the commands for both and for bringing the results back. "
                 + "No file is imported and nothing is submitted, so --project is not needed. A sample sheet's "
@@ -81,6 +82,29 @@ struct ImportFastqPlanOptions: ParsableArguments {
         )
     )
     var stagingFolder: String?
+
+    /// The list of reads that exist only in the Linux staging folder (C6 ruling STAGED, O59). The help gives the one
+    /// portable command that makes the list there, and names no site.
+    @Option(
+        name: .customLong("staged-reads"),
+        help: ArgumentHelp(
+            "A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes "
+                + "and SHA-256, for --write-plan with --samplesheet",
+            discussion: "The sample sheet's r1 and r2 then name each read by its absolute path in the staging folder on "
+                + "the Linux machine, and Lungfish reads none of the reads. The list's first line names the columns "
+                + "file, bytes and sha256, separated by tabs, and each later line gives one read. Each job checks each "
+                + "read against its size and SHA-256 before any step runs. Pass --platform with it, since Lungfish "
+                + "cannot infer the platform of reads it does not read. Make the list on the Linux machine that holds "
+                + "the reads:\n"
+                + "printf 'file\\tbytes\\tsha256\\n' > staged-reads.tsv\n"
+                + "for f in /absolute/folder/*.fastq.gz; do\n"
+                + "printf '%s\\t%s\\t%s\\n' \"$f\" \"$(stat -c %s \"$f\")\" \\\n"
+                + "\"$(sha256sum \"$f\" | cut -d ' ' -f 1)\" >> staged-reads.tsv\n"
+                + "done",
+            valueName: "file"
+        )
+    )
+    var stagedReads: String?
 
     @Option(
         name: .customLong("job-requirements"),
@@ -182,8 +206,20 @@ extension ImportCommand.FastqSubcommand {
         guard name == nil else {
             throw refuse("A plan names each sample from its files or its sample sheet, so drop --name.")
         }
+        // Staged reads are paired by the sheet's rows, since this Mac cannot list the staging folder, and their platform
+        // is named, since the adopt of a folder with no reads cannot infer it (ruling STAGED points 1 and 5).
+        if options.stagedReads != nil {
+            guard samplesheet != nil, input.isEmpty else {
+                throw refuse("A plan of staged reads takes its samples from a sample sheet, so pass --samplesheet and no input paths.")
+            }
+            guard platform.lowercased() != "auto" else {
+                throw refuse("Lungfish does not read reads in the staging folder, so it cannot infer their platform. Pass --platform, such as --platform illumina.")
+            }
+        }
+        let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
+        let layout = ExecutorPlanStagingLayout(folder: staging, batch: folder.lastPathComponent)
         do {
-            let rows = try planRows()
+            let rows = try planRows(layout: layout)
             let template = try await planTemplateRequest(
                 threads: threads, heapGB: heapGB, manifest: URL(fileURLWithPath: manifestPath),
                 toolManifest: URL(fileURLWithPath: toolManifestPath), suffixes: rows.suffixes, format: rows.format
@@ -199,8 +235,6 @@ extension ImportCommand.FastqSubcommand {
             let host = ExecutorPlanHostFacts(physicalMemoryBytes: Int64(ProcessInfo.processInfo.physicalMemory),
                                              processorCount: ProcessInfo.processInfo.activeProcessorCount)
             let recipeTemplate = try ExecutorPlanEmitter.template(template, host: host)
-            let folder = URL(fileURLWithPath: folderPath, isDirectory: true)
-            let layout = ExecutorPlanStagingLayout(folder: staging, batch: folder.lastPathComponent)
             if dryRun {
                 // A dry run makes the refusals of the real run that the inputs and the names alone decide, so it cannot
                 // pass where the run would end for a fixed reason.
@@ -209,7 +243,11 @@ extension ImportCommand.FastqSubcommand {
                 try ExecutorPlanBatchWriter.checkRequirements(options.jobRequirements)
                 let names = try ExecutorPlanBatchWriter.folderNames(for: rows.rows)
                 for (row, name) in zip(rows.rows, names) {
-                    reporter.text("  \(row.sampleName) in folder \(name): \(row.inputs.map(\.url.lastPathComponent).joined(separator: ", "))")
+                    let reads = row.stagedPaths ?? row.inputs.map(\.url.lastPathComponent)
+                    reporter.text("  \(row.sampleName) in folder \(name): \(reads.joined(separator: ", "))")
+                }
+                if let list = options.stagedReads {
+                    reporter.text("The reads are in the staging folder already, and each job checks each read against the size and SHA-256 that \(list) gives.")
                 }
                 reporter.text("This was a dry run, so no plan folder was written.")
                 reporter.complete(message: "This was a dry run, so no plan folder was written.")
@@ -221,7 +259,9 @@ extension ImportCommand.FastqSubcommand {
             )
             reporter.text("Wrote the plan folder \(batch.folder.path) for \(batch.samples.count) sample(s).")
             for file in batch.files {
-                reporter.text("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? ""))
+                // A staged read has no Mac file, as the image has none, and its line says it is there already (UX 1).
+                let from = file.source.map { "  from \($0)" } ?? (file.role == "input" ? "  already in the staging folder" : "")
+                reporter.text("  \(file.size) bytes  \(file.stagingPath)" + from)
             }
             // Each job takes its plan tar from the submit folder, so the tar is not copied to the staging folder (C5 D15).
             for tar in batch.planTars {
@@ -253,8 +293,13 @@ extension ImportCommand.FastqSubcommand {
         return (manifest, image, toolManifest)
     }
 
-    /// One row a sample, from the sample sheet or the detected files, with the input shape every row must share.
-    private func planRows() throws -> (rows: [ExecutorPlanSampleRow], suffixes: [String], format: RecipeFileFormat) {
+    /// One row a sample, from the sample sheet or the detected files, with the input shape every row must share. With
+    /// `--staged-reads` the list is read first, then each sheet row's reads are checked against `layout` and the list,
+    /// and each read's size and SHA-256 come from the list, so no read is opened (ruling STAGED).
+    private func planRows(
+        layout: ExecutorPlanStagingLayout
+    ) throws -> (rows: [ExecutorPlanSampleRow], suffixes: [String], format: RecipeFileFormat) {
+        let staged = try planOptions.stagedReads.map { try ImportFastqStagedReads.read($0) }
         let pairs: [SamplePair]
         if let samplesheet {
             guard input.isEmpty else { throw ImportFastqPlanRefusal(message: "Pass either FASTQ input paths or --samplesheet, not both.") }
@@ -276,6 +321,7 @@ extension ImportCommand.FastqSubcommand {
         var shape: [String]?
         for pair in pairs {
             let urls = [pair.r1] + [pair.r2, pair.unpaired].compactMap { $0 }
+            let stagedInputs = try staged?.inputs(of: pair, files: urls, layout: layout)
             let suffixes = urls.map { PlanTemplate.fastqSuffix(of: $0.lastPathComponent) }
             if let shape, shape != suffixes {
                 throw ImportFastqPlanRefusal(message: "The sample \(pair.sampleName) has files ending \(suffixes.joined(separator: ", ")) and an earlier sample \(shape.joined(separator: ", ")), so run the command once for each set of file endings.")
@@ -284,8 +330,9 @@ extension ImportCommand.FastqSubcommand {
             var labels = pair.metadata
             let disk = try labels.removeValue(forKey: Self.requestDiskColumn).map { try Self.requestDiskGiB($0, sample: pair.sampleName) }
             rows.append(ExecutorPlanSampleRow(
-                sampleName: pair.sampleName, inputs: try urls.map { try ExecutorPlanSourceFile.measuring($0) },
-                sampleSheet: labels.keys.sorted().map { PlanKeyValue(key: $0, value: labels[$0] ?? "") }, requestDiskGiB: disk
+                sampleName: pair.sampleName, inputs: try stagedInputs ?? urls.map { try ExecutorPlanSourceFile.measuring($0) },
+                sampleSheet: labels.keys.sorted().map { PlanKeyValue(key: $0, value: labels[$0] ?? "") }, requestDiskGiB: disk,
+                stagedPaths: stagedInputs.map { _ in urls.map(\.path) }
             ))
         }
         let suffixes = shape ?? []

@@ -75,8 +75,13 @@ extension ImportCommand {
         )
         var project: String?
 
-        /// A plan writes nothing into a project (ARCH 3), so only `--write-plan` runs without one.
+        /// A plan writes nothing into a project (ARCH 3), so only `--write-plan` runs without one. Reads in a Linux
+        /// staging folder are never imported on this Mac, so `--staged-reads` is refused without `--write-plan` and
+        /// never ignored (ruling STAGED).
         func validate() throws {
+            guard planOptions.stagedReads == nil || planOptions.isOn else {
+                throw ValidationError("--staged-reads names reads in a Linux staging folder, so use it with --write-plan.")
+            }
             guard project != nil || planOptions.isOn else {
                 throw ValidationError("Missing expected argument '--project <project>'")
             }
