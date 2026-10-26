@@ -8,9 +8,14 @@ This script produces a deterministic index of every SwiftPM target with
 
   - its kind, path and internal and external dependencies
   - the targets that depend on it
-  - Swift file and line counts, overall and per subdirectory (two levels)
-  - every public or open top-level type with its file and line
+  - the subdirectories that hold Swift files (two levels, no counts)
+  - every public or open top-level type with its file (no line number)
   - the test targets that depend on it directly
+
+The map holds no file counts, no line counts and no line numbers, so it changes
+only when a target, a path, a dependency, a folder or a public type changes
+(docs/contracts/SCOPE-AND-DELIVERY.md, Generated files). A lane regenerates it
+only when it adds, removes or renames a target, a public type or a folder.
 
 Package.swift is parsed with a small pure-Python reader (no `swift package
 dump-package`, so no .build lock is taken). The reader understands the subset
@@ -332,16 +337,6 @@ def c_files(root: Path, rel_dir: str) -> list[str]:
     return sorted(found)
 
 
-def line_count(path: Path) -> int:
-    data = path.read_bytes()
-    if not data:
-        return 0
-    count = data.count(b"\n")
-    if not data.endswith(b"\n"):
-        count += 1
-    return count
-
-
 def public_types(root: Path, files: list[str]) -> list[PublicType]:
     result: list[PublicType] = []
     for rel in files:
@@ -354,22 +349,20 @@ def public_types(root: Path, files: list[str]) -> list[PublicType]:
     return result
 
 
-def subdirectory_stats(
-    target_path: str, files: list[str], counts: dict[str, int]
-) -> list[tuple[str, int, int]]:
-    """Return (relative subdirectory, files, lines) for one and two levels deep."""
-    stats: dict[str, list[int]] = {}
+def subdirectories(target_path: str, files: list[str]) -> list[str]:
+    """Return the relative subdirectories, one and two levels deep, that hold Swift files.
+
+    A folder appears with its first Swift file and goes with its last, so the list moves only
+    when a folder is added, removed or renamed. It carries no counts."""
+    found: set[str] = set()
     prefix = target_path + "/"
     for rel in files:
         inner = rel[len(prefix) :] if rel.startswith(prefix) else rel
         parts = inner.split("/")[:-1]
         for depth in (1, 2):
             if len(parts) >= depth:
-                key = "/".join(parts[:depth])
-                entry = stats.setdefault(key, [0, 0])
-                entry[0] += 1
-                entry[1] += counts[rel]
-    return sorted((k, v[0], v[1]) for k, v in stats.items())
+                found.add("/".join(parts[:depth]))
+    return sorted(found)
 
 
 # ---------------------------------------------------------------------------
@@ -401,18 +394,8 @@ def render(root: Path) -> str:
     )
     test_targets = sorted((t for t in targets if t.kind == "test"), key=lambda t: t.name)
 
-    file_lists: dict[str, list[str]] = {}
-    line_counts: dict[str, int] = {}
-    for t in targets:
-        files = swift_files(root, t.path)
-        file_lists[t.name] = files
-        for rel in files:
-            line_counts[rel] = line_count(root / rel)
-
+    file_lists = {t.name: swift_files(root, t.path) for t in targets}
     type_lists = {t.name: public_types(root, file_lists[t.name]) for t in source_targets + support_targets}
-
-    def total_lines(name: str) -> int:
-        return sum(line_counts[f] for f in file_lists[name])
 
     out: list[str] = []
     w = out.append
@@ -422,31 +405,29 @@ def render(root: Path) -> str:
     w("Regenerate with `python3 scripts/index/generate-module-map.py` and check currency with `python3 scripts/checks/module-map-current.py`.")
     w("")
     w(
-        "Counts cover Swift files only, and a target that holds C files lists them in its own section. "
-        "Public types are top-level `public` or `open` declarations found at column 0."
+        "The map holds no file counts, no line counts and no line numbers, so a lane regenerates it only when it "
+        "adds, removes or renames a target, a public type or a folder. A target that holds C files lists them in "
+        "its own section. Public types are top-level `public` or `open` declarations found at column 0."
     )
     w("")
 
     w("## Summary")
     w("")
-    w("| Target | Kind | Path | Swift files | Lines | Public types | Internal dependencies |")
-    w("|---|---|---|---|---|---|---|")
+    w("| Target | Kind | Path | Public types | Internal dependencies |")
+    w("|---|---|---|---|---|")
     for t in source_targets + support_targets:
         deps = ", ".join(sorted(d for d in t.internal_deps if d in internal_names)) or "none"
         n_public = len(type_lists[t.name])
-        w(
-            f"| {t.name} | {t.kind} | {t.path} | {len(file_lists[t.name])} | "
-            f"{total_lines(t.name)} | {n_public} | {deps} |"
-        )
+        w(f"| {t.name} | {t.kind} | {t.path} | {n_public} | {deps} |")
     w("")
 
     w("## Test targets")
     w("")
-    w("| Test target | Path | Swift files | Lines | Internal dependencies |")
-    w("|---|---|---|---|---|")
+    w("| Test target | Path | Internal dependencies |")
+    w("|---|---|---|")
     for t in test_targets:
         deps = ", ".join(sorted(d for d in t.internal_deps if d in internal_names)) or "none"
-        w(f"| {t.name} | {t.path} | {len(file_lists[t.name])} | {total_lines(t.name)} | {deps} |")
+        w(f"| {t.name} | {t.path} | {deps} |")
     w("")
 
     for t in source_targets + support_targets:
@@ -455,10 +436,9 @@ def render(root: Path) -> str:
         w("")
         w(f"- Kind. {t.kind}")
         w(f"- Path. {t.path}")
-        w(f"- Swift files. {len(files)}, lines {total_lines(t.name)}")
         c_list = c_files(root, t.path)
         if c_list:
-            w(f"- C files. {len(c_list)}, lines {sum(line_count(root / rel) for rel in c_list)}")
+            w(f"- C files. {', '.join(c_list)}")
         internal = sorted(d for d in t.internal_deps if d in internal_names)
         w(f"- Depends on. {', '.join(internal) if internal else 'none'}")
         external = sorted(t.external_deps)
@@ -480,14 +460,14 @@ def render(root: Path) -> str:
         w(line)
         w("")
 
-        subdirs = subdirectory_stats(t.path, files, line_counts)
+        subdirs = subdirectories(t.path, files)
         if subdirs:
             w("### Subdirectories")
             w("")
-            w("| Subdirectory | Swift files | Lines |")
-            w("|---|---|---|")
-            for rel, n_files, n_lines in subdirs:
-                w(f"| {rel} | {n_files} | {n_lines} |")
+            w("| Subdirectory |")
+            w("|---|")
+            for rel in subdirs:
+                w(f"| {rel} |")
             w("")
 
         types = type_lists[t.name]
@@ -495,7 +475,7 @@ def render(root: Path) -> str:
         w("")
         if types:
             for pt in types:
-                w(f"- `{pt.name}` {pt.kind}, `{pt.file}:{pt.line}`")
+                w(f"- `{pt.name}` {pt.kind}, `{pt.file}`")
         else:
             w("None.")
         w("")

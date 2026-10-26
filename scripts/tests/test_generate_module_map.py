@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 import textwrap
@@ -139,16 +140,57 @@ def test_public_types_are_top_level_only(repo: Path):
     }
 
 
-def test_render_reports_counts_subdirectories_and_test_targets(repo: Path):
+def test_render_reports_subdirectories_public_types_and_test_targets(repo: Path):
     text = gen.render(repo)
-    assert "| Core | library | Sources/Core | 3 | 16 | 7 | none |" in text
-    assert "| Sub | 2 | 2 |" in text
-    assert "| Sub/Deep | 1 | 1 |" in text
-    assert "- `Store` class, `Sources/Core/Model.swift:8`" in text
+    assert "| Core | library | Sources/Core | 7 | none |" in text
+    assert "| Sub |" in text
+    assert "| Sub/Deep |" in text
+    assert "- `Store` class, `Sources/Core/Model.swift`" in text
     assert "- Test target. CoreTests" in text
     assert "- Test target. none named FeatureTests, tested by MixedTests" in text
     assert "- Used by. Feature, Support" in text
     assert "| Support | library | Tests/Support/Support |" in text
+
+
+def test_the_map_holds_no_file_counts_line_counts_or_line_numbers(repo: Path):
+    text = gen.render(repo)
+    assert "Swift files" not in text.replace("holds Swift files", "")
+    assert "| Lines" not in text
+    assert not any(line.startswith("- Swift files") for line in text.splitlines())
+    assert not re.search(r"\.swift:\d+", text)
+    assert "| Test target | Path | Internal dependencies |" in text
+
+
+def test_an_edit_that_changes_no_target_folder_or_public_type_leaves_the_map_identical(repo: Path):
+    before = gen.render(repo)
+    model = repo / "Sources/Core/Model.swift"
+    model.write_text("// a line above\n// and another\n" + model.read_text() + "\nlet unrelated = 1\n")
+    write(repo, "Sources/Core/Sub/Third.swift", "struct Plain {}\n\n\n\n")
+    write(repo, "Tests/CoreTests/MoreTests.swift", "import XCTest\n")
+    assert gen.render(repo) == before
+
+
+def test_a_target_a_folder_or_a_public_type_changes_the_map(repo: Path):
+    def add_target():
+        write(repo, "Sources/Extra/Extra.swift", "struct Extra {}\n")
+        manifest = FIXTURE_MANIFEST.replace(
+            '.executableTarget(name: "Tool"',
+            '.target(name: "Extra", path: "Sources/Extra"),\n        .executableTarget(name: "Tool"',
+        )
+        write(repo, "Package.swift", manifest)
+
+    steps = [
+        ("a public type", lambda: write(repo, "Sources/Core/Another.swift", "public struct Another {}\n")),
+        ("a renamed public type", lambda: write(repo, "Sources/Core/Another.swift", "public struct Renamed {}\n")),
+        ("a folder", lambda: write(repo, "Sources/Core/Fresh/File.swift", "struct Plain {}\n")),
+        ("a target", add_target),
+    ]
+    previous = gen.render(repo)
+    for label, change in steps:
+        change()
+        current = gen.render(repo)
+        assert current != previous, label
+        previous = current
 
 
 C_TARGET_MANIFEST = textwrap.dedent(
@@ -174,9 +216,9 @@ def test_render_lists_c_files_in_the_target_section_only(tmp_path: Path, repo: P
     write(ctree, "Sources/CTool/include/CTool.h", "#pragma once\nint tool_call(void);\n")
     write(ctree, "Sources/CTool/tool.c", '#include "CTool.h"\nint tool_call(void) {\n    return 0;\n}\n')
     text = gen.render(ctree)
-    assert "| CTool | library | Sources/CTool | 0 | 0 | 0 | none |" in text
+    assert "| CTool | library | Sources/CTool | 0 | none |" in text
     section = text.split("## CTool\n", 1)[1].split("\n## ", 1)[0]
-    assert "- Swift files. 0, lines 0\n- C files. 2, lines 6\n" in section
+    assert "- C files. Sources/CTool/include/CTool.h, Sources/CTool/tool.c\n" in section
     assert "- C files." not in text.split("## Tool\n", 1)[1]
     assert "- C files." not in gen.render(repo)
 
@@ -202,6 +244,14 @@ def test_check_passes_when_current_and_fails_on_drift(repo: Path, capsys):
     gen.main(["--root", str(repo)])
     write(repo, "Sources/Feature/New.swift", "public struct Added {}\n")
     assert check.main(["--root", str(repo)]) == 1
+
+
+def test_check_stays_green_through_an_edit_that_only_moves_lines(repo: Path):
+    gen.main(["--root", str(repo)])
+    model = repo / "Sources/Core/Model.swift"
+    model.write_text("// moved\n" * 5 + model.read_text())
+    write(repo, "Sources/Feature/Internal2.swift", "struct Internal2 {}\n")
+    assert check.main(["--root", str(repo)]) == 0
 
 
 def test_check_runs_as_a_script_against_the_fixture(repo: Path):

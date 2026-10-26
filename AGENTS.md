@@ -7,7 +7,7 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | Document | What it answers |
 |---|---|
 | [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) | How the modules fit together, how a request travels, and where to add a format, command, operation, viewport, sidebar kind or tool |
-| [docs/architecture/MODULES.md](docs/architecture/MODULES.md) | Generated per-target facts with dependencies, file and line counts, subdirectories, public types and test targets |
+| [docs/architecture/MODULES.md](docs/architecture/MODULES.md) | Generated per-target facts with dependencies, subdirectories, public types and test targets, and no file or line counts |
 | `Sources/<Module>/AGENTS.md` | Module-specific purpose, allowed imports, entry points, owned contracts, test target and known traps |
 | [docs/contracts/README.md](docs/contracts/README.md) | Index of the written contracts |
 | [docs/contracts/ADDING-AN-OPERATION.md](docs/contracts/ADDING-AN-OPERATION.md) | The full path for a new operation, from Workflow service to CLI command to App runner |
