@@ -12,6 +12,7 @@ import pwd
 import re
 import shutil
 import sys
+import tempfile
 
 from gate_evidence import (EvidenceError, analyze_attempt, command_record,
                            file_record, now, read_json, runtime_identity, same_source,
@@ -285,9 +286,10 @@ def receipt_authority(root):
 def run(args):
     root, app, directory = args.root.resolve(), args.app.resolve(), args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
-    # Beside the evidence, not in it, since the candidate's preferences may flush after the run.
-    candidate_home = directory.with_name(directory.name + ".home")
-    candidate_home.mkdir(exist_ok=False)
+    # Outside the evidence, since the candidate's preferences may flush after the run, and in the
+    # user's temporary folder, since the runner may not write under a privacy-protected folder
+    # such as ~/Documents, where a checkout and its release folder often live.
+    candidate_home = Path(tempfile.mkdtemp(prefix="lungfish-app-smoke-home-")).resolve()
     contract = load_contract(root / "config/release-contract.json")
     source = source_identity(root)
     payload = receipt_authority(root)._payload_digest(app)
@@ -368,7 +370,7 @@ def argument_parser():
     parser.add_argument("--app", type=Path, required=True)
     parser.add_argument("--channel", choices=["stable"], required=True)
     parser.add_argument("--output", type=Path, required=True,
-                        help="new evidence folder; the candidate's fresh home is made beside it as <output>.home")
+                        help="new evidence folder (the candidate's fresh home goes in the temporary folder)")
     parser.add_argument("--derived-data", type=Path, required=True)
     return parser
 
