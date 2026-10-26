@@ -26,9 +26,8 @@ package enum ExecutorPlanBatchReadme {
                 + "except the image with the file on the Mac to copy or link. The image is staged already."
         let copied = stagedReads ? "each file staging-files.json lists with a file on the Mac" : "each file staging-files.json lists"
         let dataFolders = stagedReads
-            ? "   batches/\(batch)/, and images/ for Apptainer. It also gives the folders that hold the reads.\n"
-                + "   A Docker run reads no images/ folder. On a machine that reaches the staging folder, \(staging)\n"
-                + "   can be the data folder."
+            ? "   the folders that hold the reads, and images/ for Apptainer. A Docker run reads no images/ folder.\n"
+                + "   On a machine that reaches the staging folder, \(staging) can be the data folder."
             : "   batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine\n"
                 + "   that reaches the staging folder, \(staging) can be the data folder."
         let returned = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.resultFolderName)/"

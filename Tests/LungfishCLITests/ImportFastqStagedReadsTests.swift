@@ -176,7 +176,7 @@ final class ImportFastqStagedReadsTests: XCTestCase {
     private static let stagedReadmeSentences = [
         "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file except the image and the reads with the file on the Mac to copy or link. The image and the reads are in the staging folder already, and each job checks each read against its size and SHA-256 before any step runs.",
         "1. Copy or link each file staging-files.json lists with a file on the Mac to its stagingPath, below \(staging).",
-        "That gives the folders shared/ and batches/batch/, and images/ for Apptainer. It also gives the folders that hold the reads.",
+        "That gives the folders shared/ and the folders that hold the reads, and images/ for Apptainer.",
     ]
     private static let macReadmeSentences = [
         "staging-files.json lists the files the jobs read, each with its size and its SHA-256, and each file except the image with the file on the Mac to copy or link. The image is staged already.",
