@@ -36,16 +36,16 @@ extension LGEZipImportFailure {
         case GeneiousArchiveToolError.unzipFailed(_, _, let stderr):
             let detail = stderr.split(separator: "\n").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
             let tool = detail.isEmpty ? "" : " The unzip tool reported \u{201C}\(detail)\u{201D}."
-            return "Lungfish could not unpack it, so it did not import it. Check that the ZIP is complete, then drop it again." + tool
+            return "Lungfish could not unpack it, so nothing was imported. Check that the ZIP is complete, then drop it again." + tool
         default:
-            return "Lungfish could not unpack it, so it did not import it. \(error.localizedDescription)"
+            return "Lungfish could not unpack it, so nothing was imported. \(error.localizedDescription)"
         }
     }
 
     /// The failures of a drop whose resolution threw. The throw ends the drop before anything is imported, so each
     /// dropped item failed.
     static func failures(ofThrown error: Error, sources: [URL]) -> [LGEZipImportFailure] {
-        let reason = "Lungfish could not make a working folder in the project, so it did not import it. "
+        let reason = "Lungfish could not make a working folder in the project, so nothing was imported. "
             + "Check that you can write to the project folder, then try again. (\(error.localizedDescription))"
         return sources.map {
             LGEZipImportFailure(sourceURL: $0, kind: .extractionFailed, message: error.localizedDescription, reason: reason)

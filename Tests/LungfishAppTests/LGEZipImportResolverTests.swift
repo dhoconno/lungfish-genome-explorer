@@ -215,6 +215,29 @@ final class LGEZipImportResolverTests: XCTestCase {
         )
     }
 
+    /// The failure sheet's words for each way an archive can fail. The link sentence is the panel's wording for
+    /// OBS-W9. The others say what happened and what to try next, and are checked by their meaning.
+    func testRefusalWordsSayWhyAndWhatToTry() {
+        let link = LGEZipImportFailure.reason(
+            forExtractionError: GeneiousArchiveToolError.unsafeArchive("the symbolic link \u{201C}x\u{201D} points to the absolute path /etc/hosts")
+        )
+        XCTAssertEqual(link, "It holds a link to a file outside the archive, so Lungfish did not import it.")
+
+        let path = LGEZipImportFailure.reason(forExtractionError: GeneiousArchiveToolError.unsafeMemberPath("../evil"))
+        XCTAssertTrue(path.contains("path leaves"), path)
+
+        let unzip = LGEZipImportFailure.reason(
+            forExtractionError: GeneiousArchiveToolError.unzipFailed(
+                arguments: ["-qq"], status: 9, stderr: "End-of-central-directory signature not found\nmore text\n"
+            )
+        )
+        XCTAssertTrue(unzip.contains("could not unpack") && unzip.contains("drop it again"), unzip)
+        XCTAssertTrue(unzip.contains("End-of-central-directory signature not found"), unzip)
+        XCTAssertFalse(unzip.contains("more text"), "only the first line of the tool's words is shown")
+
+        XCTAssertNil(LGEZipImportRefusal(failures: []), "nothing failed, so there is nothing to show")
+    }
+
     func testResolverLeavesNonZipURLsUntouched() throws {
         let root = try makeTempDirectory()
         let fastaURL = root.appendingPathComponent("reads.fa")
