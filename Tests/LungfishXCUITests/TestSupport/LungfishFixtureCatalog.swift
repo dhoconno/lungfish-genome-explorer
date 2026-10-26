@@ -7,6 +7,11 @@ enum LungfishFixtureCatalog {
 
     static let fixturesRoot: URL = {
         let fileManager = FileManager.default
+        // The release smoke gate copies the fixtures it needs out of the checkout, since the
+        // sandboxed runner would need a privacy grant to read a checkout under ~/Documents.
+        if let copied = ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_FIXTURES"], !copied.isEmpty {
+            return URL(fileURLWithPath: copied, isDirectory: true)
+        }
         var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 
         for _ in 0..<10 {

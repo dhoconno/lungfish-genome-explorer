@@ -142,6 +142,7 @@ class AppSmokeGateTests(unittest.TestCase):
             root = Path(temporary)
             (root / "config").mkdir()
             shutil.copyfile(ROOT / "config/release-contract.json", root / "config/release-contract.json")
+            (root / "Tests/Fixtures/analyses").mkdir(parents=True)
             lock = root / "Package.resolved"
             lock.write_text("retained pinned-source sentinel")
             calls = []
@@ -216,3 +217,23 @@ class AppSmokeGateTests(unittest.TestCase):
             preferences.write_text("written by a candidate that ignored its own home")
             self.assertNotEqual(before, app_smoke_gate.account_state(home, "com.lungfish.browser"))
             self.assertEqual(preferences.read_text(), "written by a candidate that ignored its own home")
+
+    def test_gate_makes_each_launch_home_and_copies_the_fixtures_for_the_runner(self):
+        import app_smoke_gate
+        selected = list(load_contract(ROOT / "config/release-contract.json").gates.appSmokeTests)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            homes, fixtures = app_smoke_gate.prepare_candidate_workspace(ROOT, root / "workspace", selected)
+            self.assertEqual(sorted(p.name for p in homes.iterdir()), sorted(s.rsplit("/", 1)[1] for s in selected))
+            self.assertTrue(all(not any(p.iterdir()) for p in homes.iterdir()), "every launch home starts empty")
+            self.assertEqual(profile_paths(homes), [])
+            self.assertEqual(fixtures, root / "workspace/fixtures/Tests/Fixtures")
+            self.assertTrue((fixtures / "analyses/kraken2-2026-01-15T11-00-00").is_dir())
+            source = root / "original.xctestrun"
+            source.write_bytes(plistlib.dumps({"TestConfigurations": [{"TestTargets": [{
+                "BlueprintName": "LungfishXCUITests", "UITargetAppPath": "old.app"}]}]}))
+            configure_xctestrun(source, root / "candidate.xctestrun", root / "Candidate.app", selected, "stable",
+                                home=homes, fixtures=fixtures)
+            target = plistlib.loads((root / "candidate.xctestrun").read_bytes())["TestConfigurations"][0]["TestTargets"][0]
+            self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_HOME"], str(homes))
+            self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_FIXTURES"], str(fixtures))

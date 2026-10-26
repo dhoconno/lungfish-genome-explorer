@@ -81,18 +81,22 @@ struct ReleaseAppSmokeRobot {
     let candidateURL: URL
     let launchHome: URL
 
-    init() throws {
+    init(testName: String = #function) throws {
         let environment = ProcessInfo.processInfo.environment
         guard let path = environment["LUNGFISH_RELEASE_SMOKE_APP"] else {
             throw XCTSkip("Selected only by the exact-candidate graphical release gate")
         }
         let homes = try XCTUnwrap(environment["LUNGFISH_RELEASE_SMOKE_HOME"], "The gate names a fresh candidate home")
         candidateURL = URL(fileURLWithPath: path).standardizedFileURL
-        launchHome = URL(fileURLWithPath: homes, isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        // Only the home itself. The runner may not create a Library/Preferences folder, and
-        // cfprefsd keeps the candidate's preferences for this home without one.
-        try FileManager.default.createDirectory(at: launchHome, withIntermediateDirectories: true)
+        // The gate makes one empty home per selected test, named for the test. The sandboxed
+        // runner may not create a folder outside its own container, so it creates nothing here.
+        let name = testName.hasSuffix("()") ? String(testName.dropLast(2)) : testName
+        launchHome = URL(fileURLWithPath: homes, isDirectory: true).appendingPathComponent(name, isDirectory: true)
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: launchHome.path, isDirectory: &isFolder), isFolder.boolValue else {
+            throw NSError(domain: "ReleaseAppSmokeRobot", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "The gate made no launch home for \(name) at \(launchHome.path)"])
+        }
         app = XCUIApplication(url: candidateURL)
         app.launchEnvironment["HOME"] = launchHome.path
         app.launchEnvironment["CFFIXED_USER_HOME"] = launchHome.path

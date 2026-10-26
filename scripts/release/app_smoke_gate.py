@@ -160,7 +160,27 @@ def runner_identity(products):
     return [file_record(Path(products) / path, Path(products)) for path in paths]
 
 
-def configure_xctestrun(path, destination, app, identifiers, channel, home=None):
+# Fixture folders the smoke tasks read, copied out of the checkout for the runner.
+SMOKE_FIXTURES = ("Tests/Fixtures/analyses",)
+
+
+def prepare_candidate_workspace(root, workspace, identifiers):
+    """One empty launch home per selected test, and a copy of the fixtures the smoke reads.
+
+    The sandboxed UI runner may create no folder outside its own container, and reading a checkout
+    under ~/Documents would raise a privacy prompt, so the gate makes both in its temporary folder.
+    Returns the folder of homes and the copied Tests/Fixtures folder.
+    """
+    homes = Path(workspace) / "homes"
+    for name in identifiers:
+        (homes / name.rsplit("/", 1)[1]).mkdir(parents=True)
+    copy_root = Path(workspace) / "fixtures"
+    for relative in SMOKE_FIXTURES:
+        shutil.copytree(Path(root) / relative, copy_root / relative, symlinks=True)
+    return homes, copy_root / "Tests/Fixtures"
+
+
+def configure_xctestrun(path, destination, app, identifiers, channel, home=None, fixtures=None):
     document = plistlib.loads(Path(path).read_bytes())
     target = ui_target(document)
     target["UITargetAppPath"] = str(app)
@@ -169,9 +189,12 @@ def configure_xctestrun(path, destination, app, identifiers, channel, home=None)
     environment = target.setdefault("EnvironmentVariables", {})
     environment.update({"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": channel})
     if home is not None:
-        # ReleaseAppSmokeRobot launches the candidate with HOME and CFFIXED_USER_HOME in a fresh
-        # folder under this one, so a first launch sees no Lungfish state and writes none of its own.
+        # ReleaseAppSmokeRobot launches the candidate with HOME and CFFIXED_USER_HOME in the
+        # gate-made folder named for its test, so a first launch sees no Lungfish state and
+        # writes none of its own.
         environment["LUNGFISH_RELEASE_SMOKE_HOME"] = str(home)
+    if fixtures is not None:
+        environment["LUNGFISH_RELEASE_SMOKE_FIXTURES"] = str(fixtures)
     # Preserve __TESTROOT__ resolution when retaining the rewritten file elsewhere.
     def expand(value):
         if isinstance(value, str): return value.replace("__TESTROOT__", str(Path(path).parent))
@@ -287,13 +310,14 @@ def run(args):
     root, app, directory = args.root.resolve(), args.app.resolve(), args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     # Outside the evidence, since the candidate's preferences may flush after the run, and in the
-    # user's temporary folder, since the runner may not write under a privacy-protected folder
-    # such as ~/Documents, where a checkout and its release folder often live.
-    candidate_home = Path(tempfile.mkdtemp(prefix="lungfish-app-smoke-home-")).resolve()
+    # user's temporary folder, since the runner may not read or write under a privacy-protected
+    # folder such as ~/Documents, where a checkout and its release folder often live.
+    workspace = Path(tempfile.mkdtemp(prefix="lungfish-app-smoke-")).resolve()
     contract = load_contract(root / "config/release-contract.json")
     source = source_identity(root)
     payload = receipt_authority(root)._payload_digest(app)
     identifiers = selected_tests(contract)
+    candidate_home, fixtures = prepare_candidate_workspace(root, workspace, identifiers)
     result = {"schemaVersion": 1, "kind": "xcode-real-app", "source": source,
               "channel": args.channel, "appPath": str(app), "appPayloadSHA256": payload,
               "selectedTests": identifiers, "startedAt": now(), "runtime": runtime_identity(),
@@ -329,7 +353,8 @@ def run(args):
         compiled_configuration = select_xctestrun(products, result["sdkVersion"])
         result["runnerIdentity"] = runner_identity(products)
         runfile = directory / "candidate.xctestrun"
-        configure_xctestrun(compiled_configuration, runfile, app, identifiers, args.channel, home=candidate_home)
+        configure_xctestrun(compiled_configuration, runfile, app, identifiers, args.channel,
+                            home=candidate_home, fixtures=fixtures)
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runfile),
                    "-destination", "platform=macOS,arch=arm64", "-parallel-testing-enabled", "NO",
                    "-resultBundlePath", str(directory / "run.xcresult")]
