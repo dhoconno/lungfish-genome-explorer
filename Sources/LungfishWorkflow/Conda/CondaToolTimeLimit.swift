@@ -10,7 +10,8 @@ import LungfishCore
 /// An analysis tool has no wall-clock limit by default, and a limit is a named option that the caller
 /// sets (`docs/contracts/SCOPE-AND-DELIVERY.md`, Tool run time).
 enum CondaToolTimeLimit {
-    /// Receives the spec of each `CondaManager.runTool` launch built in the current task, just before the launch.
+    /// Receives the spec of each `CondaManager.runTool` launch and of each `NativeToolRunner` launch built in the
+    /// current task, just before the launch. A native pipeline hands over each stage with the limit of the run.
     ///
     /// Production never binds it. A test binds it around one call to read the limit that call built, so no test
     /// has to run a tool for the length of a limit. It follows the task like `ToolProcessObservation.observer`,

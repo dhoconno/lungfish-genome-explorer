@@ -66,6 +66,7 @@ enum NativeToolProcessAdapter {
         timeout: TimeInterval,
         onEvent: (@Sendable (NativeProcessEvent) -> Void)?
     ) async throws -> ToolProcessResult {
+        CondaToolTimeLimit.specProbe?(spec)
         let result: ToolProcessResult
         do {
             result = try await ToolProcess.run(spec, onEvent: observer(onEvent))
@@ -87,6 +88,7 @@ enum NativeToolProcessAdapter {
         timeout: TimeInterval
     ) async throws -> ToolPipelineResult {
         let limit = try limit(timeout, name: name)
+        probe(specs, limit: limit)
         let result: ToolPipelineResult
         do {
             result = try await ToolProcess.runPipeline(specs, timeout: limit, failurePolicy: .runToCompletion)
@@ -97,5 +99,16 @@ enum NativeToolProcessAdapter {
             try requireCompleteOutput(stage, name: name)
         }
         return result
+    }
+
+    /// Hands each stage of a pipeline to `CondaToolTimeLimit.specProbe` with the limit of the whole run on the copy
+    /// it reads, since a pipeline's limit belongs to the run and no stage's spec carries it. Production never binds
+    /// the probe, so a run pays one task-local read.
+    private static func probe(_ stages: [ToolProcessSpec], limit: Duration?) {
+        guard let probe = CondaToolTimeLimit.specProbe else { return }
+        for var stage in stages {
+            stage.timeout = limit
+            probe(stage)
+        }
     }
 }
