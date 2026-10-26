@@ -128,7 +128,7 @@ final class ToolTimeLimitTests: XCTestCase {
                                     file: StaticString = #filePath, line: UInt = #line) {
         guard let words else { return XCTFail("the error has no words", file: file, line: line) }
         XCTAssertTrue(words.hasPrefix("\(subject) was stopped after \(duration) by its time limit."), words, file: file, line: line)
-        XCTAssertTrue(words.hasSuffix("Run it again with no time limit or a longer one."), words, file: file, line: line)
+        XCTAssertTrue(words.hasSuffix("No setting changes this limit yet. Try a smaller input, or report it so the limit can be lifted."), words, file: file, line: line)
     }
 
     /// The wall-clock limit of each launch that `call` makes, in launch order, nil for none.
