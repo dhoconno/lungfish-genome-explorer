@@ -45,7 +45,7 @@ Target LungfishCoreTests in Tests/LungfishCoreTests. Run only it with `swift tes
 | Trap | Evidence |
 |---|---|
 | 41 notification names carry payload shapes in doc comments only, and many readers use raw string keys | Sources/LungfishCore/Models/Notifications.swift (R9) |
-| Process() is created directly in three services | Services/NCBI/NCBIService.swift, Services/NCBI/SRAService.swift, Services/Blast/BlastService.swift (R7) |
+| The SRA and BLAST services launch their tools through `ToolProcess`, and a new service does the same, since `scripts/ratchets/process-spawn.sh` counts every `Process()` outside `Sources/LungfishCore/Process/` | Services/NCBI/SRAService.swift, Services/Blast/BlastService.swift (R7) |
 | `String(format:)` with `%s` on a Swift String crashes, use `%@` or interpolation | memory file reference_runtime_patterns.md |
 | A ToolProcess descendant that leaves its process group with setsid or setpgid and keeps writing a `.file` output escapes settlement, so it can write after the run returns | Known limits in Sources/LungfishCore/Process/ToolProcess.swift (R7, Phase 2.2 lane 6A) |
 | A slow reader of a `.stream` stdout whose writer is a descendant outliving the leader is cut when the drain grace runs out, and the output is reported incomplete | Known limits in Sources/LungfishCore/Process/ToolProcess.swift |

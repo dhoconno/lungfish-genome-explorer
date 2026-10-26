@@ -11,7 +11,7 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | `Sources/<Module>/AGENTS.md` | Module-specific purpose, allowed imports, entry points, owned contracts, test target and known traps |
 | [docs/contracts/README.md](docs/contracts/README.md) | Index of the written contracts |
 | [docs/contracts/ADDING-AN-OPERATION.md](docs/contracts/ADDING-AN-OPERATION.md) | The full path for a new operation, from Workflow service to CLI command to App runner |
-| [docs/contracts/CLI-EQUIVALENCE.md](docs/contracts/CLI-EQUIVALENCE.md) | What "every operation has a `lungfish-cli` equivalent" means, how a recorded command is tested and replayed, and how parity gaps are pinned and counted |
+| [docs/contracts/CLI-EQUIVALENCE.md](docs/contracts/CLI-EQUIVALENCE.md) | Which operations need a `lungfish-cli` equivalent, how a recorded command is tested and replayed, and how parity gaps are pinned and counted |
 | [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The leaf-module recipe for a new result viewer and every App touch point it needs today |
 | [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | A copyable checklist to tick per surface |
 | [docs/contracts/RUNNING-A-TOOL.md](docs/contracts/RUNNING-A-TOOL.md) | Which entry point launches a tool |
@@ -20,8 +20,9 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | [docs/contracts/EXTERNAL-VOLUMES.md](docs/contracts/EXTERNAL-VOLUMES.md) | What differs when a project lives on an ExFAT external drive, the portable helpers, how to test on a real ExFAT image and the volume-portability ratchet |
 | [docs/contracts/VERIFICATION-ORDER.md](docs/contracts/VERIFICATION-ORDER.md) | In what order a session runs its checks and which evidence carries forward |
 | [docs/contracts/MACHINES.md](docs/contracts/MACHINES.md) | What each Mac is for and how it gets the locked golden environment |
+| [docs/contracts/SCOPE-AND-DELIVERY.md](docs/contracts/SCOPE-AND-DELIVERY.md) | Which work a phase takes on, its budget and exit checks, how findings get a severity, and when a fix reaches Stable. Read it before planning or briefing any phase, sub-phase or lane |
 | [docs/contracts/RUNNING-A-PHASE-SESSION.md](docs/contracts/RUNNING-A-PHASE-SESSION.md) | How a phase session spends model time with subagents |
-| [docs/contracts/EXPERT-PANEL.md](docs/contracts/EXPERT-PANEL.md) | Who leads a session, the five voting experts and two checks, the stages of a phase, how rulings and votes work, and the review checklist of each field |
+| [docs/contracts/EXPERT-PANEL.md](docs/contracts/EXPERT-PANEL.md) | The five experts who set a phase's scope and review its exit, the two checks, how rulings and votes work, and the review checklist of each field |
 | [docs/contracts/CLAUDE-CODE-PRACTICES.md](docs/contracts/CLAUDE-CODE-PRACTICES.md) | The weekly check of the Claude Code best practices page, the basis of a rule that comes from it, and the decisions and trials that follow from each check |
 | [docs/contracts/SCREENCASTS.md](docs/contracts/SCREENCASTS.md) | How screencasts are made, revised after feedback, narrated and published to the Videos page |
 | [docs/user-manual/features.yaml](docs/user-manual/features.yaml) | Every user-reachable feature with its menu path and source files |
@@ -66,7 +67,7 @@ These rules are not optional.
 | Rule | What it means |
 |---|---|
 | Register with `OperationCenter.begin` | Register every operation with `OperationCenter.shared.begin(...)` and switch on the result. A `.refused` result means a bundle lock conflicted, so launch nothing. `begin` has no default for `operationType` or `cliCommand`, so name both on every call, and pass `nil` for a run that no CLI command reproduces. |
-| CLI parity | Every GUI operation must have a `lungfish-cli` equivalent that produces the same result, and the GUI records that command in the Operations panel. Shared logic lives in LungfishWorkflow so both paths run it. `docs/contracts/CLI-EQUIVALENCE.md` defines "same result", the gap markers and the `scripts/ratchets/cli-parity-gaps.sh` ratchet. |
+| CLI parity | Every GUI operation that makes or changes scientific data must have a `lungfish-cli` equivalent that produces the same result, and the GUI records that command in the Operations panel. Shared logic lives in LungfishWorkflow so both paths run it. `docs/contracts/CLI-EQUIVALENCE.md` defines "same result", the gap markers and the `scripts/ratchets/cli-parity-gaps.sh` ratchet. |
 | Provenance envelope is mandatory | Every new operation writes a provenance record through `ProvenanceEnvelope` and `ProvenanceWriter`, never as a bare `WorkflowRun` and never under a new sidecar file name. A run without provenance is a defect, and reading a record never writes into the project. `docs/contracts/RECORDING-PROVENANCE.md` says how. |
 | BAM, never SAM | Alignments are stored as sorted, indexed BAM. Convert any SAM with samtools sort and index, then delete the SAM. |
 | Materialize virtual FASTQ first | A virtual FASTQ bundle holds only `preview.fastq`. Materialize it with `FASTQCLIMaterializer` before any classifier or mapper runs. |

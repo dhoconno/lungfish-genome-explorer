@@ -4,7 +4,7 @@ Line numbers were checked at commit a0eec8b32. When a line has moved, search for
 
 ## Purpose
 
-The `lungfish-cli` command tree, built on swift-argument-parser. Every GUI operation has a CLI command that reproduces it (CLI parity), and the app runs many operations by spawning this binary. Commands parse options, materialize inputs, call a LungfishWorkflow pipeline and report progress. Scientific logic belongs in LungfishWorkflow, not in a command.
+The `lungfish-cli` command tree, built on swift-argument-parser. Every GUI operation that makes or changes scientific data has a CLI command that reproduces it (CLI parity), and the app runs many operations by spawning this binary. Commands parse options, materialize inputs, call a LungfishWorkflow pipeline and report progress. Scientific logic belongs in LungfishWorkflow, not in a command.
 
 ## Allowed imports
 

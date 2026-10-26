@@ -8,24 +8,27 @@ The rules come from measured sessions. `scripts/llm/session_ledger.py` reads a s
 every API turn per model and never prints message text. Its totals ran 0.13% under Claude Code's own cost records on
 2.12 with the price table of 2026-10-18. Costs here are API-equivalent estimates, with the evidence at the end.
 
-## Every session runs the monitor
+`docs/contracts/SCOPE-AND-DELIVERY.md` sets which work a session takes on, its budget and when it stops. This contract
+sets how the session spends model time on that work.
 
-The owner asked on 2026-10-11 that the monitor run in every session of this repository, so that each session's lessons
-make the next one cheaper. A phase session runs every checkpoint. Any other session that spawns subagents, runs builds
-or lasts more than about an hour makes the Session start checks and runs the monitor once, at its end. A short session
-ends with `python3 scripts/llm/session_ledger.py --md <file> <session id>` and adds its line to the session table.
+## The monitor runs once, at the end
+
+A phase session runs the monitor agent once, after its last landing and before the final candidate, so its commits land before the candidate. Any other session that spawns subagents, runs builds or lasts
+more than about an hour ends with `python3 scripts/llm/session_ledger.py --md <file> <session id>` and adds its line to
+the session table. The owner asked on 2026-10-11 for a monitor at every checkpoint. The audit of 2026-10-26 cut that to
+the end, since the checkpoints of 2.7 to 2.13 cost $377 and missed the runaway fact-check that the heartbeat below stops.
 
 ## Roles
 
 | Role | Model | Spawned | Reads | Leaves behind |
 |---|---|---|---|---|
 | Manager | the main session, opus at effort xhigh, which the owner sets in the app before the session starts | by the owner | the plan, the briefs, `notes.md`, verdict lines of reports | the landed program branch, the plan record, memory notes |
-| Expert panel, which leads the session under `docs/contracts/EXPERT-PANEL.md` | opus at effort xhigh for inventories, memos, rulings and votes, sonnet at effort max for reviews and the tally | five inventory agents, five fresh memo agents, then one agent that drafts the tally | the code, then the inventory files, then the memos | `inv/<FIELD>.md`, `memos/<FIELD>.md`, a tally table with the split questions flagged for the manager |
+| Expert panel, which sets scope and reviews the exit under `docs/contracts/EXPERT-PANEL.md` | opus at effort xhigh for inventories, memos, rulings and votes, sonnet at effort max for reviews and the tally | once a phase, five inventory agents, five fresh memo agents, then one agent that drafts the tally | the code, then the inventory files, then the memos | `inv/<FIELD>.md`, `memos/<FIELD>.md`, a tally table with the split questions flagged for the manager |
 | Lane | opus at effort xhigh on the longest chain or for judgment, sonnet at effort max for mechanical and documentation work | `isolation: "worktree"`, then the guarded reset under Fresh worktrees to the program head or to the head of the lane it builds on | its brief, `lane-rules.md` and the files it changes | commits, `lanes/<LANE>/<LANE>.md`, a final message under 150 words |
-| Reviewer | sonnet at effort max, one fresh agent per lane that also carries the questions of the other fields the lane touches | after the lane's final message | the lane report and the diff | `reviews/<LANE>.md` with a verdict, numbered fixes as `path:line` and text, and rulings on the questions it carries |
+| Reviewer | sonnet at effort max, one fresh agent per lane from the field it changes most, plus BIO when it touches scientific output, and none for a lane of only documentation or only tests | after the lane's final message | the lane report and the diff | `reviews/<LANE>.md` with a verdict, its blockers and at most three should-fix items as `path:line` and text, and rulings on the questions it carries |
 | Fix agent | sonnet, at effort high for fixes that paste given words into documentation and at effort max for code fixes, and opus at effort max when a fix needs judgment | fresh, `isolation: "worktree"`, then the guarded reset to the lane head | the review file and the lane report | commits, `lanes/<LANE>/<LANE>-fix.md` |
 | Landing agent | sonnet at effort max | fresh, in the program worktree | `land.md`, the ranges, the review files and the small fixes to fold in | cherry-picks, folded fixes, a build, targeted tests, the module map, ratchets, `land/land-N.md` |
-| LLM-efficiency monitor | opus at effort xhigh, one fresh agent per checkpoint, defined in `.claude/agents/llm-efficiency-monitor.md` | at the start, after each wave launch, about every two hours, and at the end | `llm/notes.md`, `llm/actions.md`, the last log entry, the session notes and event log | a ledger, a log entry, numbered actions, a dated best-practice diff in `/Users/dho/lungfish-phase-records/best-practices/` when the last check is over 7 days old, and at the end the update of this contract |
+| LLM-efficiency monitor | opus at effort xhigh, one fresh agent, defined in `.claude/agents/llm-efficiency-monitor.md` | once, after the last landing and before the final candidate | `llm/notes.md`, `llm/actions.md`, the last log entry, the session notes and event log | a ledger, a log entry, numbered actions, a dated best-practice diff in `/Users/dho/lungfish-phase-records/best-practices/` when the last check is over 7 days old, and numbered proposals for changes to this contract |
 
 The manager plans, briefs, spawns and decides. It does not land lanes or edit code beyond a one-line fix, and its own
 context is the scarcest resource of the session. Spawn lanes, continuations, fix agents and landing agents as
@@ -45,7 +48,7 @@ Session files live in the scratch folder `SCR`, outside the repository, and agen
 | `SCR/lanes/<LANE>/<LANE>.md` | lane | Commits, tests, findings and a Handoff section with the state, remaining steps, the files to read with their line ranges and the next command |
 | `SCR/reviews/<LANE>.md` and `SCR/land/land-N.md` | reviewer, landing agent | The verdict with numbered fixes, the landing record |
 | `SCR/land/*.py` | landing agents, the monitor | Wrappers that later agents reuse. `run_swift.py` runs one swift command and `run_cmd.py` any command as an argument list, and each ends its log with an `exit=` line |
-| `SCR/llm/`, and `build/llm/` of the primary checkout | monitor | Ledgers, `log.md`, `actions.md` and the monitor's `notes.md`, and at the last checkpoint the helper scripts and the landing wrappers for the next session |
+| `SCR/llm/`, and `build/llm/` of the primary checkout | monitor | Ledgers, `log.md`, `actions.md` and the monitor's `notes.md`, and at the end the helper scripts and the landing wrappers for the next session |
 
 ## Session start
 
@@ -97,17 +100,17 @@ until rg -q '^exit=' build/lane/build.log; do sleep 5; done; tail -n 20 build/la
 | Chained lanes | Start the longest chains first. Start a continuation from the head of the agent before it as soon as that agent ends, and a lane that builds on a reviewed lane from that lane's head commit, without waiting for a review or a landing. Land its range after the first lane. |
 | Documentation lanes | Write the facts into the brief, each with its source (commit, file and line, or the review item's text), and name every file that holds them. The lane writes one section at a time, reads a file over 20 KB by line range, never joins its sources into one file to read, writes its Handoff at 45 calls and stops at 60 by its own count, since it builds nothing. An agent that records decisions gets each row with its source and opens no source. Check release notes with one sonnet agent a slice of about 40 claims that cite a record line, or about 30 code-behavior claims, which writes its file by call 50 and stops at 70. Give each claim as its id, the sentence, the token it states and the deciding `path:line` or test, and have the agent read five claims a message. Check an internal record with a script against its cited lines and one sampled slice a part. Open claims go to the fix part, never to a new slice. |
 | Landing batches | Give each batch of 3 or 4 reviewed ranges to one sonnet landing agent, which stops at about 150 calls by its own count. Fold one or two small review fixes of a range, written as `path:line` and text, into its brief, and give three to five to one fix agent before the landing, a sixth to a second one. Keep fix agents also for fixes that need a measurement, a new test design or judgment. The brief allows the smallest fix of a compile error or a test failure where two lanes meet, in its own commit. For a failure in a file no lane of the batch touched, the agent runs that file alone and on the base once, records a pre-existing fault and goes on, without rerunning the whole suite. Run the full unit tier after about every 10 landings and once before the candidate, and have a landing that changes export text run the Conformance pins of that export, found with `rg -l` on the changed literal under Tests. |
-| Fold small follow-ups | Put review follow-ups that do not block a merge into the brief of a later lane on the same files, written out as facts. Keep them off the longest chain, and list the follow-ups of a cut lane under Moved out. |
-| Rulings and checks | Route each open question as `docs/contracts/EXPERT-PANEL.md` sets out under Rulings and disputes. Answer a question that a recorded rule settles by message. Give a question of one field, with its ranges named, to an expert already checking a nearby range or to one fresh expert of that field. When two ranges that share files hand back within about 30 minutes, one expert at effort max checks both, each with its own section and verdict. Only a question across fields or a change to a recorded decision goes to a vote of the panel. When the panel rules on many rows at once, one agent writes a shared fact sheet with `path:line` sources, and the voters at effort xhigh read it in place of the records. |
+| Fold small follow-ups | Put a should-fix item that does not block a merge into the brief of a later lane on the same files, written out as facts, and keep it off the longest chain. Every other finding, and the follow-ups of a cut lane, go to `docs/plans/BACKLOG.md`. |
+| Rulings and checks | Route each open question as `docs/contracts/EXPERT-PANEL.md` sets out under Rulings and disputes. Answer a question that a recorded rule settles by message. Give a question of one field, with its ranges named, to an expert already checking a nearby range or to one fresh expert of that field. When two ranges that share files hand back within about 30 minutes, one expert at effort max checks both, each with its own section and verdict. A finding takes a severity, never a vote. Only a disagreement of two fields on scope or on an S1 or S2 finding, or a change to a recorded decision, goes to a vote of the panel. |
 | Concurrency | Run at most 5 building agents, counting lanes, fix agents and landing agents but not reviews. On the 20-core Mac launch only at a load average under 40. On the 14-core laptop three cold builds take the load past 200, so launch there by the count alone. Space cold launches about 3 minutes apart, and keep a background wait running so that an agent's end wakes the manager. |
-| Quota pacing | Read `get_usage` at every landing. Keep the 5-hour figure under a straight line from the window start (20 points an hour, $76 to $105 an hour at $3.8 to $5.2 a point), and hold every spawn at 75%. Project the weekly close from a list of the rows left, each with a low and a high cost, at the dollars a point of this week's own readings, taken from two readings about 10 points apart, since a point cost $14 to $22 from one week to the next on the same price table. When the projection crosses the stop line, ask the owner which rows move to the next phase. At a launch line about 6 points under the stop no new row starts, and the owner hears the projection. |
+| Quota pacing | Read `get_usage` at every landing. Keep the 5-hour figure under a straight line from the window start (20 points an hour, $76 to $105 an hour at $3.8 to $5.2 a point), and hold every spawn at 75%. Project the weekly close from a list of the rows left, each with a low and a high cost, at the dollars a point of this week's own readings, taken from two readings about 10 points apart, since a point cost $14 to $22 from one week to the next on the same price table. When the projection crosses the stop line, ask the owner which rows move to the next phase. At a launch line about 6 points under the stop no new row starts, and the owner hears the projection. The same holds at one and a half times the phase's dollar budget. |
 | Disk and snapshots | Each worktree build folder holds about 16 GB. Check `df -h ~` before every launch and landing. Local snapshots keep deleted folders, so under the owner's standing grant thin them at the first reading under about 100 GB with `tmutil thinlocalsnapshots / 400000000000 4`, which needs no sudo. |
 | Model choice | The two effort and model tests of 2026-10-15 set these. Opus at effort xhigh for inventories, memos, rulings, votes, the monitor and opus lanes (the longest chain, judgment and design-sensitive work), and at effort max for fix agents that need judgment. Sonnet at effort max for reviews, fact-checks, code fix agents, mechanical and documentation lanes, landings and the memo tally, and at effort high for fix agents that paste given words into documentation. Opus fix agents, landings and the tally were not measured and stay at max, and votes moved to xhigh on one ungraded measurement under Rulings. The manager runs on opus at effort xhigh. No test measured it, but xhigh matched max on all four opus tasks, and in the first test the manager's own thinking at max made 31% of its context growth. No expert runs below effort xhigh, and no role runs on haiku. |
 | Model and effort on every delegation | Every Agent call sets the agent type, `model` and `effort` explicitly, so no spawn inherits the session's settings. Every brief opens with the line `You run as <agent type> on <model> at effort <level>.`, and every brief or recommendation that delegates work names the agent type, model and effort of each agent it calls for. The STATE block and the spawn map record all three for each spawn. A spawn that sets no effort inherits the session's, and its transcript then reads the session's setting, which is why every 2.10 transcript read max. A spawn that sets one records it in its meta file and in its transcript alike (68 of 68 runs in the two tests of 2026-10-15), and the meta file stays the source. A test run gets its task's frozen brief without the opening line, so its arm stays blind, while its spawn sets the model and effort. The Model choice row holds the settings of `docs/plans/2026-10-15-phase-2-11-effort-ab.md` and `docs/plans/2026-10-16-effort-ab-round-2.md`. |
 | Done means sent | Write a step into the STATE or the event log as done only after its call ran, and record a text to the owner as sent only after a transcript check shows it. |
 | Confirmed end | Start a review, a landing or a check of an agent's work only after the agent has ended. It has ended when its transcript's last entry is its final message, with no tool call and at least 30 s old, and no build or test of its own still runs in its worktree (`lsof -a -c <name> -d cwd` lists them by folder). A background command that ends after the final message wakes the agent, which goes on working. |
-| Unattended hours | While the owner is away, run only command forms that already ran this session. A call held at the permission step holds the manager's turn, so no notification wakes it and no checkpoint sees it, and keep-awake does not help. |
-| GUI walk by computer use | Start the walk with the context under about 150K and have the owner type `/compact` at each block boundary past about 300K, since screenshots grow it 5K to 9K a minute. Press Cancel only on the only running row, or after reading its name in the same frame. Never search the home folder. State the storage root of every Debug pass, since a Debug app whose tool locks match the packaged app's shares `~/.lungfish`. Hide the Debug windows before a full-screen control prompt, since they cover the Claude app's prompt. Run no packaged app beside a Debug pass. A Finder drag works by computer use as a press, stepped moves, a pause and a release. A save sheet refuses a typed path, so choose its folder from the folder pop-up's Recent Places. Keep full control while the owner may leave, since after `release_full_control` the next full-screen action needs a new approval card and the background app tools open no pop-up menu. A copied walk project keeps classifier results whose stored absolute paths point into the old project, so run a fresh result in the copy before any Extract. `lungfish-cli provenance verify` checks signed sidecars only. The five walk votes run on opus at effort xhigh, read the walk state file and its images, stop at 45 calls and write `VOTE` lines that the manager tallies. |
+| Unattended hours | While the owner is away, run only command forms that already ran this session. A call held at the permission step holds the manager's turn, so no notification wakes it and no heartbeat sees it, and keep-awake does not help. |
+| GUI walk by computer use | A walk by computer use counts as the packaged walk of `docs/contracts/VERIFICATION-ORDER.md` only while the owner is at the Mac with the screen unlocked. Start the walk with the context under about 150K and have the owner type `/compact` at each block boundary past about 300K, since screenshots grow it 5K to 9K a minute. Press Cancel only on the only running row, or after reading its name in the same frame. Never search the home folder. State the storage root of every Debug pass, since a Debug app whose tool locks match the packaged app's shares `~/.lungfish`. Hide the Debug windows before a full-screen control prompt, since they cover the Claude app's prompt. Run no packaged app beside a Debug pass. A Finder drag works by computer use as a press, stepped moves, a pause and a release. A save sheet refuses a typed path, so choose its folder from the folder pop-up's Recent Places. Keep full control while the owner may leave, since after `release_full_control` the next full-screen action needs a new approval card and the background app tools open no pop-up menu. A copied walk project keeps classifier results whose stored absolute paths point into the old project, so run a fresh result in the copy before any Extract. `lungfish-cli provenance verify` checks signed sidecars only. The five walk votes run on opus at effort xhigh, read the walk state file and its images, stop at 45 calls and write `VOTE` lines that the manager tallies. |
 
 ## The manager's context budget
 
@@ -140,14 +143,12 @@ and with a current STATE block a compaction repeats no work. These habits keep t
 | EnterWorktree from a subagent into another agent's worktree is refused, and a new worktree starts at origin/main | `isolation: "worktree"` and the guarded reset to the head to build on |
 | Agent types in `.claude/agents/` load only when the session starts | Commit a new type before the session that uses it |
 
-## Checkpoint routine
+## End check and heartbeat
 
-A fresh monitor agent briefed with files runs each checkpoint as `.claude/agents/llm-efficiency-monitor.md` sets out.
-Its scripts read the transcripts, so no transcript text enters its context, and it writes only under `SCR/llm/`. It
-checks the ledger, `get_usage`, disk, the briefs (a rule that never reaches a brief is not followed) and the thresholds
-below. It leaves a log entry with a table of spend, output and thinking tokens by role, model and the effort each spawn
-asked for, with the count of messages that kept no final usage, numbered actions with agent ids and evidence, and a
-final message under 200 words.
+At the end a fresh monitor agent briefed with files runs as `.claude/agents/llm-efficiency-monitor.md` sets out, with
+scripts that read the transcripts so no transcript text enters its context. It leaves a ledger, a table of spend by
+role, model and effort, and numbered proposals for the owner. While agents run, the manager keeps a heartbeat of at
+most 45 minutes that reads `get_usage`, disk and each agent's transcript size, and acts on the thresholds below.
 
 | Signal | Threshold | Action |
 |---|---|---|
@@ -166,7 +167,7 @@ final message under 200 words.
 
 The direct cost of a lane is its lane agents, its review, its fix agent and its share of the landing agent, and the
 all-in cost adds the panel, the manager and the monitor. `docs/contracts/LLM-EVIDENCE.md` holds the measurement behind
-each rule. A manager reads it only to question or change a rule, and the monitor adds to it at its last checkpoint.
+each rule. A manager reads it only to question or change a rule, and the monitor adds to it at the end of a session.
 
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
@@ -178,25 +179,22 @@ each rule. A manager reads it only to question or change a rule, and the monitor
 | 2.14, one session, to the closing checkpoint, after the final candidate, the release of Preview 2026.10.23, the packaged re-walk and the exit review | 2026-10-23 and 24 | $274 over 12h56m, $44 of it the walk with its votes, $21 rulings and votes in all, $25 the final candidate and release, the week 27% to 40% at $20.5 a point | 13, 11 in 3 landings and 2 candidate test fixes | median $4.93, mean $6.14 | $21.07 |
 | CHTC program sessions 1 to 4, C0 to the C4 pre-brief round, each to its closing checkpoint, session 3 on the laptop unmeasured | 2026-10-21 to 23 | $540 over 39h47m in sessions 1, 2 and 4 ($195, $301 and $45), $116 of it the panel, session 2 on two accounts at $23.2 a point, the week 25% to 27% in session 4 | 22 in sessions 1 and 2, 1 in session 3, none in session 4 | medians $6.63 and $10.47, means $9.22 and $11.42 | $24.39 and $21.48 |
 | CHTC program sessions 5 to 7, the C4, C5 and C6 lanes on galah, each to its closing checkpoint after the last landing, before any push | 2026-10-24 to 26 | $358 over 15h12m, $187 over 6h45m ($209 over 10h48m to its end with the package runs and the publish) and $61 over 7h28m, in session 5 $96 the parity lanes A, P and V, $35 the CHTC acceptance lane and $19 three votes, in session 6 $37 the panel and $17 two CHTC records lanes, in session 7 $7.73 three CHTC batch lanes, $6.45 two rulings and $1.35 for 3h28m of cluster waits, 5h06m of it with the owner away, the week 41% to 58% at $20.9 a point, 58% to 67% at $20.1 and 1% to 4% at about $17 | 12 in 6 landings, 11 in 3, and 3 in session 7, one landing and two fast-forwards | medians $22.75, $7.21 and $4.88, means $23.24, $8.15 and $7.94 | $29.80, $17.03 and $20.27 |
+| Audit of Phases 1 and 2, one session with two teams of three seats, two chairs and one reviewer, to the commit of the contract changes | 2026-10-26 | $65, $53 of it nine subagents (six opus seats $40, two opus chairs $8, one sonnet reviewer $4) and $12 the manager | none, a documentation change | not applicable | not applicable |
 
 ## End-of-session duty
 
-The monitor's last checkpoint of every phase session updates this contract. A commit that changes `scripts/llm/` or
-`.claude/agents/` lands before the final candidate, and its landing runs `python3 -m unittest
-scripts/tests/test_session_ledger.py`, since the unit tier runs that test only under `--profile extended`. A commit that
-changes only `docs/contracts/` is release-neutral and may follow the release as a fast-forward that inherits the unit
-evidence. The next session's checkpoint 0 records the closing figures of the session before it, for its own update.
+The monitor at the end of every phase session proposes changes to this contract, and the owner accepts or declines
+them (`docs/contracts/SCOPE-AND-DELIVERY.md`). A commit that changes `scripts/llm/` or `.claude/agents/` lands before
+the final candidate, and its landing runs `python3 -m unittest scripts/tests/test_session_ledger.py`, since the unit
+tier runs that test only under `--profile extended`. A commit that changes only `docs/contracts/` is release-neutral and
+may follow the release as a fast-forward that inherits the unit evidence.
 
 - Add the session to the session table, and its measurements to `docs/contracts/LLM-EVIDENCE.md` in place of older ones.
-- Change or remove a rule that a before-and-after measurement contradicts. Add a rule only when a measurement supports
-  it, or when it comes from `docs/contracts/CLAUDE-CODE-PRACTICES.md` with the basis `page`, and keep this file under
-  about 200 lines. The same checkpoint prunes this file and folds the accepted best-practice proposals.
+- Propose to change or remove a rule that a before-and-after measurement contradicts, and a new rule only when a
+  measurement or a `page` basis of `docs/contracts/CLAUDE-CODE-PRACTICES.md` supports it. This file stays under about
+  200 lines.
 - Update `.claude/agents/llm-efficiency-monitor.md` and the ledger with its test when they changed, commit any agent
   type the session proposed, since types load only at a session's start, and copy the helpers to `build/llm/`.
-- Apply the line test to this file and `CLAUDE.md`. A line stays when removing it would cause a mistake, and this file
-  ends under its cap as the first bullet sets. For `AGENTS.md` and each other contract the session changed, list the
-  lines that fail the test in one numbered action for a documentation lane of the next phase, which the field that owns
-  the file reviews. A fact about code moves to `docs/architecture/ARCHITECTURE.md` or the module's `AGENTS.md`.
-- Fold each best-practice proposal that the owner or the panel accepted into `docs/contracts/CLAUDE-CODE-PRACTICES.md`
-  and the files it names, with the basis `page`, and record the measurement that keeps, changes or removes each row of
-  that basis.
+- For this file, `CLAUDE.md`, `AGENTS.md` and each contract the session changed, list the lines that no longer prevent
+  a mistake in one numbered proposal. A fact about code moves to `docs/architecture/ARCHITECTURE.md` or the module's
+  `AGENTS.md`.

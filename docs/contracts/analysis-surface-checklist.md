@@ -75,7 +75,7 @@ Tick each one or write "retired" once its program task has landed.
 - [ ] An argv round-trip test proves the GUI's argv parses through the real CLI subcommand.
 - [ ] A CLI test and a Workflow test check scientific output by value on a fixture.
 - [ ] A CLI and GUI parity test shows identical output trees and provenance with timestamps masked.
-- [ ] A routing test shows the surface opens for its result and binds the right inputs.
+- [ ] A routing test shows the surface opens for its result and binds the right inputs, and the new bundle kind joins the view-switch test in the same change (`docs/contracts/SCOPE-AND-DELIVERY.md`).
 - [ ] `docs/user-manual/features.yaml` names every source file, the CLI command and the entry points.
 
 ### Before merge

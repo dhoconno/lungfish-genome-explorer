@@ -1,10 +1,14 @@
 # CLI equivalence
 
-This contract binds every operation in Lungfish Genome Explorer (LGE). Part of the contracts index in `docs/contracts/README.md`. It states owner decision 4 of 2026-10-03. Every operation has a `lungfish-cli` equivalent, so Copy Command always gives a command that parses and reproduces the run.
+This contract binds every operation in Lungfish Genome Explorer (LGE) that makes or changes scientific data. Part of the contracts index in `docs/contracts/README.md`. It states owner decision 4 of 2026-10-03, as the audit of 2026-10-26 narrowed it (`docs/contracts/SCOPE-AND-DELIVERY.md`). Such an operation has a `lungfish-cli` equivalent, so Copy Command gives a command that parses and reproduces the run.
+
+## Scope
+
+Scientific data means reads, alignments, variants, classifications, assemblies, trees, genotype calls, annotations, imports and downloads. An operation that makes or changes them records a command. An export, a figure, a copy between projects, a clipboard action, a share or a label edit needs no command of its own and gets no new CLI leaf, parity class or replay test. A new file export writes a small sidecar that names the result it came from and its settings, and nothing more. The exports and copies that Phases 2.10 to 2.12 already gave commands keep them, and a lane that would have to change one may drop it instead. Phases 2.10 to 2.12 cost $4,308, most new CLI paths were exports or copies, and moving Export Image onto `bundle export-graphic` lost the mismatch marks of mapping figures (Stable blocker OBS-W7).
 
 ## The rule
 
-Every Operations panel row records a `lungfish-cli` command. The command parses with the shipped parser. Run on the same inputs, it produces the same result as the GUI run, in the sense the table under "Same result" gives for the kind of operation.
+Every Operations panel row of an operation in scope records a `lungfish-cli` command. The command parses with the shipped parser. Run on the same inputs, it produces the same result as the GUI run, in the sense the table under "Same result" gives for the kind of operation.
 
 | Requirement | What it means |
 |---|---|
@@ -23,7 +27,7 @@ The EsViritu, TaxTriage and 12S BLAST Verify rows begin with no command while th
 
 ## Same result
 
-The kind of output decides what "same" means. Every comparison applies the masks in the last row and nothing else. `OutputEquivalence.Kind` in `Tests/Support/LungfishTestSupport/OutputEquivalence.swift` names each kind.
+The kind of output decides what "same" means. Same result means the same scientific content, which is sequences, alignment records, counts, calls and sorted tables. Every comparison applies the masks in the rows below and nothing else, and no new mask is added. Masks M-1 to M-6 serve the replay tests that already use them and go when a lane drops such a test. A comparison that would need a new mask compares something that is not scientific content, so it leaves that item out. `OutputEquivalence.Kind` in `Tests/Support/LungfishTestSupport/OutputEquivalence.swift` names each kind.
 
 | Kind of operation | Same result means | Examples |
 |---|---|---|
@@ -46,8 +50,9 @@ The kind of output decides what "same" means. Every comparison applies the masks
 
 | Exception | What the row records |
 |---|---|
-| Clipboard and share destinations | The command the app runs to write the same content to a scratch file, which the app then copies (2.10 C13). Its `-o` names that file, in a folder of the project's `.tmp` for the clipboard or in a new folder of `<project>/.lungfish/.tmp/shares` for a share, and it asks for `--format json`, so Copy CLI Command replays the extraction. The command's own record names the same extraction in the command's canonical spelling, with `--output` and without `--format json`. |
+| Clipboard and share destinations that already record a command | The command the app runs to write the same content to a scratch file, which the app then copies (2.10 C13). Its `-o` names that file, in a folder of the project's `.tmp` for the clipboard or in a new folder of `<project>/.lungfish/.tmp/shares` for a share, and it asks for `--format json`, so Copy CLI Command replays the extraction. The command's own record names the same extraction in the command's canonical spelling, with `--output` and without `--format json`. A new clipboard or share action takes the out-of-scope row below. |
 | A row that runs nothing | A row that only reports a failure from before the run started, or a UI-test fixture row, records nil and carries the marker `cli-parity-exempt: not-an-operation`. |
+| A row out of scope | A new row for an export, a figure, a copy, a clipboard action, a share or a label edit records nil and carries `cli-parity-exempt: not-scientific-data`, which `scripts/ratchets/cli-parity-gaps.sh` accepts as it accepts any exempt reason. Backlog row PARITY-RATCHET-SCOPE frees such a site from the ratchet's rule that a parse test names it. |
 | An owner ruling | The owner may rule that one operation stays GUI only. Its row records nil and carries `cli-parity-exempt: owner-<date>`, citing the decision. No other reason exempts a row. |
 
 A user confirmation inside a run, for example accepting a low-depth consensus, is not an exception. The CLI takes the answer as an explicit flag, and the recorded command passes it.
@@ -56,7 +61,7 @@ A user confirmation inside a run, for example accepting a low-depth consensus, i
 
 A row that does not meet the rule today is a gap. Each gap has an ID, and the begin helper's doc comment carries the marker `cli-parity-gap: <ID>` with the closest command and why it falls short. An inline begin call may carry the marker in a comment between the start of its function and the end of the call. The row records nil, never a descriptive text. A test pins it with `assertCLIParityGap(_:id:)`, which asserts that the row records nil. When a command lands, that test fails, and the change replaces it with a parse test and a replay test and removes the marker.
 
-No new gap may be added. A new operation lands with its command.
+No new gap may be added. A new operation in scope lands with its command.
 
 The gaps counted when this contract landed numbered 43. Three of them first sat in files that other lanes were editing, so they were listed in `scripts/ratchets/cli-parity-gaps.pending` until those lanes gave them markers. Deleting the unreachable FASTQ dashboard derivative path then closed `fastq-dashboard-derivative`. The count is now 42, and every gap carries a marker in `Sources/`, so the pending file holds no gap line.
 
