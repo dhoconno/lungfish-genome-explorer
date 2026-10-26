@@ -4,10 +4,13 @@
 
 // Recorded at 2cf5a3dd5 (lane 13.29 M1) on macOS 26 with LUNGFISH_RECORD_RENDER_PINS=1.
 // Each sample is RRGGBBAA, premultiplied, on the grid of TrackRendererPixelPinTests.
+// The two pack values moved with the allocator seed on BIO's ruling for F1 of W7. A read whose start pixel
+// is below 1 could never take a row under a cap, so read "a" on the window's first base was counted as
+// overflow. It now takes row 0, so the overflow is 5 and "a:0" leads the rows.
 enum TrackRendererPixelPinTable {
-    static let packOverflow = 6
+    static let packOverflow = 5
     static let packRows = """
-        s00:0 s03:1 s06:2 s09:3 s12:4 s15:5 s18:6 s21:7 s24:8 s27:9 s30:10 s33:11 \
+        a:0 s00:0 s03:1 s06:2 s09:3 s12:4 s15:5 s18:6 s21:7 s24:8 s27:9 s30:10 s33:11 \
         s36:12 s39:13 s42:14 s45:15 s48:16 s51:17 s54:18 s57:19 s60:20 s63:21 s66:22 s69:23 \
         s72:24 s75:25 s78:26 s01:27 s04:28 s07:29 s10:30 s13:31 s16:32 s19:33 s22:34 s25:35 \
         s28:36 s31:37 s34:38 s37:39 s40:40 s43:41 s46:42 s49:43 s52:44 s55:45 s58:46 s61:47 \
