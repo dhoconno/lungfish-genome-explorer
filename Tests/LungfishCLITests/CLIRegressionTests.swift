@@ -2708,8 +2708,8 @@ final class MapCommandRegressionTests: XCTestCase {
     func testDiscussionStatesMultiInputIsOneSampleNotBatch() {
         let discussion = MapCommand.configuration.discussion
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        XCTAssertTrue(discussion.contains("Several inputs are pooled into one run of one sample"), discussion)
-        XCTAssertTrue(discussion.contains("Run the command once per sample for per-sample results"), discussion)
+        XCTAssertNotNil(discussion.range(of: "Several inputs are pooled into one run of one sample"), discussion)
+        XCTAssertNotNil(discussion.range(of: "Run the command once per sample for per-sample results"), discussion)
     }
 
     func testHelpMentionsMapperAndReadMappingPack() {
