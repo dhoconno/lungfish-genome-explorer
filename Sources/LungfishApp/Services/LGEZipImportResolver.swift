@@ -77,18 +77,23 @@ final class LGEZipImportBatch: @unchecked Sendable {
     let failures: [LGEZipImportFailure]
 
     private let cleanupURLs: [URL]
+    private let removesEmptyTempFolder: Bool
     private let fileManager: FileManager
     private var didCleanup = false
 
+    /// `removesEmptyTempFolder` is true when the project had no `.tmp` folder before this batch, so the folder the
+    /// batch made goes when it is left empty and a folder that was there before stays.
     init(
         sourceURLs: [URL],
         failures: [LGEZipImportFailure],
         cleanupURLs: [URL],
+        removesEmptyTempFolder: Bool = false,
         fileManager: FileManager = .default
     ) {
         self.sourceURLs = sourceURLs
         self.failures = failures
         self.cleanupURLs = cleanupURLs
+        self.removesEmptyTempFolder = removesEmptyTempFolder
         self.fileManager = fileManager
     }
 
@@ -98,11 +103,13 @@ final class LGEZipImportBatch: @unchecked Sendable {
         for url in cleanupURLs {
             try? fileManager.removeItem(at: url)
         }
-        // A project's `.tmp` folder that this leaves empty goes too, so a refused ZIP leaves the project as it was.
-        // `rmdir` removes an empty folder and no other, so it never takes the folder of an operation that started
-        // meanwhile.
-        for parent in Set(cleanupURLs.map { $0.deletingLastPathComponent() }) where Self.isProjectTempFolder(parent) {
-            _ = rmdir(parent.path)
+        // The project's `.tmp` folder goes too when this batch made it and leaves it empty, so a refused ZIP leaves
+        // the project as it was. `rmdir` removes an empty folder and no other, so it never takes the folder of an
+        // operation that started meanwhile.
+        if removesEmptyTempFolder {
+            for parent in Set(cleanupURLs.map { $0.deletingLastPathComponent() }) where Self.isProjectTempFolder(parent) {
+                _ = rmdir(parent.path)
+            }
         }
     }
 
@@ -131,6 +138,8 @@ struct LGEZipImportResolver {
         var resolvedURLs: [URL] = []
         var failures: [LGEZipImportFailure] = []
         var cleanupURLs: [URL] = []
+        // The batch removes the project's `.tmp` folder only when it makes it, so one that was there stays.
+        let madeTempFolder = projectURL.map { !fileManager.fileExists(atPath: ProjectTempDirectory.tempRoot(for: $0).path) } ?? false
 
         for url in urls {
             let standardizedURL = url.standardizedFileURL
@@ -183,6 +192,7 @@ struct LGEZipImportResolver {
             sourceURLs: resolvedURLs,
             failures: failures,
             cleanupURLs: cleanupURLs,
+            removesEmptyTempFolder: madeTempFolder,
             fileManager: fileManager
         )
     }
