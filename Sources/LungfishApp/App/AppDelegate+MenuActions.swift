@@ -184,7 +184,9 @@ extension AppDelegate {
 
         guard !selectedURLs.isEmpty else { return }
         debugLog("importProjectFilesFromURLs: Selected \(selectedURLs.count) file(s)")
+        // Both presenters are read here, since the run-loop hop below does not carry a task-local binding.
         let outcomePresenter = ImportFilesOutcomeSeam.presenter
+        let refusalPresenter = LGEZipImportFailureSeam.presenter
 
         scheduleOnMainRunLoop {
             debugLog("importProjectFilesFromURLs: Starting import pipeline dispatch")
@@ -202,7 +204,7 @@ extension AppDelegate {
                     zipImportBatch = try await LGEZipImportResolver().resolveOffMainActor(urls: selectedURLs, projectURL: projectURL)
                 } catch {
                     activityIndicator?.hide()
-                    LGEZipImportResolver.presentFailure(error, on: controller?.window ?? NSApp.keyWindow)
+                    LGEZipImportResolver.presentRefusal(of: LGEZipImportFailure.failures(ofThrown: error, sources: selectedURLs), on: controller?.window ?? NSApp.keyWindow, using: refusalPresenter)
                     return
                 }
 
@@ -268,12 +270,7 @@ extension AppDelegate {
                 }
 
                 for failure in zipImportBatch.failures {
-                    splitViewController.postSidebarFileDropCompleted(
-                        requestID: requestID,
-                        sourceURL: failure.sourceURL,
-                        success: false,
-                        error: failure.message
-                    )
+                    splitViewController.postSidebarFileDropCompleted(requestID: requestID, sourceURL: failure.sourceURL, success: false, error: failure.message)
                 }
 
                 if !importPlan.sourceURLs.isEmpty {
@@ -288,6 +285,9 @@ extension AppDelegate {
                         ]
                     )
                 }
+
+                // One sheet for every refused archive, after the post so that a sheet with no window cannot hold back the other files.
+                LGEZipImportResolver.presentRefusal(of: zipImportBatch.failures, on: controller?.window ?? NSApp.keyWindow, using: refusalPresenter)
 
                 debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
             }

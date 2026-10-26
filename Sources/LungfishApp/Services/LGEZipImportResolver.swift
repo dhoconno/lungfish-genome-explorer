@@ -200,25 +200,16 @@ struct LGEZipImportResolver {
 
     /// Tells the person which of the dropped archives were not imported and why, in one sheet on `window`. The
     /// failures of a batch and the failures of a resolution that threw reach it the same way, and nothing shows when
-    /// there are none.
+    /// there are none. `presenter` defaults to the seam's, read where the call is made, so a caller whose task does
+    /// not inherit a test's binding reads the seam first and passes it in.
     @MainActor
-    static func presentRefusal(of failures: [LGEZipImportFailure], on window: NSWindow?) {
+    static func presentRefusal(
+        of failures: [LGEZipImportFailure],
+        on window: NSWindow?,
+        using presenter: any LGEZipImportFailurePresenting = LGEZipImportFailureSeam.presenter
+    ) {
         guard let refusal = LGEZipImportRefusal(failures: failures) else { return }
-        LGEZipImportFailureSeam.presenter.present(title: refusal.title, message: refusal.text, on: window)
-    }
-
-    /// The "Import Failed" sheet the menu import shows when the ZIP resolution throws.
-    @MainActor
-    static func presentFailure(_ error: Error, on window: NSWindow?) {
-        let alert = NSAlert()
-        alert.messageText = "Import Failed"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.applyLungfishBranding()
-        if let window {
-            alert.beginSheetModal(for: window, completionHandler: nil)
-        }
+        presenter.present(title: refusal.title, message: refusal.text, on: window)
     }
 
     private func recognizedLGEObjects(in rootURL: URL) throws -> [URL] {
@@ -298,7 +289,8 @@ struct LiveLGEZipImportFailurePresenter: LGEZipImportFailurePresenting {
 ///
 /// The default is the live presenter. Only a test binds another, with `$presenter.withValue`, to record what the
 /// refusal hands over. The presenter is task-local, so nothing can assign it, and the drop reads it on the main
-/// actor in the task that follows the drop.
+/// actor in the task that follows the drop. File > Import Files... reads it in the call that starts the import, as
+/// `ImportFilesOutcomeSeam` does, because its import continues after a run-loop hop that drops a task-local binding.
 enum LGEZipImportFailureSeam {
     @TaskLocal static var presenter: any LGEZipImportFailurePresenting = LiveLGEZipImportFailurePresenter()
 }
