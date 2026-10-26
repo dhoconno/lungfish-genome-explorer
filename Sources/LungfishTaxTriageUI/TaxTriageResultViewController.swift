@@ -2067,6 +2067,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             } else {
                 self.alignmentEvidenceViewer?.clear()
                 self.collapseMiniBAMDetailPane()
+                // No reference to open, so the bar says so where the shut pane cannot (TT-FUZZY-NAME).
+                if accessions.isEmpty { self.actionBar.updateInfoText(TaxTriageAccessionLookup.noReferenceWords) }
             }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in

@@ -11,6 +11,9 @@ import Foundation
 /// The name-keyed lookup behind a TaxTriage row that no tax ID map covers.
 enum TaxTriageAccessionLookup {
 
+    /// What the action bar says for a selected row whose lookup finds no reference, in the place of the row count.
+    nonisolated static let noReferenceWords = "No reference was recorded for this organism in this sample."
+
     /// `accessions` without empty entries and repeats, in first-seen order.
     nonisolated static func uniquePreservingOrder(_ accessions: [String]) -> [String] {
         var seen = Set<String>()
