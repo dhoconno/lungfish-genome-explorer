@@ -185,6 +185,36 @@ final class LGEZipImportResolverTests: XCTestCase {
         batch.cleanup()
     }
 
+    /// The batch removes the `.tmp` folder it leaves empty, so a refused ZIP leaves the project as it was (OBS-W9).
+    /// It removes nothing else from it, since another operation of the project may keep its own folder there.
+    func testCleanupRemovesTheTempFolderItLeavesEmptyAndKeepsAnotherOperationsFolder() throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let sourceRoot = root.appendingPathComponent("source", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+        try "not an LGE object\n".write(
+            to: sourceRoot.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8
+        )
+        let archiveURL = root.appendingPathComponent("Plain.zip")
+        try runZip(workingDirectory: sourceRoot, archiveURL: archiveURL, entries: ["README.txt"])
+        let temp = projectURL.appendingPathComponent(".tmp", isDirectory: true)
+
+        let alone = try LGEZipImportResolver().resolve(urls: [archiveURL], projectURL: projectURL)
+        XCTAssertTrue(fileManager.fileExists(atPath: temp.path), "the batch unpacked into .tmp")
+        alone.cleanup()
+        XCTAssertFalse(fileManager.fileExists(atPath: temp.path), "the empty .tmp folder is removed")
+
+        let other = temp.appendingPathComponent("classify-other", isDirectory: true)
+        try fileManager.createDirectory(at: other, withIntermediateDirectories: true)
+        let beside = try LGEZipImportResolver().resolve(urls: [archiveURL], projectURL: projectURL)
+        beside.cleanup()
+        XCTAssertEqual(
+            try fileManager.contentsOfDirectory(atPath: temp.path), ["classify-other"],
+            "the batch removes its own folder and no other"
+        )
+    }
+
     func testResolverLeavesNonZipURLsUntouched() throws {
         let root = try makeTempDirectory()
         let fastaURL = root.appendingPathComponent("reads.fa")
