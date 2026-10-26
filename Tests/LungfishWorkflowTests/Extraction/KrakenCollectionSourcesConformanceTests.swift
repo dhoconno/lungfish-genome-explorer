@@ -54,7 +54,20 @@ final class KrakenCollectionSourcesConformanceTests: XCTestCase {
                 progress: nil
             )
             XCTFail("the recorded root file is gone, so a resolve of the recorded files finds no reads")
-        } catch ClassifierExtractionError.allSamplesSkipped {}
+        } catch {
+            // The skip says what to try (`reviews/EXT-UX.md`, ruling 2), and the test runs on to the resolved extraction.
+            if case ClassifierExtractionError.allSamplesSkipped = error {
+                XCTAssertTrue(
+                    error.localizedDescription.contains(
+                        "Put their files or bundle back in the same place in this project, or where the run recorded them, "
+                            + "and try again. Or run the classification again in this project."
+                    ),
+                    error.localizedDescription
+                )
+            } else {
+                XCTFail("a gone root file ends in allSamplesSkipped, not \(error)")
+            }
+        }
 
         let extraction = try await resolver.extractViaKraken2(
             selections: selections, resultPath: subset.result, options: ExtractionOptions(),

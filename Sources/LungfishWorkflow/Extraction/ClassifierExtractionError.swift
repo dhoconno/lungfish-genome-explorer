@@ -99,7 +99,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
         case .zeroReadsExtracted:
             return "The selection produced zero reads. Try adjusting the flag filter or selecting different rows."
         case .allSamplesSkipped(let samples):
-            return "No reads could be extracted: \(samples.count) sample(s) were skipped because their classification output or source FASTQ could not be located (\(samples.joined(separator: ", ")))."
+            return "No reads could be extracted: \(samples.count) sample(s) were skipped because their classification output "
+                + "or FASTQ reads could not be found or read (\(samples.joined(separator: ", "))). "
+                + "Put their files or bundle back in the same place in this project, "
+                + "or where the run recorded them, and try again. "
+                + "Or run the classification again in this project."
         case .cancelled:
             return "Extraction was cancelled"
         case .unsupportedCopyDestination:
