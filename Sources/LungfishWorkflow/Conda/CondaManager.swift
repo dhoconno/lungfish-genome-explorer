@@ -1034,7 +1034,7 @@ public actor CondaManager {
     ///   - arguments: Command-line arguments to pass to the tool.
     ///   - environment: The conda environment name containing the tool.
     ///   - workingDirectory: Optional working directory for the process.
-    ///   - timeout: Maximum execution time in seconds (default: 3600).
+    ///   - timeout: Wall-clock limit in seconds. The default, `.infinity`, is no limit, and so is any value that is not finite.
     ///   - stderrHandler: Optional callback that receives stderr lines in
     ///     real-time as they are written by the subprocess. Useful for parsing
     ///     progress output from tools like kraken2 that report progress to
@@ -1056,7 +1056,7 @@ public actor CondaManager {
         environment: String,
         workingDirectory: URL? = nil,
         environmentVariables: [String: String]? = nil,
-        timeout: TimeInterval = 3600,
+        timeout: TimeInterval = .infinity,
         stderrHandler: (@Sendable (String) -> Void)? = nil,
         observer: ToolProcessObserver? = nil
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
@@ -1073,7 +1073,7 @@ public actor CondaManager {
         environment: String,
         workingDirectory: URL? = nil,
         environmentVariables: [String: String]? = nil,
-        timeout: TimeInterval = 3600,
+        timeout: TimeInterval = .infinity,
         stdoutHandler: (@Sendable (String) -> Void)?,
         stderrHandler: (@Sendable (String) -> Void)? = nil,
         observer: ToolProcessObserver? = nil
