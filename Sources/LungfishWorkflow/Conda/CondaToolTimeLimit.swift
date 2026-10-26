@@ -20,7 +20,7 @@ enum CondaToolTimeLimit {
     /// The words of a stop by a time limit. They say what was stopped, after how long, that a time limit did it
     /// and what to try next. `subject` names what the limit stopped, such as `Tool 'kraken2'`.
     static func stoppedWords(_ subject: String, seconds: TimeInterval) -> String {
-        let tryNext = "Run it again with no time limit or a longer one."
+        let tryNext = "No setting changes this limit yet. Try a smaller input, or report it so the limit can be lifted."
         guard let duration = readable(seconds: seconds) else {
             return "\(subject) was stopped by its time limit. \(tryNext)"
         }
