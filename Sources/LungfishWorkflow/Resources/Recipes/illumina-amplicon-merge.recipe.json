@@ -7,7 +7,7 @@
     "tags": ["illumina", "amplicon", "paired-end", "genotyping", "merge"],
     "platforms": ["illumina"],
     "requiredInput": "paired",
-    "qualityBinning": "illumina4",
+    "qualityBinning": "fiveStep",
     "steps": [
         {
             "type": "fastp-merge",

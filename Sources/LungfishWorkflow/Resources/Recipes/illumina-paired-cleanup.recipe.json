@@ -7,7 +7,7 @@
     "tags": ["illumina", "paired-end", "viral", "vsp2", "target-enrichment", "wastewater", "metagenomics"],
     "platforms": ["illumina"],
     "requiredInput": "paired",
-    "qualityBinning": "illumina4",
+    "qualityBinning": "fiveStep",
     "switches": [
         { "id": "removeDuplicates", "label": "Remove duplicate reads", "default": true, "gates": "fastp-dedup" },
         { "id": "removeRibosomalRNA", "label": "Remove ribosomal RNA reads", "default": false, "gates": "deacon-ribo-filter" }
