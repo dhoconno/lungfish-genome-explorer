@@ -364,7 +364,7 @@ struct FastqPlatformSubcommand: AsyncParsableCommand {
     private static func projectFolder(containing url: URL) -> URL? {
         var current = url.deletingLastPathComponent()
         while current.path != "/" {
-            if current.pathExtension == "lungfish" { return current }
+            if ProjectRootTest.isProjectRoot(current) { return current }
             current = current.deletingLastPathComponent()
         }
         return nil

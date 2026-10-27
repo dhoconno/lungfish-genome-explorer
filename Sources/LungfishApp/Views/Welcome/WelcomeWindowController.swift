@@ -1788,7 +1788,7 @@ public final class WelcomeWindowController: NSWindowController {
     func openProject(at url: URL) {
         // The selected URL reaches AppDelegate's async preparation exactly once.
         // Welcome must not open into the last mirrored window session first.
-        if url.pathExtension.lowercased() == ProjectFile.fileExtension {
+        if ProjectRootTest.isProjectRoot(url) {
             window?.close()
             onProjectSelected?(url)
             return

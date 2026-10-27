@@ -103,7 +103,7 @@ extension ProjectCopyItemSubcommand {
 
     private static func isProject(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
-        return url.pathExtension.lowercased() == "lungfish"
+        return ProjectRootTest.isProjectRoot(url)
             && FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

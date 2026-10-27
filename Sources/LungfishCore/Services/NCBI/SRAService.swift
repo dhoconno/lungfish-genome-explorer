@@ -478,7 +478,7 @@ public actor SRAService {
         }
 
         while true {
-            if current.pathExtension.lowercased() == "lungfish" {
+            if ProjectRootTest.isProjectRoot(current) {
                 return current
             }
             let parent = current.deletingLastPathComponent()

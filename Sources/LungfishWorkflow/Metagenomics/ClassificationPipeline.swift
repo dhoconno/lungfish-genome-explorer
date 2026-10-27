@@ -1153,7 +1153,7 @@ public actor ClassificationPipeline {
             if ancestor.lastPathComponent == Self.projectScratchDirectoryName {
                 return false
             }
-            if ancestor.pathExtension.lowercased() == "lungfish" {
+            if ProjectRootTest.isProjectRoot(ancestor) {
                 return true
             }
             let parent = ancestor.deletingLastPathComponent()

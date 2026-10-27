@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishIO
 
 struct FullLengthONTMHCFASTQMaterializationResult: Sendable, Equatable {
@@ -442,7 +443,7 @@ enum FullLengthONTMHCFASTQMaterializer {
 
         let project = provenance.deletingLastPathComponent().standardizedFileURL
         guard provenance.lastPathComponent == ProvenanceWriter.provenanceFilename,
-              project.pathExtension.lowercased() == "lungfish",
+              ProjectRootTest.isProjectRoot(project),
               isStrictDescendant(bundle, of: project) else {
             return bundle
         }

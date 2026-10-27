@@ -443,7 +443,7 @@ public extension MappingResult {
     private static func syntacticProjectRoot(containing url: URL) -> URL? {
         var candidate = url.standardizedFileURL
         while true {
-            if candidate.pathExtension.lowercased() == "lungfish" {
+            if ProjectRootTest.isProjectRoot(candidate) {
                 return candidate
             }
             let parent = candidate.deletingLastPathComponent().standardizedFileURL

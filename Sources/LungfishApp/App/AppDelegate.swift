@@ -556,7 +556,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                   split.canCommitDisplayRequest(token, identity: identity) else { return }
             split.viewerController.hideProgress()
             if expectedRootIdentity != nil, case .failure(let error) = preparation,
-               !recoveryIdentityValidated || projectURL.pathExtension.lowercased() == ProjectFile.fileExtension {
+               !recoveryIdentityValidated || ProjectRootTest.isProjectRoot(projectURL) {
                 recoveryFailure?("Could not reopen the original project folder: \(error.localizedDescription)")
                 return
             }

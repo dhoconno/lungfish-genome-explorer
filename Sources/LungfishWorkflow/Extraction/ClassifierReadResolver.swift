@@ -59,9 +59,9 @@ public actor ClassifierReadResolver {
 
     /// Walks up from `resultPath` to find the enclosing Lungfish project root.
     ///
-    /// A Lungfish project is a directory with the `.lungfish` file extension
-    /// (e.g. `MyProject.lungfish/`). The method also checks for a `.lungfish/`
-    /// subdirectory as a legacy marker for test fixtures.
+    /// A Lungfish project is a folder ``ProjectRootTest`` takes for one, as
+    /// `MyProject.lungfish/` or `MyProject.lungfish copy/`. The method also checks
+    /// for a `.lungfish/` subdirectory, only as a marker for test fixtures.
     ///
     /// If no project root is found in any ancestor, falls back to the result
     /// path's parent directory. This means callers always get back *some*
@@ -110,8 +110,8 @@ public actor ClassifierReadResolver {
 
         // Walk up until we find a .lungfish project directory or hit the filesystem root.
         while current.path != "/" {
-            // Check 1: directory itself has .lungfish extension (production projects).
-            if current.pathExtension == "lungfish" {
+            // Check 1: the one project-root test, which also takes Finder's copy `P.lungfish copy`.
+            if ProjectRootTest.isProjectRoot(current) {
                 return current
             }
             // Check 2: contains a .lungfish/ subdirectory (test fixtures / legacy).

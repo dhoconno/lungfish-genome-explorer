@@ -2267,14 +2267,7 @@ public class ViewerViewController: NSViewController {
     }
 
     static func enclosingProjectURL(for url: URL) -> URL? {
-        var current = url.standardizedFileURL
-        while current.path != "/" {
-            if current.pathExtension.lowercased() == "lungfish" {
-                return current
-            }
-            current.deleteLastPathComponent()
-        }
-        return nil
+        ProjectTempDirectory.findProjectRoot(url)
     }
 
     static func nextAvailableBundleURL(

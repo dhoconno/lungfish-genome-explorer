@@ -8,6 +8,7 @@
 // SidebarMoveOfABuiltResultFolderReplayTests). A file and a `.lungfish*` bundle keep the schema-aware path.
 
 import AppKit
+import LungfishCore
 import LungfishOperations
 import LungfishWorkflow
 import os.log
@@ -20,7 +21,7 @@ extension SidebarViewController {
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: destinationURL.path, isDirectory: &isDirectory), isDirectory.boolValue,
            !ProvenanceWriter.isBundleDirectory(destinationURL),
-           GUIImportedProvenanceRehydrator.finalBundleRoot(containing: destinationURL)?.pathExtension.lowercased() == "lungfish" {
+           GUIImportedProvenanceRehydrator.finalBundleRoot(containing: destinationURL).map(ProjectRootTest.isProjectRoot) == true {
             fallbackToPathRehydration(from: sourceURL, to: destinationURL)
             return
         }

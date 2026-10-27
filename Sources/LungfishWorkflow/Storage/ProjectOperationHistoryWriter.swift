@@ -339,7 +339,7 @@ public struct ProjectOperationHistoryWriter: Sendable {
     /// exact paths and bytes they record.
     private func portablePayload(_ data: Data, named name: String) -> Data {
         guard name.lowercased().hasSuffix("provenance.json"),
-              projectURL.pathExtension.lowercased() == "lungfish" else { return data }
+              ProjectRootTest.isProjectRoot(projectURL) else { return data }
         let managed = PortablePath.defaultManagedRoots
         let context = PortablePath.Context(
             projectURL: projectURL,

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 
 package enum DownloadImportRouting {
@@ -19,7 +20,7 @@ package enum DownloadImportRouting {
         }
 
         if let workingDirectoryURL, isURL(downloadedURL, inside: workingDirectoryURL) {
-            if workingDirectoryURL.pathExtension.lowercased() == "lungfish",
+            if ProjectRootTest.isProjectRoot(workingDirectoryURL),
                isURL(downloadedURL, inside: ProjectTempDirectory.tempRoot(for: workingDirectoryURL)) {
                 return false
             }

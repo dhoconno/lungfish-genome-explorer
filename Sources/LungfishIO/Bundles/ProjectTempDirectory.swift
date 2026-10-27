@@ -131,13 +131,13 @@ public enum ProjectTempDirectory {
     // MARK: - Private Constants
 
     private static let tmpDirName = ".tmp"
-    private static let lungfishExtension = "lungfish"
 
     // MARK: - findProjectRoot
 
-    /// Walks up the directory tree from `url` to find the enclosing `.lungfish` project directory.
+    /// Walks up the directory tree from `url` to find the enclosing project directory, the nearest folder that
+    /// ``ProjectRootTest`` takes for a project, as `P.lungfish` or Finder's copy `P.lungfish copy`.
     ///
-    /// Returns `nil` if no `.lungfish` ancestor is found before reaching the filesystem root.
+    /// Returns `nil` if no project ancestor is found before reaching the filesystem root.
     public static func findProjectRoot(_ url: URL) -> URL? {
         var current = url.standardizedFileURL
         // If url points to a file, start from its parent directory
@@ -148,7 +148,7 @@ public enum ProjectTempDirectory {
 
         // Walk up to filesystem root — no artificial depth limit
         while true {
-            if current.pathExtension.lowercased() == lungfishExtension {
+            if ProjectRootTest.isProjectRoot(current) {
                 return current
             }
             let parent = current.deletingLastPathComponent()

@@ -52,10 +52,10 @@ extension MainSplitViewController {
         requestID: String?,
         displayAfterImport: Bool
     ) async {
-        if ["lungfish", "lungfishflowpkg"].contains(url.pathExtension.lowercased()) {
-            let message = url.pathExtension.lowercased() == "lungfish"
-                ? "Use Open Project to open this Lungfish project. Projects cannot be imported inside another project."
-                : "Use Link Workflow in the Workflow Library to register this workflow package."
+        if ProjectRootTest.isProjectRoot(url) || url.pathExtension.lowercased() == "lungfishflowpkg" {
+            let message = url.pathExtension.lowercased() == "lungfishflowpkg"
+                ? "Use Link Workflow in the Workflow Library to register this workflow package."
+                : "Use Open Project to open this Lungfish project. Projects cannot be imported inside another project."
             postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: message)
             let alert = NSAlert()
             alert.messageText = "Use the Appropriate Open Action"
