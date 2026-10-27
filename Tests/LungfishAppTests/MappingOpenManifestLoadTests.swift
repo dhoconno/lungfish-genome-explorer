@@ -32,12 +32,14 @@ final class MappingOpenManifestLoadTests: XCTestCase {
             in: root
         )
         try MappingRoutingFixture.addSingleSampleAlignment(
-            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true,
+            originalSourcePath: MappingRoutingFixture.ownBAMOriginalSourcePath
         )
         let resultURL = root.appendingPathComponent("mapping-result", isDirectory: true)
         try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
         try MappingRoutingFixture.makeMappingResult(
-            resultDirectory: resultURL, viewerBundleURL: bundleURL
+            resultDirectory: resultURL, viewerBundleURL: bundleURL,
+            contigs: [MappingRoutingFixture.chr1RecordRow]
         ).save(to: resultURL)
         let digestBefore = try TreeDigest.of(root)
         let decodes = BundleDecodeLog()
@@ -49,10 +51,11 @@ final class MappingOpenManifestLoadTests: XCTestCase {
 
         let opened = await waitUntil(timeout: .seconds(30)) {
             guard let viewport = split.viewerController.referenceBundleViewportController else { return false }
-            return viewport.testContigTableView.displayedRows.contains { $0.sampleID == "S1" }
+            return viewport.testContigTableView.displayedRows == [MappingRoutingFixture.chr1LabelledRecordRow]
+                && viewport.mappingRowsRefreshTask == nil
                 && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
         }
-        XCTAssertTrue(opened, "the mapping viewport never showed its sample rows and its viewer")
+        XCTAssertTrue(opened, "the mapping viewport never showed its record's row, labelled with its sample and track, and its viewer")
         XCTAssertEqual(decodes.count(.mappingResult), 1)
         XCTAssertEqual(decodes.count(.bundleManifest), 1)
         XCTAssertEqual(try TreeDigest.of(root), digestBefore, "opening a mapping wrote to its folder (UX 6)")
@@ -73,12 +76,14 @@ final class MappingOpenManifestLoadTests: XCTestCase {
             in: root
         )
         try MappingRoutingFixture.addSingleSampleAlignment(
-            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true,
+            originalSourcePath: MappingRoutingFixture.ownBAMOriginalSourcePath
         )
         let resultURL = root.appendingPathComponent("mapping-result", isDirectory: true)
         try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
         try MappingRoutingFixture.makeMappingResult(
-            resultDirectory: resultURL, viewerBundleURL: bundleURL
+            resultDirectory: resultURL, viewerBundleURL: bundleURL,
+            contigs: [MappingRoutingFixture.chr1RecordRow]
         ).save(to: resultURL)
         let builds = SequenceIndexBuildLog()
         builds.install()
@@ -89,14 +94,15 @@ final class MappingOpenManifestLoadTests: XCTestCase {
 
         let opened = await waitUntil(timeout: .seconds(30)) {
             guard let viewport = split.viewerController.referenceBundleViewportController else { return false }
-            return viewport.testContigTableView.displayedRows.contains { $0.sampleID == "S1" }
+            return viewport.testContigTableView.displayedRows == [MappingRoutingFixture.chr1LabelledRecordRow]
+                && viewport.mappingRowsRefreshTask == nil
                 && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
         }
-        XCTAssertTrue(opened, "the mapping viewport never showed its sample rows and its viewer")
+        XCTAssertTrue(opened, "the mapping viewport never showed its record's row, labelled with its sample and track, and its viewer")
         let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
         // Selecting a contig looks it up in the shown bundle's name index and fetches its sequence.
-        let sampleRow = try XCTUnwrap(viewport.testContigTableView.displayedRows.first { $0.sampleID == "S1" })
-        viewport.testSelectContig(named: sampleRow.contigName)
+        let recordRow = try XCTUnwrap(viewport.testContigTableView.displayedRows.first)
+        viewport.testSelectContig(named: recordRow.contigName)
         let shown = try XCTUnwrap(viewport.testEmbeddedViewerController.currentReferenceBundle)
         XCTAssertEqual(shown.url.standardizedFileURL, bundleURL.standardizedFileURL)
         XCTAssertEqual(shown.sequenceCache.nameIndexBuildCount, 1)

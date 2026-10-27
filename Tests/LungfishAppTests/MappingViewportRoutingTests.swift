@@ -506,14 +506,15 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(index.canonicalSampleID(forMetadataIdentifier: "subject-1"), "S1")
     }
 
-    func testSidebarMappingRoutePassesViewerManifestAndBuildsInitialSampleRows() throws {
+    func testSidebarMappingRoutePassesViewerManifestAndShowsTheRecordsRows() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Sidebar Initial BAM Rows",
             chromosomes: [.init(name: "chr1", length: 100)]
         )
         defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
         try MappingRoutingFixture.addSingleSampleAlignment(
-            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true,
+            originalSourcePath: MappingRoutingFixture.ownBAMOriginalSourcePath
         )
         let statsDatabase = try AlignmentMetadataDatabase(
             url: bundleURL.appendingPathComponent("alignments/reads-track.metadata.sqlite")
@@ -523,15 +524,27 @@ final class MappingViewportRoutingTests: XCTestCase {
         let resultURL = bundleURL.deletingLastPathComponent().appendingPathComponent("mapping-result", isDirectory: true)
         try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
         let result = MappingRoutingFixture.makeMappingResult(
-            resultDirectory: resultURL, viewerBundleURL: bundleURL
+            resultDirectory: resultURL, viewerBundleURL: bundleURL,
+            contigs: [MappingRoutingFixture.chr1RecordRow]
         )
         try result.save(to: resultURL)
 
         let split = MainSplitViewController(); split.loadViewIfNeeded()
         split.displayMappingAnalysisFromSidebar(at: resultURL)
-        let viewport = try MappingRoutingFixture.waitForInitialSampleRows(on: split)
+        let viewport = try MappingRoutingFixture.waitForRecordRows(on: split)
         XCTAssertEqual(viewport.currentInput?.viewerBundleManifest?.identifier, (try BundleManifest.load(from: bundleURL)).identifier)
-        XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.sampleID), ["S1"])
+        // The track's stats database says 1 mapped read for chr1 and measures no depth. The table
+        // shows the record's row, labelled with the sample and the track, and nothing built from
+        // the database.
+        XCTAssertEqual(viewport.testContigTableView.displayedRows, [MappingRoutingFixture.chr1LabelledRecordRow])
+        // The track is the mapping's own BAM, so no summary build ran on the empty BAM and the
+        // summary bar has no failure words. (The words are a named value and not a `.contains("..."`
+        // literal, since the source-text-assertions ratchet counts that form in this file.)
+        let measurementFailureWords = "Could not measure the alignment statistics"
+        XCTAssertFalse(
+            viewport.testSummaryText.contains(measurementFailureWords),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
     }
 
     func testRedisplayingSameMappingResultPreservesFocusSelectionAndRegion() async throws {
@@ -541,12 +554,14 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
         try MappingRoutingFixture.addSingleSampleAlignment(
-            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true
+            to: bundleURL, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true,
+            originalSourcePath: MappingRoutingFixture.ownBAMOriginalSourcePath
         )
         let resultURL = bundleURL.deletingLastPathComponent().appendingPathComponent("mapping-result", isDirectory: true)
         try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
         let result = MappingRoutingFixture.makeMappingResult(
-            resultDirectory: resultURL, viewerBundleURL: bundleURL
+            resultDirectory: resultURL, viewerBundleURL: bundleURL,
+            contigs: [MappingRoutingFixture.chr1RecordRow]
         )
         try result.save(to: resultURL)
 
@@ -554,10 +569,11 @@ final class MappingViewportRoutingTests: XCTestCase {
         split.displayMappingAnalysisFromSidebar(at: resultURL)
         await split.bundleOpenTask?.value
         let rowsShown = await waitUntil(timeout: .seconds(20)) {
-            split.viewerController.referenceBundleViewportController?
-                .testContigTableView.displayedRows.contains { $0.sampleID == "S1" } == true
+            guard let viewport = split.viewerController.referenceBundleViewportController else { return false }
+            return viewport.testContigTableView.displayedRows == [MappingRoutingFixture.chr1LabelledRecordRow]
+                && viewport.mappingRowsRefreshTask == nil
         }
-        XCTAssertTrue(rowsShown, "the sample rows never showed")
+        XCTAssertTrue(rowsShown, "the record's row, labelled with its sample and track, never showed")
         let viewport = try XCTUnwrap(split.viewerController.referenceBundleViewportController)
         viewport.testSelectContig(named: "chr1")
         viewport.testEnterFocusedDetailMode()
@@ -1841,7 +1857,11 @@ enum MappingRoutingFixture {
         includeReadGroup: Bool = true,
         includeChromosomeStats: Bool = false,
         manifestSampleNames: [String]? = nil,
-        readGroupID: String? = nil
+        readGroupID: String? = nil,
+        // Where the import read the BAM from, as the stats database records it
+        // (`original_source_path`). The track a mapping made from its own BAM names the
+        // result's BAM here, which is what lets All Alignments reuse the record's rows.
+        originalSourcePath: String? = nil
     ) throws {
         let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
@@ -1856,6 +1876,9 @@ enum MappingRoutingFixture {
         }
         if includeChromosomeStats {
             database.addChromosomeStats(chromosome: "chr1", length: 100, mapped: 1, unmapped: 0)
+        }
+        if let originalSourcePath {
+            database.setFileInfo("original_source_path", value: originalSourcePath)
         }
 
         let manifest = try BundleManifest.load(from: bundleURL)
@@ -1958,24 +1981,27 @@ enum MappingRoutingFixture {
     }
 
     @MainActor
-    static func waitForInitialSampleRows(
+    /// Waits for the viewport to show the record's `chr1` row, labelled with sample S1 and the track
+    /// (`chr1LabelledRecordRow`), with its summary refresh over.
+    static func waitForRecordRows(
         on split: MainSplitViewController
     ) throws -> ReferenceBundleViewportController {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
             if let viewport = split.viewerController.referenceBundleViewportController,
-               viewport.testContigTableView.displayedRows.contains(where: { $0.sampleID == "S1" }) {
+               viewport.testContigTableView.displayedRows == [chr1LabelledRecordRow],
+               viewport.mappingRowsRefreshTask == nil {
                 return viewport
             }
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
-        let input = split.viewerController.referenceBundleViewportController?.currentInput
-        let rows = split.viewerController.referenceBundleViewportController?
-            .testContigTableView.displayedRows
-            .map { "\($0.sampleID ?? "nil"):\($0.contigName)" }
-        let visibleTrack = split.viewerController.referenceBundleViewportController?.testVisibleAlignmentTrackID
+        let viewport = split.viewerController.referenceBundleViewportController
+        let input = viewport?.currentInput
+        let rows = viewport?.testContigTableView.displayedRows
+            .map { "\($0.sampleID ?? "nil"):\($0.alignmentTrackID ?? "nil"):\($0.contigName):\($0.mappedReads)" }
+        let visibleTrack = viewport?.testVisibleAlignmentTrackID
         throw NSError(domain: "MappingRoutingFixture", code: 2, userInfo: [
-            NSLocalizedDescriptionKey: "Timed out waiting for initial sample × contig rows; rendered=\(input?.renderedBundleURL?.path ?? "nil") manifest=\(input?.viewerBundleManifest?.name ?? "nil") tracks=\(input?.viewerBundleManifest?.alignments.map(\.id) ?? []) track=\(visibleTrack ?? "nil") rows=\(rows ?? [])"
+            NSLocalizedDescriptionKey: "Timed out waiting for the record's rows and the end of the summary refresh; rendered=\(input?.renderedBundleURL?.path ?? "nil") manifest=\(input?.viewerBundleManifest?.name ?? "nil") tracks=\(input?.viewerBundleManifest?.alignments.map(\.id) ?? []) track=\(visibleTrack ?? "nil") rows=\(rows ?? []) summary=\(viewport?.testSummaryText ?? "nil")"
         ])
     }
 
@@ -2016,9 +2042,35 @@ enum MappingRoutingFixture {
         return bundleURL
     }
 
+    /// The one contig row a record holds when a test needs a row to select. The viewport shows
+    /// these values until a summary build measures others. The track's stats database says
+    /// 1 mapped read for `chr1` and holds no depth, so a row built from it would differ.
+    static let chr1RecordRow = MappingContigSummary(
+        contigName: "chr1", contigLength: 100, mappedReads: 9, mappedReadPercent: 90,
+        meanDepth: 3.5, coverageBreadth: 0.8, medianMAPQ: 60, meanIdentity: 0.99
+    )
+
+    /// What the stats database of the mapping's own track says about where its BAM came from: the
+    /// result folder and BAM name of `makeMappingResult` under a folder that exists on no Mac, the
+    /// state of a cloned project. The viewport matches the last two path components.
+    static let ownBAMOriginalSourcePath = "/original/mapping-result/sample.sorted.bam"
+
+    /// The row All Alignments shows for `chr1RecordRow` when the one track names the result's own BAM
+    /// (`ownBAMOriginalSourcePath`) and sample S1: the record's values, measured when the mapping ran,
+    /// labelled with the sample and the track, and no read group. The track's stats database says
+    /// 1 mapped read and no depth, and nothing built from it or from the empty BAM is in this row.
+    static let chr1LabelledRecordRow = MappingContigSummary(
+        sampleID: "S1", alignmentTrackID: "reads-track", readGroupIDs: [],
+        contigName: chr1RecordRow.contigName, contigLength: chr1RecordRow.contigLength,
+        mappedReads: chr1RecordRow.mappedReads, mappedReadPercent: chr1RecordRow.mappedReadPercent,
+        meanDepth: chr1RecordRow.meanDepth, coverageBreadth: chr1RecordRow.coverageBreadth,
+        medianMAPQ: chr1RecordRow.medianMAPQ, meanIdentity: chr1RecordRow.meanIdentity
+    )
+
     static func makeMappingResult(
         resultDirectory: URL,
-        viewerBundleURL: URL
+        viewerBundleURL: URL,
+        contigs: [MappingContigSummary] = []
     ) -> MappingResult {
         MappingResult(
             mapper: .minimap2,
@@ -2031,7 +2083,7 @@ enum MappingRoutingFixture {
             mappedReads: 9,
             unmappedReads: 1,
             wallClockSeconds: 1.0,
-            contigs: []
+            contigs: contigs
         )
     }
 }
