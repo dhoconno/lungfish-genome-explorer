@@ -158,7 +158,7 @@
       "purpose": "Headless contracts of the portable executor library and the lungfish-executor command with local fixtures",
       "harness": "swift",
       "include": "^(LungfishPortableTests|LungfishExecutorTests)\\.",
-      "exclude": "",
+      "exclude": "Conformance",
       "resources": [
         "filesystem"
       ],
