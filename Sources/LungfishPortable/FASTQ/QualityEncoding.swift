@@ -139,3 +139,16 @@ extension QualityEncoding {
         return .phred33
     }
 }
+
+// MARK: - Legacy Phred+64 guard
+
+extension QualityEncoding {
+
+    /// True when the first 10,000 records of `url` look like the old Phred+64 encoding (BIO-BIN-QIN, N2).
+    ///
+    /// Declared by the tests-first commit of the fix, so its tests compile. It reads nothing and answers false until the
+    /// fix commit that follows.
+    package static func looksLikeLegacyPhred64(_ url: URL, launcher: any PortableChildLauncher) throws -> Bool {
+        false
+    }
+}
