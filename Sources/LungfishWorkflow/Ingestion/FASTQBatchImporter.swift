@@ -566,8 +566,8 @@ public enum FASTQBatchImporter {
         let originalBytes = fileSizeSum(pair.inputFiles)
 
         do {
-            let outputDir = config.projectDirectory
-                .appendingPathComponent("Imports")
+            try Self.refuseLegacyPhred64(pair) // before the output folder, the workspace and any recipe step
+            let outputDir = config.projectDirectory.appendingPathComponent("Imports")
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
             // Create a temp workspace for intermediate files inside the project's

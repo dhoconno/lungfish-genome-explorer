@@ -24,6 +24,15 @@ extension FASTQBatchImporter {
         Task.isCancelled
     }
 
+    /// Stops a sample whose own files are in the old Phred+64 encoding, before any recipe step (BIO-BIN-QIN N2, fix round
+    /// 4 item 2). Every storage step tells BBTools the scores are Phred+33, and a recipe's quality trims read the original
+    /// reads as Phred+33 too, so they trim nothing, while a step that rewrites scores could carry the file past the
+    /// pipeline's own check of its input. The pipeline still checks what it stores, and the refusal's words reach the
+    /// sample's failure unchanged.
+    static func refuseLegacyPhred64(_ pair: SamplePair) throws {
+        try QualityEncoding.refuseLegacyPhred64(pair.inputFiles, launcher: ToolProcessChildLauncher())
+    }
+
     /// Records a failed sample: one `sampleFailed` event, one log line and
     /// one entry in the batch's errors.
     static func recordFailure(
