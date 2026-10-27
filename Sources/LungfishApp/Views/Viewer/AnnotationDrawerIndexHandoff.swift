@@ -7,6 +7,10 @@
 // MainWindowController.swift. The drawer's own open and create paths hand an index that already ended to a
 // drawer made later. Every one of them calls this file, so the routes cannot drift apart again, and a build
 // that ends with no table to show says so in words where the drawer would otherwise read "0 annotations".
+//
+// Phase 3.0 lane DRAWER-ROUTE (WF-6). A drawer made while no index exists has none coming, since both routes that
+// build an index assign it in the turn that makes the drawer, so it shows `noIndexYetWords` instead of reading
+// "Building annotation index" for good. The building words belong to an index that is really being built.
 
 import AppKit
 import LungfishCore
@@ -21,6 +25,9 @@ enum AnnotationDrawerIndexHandoff {
 
     /// The widest the words grow before they wrap onto another line.
     private static let noticeMaximumWidth: CGFloat = 520
+
+    /// The words of a drawer that was made with no index. The next index to arrive removes or replaces them.
+    static let noIndexYetWords = "No annotations to show for this view."
 
     /// The words for a bundle whose annotation table could not be built. They offer no Retry button, since
     /// reopening the bundle is what builds the index again.
@@ -85,6 +92,18 @@ extension ViewerViewController {
         refreshAnnotationIndexNotice(for: index, bundle: viewerView.currentReferenceBundle ?? currentReferenceBundle)
     }
 
+    /// The call `configureAnnotationDrawer` makes once the new drawer is in the view tree. The drawer takes the index
+    /// that exists, and an index still building leaves it in its loading state until the observer hands it over.
+    /// With no index at all the drawer says so, since a build that was going to end has ended in this turn already.
+    func populateCreatedAnnotationDrawer() {
+        guard let drawer = annotationDrawerView else { return }
+        if let index = annotationSearchIndex {
+            attachAnnotationIndexToDrawer(index)
+        } else {
+            drawer.showNoIndexState()
+        }
+    }
+
     private func refreshAnnotationIndexNotice(for index: AnnotationSearchIndex, bundle: ReferenceBundle?) {
         guard let drawer = annotationDrawerView else { return }
         guard let bundle, AnnotationDrawerIndexHandoff.endedWithNoIndex(index, bundle: bundle) else {
@@ -94,5 +113,15 @@ extension ViewerViewController {
         AnnotationDrawerIndexHandoff.setNotice(
             AnnotationDrawerIndexHandoff.noIndexWords(bundleName: bundle.manifest.name), in: drawer
         )
+    }
+}
+
+extension AnnotationTableDrawerView {
+    /// The state of a drawer that no index has reached and none is building. It ends the loading state, empties the
+    /// table through the entry for a drawer with no index, and shows `noIndexYetWords` where the table would be. The
+    /// next index to arrive replaces all of it through `setSearchIndex` and the notice step of the handoff.
+    func showNoIndexState() {
+        setAnnotations([])
+        AnnotationDrawerIndexHandoff.setNotice(AnnotationDrawerIndexHandoff.noIndexYetWords, in: self)
     }
 }

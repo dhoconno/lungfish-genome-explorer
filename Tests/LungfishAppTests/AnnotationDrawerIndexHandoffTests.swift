@@ -59,7 +59,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
 
         viewer.openAnnotationDrawerIfBundleHasData()
         let drawer = try XCTUnwrap(viewer.annotationDrawerView, "Opening the drawer of a bundle with annotations makes it.")
-        XCTAssertTrue(drawer.isLoading, "A drawer that no index has reached shows its loading state.")
+        XCTAssertNil(drawer.searchIndex, "A drawer that no index has reached holds none.")
 
         try viewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundle)
         let index = try XCTUnwrap(viewer.annotationSearchIndex, "The bundle-display route keeps the index it builds.")
@@ -72,6 +72,10 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         XCTAssertFalse(
             Self.readableText(in: drawer).contains(where: { $0.contains(Self.failureWordsStart) }),
             "A build that found its table shows no failure words."
+        )
+        XCTAssertFalse(
+            Self.readableText(in: drawer).contains(where: { $0.contains(Self.noIndexWords) }),
+            "The drawer made before its index drops the no-index words when the index arrives."
         )
 
         viewer.clearBundleDisplay()
@@ -198,6 +202,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         let embedded = viewport.testEmbeddedViewerController
         let embeddedDrawer = try XCTUnwrap(embedded.annotationDrawerView, "The embedded viewer makes its drawer.")
         XCTAssertTrue(embedded.isAnnotationDrawerOpen, "The embedded viewer opens its drawer for a bundle with annotations.")
+        XCTAssertTrue(viewport.isEmbeddedAnnotationDrawerOpen, "The viewport offers the open state of that drawer.")
         XCTAssertFalse(embeddedDrawer.isLoading, "The embedded drawer has its index.")
         XCTAssertEqual(embeddedDrawer.totalAnnotationCount, 3, "The embedded drawer lists the bundle's annotations.")
 
@@ -223,6 +228,10 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
             "A drawer reads the building words while no index is building. The view tree reads \(words)."
         )
         XCTAssertTrue(words.contains("3 annotations"), "The drawer reads its count. The view tree reads \(words).")
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.noIndexWords) }),
+            "The no-index words of the drawer's first moment are gone once its index arrives. The view tree reads \(words)."
+        )
     }
 
     /// A mapping result's reference with no annotation or variant track opens no drawer of its own. Show Drawer
@@ -271,6 +280,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
             words.contains(where: { $0.contains(Self.noIndexWords) }),
             "A drawer that no index will reach says so. The drawer reads \(words)."
         )
+        XCTAssertTrue(words.contains("0 annotations"), "The empty table reads its count. The drawer reads \(words).")
 
         viewer.clearBundleDisplay()
     }
@@ -285,6 +295,10 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         )
         let embedded = viewport.testEmbeddedViewerController
         XCTAssertTrue(embedded.isAnnotationDrawerOpen, "Precondition: the embedded drawer is open.")
+        // A resize saves the drawer's height, so both viewers write to a suite of this test and not to the app's defaults.
+        let defaults = makeTestDefaultsSuite(prefix: "AnnotationDrawerIndexHandoffTests").defaults
+        host.annotationDrawerDefaults = defaults
+        embedded.annotationDrawerDefaults = defaults
 
         host.adjustAnnotationDrawerHeight(by: 40)
         XCTAssertNil(host.annotationDrawerView, "Make Drawer Taller made a drawer in the host, over the viewport.")

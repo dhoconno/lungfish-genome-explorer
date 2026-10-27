@@ -81,6 +81,9 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return multipleSequenceAlignmentViewController?.toggleBottomPane() ?? ()
         }
 
+        // A reference viewport shows its bundle in an embedded viewer, which owns the drawer a person sees.
+        if let viewport = drawerOwningReferenceViewport { return viewport.toggleEmbeddedAnnotationDrawer() }
+
         if annotationDrawerView == nil {
             configureAnnotationDrawer()
         }
@@ -104,21 +107,17 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
         annotDrawerLogger.info("toggleAnnotationDrawer: Drawer now \(self.isAnnotationDrawerOpen ? "open" : "closed")")
 
-        // Connect to search index if opening and index is available
-        if isAnnotationDrawerOpen, let index = annotationSearchIndex {
-            if !index.isBuilding {
-                attachAnnotationIndexToDrawer(index)
-            }
-        }
+        // Connect to the search index if opening and one is available. The attach skips an index still building.
+        if isAnnotationDrawerOpen, let index = annotationSearchIndex { attachAnnotationIndexToDrawer(index) }
     }
 
-    /// Closes the annotation drawer if it is open.
+    /// Closes the drawer that Show Drawer toggles, if it is open.
     ///
     /// The drawer's rows belong to the displayed bundle, so it must not stay
     /// open across a project change. Call after the viewport has been cleared:
     /// a native bundle viewport blocks the toggle.
     public func closeAnnotationDrawer() {
-        guard isAnnotationDrawerOpen else { return }
+        guard isActiveDrawerOpen else { return }
         toggleAnnotationDrawer()
     }
 
@@ -193,10 +192,8 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // We need to find and update the existing bottom constraints
         updateViewerBottomConstraints()
 
-        // Populate if index is ready, otherwise drawer defaults to loading state
-        if let index = annotationSearchIndex, !index.isBuilding {
-            attachAnnotationIndexToDrawer(index)
-        }
+        // Take the index that exists. With none, no build is waiting, so the drawer says so and never reads "Building".
+        populateCreatedAnnotationDrawer()
 
         annotDrawerLogger.info("configureAnnotationDrawer: Created annotation drawer")
     }
@@ -731,6 +728,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     /// when it is closed. Backs View > Make Drawer Taller and Make Drawer Shorter.
     public func adjustAnnotationDrawerHeight(by delta: CGFloat) {
         if let msa = multipleSequenceAlignmentViewController { return msa.adjustBottomPaneHeight(by: delta) }
+        if let viewport = drawerOwningReferenceViewport { return viewport.adjustEmbeddedAnnotationDrawerHeight(by: delta) }
         if annotationDrawerView == nil { configureAnnotationDrawer() }
         guard let drawer = annotationDrawerView else { return }
         if !isAnnotationDrawerOpen {
