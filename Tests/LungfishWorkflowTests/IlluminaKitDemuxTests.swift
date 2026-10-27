@@ -134,6 +134,13 @@ final class IlluminaKitDemuxTests: XCTestCase {
             "D701-D501 holds \(file.lines.filter { $0.name == "D701-D501" }.map(\.text))"
         )
         assertEveryPairHasItsOwnLines(kit, file)
+
+        // Both Ends is the only location a dual built-in kit may run at, so its line is pinned too.
+        let bothEnds = try await adapterFile(kit, location: .bothEnds)
+        XCTAssertTrue(
+            bothEnds.lines.contains(AdapterLine(name: "D701-D501", text: "^ATTACTCG...AGGCTATA$")),
+            "D701-D501 at Both Ends holds \(bothEnds.lines.filter { $0.name == "D701-D501" }.map(\.text))"
+        )
     }
 
     func testNexteraXTv2AdapterFASTACarriesBothIndexes() async throws {
@@ -173,6 +180,50 @@ final class IlluminaKitDemuxTests: XCTestCase {
             let words = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             XCTAssertTrue(words.contains("IDT for Illumina UD Indexes (96 pairs)"), "the refusal names the kit, got: \(words)")
             XCTAssertTrue(words.contains("Custom Definition"), "the refusal gives the way out, got: \(words)")
+        }
+    }
+
+    // MARK: - A dual kit runs only at Both Ends
+
+    /// A dual kit has its first index at the start of a read and its second at the end. Only Both Ends anchors both,
+    /// so at 5' End or 3' End one index floats and cutadapt counts chance matches as pairs (BIO review blocker 1).
+    func testDualIlluminaKitsAreRefusedAtFivePrimeAndThreePrimeEndButNotAtBothEnds() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let input = project.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        func config(_ kit: BarcodeKitDefinition, _ location: BarcodeLocation) -> DemultiplexConfig {
+            DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: kit,
+                outputDirectory: project.appendingPathComponent("demux-out", isDirectory: true),
+                barcodeLocation: location,
+                threads: 1
+            )
+        }
+        let dualKits = [BarcodeKitRegistry.truseqHTDual, BarcodeKitRegistry.nexteraXTv2]
+
+        for kit in dualKits {
+            for location in [BarcodeLocation.fivePrime, .threePrime] {
+                do {
+                    try await DemultiplexingPipeline().preflight(config: config(kit, location))
+                    XCTFail("\(kit.id) at \(location) leaves one index free, so the preflight must refuse it")
+                } catch let error as DemultiplexError {
+                    guard case .dualKitNeedsBothEnds(let kitName) = error else { throw error }
+                    XCTAssertEqual(kitName, kit.displayName)
+                    let words = error.errorDescription ?? ""
+                    XCTAssertTrue(words.contains(kit.displayName), "the refusal names the kit, got: \(words)")
+                    XCTAssertTrue(words.contains("Both Ends"), "the refusal names the location to choose, got: \(words)")
+                }
+            }
+        }
+
+        for kit in dualKits {
+            do {
+                try await DemultiplexingPipeline().preflight(config: config(kit, .bothEnds))
+            } catch DemultiplexError.dualKitNeedsBothEnds(_) {
+                XCTFail("\(kit.id) at Both Ends has both indexes anchored, so it is not refused for its location")
+            }
         }
     }
 

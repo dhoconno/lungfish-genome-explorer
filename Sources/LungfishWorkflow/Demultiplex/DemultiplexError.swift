@@ -19,6 +19,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case emptyAdapterSequences(kitName: String)
     case ambiguousAdapterSequences(kitName: String)
     case kitSequencesUnderCheck(kitName: String)
+    case dualKitNeedsBothEnds(kitName: String)
     case binCountExceeded(count: Int, limit: Int)
     case exactBareBarcodeUnsupported
 
@@ -44,6 +45,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "Two barcodes in the kit \"\(kitName)\" give the same search sequence, so their reads could not be told apart and nothing was run. Choose Custom Definition and enter the barcodes from your index sheet."
         case .kitSequencesUnderCheck(let kitName):
             return "The built-in sequences for \"\(kitName)\" are being checked, so this kit is off for now and nothing was run. Choose Custom Definition and enter the i7 and i5 sequences from your index sheet."
+        case .dualKitNeedsBothEnds(let kitName):
+            return "The kit \"\(kitName)\" has its first index at the start of a read and its second at the end, so it can be searched only at Both Ends, and nothing was run. Choose Both Ends (on the command line, --location bothends) and run it again."
         case .binCountExceeded(let count, let limit):
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         case .exactBareBarcodeUnsupported:
