@@ -150,9 +150,11 @@ extension QualityEncoding {
         package init() {}
 
         package var errorDescription: String? {
-            "This file's quality scores look like the old Phred+64 encoding (Illumina pipeline 1.3 to 1.7). "
-                + "LGE stores Phred+33 scores only. Convert the file first, for example with reformat.sh qin=64 qout=33, "
-                + "then import the new file."
+            "This file's quality characters all fall in the range of the old Phred+64 encoding, used by Illumina "
+                + "pipelines 1.3 to 1.7 (about 2008 to 2011). LGE stores Phred+33 scores only, so it did not import the "
+                + "file. If the file comes from one of those pipelines, convert it first, for example with reformat.sh "
+                + "qin=64 qout=33, then import the new file. If it comes from a newer instrument, its scores are already "
+                + "Phred+33, so do not convert it, and please report the file, since this check misread it."
         }
     }
 
@@ -161,8 +163,12 @@ extension QualityEncoding {
     /// Every storage step tells BBTools the scores are Phred+33 (``PortableStoragePlan/qualityEncodingArguments``), so
     /// such a file would be stored 31 too high. ``detect(from:)`` is no guard, since it calls a real HiFi read Phred+64
     /// and a typical Illumina 1.5 file (bytes `B` to `h`) Phred+33. This test is true when no quality byte is below 64,
-    /// none is above 105 (`i`) and the mean read length is under 400, so a modern file with a score below Q31, a score
-    /// of Q73 or more, or long reads is never refused. A plain or gzip file is read through `launcher`.
+    /// none is above 105 (`i`), at least one is at or below 69 (`E`), and the mean read length is under 400. Illumina
+    /// 1.3 files carry `@` and `A`, and Illumina 1.5 to 1.7 files carry the `B` tail mark, so each holds a byte at or
+    /// below `E`. A modern file with a score below Q31, a score of Q73 or more, scores only above Q36, or long reads
+    /// is never refused. A Phred+64 file trimmed so that no score is below Q6 is not refused either, since no test on
+    /// the bytes alone tells the two encodings apart in such a file (BIO-BIN-QIN 7.1). A plain or gzip file is read
+    /// through `launcher`.
     package static func looksLikeLegacyPhred64(_ url: URL, launcher: any PortableChildLauncher) throws -> Bool {
         let reader = try FASTQRawLineReader(url: url, launcher: launcher)
         defer { reader.close() }
@@ -203,7 +209,9 @@ extension QualityEncoding {
             bases += sequenceLength
         }
         guard records > 0, lowest <= highest else { return false }
-        return bases / records < 400
+        // A constant `I` and every score from Q37 up is Phred+33, and an Illumina 1.3 to 1.7 file always carries a byte
+        // at or below `E`, so the lowest byte tells them apart (BIO-BIN-QIN 7.1).
+        return bases / records < 400 && lowest <= UInt8(ascii: "E")
     }
 
     /// Throws ``LegacyPhred64Refusal`` when any of `urls` looks like the old Phred+64 encoding. A file this guard cannot
