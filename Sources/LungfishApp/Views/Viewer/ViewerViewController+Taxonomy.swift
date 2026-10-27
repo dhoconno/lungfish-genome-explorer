@@ -370,9 +370,28 @@ struct TaxonomyExtractionAlertWords: Equatable {
 
 extension ViewerViewController {
     /// The alert for `error`, which ended `lungfish-cli extract taxa-collection` on the result of `sample`.
+    ///
+    /// The command writes a file for each ticked taxon that has reads in the sample and skips the others. When it
+    /// skips them all it has no output to record, and its record refuses the run with the provenance builder's
+    /// sentence "completed successfully without recording at least one scientific output", which says nothing a
+    /// person can act on. That one ending becomes an informational alert that says no ticked taxon has reads
+    /// (OBS-W5). Every other failure keeps its warning alert and its words.
     static func taxonomyExtractionAlertWords(for error: Error, sample: String) -> TaxonomyExtractionAlertWords {
-        TaxonomyExtractionAlertWords(title: "Taxonomy Extraction Failed", text: error.localizedDescription, style: .warning)
+        if let failure = error as? CLISubprocessTransport.RunError,
+           case .failedEvent(let message, _) = failure,
+           message == ProvenanceBuilderError.missingOutput(taxaCollectionWorkflowName).errorDescription {
+            return TaxonomyExtractionAlertWords(
+                title: "No reads to extract",
+                text: "None of the ticked taxa has reads in \(sample), so there was nothing to extract. "
+                    + "Tick a taxon that has reads in this sample, then choose Extract.",
+                style: .informational
+            )
+        }
+        return TaxonomyExtractionAlertWords(title: "Taxonomy Extraction Failed", text: error.localizedDescription, style: .warning)
     }
+
+    /// The name `lungfish-cli extract taxa-collection` gives its run in the record, which its failure messages quote.
+    private static let taxaCollectionWorkflowName = "lungfish extract taxa-collection"
 }
 
 /// Presents the alert a failed taxonomy extraction ends in.
