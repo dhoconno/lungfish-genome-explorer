@@ -38,4 +38,15 @@ enum DerivedFASTQStatisticsStore {
         }
         return measured
     }
+
+    /// Counts the reads of a FASTQ file with the native reader, the pass every demultiplexing writer stores, so the
+    /// record keeps its score histogram and per-position scores and its median and N50 follow the collector's rule.
+    /// `progress` receives the number of reads counted so far.
+    nonisolated static func measureReads(
+        at reads: URL,
+        progress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> FASTQDatasetStatistics {
+        try await FASTQReader(validateSequence: false)
+            .computeStatistics(from: reads, sampleLimit: 0, progress: progress).statistics
+    }
 }

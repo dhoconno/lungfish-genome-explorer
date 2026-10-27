@@ -27,9 +27,16 @@ enum FASTQStatisticsDisplayRules {
         return notCounted ? nil : statistics
     }
 
-    /// Whether the reads carry no quality scores, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
+    /// Whether the reads carry no quality scores at all, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
+    /// A record with a mean Q, Q20 or Q30 above 0 has scores whichever producer built it, and `seqkit stats -a -T`
+    /// gives those three numbers with no score histogram, so the empty histogram alone does not say the reads have no
+    /// scores (DEMUX-STATS BIO review B1).
     static func hasNoQualityScores(_ statistics: FASTQDatasetStatistics) -> Bool {
-        statistics.readCount > 0 && statistics.qualityScoreHistogram.isEmpty
+        statistics.readCount > 0
+            && statistics.qualityScoreHistogram.isEmpty
+            && statistics.meanQuality == 0
+            && statistics.q20Percentage == 0
+            && statistics.q30Percentage == 0
     }
 
     static func meanQualityText(_ statistics: FASTQDatasetStatistics) -> String {

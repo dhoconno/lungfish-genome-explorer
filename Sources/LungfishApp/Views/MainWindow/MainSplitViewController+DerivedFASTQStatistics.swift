@@ -47,7 +47,7 @@ extension MainSplitViewController {
                     let reads = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
                         fromBundle: bundle, tempDirectory: folder, progress: nil
                     )
-                    return try await FASTQStatisticsService.compute(for: [reads], progress: { _ in }).statistics
+                    return try await DerivedFASTQStatisticsStore.measureReads(at: reads)
                 }
                 try Task.checkCancellation()
                 await MainActor.run {

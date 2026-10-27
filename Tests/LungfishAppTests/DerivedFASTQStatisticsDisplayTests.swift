@@ -165,4 +165,33 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(scoresWithoutHistogram), "60.0%")
         XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(scoresWithoutHistogram), "40.0%")
     }
+
+    /// The display counts the reads of an older bundle with `DerivedFASTQStatisticsStore.measureReads`. No stub stands
+    /// in for it here, so the record keeps the histogram a real count builds and the words show the real numbers
+    /// (BIO review B1, part b).
+    func testTheMeasureOfRealReadsKeepsTheirScoresAndTheWordsShowNumbers() async throws {
+        let root = try TestTempDirectory.make(prefix: "derived-statistics-measure")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let reads = root.appendingPathComponent("reads.fastq")
+        // Four reads of 10, 12, 14 and 16 bases, ACGT repeated so half of the 52 bases are G or C, all scored Q40.
+        let text = [("r1", "ACGTACGTAC"), ("r2", "ACGTACGTACGT"), ("r3", "ACGTACGTACGTAC"), ("r4", "ACGTACGTACGTACGT")]
+            .map { "@\($0.0)\n\($0.1)\n+\n\(String(repeating: "I", count: $0.1.count))\n" }
+            .joined()
+        try text.write(to: reads, atomically: true, encoding: .utf8)
+
+        let statistics = try await DerivedFASTQStatisticsStore.measureReads(at: reads)
+
+        XCTAssertEqual(statistics.readCount, 4)
+        XCTAssertEqual(statistics.baseCount, 52)
+        XCTAssertEqual(statistics.gcContent, 0.5, accuracy: 1e-9)
+        XCTAssertFalse(statistics.qualityScoreHistogram.isEmpty, "the count keeps the score histogram")
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasNoQualityScores(statistics))
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(statistics), "40.0")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(statistics), "100.0%")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(statistics), "100.0%")
+        XCTAssertEqual(
+            FASTQStatisticsDisplayRules.storedStatisticsToShow(statistics), statistics,
+            "a counted record is one the display shows as stored"
+        )
+    }
 }
