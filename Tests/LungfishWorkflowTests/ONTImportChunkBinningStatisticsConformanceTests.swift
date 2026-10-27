@@ -7,6 +7,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
+import os
 @testable import LungfishWorkflow
 
 /// Phase 3.0 lane ONT, review fix BIO F2 (walk WF-8). The app's default ONT import stores chunks, bins each chunk
@@ -35,6 +36,7 @@ final class ONTImportChunkBinningStatisticsConformanceTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures/ont/nrg1-run/fastq_pass/barcode85", isDirectory: true)
         let output = root.appendingPathComponent("out", isDirectory: true)
+        let progressLog = OSAllocatedUnfairLock<[String]>(initialState: [])
 
         let result = try await ONTImportWorkflow().importDirectory(
             config: ONTImportConfig(sourceDirectory: barcode85, outputDirectory: output, storageMode: .chunked),
@@ -51,7 +53,7 @@ final class ONTImportChunkBinningStatisticsConformanceTests: XCTestCase {
                 resolvedOptions: [:]
             ),
             optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: false, qualityBinning: .illumina4),
-            progress: { _, _ in }
+            progress: { _, message in progressLog.withLock { $0.append(message) } }
         )
 
         let bundle = try XCTUnwrap(result.importResult.bundleURLs.first)
@@ -68,6 +70,12 @@ final class ONTImportChunkBinningStatisticsConformanceTests: XCTestCase {
         }
         XCTAssertEqual(stored, collector.finalize(), "the sidecar describes the chunks the bundle stores")
         XCTAssertEqual(stored.readCount, 1_000, "binning keeps every read")
+
+        // The second measure parses every stored read again, so the row says so after the last binning line.
+        let words = progressLog.withLock { $0 }
+        let measuring = try XCTUnwrap(words.firstIndex(of: "barcode85: measuring reads"), "\(words)")
+        let lastBinning = try XCTUnwrap(words.lastIndex { $0.contains("binning quality scores") }, "\(words)")
+        XCTAssertGreaterThan(measuring, lastBinning, "\(words)")
     }
 
     // MARK: - Helpers

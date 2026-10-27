@@ -11,6 +11,7 @@ import Foundation
 import XCTest
 import LungfishCore
 import LungfishIO
+import os
 @testable import LungfishWorkflow
 
 final class ONTImportStoredStatisticsTests: XCTestCase {
@@ -34,6 +35,7 @@ final class ONTImportStoredStatisticsTests: XCTestCase {
         try "@r1\nACGT\n+\nIIII\n@r2\nACGGCC\n+\nIIIIII\n"
             .write(to: barcode.appendingPathComponent("chunk_0.fastq"), atomically: true, encoding: .utf8)
         let output = root.appendingPathComponent("out", isDirectory: true)
+        let progressLog = OSAllocatedUnfairLock<[String]>(initialState: [])
 
         // Stands in for binning: the stored reads keep their bases and every score becomes `+`, Q10.
         let workflow = ONTImportWorkflow(optimizationRunner: { bundleURL, _, _ in
@@ -56,7 +58,7 @@ final class ONTImportStoredStatisticsTests: XCTestCase {
                 resolvedOptions: [:]
             ),
             optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: true, qualityBinning: .illumina4),
-            progress: { _, _ in }
+            progress: { _, message in progressLog.withLock { $0.append(message) } }
         )
 
         let bundle = try XCTUnwrap(result.importResult.bundleURLs.first)
@@ -68,6 +70,10 @@ final class ONTImportStoredStatisticsTests: XCTestCase {
         XCTAssertEqual(statistics.gcContent, 0.7, accuracy: 0.0001)
         XCTAssertEqual(statistics.meanQuality, 10, accuracy: 0.01, "the stored reads hold Q10, not the run's Q40")
         XCTAssertEqual(statistics.qualityScoreHistogram, [10: 10])
+
+        // The second measure parses every stored read again, so the row says so (review fix BIO F3).
+        let words = progressLog.withLock { $0 }
+        XCTAssertTrue(words.contains("barcode01: measuring reads"), "\(words)")
     }
 
     /// The app's default import stores chunks and bins each one afterwards (`binChunkedPayloads`), with no Optimize

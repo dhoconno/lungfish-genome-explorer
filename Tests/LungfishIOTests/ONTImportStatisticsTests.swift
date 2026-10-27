@@ -208,6 +208,27 @@ final class ONTImportStatisticsTests: XCTestCase {
         await assertMeasuringThrows(notGzip, "a plain-text file named .fastq.gz")
     }
 
+    /// A chunk the parser refuses fails its barcode with a sentence that says what is wrong with the file, not with a
+    /// case name and its payload (review fix BIO F3). The base counted lines and threw nothing for this file.
+    func testAChunkTheParserRefusesFailsTheBarcodeWithASentence() async throws {
+        let barcode = try makeFolder().appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcode, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nII\n".write(to: barcode.appendingPathComponent("chunk_0.fastq"), atomically: true, encoding: .utf8)
+        let output = try makeFolder().appendingPathComponent("Imports", isDirectory: true)
+
+        do {
+            _ = try await ONTDirectoryImporter().importDirectory(
+                config: ONTImportConfig(sourceDirectory: barcode, outputDirectory: output, storageMode: .flattened),
+                progress: { _, _ in }
+            )
+            XCTFail("a chunk whose quality line is shorter than its bases must fail the import")
+        } catch {
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("Quality length (2) doesn't match sequence length (4)"), words)
+            XCTAssertFalse(words.contains("qualityLengthMismatch"), words)
+        }
+    }
+
     // MARK: - WO-10, the reads left out
 
     func testTheManifestRecordsTheUnclassifiedReadsItLeftOut() async throws {

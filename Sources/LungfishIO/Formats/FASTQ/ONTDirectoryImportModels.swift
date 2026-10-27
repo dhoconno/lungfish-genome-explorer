@@ -171,7 +171,7 @@ public enum ONTImportError: Error, LocalizedError {
         case .noBarcodesFound:
             return "No barcode directories found"
         case .concatenationFailed(let barcode, let error):
-            return "Failed to concatenate \(barcode): \(error)"
+            return "Failed to concatenate \(barcode): \(error.localizedDescription)"
         case .readCountFailed(let barcode):
             return "Failed to count reads for \(barcode)"
         }

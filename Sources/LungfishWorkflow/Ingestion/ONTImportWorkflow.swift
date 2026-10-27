@@ -527,6 +527,7 @@ public struct ONTImportWorkflow: Sendable {
         guard optimization.optimizeStorage else {
             let steps = try await Self.binChunkedPayloads(bundleURLs: bundleURLs, config: config, optimization: optimization, progress: progress)
             for bundleURL in bundleURLs where !steps.isEmpty {
+                progress(1.0, "\(bundleURL.deletingPathExtension().lastPathComponent): measuring reads")
                 try await ONTDirectoryImporter.remeasureStoredStatistics(ofBundle: bundleURL)
             }
             return steps
@@ -552,6 +553,10 @@ public struct ONTImportWorkflow: Sendable {
                 }
             )
             if optimization.qualityBinning != .none {
+                progress(
+                    (Double(index) + 1.0) / Double(max(1, bundleURLs.count)),
+                    "\(bundleURL.deletingPathExtension().lastPathComponent): measuring reads"
+                )
                 try await ONTDirectoryImporter.remeasureStoredStatistics(ofBundle: bundleURL)
             }
         }
