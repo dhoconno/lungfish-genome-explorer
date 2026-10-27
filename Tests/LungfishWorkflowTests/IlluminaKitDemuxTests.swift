@@ -207,12 +207,30 @@ final class IlluminaKitDemuxTests: XCTestCase {
         XCTAssertThrowsError(
             try DemultiplexingPipeline().requireAdapterSequences(in: fasta, kitName: "Test Kit")
         ) { error in
-            // The case is named by its label so that this file compiles where the case does not exist yet.
-            XCTAssertTrue(
-                String(describing: error).hasPrefix("ambiguousAdapterSequences"),
-                "two barcodes with one line must throw ambiguousAdapterSequences, got \(error)"
-            )
-            XCTAssertTrue((error as? LocalizedError)?.errorDescription?.contains("Test Kit") ?? false)
+            guard case DemultiplexError.ambiguousAdapterSequences(let kitName) = error else {
+                return XCTFail("two barcodes with one line must throw ambiguousAdapterSequences, got \(error)")
+            }
+            XCTAssertEqual(kitName, "Test Kit")
+            let words = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(words.contains("Test Kit"), "the words name the kit, got: \(words)")
+            XCTAssertTrue(words.contains("Custom Definition"), "the words give the way out, got: \(words)")
+        }
+    }
+
+    /// The strict check stands in front of every built-in kit, so a kit that repeats a sequence under two names, or
+    /// builds a line with an empty side, would stop running. IDT UD is refused by id and a combinatorial kit needs
+    /// sample assignments, so both are left out.
+    func testEveryOtherBuiltInKitStillBuildsAnUnambiguousAdapterFile() async throws {
+        for kit in BarcodeKitRegistry.builtinKits()
+        where kit.id != BarcodeKitRegistry.idtUDIndexes.id && kit.pairingMode != .combinatorialDual {
+            for location in [BarcodeLocation.bothEnds, .fivePrime, .threePrime] {
+                do {
+                    let file = try await adapterFile(kit, location: location)
+                    XCTAssertFalse(file.lines.isEmpty, "\(kit.id) at \(location) builds no line")
+                } catch {
+                    XCTFail("\(kit.id) at \(location) builds no usable adapter file: \(error)")
+                }
+            }
         }
     }
 }

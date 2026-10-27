@@ -60,13 +60,30 @@ extension DemultiplexingPipeline {
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
     }
 
-    /// Refuses an adapter FASTA without a sequence, on which cutadapt fails
-    /// with a message that does not name the kit.
+    /// Refuses an adapter FASTA that cutadapt cannot use or that cannot tell its barcodes apart, and names the kit.
+    /// Every side of every line needs a base, because a line that holds only `^` or `$`, or a linked adapter with an
+    /// empty side, stops cutadapt with "Adapter sequence is empty". No two barcodes may share one line, because
+    /// cutadapt then puts the reads of both in the first without a word. One check serves the run and the
+    /// preflight (``validateAdapterFASTA(at:kitName:)`` calls it).
     func requireAdapterSequences(in adapterFASTA: URL, kitName: String) throws {
-        let fastaContent = try String(contentsOf: adapterFASTA, encoding: .utf8)
-        let sequences = fastaContent.split(separator: "\n").filter { !$0.hasPrefix(">") && !$0.isEmpty }
-        if sequences.isEmpty || sequences.allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            throw DemultiplexError.emptyAdapterSequences(kitName: kitName)
+        let lines = try String(contentsOf: adapterFASTA, encoding: .utf8).split(separator: "\n").map(String.init)
+        var namesBySpec: [String: Set<String>] = [:]
+        var name = ""
+        for line in lines where !line.isEmpty {
+            if line.hasPrefix(">") {
+                name = String(line.dropFirst())
+                continue
+            }
+            let spec = String(line.split(separator: ";", maxSplits: 1).first ?? "")
+            for side in spec.components(separatedBy: "...")
+            where !side.uppercased().contains(where: { "ACGTU".contains($0) }) {
+                throw DemultiplexError.emptyAdapterSequences(kitName: kitName)
+            }
+            namesBySpec[spec, default: []].insert(name)
+        }
+        guard !namesBySpec.isEmpty else { throw DemultiplexError.emptyAdapterSequences(kitName: kitName) }
+        if namesBySpec.values.contains(where: { $0.count > 1 }) {
+            throw DemultiplexError.ambiguousAdapterSequences(kitName: kitName)
         }
     }
 }

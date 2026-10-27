@@ -1462,20 +1462,10 @@ extension DemultiplexingPipeline {
             && config.barcodeLocation == .bothEnds
     }
 
-    /// Validates that an adapter FASTA file contains at least one non-empty sequence.
+    /// Validates an adapter FASTA with the strict check the preflight makes
+    /// (``requireAdapterSequences(in:kitName:)``).
     func validateAdapterFASTA(at url: URL, kitName: String) throws {
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let sequences = content.split(separator: "\n")
-            .filter { !$0.hasPrefix(">") && !$0.isEmpty }
-        guard !sequences.isEmpty else {
-            throw DemultiplexError.emptyAdapterSequences(kitName: kitName)
-        }
-        for seq in sequences {
-            let trimmed = seq.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                throw DemultiplexError.emptyAdapterSequences(kitName: kitName)
-            }
-        }
+        try requireAdapterSequences(in: url, kitName: kitName)
     }
 
     private enum BarcodeRole {
