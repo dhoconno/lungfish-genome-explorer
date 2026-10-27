@@ -9,7 +9,7 @@ import XCTest
 /// into a `FASTQRecord`, about 50 MB/s, so a VSP2 bundle of ~100 GB spent
 /// half an hour on it. The scan now counts quality bytes as they stream past.
 /// Every count here is checked against that record path, which stays the
-/// reference: same encoding detected per file, same bases, same thresholds.
+/// reference: same Phred+33 reading, same bases, same thresholds.
 final class FASTQQualityFractionsByteScanTests: XCTestCase {
     private var root: URL!
 
@@ -38,8 +38,9 @@ final class FASTQQualityFractionsByteScanTests: XCTestCase {
         "@r4", "GGGG", "+", "4?5>",
     ].joined(separator: "\n") + "\n"
 
-    /// Phred+64: every byte at or above '@' and some above 'h', so the
-    /// reader detects phred+64 and Q20 is 'T', Q30 is '^'.
+    /// Every byte at or above '@' and some above 'h'. A guess from its first
+    /// record would call it Phred+64, but LGE reads Phred+33 only, so every
+    /// base counts at Q20 and Q30.
     private static let phred64Text = [
         "@p1", "ACGTACGTAC", "+", "iiiii^^TTS",
         "@p2", "ACGT", "+", "SRQ@",
@@ -110,16 +111,18 @@ final class FASTQQualityFractionsByteScanTests: XCTestCase {
         XCTAssertEqual(scanned, reference)
     }
 
-    /// BIO-BIN-QIN N1. No file is guessed to be Phred+64, so a file whose bytes all sit at '@' or above counts every base
-    /// at Q20 and Q30, and the phred64 fixture holds 14 such bases. The counter once took thresholds of 'T' and '^'
-    /// from its first record. The record path, `FASTQReader`, still guesses from the first record, so the Phred+33 file
-    /// is the one compared with it.
+    /// BIO-BIN-QIN N1 and 7.2. No file is guessed to be Phred+64, by the counter or by the record reader, so a file whose
+    /// bytes all sit at '@' or above counts every base at Q20 and Q30, and the phred64 fixture holds 14 such bases. The
+    /// counter once took thresholds of 'T' and '^' from its first record, and the reader once guessed from its first
+    /// record too. Both files are compared with the record path.
     func testEveryFileCountsAtPhred33() async throws {
         let phred64 = try write(Self.phred64Text, name: "phred64.fastq")
         let phred33 = try gzip(try write(Self.phred33Text, name: "phred33.fastq"))
 
         let looksLike64 = try await FASTQQualityFractions.scan(phred64)
         XCTAssertEqual(looksLike64, FASTQQualityFractions(baseCount: 14, q20Count: 14, q30Count: 14))
+        let referenceLooksLike64 = try await recordCount([phred64])
+        XCTAssertEqual(looksLike64, referenceLooksLike64)
 
         let reference = try await recordCount([phred33])
         let scanned33 = try await FASTQQualityFractions.scan(phred33)

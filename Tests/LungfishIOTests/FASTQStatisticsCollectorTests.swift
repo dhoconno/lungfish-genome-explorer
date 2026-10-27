@@ -24,6 +24,33 @@ final class FASTQStatisticsCollectorTests: XCTestCase {
         )
     }
 
+    // MARK: - A first read with only high scores (BIO-BIN-QIN 7.2, S1)
+
+    /// A short HiFi amplicon kept with None has a first read whose scores all sit at Q31 or above. The reader once took
+    /// the file for Phred+64 from that read, so the shown mean Q, Q20 and Q30 read 31 too low. Every base of this file is
+    /// at Q31 or above, so Q20 and Q30 are 100% and the mean is at least Q31, whether the records come from the async
+    /// stream or from the synchronous statistics path.
+    func testAHiFiFirstReadKeepsQ20AndQ30At100() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fastq-collector-hifi-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let url = try HiFiFirstReadFixture.write(in: folder)
+        let reader = FASTQReader()
+
+        let collector = FASTQStatisticsCollector()
+        for try await record in reader.records(from: url) { collector.process(record) }
+        let streamed = collector.finalize()
+        let (computed, _) = try await reader.computeStatistics(from: url)
+
+        for (path, stats) in [("async record stream", streamed), ("synchronous path", computed)] {
+            XCTAssertEqual(stats.readCount, 2, path)
+            XCTAssertEqual(stats.q20Percentage, 100.0, accuracy: 0.01, path)
+            XCTAssertEqual(stats.q30Percentage, 100.0, accuracy: 0.01, path)
+            XCTAssertGreaterThanOrEqual(stats.meanQuality, 31.0, path)
+        }
+    }
+
     // MARK: - Empty Dataset
 
     func testEmptyDatasetReturnsZeros() {
