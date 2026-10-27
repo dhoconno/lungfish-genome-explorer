@@ -36,7 +36,7 @@ OPTIONS:
                           chunked import bins each chunk with reformat.sh and
                           --optimize-storage bins with clumpify. Binning is
                           lossy. (values: fiveStep, illumina4, eightLevel,
-                          none; default: none)
+                          none; default: fiveStep)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

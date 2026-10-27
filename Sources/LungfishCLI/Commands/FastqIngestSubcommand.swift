@@ -41,10 +41,11 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
             --delete-originals remove the original files. A cancel (SIGTERM) or a
             failure leaves the originals in place.
 
-            The command reads no platform, so it bins quality scores with the default of
-            an unknown platform unless --binning names a scheme. fiveStep keeps every
-            Q10, Q20 and Q30 count. Binning is lossy. With --format json the command
-            prints progress as events.
+            The command reads no platform, so it bins quality scores with fiveStep, the
+            default of every platform, unless --binning names a scheme. fiveStep keeps
+            every Q10, Q20 and Q30 count, and a score can move by up to 2 inside its
+            step. Pass --binning none to keep every score. Binning is lossy. With
+            --format json the command prints progress as events.
 
             Examples:
               lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals

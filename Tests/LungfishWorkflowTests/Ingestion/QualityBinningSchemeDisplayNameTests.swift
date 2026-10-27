@@ -6,7 +6,7 @@ final class QualityBinningSchemeDisplayNameTests: XCTestCase {
     func testPersistedRawValuesShowTheirLevelCounts() {
         XCTAssertEqual(QualityBinningScheme.displayName(forRawValue: "illumina4"), "Illumina (7-level)")
         XCTAssertEqual(QualityBinningScheme.displayName(forRawValue: "eightLevel"), "Fine (~21-level)")
-        XCTAssertEqual(QualityBinningScheme.displayName(forRawValue: "none"), "None (preserve original)")
+        XCTAssertEqual(QualityBinningScheme.displayName(forRawValue: "none"), "None (keep every score)")
     }
 
     func testUnknownRawValueIsShownAsIs() {

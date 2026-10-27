@@ -60,14 +60,14 @@ struct ImportFastqOptions: ParsableArguments {
         help: ArgumentHelp(
             "Quality binning: fiveStep (8 quality levels), illumina4 (7 quality levels), eightLevel (~21 quality levels), none",
             discussion: """
-            An Illumina import bins quality scores with fiveStep unless this option or \
-            the recipe names another value. fiveStep stores scores in steps of five, so \
-            every Q10, Q20 and Q30 count stays as sequenced. Oxford Nanopore, PacBio and \
-            other imports keep every score unless this option or the recipe names a \
-            scheme. illumina4 stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is \
+            An import bins quality scores with fiveStep on every platform unless this \
+            option or the recipe names another value. fiveStep stores scores in steps of \
+            five, so every Q10, Q20 and Q30 count stays as sequenced. A score can move \
+            by up to 2 inside its step, and the last step stores every score from Q35 up \
+            as Q37. illumina4 stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is \
             kept to replay older imports. Binning saves space and is lossy. The original \
             scores cannot be recovered once the original files are removed. Pass \
-            --quality-binning none to keep every score as the reads have it.
+            --quality-binning none to keep every score as the sequencer gave it.
             """
         )
     )

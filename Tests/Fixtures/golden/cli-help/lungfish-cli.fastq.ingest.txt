@@ -13,10 +13,11 @@ that names each original file with its SHA-256. Only after that does
 --delete-originals remove the original files. A cancel (SIGTERM) or a
 failure leaves the originals in place.
 
-The command reads no platform, so it bins quality scores with the default of
-an unknown platform unless --binning names a scheme. fiveStep keeps every
-Q10, Q20 and Q30 count. Binning is lossy. With --format json the command
-prints progress as events.
+The command reads no platform, so it bins quality scores with fiveStep, the
+default of every platform, unless --binning names a scheme. fiveStep keeps
+every Q10, Q20 and Q30 count, and a score can move by up to 2 inside its
+step. Pass --binning none to keep every score. Binning is lossy. With
+--format json the command prints progress as events.
 
 Examples:
   lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals
@@ -31,7 +32,7 @@ OPTIONS:
   --pair <pair>           Optional R2 FASTQ file for paired-end mode
   --binning <binning>     Quality binning: fiveStep, illumina4 (to replay older
                           imports), eightLevel or none (values: fiveStep,
-                          illumina4, eightLevel, none; default: none)
+                          illumina4, eightLevel, none; default: fiveStep)
   --skip-clumpify         Skip read clumpification step
   --delete-originals      Delete the original FASTQ file(s) once the output,
                           its sidecar and its record are written

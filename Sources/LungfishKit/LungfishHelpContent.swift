@@ -553,7 +553,7 @@ public enum LungfishHelpContent {
     public static let fastqImportQualityBinning = HelpItem(
         id: "workflow.fastq.import.qualityBinning",
         summary: "Choose quality-score binning for storage and downstream reuse.",
-        detail: "Illumina imports bin scores in steps of five unless you choose another scheme, which keeps every Q10, Q20 and Q30 count as sequenced. Oxford Nanopore, PacBio and other imports keep every score unless you choose a scheme. The barcode recipes do not bin scores. Binning is lossy, saves space and is written with command provenance.",
+        detail: "Imports bin quality scores in steps of five by default on every platform. Steps of five keep every Q10, Q20 and Q30 count as sequenced. A score can move by up to 2 inside its step, and the last step stores every score from Q35 up as Q37. Choose None (keep every score) to keep the scores as the sequencer gave them. The barcode recipes do not bin scores. Binning is lossy, saves space and is written with command provenance.",
         audience: .analyst,
         provenanceRelevant: true
     )
