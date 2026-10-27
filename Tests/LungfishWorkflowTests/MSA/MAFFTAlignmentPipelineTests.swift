@@ -426,7 +426,7 @@ final class MAFFTAlignmentPipelineTests: XCTestCase {
                 payload: .orientMap(orientMapFilename: "orient-map.tsv", previewFilename: "preview.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 12),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 12),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

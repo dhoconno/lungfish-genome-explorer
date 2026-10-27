@@ -471,7 +471,7 @@ final class SamplesheetReadSetPlannerTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 4, baseCount: 40),
+                cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 40),
                 pairingMode: .pairedEnd,
                 readClassification: nil,
                 sequenceFormat: .fastq

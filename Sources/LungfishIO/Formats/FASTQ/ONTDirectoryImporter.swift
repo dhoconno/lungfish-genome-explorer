@@ -47,6 +47,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     /// Detects the ONT directory layout at the given URL.
     ///
     /// Works for:
+    /// - The run folder MinKNOW writes, which holds `fastq_pass/`
     /// - A `fastq_pass/` parent directory containing `barcode*` subdirectories
     /// - A directory containing `barcode*` subdirectories directly
     /// - A single `barcode*` directory with `.fastq.gz` files
@@ -116,8 +117,15 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
         // No barcode subdirs found — check for FASTQ chunks directly in this directory
         if barcodeDirs.isEmpty {
+            // The run folder MinKNOW writes holds fastq_pass beside fastq_fail, pod5 and its reports (walk WF-7).
+            if let fastqPass = contents.first(where: {
+                $0.lastPathComponent.lowercased() == "fastq_pass"
+                    && (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            }) {
+                return try detectLayout(at: fastqPass)
+            }
             let directChunks = try listFASTQChunks(in: url)
-            if !directChunks.isEmpty {
+            if let firstChunk = directChunks.first, mayHoldNanoporeReads(url, firstChunk: firstChunk) {
                 let totalSize = directChunks.reduce(Int64(0)) { $0 + fileSize($1) }
                 let dir = ONTBarcodeDirectory(
                     url: url,
@@ -145,6 +153,14 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             barcodeDirectories: barcodeDirs,
             hasUnclassified: hasUnclassified
         )
+    }
+
+    /// A folder of chunks with no barcode folders is a run without barcodes. Reads whose headers name another
+    /// platform, such as an Illumina sample's FASTQ files, are not an ONT layout (walk WF-7).
+    private func mayHoldNanoporeReads(_ folder: URL, firstChunk: URL) -> Bool {
+        if folder.lastPathComponent.lowercased() == "fastq_pass" { return true }
+        let inference = PlatformInference.infer(fromFASTQ: firstChunk)
+        return !inference.isActionable || inference.platform == .oxfordNanopore
     }
 
     // MARK: - Import
@@ -179,11 +195,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
         // Process barcodes with bounded concurrency
         let results = try await withThrowingTaskGroup(
-            of: (Int, URL, Int, Int64).self
+            of: (Int, URL, FASTQDatasetStatistics).self
         ) { group in
             var activeTasks = 0
             var barcodeIndex = 0
-            var collected: [(Int, URL, Int, Int64)] = []
+            var collected: [(Int, URL, FASTQDatasetStatistics)] = []
 
             while barcodeIndex < barcodesToImport.count || activeTasks > 0 {
                 while activeTasks < config.maxConcurrentBarcodes && barcodeIndex < barcodesToImport.count {
@@ -194,9 +210,9 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
                     let useVirtual = config.useVirtualConcatenation
                     group.addTask {
-                        let (bundleURL, readCount, baseCount): (URL, Int, Int64)
+                        let (bundleURL, statistics): (URL, FASTQDatasetStatistics)
                         if useVirtual {
-                            (bundleURL, readCount, baseCount) = try await self.importBarcodeVirtual(
+                            (bundleURL, statistics) = try await self.importBarcodeVirtual(
                                 barcodeDir: barcodeDir,
                                 outputDirectory: config.outputDirectory,
                                 progress: { msg in
@@ -207,7 +223,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                                 }
                             )
                         } else {
-                            (bundleURL, readCount, baseCount) = try await self.importBarcode(
+                            (bundleURL, statistics) = try await self.importBarcode(
                                 barcodeDir: barcodeDir,
                                 outputDirectory: config.outputDirectory,
                                 progress: { msg in
@@ -218,7 +234,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                                 }
                             )
                         }
-                        return (idx, bundleURL, readCount, baseCount)
+                        return (idx, bundleURL, statistics)
                     }
                 }
 
@@ -242,19 +258,26 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         // Build BarcodeResult entries
         var barcodeResults: [BarcodeResult] = []
         var bundleURLs: [URL] = []
+        var statisticsByBundle: [URL: FASTQDatasetStatistics] = [:]
         var totalReadCount = 0
 
-        for (_, bundleURL, readCount, baseCount) in sorted {
+        for (_, bundleURL, statistics) in sorted {
             let barcodeName = bundleURL.deletingPathExtension().lastPathComponent
             barcodeResults.append(BarcodeResult(
                 barcodeID: barcodeName,
-                readCount: readCount,
-                baseCount: baseCount,
+                readCount: statistics.readCount,
+                baseCount: statistics.baseCount,
                 bundleRelativePath: bundleURL.lastPathComponent
             ))
             bundleURLs.append(bundleURL)
-            totalReadCount += readCount
+            statisticsByBundle[bundleURL] = statistics
+            totalReadCount += statistics.readCount
         }
+
+        // The unclassified folder the import leaves out is recorded as reads not imported (walk WO-10).
+        let leftOut = try await Self.countReadsAndBases(
+            of: layout.barcodeDirectories.filter { $0.isUnclassified && !config.includeUnclassified }.flatMap(\.chunkFiles)
+        )
 
         // Build manifest
         let manifest = DemultiplexManifest(
@@ -269,16 +292,17 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 wallClockSeconds: runClock.elapsed
             ),
             barcodes: barcodeResults,
-            unassigned: UnassignedReadsSummary(readCount: 0, baseCount: 0, disposition: .discard),
+            unassigned: UnassignedReadsSummary(readCount: leftOut.reads, baseCount: leftOut.bases, disposition: .discard),
             outputDirectoryRelativePath: ".",
-            inputReadCount: totalReadCount
+            inputReadCount: totalReadCount + leftOut.reads
         )
 
         try manifest.save(to: config.outputDirectory)
         persistDisplayMetadata(
             manifest: manifest,
             outputDirectory: config.outputDirectory,
-            bundleURLs: bundleURLs
+            bundleURLs: bundleURLs,
+            statisticsByBundle: statisticsByBundle
         )
 
         let elapsed = runClock.elapsed
@@ -300,15 +324,17 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
     private func persistDisplayMetadata(
         manifest: DemultiplexManifest,
         outputDirectory: URL,
-        bundleURLs: [URL]
+        bundleURLs: [URL],
+        statisticsByBundle: [URL: FASTQDatasetStatistics]
     ) {
         for bundleURL in bundleURLs {
-            guard let metadata = manifest.cachedFASTQMetadata(
+            guard var metadata = manifest.cachedFASTQMetadata(
                 forBundle: bundleURL,
                 manifestDirectory: outputDirectory
             ) else {
                 continue
             }
+            metadata.computedStatistics = statisticsByBundle[bundleURL]
             FASTQMetadataStore.save(metadata, for: bundleURL)
             guard let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)?.standardizedFileURL,
                   payloadURL != bundleURL.standardizedFileURL else {
@@ -337,7 +363,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         barcodeDir: ONTBarcodeDirectory,
         outputDirectory: URL,
         progress: @escaping @Sendable (String) -> Void
-    ) async throws -> (URL, Int, Int64) {
+    ) async throws -> (URL, FASTQDatasetStatistics) {
         let bundleName = "\(barcodeDir.barcodeName).\(FASTQBundle.directoryExtension)"
         let bundleURL = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
         let fm = FileManager.default
@@ -379,19 +405,16 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 }
             }
 
-            // Close output before reading for count
+            // Close output before reading it back
             try outputHandle.close()
 
-            // Count reads in the concatenated file
-            progress("Counting reads...")
-            let readCount = try countReadsInFASTQ(url: outputFASTQ)
+            // Measure every record the bundle stores (walk WF-8)
+            progress("Measuring reads...")
+            let statistics = try await Self.measureStatistics(of: [outputFASTQ])
 
-            // Estimate base count (compressed bytes × ~1.5 accounts for FASTQ overhead)
-            let baseCount = Int64(Double(totalBytesWritten) * 1.5)
+            logger.info("Imported \(barcodeDir.barcodeName): \(statistics.readCount) reads, \(totalBytesWritten) bytes")
 
-            logger.info("Imported \(barcodeDir.barcodeName): \(readCount) reads, \(totalBytesWritten) bytes")
-
-            return (bundleURL, readCount, baseCount)
+            return (bundleURL, statistics)
         } catch {
             // Clean up partial bundle on failure
             try? fm.removeItem(at: bundleURL)
@@ -413,7 +436,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         barcodeDir: ONTBarcodeDirectory,
         outputDirectory: URL,
         progress: @escaping @Sendable (String) -> Void
-    ) async throws -> (URL, Int, Int64) {
+    ) async throws -> (URL, FASTQDatasetStatistics) {
         let bundleName = "\(barcodeDir.barcodeName).\(FASTQBundle.directoryExtension)"
         let bundleURL = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
         let fm = FileManager.default
@@ -450,17 +473,10 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             let manifest = FASTQSourceFileManifest(files: entries)
             try manifest.save(to: bundleURL)
 
-            progress("Counting reads across \(barcodeDir.chunkFiles.count) chunks...")
+            progress("Measuring reads across \(barcodeDir.chunkFiles.count) chunks...")
 
-            // Count reads across all chunks
-            var totalReads = 0
-            var totalBaseEstimate: Int64 = 0
-            for chunk in barcodeDir.chunkFiles {
-                try Task.checkCancellation()
-                let count = try countReadsInFASTQ(url: chunk)
-                totalReads += count
-                totalBaseEstimate += Int64(Double(fileSize(chunk)) * 1.5)
-            }
+            // Measure every record of the chunks, the reads the bundle stores (walk WF-8)
+            let statistics = try await Self.measureStatistics(of: barcodeDir.chunkFiles)
 
             // Generate preview.fastq from the first chunk (first 1000 reads)
             progress("Generating preview...")
@@ -471,9 +487,9 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 maxReads: 1000
             )
 
-            logger.info("Virtual import \(barcodeDir.barcodeName): \(totalReads) reads, \(entries.count) chunks")
+            logger.info("Virtual import \(barcodeDir.barcodeName): \(statistics.readCount) reads, \(entries.count) chunks")
 
-            return (bundleURL, totalReads, totalBaseEstimate)
+            return (bundleURL, statistics)
         } catch {
             try? fm.removeItem(at: bundleURL)
             throw ONTImportError.concatenationFailed(
@@ -614,87 +630,4 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         guard decompressedSize > 0 else { return nil }
         return output.prefix(decompressedSize)
     }
-
-    /// Counts FASTQ reads by counting lines and dividing by 4.
-    ///
-    /// Handles both gzip-compressed and uncompressed FASTQ files.
-    /// For gzip files, uses `gzcat` for decompression. For plain text, uses `wc -l` directly.
-    ///
-    /// - Parameter lineCounter: The tool that counts the lines, `wc` unless a test names a reader that
-    ///   goes away early.
-    func countReadsInFASTQ(url: URL, lineCounter: URL = URL(fileURLWithPath: "/usr/bin/wc")) throws -> Int {
-        let isGzipped = url.pathExtension.lowercased() == "gz"
-
-        // A plain file is the counter's own stdin, so this process writes no pipe that a reader could break.
-        let counter = ToolProcessSpec(
-            executableURL: lineCounter,
-            arguments: ["-l"],
-            environment: ToolProcessSpec.inheritedEnvironment(),
-            stdin: isGzipped ? .null : .file(url),
-            stderr: .discard,
-            label: "wc"
-        )
-
-        let counted: ToolProcessResult
-        if isGzipped {
-            let gzcat = ToolProcessSpec(
-                executableURL: URL(fileURLWithPath: "/usr/bin/gzcat"),
-                arguments: [url.path],
-                environment: ToolProcessSpec.inheritedEnvironment(),
-                stderr: .discard,
-                label: "gzcat"
-            )
-            // Each stage runs to its own end and reports its own status, as the two Processes did.
-            let pipeline = try ToolProcess.startPipeline([gzcat, counter], failurePolicy: .runToCompletion).waitBlocking()
-            if let decompress = pipeline.stages.first, decompress.status != 0 {
-                logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(decompress.status)")
-                return 0
-            }
-            guard let last = pipeline.stages.last else { return 0 }
-            counted = last
-        } else {
-            // A file that is not there fails here, with the error `FileHandle` always gave.
-            try FileHandle(forReadingFrom: url).close()
-            counted = try ToolProcess.runBlocking(counter)
-            // A counter that failed on a file it could not read printed no number or a short one. The feed this
-            // replaced threw such a read error, so a failed counter throws and never counts a short file as complete.
-            guard counted.isSuccess else {
-                throw ONTLineCountError.counterFailed(
-                    file: url.lastPathComponent,
-                    termination: counted.termination,
-                    incompleteOutputReason: counted.incompleteOutputReason
-                )
-            }
-        }
-
-        if let lineCount = Int(counted.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return lineCount / 4  // 4 lines per FASTQ record
-        }
-
-        return 0
-    }
-}
-
-/// The line counter did not finish cleanly while counting the reads of a plain FASTQ file.
-enum ONTLineCountError: Error, LocalizedError, CustomStringConvertible {
-    case counterFailed(file: String, termination: ToolProcessTermination, incompleteOutputReason: String?)
-
-    var errorDescription: String? {
-        switch self {
-        case .counterFailed(let file, let termination, let incompleteOutputReason):
-            switch termination {
-            case .exited(let code) where code != 0:
-                return "Counting the reads in \(file) failed because the line counter exited with code \(code)."
-            case .signaled(let signal):
-                return "Counting the reads in \(file) failed because the line counter was stopped by signal \(signal)."
-            case .exited:
-                let reason = incompleteOutputReason ?? "The output of the line counter is incomplete."
-                return "Counting the reads in \(file) failed. \(reason)"
-            }
-        }
-    }
-
-    /// The barcode error words its cause by interpolating the error, which prints the case dump unless the error
-    /// describes itself, so this is the sentence above and the user reads that.
-    var description: String { errorDescription ?? "Counting the reads failed." }
 }

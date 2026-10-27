@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class ExtendedMetadataTests: XCTestCase {
 
@@ -132,7 +133,7 @@ final class ExtendedMetadataTests: XCTestCase {
             rootFASTQFilename: "reads.fastq",
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .lengthFilter),
-            cachedStatistics: .placeholder(readCount: 100, baseCount: 10000),
+            cachedStatistics: .countsOnlyFixture(readCount: 100, baseCount: 10000),
             pairingMode: nil,
             provenance: SampleProvenance(
                 sampleID: "SAMP001",
@@ -159,7 +160,7 @@ final class ExtendedMetadataTests: XCTestCase {
             rootFASTQFilename: "reads.fastq",
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 50),
-            cachedStatistics: .placeholder(readCount: 50, baseCount: 5000),
+            cachedStatistics: .countsOnlyFixture(readCount: 50, baseCount: 5000),
             pairingMode: nil,
             payloadChecksums: PayloadChecksum(checksums: [
                 "read-ids.txt": "abc123def456"
@@ -181,7 +182,7 @@ final class ExtendedMetadataTests: XCTestCase {
             rootFASTQFilename: "reads.fastq",
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .lengthFilter),
-            cachedStatistics: .placeholder(readCount: 10, baseCount: 100),
+            cachedStatistics: .countsOnlyFixture(readCount: 10, baseCount: 100),
             pairingMode: nil,
             provenance: SampleProvenance(sampleID: "S1")
         )
@@ -276,7 +277,7 @@ final class ExtendedMetadataTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
-            cachedStatistics: .placeholder(readCount: 2, baseCount: 200),
+            cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 200),
             pairingMode: nil
         )
 
@@ -313,7 +314,7 @@ final class ExtendedMetadataTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
-            cachedStatistics: .placeholder(readCount: 2, baseCount: 200),
+            cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 200),
             pairingMode: nil,
             payloadChecksums: PayloadChecksum(checksums: ["read-ids.txt": expectedHash])
         )
@@ -348,7 +349,7 @@ final class ExtendedMetadataTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
-            cachedStatistics: .placeholder(readCount: 2, baseCount: 200),
+            cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 200),
             pairingMode: nil,
             payloadChecksums: PayloadChecksum(checksums: ["read-ids.txt": "wrong_hash_value"])
         )

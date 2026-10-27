@@ -249,7 +249,7 @@ final class KrakenReadSetConformanceTests: XCTestCase {
                 name: "merge", parentBundleRelativePath: ".", rootBundleRelativePath: ".",
                 rootFASTQFilename: "merged.fastq", payload: .fullMixed(classification),
                 lineage: [operation], operation: operation,
-                cachedStatistics: .placeholder(readCount: 123, baseCount: 1), pairingMode: .pairedEnd,
+                cachedStatistics: .countsOnlyFixture(readCount: 123, baseCount: 1), pairingMode: .pairedEnd,
                 readClassification: classification, sequenceFormat: .fastq
             ),
             in: bundle

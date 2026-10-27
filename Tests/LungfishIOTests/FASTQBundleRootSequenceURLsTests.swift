@@ -13,6 +13,7 @@
 import Foundation
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQBundleRootSequenceURLsTests: XCTestCase {
     private var root: URL!
@@ -165,7 +166,7 @@ final class FASTQBundleRootSequenceURLsTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 10),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 10),
             pairingMode: .singleEnd
         )
         XCTAssertTrue(manifest.validateIntegrity(bundleURL: derived).rootPayloadFileExists, "the bare name resolves to the members, which exist")

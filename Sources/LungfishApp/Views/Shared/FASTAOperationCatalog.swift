@@ -66,10 +66,7 @@ enum FASTAOperationCatalog {
                 .joined(separator: "")
             try normalizedFASTA.write(to: fastaURL, atomically: true, encoding: .utf8)
 
-            let statistics = FASTQDatasetStatistics.placeholder(
-                readCount: recordCount(in: normalizedFASTA),
-                baseCount: baseCount(in: normalizedFASTA)
-            )
+            let statistics = FASTQDatasetStatistics.measuringFASTA(text: normalizedFASTA)
             let manifest = FASTQDerivedBundleManifest(
             name: bundleName,
             parentBundleRelativePath: ".",
@@ -118,6 +115,7 @@ enum FASTAOperationCatalog {
         }
         return normalized
     }
+
 
     private static func recordCount(in fasta: String) -> Int {
         fasta.split(whereSeparator: \.isNewline).filter { $0.hasPrefix(">") }.count

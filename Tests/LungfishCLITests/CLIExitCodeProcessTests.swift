@@ -348,7 +348,7 @@ final class CLIExitCodeProcessTests: XCTestCase {
                 payload: .fullPaired(r1Filename: "mates_R1.fastq", r2Filename: "mates_R2.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .pairedEnd,
                 sequenceFormat: .fastq
             ),

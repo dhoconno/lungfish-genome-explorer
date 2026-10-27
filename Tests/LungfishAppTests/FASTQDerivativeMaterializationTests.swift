@@ -15,6 +15,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishOperations
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQDerivativeMaterializationTests: XCTestCase {
     private var tempDir: URL!
@@ -221,7 +222,7 @@ final class FASTQDerivativeMaterializationTests: XCTestCase {
                 ),
                 lineage: [demuxOperation],
                 operation: demuxOperation,
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 10),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 10),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fasta
             ),
@@ -256,7 +257,7 @@ final class FASTQDerivativeMaterializationTests: XCTestCase {
                 FASTQDerivativeOperation(kind: .subsampleProportion, proportion: 1.0)
             ],
             operation: FASTQDerivativeOperation(kind: .subsampleProportion, proportion: 1.0),
-            cachedStatistics: .placeholder(readCount: 3, baseCount: 72),
+            cachedStatistics: .countsOnlyFixture(readCount: 3, baseCount: 72),
             pairingMode: nil,
             sequenceFormat: .fastq
         )

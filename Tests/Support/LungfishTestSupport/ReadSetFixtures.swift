@@ -260,7 +260,7 @@ public struct ReadSetFixtures: Sendable {
                 payload: payload,
                 lineage: (lineage ?? [kind]).map { FASTQDerivativeOperation(kind: $0) },
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: pairing,
                 readClassification: classification,
                 sequenceFormat: format

@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishIO
 import LungfishCore
+import LungfishTestSupport
 
 final class SequenceRecordTests: XCTestCase {
 
@@ -211,7 +212,7 @@ final class SequenceRecordTests: XCTestCase {
             rootFASTQFilename: "reads.fasta",
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .lengthFilter),
-            cachedStatistics: .placeholder(readCount: 10, baseCount: 100),
+            cachedStatistics: .countsOnlyFixture(readCount: 10, baseCount: 100),
             pairingMode: nil,
             sequenceFormat: .fasta
         )
@@ -240,7 +241,7 @@ final class SequenceRecordTests: XCTestCase {
             rootFASTQFilename: "reads.fastq",
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .lengthFilter),
-            cachedStatistics: .placeholder(readCount: 10, baseCount: 100),
+            cachedStatistics: .countsOnlyFixture(readCount: 10, baseCount: 100),
             pairingMode: nil,
             sequenceFormat: .fastq
         )

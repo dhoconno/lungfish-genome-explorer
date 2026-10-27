@@ -60,7 +60,7 @@ public enum ONTImportStorageMode: String, Codable, Sendable, CaseIterable {
 }
 
 public struct ONTImportConfig: Sendable {
-    /// Source directory (fastq_pass/ or a single barcode directory).
+    /// Source directory (the MinKNOW run folder, its fastq_pass/ or a single barcode directory).
     public let sourceDirectory: URL
 
     /// Output directory where .lungfishfastq bundles will be created.
@@ -166,7 +166,8 @@ public enum ONTImportError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notONTDirectory(let url):
-            return "'\(url.lastPathComponent)' does not appear to be an ONT output directory"
+            return "'\(url.lastPathComponent)' holds no fastq_pass folder and no barcode folders. "
+                + "Choose the run folder that MinKNOW wrote, its fastq_pass folder or one barcode folder."
         case .noBarcodesFound:
             return "No barcode directories found"
         case .concatenationFailed(let barcode, let error):

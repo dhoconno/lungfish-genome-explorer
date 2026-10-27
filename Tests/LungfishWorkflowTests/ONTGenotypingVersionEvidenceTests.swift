@@ -8,6 +8,7 @@
 import LungfishIO
 import XCTest
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ONTGenotypingVersionEvidenceTests: XCTestCase {
     func testThePysamVersionIsTheLockPinForPysam() throws {
@@ -112,7 +113,7 @@ final class ONTGenotypingVersionEvidenceTests: XCTestCase {
             payload: .full(fastqFilename: fastqURL.lastPathComponent),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 1),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: .singleEnd,
             sequenceFormat: .fastq,
             payloadChecksums: nil,

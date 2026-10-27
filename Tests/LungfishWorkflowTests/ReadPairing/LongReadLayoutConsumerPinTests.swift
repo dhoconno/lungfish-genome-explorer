@@ -80,7 +80,7 @@ final class LongReadLayoutConsumerPinTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 4, baseCount: 72),
+                cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 72),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

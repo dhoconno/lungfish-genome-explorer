@@ -358,7 +358,7 @@ extension MainSplitViewController {
         }.joined(separator: "\n")
         let sessionStatistics = statisticsCacheURL.flatMap { Self.sessionFASTQStatistics[$0.path] }
             .flatMap { $0.stamp == payloadStamp ? $0.statistics : nil }
-        if let cachedStats = cachedStatisticsMeta?.computedStatistics ?? sessionStatistics {
+        if let cachedStats = cachedStatisticsMeta?.computedStatistics.flatMap({ $0.isMeasured ? $0 : nil }) ?? sessionStatistics {
             mainSplitLogger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             viewerController.displayFASTQDataset(
                 statistics: cachedStats,

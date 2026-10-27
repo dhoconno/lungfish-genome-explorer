@@ -210,7 +210,7 @@ final class FastqMaterializeCommandTests: XCTestCase {
             payload: .fullFASTA(fastaFilename: "reads.fasta"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .reverseComplement),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fasta
         )

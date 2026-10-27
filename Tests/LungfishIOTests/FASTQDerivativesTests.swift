@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQDerivativesTests: XCTestCase {
 
@@ -705,7 +706,7 @@ final class FASTQDerivativesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let op = FASTQDerivativeOperation(kind: .demultiplex, createdAt: Date())
-        let stats = FASTQDatasetStatistics.placeholder(readCount: 5000, baseCount: 750_000)
+        let stats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 5000, baseCount: 750_000)
         let manifest = FASTQDerivedBundleManifest(
             name: "bc1001",
             parentBundleRelativePath: "../root.lungfishfastq",
@@ -741,7 +742,7 @@ final class FASTQDerivativesTests: XCTestCase {
     }
 
     func testPlaceholderStatistics() {
-        let stats = FASTQDatasetStatistics.placeholder(readCount: 10_000, baseCount: 1_500_000)
+        let stats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 10_000, baseCount: 1_500_000)
         XCTAssertEqual(stats.readCount, 10_000)
         XCTAssertEqual(stats.baseCount, 1_500_000)
         XCTAssertEqual(stats.meanReadLength, 150.0)
@@ -750,7 +751,7 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertTrue(stats.readLengthHistogram.isEmpty)
         XCTAssertTrue(stats.qualityScoreHistogram.isEmpty)
 
-        let emptyStats = FASTQDatasetStatistics.placeholder(readCount: 0, baseCount: 0)
+        let emptyStats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 0, baseCount: 0)
         XCTAssertEqual(emptyStats.meanReadLength, 0)
     }
 
@@ -1033,7 +1034,7 @@ final class FASTQDerivativesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let op = FASTQDerivativeOperation(kind: .demultiplex)
-        let stats = FASTQDatasetStatistics.placeholder(readCount: 1000, baseCount: 150_000)
+        let stats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 1000, baseCount: 150_000)
         let manifest = FASTQDerivedBundleManifest(
             name: "bc1001-oriented",
             parentBundleRelativePath: "../root.lungfishfastq",
@@ -1544,7 +1545,7 @@ final class FASTQDerivativesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let op = FASTQDerivativeOperation(kind: .demultiplex)
-        let stats = FASTQDatasetStatistics.placeholder(readCount: 500, baseCount: 75_000)
+        let stats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 500, baseCount: 75_000)
         let manifest = FASTQDerivedBundleManifest(
             name: "v1-demux",
             parentBundleRelativePath: "../root.lungfishfastq",

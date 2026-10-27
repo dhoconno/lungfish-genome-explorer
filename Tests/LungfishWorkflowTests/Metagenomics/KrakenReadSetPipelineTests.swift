@@ -164,7 +164,7 @@ final class KrakenReadSetPipelineTests: XCTestCase {
                 rootFASTQFilename: "unmerged_R1.fastq",
                 payload: .fullPaired(r1Filename: "unmerged_R1.fastq", r2Filename: "unmerged_R2.fastq"),
                 lineage: [operation], operation: operation,
-                cachedStatistics: .placeholder(readCount: 46, baseCount: 1), pairingMode: .pairedEnd, sequenceFormat: .fastq
+                cachedStatistics: .countsOnlyFixture(readCount: 46, baseCount: 1), pairingMode: .pairedEnd, sequenceFormat: .fastq
             ),
             in: paired
         )

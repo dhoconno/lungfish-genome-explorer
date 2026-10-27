@@ -917,9 +917,8 @@ public actor ReadExtractionService {
                     kind: .searchText,
                     query: "classifier-read-extraction"
                 ),
-                cachedStatistics: FASTQDatasetStatistics.placeholder(
-                    readCount: result.readCount,
-                    baseCount: 0
+                cachedStatistics: try FASTQDatasetStatistics.measuringFASTA(
+                    at: finalBundleURL.appendingPathComponent(fastaFilename)
                 ),
                 pairingMode: nil,
                 sequenceFormat: .fasta

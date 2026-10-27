@@ -3,6 +3,7 @@ import LungfishCore
 @testable import LungfishApp
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class SidebarViewControllerSelectionTests: XCTestCase {
@@ -697,7 +698,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             ),
             lineage: [demuxOperation],
             operation: demuxOperation,
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )

@@ -3,6 +3,7 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 import XCTest
+import LungfishTestSupport
 
 /// `lungfish-cli fastq 12s-match` counts fragments the way the app's run
 /// does, through the one workflow (Phase 2.1 lane L4, CLI parity).
@@ -53,7 +54,7 @@ final class FastqTwelveSMatchFragmentCountingTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge)],
                 operation: FASTQDerivativeOperation(kind: .pairedEndMerge),
-                cachedStatistics: .placeholder(readCount: 12, baseCount: 144),
+                cachedStatistics: .countsOnlyFixture(readCount: 12, baseCount: 144),
                 pairingMode: .pairedEnd,
                 readClassification: classification,
                 sequenceFormat: .fastq

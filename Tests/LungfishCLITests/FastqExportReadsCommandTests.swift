@@ -12,6 +12,7 @@ import XCTest
 @testable import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FastqExportReadsCommandTests: XCTestCase {
     private var folder: URL!
@@ -66,7 +67,7 @@ final class FastqExportReadsCommandTests: XCTestCase {
                 payload: .full(fastqFilename: "full.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

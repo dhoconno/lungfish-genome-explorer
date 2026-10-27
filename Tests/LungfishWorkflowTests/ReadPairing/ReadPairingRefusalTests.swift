@@ -206,7 +206,7 @@ final class ReadPairingRefusalTests: XCTestCase {
                 payload: .fullPaired(r1Filename: "s_R1.fastq", r2Filename: "s_R2.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 3, baseCount: 30),
+                cachedStatistics: .countsOnlyFixture(readCount: 3, baseCount: 30),
                 pairingMode: .pairedEnd,
                 sequenceFormat: .fastq
             ),
@@ -260,7 +260,7 @@ final class ReadPairingRefusalTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: roles.count, baseCount: Int64(roles.count * 10)),
+                cachedStatistics: .countsOnlyFixture(readCount: roles.count, baseCount: Int64(roles.count * 10)),
                 pairingMode: .pairedEnd,
                 readClassification: nil,
                 sequenceFormat: .fastq

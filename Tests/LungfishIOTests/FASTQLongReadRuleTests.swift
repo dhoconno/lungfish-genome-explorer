@@ -7,6 +7,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQLongReadRuleTests: XCTestCase {
     private var folder: URL!
@@ -50,7 +51,7 @@ final class FASTQLongReadRuleTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

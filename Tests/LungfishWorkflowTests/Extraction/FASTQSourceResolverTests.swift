@@ -7,6 +7,7 @@ import Foundation
 import os
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 @Suite("FASTQSourceResolver")
 struct FASTQSourceResolverTests {
@@ -274,7 +275,7 @@ struct FASTQSourceResolverTests {
             payload: .full(fastqFilename: localFASTQ.lastPathComponent),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: .singleEnd,
             sequenceFormat: .fastq
         )

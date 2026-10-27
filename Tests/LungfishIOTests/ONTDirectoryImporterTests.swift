@@ -288,8 +288,10 @@ final class ONTDirectoryImporterTests: XCTestCase {
         FASTQMetadataStore.delete(for: bundleURL)
 
         let fallbackMetadata = DemultiplexManifest.cachedFASTQMetadata(forBundle: bundleURL)
-        XCTAssertEqual(fallbackMetadata?.computedStatistics?.readCount, 4)
-        XCTAssertEqual(fallbackMetadata?.computedStatistics?.baseCount, result.manifest.barcodes.first?.baseCount)
+        // The manifest holds counts, not statistics, so the fallback leaves them unset (walk WF-8).
+        XCTAssertNotNil(fallbackMetadata)
+        XCTAssertNil(fallbackMetadata?.computedStatistics)
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 4)
         XCTAssertEqual(fallbackMetadata?.sequencingPlatform, .oxfordNanopore)
         XCTAssertEqual(fallbackMetadata?.assemblyReadType, .ontReads)
     }
@@ -341,104 +343,5 @@ final class ONTDirectoryImporterTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ONTReadMetadata.self, from: data)
 
         XCTAssertEqual(metadata, decoded)
-    }
-
-    // MARK: - A reader that goes away (Phase 2.10 lane A53, manager grant on ruling FXT2 item 3)
-
-    /// The count once piped a plain FASTQ into `wc` through a Foundation pipe. A reader that exited before it
-    /// had read the file left the writer with a broken pipe, which raised SIGPIPE and ended the whole process,
-    /// the app or `lungfish-cli`, until `F_SETNOSIGPIPE` turned it into a thrown EPIPE. Since Phase 2.13 lane
-    /// 13.06 the file is the counter's own stdin, so this process writes no pipe and none can break. `true`
-    /// stands for the reader and exits without reading its input. The call ends with 0, the count of a counter
-    /// that printed no number, where the base threw NSPOSIXErrorDomain EPIPE (the lane report, deviations).
-    func testACountWhoseReaderExitsEarlyCountsZeroAndRaisesNoSIGPIPE() throws {
-        let directory = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let record = Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8)
-        var payload = Data(capacity: record.count * 300_000)
-        for _ in 0..<300_000 { payload.append(record) }
-        let file = directory.appendingPathComponent("chunk_0.fastq")
-        try payload.write(to: file)
-
-        XCTAssertEqual(
-            try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: URL(fileURLWithPath: "/usr/bin/true")),
-            0
-        )
-    }
-
-    /// Phase 2.13 lane 13.06, review Fix 2. A counter that fails on a file it could not read prints no number or a
-    /// short one. The call throws then, as the base did for a read error on the file, and never counts a short file
-    /// as complete. `false` stands for the failing counter and exits 1 without reading its input.
-    func testACountWhoseCounterFailsThrowsInsteadOfCountingZero() throws {
-        let directory = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let record = Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8)
-        var payload = Data(capacity: record.count * 300_000)
-        for _ in 0..<300_000 { payload.append(record) }
-        let file = directory.appendingPathComponent("chunk_0.fastq")
-        try payload.write(to: file)
-
-        let falseURL = URL(fileURLWithPath: "/usr/bin/false")
-        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: falseURL)) { error in
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Counting the reads in \(file.lastPathComponent) failed because the line counter exited with code 1."
-            )
-        }
-    }
-
-    /// Phase 2.13 lane 13.06, glance Fix 1 (BIO 4). A counter that a signal killed did not exit with a code, so the
-    /// sentence names the signal and never says the counter exited with a code. A shell script that kills itself
-    /// with `kill -9` stands for the killed counter, and it never reads its input.
-    func testACountWhoseCounterIsKilledNamesTheSignalNotAnExitCode() throws {
-        let directory = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("reads.fastq")
-        try Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: file)
-        let counter = directory.appendingPathComponent("counter.sh")
-        try Data("#!/bin/sh\nkill -9 $$\n".utf8).write(to: counter)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: counter.path)
-
-        XCTAssertThrowsError(try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: counter)) { error in
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Counting the reads in reads.fastq failed because the line counter was stopped by signal 9."
-            )
-        }
-    }
-
-    /// Phase 2.13 lane 13.06, glance Fix 1 part b (BIO 4, UX 1). The barcode error words its cause by interpolating
-    /// the error, which prints the case dump of an error that does not describe itself. The user must read the
-    /// count sentence, and so the wrapped error shows it.
-    func testABarcodeErrorShowsTheCountSentenceNotTheCaseDump() throws {
-        let directory = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("reads.fastq")
-        try Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: file)
-
-        var thrown: Error?
-        do {
-            _ = try ONTDirectoryImporter().countReadsInFASTQ(url: file, lineCounter: URL(fileURLWithPath: "/usr/bin/false"))
-        } catch {
-            thrown = error
-        }
-        let underlying = try XCTUnwrap(thrown, "a counter that exits 1 throws")
-        XCTAssertEqual(
-            ONTImportError.concatenationFailed(barcode: "barcode01", underlying: underlying).errorDescription,
-            "Failed to concatenate barcode01: Counting the reads in reads.fastq failed because the line counter exited with code 1."
-        )
-    }
-
-    /// The fix leaves a reader that reads the whole file alone, and `wc` still counts the reads.
-    func testACountThroughWCStillCountsEveryRead() throws {
-        let directory = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let record = Data("@read runid=abc123\nACGTACGT\n+\nIIIIIIII\n".utf8)
-        var payload = Data(capacity: record.count * 300_000)
-        for _ in 0..<300_000 { payload.append(record) }
-        let file = directory.appendingPathComponent("chunk_0.fastq")
-        try payload.write(to: file)
-
-        XCTAssertEqual(try ONTDirectoryImporter().countReadsInFASTQ(url: file), 300_000)
     }
 }

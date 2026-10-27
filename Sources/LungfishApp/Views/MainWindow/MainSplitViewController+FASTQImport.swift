@@ -540,29 +540,22 @@ extension MainSplitViewController {
         // Ask for import options before creating scientific data. ONT run folders
         // use the shared FASTQ import sheet so the default path is a plain import
         // and barcode sample sheets are requested only by recipes that need them.
-        let importer = ONTDirectoryImporter()
-        let layout = try? importer.detectLayout(at: sourceURL)
+        // A folder with no ONT layout is refused before any sheet, with words that say what to choose (walk WF-7).
+        let layout: ONTDirectoryLayout
+        do {
+            layout = try ONTDirectoryImporter().detectLayout(at: sourceURL)
+        } catch {
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+            presentONTImportFailure(error)
+            return
+        }
 
         if let window = self.view.window ?? NSApp.keyWindow {
-            let summaryText: String
-            if let layout {
-                let totalSize = layout.barcodeDirectories
-                    .flatMap(\.chunkFiles)
-                    .reduce(Int64(0)) { total, url in
-                        let size = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int64) ?? 0
-                        return total + size
-                    }
-                summaryText = [
-                    "ONT run folder: \(sourceURL.lastPathComponent)",
-                    "Found \(layout.barcodeDirectories.count) barcode directories.",
-                    "Total size: \(formatFASTQImportBytes(totalSize))"
-                ].joined(separator: "\n")
-            } else {
-                summaryText = [
-                    "ONT run folder: \(sourceURL.lastPathComponent)",
-                    "Total size: \(formatFASTQImportBytes(0))"
-                ].joined(separator: "\n")
-            }
+            let summaryText = [
+                "ONT run folder: \(sourceURL.lastPathComponent)",
+                "Found \(layout.barcodeDirectories.count) barcode directories.",
+                "Total size: \(formatFASTQImportBytes(layout.totalSizeBytes))"
+            ].joined(separator: "\n")
 
             FASTQImportConfigSheet.present(
                 on: window,
@@ -992,17 +985,20 @@ extension MainSplitViewController {
                 mainSplitLogger.error("importONTDirectoryInBackground: \(error)")
                 viewerController?.hideProgress()
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
-
-                let alert = NSAlert()
-                alert.messageText = "ONT Import Failed"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.applyLungfishBranding()
-                if let window = self?.view.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window) { _ in }
-                }
+                self?.presentONTImportFailure(error)
             }
+        }
+    }
+
+    private func presentONTImportFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "ONT Import Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.applyLungfishBranding()
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { _ in }
         }
     }
 

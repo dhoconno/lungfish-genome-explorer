@@ -123,6 +123,12 @@ public struct PlatformInference: Sendable, Equatable, Codable {
         maxRecords: Int = 32,
         maxBytes: Int = 262_144
     ) -> PlatformInference {
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            // The ONT Run Folder card hands over the folder the person chose, and its reads are in its first chunk.
+            guard let chunk = ONTDirectoryImporter.firstChunk(in: url) else { return noRecords() }
+            return infer(fromFASTQ: chunk, maxRecords: maxRecords, maxBytes: maxBytes)
+        }
         guard let data = GzipPrefixDecoder.decodedPrefix(of: url, maxBytes: maxBytes) else {
             return noRecords()
         }

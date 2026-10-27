@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQReadLayoutClassifierTests: XCTestCase {
 
@@ -259,7 +260,7 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: headers.count, baseCount: Int64(headers.count * 4)),
+                cachedStatistics: .countsOnlyFixture(readCount: headers.count, baseCount: Int64(headers.count * 4)),
                 pairingMode: .singleEnd,
                 readClassification: manifestRoles,
                 sequenceFormat: .fastq
@@ -460,7 +461,7 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .interleaved,
                 sequenceFormat: .fastq
             ),

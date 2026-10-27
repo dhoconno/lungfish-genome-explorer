@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 
 @MainActor
 final class AssemblyManagedInputMaterializationTests: XCTestCase {
@@ -39,7 +40,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "root"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -101,7 +102,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [],
                 operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
                 pairingMode: nil,
                 sequenceFormat: .fasta
             )
@@ -160,7 +161,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             payload: .demuxGroup(barcodeCount: 2),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .demultiplex),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -223,7 +224,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             payload: .trim(trimPositionFilename: "trim-positions.tsv"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -289,7 +290,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "root"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -358,7 +359,7 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "root"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )

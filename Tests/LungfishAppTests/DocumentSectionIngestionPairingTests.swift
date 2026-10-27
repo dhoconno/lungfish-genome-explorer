@@ -23,7 +23,7 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
 
     func testTheRowNamesPairsAndSingleReadsOfADerivedBundleByTheirCount() throws {
         let viewModel = DocumentSectionViewModel()
-        viewModel.updateFASTQStatistics(.placeholder(readCount: 264, baseCount: 39_600))
+        viewModel.updateFASTQStatistics(.countsOnlyFixture(readCount: 264, baseCount: 39_600))
         viewModel.updateIngestionMetadata(IngestionMetadata(pairingMode: .singleEnd))
         viewModel.updateFASTQDerivativeMetadata(Self.manifest(roles: ReadClassification(files: [
             .init(filename: "reads.fastq", role: .pairedR1, readCount: 129),
@@ -51,7 +51,7 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
             name: .fastqDatasetLoaded,
             object: nil,
             userInfo: [
-                "statistics": FASTQDatasetStatistics.placeholder(readCount: 264, baseCount: 39_600),
+                "statistics": FASTQDatasetStatistics.countsOnlyFixture(readCount: 264, baseCount: 39_600),
                 "ingestionMetadata": try XCTUnwrap(metadata.ingestion),
                 "fastqSourceURL": bundle,
                 "bundleURL": bundle,
@@ -69,7 +69,7 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
         defer { TestTempDirectory.cleanup(root) }
         let (bundle, metadata) = try Self.writeRunWithItsThirdFile(in: root)
         let viewModel = DocumentSectionViewModel()
-        viewModel.updateFASTQStatistics(.placeholder(readCount: 264, baseCount: 39_600))
+        viewModel.updateFASTQStatistics(.countsOnlyFixture(readCount: 264, baseCount: 39_600))
         viewModel.updateIngestionMetadata(metadata.ingestion)
 
         viewModel.updateIngestionReadRoles(fromBundle: bundle)
@@ -165,7 +165,7 @@ final class DocumentSectionIngestionPairingTests: XCTestCase {
             rootFASTQFilename: "run.fastq.gz",
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: roles.totalReadCount, baseCount: 0),
+            cachedStatistics: .countsOnlyFixture(readCount: roles.totalReadCount, baseCount: 0),
             pairingMode: .singleEnd,
             readClassification: roles
         )

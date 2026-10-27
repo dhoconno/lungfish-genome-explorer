@@ -103,7 +103,7 @@ final class FastqRefusedRunKeepsEarlierOutputTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

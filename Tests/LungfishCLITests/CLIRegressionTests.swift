@@ -1943,7 +1943,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .fullFASTA(fastaFilename: "reads.fasta"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "fixture"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fasta
         )
@@ -1985,7 +1985,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "root"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -2035,7 +2035,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [],
                 operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
                 pairingMode: nil,
                 sequenceFormat: .fasta
             )
@@ -2090,7 +2090,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .demuxGroup(barcodeCount: 2),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .demultiplex),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -2246,7 +2246,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -2353,7 +2353,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fasta
         )
@@ -2407,7 +2407,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .trim(trimPositionFilename: "trim-positions.tsv"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -2459,7 +2459,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             payload: .trim(trimPositionFilename: "trim-positions.tsv"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fastq
         )
@@ -2674,7 +2674,7 @@ private func makeVirtualDerivedFASTQFixture(under tempDir: URL) throws -> Virtua
         payload: .subset(readIDListFilename: "read-ids.txt"),
         lineage: [],
         operation: FASTQDerivativeOperation(kind: .searchText, query: "selected"),
-        cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+        cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
         pairingMode: nil,
         sequenceFormat: .fastq
     )
@@ -2797,7 +2797,7 @@ final class MapCommandRegressionTests: XCTestCase {
             payload: .fullFASTA(fastaFilename: "reads.fasta"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .searchText, query: "fixture"),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: nil,
             sequenceFormat: .fasta
         )

@@ -104,7 +104,7 @@ final class DemultiplexMultiFileRootReadsTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: Self.allIDs.count, baseCount: Int64(Self.allIDs.count * 40)),
+                cachedStatistics: .countsOnlyFixture(readCount: Self.allIDs.count, baseCount: Int64(Self.allIDs.count * 40)),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

@@ -238,7 +238,7 @@ final class MappingRouteParityReplayTests: XCTestCase {
                 payload: .orientMap(orientMapFilename: "orient-map.tsv", previewFilename: "preview.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: identifiers.count, baseCount: 0),
+                cachedStatistics: .countsOnlyFixture(readCount: identifiers.count, baseCount: 0),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

@@ -342,7 +342,7 @@ final class SidebarReassembleInputsTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: readIDs.count, baseCount: Int64(readIDs.count * 10)),
+                cachedStatistics: .countsOnlyFixture(readCount: readIDs.count, baseCount: Int64(readIDs.count * 10)),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

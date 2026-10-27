@@ -8,6 +8,7 @@
 
 import XCTest
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class FASTQInputLayoutLongReadTests: XCTestCase {
     private var folder: URL!
@@ -65,7 +66,7 @@ final class FASTQInputLayoutLongReadTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 4, baseCount: 72),
+                cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 72),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),
@@ -220,7 +221,7 @@ final class FASTQInputLayoutLongReadTests: XCTestCase {
                 payload: .full(fastqFilename: "contigs.fasta"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 8),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fasta
             ),

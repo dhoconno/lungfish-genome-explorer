@@ -372,7 +372,7 @@ final class ViralReconReadSetCLITests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: listing.count, baseCount: 0),
+                cachedStatistics: .countsOnlyFixture(readCount: listing.count, baseCount: 0),
                 pairingMode: pairing
             ),
             in: bundle

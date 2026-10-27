@@ -4,6 +4,7 @@
 
 import Foundation
 @testable import LungfishIO
+import LungfishTestSupport
 
 /// One `.lungfishfastq` bundle of each shape the app and `lungfish-cli`
 /// resolve, in a project's `Imports` folder, with read names that say where
@@ -163,7 +164,7 @@ struct BundleShapeFixtures {
                 payload: payload,
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: pairing,
                 readClassification: classification,
                 sequenceFormat: format

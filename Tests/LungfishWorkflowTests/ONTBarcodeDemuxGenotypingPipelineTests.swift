@@ -2,6 +2,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
     func testGenotypeOnlyRequestPreservesIntentInCLIArgv() {
@@ -4601,7 +4602,7 @@ print(json.dumps(payload))
             payload: .full(fastqFilename: output.fastqURL.lastPathComponent),
             lineage: [operation],
             operation: operation,
-            cachedStatistics: .placeholder(readCount: cachedReadCount, baseCount: Int64(cachedReadCount * 8)),
+            cachedStatistics: .countsOnlyFixture(readCount: cachedReadCount, baseCount: Int64(cachedReadCount * 8)),
             pairingMode: nil
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: output.bundleURL)

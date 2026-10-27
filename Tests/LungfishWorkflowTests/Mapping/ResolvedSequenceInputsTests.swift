@@ -480,7 +480,7 @@ final class ResolvedSequenceInputsTests: XCTestCase {
                 payload: payload,
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: pairing,
                 readClassification: classification,
                 sequenceFormat: format

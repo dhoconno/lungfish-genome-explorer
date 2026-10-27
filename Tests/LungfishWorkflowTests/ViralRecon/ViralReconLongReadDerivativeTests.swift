@@ -56,7 +56,7 @@ final class ViralReconLongReadDerivativeTests: XCTestCase {
                 payload: .fullPaired(r1Filename: "sample_R1.fastq", r2Filename: "sample_R2.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .interleaved,
                 sequenceFormat: .fastq
             ),
@@ -94,7 +94,7 @@ final class ViralReconLongReadDerivativeTests: XCTestCase {
                 ])),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 3, baseCount: 12),
+                cachedStatistics: .countsOnlyFixture(readCount: 3, baseCount: 12),
                 pairingMode: .interleaved,
                 sequenceFormat: .fastq
             ),

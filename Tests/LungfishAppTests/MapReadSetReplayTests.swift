@@ -182,7 +182,7 @@ final class MapReadSetReplayTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 123, baseCount: 30_000),
+                cachedStatistics: .countsOnlyFixture(readCount: 123, baseCount: 30_000),
                 pairingMode: .pairedEnd,
                 readClassification: classification,
                 sequenceFormat: .fastq

@@ -509,7 +509,7 @@ struct Kraken2ResultShapes {
                 payload: .fullMixed(roles),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge)],
                 operation: FASTQDerivativeOperation(kind: .pairedEndMerge),
-                cachedStatistics: .placeholder(readCount: 123, baseCount: 0),
+                cachedStatistics: .countsOnlyFixture(readCount: 123, baseCount: 0),
                 pairingMode: .pairedEnd,
                 readClassification: roles,
                 sequenceFormat: .fastq
@@ -562,7 +562,7 @@ struct Kraken2ResultShapes {
                 payload: .orientMap(orientMapFilename: "orient-map.tsv", previewFilename: "preview.fastq"),
                 lineage: [FASTQDerivativeOperation(kind: .orient)],
                 operation: FASTQDerivativeOperation(kind: .orient),
-                cachedStatistics: .placeholder(readCount: 3, baseCount: 30),
+                cachedStatistics: .countsOnlyFixture(readCount: 3, baseCount: 30),
                 pairingMode: nil,
                 sequenceFormat: .fastq
             ),
@@ -591,7 +591,7 @@ struct Kraken2ResultShapes {
                 payload: .fullPaired(r1Filename: "sample_R1.fastq", r2Filename: "sample_R2.fastq"),
                 lineage: [FASTQDerivativeOperation(kind: .interleaveReformat)],
                 operation: FASTQDerivativeOperation(kind: .interleaveReformat),
-                cachedStatistics: .placeholder(readCount: 4, baseCount: 40),
+                cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 40),
                 pairingMode: .pairedEnd,
                 sequenceFormat: .fastq
             ),

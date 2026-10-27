@@ -89,7 +89,7 @@ final class FastqMergeMaterializedMixedBundleTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: Self.pairCount * 2 + 3, baseCount: 1),
+                cachedStatistics: .countsOnlyFixture(readCount: Self.pairCount * 2 + 3, baseCount: 1),
                 pairingMode: .interleaved,
                 readClassification: classification,
                 sequenceFormat: .fastq

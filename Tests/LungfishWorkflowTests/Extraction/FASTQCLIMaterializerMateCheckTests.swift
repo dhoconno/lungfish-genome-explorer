@@ -54,7 +54,7 @@ final class FASTQCLIMaterializerMateCheckTests: XCTestCase {
                 payload: payload,
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 10),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 10),
                 pairingMode: .interleaved,
                 sequenceFormat: .fastq
             ),

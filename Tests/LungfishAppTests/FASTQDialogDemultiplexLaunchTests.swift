@@ -83,7 +83,7 @@ final class FASTQDialogDemultiplexLaunchTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: subsetIDs.count, baseCount: Int64(subsetIDs.count * 33)),
+                cachedStatistics: .countsOnlyFixture(readCount: subsetIDs.count, baseCount: Int64(subsetIDs.count * 33)),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

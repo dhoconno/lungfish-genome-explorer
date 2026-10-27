@@ -230,7 +230,7 @@ enum GenotypingVirtualInputFixtures {
                 ),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: barcodeReads.count, baseCount: Int64(barcodeReads.count * sequence.count)),
+                cachedStatistics: .countsOnlyFixture(readCount: barcodeReads.count, baseCount: Int64(barcodeReads.count * sequence.count)),
                 pairingMode: .singleEnd
             ),
             in: barcodeBundle
@@ -280,7 +280,7 @@ enum GenotypingVirtualInputFixtures {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: listed.count, baseCount: 0),
+                cachedStatistics: .countsOnlyFixture(readCount: listed.count, baseCount: 0),
                 pairingMode: .singleEnd
             ),
             in: bundle
@@ -325,7 +325,7 @@ enum GenotypingVirtualInputFixtures {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 4, baseCount: Int64(4 * sequence.count)),
+                cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: Int64(4 * sequence.count)),
                 pairingMode: .interleaved
             ),
             in: bundle

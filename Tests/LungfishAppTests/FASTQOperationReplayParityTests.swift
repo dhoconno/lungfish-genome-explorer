@@ -49,7 +49,7 @@ final class FASTQOperationReplayParityTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

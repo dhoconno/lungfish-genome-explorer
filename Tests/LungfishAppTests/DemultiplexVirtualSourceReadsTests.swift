@@ -60,7 +60,7 @@ final class DemultiplexVirtualSourceReadsTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: Self.readCount, baseCount: Int64(Self.readCount * 33)),
+                cachedStatistics: .countsOnlyFixture(readCount: Self.readCount, baseCount: Int64(Self.readCount * 33)),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

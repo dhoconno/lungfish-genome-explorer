@@ -56,14 +56,11 @@ public enum SyntheticFASTQBridge {
         }
     }
 
-    /// Computes placeholder sequence statistics from a FASTQ file, discarding
-    /// synthetic quality values while keeping read/base counts accurate.
+    /// Measures the records of a FASTQ file whose scores are synthetic. Counts, lengths and GC are measured, and
+    /// the synthetic scores are dropped, so the score fields are 0 and the score histogram is empty (walk WF-8).
     public static func placeholderStatistics(fromFASTQ inputURL: URL) async throws -> FASTQDatasetStatistics {
         let reader = FASTQReader(validateSequence: false)
         let (stats, _) = try await reader.computeStatistics(from: inputURL, sampleLimit: 0)
-        guard stats.readCount > 0 else {
-            return .empty
-        }
-        return .placeholder(readCount: stats.readCount, baseCount: stats.baseCount)
+        return stats.withoutQualities
     }
 }

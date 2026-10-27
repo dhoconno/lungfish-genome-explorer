@@ -113,7 +113,7 @@ final class FASTQCLIMaterializerRootFilesTests: XCTestCase {
                 payload: payload,
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

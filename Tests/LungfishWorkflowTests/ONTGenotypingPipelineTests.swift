@@ -1,6 +1,7 @@
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class ONTGenotypingPipelineTests: XCTestCase {
     func testPipelineMapsEachInputWithShortReadPresetFiltersWithPysamAndWritesInvocationReportAndProvenance() async throws {
@@ -178,7 +179,7 @@ final class ONTGenotypingPipelineTests: XCTestCase {
             payload: .full(fastqFilename: fastqURL.lastPathComponent),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 1),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 4),
             pairingMode: .singleEnd,
             sequenceFormat: .fastq,
             payloadChecksums: nil,

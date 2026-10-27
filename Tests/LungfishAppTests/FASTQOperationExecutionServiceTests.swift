@@ -3122,7 +3122,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             payload: .full(fastqFilename: orientedFASTQ.lastPathComponent),
             lineage: [orientOperation],
             operation: orientOperation,
-            cachedStatistics: .placeholder(readCount: 2, baseCount: 40),
+            cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 40),
             pairingMode: .singleEnd,
             sequenceFormat: .fastq
         )
@@ -3449,7 +3449,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 30),
+            cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 30),
             pairingMode: nil
         )
         try FASTQBundle.saveDerivedManifest(initialManifest, in: derivedBundle)
@@ -5848,7 +5848,7 @@ private func makeFullFASTABundle(
         payload: .fullFASTA(fastaFilename: fastaFilename),
         lineage: [],
         operation: FASTQDerivativeOperation(kind: .searchText, query: "fasta-fixture"),
-        cachedStatistics: .placeholder(
+        cachedStatistics: .countsOnlyFixture(
             readCount: records.count,
             baseCount: Int64(records.reduce(0) { $0 + $1.sequence.count })
         ),
@@ -5952,7 +5952,7 @@ private func makeVirtualDerivedFASTQBundle(named name: String, in tempDir: URL) 
         payload: .subset(readIDListFilename: "read-ids.txt"),
         lineage: [],
         operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
-        cachedStatistics: .placeholder(readCount: 2, baseCount: 40),
+        cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 40),
         pairingMode: nil,
         sequenceFormat: .fastq,
         materializationState: .virtual

@@ -334,10 +334,8 @@ package enum FASTQBundleMergeService {
         let concreteMetadatas = sourceMetadatas.compactMap { $0 }
         guard !concreteMetadatas.isEmpty else { return nil }
 
-        let aggregateStatistics = aggregateStatistics(
-            sourceMetadatas.compactMap { $0?.computedStatistics },
-            requiredCount: sourceBundleURLs.count
-        )
+        // A merge knows its sources' counts, not the lengths and scores of the merged reads, so it stores no
+        // statistics and the viewer measures the merged reads (Phase 3.0 lane ONT, walk WF-8).
         let sequencingPlatform: LungfishIO.SequencingPlatform? = commonValue(
             sourceMetadatas.map { $0?.sequencingPlatform },
             requiredCount: sourceBundleURLs.count
@@ -347,12 +345,11 @@ package enum FASTQBundleMergeService {
             requiredCount: sourceBundleURLs.count
         )
 
-        guard aggregateStatistics != nil || sequencingPlatform != nil || assemblyReadType != nil else {
+        guard sequencingPlatform != nil || assemblyReadType != nil else {
             return nil
         }
 
         return PersistedFASTQMetadata(
-            computedStatistics: aggregateStatistics,
             downloadSource: "lungfish fastq merge",
             ingestion: IngestionMetadata(
                 isCompressed: !originalFilenames.isEmpty && originalFilenames.allSatisfy {
@@ -387,23 +384,7 @@ package enum FASTQBundleMergeService {
         if fastqMetadatas.count == 1 {
             return fastqMetadatas[0]
         }
-        if let aggregateStatistics = aggregateStatistics(
-            fastqMetadatas.compactMap(\.computedStatistics),
-            requiredCount: fastqURLs.count
-        ) {
-            return PersistedFASTQMetadata(computedStatistics: aggregateStatistics)
-        }
         return nil
-    }
-
-    private static func aggregateStatistics(
-        _ statistics: [FASTQDatasetStatistics],
-        requiredCount: Int
-    ) -> FASTQDatasetStatistics? {
-        guard requiredCount > 0, statistics.count == requiredCount else { return nil }
-        let readCount = statistics.reduce(0) { $0 + $1.readCount }
-        let baseCount = statistics.reduce(Int64(0)) { $0 + $1.baseCount }
-        return FASTQDatasetStatistics.placeholder(readCount: readCount, baseCount: baseCount)
     }
 
     private static func commonValue<T: Equatable>(

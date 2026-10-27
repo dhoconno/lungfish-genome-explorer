@@ -12,6 +12,7 @@ import Foundation
 import XCTest
 import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQCLIMaterializerMixedRolesTests: XCTestCase {
     private var root: URL!
@@ -54,7 +55,7 @@ final class FASTQCLIMaterializerMixedRolesTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 1, baseCount: 10),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 10),
                 pairingMode: .interleaved,
                 readClassification: classification,
                 sequenceFormat: .fastq

@@ -27,7 +27,6 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
             fastqName: "reads.fastq",
             contents: "@r1\nACGT\n+\nIIII\n",
             pairing: .singleEnd,
-            statistics: .placeholder(readCount: 1, baseCount: 4),
             sequencingPlatform: .oxfordNanopore,
             assemblyReadType: .ontReads
         )
@@ -37,7 +36,6 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
             fastqName: "reads.fastq",
             contents: "@r2\nTTTT\n+\nIIII\n",
             pairing: .singleEnd,
-            statistics: .placeholder(readCount: 1, baseCount: 4),
             sequencingPlatform: .oxfordNanopore,
             assemblyReadType: .ontReads
         )
@@ -62,8 +60,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(resolvedFASTQs.count, 2)
 
         let mergedMetadata = FASTQMetadataStore.load(for: mergedURL)
-        XCTAssertEqual(mergedMetadata?.computedStatistics?.readCount, 2)
-        XCTAssertEqual(mergedMetadata?.computedStatistics?.baseCount, 8)
+        XCTAssertNil(mergedMetadata?.computedStatistics, "a merge stores no statistics it did not measure (walk WF-8)")
         XCTAssertEqual(mergedMetadata?.sequencingPlatform, .oxfordNanopore)
         XCTAssertEqual(mergedMetadata?.assemblyReadType, .ontReads)
 

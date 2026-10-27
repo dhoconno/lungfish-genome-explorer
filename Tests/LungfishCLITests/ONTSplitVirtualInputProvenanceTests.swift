@@ -107,7 +107,7 @@ final class ONTSplitVirtualInputProvenanceTests: XCTestCase {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: reads.count, baseCount: 0),
+                cachedStatistics: .countsOnlyFixture(readCount: reads.count, baseCount: 0),
                 pairingMode: .singleEnd
             ),
             in: bundle

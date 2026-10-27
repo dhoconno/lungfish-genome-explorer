@@ -166,7 +166,10 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         return nil
     }
 
-    /// Builds display metadata for a bundle represented by this manifest.
+    /// Builds display metadata for a bundle represented by this manifest: its source and platform.
+    ///
+    /// The manifest holds each barcode's read and base counts, not the lengths and scores of its reads, so the
+    /// statistics stay unset and the viewer measures the reads (Phase 3.0 lane ONT, walk WF-8).
     public func cachedFASTQMetadata(
         forBundle bundleURL: URL,
         manifestDirectory: URL
@@ -181,7 +184,6 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         let assemblyReadType: FASTQAssemblyReadType? = platform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:))
 
         return PersistedFASTQMetadata(
-            computedStatistics: .placeholder(readCount: result.readCount, baseCount: result.baseCount),
             downloadSource: parameters.tool,
             sequencingPlatform: platform,
             assemblyReadType: assemblyReadType

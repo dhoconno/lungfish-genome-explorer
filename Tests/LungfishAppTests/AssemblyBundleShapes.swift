@@ -4,6 +4,7 @@
 
 import Foundation
 @testable import LungfishIO
+import LungfishTestSupport
 
 /// One `.lungfishfastq` bundle of each shape an assembly can name, in a
 /// project's `Imports` folder, and two loose FASTQ files beside it. Read names
@@ -147,7 +148,7 @@ struct AssemblyBundleShapes {
                 payload: payload,
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: pairing,
                 readClassification: classification,
                 sequenceFormat: .fastq

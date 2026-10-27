@@ -242,7 +242,7 @@ final class AssemblyReadSetResolutionTests: XCTestCase {
                 payload: .fullMixed(classification),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndRepair)],
                 operation: FASTQDerivativeOperation(kind: .pairedEndRepair),
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: .pairedEnd,
                 sequenceFormat: .fastq
             ),

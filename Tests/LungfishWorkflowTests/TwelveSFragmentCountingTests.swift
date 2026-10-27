@@ -2,6 +2,7 @@ import Foundation
 import LungfishIO
 @testable import LungfishWorkflow
 import XCTest
+import LungfishTestSupport
 
 /// 12S matching counts fragments, not records (Phase 2.1 lane L4, owner
 /// decision of 2026-10-05). A merged read counts once. An unmerged pair
@@ -87,7 +88,7 @@ final class TwelveSFragmentCountingTests: XCTestCase {
                 payload: payload,
                 lineage: [FASTQDerivativeOperation(kind: kind)],
                 operation: FASTQDerivativeOperation(kind: kind),
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: pairing,
                 readClassification: classification,
                 sequenceFormat: .fastq

@@ -95,7 +95,7 @@ public enum ClassifierParityFixtures {
         let baseCount = subset.reduce(0) { $0 + $1[1].count }
         let operation: [String: Any] = ["createdAt": "2026-10-02T00:00:00Z", "kind": "lengthFilter", "minLength": minimumLength]
         let manifest: [String: Any] = [
-            // FASTQDatasetStatistics.placeholder(readCount:baseCount:)
+            // FASTQDatasetStatistics.countsOnlyFixture(readCount:baseCount:)
             "cachedStatistics": [
                 "baseCount": baseCount, "gcContent": 0, "maxReadLength": 0, "meanQuality": 0,
                 "meanReadLength": Double(baseCount) / Double(subset.count), "medianReadLength": 0,
@@ -146,7 +146,7 @@ public enum ClassifierParityFixtures {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 123, baseCount: 30_000),
+                cachedStatistics: .countsOnlyFixture(readCount: 123, baseCount: 30_000),
                 pairingMode: .pairedEnd,
                 readClassification: classification,
                 sequenceFormat: .fastq
@@ -171,7 +171,7 @@ public enum ClassifierParityFixtures {
                 payload: .fullPaired(r1Filename: "sarscov2_R1.fastq.gz", r2Filename: "sarscov2_R2.fastq.gz"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 200, baseCount: 30_000),
+                cachedStatistics: .countsOnlyFixture(readCount: 200, baseCount: 30_000),
                 pairingMode: .pairedEnd,
                 readClassification: nil,
                 sequenceFormat: .fastq

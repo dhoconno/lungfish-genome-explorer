@@ -102,7 +102,7 @@ final class ClassifyCommandResolutionTests: XCTestCase {
                 payload: .demuxGroup(barcodeCount: 2),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 20),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 20),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

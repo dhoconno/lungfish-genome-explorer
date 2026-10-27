@@ -61,7 +61,7 @@ public struct MergeBundleOverRawRootFixture {
                 payload: .fullMixed(classification),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 5, baseCount: 130),
+                cachedStatistics: .countsOnlyFixture(readCount: 5, baseCount: 130),
                 pairingMode: .interleaved,
                 readClassification: classification,
                 sequenceFormat: .fastq
@@ -93,7 +93,7 @@ public struct MergeBundleOverRawRootFixture {
                 payload: .subset(readIDListFilename: "read-ids.txt"),
                 lineage: [merge, filter],
                 operation: filter,
-                cachedStatistics: .placeholder(readCount: readIDs.count, baseCount: Int64(readIDs.count * 30)),
+                cachedStatistics: .countsOnlyFixture(readCount: readIDs.count, baseCount: Int64(readIDs.count * 30)),
                 pairingMode: .interleaved,
                 sequenceFormat: .fastq
             ),

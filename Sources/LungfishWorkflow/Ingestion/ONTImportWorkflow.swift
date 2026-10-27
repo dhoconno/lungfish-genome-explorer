@@ -522,8 +522,14 @@ public struct ONTImportWorkflow: Sendable {
         optimization: OptimizationConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> [String: [ProvenanceStep]] {
+        // Binning rewrites the stored scores after the importer measured them, so each binned bundle's statistics
+        // are measured again from the reads it stores (Phase 3.0 lane ONT, walk WF-8).
         guard optimization.optimizeStorage else {
-            return try await Self.binChunkedPayloads(bundleURLs: bundleURLs, config: config, optimization: optimization, progress: progress)
+            let steps = try await Self.binChunkedPayloads(bundleURLs: bundleURLs, config: config, optimization: optimization, progress: progress)
+            for bundleURL in bundleURLs where !steps.isEmpty {
+                try await ONTDirectoryImporter.remeasureStoredStatistics(ofBundle: bundleURL)
+            }
+            return steps
         }
         guard config.storageMode == .flattened else {
             throw ImportError.optimizationRequiresFlattenedStorage
@@ -545,6 +551,9 @@ public struct ONTImportWorkflow: Sendable {
                     progress(bundleProgress, "\(bundleURL.deletingPathExtension().lastPathComponent): \(message)")
                 }
             )
+            if optimization.qualityBinning != .none {
+                try await ONTDirectoryImporter.remeasureStoredStatistics(ofBundle: bundleURL)
+            }
         }
 
         return stepsByBundle

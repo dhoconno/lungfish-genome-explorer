@@ -261,7 +261,7 @@ final class ReadSetResolverLayoutTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [FASTQDerivativeOperation(kind: .pairedEndMerge), operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: reads.count, baseCount: Int64(reads.count * 10)),
+                cachedStatistics: .countsOnlyFixture(readCount: reads.count, baseCount: Int64(reads.count * 10)),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

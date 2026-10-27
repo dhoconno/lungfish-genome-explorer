@@ -6,6 +6,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
+import LungfishTestSupport
 
 final class FASTQOperationIntegrationTests: XCTestCase {
 
@@ -89,7 +90,7 @@ final class FASTQOperationIntegrationTests: XCTestCase {
             payload: .subset(readIDListFilename: "read-ids.txt"),
             lineage: [],
             operation: FASTQDerivativeOperation(kind: .subsampleCount, count: readIDs.count),
-            cachedStatistics: .placeholder(readCount: readIDs.count, baseCount: Int64(readIDs.count * 100)),
+            cachedStatistics: .countsOnlyFixture(readCount: readIDs.count, baseCount: Int64(readIDs.count * 100)),
             pairingMode: nil
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: derivedURL)
@@ -152,7 +153,7 @@ final class FASTQOperationIntegrationTests: XCTestCase {
                 trimFrom5Prime: trimFrom5,
                 trimFrom3Prime: trimFrom3
             ),
-            cachedStatistics: .placeholder(
+            cachedStatistics: .countsOnlyFixture(
                 readCount: readCount,
                 baseCount: Int64(readCount * trimmedLength)
             ),

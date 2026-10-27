@@ -10,6 +10,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishTestSupport
 
 enum FASTQBundleExportFixtures {
     static let reads = "@r1\nACGT\n+\nIIII\n@r2\nTTGA\n+\nIIII\n"
@@ -55,7 +56,7 @@ enum FASTQBundleExportFixtures {
                 payload: .full(fastqFilename: "full.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 8),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 8),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),

@@ -214,7 +214,7 @@ final class FastqTranslateMateIdTests: XCTestCase {
                 payload: .full(fastqFilename: "reads.fastq"),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: .placeholder(readCount: 2, baseCount: 33),
+                cachedStatistics: .countsOnlyFixture(readCount: 2, baseCount: 33),
                 pairingMode: .singleEnd,
                 sequenceFormat: .fastq
             ),
