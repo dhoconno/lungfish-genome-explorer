@@ -16,7 +16,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 333 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 336 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -29,7 +29,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1574 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1575 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
@@ -573,6 +573,9 @@ None.
 - `JSONValue` enum, `Sources/LungfishCore/Services/AI/AIProvider.swift`
 - `KeychainSecretStorage` actor, `Sources/LungfishCore/Storage/KeychainSecretStorage.swift`
 - `KrakenMateEvidence` struct, `Sources/LungfishCore/Services/Blast/BlastService+FragmentSampling.swift`
+- `KrakenReadCheck` struct, `Sources/LungfishCore/Services/Blast/KrakenReadLength.swift`
+- `KrakenReadLength` struct, `Sources/LungfishCore/Services/Blast/KrakenReadLength.swift`
+- `KrakenReadsChanged` struct, `Sources/LungfishCore/Services/Blast/KrakenReadLength.swift`
 - `LibprocProcessTableLister` struct, `Sources/LungfishCore/Process/ProcessTreeTerminator.swift`
 - `LocusQuery` enum, `Sources/LungfishCore/Models/LocusQueryParser.swift`
 - `LocusQueryError` enum, `Sources/LungfishCore/Models/LocusQueryParser.swift`
@@ -3183,6 +3186,7 @@ None.
 - `ProvenanceWriterMutationAcceptedError` struct, `Sources/LungfishWorkflow/Provenance/ProvenanceWriterMutationAcceptedError.swift`
 - `QualityBinningReplay` enum, `Sources/LungfishWorkflow/Provenance/QualityBinningReplay.swift`
 - `ReadExtractionService` actor, `Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift`
+- `ReadFileIdentity` struct, `Sources/LungfishWorkflow/Metagenomics/ClassificationConfig.swift`
 - `ReadIDBAMExtractionConfig` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift`
 - `ReadIDBAMExtractionFormat` enum, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift`
 - `ReadIDBAMExtractionResult` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift`
