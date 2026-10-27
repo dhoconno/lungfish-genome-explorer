@@ -57,6 +57,26 @@ extension ClassificationResultTests {
         XCTAssertEqual(try Data(contentsOf: sidecar), storedBytes, "reading a result never rewrites its sidecar")
     }
 
+    /// The size and digest a run recorded for each read file name the copy's file, the place Extract and BLAST
+    /// compare, and keep the size and digest as stored (lane READ-IDENTITY, BIO-READ-IDENTITY 4.2).
+    func testIdentitiesRelocateWithTheInputs() throws {
+        let fixture = try makeProjectCopy()
+        let bundle = "Imports/s.lungfishfastq"
+        try fixture.makeRead(at: fixture.copy(bundle))
+        let payload = "\(bundle)/reads.fastq"
+        var config = fixture.config(inputFiles: [fixture.old(payload)])
+        config.originalInputFiles = [fixture.old(bundle)]
+        config.readFileIdentities = [ReadFileIdentity(url: fixture.old(payload), sizeBytes: 16, sha256: "abc123")]
+        try fixture.writeResult(config: config)
+
+        let loaded = try ClassificationResult.load(from: fixture.loadedFolder)
+
+        let identities = try XCTUnwrap(loaded.config.readFileIdentities)
+        XCTAssertEqual(standardizedPaths(identities.map(\.url)), [fixture.copy(payload).standardizedFileURL.path])
+        XCTAssertEqual(identities.map(\.sizeBytes), [16])
+        XCTAssertEqual(identities.map(\.sha256), ["abc123"])
+    }
+
     // MARK: - A scratch input of the run (BIO should-fix 1 of the PROJECT-ROOT review)
 
     /// A run on a virtual bundle (subset, trim, demux) takes materialized inputs from `<project>/.tmp/` and deletes
