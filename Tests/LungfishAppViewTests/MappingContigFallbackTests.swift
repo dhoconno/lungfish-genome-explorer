@@ -222,6 +222,32 @@ final class MappingContigFallbackTests: XCTestCase {
         )
     }
 
+    // MARK: - The mapping's own BAM
+
+    func testOwnBAMIsRecognisedByItsFolderAndFileName() {
+        let result = URL(fileURLWithPath: "/Projects/A.lungfish/Analyses/minimap2-2026-10-24/sample.sorted.bam")
+        func isOwn(_ path: String?) -> Bool {
+            AlignmentTrackStatsSnapshot.isImported(fromPath: path, resultBAM: result)
+        }
+
+        XCTAssertTrue(isOwn("/Projects/A.lungfish/Analyses/minimap2-2026-10-24/sample.sorted.bam"))
+        XCTAssertTrue(
+            isOwn("/Volumes/Clone/B.lungfish/Analyses/minimap2-2026-10-24/sample.sorted.bam"),
+            "a project that was moved or cloned keeps the folder and the file name"
+        )
+        XCTAssertFalse(
+            isOwn("/Projects/A.lungfish/Analyses/minimap2-2026-10-24/v.lungfishref/alignments/fixture-track.sorted.bam"),
+            "a filtered track names the track it was made from"
+        )
+        XCTAssertFalse(
+            isOwn("/Projects/A.lungfish/Analyses/minimap2-2026-10-25/sample.sorted.bam"),
+            "another run of the same sample"
+        )
+        XCTAssertFalse(isOwn(nil))
+        XCTAssertFalse(isOwn(""))
+        XCTAssertFalse(AlignmentTrackStatsSnapshot.isImported(fromPath: "/a/b/sample.sorted.bam", resultBAM: nil))
+    }
+
     // MARK: - Fixture
 
     /// The fixture folder copied under a fresh temporary folder of the same name, with the

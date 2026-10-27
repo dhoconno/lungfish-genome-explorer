@@ -8,23 +8,48 @@ import LungfishIO
 import LungfishWorkflow
 
 /// What a mapping row refresh needs from one alignment track's stats
-/// database, read with one open of it and off the main actor.
+/// database, read with one open of it and off the main actor. It holds no
+/// contig row. The database's per-sequence counts come from idxstats, which
+/// counts supplementary records, and it measures no depth, breadth, MAPQ or
+/// identity. The table shows the record's rows or the summary builder's rows.
 struct AlignmentTrackStatsSnapshot: Sendable {
+    /// Primary reads that mapped and all primary reads, which flagstat's
+    /// `primary mapped` and `primary` lines count. The `mapped` and `total`
+    /// lines and idxstats count supplementary records too, so they read high.
     let mappedReads: Int
     let totalReads: Int
     /// Each canonical sample with its read groups, then any unmatched read
     /// groups as a sample with no identity.
     let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
-    /// One persisted sample and no unmatched read groups, so the track's
-    /// aggregate stats are truthful for that sample.
-    let canUseAggregateFallback: Bool
-    /// Rows from the stored per-sequence stats, only the sequences with reads.
-    let fallbackRows: [MappingContigSummary]?
+    /// One persisted sample and no unmatched read groups, so that sample's
+    /// rows are the rows of the whole BAM.
+    let sampleCoversWholeBAM: Bool
+    /// Where the import read this track's BAM from (`original_source_path`).
+    let importedFromPath: String?
 
     static func read(track: AlignmentTrackInfo, databaseURL: URL?) async -> AlignmentTrackStatsSnapshot {
         await Task.detached(priority: .userInitiated) {
             readNow(track: track, databaseURL: databaseURL)
         }.value
+    }
+
+    /// Whether the track was imported from the mapping result's own BAM, so the
+    /// result's rows are this track's rows.
+    func isImported(from resultBAMURL: URL?) -> Bool {
+        Self.isImported(fromPath: importedFromPath, resultBAM: resultBAMURL)
+    }
+
+    /// Compares the last two path components, the result folder and the BAM name,
+    /// since a project that was moved or cloned keeps both but not the full path.
+    /// A filtered track names the track it came from, which lives in the viewer
+    /// bundle's `alignments` folder and not beside the result.
+    static func isImported(fromPath path: String?, resultBAM: URL?) -> Bool {
+        guard let path, !path.isEmpty, let resultBAM else { return false }
+        let imported = URL(fileURLWithPath: path).standardizedFileURL
+        let own = resultBAM.standardizedFileURL
+        return imported.lastPathComponent == own.lastPathComponent
+            && imported.deletingLastPathComponent().lastPathComponent
+                == own.deletingLastPathComponent().lastPathComponent
     }
 
     private static func readNow(track: AlignmentTrackInfo, databaseURL: URL?) -> AlignmentTrackStatsSnapshot {
@@ -35,8 +60,8 @@ struct AlignmentTrackStatsSnapshot: Sendable {
                 mappedReads: manifestMapped,
                 totalReads: manifestTotal,
                 sampleReadGroups: [(nil, [])],
-                canUseAggregateFallback: false,
-                fallbackRows: nil
+                sampleCoversWholeBAM: false,
+                importedFromPath: nil
             )
         }
         let counts = readCounts(in: database) ?? (manifestMapped, manifestTotal)
@@ -58,42 +83,26 @@ struct AlignmentTrackStatsSnapshot: Sendable {
         } else {
             samples = [(nil, resolution?.unmatchedReadGroupIDs ?? [])]
         }
-        let rows = database.chromosomeStats(mappedOnly: true).map { stat in
-            MappingContigSummary(
-                contigName: stat.chromosome,
-                contigLength: Int(clamping: stat.length),
-                mappedReads: Int(clamping: stat.mappedReads),
-                mappedReadPercent: counts.total > 0 ? Double(stat.mappedReads) / Double(counts.total) * 100 : 0,
-                meanDepth: 0,
-                coverageBreadth: 0,
-                medianMAPQ: 0,
-                meanIdentity: 0
-            )
-        }
         return AlignmentTrackStatsSnapshot(
             mappedReads: counts.mapped,
             totalReads: counts.total,
             sampleReadGroups: samples,
-            canUseAggregateFallback: samples.count == 1 && samples[0].sampleID != nil
+            sampleCoversWholeBAM: samples.count == 1 && samples[0].sampleID != nil
                 && resolution?.unmatchedReadGroupIDs.isEmpty == true,
-            fallbackRows: rows.isEmpty ? nil : rows
+            importedFromPath: database.getFileInfo("original_source_path")
         )
     }
 
-    /// Mapped and total reads from flagstat, else from the per-sequence
-    /// stats. `nil` sends the caller to the counts the manifest declares.
+    /// Primary mapped and primary reads from flagstat. A flagstat that predates the
+    /// primary lines (samtools before 1.9) gives its `mapped` and `total` record
+    /// counts, as the mapping record's own parse does, and a database without
+    /// flagstat gives its per-sequence totals. `nil` sends the caller to the counts
+    /// the manifest declares.
     private static func readCounts(in database: AlignmentMetadataDatabase) -> (mapped: Int, total: Int)? {
         let flagStats = database.flagStats()
-        if let totalRecord = flagStats.first(where: { $0.category == "total" }),
-           let mappedRecord = flagStats.first(where: { $0.category == "mapped" }) {
-            let total = totalRecord.qcPass.addingReportingOverflow(totalRecord.qcFail)
-            let mapped = mappedRecord.qcPass.addingReportingOverflow(mappedRecord.qcFail)
-            if !total.overflow,
-               !mapped.overflow,
-               total.partialValue >= 0,
-               mapped.partialValue >= 0,
-               total.partialValue >= mapped.partialValue {
-                return (Int(clamping: mapped.partialValue), Int(clamping: total.partialValue))
+        for (mappedCategory, totalCategory) in [("primary mapped", "primary"), ("mapped", "total")] {
+            if let counts = flagStatCounts(flagStats, mapped: mappedCategory, total: totalCategory) {
+                return counts
             }
         }
         let databaseMapped = database.totalMappedReads()
@@ -107,9 +116,45 @@ struct AlignmentTrackStatsSnapshot: Sendable {
         }
         return (Int(clamping: databaseMapped), Int(clamping: databaseTotal.partialValue))
     }
+
+    private static func flagStatCounts(
+        _ flagStats: [AlignmentMetadataDatabase.FlagStatRecord],
+        mapped mappedCategory: String,
+        total totalCategory: String
+    ) -> (mapped: Int, total: Int)? {
+        guard let totalRecord = flagStats.first(where: { $0.category == totalCategory }),
+              let mappedRecord = flagStats.first(where: { $0.category == mappedCategory }) else {
+            return nil
+        }
+        let total = totalRecord.qcPass.addingReportingOverflow(totalRecord.qcFail)
+        let mapped = mappedRecord.qcPass.addingReportingOverflow(mappedRecord.qcFail)
+        guard !total.overflow,
+              !mapped.overflow,
+              total.partialValue >= 0,
+              mapped.partialValue >= 0,
+              total.partialValue >= mapped.partialValue else {
+            return nil
+        }
+        return (Int(clamping: mapped.partialValue), Int(clamping: total.partialValue))
+    }
+}
+
+/// A summary build that ended without an error and without a row for a track that holds
+/// mapped reads, as a managed samtools wrapper does when a streamed subcommand fails.
+struct MappingSummaryReturnedNoRows: LocalizedError {
+    var errorDescription: String? { "samtools returned no rows for a track that holds mapped reads" }
 }
 
 extension ReferenceBundleViewportController {
+    /// The summary bar words for the tracks whose alignment statistics could not be
+    /// measured, with the reason of the first. `nil` when every track was measured.
+    static func measurementFailureWords(_ failures: [(track: String, reason: String)]) -> String? {
+        guard let first = failures.first else { return nil }
+        var seen = Set<String>()
+        let tracks = failures.map(\.track).filter { seen.insert($0).inserted }
+        return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")): \(first.reason)"
+    }
+
     /// FASTA descriptions for the sequences the table shows, never a
     /// dictionary over every sequence of a large reference.
     static func fastaDescriptions(

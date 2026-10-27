@@ -488,6 +488,14 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         )
     }
 
+    /// The summary line with the words of an alignment summary build after it, in orange, when it has any.
+    private func withSummaryWarning(_ text: String) -> String {
+        guard let alignmentTrackSummaryWarning else { return text }
+        summaryLabel.textColor = .systemOrange
+        summaryLabel.toolTip = alignmentTrackSummaryWarning
+        return text + " — Warning: \(alignmentTrackSummaryWarning)"
+    }
+
     private func updateSummaryBar() {
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.toolTip = nil
@@ -500,13 +508,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                         / Double(visibleAlignmentSummaryOverride.totalReads) * 100
                 )
                 : "—"
-            var text = "\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))"
-            if let alignmentTrackSummaryWarning {
-                text += " — Warning: \(alignmentTrackSummaryWarning)"
-                summaryLabel.textColor = .systemOrange
-                summaryLabel.toolTip = alignmentTrackSummaryWarning
-            }
-            summaryLabel.stringValue = text
+            summaryLabel.stringValue = withSummaryWarning("\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))")
             return
         }
 
@@ -524,7 +526,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         let pct = result.totalReads > 0
             ? String(format: "%.1f%%", Double(result.mappedReads) / Double(result.totalReads) * 100)
             : "—"
-        summaryLabel.stringValue = "\(result.mapper.displayName) Mapping — \(result.mappedReads.formatted()) / \(result.totalReads.formatted()) reads mapped (\(pct))"
+        summaryLabel.stringValue = withSummaryWarning("\(result.mapper.displayName) Mapping — \(result.mappedReads.formatted()) / \(result.totalReads.formatted()) reads mapped (\(pct))")
     }
 
     func configure(input: ReferenceBundleViewportInput) throws {
@@ -915,6 +917,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         updateSummaryBar()
         contigTableView.configure(rows: [])
         let builder = alignmentTrackSummaryBuilder
+        // The record holds the rows of the mapping's own BAM, measured when the mapping ran.
+        let (recordRows, resultBAMURL) = (currentResult?.contigs ?? [], currentResult?.bamURL)
         let trackFiles = tracks.map { track in
             (track: track,
              bamURL: resolvedTrackURL(track.sourcePath, bundleURL: bundleURL),
@@ -922,19 +926,24 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
         mappingRowsRefreshTask = Task { @MainActor [weak self] in
             var rows: [MappingContigSummary] = []
+            var failures: [(track: String, reason: String)] = []
             for (track, bamURL, databaseURL) in trackFiles {
                 // One open of the track's stats database, off the main actor.
                 // A track whose read groups carry no usable SM tag stays
                 // visible as an unmatched, no-RG row in All Alignments.
                 let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
+                let usesRecordRows = stats.sampleCoversWholeBAM && stats.isImported(from: resultBAMURL)
                 for (sampleID, readGroups) in stats.sampleReadGroups {
                     // A cancelled build reads as no rows, so a superseded refresh stops here.
                     guard !Task.isCancelled else { return }
-                    let summaries: [MappingContigSummary]
-                    if stats.canUseAggregateFallback, let cached = stats.fallbackRows {
-                        summaries = cached
-                    } else {
-                        summaries = (try? await builder(bamURL, stats.totalReads, readGroups)) ?? []
+                    var summaries = recordRows
+                    if !usesRecordRows {
+                        do {
+                            summaries = try await builder(bamURL, stats.totalReads, readGroups)
+                        } catch {
+                            summaries = []
+                            failures.append((track.name, error.localizedDescription))
+                        }
                     }
                     guard !Task.isCancelled else { return }
                     rows += summaries.filter { $0.mappedReads > 0 }.map {
@@ -943,6 +952,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 }
             }
             guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+            self.alignmentTrackSummaryWarning = Self.measurementFailureWords(failures)
+            self.updateSummaryBar()
             self.configureMappingContigRows(rows)
             // All-mode rows represent different BAM/RG predicates. Do not
             // auto-select one while the viewer is explicitly filtered to
@@ -1295,23 +1306,19 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         let bamURL = resolvedTrackURL(track.sourcePath, bundleURL: bundleURL)
         let databaseURL = track.metadataDBPath.map { resolvedTrackURL($0, bundleURL: bundleURL) }
         let summaryBuilder = alignmentTrackSummaryBuilder
+        let resultBAMURL = currentResult?.bamURL
         mappingRowsRefreshTask = Task { @MainActor [weak self] in
             // One open of the track's stats database for the whole refresh, off the main actor.
             let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
-            let firstSample = stats.sampleReadGroups[0]
-            // Cached metadata is immediately usable for a single resolved sample
-            // and avoids an empty initial list while the expensive exact summary
-            // process is starting. The result below replaces these rows when it
-            // completes. Multiple samples are intentionally not expanded from
-            // aggregate track stats because that would fabricate per-sample reads.
-            let fallback = stats.canUseAggregateFallback ? stats.fallbackRows.map {
-                [(sampleID: firstSample.sampleID, readGroupIDs: firstSample.readGroupIDs, summaries: $0)]
-            } : nil
-            if let fallback, let self, self.alignmentTrackSummaryRefreshID == refreshID {
-                self.applyVisibleAlignmentRows(
-                    fallback, track: track, mappedReads: stats.mappedReads,
-                    totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
-                )
+            // The mapping's own BAM shows the record's rows while its summaries are measured, and when
+            // they cannot be. A track imported from another BAM shows none. A track naming no source keeps the rows shown.
+            if let self, self.alignmentTrackSummaryRefreshID == refreshID {
+                let preferred = self.currentSelectedContig()?.contigName ?? preferredSelectionName
+                if stats.isImported(from: resultBAMURL) {
+                    self.applyOriginalMappingRows(preferredSelectionName: preferred)
+                } else if stats.importedFromPath != nil {
+                    self.applyVisibleAlignmentRows([], track: track, mappedReads: stats.mappedReads, totalReads: stats.totalReads, preferredSelectionName: preferred)
+                }
             }
             do {
                 var sampleSummaries: [(sampleID: String?, readGroupIDs: Set<String>, summaries: [MappingContigSummary])] = []
@@ -1323,15 +1330,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     sampleSummaries.append((sample.sampleID, sample.readGroupIDs, summaries))
                 }
                 // Some managed samtools wrappers surface a failed streamed
-                // subcommand as an empty, otherwise-successful parse. For a
-                // single persisted sample, the bundle's indexed stats remain
-                // a truthful initial sample × contig fallback; do not leave
-                // the default metadata-bearing track blank until a manual
-                // track toggle.
-                if let fallback, sampleSummaries.allSatisfy({ sample in
-                    sample.summaries.isEmpty || sample.summaries.allSatisfy { $0.mappedReads == 0 }
+                // subcommand as an empty, otherwise-successful parse. A track
+                // that holds mapped reads and measures none failed to measure.
+                if stats.mappedReads > 0, sampleSummaries.allSatisfy({ sample in
+                    sample.summaries.allSatisfy { $0.mappedReads == 0 }
                 }) {
-                    sampleSummaries = fallback
+                    throw MappingSummaryReturnedNoRows()
                 }
                 guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
                 self.applyVisibleAlignmentRows(
@@ -1340,15 +1344,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 )
                 self.finishMappingRowsRefresh()
             } catch {
-                guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
-                if let fallback {
-                    self.applyVisibleAlignmentRows(
-                        fallback, track: track, mappedReads: stats.mappedReads,
-                        totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
-                    )
-                } else {
-                    self.showDetailPlaceholder("Unable to compute alignment statistics for \(track.name).")
-                }
+                guard !Task.isCancelled, let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+                self.alignmentTrackSummaryWarning = Self.measurementFailureWords([(track.name, error.localizedDescription)])
+                self.updateSummaryBar()
                 self.finishMappingRowsRefresh()
             }
         }
