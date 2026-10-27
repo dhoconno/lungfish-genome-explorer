@@ -318,10 +318,11 @@ extension ViralAssembly {
     }
 
     /// Mean depth over the whole assembly: the contigs' aligned bases (mean coverage times length) over
-    /// Asm_length, the denominator RPKMF and breadth use. One unsegmented contig keeps its own mean coverage.
+    /// Asm_length, the denominator RPKMF and breadth use. One unsegmented contig keeps its own mean coverage,
+    /// and so does one contig whose length is missing (a damaged table), since its aligned bases cannot be formed.
     public static func meanDepth(of contigs: [ViralDetection]) -> Double {
         let length = contigs.map(\.assemblyLength).max() ?? 0
-        if contigs.count == 1, contigs[0].length == length { return contigs[0].meanCoverage }
+        if contigs.count == 1, contigs[0].length == length || contigs[0].length == 0 { return contigs[0].meanCoverage }
         guard length > 0 else { return contigs.count == 1 ? contigs[0].meanCoverage : 0 }
         return contigs.reduce(0.0) { $0 + $1.meanCoverage * Double($1.length) } / Double(length)
     }

@@ -145,6 +145,19 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         XCTAssertEqual(workflow.meanCoverage, parsed.meanCoverage)
     }
 
+    /// A contig length of NULL reads 0 through `detection(from:)`. One contig with no length keeps its own depth,
+    /// as it did before the whole-genome rule, and does not turn into 0.0x.
+    func testOneContigWithAMissingLengthKeepsItsOwnDepth() throws {
+        let rows = [
+            Self.row(
+                sample: "sample-A", accession: "acc-1", assembly: "asm-1", readCount: 10, meanCoverage: 2.5,
+                contigLength: 0, assemblyLength: 2_000
+            ),
+        ]
+        let assembly = try XCTUnwrap(EsVirituDetectionExport.assembly(from: rows))
+        XCTAssertEqual(assembly.meanCoverage, 2.5, "a missing contig length must not read as zero depth")
+    }
+
     func testBatchResultKeepsTheSelectedSamplesInTheViewersOrder() {
         let rows = [
             Self.row(sample: "sample-B", accession: "b-1", assembly: "asm-9", readCount: 20),
