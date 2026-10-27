@@ -1716,8 +1716,8 @@ final class BlastBuildRequestTests: XCTestCase {
         }
     }
 
-    func testMatchingIdsButNonMatchingFASTQThrowsNoSequences() async throws {
-        // Classification output has matching read IDs but FASTQ has different reads
+    func testMatchingIdsButNonMatchingFASTQRefusesAsReadsChanged() async throws {
+        // The FASTQ exists and holds none of the named reads, case (c) of BIO-READ-IDENTITY 4.5
         let classURL = tempDir.appendingPathComponent("output.kraken")
         try "C\tread_001\t562\t150\t562:150\n"
             .write(to: classURL, atomically: true, encoding: .utf8)
@@ -1733,9 +1733,9 @@ final class BlastBuildRequestTests: XCTestCase {
                 classificationOutputURL: classURL,
                 sourceURL: sourceURL
             )
-            XCTFail("Expected noSequences when FASTQ reads don't match")
+            XCTFail("Expected KrakenReadsChanged when FASTQ reads don't match")
         } catch {
-            XCTAssertTrue(error is BlastServiceError, "Expected BlastServiceError, got \(error)")
+            XCTAssertEqual((error as? KrakenReadsChanged)?.check, .noneFound(of: 1), "Expected none of 1 read found, got \(error)")
         }
     }
 
@@ -1744,7 +1744,7 @@ final class BlastBuildRequestTests: XCTestCase {
         let classURL = tempDir.appendingPathComponent("output.kraken")
         var classLines = ""
         for i in 0..<25 {
-            classLines += "C\tread_\(i)\t562\t150\t562:150\n"
+            classLines += "C\tread_\(i)\t562\t\(4 * (10 + i))\t562:150\n"
         }
         try classLines.write(to: classURL, atomically: true, encoding: .utf8)
 
@@ -1773,7 +1773,7 @@ final class BlastBuildRequestTests: XCTestCase {
 
     func testBuildVerificationRequestScansCompressedKrakenOutput() async throws {
         let rawClassURL = tempDir.appendingPathComponent("output.kraken")
-        try "C\tread_001\t562\t150\t562:150\n"
+        try "C\tread_001\t562\t12\t562:150\n"
             .write(to: rawClassURL, atomically: true, encoding: .utf8)
 
         let gzClassURL = rawClassURL.appendingPathExtension("gz")
@@ -1844,7 +1844,7 @@ final class BlastBuildRequestTests: XCTestCase {
     func testPairedEndSuffixStripping() async throws {
         // Kraken2 output uses /1 suffix, FASTQ uses /1 suffix — both should be stripped
         let classURL = tempDir.appendingPathComponent("output.kraken")
-        try "C\tread_001/1\t562\t150\t562:150\nC\tread_002/2\t562\t150\t562:150\n"
+        try "C\tread_001/1\t562\t20\t562:150\nC\tread_002/2\t562\t20\t562:150\n"
             .write(to: classURL, atomically: true, encoding: .utf8)
 
         let sourceURL = tempDir.appendingPathComponent("reads.fastq")
@@ -1876,7 +1876,7 @@ final class BlastBuildRequestTests: XCTestCase {
         let classURL = tempDir.appendingPathComponent("output.kraken")
         var classLines = ""
         for i in 0..<5 {
-            classLines += "C\tread_\(i)\t562\t150\t562:150\n"
+            classLines += "C\tread_\(i)\t562\t40\t562:150\n"
         }
         try classLines.write(to: classURL, atomically: true, encoding: .utf8)
 

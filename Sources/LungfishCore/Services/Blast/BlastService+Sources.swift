@@ -178,6 +178,13 @@ extension BlastService {
             records += found.map { (id: $0.id, mate: $0.mate ?? source.unmarkedMate, sequence: $0.sequence) }
         }
 
+        // A source file that is not there at all stays a missing-file error: nothing was drawn, so nothing is sent.
+        // The refusal for changed reads is for files that exist (READ-IDENTITY ruling 4).
+        if records.isEmpty, sources.contains(where: { !FileManager.default.fileExists(atPath: $0.url.path) }) {
+            logger.error("extractSequencesAndBuild: a source file is missing and no record was drawn")
+            throw BlastServiceError.noSequences
+        }
+
         // Every fragment drawn must be in the sources with the lengths kraken2 recorded, or the files at the
         // result's place hold other reads under the same names, and nothing is sent (BIO-READ-IDENTITY 4.1).
         if let recordedLengths {
