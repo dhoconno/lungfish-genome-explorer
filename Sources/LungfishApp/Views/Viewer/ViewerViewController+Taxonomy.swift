@@ -77,7 +77,8 @@ extension ViewerViewController {
         // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
         // The inputs the classification recorded. The search reads their
         // files (D8).
-        let capturedInputs = (try? KrakenResultReadSources.recordedInputs(of: result)) ?? []
+        // A result whose reads the open project lacks refuses before any row, in the words that name them (WF-3).
+        let capturedInputs = Result { try KrakenResultReadSources.recordedInputs(of: result, refusalAction: .blast) }
         let capturedResultDirectory = result.config.outputDirectory
 
         // Saved verifications live in the result folder and come back when
@@ -85,9 +86,13 @@ extension ViewerViewController {
         controller.blastVerificationDirectoryResolver = { _ in capturedResultDirectory }
 
         controller.onBlastVerification = { [weak self, weak controller] node, readCount in
+            if case .failure(let error) = capturedInputs, let refusal = error as? ClassifierExtractionError,
+               case .sourceNotInProject = refusal {
+                return showBlastVerificationErrorAlert(refusal.localizedDescription)
+            }
             self?.beginKraken2BlastSubmit(
                 controller: controller, node: node, readCount: readCount, classResult: result,
-                sourceInputs: capturedInputs, resultDirectory: capturedResultDirectory
+                sourceInputs: (try? capturedInputs.get()) ?? [], resultDirectory: capturedResultDirectory
             )
         }
 
@@ -170,7 +175,12 @@ extension ViewerViewController {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
-            let sourceInputs = (try? KrakenResultReadSources.recordedInputs(of: sampleResult)) ?? []
+            let recorded = Result { try KrakenResultReadSources.recordedInputs(of: sampleResult, refusalAction: .blast) }
+            if case .failure(let error) = recorded, let refusal = error as? ClassifierExtractionError,
+               case .sourceNotInProject = refusal {
+                return showBlastVerificationErrorAlert(refusal.localizedDescription)
+            }
+            let sourceInputs = (try? recorded.get()) ?? []
             self?.beginKraken2BlastSubmit(
                 controller: controller, node: node, readCount: readCount, classResult: sampleResult,
                 sourceInputs: sourceInputs, resultDirectory: sampleDirectory, sample: controller.owningSampleId(for: node)

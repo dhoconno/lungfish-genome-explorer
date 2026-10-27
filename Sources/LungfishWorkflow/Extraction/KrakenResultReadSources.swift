@@ -132,8 +132,16 @@ public struct KrakenResultReadSources: Sendable, Equatable {
     /// reads named beside it with `--unpaired`. A file named inside a bundle
     /// gives that bundle when the run planned the bundle's read set and read
     /// its other files too, as `--read-format auto` does (final review S3).
-    public static func recordedInputs(of result: ClassificationResult) throws -> [URL] {
+    public static func recordedInputs(
+        of result: ClassificationResult,
+        refusalAction: ClassifierExtractionError.SourceRefusalAction = .extract
+    ) throws -> [URL] {
         let config = result.config
+        // A result made in another project whose reads the open project lacks names no read elsewhere, so it
+        // refuses in words that name the missing place and `refusalAction`, the menu item to choose next (WF-3).
+        if let place = config.sourceMissingFromProject {
+            throw ClassifierExtractionError.sourceNotInProject(place: place, action: refusalAction)
+        }
         let fileManager = FileManager.default
         let scratchPrefix = config.outputDirectory
             .appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true)

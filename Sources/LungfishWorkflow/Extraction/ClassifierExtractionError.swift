@@ -37,6 +37,17 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
     /// alert, the BLAST alert and the CLI all show them (W4-COPY-SOURCE).
     case kraken2SourceMissing
 
+    /// A Kraken2 result made in another project names a read that the open project does not hold, so nothing was
+    /// read from any other folder (walk WF-3, the UX ruling of 2026-10-26). `place` is the read's place inside the
+    /// project, as `Imports/SRR12486983.lungfishfastq`, and `action` the menu item to choose once it is back.
+    case sourceNotInProject(place: String, action: SourceRefusalAction)
+
+    /// The menu item that the words of ``sourceNotInProject(place:action:)`` name as the next step.
+    public enum SourceRefusalAction: String, Sendable {
+        case extract = "Extract"
+        case blast = "BLAST Matching Reads\u{2026}"
+    }
+
     /// A per-sample samtools invocation failed.
     case samtoolsFailed(sampleId: String, stderr: String)
 
@@ -86,6 +97,13 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
                 + "Put their files or bundle back in the same place in this project, "
                 + "or where the run recorded them, then open this result again and try again. "
                 + "Or run the classification again in this project."
+        case .sourceNotInProject(let place, let action):
+            let last = URL(fileURLWithPath: place).lastPathComponent
+            let name = URL(fileURLWithPath: last).pathExtension == FASTQBundle.directoryExtension
+                ? URL(fileURLWithPath: last).deletingPathExtension().lastPathComponent : last
+            return "The reads this result came from, \(place), are not in this project, "
+                + "so Lungfish did not look for them anywhere else. "
+                + "Import \(name) into this project again, then choose \(action.rawValue)."
         case .samtoolsFailed(let sampleId, let stderr):
             return "samtools view failed for sample '\(sampleId)': \(stderr)"
         case .clipboardCapExceeded(let requested, let cap):

@@ -71,6 +71,16 @@ final class FinderCopyExtractSourceTests: XCTestCase {
         } catch {
             XCTAssertEqual(error.localizedDescription, Self.refusalWords)
         }
+        // The Extract dialog and `extract reads --by-classifier` refuse in the same words.
+        do {
+            _ = try await ClassifierReadResolver().resolveAndExtract(
+                tool: .kraken2, resultPath: resultFolder, selections: [ClassifierRowSelector(taxIds: [562])],
+                options: ExtractionOptions(), destination: .file(output.appendingPathComponent("dialog.fastq"))
+            )
+            XCTFail("the Extract dialog read reads that the open project does not hold")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, Self.refusalWords)
+        }
 
         let originalPrefix = projects.original.standardizedFileURL.path + "/"
         let named = loaded.config.inputFiles + (loaded.config.originalInputFiles ?? []) + loaded.config.singleReadFiles

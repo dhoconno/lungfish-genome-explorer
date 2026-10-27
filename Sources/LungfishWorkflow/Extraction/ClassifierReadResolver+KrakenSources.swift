@@ -144,6 +144,9 @@ extension ClassifierReadResolver {
                 }
             } catch is CancellationError {
                 throw CancellationError()
+            } catch ClassifierExtractionError.sourceNotInProject(let place, let action) where job.sampleId == nil {
+                // One result refuses in its own words rather than as a skipped sample (WF-3).
+                throw ClassifierExtractionError.sourceNotInProject(place: place, action: action)
             } catch {
                 logger.warning(
                     "Skipping sample \(sampleLabel, privacy: .private(mask: .hash)) — source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"

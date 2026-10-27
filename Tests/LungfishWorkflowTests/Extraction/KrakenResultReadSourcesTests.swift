@@ -190,13 +190,18 @@ final class KrakenResultReadSourcesTests: XCTestCase {
         try project.writeResult(config: config)
         let loaded = try ClassificationResult.load(from: project.loadedFolder)
 
-        XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded))
+        XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded)) { error in
+            guard case ClassifierExtractionError.sourceNotInProject(bundle, .extract) = error else {
+                return XCTFail("the refusal of reads outside the project, not \(error)")
+            }
+        }
         XCTAssertEqual(loaded.config.sourceMissingFromProject, bundle, "the place the refusal names")
         XCTAssertEqual(loaded.config.originalInputFiles?.map(\.standardizedFileURL.path), [project.copy(bundle).standardizedFileURL.path])
     }
 
-    /// The reads are in neither project. The error says what happened and what to try next, in the words the
-    /// Extract alert, the BLAST alert and the CLI all show (UX ruling of 2026-10-26).
+    /// The reads are in neither project, so the open project lacks them. The error says what happened and what to
+    /// try next, ending with the menu item of the action that refused: Extract, or BLAST Matching Reads… for the
+    /// BLAST alert (the UX ruling of 2026-10-26 on walk WF-3, and the manager's ruling on BLAST).
     func testAResultWhoseReadsAreInNeitherProjectSaysWhatToTry() throws {
         let project = copiedProject()
         let bundle = "Imports/s.lungfishfastq"
@@ -204,12 +209,17 @@ final class KrakenResultReadSourcesTests: XCTestCase {
         config.originalInputFiles = [project.old(bundle)]
         try project.writeResult(config: config)
         let loaded = try ClassificationResult.load(from: project.loadedFolder)
+        let words = "The reads this result came from, Imports/s.lungfishfastq, are not in this project, "
+            + "so Lungfish did not look for them anywhere else. Import s into this project again, then choose "
 
         XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded)) { error in
-            guard case ClassifierExtractionError.kraken2SourceMissing = error else {
-                return XCTFail("the missing source error, not \(error)")
+            guard case ClassifierExtractionError.sourceNotInProject(_, .extract) = error else {
+                return XCTFail("the refusal of reads outside the project, not \(error)")
             }
-            XCTAssertEqual(error.localizedDescription, ProjectCopyResultFixture.missingReadsWords)
+            XCTAssertEqual(error.localizedDescription, words + "Extract.")
+        }
+        XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded, refusalAction: .blast)) { error in
+            XCTAssertEqual(error.localizedDescription, words + "BLAST Matching Reads\u{2026}.")
         }
     }
 

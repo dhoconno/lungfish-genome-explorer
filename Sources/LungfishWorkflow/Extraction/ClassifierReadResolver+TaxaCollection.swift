@@ -94,6 +94,8 @@ extension ClassifierReadResolver {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch ClassifierExtractionError.sourceNotInProject(let place, let action) {
+            throw ClassifierExtractionError.sourceNotInProject(place: place, action: action)
         } catch {
             collectionLogger.warning(
                 "Source FASTQ not found: \(error.localizedDescription, privacy: .private(mask: .hash))"
