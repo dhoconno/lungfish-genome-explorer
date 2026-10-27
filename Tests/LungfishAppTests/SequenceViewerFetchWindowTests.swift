@@ -159,6 +159,10 @@ final class SequenceViewerFetchDrawTests: XCTestCase {
         viewer.isFetchingBundleData = true
         XCTAssertFalse(viewer.showsFetchingSequenceLabel(frame: wide), "that fetch cannot cover a view wider than the cap")
         XCTAssertTrue(viewer.showsFetchingSequenceLabel(frame: narrow), "a fetch that can cover the view shows the words")
+        let atTheCap = ReferenceFrame(
+            chromosome: chromosome, start: 0, end: 500_000, pixelWidth: 1600, sequenceLength: chromosomeLength
+        )
+        XCTAssertTrue(viewer.showsFetchingSequenceLabel(frame: atTheCap), "a view exactly as wide as the cap can be covered")
         viewer.isFetchingBundleData = false
         XCTAssertFalse(viewer.showsFetchingSequenceLabel(frame: narrow), "no fetch runs, so no words")
     }

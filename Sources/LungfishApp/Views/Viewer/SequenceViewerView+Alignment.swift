@@ -1054,26 +1054,28 @@ extension SequenceViewerView {
 
     /// Fetches sequence data asynchronously from bgzip-compressed FASTA.
     /// Runs decompression on a background thread to avoid blocking the UI.
-    /// Only called when zoomed in enough to display sequence (<500 bp/pixel).
+    /// Only called when zoomed in enough to display sequence (<500 bp/pixel), and starts no fetch for a
+    /// view wider than the fetch cap (`sequenceFetchWindow`).
     /// Dedicated queue for sequence I/O to avoid being starved by annotation scanning
     /// on the global concurrent queue.
     static let sequenceFetchQueue = DispatchQueue(label: "com.lungfish.sequenceFetch", qos: .userInteractive)
 
     func fetchSequenceAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+
+        // No fetch can cover a view wider than the cap, and a fetch of the whole span would defeat the
+        // cap. Such a view starts none, changes no fetch state and draws the low-zoom line.
+        guard let expandedRegion = Self.sequenceFetchWindow(
+            visible: region,
+            chromosomeLength: Int(chromLength),
+            capBases: Self.sequenceFetchCapBases
+        ) else { return }
+
         sequenceFetchGeneration += 1
         let thisGeneration = sequenceFetchGeneration
         isFetchingBundleData = true
         sequenceFetchStartTime = Date()
         bundleFetchError = nil
-
-        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
-
-        // The window is bounded by the fetch cap and at least 100 Kb wide for panning.
-        let expandedRegion = Self.sequenceFetchWindow(
-            visible: region,
-            chromosomeLength: Int(chromLength),
-            capBases: AppSettings.shared.sequenceFetchCapKb * 1_000
-        )
 
         sequenceViewerLogger.info("fetchSequenceAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(expandedRegion.length) bp)")
 

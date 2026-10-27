@@ -114,11 +114,7 @@ extension SequenceViewerView {
 
         ensureVisibleViewportSelection(frame: frame)
 
-        let visibleRegion = GenomicRegion(
-            chromosome: frame.chromosome,
-            start: max(0, Int(frame.start)),
-            end: max(Int(frame.start) + 1, Int(ceil(frame.end)))
-        )
+        let visibleRegion = Self.visibleRegion(of: frame)
         let scale = frame.scale  // bp/pixel
         let needsSequence = scale < showLineThreshold  // Only fetch sequence when it would be visible
 
