@@ -1310,13 +1310,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         mappingRowsRefreshTask = Task { @MainActor [weak self] in
             // One open of the track's stats database for the whole refresh, off the main actor.
             let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
-            // The mapping's own BAM shows the record's rows while its summaries are measured, and when
-            // they cannot be. A track imported from another BAM shows none. A track naming no source keeps the rows shown.
+            // The mapping's own BAM shows the record's rows while its summaries are measured, and when they cannot be.
+            // A track with a stats database that is not that BAM shows none until measured (a filtered track names no source). A track with no stats database keeps the rows shown.
             if let self, self.alignmentTrackSummaryRefreshID == refreshID {
                 let preferred = self.currentSelectedContig()?.contigName ?? preferredSelectionName
                 if stats.isImported(from: resultBAMURL) {
                     self.applyOriginalMappingRows(preferredSelectionName: preferred)
-                } else if stats.importedFromPath != nil {
+                } else if track.metadataDBPath != nil {
                     self.applyVisibleAlignmentRows([], track: track, mappedReads: stats.mappedReads, totalReads: stats.totalReads, preferredSelectionName: preferred)
                 }
             }
