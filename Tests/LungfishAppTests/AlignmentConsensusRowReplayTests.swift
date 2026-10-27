@@ -462,6 +462,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         XCTAssertEqual(row.bundleURLs.count, 1, "the row names one bundle")
         let bundle = try XCTUnwrap(row.bundleURLs.first, "the row names the bundle")
         XCTAssertTrue(isInside(bundle.path, project), "the bundle is inside the project. \(bundle.path)")
+        XCTAssertEqual(bundle.deletingLastPathComponent().lastPathComponent, "Reference Sequences", "the bundle is in the project's Reference Sequences folder")
         XCTAssertEqual(
             output.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
             bundle.resolvingSymlinksInPath().path,
