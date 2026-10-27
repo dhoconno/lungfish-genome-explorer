@@ -381,10 +381,12 @@ struct FastqIngestRun {
     }
 
     /// A removed original takes its own record and metadata sidecars with it, since both describe a file that
-    /// is gone (WF-1). The output's sidecar carries the first input's metadata on and the run's record merges the
-    /// folder's history, so the folder keeps one record for each file in it. The second file of a pair keeps its
-    /// metadata sidecar, which the output's does not carry. A sidecar that cannot be removed does not fail a run
-    /// whose output is in place.
+    /// is gone (WF-1). The output's sidecar carries the first input's metadata on. The run's record merges the
+    /// folder's root record when there is one, else the first record found among the inputs' own, so an
+    /// original's own record is carried only when it was the one merged. A retired record that was not merged,
+    /// the per-file extraction record of a taxa-collection file, is gone, and the folder keeps one record for
+    /// each file in it. The second file of a pair keeps its metadata sidecar, which the output's does not carry.
+    /// A sidecar that cannot be removed does not fail a run whose output is in place.
     private func retireSidecars(of original: URL) {
         var sidecars = [ProvenanceRecorder.fileSidecarURL(for: original)]
         if original == inputs[0] { sidecars.append(FASTQMetadataStore.metadataURL(for: original)) }
