@@ -10,6 +10,7 @@
 // open a Kraken2 result, and read the command the Operations row records. The launch goes to a command that
 // fails at once, so no extraction runs and the row's beginning is what they read.
 
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -93,6 +94,78 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
         let command = try await recordedCommand(of: collection, excluding: before)
         let parsed = try RecordedCLICommand.parse(command, as: ExtractTaxaCollectionSubcommand.self)
         assertCommand(parsed, names: renamed, collection: collection)
+    }
+
+    // MARK: - BLAST that cannot start (walk WF-3, the fix round of lane PROJECT-ROOT)
+
+    /// ARCH should-fix 2 of the PROJECT-ROOT review. A result made in another project, opened in a project that
+    /// no longer holds its reads, refuses BLAST Matching Reads in words that name them. Run in the BLAST popover
+    /// first marks the search begun (`beginBlastVerification`) and then calls the closure the viewer wired, so a
+    /// refusal has to end the run as every other BLAST failure does: no Operations row, no run left in flight,
+    /// and the words in the BLAST tab as well as in the alert. At the lane head the alert showed the words and
+    /// the run flag stayed set, so saved verifications of other taxa stopped coming back and the tab stayed bare.
+    /// The drawer route (`displayTaxonomyFromDatabase`) has the same four lines and the same fix.
+    func testBlastOnAResultWhoseReadsAreNotInTheProjectRefusesInWordsAndLeavesNoRunInFlight() throws {
+        _ = NSApplication.shared // The refusal's alert reads NSApp.keyWindow.
+        let batch = try TwoSampleKraken2Batch(in: root)
+        let result = try Self.resultWhoseReadsAreNotInTheProject(batch.sampleADirectory)
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        viewer.displayTaxonomyResult(result)
+        self.viewer = viewer
+        let taxonomy = try XCTUnwrap(viewer.taxonomyViewController)
+        let node = try XCTUnwrap(result.tree.node(taxId: 11))
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        taxonomy.beginBlastVerification(for: node) // what Run in the popover does first
+        taxonomy.onBlastVerification?(node, 10)
+
+        assertBlastRefused(by: taxonomy, before: before, startingWith: "The reads this result came from")
+        let words = blastTabText(of: taxonomy).first { $0.hasPrefix("The reads this result came from") }
+        XCTAssertTrue(words?.contains("are not in this project") == true, "the words name what is missing: \(String(describing: words))")
+        XCTAssertTrue(words?.hasSuffix("then choose BLAST Matching Reads….") == true, "the words end with the BLAST menu item: \(String(describing: words))")
+    }
+
+    /// What a BLAST that cannot start leaves behind. No Operations row began, the taxonomy view holds no run in
+    /// flight, and the BLAST tab shows words that begin with `start`.
+    private func assertBlastRefused(
+        by taxonomy: TaxonomyViewController, before: Set<UUID>, startingWith start: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            Set(OperationCenter.shared.items.map(\.id)), before, "a refusal begins no Operations row", file: file, line: line
+        )
+        XCTAssertFalse(
+            taxonomy.isBlastRunInFlight, "the refusal ends the run as every other BLAST failure does", file: file, line: line
+        )
+        XCTAssertFalse(
+            taxonomy.blastRunIsActive, "no run stays active, so saved verifications of other taxa come back", file: file, line: line
+        )
+        let texts = blastTabText(of: taxonomy)
+        XCTAssertTrue(texts.contains { $0.hasPrefix(start) }, "the BLAST tab shows the words, it shows \(texts)", file: file, line: line)
+    }
+
+    /// The text of every label in the BLAST tab. The tab keeps its failure text in a private label, so this reads
+    /// what a person reads. A drawer that was never opened shows nothing.
+    private func blastTabText(of taxonomy: TaxonomyViewController) -> [String] {
+        func labels(under view: NSView) -> [String] {
+            ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap { labels(under: $0) }
+        }
+        return taxonomy.testCollectionsDrawer.map { labels(under: $0.blastResultsTab) } ?? []
+    }
+
+    /// The result stored in `folder`, with the place its reads lack set as `ClassificationResult.load` sets it for a
+    /// result opened in a project that does not hold the reads the run took.
+    private static func resultWhoseReadsAreNotInTheProject(_ folder: URL) throws -> ClassificationResult {
+        let stored = try ClassificationResult.load(from: folder)
+        var config = stored.config
+        config.sourceMissingFromProject = "Imports/SRR12486983.lungfishfastq"
+        return ClassificationResult(
+            config: config, tree: stored.tree, reportURL: stored.reportURL, outputURL: stored.outputURL,
+            brackenURL: stored.brackenURL, profileOutcome: stored.profileOutcome, runtime: stored.runtime,
+            toolVersion: stored.toolVersion, provenanceId: stored.provenanceId,
+            fragmentComposition: stored.fragmentComposition, readPairingContract: stored.readPairingContract
+        )
     }
 
     // MARK: - Reading the row
