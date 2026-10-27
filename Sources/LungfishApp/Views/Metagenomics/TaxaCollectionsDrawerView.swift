@@ -494,23 +494,19 @@ public final class TaxaCollectionsDrawerView: NSView {
 
     @objc private func extractButtonClicked(_ sender: NSButton) {
         let row = outlineView.row(for: sender)
-        guard row >= 0 else { return }
-
-        if let collectionItem = outlineView.item(atRow: row) as? CollectionItem {
-            requestExtraction(for: collectionItem)
-        }
+        guard row >= 0, let collectionItem = outlineView.item(atRow: row) as? CollectionItem else { return }
+        requestExtraction(for: collectionItem)
     }
 
     /// Starts one extraction for the ticked taxa of `collectionItem`.
     ///
     /// Unticked taxa are dropped before the collection leaves the drawer, so
-    /// the pipeline never sees them. When nothing is ticked the click is
-    /// refused with a beep and a log line instead of an empty extraction.
+    /// the pipeline never sees them. The Extract button is disabled while
+    /// nothing is ticked, so this guard only refuses a direct call.
     func requestExtraction(for collectionItem: CollectionItem) {
         let targets = collectionItem.enabledTargets
         guard !targets.isEmpty else {
             drawerLogger.warning("Extract refused for collection \(collectionItem.collection.name, privacy: .public): no taxa ticked")
-            NSSound.beep()
             return
         }
         let collection = collectionItem.collection.restricted(to: targets)
@@ -523,6 +519,7 @@ public final class TaxaCollectionsDrawerView: NSView {
         guard row >= 0, let entryItem = outlineView.item(atRow: row) as? TaxonEntryItem else { return }
         guard let parent = entryItem.parent else { return }
         parent.enabledTaxa[entryItem.target.taxId] = (sender.state == .on)
+        outlineView.reloadItem(parent, reloadChildren: false)
     }
 }
 
@@ -634,6 +631,9 @@ extension TaxaCollectionsDrawerView: NSOutlineViewDelegate {
             button.controlSize = .small
             button.font = .systemFont(ofSize: 10)
             button.setAccessibilityLabel("Extract all taxa in \(item.collection.name)")
+            button.isEnabled = !item.enabledTargets.isEmpty
+            button.toolTip = button.isEnabled ? nil : "Tick at least one taxon to extract its reads."
+            button.setAccessibilityHelp(button.toolTip)
             cell.addSubview(button)
 
             NSLayoutConstraint.activate([
