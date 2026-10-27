@@ -1,3 +1,4 @@
+import SQLite3
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
@@ -135,6 +136,28 @@ final class MappingContigFallbackTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.mappedReads), [10])
     }
 
+    /// A track made by the filter service has a stats database and names no source, so it is not the
+    /// mapping's own BAM and the record's row is not its row. The table shows none until the build ends.
+    func testWhileTheBuilderRunsATrackThatNamesNoSourceShowsNoRows() async throws {
+        let gate = BuilderGate()
+        defer { gate.open() }
+        let (viewport, _) = try openFixture(deleteOriginalSourcePath: true) { _, _, _ in
+            await gate.wait()
+            return [Self.measuredRow]
+        }
+        try await waitUntil { gate.arrivals == 1 }
+
+        XCTAssertEqual(
+            viewport.testContigTableView.displayedRows.map(\.mappedReads), [],
+            "the record's row is measured for the mapping's own BAM, not for this track"
+        )
+
+        let refresh = try XCTUnwrap(viewport.mappingRowsRefreshTask)
+        gate.open()
+        await refresh.value
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.mappedReads), [10])
+    }
+
     // MARK: - The header
 
     func testHeaderCountsPrimaryReadsAndNotAlignmentRecords() async throws {
@@ -258,6 +281,7 @@ final class MappingContigFallbackTests: XCTestCase {
     /// viewer bundle's manifest and genome files that the fixture leaves to the test.
     private func openFixture(
         originalSourcePath: String? = nil,
+        deleteOriginalSourcePath: Bool = false,
         builder: @escaping (URL, Int, Set<String>) async throws -> [MappingContigSummary]
     ) throws -> (MappingResultViewController, MappingResult) {
         let directory = tempDir.appendingPathComponent("supplementary-one-contig", isDirectory: true)
@@ -268,6 +292,17 @@ final class MappingContigFallbackTests: XCTestCase {
                 at: directory.appendingPathComponent("fixture.lungfishref/alignments/fixture-track.stats.db")
             )
             database.setFileInfo("original_source_path", value: originalSourcePath)
+        }
+        if deleteOriginalSourcePath {
+            // A track made by the filter service has a stats database and no source key. The key must be
+            // absent, since an empty value already blanks the table at the head.
+            let databasePath = directory.appendingPathComponent("fixture.lungfishref/alignments/fixture-track.stats.db").path
+            var handle: OpaquePointer?
+            XCTAssertEqual(sqlite3_open(databasePath, &handle), SQLITE_OK)
+            defer { sqlite3_close(handle) }
+            XCTAssertEqual(
+                sqlite3_exec(handle, "DELETE FROM file_info WHERE key = 'original_source_path'", nil, nil, nil), SQLITE_OK
+            )
         }
         let result = try MappingResult.load(from: directory)
         let viewport = MappingResultViewController()
