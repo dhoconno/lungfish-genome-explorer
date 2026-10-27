@@ -147,12 +147,13 @@ struct MappingSummaryReturnedNoRows: LocalizedError {
 
 extension ReferenceBundleViewportController {
     /// The summary bar words for the tracks whose alignment statistics could not be
-    /// measured, with the reason of the first. `nil` when every track was measured.
+    /// measured, with what to try next and then the reason of the first, since a long reason can clip
+    /// in the bar. `nil` when every track was measured.
     static func measurementFailureWords(_ failures: [(track: String, reason: String)]) -> String? {
         guard let first = failures.first else { return nil }
         var seen = Set<String>()
         let tracks = failures.map(\.track).filter { seen.insert($0).inserted }
-        return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")): \(first.reason)"
+        return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")). Open the mapping again to try once more, or run the mapping again if it keeps failing. Reason: \(first.reason)"
     }
 
     /// The summary line with the words of an alignment summary build after it, in orange, when it has any.
