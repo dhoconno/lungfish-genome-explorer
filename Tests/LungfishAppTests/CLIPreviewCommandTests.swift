@@ -17,7 +17,10 @@ final class CLIPreviewCommandTests: XCTestCase {
         XCTAssertTrue(command.contains("'/Volumes/iWES WNPRC/reads/Sample R1.fastq.gz'"))
         XCTAssertTrue(command.contains("--project '/Volumes/iWES WNPRC/Project.lungfish'"))
         XCTAssertTrue(command.contains("--format json"))
-        XCTAssertTrue(command.contains("--quality-binning illumina4"))
+        XCTAssertTrue(
+            command.contains("--quality-binning \(IngestionPlatform.defaultQualityBinning(for: .unknown).rawValue)"),
+            "the single-file route reads no platform"
+        )
         XCTAssertTrue(command.contains("--compression balanced"))
         XCTAssertFalse(command.contains("CLI command not yet available"))
         XCTAssertFalse(command.contains("use GUI"))

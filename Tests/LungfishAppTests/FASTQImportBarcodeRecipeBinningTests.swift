@@ -28,14 +28,19 @@ final class FASTQImportBarcodeRecipeBinningTests: XCTestCase {
             sheet.loadViewIfNeeded()
             let views = Self.descendants(of: sheet.view)
             let binning = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first {
-                $0.itemTitles.contains(QualityBinningScheme.illumina4.displayName)
+                $0.itemTitles.contains(QualityBinningScheme.fiveStep.displayName)
             })
             let recipes = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first { $0.itemTitles.contains(recipe.name) })
             let recipeCheckbox = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
                 $0.title == "Apply processing recipe after import"
             })
             XCTAssertTrue(binning.isEnabled, "\(recipe.name)")
-            XCTAssertEqual(binning.titleOfSelectedItem, QualityBinningScheme.illumina4.displayName)
+            XCTAssertEqual(
+                binning.titleOfSelectedItem, IngestionPlatform.defaultQualityBinning(for: .oxfordNanopore).displayName,
+                "an ONT sheet opens on its platform default"
+            )
+            // A choice other than None, so the test shows that the recipe turns the popup off and gives the choice back.
+            binning.selectItem(withTitle: QualityBinningScheme.fiveStep.displayName)
 
             recipeCheckbox.performClick(nil)
             recipes.selectItem(withTitle: recipe.name)
@@ -54,7 +59,7 @@ final class FASTQImportBarcodeRecipeBinningTests: XCTestCase {
 
             recipeCheckbox.performClick(nil)
             XCTAssertTrue(binning.isEnabled, "turning the recipe off gives the popup back")
-            XCTAssertEqual(binning.titleOfSelectedItem, QualityBinningScheme.illumina4.displayName)
+            XCTAssertEqual(binning.titleOfSelectedItem, QualityBinningScheme.fiveStep.displayName)
         }
     }
 

@@ -135,7 +135,10 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         XCTAssertEqual(command.name, "Sample 7", "the run passes --name, and the command used to leave it out")
         XCTAssertEqual(command.platform, "auto", "nobody chose the platform, so the CLI infers it (it used to pass illumina)")
         XCTAssertEqual(command.pairing, "auto", "nobody chose the pairing, so the CLI detects it")
-        XCTAssertEqual(command.qualityBinning, "illumina4")
+        XCTAssertEqual(
+            command.qualityBinning, IngestionPlatform.defaultQualityBinning(for: .unknown).rawValue,
+            "the single-file route reads no platform"
+        )
         XCTAssertEqual(command.compression, "balanced")
         XCTAssertEqual(command.recipe, "none")
         XCTAssertNil(command.clumpingTool)
