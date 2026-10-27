@@ -53,7 +53,7 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
                 "--output", expectedOutputURL.path,
                 "--include-unclassified",
                 "--concurrency", "1",
-                "--quality-binning", "illumina4",
+                "--quality-binning", "none",
                 "--format", "json",
             ]
         ), "the row records the argv the runner launches")

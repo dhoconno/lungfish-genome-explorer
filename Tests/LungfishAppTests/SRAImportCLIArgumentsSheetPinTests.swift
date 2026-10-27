@@ -97,13 +97,13 @@ final class SRAImportCLIArgumentsSheetPinTests: XCTestCase {
     }
 
     func testEachQualityBinningAndCompressionKeepsItsSpelling() {
-        for (binning, spelling) in [(QualityBinningScheme.none, "none"), (.illumina4, "illumina4"), (.eightLevel, "eightLevel")] {
+        for (binning, spelling) in [(QualityBinningScheme.none, "none"), (.fiveStep, "fiveStep"), (.illumina4, "illumina4"), (.eightLevel, "eightLevel")] {
             assertArguments(
                 sheet(binning: binning),
                 tail: ["--platform", "auto", "--pairing", "paired", "--format", "json", "--quality-binning", spelling, "--compression", "balanced"],
                 "quality binning \(spelling)")
         }
-        XCTAssertEqual(QualityBinningScheme.allCases.count, 3)
+        XCTAssertEqual(QualityBinningScheme.allCases.count, 4)
         for (level, spelling) in [(CompressionLevel.fast, "fast"), (.balanced, "balanced"), (.maximum, "maximum"), (nil, "balanced")] {
             assertArguments(
                 sheet(compression: level),
