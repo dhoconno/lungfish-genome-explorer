@@ -245,6 +245,29 @@ final class BBToolsQualityEncodingConformanceTests: XCTestCase {
         try await assertKeepsScores(.tadpole, args, [output], set, minimumReads: 300)
     }
 
+    // MARK: - bbmap
+
+    func testMapperArgvMapsShortHighQualityReads() async throws {
+        let set = shortReads()
+        let input = try write(set, "short.fastq")
+        let reference = root.appendingPathComponent("reference.fa")
+        try (">ref\n" + set.records.map(\.bases).joined() + "\n").write(to: reference, atomically: true, encoding: .utf8)
+        let outputDirectory = root.appendingPathComponent("mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let request = MappingRunRequest(
+            tool: .bbmap, modeID: MappingMode.bbmapStandard.id, inputFASTQURLs: [input], referenceFASTAURL: reference,
+            outputDirectory: outputDirectory, sampleName: "sample", pairedEnd: false, threads: 2, inputLayout: .singleEnd)
+        let command = try MappingCommandBuilder.buildCommand(
+            for: request,
+            referenceLocator: ReferenceLocator(
+                referenceURL: reference, indexPrefixURL: outputDirectory.appendingPathComponent("reference-index")))
+        let result = try await run(.bbmap, command.arguments)
+        XCTAssertEqual(result.exitCode, 0, "bbmap.sh stopped: \(result.stderr.suffix(300))")
+        let out = try XCTUnwrap(command.arguments.first { $0.hasPrefix("out=") }.map { String($0.dropFirst(4)) })
+        let size = ((try? FileManager.default.attributesOfItem(atPath: out))?[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 0, "bbmap.sh wrote no alignment")
+    }
+
     // MARK: - bbmerge (passes at the base, see the class note)
 
     func testImporterMergeArgvMerges() async throws {
