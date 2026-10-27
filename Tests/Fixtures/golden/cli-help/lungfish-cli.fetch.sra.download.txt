@@ -58,7 +58,8 @@ OPTIONS:
         and Q18 and Q19 as 22, and is kept to replay older imports. Binning
         saves space and is lossy. The original scores cannot be recovered once
         the original files are removed. Pass --quality-binning none to keep
-        every score as the sequencer gave it.
+        every score as the sequencer gave it (with clumping on, a called Q0 or
+        Q1 is stored as Q2).
   --compression <compression>
                           Compression level: fast, balanced, maximum (default:
                           balanced)

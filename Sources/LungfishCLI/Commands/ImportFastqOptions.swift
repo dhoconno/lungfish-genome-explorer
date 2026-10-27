@@ -67,7 +67,7 @@ struct ImportFastqOptions: ParsableArguments {
             as Q37. illumina4 stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is \
             kept to replay older imports. Binning saves space and is lossy. The original \
             scores cannot be recovered once the original files are removed. Pass \
-            --quality-binning none to keep every score as the sequencer gave it.
+            --quality-binning none to keep every score as the sequencer gave it (with clumping on, a called Q0 or Q1 is stored as Q2).
             """
         )
     )
