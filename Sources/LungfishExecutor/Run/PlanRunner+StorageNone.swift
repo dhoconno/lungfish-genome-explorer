@@ -78,6 +78,7 @@ extension PlanRunner {
         if inputs.count == 2 { arguments.append("in2=\(inputs[1].path)") }
         arguments += ["out=\(output.path)", "ow=t", "pigz=t", "zl=\(compressionLevel)", "threads=\(max(1, threads))"]
         arguments.append(inputs.count == 2 ? "interleaved=t" : "interleaved=f")
+        arguments += PortableStoragePlan.qualityEncodingArguments
         arguments.append(quantize)
         return arguments
     }

@@ -119,7 +119,7 @@ final class FASTQStorageStepArgvTests: XCTestCase {
 
     private func clumpifyArgv(in input: String, out: String, tail: [String]) -> [String] {
         ["<clumpify.sh>", "in=\(input)", "out=\(out)", "-Xmx2g", "-eoom", "ow=t", "reorder", "groups=auto",
-         "pigz=t", "zl=4", "threads=2"] + tail + [illumina4]
+         "pigz=t", "zl=4", "threads=2"] + tail + ["qin=33", "qout=33", "maxcalledquality=93", illumina4]
     }
 
     private func compressorArgv(_ tools: Tools, input: String, output: String) -> [String] {

@@ -39,10 +39,10 @@ final class QualityBinningSchemeMapConformanceTests: XCTestCase {
     }
 
     /// The default Illumina import clumps, so most reads take their binning through `clumpify.sh`. The run uses the
-    /// arguments the storage step passes (`PortableStoragePlan.clumpifyArguments`), so the heap, the groups and the
-    /// `quantize=` argument are the route's own, and the run states `qin=33 qout=33` as the reformat test does. The
-    /// storage step states neither, so BBTools detects the offset from the reads. It reads this span, which holds both
-    /// `!` and `~`, as Phred+64, and the stored scores come out wrong (side finding B of the BIO-BIN ruling).
+    /// arguments the storage step passes (`PortableStoragePlan.clumpifyArguments`), so the heap, the groups, the
+    /// Phred+33 flags and the `quantize=` argument are the route's own. Before BIO-BIN-QIN the storage step stated no
+    /// `qin`, so BBTools detected the offset from the reads and read this span, which holds both `!` and `~`, as
+    /// Phred+64 (side finding B of the BIO-BIN ruling).
     func testFiveStepThroughClumpifyKeepsEveryThresholdOfFive() async throws {
         guard (try? await NativeToolRunner.shared.toolPath(for: .clumpify)) != nil else {
             try ToolAvailability.skipOrFail("Managed clumpify is not available")
@@ -55,7 +55,7 @@ final class QualityBinningSchemeMapConformanceTests: XCTestCase {
             .clumpify,
             arguments: PortableStoragePlan.clumpifyArguments(
                 input: span.input, output: output, interleaved: false, heapGB: 2, threads: 2, qualityBinning: scheme
-            ) + ["qin=33", "qout=33"],
+            ),
             timeout: 300
         )
         XCTAssertTrue(result.isSuccess, "clumpify.sh failed: \(result.stderr)")

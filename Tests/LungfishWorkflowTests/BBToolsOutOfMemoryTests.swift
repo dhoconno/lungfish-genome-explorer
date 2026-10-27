@@ -43,6 +43,7 @@ final class BBToolsOutOfMemoryTests: XCTestCase {
         XCTAssertEqual(args, [
             "in=/work/reads.fastq", "out=/work/out.fastq.gz", "-Xmx6g", "-eoom", "ow=t", "reorder", "groups=auto",
             "pigz=t", "zl=4", "threads=4", "in2=/work/reads_2.fastq", "interleaved=t",
+            "qin=33", "qout=33", "maxcalledquality=93",
         ])
     }
 

@@ -710,7 +710,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // interleaved=f stops reformat.sh from pairing /1 /2 names by
         // position, which silently drops the last read of an odd-count file.
         args.append(inputFile2 != nil ? "interleaved=t" : "interleaved=f")
-        args.append(quantize)
+        args += PortableStoragePlan.qualityEncodingArguments + [quantize]
 
         let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
         progress(0.05, "Launching bbtools reformat.sh...")

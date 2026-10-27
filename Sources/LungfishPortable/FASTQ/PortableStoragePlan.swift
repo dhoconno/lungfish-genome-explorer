@@ -74,6 +74,7 @@ public enum PortableStoragePlan {
             args.append("in2=\(input2.path)")
         }
         args.append(input2 != nil || interleaved ? "interleaved=t" : "interleaved=f")
+        args += qualityEncodingArguments
         if let quantize = quantizeArgument(for: qualityBinning) {
             args.append(quantize)
         }
