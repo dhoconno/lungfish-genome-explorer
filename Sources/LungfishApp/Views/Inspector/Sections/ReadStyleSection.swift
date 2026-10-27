@@ -1347,7 +1347,7 @@ public struct AlignmentBundleSection: View {
                     Text(formatCount(stat.mappedReads))
                         .font(LungfishInspectorStyle.controlFont.monospaced())
                         .frame(width: 60, alignment: .trailing)
-                    Text("reads")
+                    Text("alignments")
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                 }
