@@ -553,7 +553,7 @@ public enum LungfishHelpContent {
     public static let fastqImportQualityBinning = HelpItem(
         id: "workflow.fastq.import.qualityBinning",
         summary: "Choose quality-score binning for storage and downstream reuse.",
-        detail: "Imports bin with Illumina (7-level) unless you choose another scheme, and an Oxford Nanopore run folder import bins each stored chunk. The barcode recipes do not bin scores. Binning is lossy, saves space and is written with command provenance.",
+        detail: "Illumina imports bin scores in steps of five unless you choose another scheme, which keeps every Q10, Q20 and Q30 count as sequenced. Oxford Nanopore, PacBio and other imports keep every score unless you choose a scheme. The barcode recipes do not bin scores. Binning is lossy, saves space and is written with command provenance.",
         audience: .analyst,
         provenanceRelevant: true
     )

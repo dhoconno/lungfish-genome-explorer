@@ -407,12 +407,18 @@ extension ImportCommand.FastqSubcommand {
         let binningSource: ImportSettingSource
         switch qualityBinning?.lowercased() {
         case nil:
-            binning = recipe?.qualityBinning ?? FASTQBatchImporter.ImportConfig.commandDefaultQualityBinning
+            // A plan that names no platform is planned as short reads, as its clumping is (BIO-BIN).
+            var planned = IngestionPlatform.defaultQualityBinning(for: .illumina)
+            if case .given(let named)? = ImportPlatformRequest(cliValue: platform) {
+                planned = IngestionPlatform.defaultQualityBinning(for: named)
+            }
+            binning = recipe?.qualityBinning ?? planned
             binningSource = recipe?.qualityBinning == nil ? .default : .recipe
+        case "fivestep", "five_step", "five-step": (binning, binningSource) = (.fiveStep, .option)
         case "illumina4": (binning, binningSource) = (.illumina4, .option)
         case "eightlevel", "eight_level", "eight-level": (binning, binningSource) = (.eightLevel, .option)
         case "none": (binning, binningSource) = (.none, .option)
-        default: throw ImportFastqPlanRefusal(message: "Unknown quality-binning value '\(qualityBinning ?? "")'. Valid: illumina4, eightLevel, none")
+        default: throw ImportFastqPlanRefusal(message: "Unknown quality-binning value '\(qualityBinning ?? "")'. Valid: fiveStep, illumina4, eightLevel, none")
         }
         guard let level = CompressionLevel(rawValue: compression.lowercased()) else {
             throw ImportFastqPlanRefusal(message: "Unknown compression '\(compression)'. Valid: fast, balanced, maximum")

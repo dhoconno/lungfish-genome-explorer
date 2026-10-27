@@ -39,8 +39,8 @@ extension FASTQIngestionService {
 
     /// The argv after `lungfish-cli` that the in-place ingestion of `url` runs, which its row records
     /// and the runner runs, built once. It deletes the original as the app's route always has. It
-    /// states `--binning` with the import default, so the run bins as every import does and a record
-    /// replays the same whatever the default is later. It states `--threads`, because the command
+    /// states `--binning` with the default of an unknown platform, since it reads no platform, so a record
+    /// replays the same whatever the default is later (BIO-BIN). It states `--threads`, because the command
     /// records its thread count only when given, and `--format json`, so the command prints its events.
     nonisolated static func inPlaceIngestionCLIArguments(
         url: URL,
@@ -59,7 +59,7 @@ extension FASTQIngestionService {
             throw InPlaceIngestionCLIError.interleaved
         }
         arguments += [
-            "--delete-originals", "--binning", QualityBinningScheme.importDefault.rawValue,
+            "--delete-originals", "--binning", IngestionPlatform.defaultQualityBinning(for: .unknown).rawValue,
             "--threads", String(max(1, threads)), "--format", "json",
         ]
         return arguments

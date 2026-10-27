@@ -1,27 +1,42 @@
-// QualityBinningDefaultTests.swift - Imports bin with illumina4 by default, and older records replay what they ran
+// QualityBinningDefaultTests.swift - Imports bin with their platform's default, and older records replay what they ran
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import XCTest
 import LungfishCore
+import LungfishIO
 @testable import LungfishWorkflow
 
-/// Lane C2-BINNING (owner answer Q4, 2026-10-22). Every import bins with `illumina4` unless the user picks `none` or
-/// `eightLevel`, a recipe's declared value applies when no flag is given and a flag wins. A record written before the
-/// change names no binning for the routes whose default was `none`, and its replay runs the value the record states.
+/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING. An Illumina import bins with `fiveStep` and every other
+/// platform keeps every score unless the user picks a scheme, a recipe's declared value applies when no flag is given
+/// and a flag wins. A record written before C2-BINNING names no binning for the routes whose default was `none`, and
+/// its replay runs the value the record states.
 final class QualityBinningDefaultTests: XCTestCase {
 
     private let project = URL(fileURLWithPath: "/tmp/quality-binning-default.lungfish")
 
     // MARK: - The import configuration
 
-    func testQualityBinningDefaultIsIllumina4OnEveryPlatform() {
+    func testQualityBinningDefaultFollowsThePlatform() {
         for platform in IngestionPlatform.allCases {
             let config = FASTQBatchImporter.ImportConfig(projectDirectory: project, platform: platform)
-            XCTAssertEqual(config.qualityBinning, .illumina4, "\(platform)")
+            XCTAssertEqual(config.qualityBinning, platform == .illumina ? .fiveStep : .none, "\(platform)")
+            XCTAssertEqual(config.commandDefaultQualityBinning, config.qualityBinning, "the record names what ran")
         }
-        XCTAssertEqual(FASTQBatchImporter.ImportConfig.commandDefaultQualityBinning, .illumina4)
     }
+
+    /// The one function every route reads. Illumina alone bins, so the owner's other answer, binning every platform,
+    /// is one line in `IngestionPlatform.platformsBinnedByDefault`.
+    func testOneFunctionGivesEveryPlatformsDefault() {
+        XCTAssertEqual(IngestionPlatform.platformsBinnedByDefault, [.illumina])
+        for platform in LungfishIO.SequencingPlatform.allCases {
+            XCTAssertEqual(
+                IngestionPlatform.defaultQualityBinning(for: platform), platform == .illumina ? .fiveStep : .none,
+                "\(platform)"
+            )
+        }
+    }
+
 
     func testQualityBinningDefaultGivesWayToARecipeAndARecipeToAFlag() {
         let recipe = Recipe(id: "fine", name: "Fine", platforms: [.illumina], qualityBinning: .eightLevel, steps: [])

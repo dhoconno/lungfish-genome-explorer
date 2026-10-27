@@ -41,7 +41,7 @@ public struct ONTImportWorkflow: Sendable {
 
         public init(
             optimizeStorage: Bool,
-            qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault,
+            qualityBinning: QualityBinningScheme = IngestionPlatform.ont.defaultQualityBinning,
             threads: Int = 4
         ) {
             self.optimizeStorage = optimizeStorage
@@ -365,7 +365,7 @@ public struct ONTImportWorkflow: Sendable {
             "concurrency": .integer(4),
             "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
             "optimizeStorage": .boolean(false),
-            "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
+            "qualityBinning": .string(IngestionPlatform.ont.defaultQualityBinning.rawValue),
             "useVirtualConcatenation": .boolean(true),
         ]
         defaults.merge(context.defaultOptions) { _, contextValue in contextValue }

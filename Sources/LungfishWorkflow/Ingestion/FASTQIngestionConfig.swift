@@ -58,7 +58,7 @@ public struct FASTQIngestionConfig: Sendable {
         threads: Int = 4,
         deleteOriginals: Bool = true,
         // The pipeline bins only when its caller asks. Each import route passes
-        // `QualityBinningScheme.importDefault` when the user names no binning,
+        // `IngestionPlatform.defaultQualityBinning(for:)` when the user names no binning,
         // and a derived operation output is re-imported with `.none`.
         qualityBinning: QualityBinningScheme = .none,
         skipClumpify: Bool = false,

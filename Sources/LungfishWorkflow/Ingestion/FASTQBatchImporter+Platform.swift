@@ -41,9 +41,12 @@ extension FASTQBatchImporter {
         /// When `true`, reimport even if a bundle already exists for the sample.
         public let forceReimport: Bool
 
-        /// The binning `import fastq` runs when neither `--quality-binning` nor the recipe names one, which the record
-        /// names as the default (CHTC lane L5-RECORDS M1, lane C2-BINNING).
-        public static let commandDefaultQualityBinning = QualityBinningScheme.importDefault
+        /// The binning `import fastq` runs for this sample's platform when neither `--quality-binning` nor the recipe
+        /// names one, which the record names as the default (CHTC lane L5-RECORDS M1, BIO-BIN). An `auto` import
+        /// reads it once ``resolved(with:)`` has decided the sample's platform.
+        public var commandDefaultQualityBinning: QualityBinningScheme {
+            IngestionPlatform.defaultQualityBinning(for: sequencingPlatform)
+        }
 
         /// The thread count `import fastq` runs when `--threads` is not given, every core this host reports.
         public static var hostThreadCount: Int { ProcessInfo.processInfo.activeProcessorCount }
@@ -151,8 +154,9 @@ extension FASTQBatchImporter {
             self.requestedOptimizeStorage = optimizeStorage
             self.requestedClumpingTool = clumpingTool
             self.requestedCompressionLevel = compressionLevel
-            // An explicit value wins, then the recipe's declared value, then the import default.
-            self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning ?? Self.commandDefaultQualityBinning
+            // An explicit value wins, then the recipe's declared value, then the platform's default (BIO-BIN).
+            self.qualityBinning = qualityBinning ?? newRecipe?.qualityBinning
+                ?? IngestionPlatform.defaultQualityBinning(for: sequencingPlatform)
             // Platform first, one rule for this import, a plan and both sheets (C5 O49, D8 B). `--no-optimize-storage`
             // stores without clumping, a tool the user named wins on every platform, and `auto`, which also stands for
             // nothing named, is what `ClumpingTool.automaticChoice(for:)` says of the platform: short reads clump,

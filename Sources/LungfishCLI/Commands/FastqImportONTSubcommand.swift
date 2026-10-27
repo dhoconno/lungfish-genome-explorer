@@ -53,8 +53,8 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
     var optimizeStorage: Bool = false
 
     @Option(name: .customLong("quality-binning"),
-            help: "Quality binning: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels) or none. A chunked import bins each chunk with reformat.sh and --optimize-storage bins with clumpify. Binning is lossy. Pass none to keep every score.")
-    var qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault
+            help: "Quality binning: fiveStep (8 quality levels, keeps every Q10, Q20 and Q30 count), illumina4 (7 quality levels, to replay older imports), eightLevel (~21 quality levels) or none, which keeps every score. A chunked import bins each chunk with reformat.sh and --optimize-storage bins with clumpify. Binning is lossy.")
+    var qualityBinning: QualityBinningScheme = IngestionPlatform.ont.defaultQualityBinning
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -110,7 +110,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                         "concurrency": .integer(4),
                         "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
                         "optimizeStorage": .boolean(false),
-                        "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
+                        "qualityBinning": .string(IngestionPlatform.ont.defaultQualityBinning.rawValue),
                         "sourceKind": .string("raw-ont-directory")
                     ],
                     resolvedOptions: [
@@ -187,7 +187,7 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                     "concurrency": .integer(4),
                     "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
                     "optimizeStorage": .boolean(false),
-                    "qualityBinning": .string(QualityBinningScheme.importDefault.rawValue),
+                    "qualityBinning": .string(IngestionPlatform.ont.defaultQualityBinning.rawValue),
                     "useVirtualConcatenation": .boolean(true)
                 ],
                 resolvedOptions: [

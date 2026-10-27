@@ -56,7 +56,7 @@ public final class ONTImportOperationCoordinator {
         concurrency: Int = 4,
         storageMode: ONTImportStorageMode = .chunked,
         optimizeStorage: Bool = false,
-        qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault,
+        qualityBinning: QualityBinningScheme = IngestionPlatform.ont.defaultQualityBinning,
         routeContext: OperationRouteContext?
     ) async throws -> (bundleURLs: [URL], detail: String) {
         let outputURL = try Self.resolvedOutputDirectory(
@@ -223,7 +223,7 @@ public final class ONTImportOperationCoordinator {
         concurrency: Int,
         storageMode: ONTImportStorageMode = .chunked,
         optimizeStorage: Bool = false,
-        qualityBinning: QualityBinningScheme = QualityBinningScheme.importDefault
+        qualityBinning: QualityBinningScheme = IngestionPlatform.ont.defaultQualityBinning
     ) -> [String] {
         var args = [
             sourceURL.path,

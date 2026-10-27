@@ -41,9 +41,10 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
             --delete-originals remove the original files. A cancel (SIGTERM) or a
             failure leaves the originals in place.
 
-            Quality scores are binned with illumina4 unless --binning names eightLevel or
-            none. Binning is lossy. With --format json the command prints progress as
-            events.
+            The command reads no platform, so it bins quality scores with the default of
+            an unknown platform unless --binning names a scheme. fiveStep keeps every
+            Q10, Q20 and Q30 count. Binning is lossy. With --format json the command
+            prints progress as events.
 
             Examples:
               lungfish-cli fastq ingest ./SRR1770413_1.fastq.gz --delete-originals
@@ -57,8 +58,8 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("pair"), help: "Optional R2 FASTQ file for paired-end mode")
     var pair: String?
 
-    @Option(name: .customLong("binning"), help: "Quality binning: illumina4 (the default), eightLevel or none")
-    var binning: QualityBinningScheme = QualityBinningScheme.importDefault
+    @Option(name: .customLong("binning"), help: "Quality binning: fiveStep, illumina4 (to replay older imports), eightLevel or none")
+    var binning: QualityBinningScheme = IngestionPlatform.defaultQualityBinning(for: .unknown)
 
     @Flag(name: .customLong("skip-clumpify"), help: "Skip read clumpification step")
     var skipClumpify: Bool = false
@@ -204,7 +205,7 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         [
             "pair": .null,
             "pairingMode": .string(FASTQIngestionConfig.PairingMode.singleEnd.rawValue),
-            "binning": .string(QualityBinningScheme.importDefault.rawValue),
+            "binning": .string(IngestionPlatform.defaultQualityBinning(for: .unknown).rawValue),
             "skipClumpify": .boolean(false),
             "deleteOriginals": .boolean(false),
             "threads": .integer(max(1, ProcessInfo.processInfo.activeProcessorCount)),

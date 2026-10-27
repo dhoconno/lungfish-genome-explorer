@@ -83,6 +83,8 @@ public enum PortableStoragePlan {
     /// The `quantize=` argument clumpify.sh and reformat.sh share for a scheme.
     package static func quantizeArgument(for scheme: QualityBinningScheme) -> String? {
         switch scheme {
+        case .fiveStep:
+            return "quantize=0,2,7,12,17,22,27,32,37"
         case .illumina4:
             return "quantize=0,8,13,22,27,32,37"
         case .eightLevel:

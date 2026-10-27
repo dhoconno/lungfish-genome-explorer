@@ -633,7 +633,7 @@ extension MainSplitViewController {
                 includeUnclassified: false,
                 storageMode: .chunked,
                 optimizeStorage: false,
-                qualityBinning: QualityBinningScheme.importDefault,
+                qualityBinning: IngestionPlatform.ont.defaultQualityBinning,
                 viewerController: viewerController, requestID: requestID
             )
         }

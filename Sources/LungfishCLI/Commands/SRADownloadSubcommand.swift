@@ -188,12 +188,14 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
     }
 
     /// The import settings that differ from the defaults, as the flags that give them, and the binning, which the
-    /// command always names so its record replays the same whatever the default is (lane C2-BINNING).
+    /// command names whenever it is decided before the reads arrive, so its record replays the same whatever the
+    /// default is (lane C2-BINNING). With `--platform auto` and no binning named, the import bins with the default of
+    /// the platform it detects, and the record's `qualityBinning` names the scheme the bundle holds (BIO-BIN).
     private var importOptionArguments: [String] {
         var arguments: [String] = []
         if importOptions.platform != "auto" { arguments += ["--platform", importOptions.platform] }
         if importOptions.pairing != "auto" { arguments += ["--pairing", importOptions.pairing] }
-        arguments += ["--quality-binning", importOptions.resolvedQualityBinning]
+        if let binning = importOptions.resolvedQualityBinning { arguments += ["--quality-binning", binning] }
         if importOptions.compression != "balanced" { arguments += ["--compression", importOptions.compression] }
         if importOptions.recipe != "none" { arguments += ["--recipe", importOptions.recipe] }
         arguments += importOptions.switchOptionArguments

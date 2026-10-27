@@ -6,14 +6,16 @@ import Foundation
 
 /// Quality score binning schemes for FASTQ compression optimization.
 ///
-/// Binning reduces the alphabet of quality characters, improving gzip compression.
-/// All schemes preserve enough resolution for variant calling and QC.
+/// Binning reduces the alphabet of quality characters, improving gzip compression. It changes the stored scores, and
+/// the scheme decides whether a score moves across a line LGE reports or filters on.
 public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
-    /// Named after Illumina's NovaSeq/NovaSeqX binning scheme, but the actual
-    /// `clumpify.sh quantize=0,8,13,22,27,32,37` boundaries used below produce
-    /// 7 distinct quality levels, not 4. The raw value is kept as
-    /// "illumina4" for backward compatibility with persisted provenance and
-    /// CLI invocations; do not rename the case without a decode migration.
+    /// `quantize=0,2,7,12,17,22,27,32,37`: scores in steps of five, Q0 to Q4 stored as 2, up to Q35 and above as 37;
+    /// no score crosses Q10, Q20 or Q30 (BIO-BIN, Phase 3.0). The binning an Illumina import runs when nobody names
+    /// one, `IngestionPlatform.defaultQualityBinning(for:)`.
+    case fiveStep
+    /// `quantize=0,8,13,22,27,32,37`, 7 levels. It raises called Q0 to Q10 to 8 and Q18 and Q19 to 22, so a Q20 share
+    /// reads high (BIO-BIN, S1). No route picks it any more. It stays so an older import's record decodes and replays
+    /// to the same bytes, and the CLI still accepts it. The raw value is historical, so do not rename the case.
     case illumina4
     /// `clumpify.sh quantize=2` groups quality scores in steps of 2, which on
     /// a typical 0-40 Phred range yields roughly 21 levels, not 8.
@@ -23,15 +25,11 @@ public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
     /// operation output is re-imported with it, so an output is never binned twice.
     case none
 
-    /// The binning an import applies when the user names none, `illumina4` on every platform and every import route
-    /// (owner answer Q4, 2026-10-22, lane C2-BINNING). Binning saves space and is lossy. `none` and `eightLevel` stay
-    /// selectable. Every route reads this one value, so the routes cannot drift apart.
-    public static let importDefault: QualityBinningScheme = .illumina4
-
     /// The user-visible name. The raw values are historical identifiers and are
     /// never shown in the UI (the import sheet and the Inspector both use this).
     public var displayName: String {
         switch self {
+        case .fiveStep: return "Q5 steps (8-level)"
         case .illumina4: return "Illumina (7-level)"
         case .eightLevel: return "Fine (~21-level)"
         case .none: return "None (preserve original)"

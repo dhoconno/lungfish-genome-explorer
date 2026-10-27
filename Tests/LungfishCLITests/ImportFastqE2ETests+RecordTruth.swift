@@ -200,7 +200,7 @@ extension ImportFastqE2ETests {
 
     /// A recipe whose file declares `illumina4` binning, run with neither `--quality-binning` nor `--threads`, runs
     /// the recipe's binning on every core (lane C2-BINNING). The record names the recipe as the binning's source, the
-    /// command's own default as `illumina4` and the thread default as this host's core count, not 4.
+    /// command's own Illumina default as `fiveStep` and the thread default as this host's core count, not 4.
     func testRecordedDefaultsAreTheValuesTheCommandRanWithout() async throws {
         try await recordTruthRequire(.fastp, .clumpify)
         let (envelope, metadata) = try recordTruthImport([
@@ -215,27 +215,28 @@ extension ImportFastqE2ETests {
                        "the import ran the binning the recipe declares")
         XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(QualityBinningScheme.illumina4.rawValue))
         XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinningSource"], .string("recipe"))
-        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(QualityBinningScheme.illumina4.rawValue),
+        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(QualityBinningScheme.fiveStep.rawValue),
                        "the recorded default must be the binning the command runs when the option is absent")
         XCTAssertEqual(envelope.options.explicit["threads"], .integer(cores))
         XCTAssertEqual(envelope.options.defaults["threads"], .integer(cores),
                        "the recorded default must be the thread count the command runs when the option is absent")
     }
 
-    /// With no `--quality-binning` and no recipe, the import bins with `illumina4` and its record says the value came
-    /// from the default. The recorded command names the value, so a replay runs it whatever the default becomes.
-    func testQualityBinningDefaultIsIllumina4AndTheRecordSaysSo() async throws {
+    /// With no `--quality-binning` and no recipe, an Illumina import bins with `fiveStep` (BIO-BIN) and its record says
+    /// the value came from the default. The recorded command names the value, so a replay runs it whatever the default
+    /// becomes.
+    func testQualityBinningDefaultIsFiveStepForIlluminaAndTheRecordSaysSo() async throws {
         try await recordTruthRequire(.clumpify)
         let (envelope, metadata) = try recordTruthImport([
             "--platform", "illumina", "--no-optimize-storage", "--compression", "fast",
         ])
 
-        XCTAssertEqual(metadata?.ingestion?.qualityBinning, QualityBinningScheme.illumina4.rawValue,
-                       "an import with no binning flag bins with illumina4")
-        XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(QualityBinningScheme.illumina4.rawValue))
-        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(QualityBinningScheme.illumina4.rawValue))
+        XCTAssertEqual(metadata?.ingestion?.qualityBinning, QualityBinningScheme.fiveStep.rawValue,
+                       "an import with no binning flag bins with fiveStep")
+        XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(QualityBinningScheme.fiveStep.rawValue))
+        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(QualityBinningScheme.fiveStep.rawValue))
         XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinningSource"], .string("default"))
-        XCTAssertTrue(recordTruthNames(envelope.argv, "--quality-binning", "illumina4"), "\(envelope.argv)")
+        XCTAssertTrue(recordTruthNames(envelope.argv, "--quality-binning", "fiveStep"), "\(envelope.argv)")
     }
 
     /// `--quality-binning none` turns binning off, and the record says the value came from the option.

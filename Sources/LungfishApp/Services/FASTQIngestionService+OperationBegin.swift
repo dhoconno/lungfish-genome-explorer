@@ -158,7 +158,7 @@ extension FASTQIngestionService {
             confirmedPlatform: .unknown,
             pairingMode: .singleEnd,
             pairingModeIsUserChoice: false,
-            qualityBinning: QualityBinningScheme.importDefault,
+            qualityBinning: IngestionPlatform.defaultQualityBinning(for: .unknown),
             skipClumpify: false,
             deleteOriginals: false,
             postImportRecipe: nil,

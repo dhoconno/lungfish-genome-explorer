@@ -37,22 +37,22 @@ final class WorkflowPlatformPinTests: XCTestCase {
         DefaultsRow(
             platform: .illumina, rawValue: "illumina", displayName: "Illumina",
             defaultPairing: .interleaved, defaultOptimizeStorage: true,
-            defaultQualityBinning: .illumina4, defaultCompressionLevel: .balanced
+            defaultQualityBinning: .fiveStep, defaultCompressionLevel: .balanced
         ),
         DefaultsRow(
             platform: .ont, rawValue: "ont", displayName: "Oxford Nanopore",
             defaultPairing: .singleEnd, defaultOptimizeStorage: false,
-            defaultQualityBinning: .illumina4, defaultCompressionLevel: .balanced
+            defaultQualityBinning: QualityBinningScheme.none, defaultCompressionLevel: .balanced
         ),
         DefaultsRow(
             platform: .pacbio, rawValue: "pacbio", displayName: "PacBio",
             defaultPairing: .singleEnd, defaultOptimizeStorage: false,
-            defaultQualityBinning: .illumina4, defaultCompressionLevel: .balanced
+            defaultQualityBinning: QualityBinningScheme.none, defaultCompressionLevel: .balanced
         ),
         DefaultsRow(
             platform: .ultima, rawValue: "ultima", displayName: "Ultima Genomics",
             defaultPairing: .interleaved, defaultOptimizeStorage: true,
-            defaultQualityBinning: .illumina4, defaultCompressionLevel: .balanced
+            defaultQualityBinning: QualityBinningScheme.none, defaultCompressionLevel: .balanced
         ),
     ]
 

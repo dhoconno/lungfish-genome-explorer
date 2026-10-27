@@ -84,9 +84,21 @@ public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Default quality binning scheme for this platform, `QualityBinningScheme.importDefault` on every platform.
+    /// Default quality binning scheme for this platform, ``defaultQualityBinning(for:)`` of its canonical platform.
     public var defaultQualityBinning: QualityBinningScheme {
-        QualityBinningScheme.importDefault
+        Self.defaultQualityBinning(for: sequencingPlatform)
+    }
+
+    /// The platforms whose imports bin quality scores when neither the user nor a recipe names a scheme (BIO-BIN,
+    /// Phase 3.0). `fiveStep` fits short-read scores and keeps every Q10, Q20 and Q30 count, and ONT, PacBio and
+    /// unknown reads keep every score. The owner's answer Q4 of 2026-10-22 set binning on everywhere, and binning
+    /// every platform with `fiveStep` is this one line, `Set(LungfishIO.SequencingPlatform.allCases)`.
+    public static let platformsBinnedByDefault: Set<LungfishIO.SequencingPlatform> = [.illumina]
+
+    /// The binning an import of `platform` runs when the user names none. Every import route reads this one function,
+    /// so the routes cannot drift apart. A route that knows no platform asks with `.unknown`.
+    public static func defaultQualityBinning(for platform: LungfishIO.SequencingPlatform) -> QualityBinningScheme {
+        platformsBinnedByDefault.contains(platform) ? .fiveStep : .none
     }
 
     /// Default compression level. All platforms use `.balanced`.

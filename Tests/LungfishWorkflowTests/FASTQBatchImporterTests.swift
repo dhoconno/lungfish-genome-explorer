@@ -577,8 +577,8 @@ final class FASTQBatchImporterTests: XCTestCase {
             recipe: nil
         )
         XCTAssertNil(config.recipe)
-        // Every import bins with illumina4 unless asked otherwise (lane C2-BINNING).
-        XCTAssertEqual(config.qualityBinning, .illumina4, "Default binning should be illumina4")
+        // An Illumina import bins with fiveStep unless asked otherwise (BIO-BIN).
+        XCTAssertEqual(config.qualityBinning, .fiveStep, "Default Illumina binning should be fiveStep")
         XCTAssertEqual(config.threads, 4, "Default threads should be 4")
         XCTAssertNil(config.logDirectory)
     }

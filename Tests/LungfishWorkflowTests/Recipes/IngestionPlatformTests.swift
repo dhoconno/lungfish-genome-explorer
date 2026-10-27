@@ -15,7 +15,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Illumina")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .illumina4)  // illumina4 on every platform (lane C2-BINNING)
+        #expect(platform.defaultQualityBinning == .fiveStep)  // fiveStep for Illumina alone (BIO-BIN)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -24,7 +24,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Oxford Nanopore")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == .illumina4)
+        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -33,7 +33,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "PacBio")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == .illumina4)
+        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)
     }
 
     @Test func testUltimaDefaults() {
@@ -41,7 +41,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Ultima Genomics")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .illumina4)  // illumina4 on every platform (lane C2-BINNING)
+        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)  // keeps every score (BIO-BIN)
     }
 
     /// BIO-BIN (Phase 3.0 lane BIN, S1). An Illumina import bins in steps of five, which keeps every Q10, Q20 and Q30

@@ -90,21 +90,6 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         "@SRR9.4 d/1\nCATGCATGCATGCATG\n+\nIIIIIIIIIIIIIIII\n",
     ]
 
-    /// The levels of `QualityBinningScheme.illumina4`, the list that `clumpify.sh quantize=0,8,13,22,27,32,37` rounds to.
-    private static let illumina4Levels = [0, 8, 13, 22, 27, 32, 37]
-
-    /// A read as the import default stores it, with each score moved to the nearest level of the scheme. Every base of
-    /// `reads` is Q40 (`I`), above the top level, so each becomes Q37, which Phred+33 writes as `F`.
-    private static func binned(_ read: String) -> String {
-        var lines = read.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        lines[3] = String(lines[3].unicodeScalars.map { scalar -> Character in
-            let score = Int(scalar.value) - 33
-            let level = Self.illumina4Levels.min { abs($0 - score) < abs($1 - score) } ?? score
-            return Character(UnicodeScalar(UInt8(level + 33)))
-        })
-        return lines.joined(separator: "\n")
-    }
-
     private func requireClumpify() async throws {
         guard (try? await NativeToolRunner.shared.toolPath(for: .clumpify)) != nil else {
             try ToolAvailability.skipOrFail("Managed clumpify is not available")
@@ -164,11 +149,13 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         let fm = FileManager.default
         XCTAssertFalse(fm.fileExists(atPath: input.path), "the original is deleted (deleteOriginals: true)")
         XCTAssertTrue(fm.fileExists(atPath: output.path))
-        XCTAssertEqual(QualityBinningScheme.importDefault, .illumina4, "the expected reads below follow the illumina4 levels")
+        // The route reads no platform, so it bins with the unknown platform's default, which keeps every score (BIO-BIN).
+        let binning = IngestionPlatform.defaultQualityBinning(for: .unknown)
+        XCTAssertEqual(binning, .none, "the expected reads below keep every Q40 score")
         XCTAssertEqual(
             try records(of: output).sorted(),
-            Self.reads.map(Self.binned).sorted(),
-            "the clumpified reads equal the original's with the import default's binning applied, in any order"
+            Self.reads.sorted(),
+            "the clumpified reads equal the original's with every score kept, in any order"
         )
 
         // The sidecar.
@@ -177,7 +164,7 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         XCTAssertTrue(ingestion.isClumpified)
         XCTAssertTrue(ingestion.isCompressed)
         XCTAssertEqual(ingestion.pairingMode, .singleEnd)
-        XCTAssertEqual(ingestion.qualityBinning, QualityBinningScheme.importDefault.rawValue, "the app's run bins with the import default")
+        XCTAssertEqual(ingestion.qualityBinning, binning.rawValue, "the app's run bins with the import default")
         XCTAssertEqual(ingestion.originalFilenames, ["SRR9_1.fastq"])
         XCTAssertEqual(ingestion.originalSizeBytes, originalSize)
         XCTAssertGreaterThan(ingestion.storageOutputSizeBytes ?? 0, 0)
@@ -189,7 +176,7 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.toolName, "FASTQIngestionPipeline")
         XCTAssertTrue(run.steps.contains { $0.toolName == "clumpify.sh" }, "\(run.steps.map(\.toolName))")
         XCTAssertEqual(run.parameters["deleteOriginals"]?.booleanValue, true)
-        XCTAssertEqual(run.parameters["binning"]?.stringValue, QualityBinningScheme.importDefault.rawValue)
+        XCTAssertEqual(run.parameters["binning"]?.stringValue, binning.rawValue)
         XCTAssertEqual(run.parameters["wasClumpified"]?.booleanValue, true)
 
         // The order. The command removes the original last, in its own process (BIO's objection 8).

@@ -58,12 +58,16 @@ struct ImportFastqOptions: ParsableArguments {
     @Option(
         name: .customLong("quality-binning"),
         help: ArgumentHelp(
-            "Quality binning: illumina4 (7 quality levels, the default), eightLevel (~21 quality levels), none",
+            "Quality binning: fiveStep (8 quality levels), illumina4 (7 quality levels), eightLevel (~21 quality levels), none",
             discussion: """
-            Every import bins quality scores with illumina4 on every platform unless \
-            this option or the recipe names another value. Binning saves space and is \
-            lossy. The original scores cannot be recovered once the original files are \
-            removed. Pass --quality-binning none to keep every score as the reads have it.
+            An Illumina import bins quality scores with fiveStep unless this option or \
+            the recipe names another value. fiveStep stores scores in steps of five, so \
+            every Q10, Q20 and Q30 count stays as sequenced. Oxford Nanopore, PacBio and \
+            other imports keep every score unless this option or the recipe names a \
+            scheme. illumina4 stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is \
+            kept to replay older imports. Binning saves space and is lossy. The original \
+            scores cannot be recovered once the original files are removed. Pass \
+            --quality-binning none to keep every score as the reads have it.
             """
         )
     )
@@ -85,16 +89,18 @@ struct ImportFastqOptions: ParsableArguments {
     var recipe: String = "none"
 
     /// The binning the import runs, as `--quality-binning` names it. The option comes first, then the recipe's
-    /// declared value, then the import default. A command that records this value replays the same whatever the
-    /// default is (lane C2-BINNING).
-    var resolvedQualityBinning: String {
+    /// declared value, then the default of the platform `--platform` names. A command that records this value replays
+    /// the same whatever the default is (lane C2-BINNING). Nil for `--platform auto` with neither, since the import
+    /// decides each sample's platform from its reads and bins with that platform's default (BIO-BIN).
+    var resolvedQualityBinning: String? {
         if let qualityBinning { return qualityBinning }
         if recipe.lowercased() != "none",
            let resolved = try? ImportCommand.FastqSubcommand.resolveImportRecipe(named: recipe, switchOptions: switchOptions),
            let declared = resolved.newRecipe?.qualityBinning {
             return declared.rawValue
         }
-        return QualityBinningScheme.importDefault.rawValue
+        guard case .given(let named)? = ImportPlatformRequest(cliValue: platform) else { return nil }
+        return IngestionPlatform.defaultQualityBinning(for: named).rawValue
     }
 
     @Flag(

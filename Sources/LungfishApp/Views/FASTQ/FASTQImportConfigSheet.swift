@@ -80,6 +80,8 @@ public final class FASTQImportConfigSheet: NSViewController {
     private var platformChosenByUser = false
     /// The binning item a barcode recipe replaced with None, given back when the recipe is left.
     private var binningIndexBeforeBarcodeRecipe = 0
+    /// The platform whose default the binning popup was given. A platform change moves only that default (BIO-BIN).
+    private lazy var binningDefaultPlatform = detectedPlatform
 
     // MARK: - Init
 
@@ -223,12 +225,6 @@ public final class FASTQImportConfigSheet: NSViewController {
         pairingPopup.applyLungfishHelp(LungfishHelpContent.fastqImportPairing)
         view.addSubview(pairingPopup)
 
-        // Quality binning popup
-        // clumpify.sh quantize=0,8,13,22,27,32,37 ("illumina4") yields
-        // 7 distinct quality levels, and quantize=2 ("eightLevel") yields
-        // roughly 21 levels over a typical 0-40 Phred range — not 4 or 8.
-        // The persisted raw values keep the old names (illumina4/eightLevel)
-        // for backward compatibility; only the user-visible label changes.
         binningPopup.addItems(withTitles: Self.binningChoices.map(\.displayName))
         binningPopup.selectItem(at: defaultBinningIndex(for: detectedPlatform))
         binningPopup.font = .systemFont(ofSize: 12)
@@ -583,11 +579,11 @@ public final class FASTQImportConfigSheet: NSViewController {
     // MARK: - Platform Defaults
 
     /// The binning popup's items, in order.
-    private static let binningChoices: [QualityBinningScheme] = [.illumina4, .eightLevel, .none]
+    private static let binningChoices: [QualityBinningScheme] = [.fiveStep, .eightLevel, .none]
 
-    /// The import default on every platform (lane C2-BINNING).
+    /// The platform's default (BIO-BIN). `illumina4` is no item, since it raises scores across Q10 and Q20.
     private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {
-        Self.binningChoices.firstIndex(of: QualityBinningScheme.importDefault) ?? 0
+        Self.binningChoices.firstIndex(of: IngestionPlatform.defaultQualityBinning(for: platform)) ?? 0
     }
 
     /// The box's default is the one platform-first rule of `auto` (C5 D8 B): on for short reads of any size, since
@@ -623,7 +619,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     private func selectedBinning() -> QualityBinningScheme {
         let index = binningPopup.indexOfSelectedItem
-        return Self.binningChoices.indices.contains(index) ? Self.binningChoices[index] : QualityBinningScheme.importDefault
+        return Self.binningChoices.indices.contains(index) ? Self.binningChoices[index] : QualityBinningScheme.none
     }
 
     private func selectedClumpingTool() -> ClumpingTool {
@@ -644,6 +640,10 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     @objc private func platformChanged(_ sender: Any) {
         platformChosenByUser = Self.platformChoice(in: platformPopup) != nil
+        if binningPopup.isEnabled, selectedBinning() == IngestionPlatform.defaultQualityBinning(for: binningDefaultPlatform) {
+            binningPopup.selectItem(at: defaultBinningIndex(for: selectedPlatform()))
+        }
+        binningDefaultPlatform = selectedPlatform()
         clumpifyCheckbox.state = defaultOptimizeStorage(for: selectedPlatform()) ? .on : .off
         selectClumpingTool(defaultClumpingTool())
         updateClumpingToolControls()
