@@ -925,6 +925,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 // visible as an unmatched, no-RG row in All Alignments.
                 let stats = await AlignmentTrackStatsSnapshot.read(track: track, databaseURL: databaseURL)
                 let usesRecordRows = stats.sampleCoversWholeBAM && stats.isImported(from: resultBAMURL)
+                let rowsBeforeTrack = rows.count
                 for (sampleID, readGroups) in stats.sampleReadGroups {
                     // A cancelled build reads as no rows, so a superseded refresh stops here.
                     guard !Task.isCancelled else { return }
@@ -941,6 +942,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     rows += summaries.filter { $0.mappedReads > 0 }.map {
                         MappingContigSummary(sampleID: sampleID, alignmentTrackID: track.id, readGroupIDs: readGroups, contigName: $0.contigName, contigLength: $0.contigLength, mappedReads: $0.mappedReads, mappedReadPercent: $0.mappedReadPercent, meanDepth: $0.meanDepth, coverageBreadth: $0.coverageBreadth, medianMAPQ: $0.medianMAPQ, meanIdentity: $0.meanIdentity)
                     }
+                }
+                if stats.mappedReads > 0, rows.count == rowsBeforeTrack, !failures.contains(where: { $0.track == track.name }) {
+                    failures.append((track.name, MappingSummaryReturnedNoRows().localizedDescription))
                 }
             }
             guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
