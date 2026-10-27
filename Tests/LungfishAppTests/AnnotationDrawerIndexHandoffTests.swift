@@ -309,6 +309,43 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         XCTAssertNil(host.annotationDrawerView, "Closing the drawer made a drawer in the host.")
     }
 
+    /// The walk's literal route on a big bundle is "click, then Show Drawer at once". The sidebar installs the viewport
+    /// while its open still decodes, so the press lands on an embedded viewer that holds no bundle and no index yet.
+    /// The press must make no drawer in the host, and once the open ends the embedded drawer is shown, filled with
+    /// the bundle's annotations and free of the building words and the no-index words (UX review of lane
+    /// DRAWER-ROUTE, should-fix 2).
+    func testShowDrawerBeforeTheViewportFinishesOpeningEndsWithTheDrawerShownAndFilled() throws {
+        let bundle = try makeBundle(named: "Early Press Fixture", annotationRows: 3, writesAnnotationDatabase: true)
+        let host = makeHost()
+        host.displayReferenceBundleViewportLoading(title: "Early Press Fixture", documentURL: bundle)
+
+        // View > Show Drawer pressed while the open still decodes.
+        host.toggleAnnotationDrawer()
+        XCTAssertNil(host.annotationDrawerView, "A press during the open made a drawer in the host, over the viewport.")
+
+        // The open ends and the viewport fills in place.
+        let viewport = try showViewport(
+            .directBundle(bundleURL: bundle, manifest: try BundleManifest.load(from: bundle)), in: host
+        )
+        let embedded = viewport.testEmbeddedViewerController
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen, "The press during the open left the embedded drawer closed.")
+        XCTAssertTrue(host.isActiveDrawerOpen, "The menu reads the embedded drawer, which is shown.")
+        let drawer = try XCTUnwrap(embedded.annotationDrawerView, "The embedded viewer has its drawer once the open ends.")
+        XCTAssertFalse(drawer.isLoading, "The drawer still waits for an index once the open ends.")
+        XCTAssertEqual(drawer.totalAnnotationCount, 3, "The drawer lists the bundle's annotations once the open ends.")
+        let words = Self.readableText(in: host.view)
+        XCTAssertTrue(words.contains("3 annotations"), "The drawer reads its count. The view tree reads \(words).")
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.buildingWords) }),
+            "A drawer reads the building words while no index is building. The view tree reads \(words)."
+        )
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.noIndexWords) }),
+            "The no-index words of the drawer's first moment are gone once its index arrives. The view tree reads \(words)."
+        )
+        XCTAssertNil(host.annotationDrawerView, "The host made a drawer of its own over the viewport.")
+    }
+
     /// The menu item and the toolbar button read the open state of the drawer the person sees, so Hide Drawer and
     /// Show Drawer follow the embedded drawer through the window controller's own validation.
     func testDrawerMenuTitleFollowsTheEmbeddedDrawer() throws {
