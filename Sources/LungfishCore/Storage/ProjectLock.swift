@@ -197,7 +197,69 @@ public struct ProjectLockManager {
         }
     }
 
-    public func status(of record: ProjectLockRecord) -> ProjectLockStatus {
+    /// The tool name a writer lease of `ProjectStore` records, and only such a lease.
+    static let writerLeaseToolName = "Lungfish ProjectStore"
+
+    /// The status of `record` read from the lock of the project at `projectURL`.
+    ///
+    /// Finder copies `.lungfish/project.lock` with a project, so a lock can name another
+    /// folder than the one it sits in. Such a lock says nothing about this folder and is
+    /// `.stale` (3.0 WF-2). A writer lease of this process that no longer lives cannot hold
+    /// a folder either, so a lease record naming this process is `.stale` once no live
+    /// lease here holds it. Otherwise the recorded process decides, as before.
+    public func status(of record: ProjectLockRecord, forProjectAt projectURL: URL) -> ProjectLockStatus {
+        if namesAnotherFolder(record, forProjectAt: projectURL) {
+            return .stale
+        }
+        if record.toolName == Self.writerLeaseToolName, record.mode == "write",
+           isOwnedByCurrentProcess(record), !ProjectStore.hasLiveWriterLease(holding: record) {
+            return .stale
+        }
+        return processStatus(of: record)
+    }
+
+    /// Whether `record`, read from the lock of the project at `projectURL`, may be removed
+    /// without `--force`. Only this user's local locks qualify, and only stale ones unless
+    /// this process wrote the record.
+    public func canRemoveWithoutForce(_ record: ProjectLockRecord, forProjectAt projectURL: URL) -> Bool {
+        if isOwnedByCurrentProcess(record) {
+            return true
+        }
+        guard record.user == ProjectLockMetadata.currentUser,
+              ProjectLockMetadata.isLocalMachine(record) else {
+            return false
+        }
+        return status(of: record, forProjectAt: projectURL) == .stale
+    }
+
+    /// Whether `record` is from this Mac and names a folder that exists and is not the
+    /// folder at `projectURL`, as a lock Finder copied with its project does. Two paths
+    /// that reach one directory, through a symlink or a firmlink or in another letter
+    /// case, name the same folder, so the test compares the device and inode numbers.
+    /// A lock from another Mac names a path on that Mac, which means nothing here.
+    public func namesAnotherFolder(_ record: ProjectLockRecord, forProjectAt projectURL: URL) -> Bool {
+        guard ProjectLockMetadata.isLocalMachine(record), record.projectPath.hasPrefix("/") else {
+            return false
+        }
+        let recordedPath = URL(fileURLWithPath: record.projectPath, isDirectory: true).standardizedFileURL.path
+        let openedPath = projectURL.standardizedFileURL.path
+        guard recordedPath != openedPath,
+              let recorded = Self.directoryIdentity(atPath: recordedPath),
+              let opened = Self.directoryIdentity(atPath: openedPath) else {
+            return false
+        }
+        return recorded != opened
+    }
+
+    private static func directoryIdentity(atPath path: String) -> [UInt64]? {
+        var information = stat()
+        guard stat(path, &information) == 0, information.st_mode & S_IFMT == S_IFDIR else {
+            return nil
+        }
+        return [UInt64(UInt32(bitPattern: information.st_dev)), information.st_ino]
+    }
+
+    private func processStatus(of record: ProjectLockRecord) -> ProjectLockStatus {
         guard record.pid > 0, record.pid <= Int(Int32.max) else {
             return .unknown
         }
@@ -231,17 +293,6 @@ public struct ProjectLockManager {
         }
         return record.processStartTime.isEmpty
             || ProjectProcessInspector.processStartTime(for: record.pid) == record.processStartTime
-    }
-
-    public func canRemoveWithoutForce(_ record: ProjectLockRecord) -> Bool {
-        if isOwnedByCurrentProcess(record) {
-            return true
-        }
-        guard record.user == ProjectLockMetadata.currentUser,
-              ProjectLockMetadata.isLocalMachine(record) else {
-            return false
-        }
-        return status(of: record) == .stale
     }
 
     private static func writeAll(_ data: Data, to descriptor: Int32) throws {
@@ -290,7 +341,7 @@ enum ProjectProcessInspector {
     /// Resolved via `proc_pidinfo(PROC_PIDTBSDINFO)`, a direct kernel query, rather than
     /// forking and waiting on `/bin/ps` -- this function is called synchronously from the
     /// main-actor project-open path (ProjectOpenWarningState.evaluate ->
-    /// ProjectLockManager.status(of:) / ProjectLockRecord.current), so avoiding a
+    /// ProjectLockManager.status(of:forProjectAt:) / ProjectLockRecord.current), so avoiding a
     /// subprocess spawn/wait here removes a fork+exec+wait round trip from that hot path
     /// (R3-R3ML-2).
     static func processStartTime(for pid: Int) -> String? {

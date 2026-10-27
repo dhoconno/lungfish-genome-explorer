@@ -428,9 +428,9 @@ public final class ProjectStore: @unchecked Sendable {
         }
         let manager = ProjectLockManager()
         let lockURL = ProjectLockManager.lockURL(for: url)
-        let record = ProjectLockRecord.current(projectURL: url, mode: "write", toolName: "Lungfish ProjectStore", appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")
+        let record = ProjectLockRecord.current(projectURL: url, mode: "write", toolName: ProjectLockManager.writerLeaseToolName, appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")
         try acquireWriterLockRecord(record, projectURL: url, lockURL: lockURL, manager: manager)
-        let lease = ProjectStoreWriterLease(lockURL: lockURL, projectURL: url, record: record, synchronization: synchronization)
+        let lease = ProjectWriterLeaseRecords.register(ProjectStoreWriterLease(lockURL: lockURL, projectURL: url, record: record, synchronization: synchronization))
         synchronization.writerLease = lease
         return lease
     }
@@ -448,8 +448,8 @@ public final class ProjectStore: @unchecked Sendable {
         case .corrupted:
             throw refusal
         case .valid(let expected):
-            guard manager.status(of: expected) == .stale,
-                  manager.canRemoveWithoutForce(expected) else { throw refusal }
+            guard manager.status(of: expected, forProjectAt: projectURL) == .stale,
+                  manager.canRemoveWithoutForce(expected, forProjectAt: projectURL) else { throw refusal }
 
             // Share the CLI replacement gate. Never reclaim an occupied gate:
             // checking its age and unlinking it would race another contender.
@@ -465,14 +465,14 @@ public final class ProjectStore: @unchecked Sendable {
                 }
             }
 
-            guard case .valid(let latest) = try manager.readLockResult(at: lockURL),
-                  latest == expected,
-                  manager.status(of: latest) == .stale,
-                  manager.canRemoveWithoutForce(latest) else { throw refusal }
+            guard case .valid(let latest) = try manager.readLockResult(at: lockURL), latest == expected,
+                  manager.status(of: latest, forProjectAt: projectURL) == .stale,
+                  manager.canRemoveWithoutForce(latest, forProjectAt: projectURL) else { throw refusal }
             try manager.removeLockIfPresent(at: lockURL)
             // Older clients may create a primary lock without consulting the
             // replacement gate. O_EXCL makes us lose safely if one wins this gap.
             guard try manager.acquireLock(record, to: lockURL) else { throw refusal }
+            if manager.namesAnotherFolder(expected, forProjectAt: projectURL) { logger.notice("Replaced a lock copied with this folder from \(expected.projectPath, privacy: .public)") }
         }
     }
 

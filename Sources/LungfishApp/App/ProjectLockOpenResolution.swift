@@ -41,7 +41,7 @@ enum ProjectLockOpenResolution {
             return reopened
         case .valid(let record):
             warning = ProjectOpenWarningState(projectURL: url, lockRecord: record,
-                lockStatus: ProjectLockManager().status(of: record), readErrorDescription: nil)
+                lockStatus: ProjectLockManager().status(of: record, forProjectAt: url), readErrorDescription: nil)
         case .corrupted(let error):
             warning = ProjectOpenWarningState(projectURL: url, lockRecord: nil,
                 lockStatus: .corrupted, readErrorDescription: error.localizedDescription)

@@ -27,7 +27,7 @@ final class ProjectStoreStaleLeaseTests: XCTestCase {
         let manager = ProjectLockManager()
         let lockURL = ProjectLockManager.lockURL(for: url)
         let stale = record(for: url)
-        XCTAssertEqual(manager.status(of: stale), .stale)
+        XCTAssertEqual(manager.status(of: stale, forProjectAt: url), .stale)
         try manager.writeLock(stale, to: lockURL)
         let store = try ProjectStore(opening: url, access: .writable)
         XCTAssertTrue(ProjectStore.ownsWriterLease(at: url))
@@ -77,7 +77,7 @@ final class ProjectStoreStaleLeaseTests: XCTestCase {
             processStartTime: "previous process incarnation", cwd: current.cwd,
             createdAt: current.createdAt, machineIdentifier: machine)
         let manager = ProjectLockManager()
-        XCTAssertEqual(manager.status(of: stale), .stale)
+        XCTAssertEqual(manager.status(of: stale, forProjectAt: url), .stale)
         try manager.writeLock(stale, to: ProjectLockManager.lockURL(for: url))
         let store = try ProjectStore(opening: url, access: .writable)
         XCTAssertTrue(ProjectStore.ownsWriterLease(at: url))

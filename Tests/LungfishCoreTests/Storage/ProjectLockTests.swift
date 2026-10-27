@@ -167,39 +167,39 @@ final class ProjectLockTests: XCTestCase {
     func testStableMachineIdentitySurvivesHostnameChangeForActiveOwner() throws {
         let record = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nativeMachineIdentifier())
         let manager = ProjectLockManager()
-        XCTAssertEqual(manager.status(of: record), .active)
+        XCTAssertEqual(manager.status(of: record, forProjectAt: tempDir), .active)
         XCTAssertTrue(manager.isOwnedByCurrentProcess(record))
-        XCTAssertTrue(manager.canRemoveWithoutForce(record))
+        XCTAssertTrue(manager.canRemoveWithoutForce(record, forProjectAt: tempDir))
     }
 
     func testStableMachineIdentitySurvivesHostnameChangeForStaleProcess() throws {
         let record = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nativeMachineIdentifier(), pid: 999_999)
-        XCTAssertEqual(ProjectLockManager().status(of: record), .stale)
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: tempDir), .stale)
         XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
-        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record))
+        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record, forProjectAt: tempDir))
     }
 
     func testForeignMachineDoesNotBecomeLocalThroughMatchingHostnameAndPID() throws {
         let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: "foreign-machine")
-        XCTAssertEqual(ProjectLockManager().status(of: record), .unknown)
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: tempDir), .unknown)
         XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
-        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record))
+        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record, forProjectAt: tempDir))
     }
 
     func testReusedPIDIsStaleAndNotOwnedByCurrentProcess() throws {
         let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nativeMachineIdentifier(), processStartTime: "previous process start")
-        XCTAssertEqual(ProjectLockManager().status(of: record), .stale)
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: tempDir), .stale)
         XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
-        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record))
+        XCTAssertTrue(ProjectLockManager().canRemoveWithoutForce(record, forProjectAt: tempDir))
     }
 
     func testLegacyRecordWithoutMachineIdentifierRetainsHostnameRules() throws {
         let local = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nil)
         let foreign = try identityRecord(host: "old-vpn-host.invalid", machineIdentifier: nil)
-        XCTAssertEqual(ProjectLockManager().status(of: local), .active)
+        XCTAssertEqual(ProjectLockManager().status(of: local, forProjectAt: tempDir), .active)
         XCTAssertTrue(ProjectLockManager().isOwnedByCurrentProcess(local))
-        XCTAssertEqual(ProjectLockManager().status(of: foreign), .unknown)
-        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(foreign))
+        XCTAssertEqual(ProjectLockManager().status(of: foreign, forProjectAt: tempDir), .unknown)
+        XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(foreign, forProjectAt: tempDir))
         let data = try JSONEncoder().encode(local)
         XCTAssertEqual(try JSONDecoder().decode(ProjectLockRecord.self, from: data), local)
     }
@@ -207,9 +207,9 @@ final class ProjectLockTests: XCTestCase {
     func testInvalidPIDsRemainUnknownWithoutIntegerConversionTrap() throws {
         for pid in [Int.min, -1, 0, Int(Int32.max) + 1, Int.max] {
             let record = try identityRecord(host: ProcessInfo.processInfo.hostName, machineIdentifier: nil, pid: pid)
-            XCTAssertEqual(ProjectLockManager().status(of: record), .unknown)
+            XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: tempDir), .unknown)
             XCTAssertFalse(ProjectLockManager().isOwnedByCurrentProcess(record))
-            XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record))
+            XCTAssertFalse(ProjectLockManager().canRemoveWithoutForce(record, forProjectAt: tempDir))
         }
     }
 

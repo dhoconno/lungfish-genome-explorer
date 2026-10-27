@@ -73,7 +73,7 @@ struct ProjectCommand: AsyncParsableCommand {
                     throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: latest)
                 }
             case .valid(let existing):
-                let status = manager.status(of: existing)
+                let status = manager.status(of: existing, forProjectAt: projectURL)
                 if (status == .active || status == .unknown) && !force {
                     throw ProjectCommandError.alreadyLocked(lockURL: lockURL, record: existing)
                 }
@@ -172,7 +172,7 @@ struct ProjectCommand: AsyncParsableCommand {
                 return
             }
 
-            if !force && !manager.canRemoveWithoutForce(record) {
+            if !force && !manager.canRemoveWithoutForce(record, forProjectAt: projectURL) {
                 throw ProjectCommandError.foreignLock(lockURL: lockURL, record: record)
             }
 
@@ -210,8 +210,8 @@ struct ProjectCommand: AsyncParsableCommand {
                 try manager.removeLockIfPresent(at: replacementLockURL)
                 replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
             case .valid(let competingReplacement):
-                if manager.status(of: competingReplacement) == .stale,
-                   force || manager.canRemoveWithoutForce(competingReplacement) {
+                if manager.status(of: competingReplacement, forProjectAt: projectURL) == .stale,
+                   force || manager.canRemoveWithoutForce(competingReplacement, forProjectAt: projectURL) {
                     try manager.removeLockIfPresent(at: replacementLockURL)
                     replacementAcquired = try manager.acquireLock(replacementRecord, to: replacementLockURL)
                 } else {

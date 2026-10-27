@@ -65,7 +65,9 @@ public struct ProjectOpenWarningState: Sendable, Equatable {
                 return .unlocked(projectURL: standardizedProjectURL)
             }
 
-            let status = lockManager.status(of: record)
+            // A lock that names another folder, as one Finder copied with the project
+            // does, reads as stale here and never holds this folder (3.0 WF-2).
+            let status = lockManager.status(of: record, forProjectAt: standardizedProjectURL)
             if status == .stale {
                 return .unlocked(projectURL: standardizedProjectURL)
             }

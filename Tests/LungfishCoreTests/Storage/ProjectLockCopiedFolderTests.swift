@@ -105,6 +105,90 @@ final class ProjectLockCopiedFolderTests: XCTestCase {
         XCTAssertEqual(try ProjectLockManager().readLock(forProjectAt: copy), record)
     }
 
+    // MARK: - The rule, status(of:forProjectAt:)
+
+    func testLockCopiedWithItsFolderIsStaleWhileItsWriterLives() throws {
+        let manager = ProjectLockManager()
+        let record = ProjectLockRecord.current(projectURL: original, mode: "exclusive", toolName: "test", appVersion: "test")
+        try manager.writeLock(record, to: ProjectLockManager.lockURL(for: original))
+        try FileManager.default.copyItem(at: original, to: copy)
+        let copied = try XCTUnwrap(manager.readLock(forProjectAt: copy))
+
+        XCTAssertEqual(copied, record)
+        XCTAssertEqual(manager.status(of: copied, forProjectAt: copy), .stale)
+        XCTAssertEqual(manager.status(of: record, forProjectAt: original), .active)
+        XCTAssertTrue(manager.namesAnotherFolder(copied, forProjectAt: copy))
+        XCTAssertFalse(manager.namesAnotherFolder(record, forProjectAt: original))
+    }
+
+    func testCopiedLockOfAnotherLiveProcessIsRemovableWithoutForceOnlyFromTheCopy() throws {
+        let manager = ProjectLockManager()
+        try FileManager.default.copyItem(at: original, to: copy)
+        let record = try liveSessionRecord(projectPath: original.standardizedFileURL.path)
+
+        XCTAssertEqual(manager.status(of: record, forProjectAt: copy), .stale)
+        XCTAssertTrue(manager.canRemoveWithoutForce(record, forProjectAt: copy))
+        XCTAssertEqual(manager.status(of: record, forProjectAt: original), .active)
+        XCTAssertFalse(manager.canRemoveWithoutForce(record, forProjectAt: original))
+    }
+
+    func testSameFolderLockOfALiveProcessStaysActive() throws {
+        let record = try liveSessionRecord(projectPath: original.standardizedFileURL.path)
+
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: original), .active)
+    }
+
+    func testRemoteLockNamingAnotherPathStaysUnknown() throws {
+        try FileManager.default.copyItem(at: original, to: copy)
+        let local = try liveSessionRecord(projectPath: original.standardizedFileURL.path)
+        let remote = ProjectLockRecord(schemaVersion: 1, toolName: local.toolName, appVersion: local.appVersion,
+            projectPath: local.projectPath, mode: local.mode, user: local.user, host: "another-mac.invalid",
+            pid: local.pid, processStartTime: local.processStartTime, cwd: local.cwd, createdAt: local.createdAt,
+            machineIdentifier: "another-machine")
+
+        XCTAssertEqual(ProjectLockManager().status(of: remote, forProjectAt: copy), .unknown)
+        XCTAssertFalse(ProjectLockManager().namesAnotherFolder(remote, forProjectAt: copy))
+    }
+
+    func testSymlinkAliasOfTheSameFolderIsNotACopy() throws {
+        let alias = root.appendingPathComponent("Alias.lungfish", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: original)
+        let record = try liveSessionRecord(projectPath: alias.path)
+
+        XCTAssertFalse(ProjectLockManager().namesAnotherFolder(record, forProjectAt: original))
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: original), .active)
+        if original.path.hasPrefix("/var/") {
+            let firmPath = try liveSessionRecord(projectPath: "/private" + original.path)
+            XCTAssertFalse(ProjectLockManager().namesAnotherFolder(firmPath, forProjectAt: original),
+                "A path through /private names the same temporary folder")
+        }
+    }
+
+    /// A lease record of this process is held only while a lease here holds it.
+    func testLeaseRecordOfThisProcessIsStaleOnceItsLeaseEnds() throws {
+        let manager = ProjectLockManager()
+        let lease: ProjectLockRecord
+        do {
+            let store = try ProjectStore(opening: original, access: .writable)
+            lease = try XCTUnwrap(manager.readLock(forProjectAt: original))
+            XCTAssertTrue(ProjectStore.hasLiveWriterLease(holding: lease))
+            XCTAssertEqual(manager.status(of: lease, forProjectAt: original), .active)
+            withExtendedLifetime(store) {}
+        }
+        XCTAssertFalse(ProjectStore.hasLiveWriterLease(holding: lease))
+        XCTAssertEqual(manager.status(of: lease, forProjectAt: original), .stale)
+    }
+
+    /// Only a writer lease's own record is judged by the leases here. A lock this
+    /// process took another way, as `lungfish project lock` does, holds while it lives.
+    func testOtherLockOfThisProcessStaysActiveWithoutALease() throws {
+        let record = ProjectLockRecord.current(projectURL: original, mode: "write", toolName: "lungfish project lock",
+            appVersion: "test")
+
+        XCTAssertFalse(ProjectStore.hasLiveWriterLease(holding: record))
+        XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: original), .active)
+    }
+
     // MARK: - Helpers
 
     private func copyWhileTheOriginalIsOpenThenCloseIt() throws {

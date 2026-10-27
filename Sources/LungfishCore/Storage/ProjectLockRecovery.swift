@@ -107,7 +107,8 @@ public enum ProjectLockRecovery {
     private static func validate(_ snapshot: ProjectLockRecoverySnapshot, at lockURL: URL, manager: ProjectLockManager) throws -> Bool {
         guard let currentBytes = try ProjectLockRecoverySnapshot.readBytes(at: lockURL) else { return false }
         guard currentBytes == snapshot.bytes else { throw ProjectLockRecoveryError.changedLock }
-        if case .valid(let record) = snapshot.readResult, manager.status(of: record) == .active {
+        if case .valid(let record) = snapshot.readResult,
+           manager.status(of: record, forProjectAt: snapshot.projectURL) == .active {
             throw ProjectLockRecoveryError.activeLock
         }
         return true
