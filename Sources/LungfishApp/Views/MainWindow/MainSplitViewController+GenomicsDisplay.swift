@@ -291,10 +291,8 @@ extension MainSplitViewController {
             return
         }
 
-        // Cancel any previous FASTQ work before starting a new request.
-        fastqLoadTask?.cancel()
-        fastqLoadTask = nil
-        fastqLoadGeneration &+= 1
+        // Cancel any previous FASTQ work before starting a new request, and take down the spinner of a count it cancels.
+        cancelFASTQLoadIfNeeded(hideProgress: true, reason: "a new FASTQ request")
         let generation = fastqLoadGeneration
         activeFASTQLoadURL = statisticsCacheURL ?? fastqURL
         activeFASTQSourceURL = standardizedSourceURL
@@ -360,7 +358,8 @@ extension MainSplitViewController {
             return
         }
 
-        viewerController.showProgress("Computing FASTQ statistics...")
+        inspectorController.clearSelection()
+        viewerController.showFASTQLoadProgress("Computing FASTQ statistics...")
 
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {

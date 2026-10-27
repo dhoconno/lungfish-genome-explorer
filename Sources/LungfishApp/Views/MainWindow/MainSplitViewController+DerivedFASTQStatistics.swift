@@ -36,7 +36,10 @@ extension MainSplitViewController {
             return
         }
 
-        viewerController.showProgress(FASTQStatisticsDisplayRules.measuringWords(for: manifest.name))
+        // The previous read set's dashboard, viewer and Inspector sections are cleared before the spinner shows. The
+        // spinner sits below every content view, and the previous numbers stay live under a new selection otherwise.
+        inspectorController.clearSelection()
+        viewerController.showFASTQLoadProgress(FASTQStatisticsDisplayRules.measuringWords(for: manifest.name))
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lungfish-derived-statistics-\(UUID().uuidString)", isDirectory: true)

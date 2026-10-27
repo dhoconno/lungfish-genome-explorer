@@ -18,4 +18,15 @@ extension ViewerViewController {
               let index = siblings.firstIndex(of: progressOverlay) else { return false }
         return siblings[(index + 1)...].allSatisfy(\.isHidden)
     }
+
+    /// Shows the progress overlay for a FASTQ read set whose statistics are being counted, with nothing of the
+    /// previous content under it.
+    ///
+    /// `clearViewport` takes down every dashboard and result viewer, the reference viewport and the bundle chrome,
+    /// and it hides the overlay first, so the overlay is shown after it. Only bringing the overlay to the front would
+    /// leave the previous dashboard's buttons live and its numbers in the accessibility tree.
+    public func showFASTQLoadProgress(_ message: String) {
+        clearViewport(statusMessage: "")
+        showProgress(message)
+    }
 }
