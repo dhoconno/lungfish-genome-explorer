@@ -126,6 +126,30 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
     }
 
+    /// BIO-BIN, with the owner's ruling of 2026-10-27. The plan writer reads `--quality-binning` itself, so its spellings
+    /// and its default reach the plan the executor runs (`plan.storage`). `fiveStep` and `illumina4` come as named, `none`
+    /// is open on a long-read platform, and a platform or no platform with no value plans `fiveStep`.
+    func testQualityBinningSpellingsAndDefaultReachThePlan() async throws {
+        let fixture = try writeFixture()
+        let cases: [(name: String, extra: [String], expected: QualityBinningScheme)] = [
+            ("fiveStep named", ["--quality-binning", "fiveStep"], .fiveStep),
+            ("illumina4 named, to replay an older command", ["--quality-binning", "illumina4"], .illumina4),
+            ("none named on a long-read platform", ["--platform", "ont", "--quality-binning", "none"], .none),
+            ("a long-read platform that names no value", ["--platform", "ont"], .fiveStep),
+            ("no platform and no value", [], .fiveStep),
+        ]
+        for (index, item) in cases.enumerated() {
+            let folder = root.appendingPathComponent("binning-\(index)", isDirectory: true)
+            let command = try ImportCommand.FastqSubcommand.parse(
+                fixture.reads.map(\.path) + fixture.planArguments(folder: folder)
+                    + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools"] + item.extra
+            )
+            try await command.run()
+            let plan = try ExecutionPlan.decode(Data(contentsOf: folder.appendingPathComponent("S1/plan.json")))
+            XCTAssertEqual(plan.storage.qualityBinning, item.expected, item.name)
+        }
+    }
+
     /// The built CLI writes the submit folder with `ssh`, `scp`, `rsync` and the HTCondor submit commands replaced by
     /// stand-ins at the front of `PATH`, and no stand-in ran: the planning step opens no connection and submits nothing.
     func testWritePlanOpensNoSSH() throws {

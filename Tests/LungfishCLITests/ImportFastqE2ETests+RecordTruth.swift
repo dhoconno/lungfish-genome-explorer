@@ -257,6 +257,19 @@ extension ImportFastqE2ETests {
     /// holds Q17 to Q21, Q28 to Q31 and Q37 bases, so a scheme that moves Q18 and Q19 up to Q22, as `illumina4` did,
     /// shows 85 percent at Q20 where the reads hold 45.
     func testIlluminaDefaultKeepsQ20() async throws {
+        try await assertImportKeepsTheSequencedThresholdShares(storageArguments: ["--no-optimize-storage"])
+    }
+
+    /// The same fixture and the same three equalities on the clumping path, which is the default of an Illumina import
+    /// (`defaultOptimizeStorage`) and runs `clumpify.sh quantize=...`. `testIlluminaDefaultKeepsQ20` takes the
+    /// `reformat.sh` path, so this is the test that shows clumpify keeps the shares too (SWIFT S2 of the BIN review).
+    func testIlluminaDefaultWithClumpingKeepsQ20() async throws {
+        try await assertImportKeepsTheSequencedThresholdShares(storageArguments: ["--clumping-tool", "bbtools"])
+    }
+
+    /// Imports the threshold fixture with `storageArguments` and checks that the Q20 and Q30 shares stored for the
+    /// bundle equal the ones counted from the file as sequenced.
+    private func assertImportKeepsTheSequencedThresholdShares(storageArguments: [String]) async throws {
         try await recordTruthRequire(.seqkit, .clumpify)
         guard let fixtures = recordTruthFixtures else { try ToolAvailability.skipOrFail("Fixtures not found") }
         let sequenced = fixtures.deletingLastPathComponent()
@@ -272,8 +285,8 @@ extension ImportFastqE2ETests {
         try FileManager.default.copyItem(at: sequenced, to: input.appendingPathComponent("thresholds.fastq"))
 
         let run = try recordTruthRun(
-            ["import", "fastq", input.path, "--project", project.path, "--platform", "illumina",
-             "--no-optimize-storage", "--compression", "fast"],
+            ["import", "fastq", input.path, "--project", project.path, "--platform", "illumina"]
+                + storageArguments + ["--compression", "fast"],
             scratch: root, timeout: 900
         )
         XCTAssertFalse(run.timedOut, "import fastq did not end within 900 s: \(run.output)")
@@ -291,6 +304,38 @@ extension ImportFastqE2ETests {
                        "the stored Q20 share is the sequenced one")
         XCTAssertEqual(stored.q30Percentage, counted.q30Percentage, accuracy: 1e-9,
                        "the stored Q30 share is the sequenced one")
+    }
+
+    /// BIO-BIN. `import fastq` reads `--quality-binning` itself. Both spellings of an Illumina scheme parse, `fiveStep`
+    /// that the Import sheet hands over and `illumina4` that an older command replays, and each reaches the bundle's
+    /// record as a value the option named.
+    func testQualityBinningSpellingsReachTheImportRecord() async throws {
+        try await recordTruthRequire(.clumpify)
+        for (spelling, scheme) in [("fiveStep", QualityBinningScheme.fiveStep), ("illumina4", .illumina4)] {
+            let (envelope, metadata) = try recordTruthImport([
+                "--platform", "illumina", "--no-optimize-storage", "--compression", "fast", "--quality-binning", spelling,
+            ])
+            XCTAssertEqual(metadata?.ingestion?.qualityBinning, scheme.rawValue, spelling)
+            XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(scheme.rawValue), spelling)
+            XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinningSource"], .string("option"), spelling)
+        }
+    }
+
+    /// The owner's ruling of 2026-10-27, "the option to save full quality scores for all read types". A platform other
+    /// than Illumina bins in steps of five when no value is given, and `--quality-binning none` keeps every score there.
+    /// The record states which of the two ran and where the value came from.
+    func testLongReadPlatformsBinByDefaultAndKeepEveryScoreOnRequest() async throws {
+        try await recordTruthRequire(.clumpify)
+        for platform in ["ont", "pacbio"] {
+            let binned = try recordTruthImport(["--platform", platform, "--no-optimize-storage", "--compression", "fast"])
+            XCTAssertEqual(binned.metadata?.ingestion?.qualityBinning, QualityBinningScheme.fiveStep.rawValue, platform)
+            XCTAssertEqual(binned.envelope.options.resolvedDefaults["qualityBinningSource"], .string("default"), platform)
+            let kept = try recordTruthImport([
+                "--platform", platform, "--no-optimize-storage", "--compression", "fast", "--quality-binning", "none",
+            ])
+            XCTAssertEqual(kept.metadata?.ingestion?.qualityBinning, QualityBinningScheme.none.rawValue, platform)
+            XCTAssertEqual(kept.envelope.options.resolvedDefaults["qualityBinningSource"], .string("option"), platform)
+        }
     }
 
     /// Whether `argv` holds `flag` followed by `value`.
