@@ -300,12 +300,13 @@ extension ClassificationResult {
     /// by `directory`, and an absolute URL inside it, such as a mate staged under `.lungfish-classify-inputs`,
     /// follows it, as `TaxTriageResultViewController.relocatedResult` follows its folder (OBS-W4).
     ///
-    /// The reads the run was given follow the project the same way (W4-COPY-SOURCE). When the stored folder and
-    /// `directory` lie in two projects, a read of `originalInputFiles`, `inputFiles` or `singleReadFiles` that
-    /// lies inside the stored project is placed at the same place inside the project that holds `directory`, but
-    /// only when every read that moves exists there. Otherwise all three lists stay as stored, so one read set
-    /// never takes its files from two projects, and a copy that lacks its reads keeps reading the original's
-    /// while that is kept. Any other absolute URL stays as stored, and a result that was not moved changes nothing.
+    /// The reads the run was given follow the project the same way (W4-COPY-SOURCE, WF-3). When the stored folder
+    /// and `directory` lie in two projects, every read of `originalInputFiles`, `inputFiles` or `singleReadFiles`
+    /// that lies inside the stored project is placed at the same place inside the project that holds `directory`,
+    /// so a loaded result never names a read of another project. When the open project lacks one of them, its
+    /// place is kept in `sourceMissingFromProject`, and Extract and BLAST refuse in words that name it, reading
+    /// nothing from any other folder (the UX ruling of 2026-10-26). Any other absolute URL stays as stored, and a
+    /// result that was not moved changes nothing.
     private static func resolvingConfigURLs(
         _ config: ClassificationConfig,
         loadedFrom directory: URL
@@ -323,11 +324,14 @@ extension ClassificationResult {
         }
         let readLists = [config.inputFiles, config.originalInputFiles ?? [], config.singleReadFiles]
         var reads = readLists.map { $0.map { resolve($0) } }
-        if projects != nil {
+        var sourceMissingFromProject: String?
+        if let projects {
             let inProject = readLists.map { $0.map { resolve($0, inLoadedProject: true) } }
             let moved = zip(reads.joined(), inProject.joined()).filter { $0 != $1 }.map { $1 }
-            if !moved.isEmpty, moved.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
+            if !moved.isEmpty {
                 reads = inProject
+                sourceMissingFromProject = moved.first { !FileManager.default.fileExists(atPath: $0.path) }
+                    .map { sourcePlace(of: $0, inProject: projects.loaded) }
             }
         }
         var resolved = ClassificationConfig(
@@ -356,7 +360,18 @@ extension ClassificationResult {
         resolved.originalInputFiles = config.originalInputFiles == nil ? nil : reads[1]
         resolved.singleReadFiles = reads[2]
         resolved.plansReadSet = config.plansReadSet
+        resolved.sourceMissingFromProject = sourceMissingFromProject
         return resolved
+    }
+
+    /// The place of `read` inside `project` that a refusal names: the read bundle that holds it, as
+    /// `Imports/SRR12486983.lungfishfastq`, or else the file itself.
+    private static func sourcePlace(of read: URL, inProject project: URL) -> String {
+        var place = Array(read.standardizedFileURL.pathComponents.dropFirst(project.standardizedFileURL.pathComponents.count))
+        if let bundle = place.firstIndex(where: { URL(fileURLWithPath: $0).pathExtension == FASTQBundle.directoryExtension }) {
+            place = Array(place.prefix(through: bundle))
+        }
+        return place.joined(separator: "/")
     }
 
     /// The standardized path of the folder the run stored, or nil when the sidecar stores no absolute folder or
@@ -369,16 +384,29 @@ extension ClassificationResult {
     }
 
     /// The project the run stored and the project that holds `directory`, as standardized paths, when they are two
-    /// projects. Nil when either folder lies in no `.lungfish` project or both lie in the same one.
+    /// projects. Nil when either folder lies in no project or both lie in the same one.
     private static func storedAndLoadedProjects(
         storedFolder: String,
         loadedFolder directory: URL
     ) -> (stored: String, loaded: URL)? {
-        guard let stored = ProjectTempDirectory.findProjectRoot(URL(fileURLWithPath: storedFolder, isDirectory: true)),
-              let loaded = ProjectTempDirectory.findProjectRoot(directory) else { return nil }
-        let storedPath = stored.standardizedFileURL.path
-        let loadedProject = loaded.standardizedFileURL
-        return storedPath == loadedProject.path ? nil : (storedPath, loadedProject)
+        guard let loaded = ProjectTempDirectory.findProjectRoot(directory)?.standardizedFileURL else { return nil }
+        let stored = ProjectTempDirectory.findProjectRoot(URL(fileURLWithPath: storedFolder, isDirectory: true))
+        guard let storedPath = stored?.standardizedFileURL.path
+                ?? goneProject(storedFolder: storedFolder, loadedFolder: directory, loaded: loaded) else { return nil }
+        return storedPath == loaded.path ? nil : (storedPath, loaded)
+    }
+
+    /// The stored project when it is gone and its name had no `.lungfish` extension, so `ProjectRootTest` cannot
+    /// find it by its files: the stored folder less the loaded folder's place inside `loaded`, as
+    /// `/Analyses/kraken2-x`, when the stored folder ends with that place and nothing is left at the rest.
+    private static func goneProject(storedFolder: String, loadedFolder: URL, loaded: URL) -> String? {
+        let loadedPath = loadedFolder.standardizedFileURL.path
+        guard loadedPath.hasPrefix(loaded.path + "/") else { return nil }
+        let place = String(loadedPath.dropFirst(loaded.path.count))
+        guard storedFolder.hasSuffix(place) else { return nil }
+        let project = String(storedFolder.dropLast(place.count))
+        guard !project.isEmpty, project != "/", !FileManager.default.fileExists(atPath: project) else { return nil }
+        return project
     }
 
     /// `directory` when `url` is the stored folder, the same place under `directory` when `url` lies inside it,

@@ -178,19 +178,21 @@ final class KrakenResultReadSourcesTests: XCTestCase {
         XCTAssertEqual(inputs.map { $0.standardizedFileURL.path }, [project.copy(bundle).standardizedFileURL.path])
     }
 
-    /// A result copied into another project that has not got the reads still reads them in the project it came
-    /// from while that project is kept, as it did before. Nothing that worked stops working.
-    func testRecordedInputsOfACopyThatLacksTheReadsNameTheOriginalsWhileItIsKept() throws {
+    /// A result copied into another project that has not got the reads names only the copy's places, so Extract
+    /// and BLAST refuse and never read the original's, even while it is kept. The UX ruling of 2026-10-26 (walk
+    /// WF-3) replaces the rule that such a copy read the original's.
+    func testRecordedInputsOfACopyThatLacksTheReadsReadNothingOfTheOriginal() throws {
         let project = copiedProject()
         let bundle = "Imports/s.lungfishfastq"
         try project.makeRead(at: project.old(bundle))
         var config = project.config(inputFiles: [project.old(bundle)])
         config.originalInputFiles = [project.old(bundle)]
         try project.writeResult(config: config)
+        let loaded = try ClassificationResult.load(from: project.loadedFolder)
 
-        let inputs = try KrakenResultReadSources.recordedInputs(of: try ClassificationResult.load(from: project.loadedFolder))
-
-        XCTAssertEqual(inputs.map { $0.standardizedFileURL.path }, [project.old(bundle).standardizedFileURL.path])
+        XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded))
+        XCTAssertEqual(loaded.config.sourceMissingFromProject, bundle, "the place the refusal names")
+        XCTAssertEqual(loaded.config.originalInputFiles?.map(\.standardizedFileURL.path), [project.copy(bundle).standardizedFileURL.path])
     }
 
     /// The reads are in neither project. The error says what happened and what to try next, in the words the

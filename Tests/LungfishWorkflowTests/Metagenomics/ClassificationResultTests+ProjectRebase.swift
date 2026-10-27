@@ -58,8 +58,9 @@ extension ClassificationResultTests {
     // MARK: - What stays as stored (green at the base)
 
     /// One project per read set. The copy holds the first mate and the original holds both, so taking mate 1 from
-    /// the copy and mate 2 from the original would pair two projects. Every list stays as stored.
-    func testLoadKeepsEveryListAsStoredWhenOneReadOfTheCopyIsMissing() throws {
+    /// the copy and mate 2 from the original would pair two projects. Every list names the copy's places only,
+    /// and the read the copy lacks is kept for the refusal, so nothing of the original is read (walk WF-3).
+    func testLoadNamesOnlyTheOpenProjectWhenOneReadOfTheCopyIsMissing() throws {
         let fixture = try makeProjectCopy()
         let mates = ["Imports/a_R1.fastq", "Imports/a_R2.fastq"]
         for relative in mates {
@@ -72,9 +73,28 @@ extension ClassificationResultTests {
 
         let loaded = try ClassificationResult.load(from: fixture.loadedFolder)
 
-        let stored = mates.map { fixture.old($0).standardizedFileURL.path }
-        XCTAssertEqual(standardizedPaths(loaded.config.inputFiles), stored, "never mate 1 of the copy with mate 2 of the original")
-        XCTAssertEqual(standardizedPaths(loaded.config.originalInputFiles), stored)
+        let inCopy = mates.map { fixture.copy($0).standardizedFileURL.path }
+        XCTAssertEqual(standardizedPaths(loaded.config.inputFiles), inCopy, "never mate 1 of the copy with mate 2 of the original")
+        XCTAssertEqual(standardizedPaths(loaded.config.originalInputFiles), inCopy)
+        XCTAssertEqual(loaded.config.sourceMissingFromProject, mates[1], "the read the copy lacks")
+    }
+
+    /// The stored project is gone and its name had no `.lungfish` extension, so no file shows it was a project.
+    /// The stored folder ends with the loaded folder's place inside its project, so the rest is the stored
+    /// project, and the reads are the copy's (ARCH's edge for lane PROJECT-ROOT).
+    func testLoadFindsAGoneStoredProjectWhoseNameHadNoExtension() throws {
+        let fixture = try makeProjectCopy()
+        let read = "Imports/a.fastq"
+        try fixture.makeRead(at: fixture.copy(read))
+        let gone = fixture.besideOld("Project copy")
+        var config = fixture.config(inputFiles: [gone.appendingPathComponent(read)])
+        config.outputDirectory = gone.appendingPathComponent("Analyses/kraken2-x", isDirectory: true)
+        try fixture.writeResult(config: config)
+
+        let loaded = try ClassificationResult.load(from: fixture.loadedFolder)
+
+        XCTAssertEqual(standardizedPaths(loaded.config.inputFiles), [fixture.copy(read).standardizedFileURL.path])
+        XCTAssertNil(loaded.config.sourceMissingFromProject)
     }
 
     /// A read outside the stored project stays where the run read it. A folder whose name only starts with the

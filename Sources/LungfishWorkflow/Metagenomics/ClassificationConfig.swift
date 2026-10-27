@@ -132,6 +132,12 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// for the run and never written to the sidecar.
     public var readSetPlan: ReadSetPlan?
 
+    /// The place inside the open project of the first read the run named inside another project that the open
+    /// project does not hold, as `Imports/SRR12486983.lungfishfastq`. Set by `ClassificationResult.load(from:)`
+    /// for a result made in another project and never written to the sidecar. When it is set, Extract and BLAST
+    /// refuse and read nothing from the other project (walk WF-3, the UX ruling of 2026-10-26).
+    public var sourceMissingFromProject: String?
+
     /// How the configured inputs pair up (GUI/CLI parity with EsViritu).
     public enum ReadFormat: String, Sendable, Codable, CaseIterable {
         case unpaired
