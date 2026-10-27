@@ -17,8 +17,8 @@ OPTIONS:
   --pair <pair>           Optional R2 FASTQ file for paired-end mode
   --output-dir <output-dir>
                           Output directory for processed FASTQ (default: .)
-  --binning <binning>     Quality binning scheme (illumina4, eightLevel, none)
-                          (default: illumina4)
+  --binning <binning>     Quality binning scheme (fiveStep, illumina4,
+                          eightLevel, none) (default: none)
   --skip-clumpify         Skip read clumpification step
   --delete-originals      Delete original FASTQ file(s) after success
   --stats                 Compute FASTQ statistics on processed output

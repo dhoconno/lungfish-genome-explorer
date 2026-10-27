@@ -29,12 +29,14 @@ OPTIONS:
   --optimize-storage      Run clumpify on flattened per-barcode FASTQ payloads
                           to improve compression
   --quality-binning <quality-binning>
-                          Quality binning: illumina4 (7 quality levels, the
-                          default), eightLevel (~21 quality levels) or none. A
+                          Quality binning: fiveStep (8 quality levels, keeps
+                          every Q10, Q20 and Q30 count), illumina4 (7 quality
+                          levels, to replay older imports), eightLevel (~21
+                          quality levels) or none, which keeps every score. A
                           chunked import bins each chunk with reformat.sh and
                           --optimize-storage bins with clumpify. Binning is
-                          lossy. Pass none to keep every score. (values:
-                          illumina4, eightLevel, none; default: illumina4)
+                          lossy. (values: fiveStep, illumina4, eightLevel,
+                          none; default: none)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
