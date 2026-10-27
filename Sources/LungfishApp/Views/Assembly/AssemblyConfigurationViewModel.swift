@@ -29,6 +29,12 @@ private struct ClosureAssemblyInputMaterializer: CLISequenceInputMaterializing, 
     }
 }
 
+/// The words of the alert a failed managed assembly shows, what happened and what to try next.
+struct AssemblyFailureAlert: Equatable, Sendable {
+    let title: String
+    let message: String
+}
+
 // MARK: - AssemblyRunner
 
 /// Runs an assembly as a background operation tracked by ``OperationCenter``.
@@ -127,7 +133,8 @@ public enum AssemblyRunner {
     static func startManagedAssembly(
         request: AssemblyRunRequest,
         routeContext: OperationRouteContext?,
-        runner: CLIReadsRunner = CLIReadsRunner()
+        runner: CLIReadsRunner = CLIReadsRunner(),
+        presentFailureAlert: (@MainActor @Sendable (AssemblyFailureAlert) -> Void)? = nil
     ) -> UUID? {
         let executionRequest = Self.executionRequest(for: request)
         let began = beginAssemblyOperation(
