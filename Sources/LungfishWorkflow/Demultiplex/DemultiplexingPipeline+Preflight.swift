@@ -16,11 +16,19 @@ extension DemultiplexingPipeline {
     /// with a kit the engine cannot match, a cutadapt run whose output is not
     /// inside a project (its work folder lives in the project), and a kit
     /// that gives cutadapt no adapter (a combinatorial kit without sample
-    /// assignments, a dual kit without second barcodes, or empty sequences).
+    /// assignments, a dual kit without second barcodes, a line with no base on
+    /// one side, or two barcodes that share one line), and the IDT UD kit while
+    /// its built-in sequences are being checked.
     /// It runs no tool and writes only a scratch adapter file it removes.
     public func preflight(config: DemultiplexConfig) async throws {
         guard !config.barcodeKit.barcodes.isEmpty else {
             throw DemultiplexError.noBarcodes
+        }
+        // The `idt-ud-indexes` table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run could name
+        // samples after the wrong wells. BIO may drop this refusal after checking the sequences against Illumina's
+        // Adapter Sequences document (ruling UX-DEMUX-ILLUMINA, item 5).
+        if config.barcodeKit.id == BarcodeKitRegistry.idtUDIndexes.id {
+            throw DemultiplexError.kitSequencesUnderCheck(kitName: config.barcodeKit.displayName)
         }
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
