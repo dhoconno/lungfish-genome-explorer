@@ -39,8 +39,8 @@ final class FASTQImportBarcodeRecipeBinningTests: XCTestCase {
                 binning.titleOfSelectedItem, IngestionPlatform.defaultQualityBinning(for: .oxfordNanopore).displayName,
                 "an ONT sheet opens on its platform default"
             )
-            // A choice other than None, so the test shows that the recipe turns the popup off and gives the choice back.
-            binning.selectItem(withTitle: QualityBinningScheme.fiveStep.displayName)
+            // A choice that is neither the platform default nor None, so a restore that fell back to the default fails.
+            binning.selectItem(withTitle: QualityBinningScheme.eightLevel.displayName)
 
             recipeCheckbox.performClick(nil)
             recipes.selectItem(withTitle: recipe.name)
@@ -59,7 +59,7 @@ final class FASTQImportBarcodeRecipeBinningTests: XCTestCase {
 
             recipeCheckbox.performClick(nil)
             XCTAssertTrue(binning.isEnabled, "turning the recipe off gives the popup back")
-            XCTAssertEqual(binning.titleOfSelectedItem, QualityBinningScheme.fiveStep.displayName)
+            XCTAssertEqual(binning.titleOfSelectedItem, QualityBinningScheme.eightLevel.displayName)
         }
     }
 
