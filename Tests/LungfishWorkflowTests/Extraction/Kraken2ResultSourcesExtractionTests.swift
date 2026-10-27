@@ -323,6 +323,12 @@ final class Kraken2ResultSourcesExtractionTests: XCTestCase {
         }
     }
 
+    /// The sequence length of each record of a plain FASTQ file, in file order.
+    static func recordLengths(in url: URL) throws -> [Int] {
+        try String(contentsOf: url, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+            .enumerated().filter { $0.offset % 4 == 1 }.map { $0.element.count }
+    }
+
     static func recordNames(in url: URL) throws -> [String] {
         let text: String
         if url.pathExtension == "gz" {
@@ -517,8 +523,14 @@ struct Kraken2ResultShapes {
             in: bundle
         )
         func fragment(_ name: String) -> String { String(name.split(separator: " ")[0]) }
-        let lines = r1Names.map { Self.pair(fragment($0), Self.target) }
-            + mergedNames.map { Self.staged(fragment($0), Self.target) }
+        // kraken2 writes each record's own length: `L|L` for a pair it read with --paired, and `L|0` for a merged
+        // read staged beside an empty mate, as the planner runs a merge derivative (BIO-READ-IDENTITY 4.1).
+        func lengths(_ name: String) throws -> [Int] {
+            try Kraken2ResultSourcesExtractionTests.recordLengths(in: bundle.appendingPathComponent(name))
+        }
+        let (r1Lengths, r2Lengths, mergedLengths) = try (lengths("unmerged_R1.fastq"), lengths("unmerged_R2.fastq"), lengths("merged.fastq"))
+        let lines = r1Names.indices.map { Self.pair(fragment(r1Names[$0]), Self.target, lengths: "\(r1Lengths[$0])|\(r2Lengths[$0])") }
+            + mergedNames.indices.map { Self.staged(fragment(mergedNames[$0]), Self.target, length: mergedLengths[$0]) }
         let result = try Self.result("bbmerge", in: analyses, inputs: [bundle], paired: true, lines: lines)
         return (result, Array(zip(r1Names, r2Names)).map { (r1: $0.0, r2: $0.1) }, mergedNames)
     }
@@ -625,12 +637,12 @@ struct Kraken2ResultShapes {
 
     // MARK: Result writing
 
-    static func pair(_ fragment: String, _ taxId: Int) -> String {
-        "C\t\(fragment)\t\(taxId)\t10|10\t\(taxId):3 |:| \(taxId):3"
+    static func pair(_ fragment: String, _ taxId: Int, lengths: String = "10|10") -> String {
+        "C\t\(fragment)\t\(taxId)\t\(lengths)\t\(taxId):3 |:| \(taxId):3"
     }
 
-    static func staged(_ fragment: String, _ taxId: Int) -> String {
-        "C\t\(fragment)\t\(taxId)\t10|0\t\(taxId):3 |:| "
+    static func staged(_ fragment: String, _ taxId: Int, length: Int = 10) -> String {
+        "C\t\(fragment)\t\(taxId)\t\(length)|0\t\(taxId):3 |:| "
     }
 
     static func single(_ read: String, _ taxId: Int) -> String {

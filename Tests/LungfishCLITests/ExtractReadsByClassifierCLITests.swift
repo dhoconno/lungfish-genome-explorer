@@ -503,7 +503,7 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         let kraken = directory.appendingPathComponent("classification.kraken")
         try ["a1\t11", "a2\t11", "a3\t12", "g1\t10"].map { line -> String in
             let parts = line.split(separator: "\t")
-            return "C\t\(parts[0])\t\(parts[1])\t10\t\(parts[1]):3\n"
+            return "C\t\(parts[0])\t\(parts[1])\t4\t\(parts[1]):3\n"
         }.joined().write(to: kraken, atomically: true, encoding: .utf8)
         let inputs = [URL(string: "../../own-reads.fastq")!]
         var config = ClassificationConfig(
