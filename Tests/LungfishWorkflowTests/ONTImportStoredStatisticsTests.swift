@@ -69,4 +69,39 @@ final class ONTImportStoredStatisticsTests: XCTestCase {
         XCTAssertEqual(statistics.meanQuality, 10, accuracy: 0.01, "the stored reads hold Q10, not the run's Q40")
         XCTAssertEqual(statistics.qualityScoreHistogram, [10: 10])
     }
+
+    /// The app's default import stores chunks and bins each one afterwards (`binChunkedPayloads`), with no Optimize
+    /// Storage. This test does to the stored chunks what that step does and measures them again, as the workflow does,
+    /// so the sidecar describes the chunks the bundle holds and not the run's own scores (review fix BIO F2).
+    func testAChunkedBundleStatisticsDescribeTheChunksItStoresAfterBinning() async throws {
+        let source = root.appendingPathComponent("run/fastq_pass", isDirectory: true)
+        let barcode = source.appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcode, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n@r2\nACGGCC\n+\nIIIIII\n"
+            .write(to: barcode.appendingPathComponent("chunk_0.fastq"), atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("out", isDirectory: true)
+
+        let imported = try await ONTDirectoryImporter().importDirectory(
+            config: ONTImportConfig(sourceDirectory: source, outputDirectory: output, storageMode: .chunked),
+            progress: { _, _ in }
+        )
+        let bundle = try XCTUnwrap(imported.bundleURLs.first)
+        let asSequenced = try XCTUnwrap(FASTQMetadataStore.load(for: bundle)?.computedStatistics)
+        XCTAssertEqual(asSequenced.meanQuality, 40, accuracy: 0.01, "the import measured the run's own scores")
+
+        // The copy goes first, then a new file holds the binned scores, as in `binChunkedPayloads`.
+        let chunks = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: bundle))
+        XCTAssertEqual(chunks.count, 1)
+        for chunk in chunks {
+            try FileManager.default.removeItem(at: chunk)
+            try "@r1\nACGT\n+\n++++\n@r2\nACGGCC\n+\n++++++\n".write(to: chunk, atomically: true, encoding: .utf8)
+        }
+        try await ONTDirectoryImporter.remeasureStoredStatistics(ofBundle: bundle)
+
+        let statistics = try XCTUnwrap(FASTQMetadataStore.load(for: bundle)?.computedStatistics)
+        XCTAssertEqual(statistics.readCount, 2)
+        XCTAssertEqual(statistics.baseCount, 10)
+        XCTAssertEqual(statistics.meanQuality, 10, accuracy: 0.01, "the chunks hold Q10, not the run's Q40")
+        XCTAssertEqual(statistics.qualityScoreHistogram, [10: 10])
+    }
 }
