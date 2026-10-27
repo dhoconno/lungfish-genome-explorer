@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 3.0 lane EXT (W4-COPY-SOURCE, the W4b design of `reviews/W4.md` section 4). A copied, renamed or moved
-// project keeps the absolute paths of the run, so Extract and BLAST verification read the FASTQ of the original
-// project, or failed once it was gone. `ClassificationResult.load(from:)` places a stored read that lies inside the
-// stored project at the same place inside the project that holds the loaded folder, but only when every read it
-// moves exists there, so one read set never takes its mates from two projects. Reading never writes, so the stored
-// sidecar stays as it was. W4 already moved the folder and the files a run kept inside it
-// (`ClassificationResultTests+Rebase.swift`), and those stay green.
+// Phase 3.0 lane EXT (W4-COPY-SOURCE, the W4b design of `reviews/W4.md` section 4), changed by lane PROJECT-ROOT
+// (walk WF-3, the UX ruling of 2026-10-26). A copied, renamed or moved project keeps the absolute paths of the run,
+// so Extract and BLAST verification read the FASTQ of the original project, or failed once it was gone.
+// `ClassificationResult.load(from:)` places every stored read that lies inside the stored project at the same place
+// inside the project that holds the loaded folder, so a loaded result never names a read of another project and one
+// read set never takes its mates from two projects. When the open project lacks one of those reads,
+// `config.sourceMissingFromProject` names its place and Extract and BLAST refuse, reading nothing of the original
+// even while it is kept. Reading never writes, so the stored sidecar stays as it was. W4 already moved the folder
+// and the files a run kept inside it (`ClassificationResultTests+Rebase.swift`), and those stay green.
 
 import XCTest
 import LungfishTestSupport
@@ -79,7 +81,7 @@ extension ClassificationResultTests {
         )
     }
 
-    // MARK: - What stays as stored (green at the base)
+    // MARK: - A copy that lacks a read, and what stays as stored
 
     /// One project per read set. The copy holds the first mate and the original holds both, so taking mate 1 from
     /// the copy and mate 2 from the original would pair two projects. Every list names the copy's places only,
