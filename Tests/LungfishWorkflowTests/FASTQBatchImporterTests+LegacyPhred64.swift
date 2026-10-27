@@ -77,6 +77,42 @@ extension FASTQBatchImporterTests {
         )
     }
 
+    /// SWIFT S1. A sample with no recipe and no storage tool fails with the words a person needs to convert the file. The
+    /// importer hands the pipeline's error on unchanged, and the `sampleFailed` line of its log, which the CLI prints and
+    /// the operation row shows, carries the same words.
+    func testAPhred64FileFailsTheSampleWithTheConversionWords() async throws {
+        let root = try TestTempDirectory.make(prefix: "importer-legacy-phred64-words")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let r1 = root.appendingPathComponent("Old.fastq")
+        try Self.legacyPhred64Records().write(to: r1, atomically: true, encoding: .utf8)
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: projectURL, platform: .illumina,
+            recipe: nil,
+            qualityBinning: QualityBinningScheme.none,
+            optimizeStorage: false,
+            threads: 1
+        )
+        let log = LegacyPhred64EventLog()
+
+        let result = await FASTQBatchImporter.runBatchImport(
+            pairs: [SamplePair(sampleName: "Old", r1: r1, r2: nil)], config: config, log: { log.append($0) }
+        )
+
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 1)
+        let failure = try XCTUnwrap(result.errors.first)
+        XCTAssertEqual(failure.sample, "Old")
+        for words in ["old Phred+64 encoding", "reformat.sh qin=64 qout=33", "do not convert it"] {
+            XCTAssertTrue(failure.error.contains(words), "\(words) is missing from the failure: \(failure.error)")
+        }
+        let logged = log.events.compactMap { event -> String? in
+            if case .sampleFailed(_, let error) = event { return error }
+            return nil
+        }
+        XCTAssertEqual(logged, [failure.error], "the sampleFailed line carries the same words")
+    }
+
     /// 200 reads of 100 bases with quality bytes 66 (`B`, Q2) to 104 (`h`, Q40), as Illumina 1.5 wrote them.
     private static func legacyPhred64Records() -> String {
         let bases = String(String(repeating: "ACGT", count: 26).prefix(100))

@@ -17,6 +17,7 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishTestSupport
 import LungfishWorkflow
 
 @MainActor
@@ -100,6 +101,53 @@ final class FASTQIngestionServiceOperationTests: XCTestCase {
         XCTAssertNil(result.startedID)
         XCTAssertFalse(launched)
         XCTAssertEqual(reporter.items.map(\.state), [.refused])
+    }
+
+    /// BIO SF3 (fix round 4). The in-place route's row shows the message of the command's failure. This runs the built
+    /// `lungfish-cli fastq ingest` on an Illumina 1.5 file, which the command refuses before any tool starts, and reads the
+    /// words off the row, so the refusal reaches the person with its conversion advice and its warning against converting
+    /// a modern file. The refusal leaves the original where it was.
+    func testAPhred64FileFailsTheOperationWithTheRefusalWords() async throws {
+        let root = try TestTempDirectory.make(prefix: "ingest-phred64-words")
+        defer { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("OLDPHRED_1.fastq")
+        try Self.illumina15Records().write(to: input, atomically: true, encoding: .utf8)
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
+        )
+
+        FASTQIngestionService.ingestIfNeeded(
+            url: input, pairingMode: .singleEnd, pairedFile: nil, existingMetadata: nil, routeContext: nil,
+            runner: CLIReadsRunner(cliURLOverride: cli)
+        )
+
+        let title = "FASTQ Ingestion: OLDPHRED"
+        let finished = await waitUntil(budget: .lookup) {
+            OperationCenter.shared.items.first { $0.title == title }.map { $0.state != .running } ?? false
+        }
+        XCTAssertTrue(finished, "the ingest row did not finish")
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == title })
+        XCTAssertEqual(row.state, .failed, "row detail: \(row.detail)")
+        for words in ["old Phred+64 encoding", "reformat.sh qin=64 qout=33", "do not convert it"] {
+            XCTAssertTrue(row.detail.contains(words), "\(words) is missing from the row's detail: \(row.detail)")
+            XCTAssertTrue(
+                row.errorMessage?.contains(words) ?? false, "\(words) is missing from the row's error: \(row.errorMessage ?? "none")"
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: input.path), "a refused file stays where it was")
+    }
+
+    /// 200 reads of 100 bases with quality bytes 66 (`B`, Q2) to 104 (`h`, Q40), as Illumina 1.5 wrote them.
+    private static func illumina15Records() -> String {
+        let bases = String(String(repeating: "ACGT", count: 26).prefix(100))
+        var text = ""
+        for read in 0..<200 {
+            let quality = String(decoding: (0..<100).map { UInt8(66 + (read * 7 + $0 * 3) % 39) }, as: UTF8.self)
+            text += "@r\(read)\n\(bases)\n+\n\(quality)\n"
+        }
+        return text
     }
 
     // MARK: - Single-file import (site 25)
