@@ -254,6 +254,21 @@ final class ONTImportStatisticsTests: XCTestCase {
         XCTAssertEqual(layout.totalSizeBytes, 990_786, "the sheet reads Total size: 991 KB")
     }
 
+    /// The sheet reads the same fixture through `fastq_pass` and through one barcode folder (review fix UX SF2).
+    func testFastqPassAndOneBarcodeFolderGiveTheSheetItsLines() throws {
+        let fastqPass = try ONTDirectoryImporter().detectLayout(at: Self.fastqPass)
+        XCTAssertEqual(fastqPass.barcodeDirectories.count, 7, "Found 7 barcode directories.")
+        XCTAssertEqual(fastqPass.totalSizeBytes, 990_786, "the sheet reads Total size: 991 KB")
+
+        let barcode85 = try ONTDirectoryImporter().detectLayout(
+            at: Self.fastqPass.appendingPathComponent("barcode85", isDirectory: true)
+        )
+        XCTAssertEqual(barcode85.barcodeDirectories.map(\.barcodeName), ["barcode85"])
+        XCTAssertEqual(barcode85.barcodeDirectories.first?.chunkFiles.count, 2)
+        XCTAssertEqual(barcode85.totalSizeBytes, 255_566, "127,984 + 127,582 compressed bytes")
+        XCTAssertFalse(barcode85.hasUnclassified)
+    }
+
     func testTheRunFolderImportsTheSameSixBundlesAsFastqPass() async throws {
         let (result, _) = try await importFixture(.chunked, from: Self.runFolder)
         XCTAssertEqual(result.bundleURLs.map(\.lastPathComponent), Self.barcodeBundles)
