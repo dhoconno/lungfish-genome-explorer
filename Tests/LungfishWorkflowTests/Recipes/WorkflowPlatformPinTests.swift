@@ -116,10 +116,12 @@ final class WorkflowPlatformPinTests: XCTestCase {
 
     func testImportConfigResolutionPerPlatform() {
         let project = URL(fileURLWithPath: "/tmp/pin.lungfish")
-        let shortRead = ResolvedImport(optimizeStorage: true, clumpingTool: .auto, qualityBinning: .illumina4, compressionLevel: .balanced)
-        let longRead = ResolvedImport(optimizeStorage: false, clumpingTool: .auto, qualityBinning: .illumina4, compressionLevel: .balanced)
+        // Illumina alone bins by default, with fiveStep. Every other platform keeps every score (BIO-BIN).
+        let illumina = ResolvedImport(optimizeStorage: true, clumpingTool: .auto, qualityBinning: .fiveStep, compressionLevel: .balanced)
+        let shortRead = ResolvedImport(optimizeStorage: true, clumpingTool: .auto, qualityBinning: .none, compressionLevel: .balanced)
+        let longRead = ResolvedImport(optimizeStorage: false, clumpingTool: .auto, qualityBinning: .none, compressionLevel: .balanced)
         let expectedDefaults: [WorkflowPlatform: ResolvedImport] = [
-            .illumina: shortRead, .ont: longRead, .pacbio: longRead, .ultima: shortRead,
+            .illumina: illumina, .ont: longRead, .pacbio: longRead, .ultima: shortRead,
         ]
         for platform in WorkflowPlatform.allCases {
             let label = platform.rawValue
@@ -388,7 +390,7 @@ final class WorkflowPlatformPinTests: XCTestCase {
         XCTAssertEqual(envelope.options.defaults["optimizeStorage"], .boolean(false))
         XCTAssertEqual(envelope.options.defaults["clumpingTool"], .string("auto"))
         XCTAssertEqual(envelope.options.defaults["compressionLevel"], .string("balanced"))
-        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string("illumina4"))
+        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string("none"), "an ONT import keeps every score (BIO-BIN)")
         let flag = try XCTUnwrap(envelope.argv.firstIndex(of: "--platform"))
         XCTAssertEqual(envelope.argv[flag + 1], "ont")
 

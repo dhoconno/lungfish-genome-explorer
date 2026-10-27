@@ -1,11 +1,12 @@
-// FastqImportONTChunkBinningTests.swift - A default ONT run folder import bins every stored chunk with illumina4
+// FastqImportONTChunkBinningTests.swift - An ONT run folder import that names a scheme bins every stored chunk
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // Lane C2-ONTBIN (owner answer OQ1, 2026-10-22, "Bin chunked ONT payloads"). The ONT run folder import stores
 // chunked payloads by default. Before this lane they kept every quality score whatever `--quality-binning` said,
-// because only Optimize Storage binned and it needs flattened storage. A default import now bins each chunk with the
-// same `quantize=` argument the Illumina route's clumpify takes, and `none` keeps every chunk as the run wrote it.
+// because only Optimize Storage binned and it needs flattened storage. An import that names a scheme now bins each
+// chunk with the same `quantize=` argument the Illumina route's clumpify takes, and `none`, the ONT default since
+// BIO-BIN (Phase 3.0 lane BIN), keeps every chunk as the run wrote it.
 // The assertions read the stored chunks and the provenance records. Binning needs the managed BBTools, so the
 // binning tests skip without it unless LUNGFISH_REQUIRE_TOOLS is set.
 
@@ -31,15 +32,15 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// The seven Phred+33 characters `quantize=0,8,13,22,27,32,37` writes, Q0, Q8, Q13, Q22, Q27, Q32 and Q37.
-    private static let illumina4Levels = Set("!).7<AF")
+    /// The Phred+33 characters `quantize=0,2,7,12,17,22,27,32,37` writes, Q2 to Q37 in steps of five, and Q0 for an N.
+    private static let fiveStepLevels = Set("!#(-27<AF")
 
-    func testADefaultImportBinsEveryStoredChunkWithIllumina4AndRecordsEachBinningStep() async throws {
+    func testAnImportNamingFiveStepBinsEveryStoredChunkAndRecordsEachBinningStep() async throws {
         try await Self.requireReformat()
         let source = try makeSource()
         let output = root.appendingPathComponent("project", isDirectory: true)
 
-        try await FastqImportONTSubcommand.parse([source.path, "--output", output.path, "--concurrency", "1"]).run()
+        try await FastqImportONTSubcommand.parse([source.path, "--output", output.path, "--concurrency", "1", "--quality-binning", "fiveStep"]).run()
 
         let bundle = output.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
         for chunk in Self.chunks {
@@ -48,19 +49,19 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
             XCTAssertEqual(stored.map(\.sequence), chunk.reads.map(\.sequence), "\(chunk.name) keeps every sequence")
             for record in stored {
                 XCTAssertEqual(record.quality.count, record.sequence.count, record.header)
-                XCTAssertTrue(Set(record.quality).isSubset(of: Self.illumina4Levels),
-                              "\(chunk.name) \(record.header) holds only illumina4 levels: \(record.quality)")
+                XCTAssertTrue(Set(record.quality).isSubset(of: Self.fiveStepLevels),
+                              "\(chunk.name) \(record.header) holds only fiveStep levels: \(record.quality)")
             }
         }
         let preview = try Self.records(in: bundle.appendingPathComponent("preview.fastq"))
         XCTAssertEqual(preview.map(\.header), Self.chunks.flatMap(\.reads).map(\.header), "the preview lists the stored reads")
-        XCTAssertTrue(preview.allSatisfy { Set($0.quality).isSubset(of: Self.illumina4Levels) }, "the preview shows the binned scores")
+        XCTAssertTrue(preview.allSatisfy { Set($0.quality).isSubset(of: Self.fiveStepLevels) }, "the preview shows the binned scores")
 
         let bundleEnvelope = try readEnvelope(bundle.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         let binningSteps = bundleEnvelope.steps.filter { $0.toolName == "reformat.sh" }
         XCTAssertEqual(binningSteps.count, Self.chunks.count, "one binning step for each chunk")
         for step in binningSteps {
-            XCTAssertTrue(step.argv.contains("quantize=0,8,13,22,27,32,37"), "\(step.argv)")
+            XCTAssertTrue(step.argv.contains("quantize=0,2,7,12,17,22,27,32,37"), "\(step.argv)")
             XCTAssertEqual(step.exitStatus, 0)
             XCTAssertFalse(step.toolVersion.isEmpty)
             // C4-10 (BIO 4): BBTools writes a plain chunk as plain text through no bgzip, so only the step of a `.gz`
@@ -94,7 +95,7 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
             Set(Self.chunks.map { canonicalPath(bundle.appendingPathComponent("chunks").appendingPathComponent($0.name)) }),
             "each step writes the bundle's stored chunk"
         )
-        XCTAssertEqual(bundleEnvelope.options.resolvedDefaults["qualityBinning"], .string("illumina4"))
+        XCTAssertEqual(bundleEnvelope.options.resolvedDefaults["qualityBinning"], .string("fiveStep"))
         XCTAssertEqual(bundleEnvelope.options.resolvedDefaults["qualityBinningApplied"], .boolean(true))
         let runEnvelope = try readEnvelope(output.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         XCTAssertEqual(runEnvelope.options.resolvedDefaults["qualityBinningApplied"], .boolean(true))
@@ -106,7 +107,7 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
         try await Self.requireReformat()
         let source = try makeSource()
         let output = root.appendingPathComponent("project", isDirectory: true)
-        try await FastqImportONTSubcommand.parse([source.path, "--output", output.path, "--concurrency", "1"]).run()
+        try await FastqImportONTSubcommand.parse([source.path, "--output", output.path, "--concurrency", "1", "--quality-binning", "fiveStep"]).run()
         let ontChunk = output.appendingPathComponent("barcode01.lungfishfastq/chunks/\(Self.chunks[0].name)")
 
         let illuminaInput = root.appendingPathComponent("illumina-input.fastq")
@@ -119,7 +120,7 @@ final class FastqImportONTChunkBinningTests: XCTestCase {
                 outputDirectory: illuminaOutput,
                 threads: 1,
                 deleteOriginals: false,
-                qualityBinning: .illumina4,
+                qualityBinning: .fiveStep,
                 clumpingTool: .bbtools
             ),
             progress: { _, _ in }

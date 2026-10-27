@@ -36,8 +36,8 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         super.tearDown()
     }
 
-    /// An ONT import given no `--quality-binning` takes `illumina4`, and its record names the value in the command it
-    /// replays and in its options (lane C2-BINNING, owner answer Q4: every route, ONT too).
+    /// An ONT import given no `--quality-binning` keeps every score (`none`, BIO-BIN), and its record names the value in the command it
+    /// replays and in its options (lane C2-BINNING), so a replay runs the same whatever the default becomes.
     func testQualityBinningDefaultReachesTheONTRecord() async throws {
         let sourceURL = try makeONTSource()
         let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
@@ -46,11 +46,11 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         try await command.run()
 
         let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
-        let illumina4 = QualityBinningScheme.illumina4.rawValue
-        XCTAssertTrue(zip(envelope.argv, envelope.argv.dropFirst()).contains { $0 == "--quality-binning" && $1 == illumina4 },
+        let kept = QualityBinningScheme.none.rawValue
+        XCTAssertTrue(zip(envelope.argv, envelope.argv.dropFirst()).contains { $0 == "--quality-binning" && $1 == kept },
                       "\(envelope.argv)")
-        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(illumina4))
-        XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string(illumina4))
+        XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(kept))
+        XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinning"], .string(kept))
     }
 
     func testCLIImportONTDelegatesToWorkflowProvenance() async throws {
@@ -70,7 +70,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.argv, [
             CLICommandIdentity.executableName, "fastq", "import-ont",
-            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--quality-binning", "illumina4",
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--quality-binning", "none",
         ])
         XCTAssertEqual(envelope.options.defaults["includeUnclassified"], .boolean(false))
         XCTAssertEqual(envelope.options.defaults["concurrency"], .integer(4))
@@ -316,7 +316,7 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         let expected = [
             CLICommandIdentity.executableName, "fastq", "import-ont",
-            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--quality-binning", "illumina4", "--format", "json",
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1", "--quality-binning", "none", "--format", "json",
         ]
         XCTAssertEqual(envelope.argv, expected)
         XCTAssertEqual(envelope.reproducibleCommand, expected.map(shellEscape).joined(separator: " "))
