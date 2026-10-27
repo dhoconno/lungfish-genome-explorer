@@ -250,6 +250,79 @@ final class EsVirituParserTests: XCTestCase {
         XCTAssertTrue(assemblies.isEmpty)
     }
 
+    // MARK: - Detection Parser: Assembly measured over the whole genome (BIO-ASSEMBLY-RPKMF and -DEPTH)
+
+    /// A segmented virus's assembly row is measured over its whole genome, as EsViritu's own assembly summary measures
+    /// it. The assembly is 4000 bp. Two of its three segments have reads, and the 1000 bp segment with none has no row.
+    /// Segment 2 comes first, since EsViritu sorts segments as text.
+    func testSegmentedAssemblyIsMeasuredOverTheWholeAssembly() throws {
+        let text = """
+        sample_ID\tName\tdescription\tLength\tSegment\tAccession\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tRPKMF\tread_count\tcovered_bases\tmean_coverage\tavg_read_identity\tPi\tfiltered_reads_in_sample
+        SAMPLE01\tSegVirus\tsegment 2\t1000\t2\tSEG000002.1\tGCA_SEG.1\t4000\tViruses\tDuplornaviricota\tResentoviricetes\tReovirales\tSedoreoviridae\tRotavirus\tSegVirus species\tNA\t5.0\t5\t700\t0.75\t0.97\t0.0021\t1000000
+        SAMPLE01\tSegVirus\tsegment 1\t2000\t1\tSEG000001.1\tGCA_SEG.1\t4000\tViruses\tDuplornaviricota\tResentoviricetes\tReovirales\tSedoreoviridae\tRotavirus\tSegVirus species\tNA\t15.0\t30\t1900\t2.25\t0.96\t0.0018\t1000000
+        """
+
+        let assemblies = EsVirituDetectionParser.groupByAssembly(try EsVirituDetectionParser.parse(text: text))
+
+        XCTAssertEqual(assemblies.count, 1)
+        let a = assemblies[0]
+        XCTAssertEqual(a.contigs.map(\.segment), ["2", "1"])
+        XCTAssertEqual(a.totalReads, 35)
+        XCTAssertEqual(a.rpkmf, 8.75, accuracy: 1e-9) // 35 / 4.0 / 1.0; sum 20, first row 5, detected length 11.67
+        XCTAssertEqual(a.meanCoverage, 1.3125, accuracy: 1e-9) // (0.75 * 1000 + 2.25 * 2000) / 4000; read-weighted 2.0357
+        // Identity stays the mean over the assembly's reads: (0.97 * 5 + 0.96 * 30) / 35.
+        XCTAssertEqual(a.avgReadIdentity, 33.65 / 35, accuracy: 1e-9)
+    }
+
+    /// Each assembly of two real EsViritu runs gets the RPKMF that EsViritu wrote for it in its own
+    /// `*.detected_virus.assembly_summary.tsv`, to a relative 1e-12. The runs hold segmented viruses, influenza A with
+    /// two of its eight segments and High Island virus with one of its six, whose summary value is reads per kilobase of
+    /// the whole genome. Every other assembly is one unsegmented contig and keeps its own value. SRR35517702 is left out,
+    /// since its detection table was cut from another run than its summary (98,792 filtered reads against 2,504,179).
+    func testAssemblyRPKMFMatchesEsVirituAssemblySummary() throws {
+        let fixtures = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // LungfishIOTests
+            .deletingLastPathComponent()   // Tests
+            .appendingPathComponent("Fixtures/esviritu-mini", isDirectory: true)
+        let highIsland = "set:623b1b621891025bf29d225275a9f84652022ec9"
+        // The values the summary files hold for the segmented viruses, as EsViritu wrote them.
+        let named: [String: [String: Double]] = [
+            "SRR35517703": ["GCA_052872965.1": 0.06342787813337525, highIsland: 1.2199456439429743],
+            "SRR35517705": [highIsland: 1.5554337108286436],
+        ]
+        for sample in ["SRR35517703", "SRR35517705"] {
+            let folder = fixtures.appendingPathComponent(sample, isDirectory: true)
+            let info = folder.appendingPathComponent("\(sample).detected_virus.info.tsv")
+            let summary = folder.appendingPathComponent("\(sample).detected_virus.assembly_summary.tsv")
+            try XCTSkipUnless(
+                FileManager.default.fileExists(atPath: info.path) && FileManager.default.fileExists(atPath: summary.path),
+                "EsViritu fixture unavailable"
+            )
+
+            let lines = try String(contentsOf: summary, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
+            let header = try XCTUnwrap(lines.first, "\(sample) summary has no header").components(separatedBy: "\t")
+            let assemblyColumn = try XCTUnwrap(header.firstIndex(of: "Assembly"))
+            let rpkmfColumn = try XCTUnwrap(header.firstIndex(of: "RPKMF"))
+            var tool: [String: Double] = [:]
+            for line in lines.dropFirst() {
+                let fields = line.components(separatedBy: "\t")
+                tool[fields[assemblyColumn]] = try XCTUnwrap(Double(fields[rpkmfColumn]), "\(sample) summary line: \(line)")
+            }
+
+            let assemblies = EsVirituDetectionParser.groupByAssembly(try EsVirituDetectionParser.parse(url: info))
+            XCTAssertEqual(Set(assemblies.map(\.assembly)), Set(tool.keys), "\(sample): the run's assemblies")
+            for assembly in assemblies {
+                let expected = try XCTUnwrap(tool[assembly.assembly], "\(sample) \(assembly.assembly) in the summary")
+                XCTAssertEqual(assembly.rpkmf, expected, accuracy: expected * 1e-12, "\(sample) \(assembly.assembly)")
+            }
+            for (key, value) in named[sample] ?? [:] {
+                XCTAssertEqual(tool[key], value, "\(sample) \(key): the summary file's own value")
+                let assembly = try XCTUnwrap(assemblies.first { $0.assembly == key }, "\(sample) \(key) in the detections")
+                XCTAssertEqual(assembly.rpkmf, value, accuracy: value * 1e-12, "\(sample) \(key)")
+            }
+        }
+    }
+
     // MARK: - Detection Parser: Codable
 
     func testViralDetectionCodable() throws {

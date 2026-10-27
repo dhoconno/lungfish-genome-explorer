@@ -173,6 +173,82 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         )
     }
 
+    /// BIO-ASSEMBLY-RPKMF and -DEPTH. A batch opens through `configureFromDatabase`, which builds the numbers of each
+    /// virus row. The row the batch keeps (`allBatchRows`) and the assembly the table's virus row and the detail pane
+    /// read (`batchAssemblyLookup`, reached through the outline's first item) show one whole-genome measure of a
+    /// segmented virus. The virus is 4000 bp with two detected segments, 1000 bp with 5 reads at depth 0.75 and 2000 bp
+    /// with 30 reads at depth 2.25, in 1,000,000 filtered reads.
+    @MainActor func testBatchRowOfASegmentedVirusIsMeasuredOverItsWholeGenome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EsVirituSegmented-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try EsVirituDatabase.create(
+            at: root.appendingPathComponent("esviritu.sqlite"),
+            rows: [
+                Self.segmentRow(segment: "2", accession: "SEG2.1", length: 1_000, reads: 5, rpkmf: 5.0, depth: 0.75),
+                Self.segmentRow(segment: "1", accession: "SEG1.1", length: 2_000, reads: 30, rpkmf: 15.0, depth: 2.25),
+            ],
+            metadata: ["tool": "test"]
+        )
+        let controller = EsVirituResultViewController()
+        isolateLayouts(controller)
+        _ = controller.view
+        controller.configureFromDatabase(database, resultURL: root)
+
+        XCTAssertEqual(controller.allBatchRows.count, 1)
+        let row = try XCTUnwrap(controller.allBatchRows.first)
+        XCTAssertEqual(row.readCount, 35)
+        XCTAssertEqual(row.rpkmf, 8.75, accuracy: 1e-9) // 35 / 4.0 / 1.0; first row 5
+        XCTAssertEqual(row.coverageDepth, 1.3125, accuracy: 1e-9) // (0.75 * 1000 + 2.25 * 2000) / 4000; unweighted 1.5
+
+        let outline = controller.testDetectionTableView.testOutlineView
+        let item = try XCTUnwrap(
+            outline.item(atRow: 0) as? ViralDetectionTableView.ViralAssemblyItem, "the virus row is the first row"
+        )
+        XCTAssertEqual(row.rpkmf, item.assembly.rpkmf, "the batch row and the virus row share one RPKMF")
+        XCTAssertEqual(row.coverageDepth, item.assembly.meanCoverage, "the batch row and the virus row share one depth")
+        withExtendedLifetime(database) {}
+    }
+
+    private static func segmentRow(
+        segment: String,
+        accession: String,
+        length: Int,
+        reads: Int,
+        rpkmf: Double,
+        depth: Double
+    ) -> EsVirituDetectionRow {
+        EsVirituDetectionRow(
+            sample: "S1",
+            virusName: "Segmented virus",
+            description: nil,
+            contigLength: length,
+            segment: segment,
+            accession: accession,
+            assembly: "ASM_SEG",
+            assemblyLength: 4_000,
+            kingdom: nil,
+            phylum: nil,
+            tclass: nil,
+            torder: nil,
+            family: nil,
+            genus: nil,
+            species: nil,
+            subspecies: nil,
+            rpkmf: rpkmf,
+            readCount: reads,
+            uniqueReads: nil,
+            coveredBases: length / 2,
+            meanCoverage: depth,
+            avgReadIdentity: 0.97,
+            pi: nil,
+            filteredReadsInSample: 1_000_000,
+            bamPath: nil,
+            bamIndexPath: nil
+        )
+    }
+
     func testEsVirituLeafDoesNotDependOnMiniBAM() throws {
         let directory = URL(fileURLWithPath: "Sources/LungfishEsVirituUI")
         let sources = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)

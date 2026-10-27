@@ -18,17 +18,22 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         readCount: Int,
         meanCoverage: Double? = 2,
         avgReadIdentity: Double? = 0.9,
-        family: String? = "Picornaviridae"
+        family: String? = "Picornaviridae",
+        segment: String? = nil,
+        contigLength: Int = 1_000,
+        assemblyLength: Int = 2_000,
+        rpkmf: Double = 1.5,
+        filteredReads: Int = 10_000
     ) -> EsVirituDetectionRow {
         EsVirituDetectionRow(
             sample: sample,
             virusName: "virus \(assembly)",
             description: nil,
-            contigLength: 1_000,
-            segment: nil,
+            contigLength: contigLength,
+            segment: segment,
             accession: accession,
             assembly: assembly,
-            assemblyLength: 2_000,
+            assemblyLength: assemblyLength,
             kingdom: "Viruses",
             phylum: nil,
             tclass: nil,
@@ -37,14 +42,14 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
             genus: nil,
             species: "species \(assembly)",
             subspecies: nil,
-            rpkmf: 1.5,
+            rpkmf: rpkmf,
             readCount: readCount,
             uniqueReads: nil,
             coveredBases: 500,
             meanCoverage: meanCoverage,
             avgReadIdentity: avgReadIdentity,
             pi: nil,
-            filteredReadsInSample: 10_000,
+            filteredReadsInSample: filteredReads,
             bamPath: nil,
             bamIndexPath: nil
         )
@@ -113,6 +118,30 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         let expected = parts.reduce(0.0) { $0 + $1.identity * Double($1.reads) } / Double(total)
         let assembly = try XCTUnwrap(EsVirituDetectionExport.assembly(from: rows))
         XCTAssertEqual(assembly.avgReadIdentity, expected, "different identities keep the old arithmetic exactly")
+    }
+
+    /// BIO-ASSEMBLY-RPKMF and -DEPTH. The viewer's builder measures a segmented virus over its whole genome, as the
+    /// parser's builder does and as EsViritu's own assembly summary does. The assembly is 4000 bp. Its third segment of
+    /// 1000 bp has no reads and so no row. The first row is segment 2, since EsViritu sorts segments as text.
+    func testAssemblyFromRowsIsMeasuredOverTheWholeAssembly() throws {
+        let rows = [
+            Self.row(
+                sample: "sample-A", accession: "seg-2", assembly: "asm-1", readCount: 5, meanCoverage: 0.75,
+                segment: "2", contigLength: 1_000, assemblyLength: 4_000, rpkmf: 5.0, filteredReads: 1_000_000
+            ),
+            Self.row(
+                sample: "sample-A", accession: "seg-1", assembly: "asm-1", readCount: 30, meanCoverage: 2.25,
+                segment: "1", contigLength: 2_000, assemblyLength: 4_000, rpkmf: 15.0, filteredReads: 1_000_000
+            ),
+        ]
+        let workflow = try XCTUnwrap(EsVirituDetectionExport.assembly(from: rows))
+        XCTAssertEqual(workflow.rpkmf, 8.75, accuracy: 1e-9) // 35 / 4.0 / 1.0; sum 20, first row 5, detected length 11.67
+        XCTAssertEqual(workflow.meanCoverage, 1.3125, accuracy: 1e-9) // (0.75 * 1000 + 2.25 * 2000) / 4000; read-weighted 2.0357
+
+        // The parser's builder gives the same two numbers, so the two builders cannot part again.
+        let parsed = try XCTUnwrap(EsVirituDetectionParser.groupByAssembly(workflow.contigs).first)
+        XCTAssertEqual(workflow.rpkmf, parsed.rpkmf)
+        XCTAssertEqual(workflow.meanCoverage, parsed.meanCoverage)
     }
 
     func testBatchResultKeepsTheSelectedSamplesInTheViewersOrder() {
