@@ -166,6 +166,24 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(scoresWithoutHistogram), "40.0%")
     }
 
+    /// The overlay and the failure alert name the object ("the read statistics for NAME"), put the next step before the
+    /// reason, and end on the reason, since a raw reason can be long (UX review S1, S2).
+    func testTheMeasuringWordsGiveTheNextStepBeforeTheReason() throws {
+        XCTAssertEqual(
+            FASTQStatisticsDisplayRules.measuringWords(for: "BC01"), "Measuring the read statistics for BC01..."
+        )
+        XCTAssertEqual(
+            FASTQStatisticsDisplayRules.measuringProgressWords(for: "BC01", readsCounted: 20_000),
+            "Measuring the read statistics for BC01... 20000 reads counted"
+        )
+        let failure = FASTQStatisticsDisplayRules.measuringFailureWords(for: "BC01", reason: "disk full")
+        XCTAssertEqual(failure.title, "Could Not Measure the Read Statistics for BC01")
+        let nextStep = try XCTUnwrap(failure.detail.range(of: "try once more"))
+        let reason = try XCTUnwrap(failure.detail.range(of: "Reason:"))
+        XCTAssertLessThan(nextStep.lowerBound, reason.lowerBound, "the next step comes before the reason")
+        XCTAssertTrue(failure.detail.hasSuffix("Reason: disk full"), "the reason comes last")
+    }
+
     /// The display counts the reads of an older bundle with `DerivedFASTQStatisticsStore.measureReads`. No stub stands
     /// in for it here, so the record keeps the histogram a real count builds and the words show the real numbers
     /// (BIO review B1, part b).

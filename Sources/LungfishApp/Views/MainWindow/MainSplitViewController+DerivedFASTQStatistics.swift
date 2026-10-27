@@ -36,7 +36,7 @@ extension MainSplitViewController {
             return
         }
 
-        viewerController.showProgress("Measuring the reads of \(manifest.name)...")
+        viewerController.showProgress(FASTQStatisticsDisplayRules.measuringWords(for: manifest.name))
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
             let folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("lungfish-derived-statistics-\(UUID().uuidString)", isDirectory: true)
@@ -47,7 +47,17 @@ extension MainSplitViewController {
                     let reads = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
                         fromBundle: bundle, tempDirectory: folder, progress: nil
                     )
-                    return try await DerivedFASTQStatisticsStore.measureReads(at: reads)
+                    return try await DerivedFASTQStatisticsStore.measureReads(at: reads, progress: { count in
+                        guard !Task.isCancelled else { return }
+                        Task { @MainActor in
+                            guard isCurrentRequest() else { return }
+                            viewerController.showProgress(
+                                FASTQStatisticsDisplayRules.measuringProgressWords(
+                                    for: manifest.name, readsCounted: count
+                                )
+                            )
+                        }
+                    })
                 }
                 try Task.checkCancellation()
                 await MainActor.run {
@@ -66,10 +76,9 @@ extension MainSplitViewController {
                     viewerController.hideProgress()
                     mainSplitLogger.error("displayDerivedFASTQDataset: measuring failed - \(reason, privacy: .public)")
                     let alert = NSAlert()
-                    alert.messageText = "Could Not Measure the Reads of \(manifest.name)"
-                    alert.informativeText = "The statistics stored with this bundle were not counted from its reads, "
-                        + "and measuring the reads failed: \(reason) Check that the bundle it was made from is still "
-                        + "in the project, then select the bundle again."
+                    let words = FASTQStatisticsDisplayRules.measuringFailureWords(for: manifest.name, reason: reason)
+                    alert.messageText = words.title
+                    alert.informativeText = words.detail
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
                     alert.applyLungfishBranding()

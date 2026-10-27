@@ -50,4 +50,31 @@ enum FASTQStatisticsDisplayRules {
     static func q30Text(_ statistics: FASTQDatasetStatistics) -> String {
         hasNoQualityScores(statistics) ? noQualityScores : String(format: "%.1f%%", statistics.q30Percentage)
     }
+
+    // MARK: - Words while the reads of an older bundle are measured
+
+    /// The overlay line while the reads of a bundle are counted. The mapping words say "the alignment statistics for"
+    /// in the same shape, and the three periods match the overlay's other message, "Computing FASTQ statistics...".
+    static func measuringWords(for name: String) -> String {
+        "Measuring the read statistics for \(name)..."
+    }
+
+    /// The same line with the number of reads counted so far, once the count has started.
+    static func measuringProgressWords(for name: String, readsCounted: Int) -> String {
+        measuringWords(for: name) + " \(readsCounted) reads counted"
+    }
+
+    /// The alert when measuring fails. The next step comes first and the reason last, because a raw reason can be long
+    /// and would push the next step out of sight. The reads are copied to the system volume, so a full disk is as
+    /// likely as a missing root bundle.
+    static func measuringFailureWords(for name: String, reason: String) -> (title: String, detail: String) {
+        (
+            "Could Not Measure the Read Statistics for \(name)",
+            "Select another item, then select this bundle again to try once more. "
+                + "If it keeps failing, check that the bundle it was made from is still in the project "
+                + "and that the disk has room for a copy of its reads. "
+                + "The numbers stored with this bundle were never measured from its reads, so none are shown. "
+                + "Reason: \(reason)"
+        )
+    }
 }
