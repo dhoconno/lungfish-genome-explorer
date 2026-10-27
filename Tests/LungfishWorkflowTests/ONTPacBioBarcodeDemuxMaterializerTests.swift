@@ -157,12 +157,11 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
     /// (Phase 3.0 lane DEMUX-STATS). At the base it stored mean Q, Q20, Q30 and GC as 0 that nobody counted. The
     /// request is the one of the test above, and the reads carry scores that vary and bases that are not all one letter.
     ///
-    /// PARKED, not run, because its name does not start with `test`. This run still stops with "`.input-read-sets`
-    /// couldn't be removed" (NSCocoaErrorDomain 4, underlying ENOENT) after about 7 s, with the root and request of the
-    /// passing test above, before any statistic is compared (DEMUX-STATS fix round, BIO B2 and lane Finding 1, S2).
-    /// When the cause is fixed, rename it to `testExactSampleSheetBundleStoresTheCountedStatistics`, show it red with
-    /// `ONTPacBioBarcodeDemuxMaterializer.swift` storing mean Q, Q20, Q30 and GC as 0, and then green.
-    func s2ReproExactSampleSheetBundleStoresTheCountedStatistics() async throws {
+    /// The reads must be long enough and in the orientations the exact route assigns. The first form of this test
+    /// (four forward reads of 1,350 to 1,650 bases) assigned none. Its run stopped with "`.input-read-sets` couldn't be
+    /// removed" (NSCocoaErrorDomain 4, ENOENT) in a class run, and the same reads gave `noSampleOutputs` in a probe
+    /// (DEMUX-STATS fix report, Finding 2).
+    func testExactSampleSheetBundleStoresTheCountedStatistics() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -173,19 +172,15 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
 
         let forward = "CACATATCAGAGTGCG"  // BC1001
         let reverse = "CTATACATAGTGATGT"  // BC1021
-        var reads: [(id: String, sequence: String)] = []
-        for (index, insert) in [1_200, 1_300, 1_400, 1_500].enumerated() {
-            reads.append((
-                "read-\(index)",
-                DemultiplexStoredStatisticsTests.bases(60, seed: 60 + index) + forward
-                    + DemultiplexStoredStatisticsTests.bases(insert, seed: 70 + index) + reverseComplement(reverse)
-                    + DemultiplexStoredStatisticsTests.bases(60, seed: 80 + index)
-            ))
-        }
-        reads.append(("off-target", DemultiplexStoredStatisticsTests.bases(1_400, seed: 90)))
-        try DemultiplexStoredStatisticsTests.fastq(Array(reads.prefix(3)))
+        // Two assigned reads, one in each orientation, of 2,192 and 2,172 bases so that the median of an even count
+        // takes the lower length, and one off-target read. The bases are pseudo-random and the scores vary.
+        let bases = DemultiplexStoredStatisticsTests.bases
+        let forwardRead = bases(60, 1) + forward + bases(2_040, 2) + reverseComplement(reverse) + bases(60, 3)
+        let reverseRead = bases(50, 4) + reverseComplement(reverse) + bases(2_040, 5) + reverseComplement(forward)
+            + bases(50, 6)
+        try DemultiplexStoredStatisticsTests.fastq([("read-1", forwardRead), ("off-target", bases(2_192, 7))])
             .write(to: inputDirectory.appendingPathComponent("chunk-1.fastq"), atomically: true, encoding: .utf8)
-        try DemultiplexStoredStatisticsTests.fastq(Array(reads.dropFirst(3)))
+        try DemultiplexStoredStatisticsTests.fastq([("read-3", reverseRead)])
             .write(to: inputDirectory.appendingPathComponent("chunk-2.fastq"), atomically: true, encoding: .utf8)
         try """
         32286-001_DL46,BC1001,BC1021
@@ -204,7 +199,7 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
             progress: { _, _ in }
         )
 
-        XCTAssertEqual(result.assignedReadCount, 4)
+        XCTAssertEqual(result.assignedReadCount, 2)
         let bundle = try XCTUnwrap(result.outputBundleURLs.first)
         let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
