@@ -65,8 +65,12 @@ final class MappingContigFallbackTests: XCTestCase {
         XCTAssertGreaterThan(shown.meanIdentity, 0)
         XCTAssertTrue(
             viewport.testSummaryText.contains(
-                "Could not measure the alignment statistics for Original: samtools coverage failed for the fixture"
+                "Could not measure the alignment statistics for Original. Open the mapping again to try once more"
             ),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
+        XCTAssertTrue(
+            viewport.testSummaryText.contains("Reason: samtools coverage failed for the fixture"),
             "the summary bar reads: \(viewport.testSummaryText)"
         )
     }
@@ -239,8 +243,12 @@ final class MappingContigFallbackTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.count, 0)
         XCTAssertTrue(
             viewport.testSummaryText.contains(
-                "Could not measure the alignment statistics for Original: samtools coverage failed for the fixture"
+                "Could not measure the alignment statistics for Original. Open the mapping again to try once more"
             ),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
+        XCTAssertTrue(
+            viewport.testSummaryText.contains("Reason: samtools coverage failed for the fixture"),
             "the summary bar reads: \(viewport.testSummaryText)"
         )
     }
