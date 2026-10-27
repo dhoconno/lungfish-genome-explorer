@@ -14,6 +14,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishOperations
+@testable import LungfishWorkflow
 import LungfishTestSupport
 
 @MainActor
@@ -24,6 +25,12 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
 
     /// The first words of the sentence a drawer shows when a build ends with no index.
     private static let failureWordsStart = "The annotation table could not be built for"
+
+    /// The words a drawer shows only while an index is being built (WF-6, the walk of 2026-10-26).
+    private static let buildingWords = "Building annotation index"
+
+    /// The words of a drawer that no index will reach, in place of the building words.
+    private static let noIndexWords = "No annotations to show for this view."
 
     private var scratch: URL!
 
@@ -176,6 +183,146 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         viewer.clearBundleDisplay()
     }
 
+    // MARK: - WF-6, DRAWER-ROUTE: View > Show Drawer reaches the drawer the person sees
+
+    /// The walk's order of events. A reference bundle opens in the host's viewport, whose embedded viewer opens its
+    /// drawer and fills it. View > Show Drawer goes to the host, which must act on that drawer and must make no
+    /// drawer of its own over the viewport. At the base the host made a second, empty drawer whose count label read
+    /// "Building annotation index (scanning all chromosomes)..." for good.
+    func testShowDrawerThroughTheHostOnAReferenceViewportTogglesTheEmbeddedDrawer() throws {
+        let bundle = try makeBundle(named: "Viewport Fixture", annotationRows: 3, writesAnnotationDatabase: true)
+        let host = makeHost()
+        let viewport = try showViewport(
+            .directBundle(bundleURL: bundle, manifest: try BundleManifest.load(from: bundle)), in: host
+        )
+        let embedded = viewport.testEmbeddedViewerController
+        let embeddedDrawer = try XCTUnwrap(embedded.annotationDrawerView, "The embedded viewer makes its drawer.")
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen, "The embedded viewer opens its drawer for a bundle with annotations.")
+        XCTAssertFalse(embeddedDrawer.isLoading, "The embedded drawer has its index.")
+        XCTAssertEqual(embeddedDrawer.totalAnnotationCount, 3, "The embedded drawer lists the bundle's annotations.")
+
+        // View > Show Drawer: the window controller sends the toggle to the host viewer.
+        host.toggleAnnotationDrawer()
+        XCTAssertNil(host.annotationDrawerView, "Show Drawer made a second drawer in the host, over the viewport.")
+        XCTAssertFalse(host.isActiveDrawerOpen, "The first toggle hides the drawer that lists the annotations.")
+        XCTAssertFalse(embedded.isAnnotationDrawerOpen, "The first toggle left the embedded drawer open.")
+        XCTAssertFalse(
+            Self.readableText(in: host.view).contains(where: { $0.contains(Self.buildingWords) }),
+            "A drawer reads the building words while no index is building."
+        )
+
+        host.toggleAnnotationDrawer()
+        XCTAssertNil(host.annotationDrawerView, "The second toggle made a drawer in the host.")
+        XCTAssertTrue(host.isActiveDrawerOpen, "The second toggle shows the drawer again.")
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen, "The second toggle left the embedded drawer closed.")
+        XCTAssertFalse(embeddedDrawer.isLoading)
+        XCTAssertEqual(embeddedDrawer.totalAnnotationCount, 3, "The drawer holds its annotations after Hide and Show.")
+        let words = Self.readableText(in: host.view)
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.buildingWords) }),
+            "A drawer reads the building words while no index is building. The view tree reads \(words)."
+        )
+        XCTAssertTrue(words.contains("3 annotations"), "The drawer reads its count. The view tree reads \(words).")
+    }
+
+    /// A mapping result's reference with no annotation or variant track opens no drawer of its own. Show Drawer
+    /// makes the embedded viewer's drawer, which holds an index with no rows and reads "0 annotations", never the
+    /// building words over an empty table.
+    func testShowDrawerOnAMappingViewportWithNoAnnotationsReadsZero() async throws {
+        let bundle = try makeBundle(
+            named: "Mapping Fixture", annotationRows: 0, writesAnnotationDatabase: false, includesAnnotationTrack: false
+        )
+        let host = makeHost()
+        let viewport = try showViewport(try makeMappingInput(viewerBundle: bundle), in: host)
+        let loaded = await waitUntil(budget: Self.drawerBudget) { viewport.loadedViewerBundleURL != nil }
+        XCTAssertTrue(loaded, "The mapping viewport loads its reference bundle into the embedded viewer.")
+        let embedded = viewport.testEmbeddedViewerController
+        XCTAssertNil(embedded.annotationDrawerView, "A reference with no annotation or variant track opens no drawer.")
+
+        host.toggleAnnotationDrawer()
+        XCTAssertNil(host.annotationDrawerView, "Show Drawer made an empty drawer in the host, over the viewport.")
+        let drawer = try XCTUnwrap(embedded.annotationDrawerView, "Show Drawer made no drawer in the embedded viewer.")
+        XCTAssertTrue(host.isActiveDrawerOpen, "The menu and the toolbar button read the drawer the person sees.")
+        XCTAssertFalse(drawer.isLoading, "No index is building, so the drawer is not loading.")
+        let words = Self.readableText(in: host.view)
+        XCTAssertTrue(words.contains("0 annotations"), "The drawer reads its count. The view tree reads \(words).")
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.buildingWords) }),
+            "A drawer reads the building words while no index is building. The view tree reads \(words)."
+        )
+    }
+
+    /// A drawer made while no index exists, and none is building, says so in words. The bundle-display route in a
+    /// viewer with no window controller builds no index, and its build is never waiting on a later turn, so the
+    /// drawer must not read the building words for good.
+    func testADrawerMadeWithNoIndexShowsTheNoIndexWords() throws {
+        let bundle = try makeBundle(named: "No Index Fixture", annotationRows: 3, writesAnnotationDatabase: true)
+        let viewer = try showBundle(at: bundle)
+        XCTAssertNil(viewer.annotationSearchIndex, "Precondition: no route built an index.")
+        let drawer = try XCTUnwrap(viewer.annotationDrawerView, "Opening a bundle with annotations makes its drawer.")
+
+        XCTAssertFalse(drawer.isLoading, "No index is building, so the drawer is not loading.")
+        let words = Self.readableText(in: drawer)
+        XCTAssertFalse(
+            words.contains(where: { $0.contains(Self.buildingWords) }),
+            "A drawer reads the building words while no index is building. The drawer reads \(words)."
+        )
+        XCTAssertTrue(
+            words.contains(where: { $0.contains(Self.noIndexWords) }),
+            "A drawer that no index will reach says so. The drawer reads \(words)."
+        )
+
+        viewer.clearBundleDisplay()
+    }
+
+    /// Make Drawer Taller and the project-change close act on the drawer the person sees, never on a drawer the host
+    /// makes over the viewport.
+    func testMakeDrawerTallerAndCloseDrawerActOnTheEmbeddedDrawer() throws {
+        let bundle = try makeBundle(named: "Resize Fixture", annotationRows: 3, writesAnnotationDatabase: true)
+        let host = makeHost()
+        let viewport = try showViewport(
+            .directBundle(bundleURL: bundle, manifest: try BundleManifest.load(from: bundle)), in: host
+        )
+        let embedded = viewport.testEmbeddedViewerController
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen, "Precondition: the embedded drawer is open.")
+
+        host.adjustAnnotationDrawerHeight(by: 40)
+        XCTAssertNil(host.annotationDrawerView, "Make Drawer Taller made a drawer in the host, over the viewport.")
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen, "Make Drawer Taller closed the embedded drawer.")
+
+        host.closeAnnotationDrawer()
+        XCTAssertFalse(embedded.isAnnotationDrawerOpen, "Closing the drawer left the embedded drawer open.")
+        XCTAssertNil(host.annotationDrawerView, "Closing the drawer made a drawer in the host.")
+    }
+
+    /// The menu item and the toolbar button read the open state of the drawer the person sees, so Hide Drawer and
+    /// Show Drawer follow the embedded drawer through the window controller's own validation.
+    func testDrawerMenuTitleFollowsTheEmbeddedDrawer() throws {
+        let bundle = try makeBundle(named: "Menu Fixture", annotationRows: 3, writesAnnotationDatabase: true)
+        let windowController = MainWindowController()
+        _ = windowController.window
+        let host = try XCTUnwrap(windowController.mainSplitViewController.viewerController)
+        _ = host.view
+        let viewport = try showViewport(
+            .directBundle(bundleURL: bundle, manifest: try BundleManifest.load(from: bundle)), in: host
+        )
+        let embedded = viewport.testEmbeddedViewerController
+        let item = NSMenuItem(
+            title: "Show Drawer", action: #selector(MainWindowController.toggleAnnotationDrawer(_:)), keyEquivalent: ""
+        )
+
+        XCTAssertTrue(windowController.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Hide Drawer", "The drawer that lists the annotations is open, so the menu offers Hide.")
+        windowController.toggleAnnotationDrawer(nil)
+        XCTAssertTrue(windowController.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Show Drawer", "The drawer is hidden, so the menu offers Show.")
+        XCTAssertFalse(embedded.isAnnotationDrawerOpen)
+        windowController.toggleAnnotationDrawer(nil)
+        XCTAssertTrue(windowController.validateMenuItem(item))
+        XCTAssertEqual(item.title, "Hide Drawer", "The drawer is shown again, so the menu offers Hide.")
+        XCTAssertTrue(embedded.isAnnotationDrawerOpen)
+    }
+
     // MARK: - Assertions
 
     private func assertDrawerSays(
@@ -231,11 +378,57 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
         return viewer
     }
 
+    /// The host viewer a window shows, in a viewer of a real size and with no display installed.
+    private func makeHost() -> ViewerViewController {
+        let host = ViewerViewController()
+        _ = host.view
+        host.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
+        return host
+    }
+
+    /// Installs the reference viewport on the host the way the sidebar route does and returns it.
+    private func showViewport(
+        _ input: ReferenceBundleViewportInput, in host: ViewerViewController
+    ) throws -> ReferenceBundleViewportController {
+        try host.displayReferenceBundleViewport(input)
+        host.view.layoutSubtreeIfNeeded()
+        return try XCTUnwrap(host.referenceBundleViewportController, "The host installs the reference viewport.")
+    }
+
+    /// A mapping result whose viewer bundle is `viewerBundle`, with one contig named after the bundle's chromosome
+    /// so that the viewport selects it and loads the bundle into its embedded viewer.
+    private func makeMappingInput(viewerBundle: URL) throws -> ReferenceBundleViewportInput {
+        let resultDirectory = scratch.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bam = resultDirectory.appendingPathComponent("sample.sorted.bam")
+        let bai = resultDirectory.appendingPathComponent("sample.sorted.bam.bai")
+        try Data("bam".utf8).write(to: bam)
+        try Data("bai".utf8).write(to: bai)
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: viewerBundle,
+            bamURL: bam,
+            baiURL: bai,
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: [MappingContigSummary(
+                contigName: "chr1", contigLength: 3_000, mappedReads: 9, mappedReadPercent: 90, meanDepth: 1,
+                coverageBreadth: 50, medianMAPQ: 60, meanIdentity: 99
+            )]
+        )
+        return .mappingResult(result: result, resultDirectoryURL: resultDirectory, provenance: nil)
+    }
+
     /// A one-chromosome bundle with a `genes` annotation track. `annotationRows` BED rows go into the database
     /// when `writesAnnotationDatabase` is true, and when it is false the manifest still names the database file
-    /// and the file is not there.
+    /// and the file is not there. With `includesAnnotationTrack` false the manifest names no track at all.
     private func makeBundle(
-        named name: String, annotationRows: Int, writesAnnotationDatabase: Bool, folder: String = "bundles"
+        named name: String, annotationRows: Int, writesAnnotationDatabase: Bool, folder: String = "bundles",
+        includesAnnotationTrack: Bool = true
     ) throws -> URL {
         let fileManager = FileManager.default
         let bundle = scratch
@@ -265,9 +458,9 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
                 path: "genome/sequence.fa", indexPath: "genome/sequence.fa.fai", totalLength: 3000,
                 chromosomes: [ChromosomeInfo(name: "chr1", length: 3000, offset: 6, lineBases: 60, lineWidth: 61)]
             ),
-            annotations: [AnnotationTrackInfo(
+            annotations: includesAnnotationTrack ? [AnnotationTrackInfo(
                 id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db"
-            )],
+            )] : [],
             variants: [],
             tracks: [],
             recordStore: nil
