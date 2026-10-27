@@ -138,7 +138,7 @@ final class AnnotationGFF3ExportRowTests: XCTestCase {
         ])])
         let column9 = try await exportedColumnNine(of: bundle, in: folder)
         let attributes = column9.map { AnnotationDatabase.parseAttributes($0) }
-        XCTAssertTrue(column9.contains { $0.hasPrefix("ID=gene-a;") }, "the gene keeps its stored ID\n\(column9)")
+        XCTAssertTrue(column9.contains { $0.hasPrefix("ID=gene-a") && !$0.contains("Name=") }, "the gene keeps its stored ID and, as its name is only that ID, gets no Name\n\(column9)")
         let defined = Set(attributes.compactMap { $0["ID"] })
         for (index, pairs) in attributes.enumerated() {
             for part in (pairs["Parent"] ?? "").split(separator: ",") {
