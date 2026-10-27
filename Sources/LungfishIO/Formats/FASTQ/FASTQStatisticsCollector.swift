@@ -253,6 +253,37 @@ public final class FASTQStatisticsCollector {
     /// with it (Phase 3.0 lane DEMUX-STATS). The error-probability sum is added as two sums, so mean Q can differ
     /// from one pass in the last bits.
     public func merge(_ other: FASTQStatisticsCollector) {
+        merge(other.accumulation())
+    }
+
+    /// The sums of a collector as a value. A collector is a class that one task uses at a time, so it cannot move
+    /// between tasks or leave a lock, and these sums can (Phase 3.0 lane DEMUX-STATS).
+    public struct Accumulation: Sendable {
+        fileprivate var readCount: Int
+        fileprivate var baseCount: Int64
+        fileprivate var gcCount: Int64
+        fileprivate var q20Count: Int64
+        fileprivate var q30Count: Int64
+        fileprivate var errorProbabilitySum: Double
+        fileprivate var minReadLength: Int
+        fileprivate var maxReadLength: Int
+        fileprivate var lengthHistogram: [Int: Int]
+        fileprivate var qualityHistogram: [UInt8: Int]
+        fileprivate var positionQualityHistograms: [[Int]]
+    }
+
+    /// The sums this collector holds now.
+    public func accumulation() -> Accumulation {
+        Accumulation(
+            readCount: readCount, baseCount: baseCount, gcCount: gcCount, q20Count: q20Count, q30Count: q30Count,
+            errorProbabilitySum: errorProbabilitySum, minReadLength: minReadLength, maxReadLength: maxReadLength,
+            lengthHistogram: lengthHistogram, qualityHistogram: qualityHistogram,
+            positionQualityHistograms: positionQualityHistograms
+        )
+    }
+
+    /// Adds the sums of another collector, in the same order as `merge(_:)` of that collector.
+    public func merge(_ other: Accumulation) {
         readCount += other.readCount
         baseCount += other.baseCount
         gcCount += other.gcCount
