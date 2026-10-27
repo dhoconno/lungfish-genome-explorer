@@ -78,6 +78,27 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         XCTAssertNil(EsVirituDetectionExport.assembly(from: []))
     }
 
+    /// Walk row 18 (WO-2). An assembly of one contig reports that contig's identity to the last digit. Summing identity
+    /// times reads and dividing by the reads gave 0.9969929135297526 for a contig at 0.9969929135297527 with 5 reads, so
+    /// an assembly row copied one digit away from the export of its contig.
+    func testAnAssemblyOfOneContigKeepsThatContigsIdentityToTheLastDigit() throws {
+        let identity = 0.9969929135297527
+        for reads in [5, 10, 20, 41, 79] {
+            let row = Self.row(
+                sample: "sample-A", accession: "acc-1", assembly: "asm-1", readCount: reads, avgReadIdentity: identity
+            )
+            let assembly = try XCTUnwrap(EsVirituDetectionExport.assembly(from: [row]))
+            XCTAssertEqual(assembly.avgReadIdentity, identity, "one contig with \(reads) reads")
+        }
+        // Contigs of one identity weigh to that identity, whatever their reads.
+        let group = [10, 3, 7].enumerated().map { index, reads in
+            Self.row(
+                sample: "sample-A", accession: "acc-\(index)", assembly: "asm-1", readCount: reads, avgReadIdentity: identity
+            )
+        }
+        XCTAssertEqual(try XCTUnwrap(EsVirituDetectionExport.assembly(from: group)).avgReadIdentity, identity, "three contigs")
+    }
+
     func testBatchResultKeepsTheSelectedSamplesInTheViewersOrder() {
         let rows = [
             Self.row(sample: "sample-B", accession: "b-1", assembly: "asm-9", readCount: 20),

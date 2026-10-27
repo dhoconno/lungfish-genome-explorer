@@ -818,4 +818,18 @@ final class EsVirituParserTests: XCTestCase {
         let detections = try EsVirituDetectionParser.parse(url: fixture)
         XCTAssertFalse(detections.isEmpty, "Fixture should yield at least one detection")
     }
+
+    // MARK: - Assembly identity of one contig (walk WO-2)
+
+    /// An assembly of one contig reports that contig's identity to the last digit. Summing identity times reads and
+    /// dividing by the reads gave 0.9969929135297526 for a contig at 0.9969929135297527 with 5 reads.
+    func testAnAssemblyOfOneContigKeepsThatContigsIdentityToTheLastDigit() throws {
+        let text = "SAMPLE01\tRVFV\tseg L\t6404\tL\tKX944809.1\tGCF_000856585.1\t11979\tViruses\tNegarnaviricota\tEllioviricetes\tBunyavirales\tPhenuiviridae\tPhlebovirus\tRVFV species\tNA\t80.0\t5\t6200\t12.5\t0.9969929135297527\t0.0021\t1000000"
+        let detections = try EsVirituDetectionParser.parse(text: text)
+        XCTAssertEqual(detections[0].avgReadIdentity, 0.9969929135297527)
+
+        let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
+
+        XCTAssertEqual(assemblies[0].avgReadIdentity, detections[0].avgReadIdentity)
+    }
 }

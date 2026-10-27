@@ -41,9 +41,13 @@ final class ViralDetectionTableIdentityTests: XCTestCase {
     /// Shows one two-segment virus whose assembly and both segments carry `identity`, with the outline expanded, so
     /// row 0 is the assembly and rows 1 and 2 are its segments.
     private func showTable(identity: Double) {
+        showTable(assembly: Self.assembly(identity: identity))
+    }
+
+    /// Shows `assembly` as the one virus of the result, with the outline expanded.
+    private func showTable(assembly: ViralAssembly) {
         window?.orderOut(nil)
         let layouts = makeTestDefaultsSuite(prefix: "ViralDetectionTableIdentityTests")
-        let assembly = Self.assembly(identity: identity)
         table = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 760, height: 220))
         table.metadataColumns.userDefaults = layouts.defaults
         table.pasteboard = pasteboard
@@ -82,6 +86,17 @@ final class ViralDetectionTableIdentityTests: XCTestCase {
                 detection(accession: "NC_IDENTITY1", segment: "S1", identity: identity),
                 detection(accession: "NC_IDENTITY2", segment: "S2", identity: identity),
             ]
+        )
+    }
+
+    /// The batch database row of the one contig of a virus, as the viewer and the export both read it.
+    private static func databaseRow(readCount: Int, identity: Double) -> EsVirituDetectionRow {
+        EsVirituDetectionRow(
+            sample: "S1", virusName: "Identity virus", description: nil, contigLength: 100, segment: nil,
+            accession: "NC_IDENTITY1", assembly: "GCF_IDENTITY", assemblyLength: 200, kingdom: "Viruses",
+            phylum: nil, tclass: nil, torder: nil, family: "Testviridae", genus: nil, species: "Identity virus",
+            subspecies: nil, rpkmf: 10, readCount: readCount, uniqueReads: nil, coveredBases: 100, meanCoverage: 1,
+            avgReadIdentity: identity, pi: nil, filteredReadsInSample: 100_000, bamPath: nil, bamIndexPath: nil
         )
     }
 
@@ -162,5 +177,36 @@ final class ViralDetectionTableIdentityTests: XCTestCase {
                 )
             }
         }
+    }
+
+    /// Walk row 18 (WO-2). A virus of one contig has an assembly row in the table and one contig in the export. Copy
+    /// Row as TSV wrote 0.9969929135297526 and Export as CSV wrote 0.9969929135297527 for that one Identity, since the
+    /// assembly row's number came from weighing its one contig by its reads. Both write the one text of one value.
+    func testCopyRowAndExportWriteTheSameIdentityForAVirusOfOneContig() throws {
+        let identity = 0.9969929135297527
+        let assembly = try XCTUnwrap(
+            EsVirituDetectionExport.assembly(from: [Self.databaseRow(readCount: 5, identity: identity)])
+        )
+        showTable(assembly: assembly)
+
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        pasteboard.clearContents()
+        table.copySelectedRowAsTSV(nil)
+        let copied = try XCTUnwrap(pasteboard.string(forType: .string), "the assembly row copy")
+        let copiedFields = copied.components(separatedBy: "\t")
+        XCTAssertEqual(copiedFields.count, 11, copied)
+
+        let exported = EsVirituDetectionExport.buildDelimitedExport(
+            result: Self.result(of: assembly), separator: "\t", metadataHeaders: [], metadataValuesBySample: [:]
+        )
+        let lines = exported.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 2, "a header and the one contig")
+        let header = (lines.first ?? "").components(separatedBy: "\t")
+        let identityField = try XCTUnwrap(header.firstIndex(of: "Identity"), "the export header holds Identity")
+        let exportedFields = (lines.last ?? "").components(separatedBy: "\t")
+        XCTAssertEqual(exportedFields.count, header.count)
+
+        XCTAssertEqual(exportedFields[identityField], "0.9969929135297527", "the export writes the contig's value")
+        XCTAssertEqual(copiedFields[8], exportedFields[identityField], "Copy Row as TSV writes the same text")
     }
 }
