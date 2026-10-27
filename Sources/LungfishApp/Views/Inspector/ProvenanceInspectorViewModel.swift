@@ -983,25 +983,7 @@ final class ProvenanceInspectorViewModel {
     private func buildCopyableText() -> String {
         var sections: [String] = []
 
-        sections.append(
-            labeledLines(
-                title: "Run Summary",
-                rows: [
-                    ("Workflow", summary.workflowName),
-                    ("Workflow Version", summary.workflowVersion),
-                    ("Tool", toolText),
-                    ("Step Tools", stepToolsText ?? ""),
-                    ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? (summary.createdAtNotRecorded ? "Not recorded" : "")),
-                    ("Run Status", summary.runStatus?.label ?? ""),
-                    ("Exit Status", summary.exitStatus.map(String.init) ?? (summary.exitStatusNotRecorded ? "Not recorded" : "")),
-                    ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? (summary.wallTimeNotRecorded ? "Not recorded" : "")),
-                    ("Steps", "\(summary.stepCount)"),
-                    ("Inputs", "\(summary.inputCount)"),
-                    ("Outputs", "\(summary.outputCount)"),
-                    ("Sidecar", summary.sidecarDisplayPath ?? summary.sidecarPath ?? ""),
-                ]
-            )
-        )
+        sections.append(labeledLines(title: "Run Summary", rows: runSummaryCopyRows))
 
         if !warnings.isEmpty {
             sections.append(

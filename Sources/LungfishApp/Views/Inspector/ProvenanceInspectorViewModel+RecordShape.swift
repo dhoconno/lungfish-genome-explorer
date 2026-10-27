@@ -103,6 +103,9 @@ extension ProvenanceInspectorViewModel {
     /// A date the reader invented, with the file's date or 1970, is not a fact the record holds, so
     /// the row reads Not recorded. So does an exit status or wall time the record lacks. The shape
     /// decides whether the record is Incomplete and never whether a row shows.
+    ///
+    /// It also notes the Linux run an adopted record holds, so the summary can read that run's time beside the adopt's
+    /// (`ProvenanceLinuxRun`).
     func applyReading(_ reading: ProvenanceEnvelopeReader.Reading?, to envelope: ProvenanceEnvelope) {
         if reading?.createdAtWasInvented == true {
             summary.createdAt = nil
@@ -110,5 +113,6 @@ extension ProvenanceInspectorViewModel {
         }
         summary.exitStatusNotRecorded = envelope.exitStatus == nil
         summary.wallTimeNotRecorded = envelope.wallTimeSeconds == nil
+        summary.linuxRun = ProvenanceLinuxRun(envelope)
     }
 }

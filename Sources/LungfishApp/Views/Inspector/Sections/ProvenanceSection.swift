@@ -53,74 +53,78 @@ struct ProvenanceSection: View {
                 .accessibilityIdentifier("provenance-source-picker")
             }
 
-            if shouldShowSearch {
-                TextField("Filter provenance", text: $viewModel.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(LungfishInspectorStyle.controlFont)
-                    .accessibilityIdentifier("provenance-filter-field")
-            }
+            // Until the record has been read, the tab says only that it is loading. The cleared summary reads
+            // "No provenance required" and "No Provenance", which are false of a record not yet read (WO-8).
+            if !viewModel.isLoading {
+                if shouldShowSearch {
+                    TextField("Filter provenance", text: $viewModel.searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(LungfishInspectorStyle.controlFont)
+                        .accessibilityIdentifier("provenance-filter-field")
+                }
 
-            DisclosureGroup("Run Summary", isExpanded: $isRunSummaryExpanded) {
-                runSummaryContent
-                    .padding(.top, 4)
-            }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-run-summary")
-
-            if !viewModel.warnings.isEmpty {
-                DisclosureGroup("Warnings", isExpanded: $isWarningsExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(viewModel.warnings) { warning in
-                            warningRow(warning)
-                        }
-                    }
-                    .padding(.top, 4)
+                DisclosureGroup("Run Summary", isExpanded: $isRunSummaryExpanded) {
+                    runSummaryContent
+                        .padding(.top, 4)
                 }
                 .font(LungfishInspectorStyle.controlFont.weight(.semibold))
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("provenance-warnings")
-            }
+                .accessibilityIdentifier("provenance-run-summary")
 
-            DisclosureGroup("Lineage", isExpanded: $isLineageExpanded) {
-                lineageContent
-                    .padding(.top, 4)
-            }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-step-list")
+                if !viewModel.warnings.isEmpty {
+                    DisclosureGroup("Warnings", isExpanded: $isWarningsExpanded) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(viewModel.warnings) { warning in
+                                warningRow(warning)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                    .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("provenance-warnings")
+                }
 
-            DisclosureGroup("Files & Outputs", isExpanded: $isFilesExpanded) {
-                filesContent
-                    .padding(.top, 4)
-            }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-files")
+                DisclosureGroup("Lineage", isExpanded: $isLineageExpanded) {
+                    lineageContent
+                        .padding(.top, 4)
+                }
+                .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("provenance-step-list")
 
-            DisclosureGroup("Invocation & Options", isExpanded: $isOptionsExpanded) {
-                optionsContent
-                    .padding(.top, 4)
-            }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-options")
+                DisclosureGroup("Files & Outputs", isExpanded: $isFilesExpanded) {
+                    filesContent
+                        .padding(.top, 4)
+                }
+                .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("provenance-files")
 
-            DisclosureGroup("Runtime", isExpanded: $isRuntimeExpanded) {
-                runtimeContent
-                    .padding(.top, 4)
-            }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-runtime")
+                DisclosureGroup("Invocation & Options", isExpanded: $isOptionsExpanded) {
+                    optionsContent
+                        .padding(.top, 4)
+                }
+                .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("provenance-options")
 
-            DisclosureGroup("Raw JSON", isExpanded: $isRawJSONExpanded) {
-                rawJSONContent
-                    .padding(.top, 4)
+                DisclosureGroup("Runtime", isExpanded: $isRuntimeExpanded) {
+                    runtimeContent
+                        .padding(.top, 4)
+                }
+                .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("provenance-runtime")
+
+                DisclosureGroup("Raw JSON", isExpanded: $isRawJSONExpanded) {
+                    rawJSONContent
+                        .padding(.top, 4)
+                }
+                .font(LungfishInspectorStyle.controlFont.weight(.semibold))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("provenance-raw-json")
             }
-            .font(LungfishInspectorStyle.controlFont.weight(.semibold))
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("provenance-raw-json")
         }
         // A plain container passes an accessibility identifier on to every
         // descendant; `.contain` makes the stack its own element, so the
@@ -145,8 +149,6 @@ struct ProvenanceSection: View {
                 }
             }
 
-            statusLabel
-
             if viewModel.isLoading {
                 HStack(spacing: 6) {
                     ProgressView()
@@ -156,6 +158,8 @@ struct ProvenanceSection: View {
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityIdentifier("provenance-loading-indicator")
+            } else {
+                statusLabel
             }
         }
     }
@@ -233,11 +237,7 @@ struct ProvenanceSection: View {
             } else if viewModel.summary.exitStatusNotRecorded {
                 summaryRow("Exit Status", value: "Not recorded")
             }
-            if let wallTime = viewModel.summary.wallTimeSeconds {
-                summaryRow("Wall Time", value: formatDuration(wallTime))
-            } else if viewModel.summary.wallTimeNotRecorded {
-                summaryRow("Wall Time", value: "Not recorded")
-            }
+            ForEach(viewModel.summary.timeRows(format: formatDuration)) { summaryRow($0.label, value: $0.value) }
             summaryRow("Steps", value: "\(viewModel.summary.stepCount)")
             summaryRow("Inputs", value: "\(viewModel.summary.inputCount)")
             summaryRow("Outputs", value: "\(viewModel.summary.outputCount)")

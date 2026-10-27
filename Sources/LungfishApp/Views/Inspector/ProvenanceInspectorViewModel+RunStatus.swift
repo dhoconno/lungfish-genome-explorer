@@ -22,6 +22,9 @@ struct ProvenanceRunSummary: Equatable {
     var runStatus: ProvenanceRunStatusDisplay?
     var exitStatus: Int?
     var wallTimeSeconds: TimeInterval?
+    /// The Linux run an adopted record holds, whose time the summary reads beside the adopt's. Nil for a record that is
+    /// not an adopted run, which reads Wall Time as it always did.
+    var linuxRun: ProvenanceLinuxRun?
     /// A date the reader invented, or an exit status or wall time the record lacks, reads Not
     /// recorded in its row instead of the row being left out.
     var createdAtNotRecorded = false
