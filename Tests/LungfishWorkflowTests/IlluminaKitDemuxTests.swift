@@ -76,6 +76,36 @@ final class IlluminaKitDemuxTests: XCTestCase {
         XCTAssertTrue(shared.isEmpty, "\(shared.count) lines are shared by two pairs, for example \(shared.keys.sorted().first ?? "")")
     }
 
+    // MARK: - The context the barcode search uses
+
+    func testDemuxAdapterContextIsBareForIlluminaFamilyKitsAndLeavesTheTrimContextAlone() {
+        func config(_ kit: BarcodeKitDefinition, adapterContext: (any PlatformAdapterContext)? = nil) -> DemultiplexConfig {
+            DemultiplexConfig(
+                inputURL: URL(fileURLWithPath: "/tmp/test.fastq"),
+                barcodeKit: kit,
+                outputDirectory: URL(fileURLWithPath: "/tmp/output"),
+                adapterContext: adapterContext
+            )
+        }
+        let illumina: [BarcodeKitDefinition] = [
+            BarcodeKitRegistry.truseqSingleA, BarcodeKitRegistry.truseqSingleB, BarcodeKitRegistry.truseqHTDual,
+            BarcodeKitRegistry.nexteraXTv2, BarcodeKitRegistry.idtUDIndexes,
+        ]
+        for kit in illumina {
+            XCTAssertTrue(config(kit).demuxAdapterContext is BareAdapterContext, "\(kit.id) is searched with its bare index")
+        }
+        // Read-through trimming keeps the contexts it relies on.
+        XCTAssertTrue(config(BarcodeKitRegistry.truseqSingleA).resolvedAdapterContext is IlluminaTruSeqAdapterContext)
+        XCTAssertTrue(config(BarcodeKitRegistry.nexteraXTv2).resolvedAdapterContext is IlluminaNexteraAdapterContext)
+        // A kit whose barcode sits in the read keeps the context of its kit, and an override wins.
+        XCTAssertTrue(config(BarcodeKitRegistry.ontNativeBarcoding24).demuxAdapterContext is ONTNativeAdapterContext)
+        XCTAssertTrue(config(BarcodeKitRegistry.fluidigmAccessArray).demuxAdapterContext is BareAdapterContext)
+        XCTAssertTrue(
+            config(BarcodeKitRegistry.truseqSingleA, adapterContext: IlluminaTruSeqAdapterContext())
+                .demuxAdapterContext is IlluminaTruSeqAdapterContext
+        )
+    }
+
     // MARK: - The adapter file carries each barcode
 
     func testTruSeqSingleIndexAdapterFASTACarriesEachBareIndex() async throws {

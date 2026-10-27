@@ -116,6 +116,13 @@ public struct DemultiplexConfig: Sendable {
         adapterContext ?? barcodeKit.adapterContext
     }
 
+    /// The context the barcode search uses. Illumina-family kits give no 5' barcode spec, because their contexts
+    /// trim read-through, so the search uses the bare index as a custom kit does.
+    public var demuxAdapterContext: any PlatformAdapterContext {
+        if let adapterContext { return adapterContext }
+        return barcodeKit.platform.indexesInSeparateReads ? BareAdapterContext() : barcodeKit.adapterContext
+    }
+
     /// Effective error rate accounting for cross-platform scenarios.
     ///
     /// When the source platform differs from the kit's platform (e.g., PacBio kit on ONT reads),
