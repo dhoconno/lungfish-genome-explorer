@@ -111,7 +111,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertEqual(recipe.name, "Illumina Amplicon Merge")
         XCTAssertEqual(recipe.platforms, [.illumina])
         XCTAssertEqual(recipe.requiredInput, .paired)
-        XCTAssertEqual(recipe.qualityBinning, .illumina4)
+        XCTAssertEqual(recipe.qualityBinning, .fiveStep, "the recipe keeps every Q10, Q20 and Q30 count (BIO-BIN)")
         XCTAssertEqual(recipe.steps.map(\.type), ["fastp-merge"])
         XCTAssertEqual(recipe.steps.first?.params?["keepUnmerged"]?.boolValue, false)
     }

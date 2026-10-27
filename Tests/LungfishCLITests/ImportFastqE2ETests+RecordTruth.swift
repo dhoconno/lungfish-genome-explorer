@@ -198,8 +198,8 @@ extension ImportFastqE2ETests {
 
     // MARK: - M1, true recorded defaults
 
-    /// A recipe whose file declares `illumina4` binning, run with neither `--quality-binning` nor `--threads`, runs
-    /// the recipe's binning on every core (lane C2-BINNING). The record names the recipe as the binning's source, the
+    /// A recipe whose file declares `fiveStep` binning (BIO-BIN), run with neither `--quality-binning` nor `--threads`,
+    /// runs the recipe's binning on every core (lane C2-BINNING). The record names the recipe as the binning's source, the
     /// command's own Illumina default as `fiveStep` and the thread default as this host's core count, not 4.
     func testRecordedDefaultsAreTheValuesTheCommandRanWithout() async throws {
         try await recordTruthRequire(.fastp, .clumpify)
@@ -211,9 +211,9 @@ extension ImportFastqE2ETests {
         ])
         let cores = ProcessInfo.processInfo.activeProcessorCount
 
-        XCTAssertEqual(metadata?.ingestion?.qualityBinning, QualityBinningScheme.illumina4.rawValue,
+        XCTAssertEqual(metadata?.ingestion?.qualityBinning, QualityBinningScheme.fiveStep.rawValue,
                        "the import ran the binning the recipe declares")
-        XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(QualityBinningScheme.illumina4.rawValue))
+        XCTAssertEqual(envelope.options.explicit["qualityBinning"], .string(QualityBinningScheme.fiveStep.rawValue))
         XCTAssertEqual(envelope.options.resolvedDefaults["qualityBinningSource"], .string("recipe"))
         XCTAssertEqual(envelope.options.defaults["qualityBinning"], .string(QualityBinningScheme.fiveStep.rawValue),
                        "the recorded default must be the binning the command runs when the option is absent")

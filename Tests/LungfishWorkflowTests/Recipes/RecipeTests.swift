@@ -51,7 +51,7 @@ struct RecipeTests {
             "tags": ["test", "illumina"],
             "platforms": ["illumina", "ont"],
             "requiredInput": "paired",
-            "qualityBinning": "illumina4",
+            "qualityBinning": "fiveStep",
             "steps": [
                 {
                     "type": "fastp-trim",
@@ -81,7 +81,7 @@ struct RecipeTests {
         #expect(recipe.tags == ["test", "illumina"])
         #expect(recipe.platforms == [IngestionPlatform.illumina, IngestionPlatform.ont])
         #expect(recipe.requiredInput == Recipe.InputRequirement.paired)
-        #expect(recipe.qualityBinning == QualityBinningScheme.illumina4)
+        #expect(recipe.qualityBinning == QualityBinningScheme.fiveStep)
         #expect(recipe.steps.count == 2)
 
         let trimStep = recipe.steps[0]
@@ -187,7 +187,7 @@ struct RecipeTests {
         #expect(recipe.resolution?.preset?.name == "VSP2 target enrichment")
         #expect(recipe.platforms == [IngestionPlatform.illumina])
         #expect(recipe.requiredInput == Recipe.InputRequirement.paired)
-        #expect(recipe.qualityBinning == QualityBinningScheme.illumina4)
+        #expect(recipe.qualityBinning == QualityBinningScheme.fiveStep)  // BIO-BIN
         #expect(recipe.steps.count == 6)
 
         // The vsp2 preset keeps ribosomal RNA reads, so its run leaves the rRNA filter out.
