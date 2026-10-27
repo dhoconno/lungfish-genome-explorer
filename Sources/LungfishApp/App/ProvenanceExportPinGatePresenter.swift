@@ -154,7 +154,8 @@ enum ProvenanceExportPinGatePresenter {
     ///
     /// AppKit gives a button titled Cancel the Escape key even when it comes first, which would leave
     /// the unpinned sheet with no default button. So Return answers Cancel, as the CLI refuses without
-    /// `--allow-unpinned`, and no key answers Export Anyway….
+    /// `--allow-unpinned`, and no key answers Export Anyway…. A button holds one key, so a view in the
+    /// sheet clicks Cancel for Escape and Command-period too (walk WO-6).
     static func makeAlert(_ model: ProvenanceExportPinSheetModel) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = model.messageText
@@ -168,7 +169,45 @@ enum ProvenanceExportPinGatePresenter {
             alert.buttons[1].setAccessibilityIdentifier(ProvenanceExportPinSheetModel.exportAnywayIdentifier)
             alert.buttons[0].keyEquivalent = "\r"
             alert.buttons[1].keyEquivalent = ""
+            // The window is made last, after the texts and buttons it lays out are set.
+            alert.window.contentView?.addSubview(CancelKeysView(clicking: alert.buttons[0]))
         }
         return alert
+    }
+}
+
+/// Clicks a sheet's Cancel button for the keys that cancel a sheet, Escape and Command-period.
+///
+/// A button holds one key equivalent, and Cancel holds Return here. The sheet's window offers every key to its
+/// views before the first responder sees it, so this view answers the other two. It has no size, draws nothing and
+/// is not an accessibility element, since Cancel is the button a person or an assistive tool presses.
+private final class CancelKeysView: NSView {
+    private weak var cancelButton: NSButton?
+
+    init(clicking cancelButton: NSButton) {
+        self.cancelButton = cancelButton
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, Self.cancels(event), let cancelButton else {
+            return super.performKeyEquivalent(with: event)
+        }
+        cancelButton.performClick(nil)
+        return true
+    }
+
+    /// Whether `event` is Escape alone, or Command-period, which AppKit pairs with it. Caps Lock and the
+    /// keypad and function flags do not count as a modifier.
+    private static func cancels(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers.isEmpty { return event.keyCode == 53 }
+        return modifiers == .command && event.charactersIgnoringModifiers == "."
     }
 }
