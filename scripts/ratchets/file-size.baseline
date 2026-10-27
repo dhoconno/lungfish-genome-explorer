@@ -20,7 +20,7 @@ Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 971
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1062
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 988
-Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1330
+Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1312
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1885
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
@@ -28,7 +28,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1344
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1048
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1022
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1136
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1122
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
@@ -146,7 +146,7 @@ Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
-Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2529
+Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2512
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
@@ -177,7 +177,7 @@ Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCWorkbookProjection.swift 
 Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogPublisher.swift 1420
 Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift 1110
 Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift 4964
-Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1140
+Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1134
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleContract.swift 1231
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift 930
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift 1054
