@@ -297,7 +297,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Pass 2b then checks 3' with no --revcomp.
         if isSymmetricLongRead {
             progress(0.78, "Enforcing both-end barcode matching...")
-            let ctx = config.resolvedAdapterContext
+            let ctx = config.demuxAdapterContext
             let pass2Dir = workDir.appendingPathComponent("symmetric-pass2", isDirectory: true)
             try fm.createDirectory(at: pass2Dir, withIntermediateDirectories: true)
             // Reads pass 1 assigned by one end but pass 2 rejects are not the
@@ -1229,7 +1229,7 @@ extension DemultiplexingPipeline {
         let adapterFASTA = workDirectory.appendingPathComponent("adapters.fasta")
 
         if !config.sampleAssignments.isEmpty && config.symmetryMode == .singleEnd {
-            let ctx = config.resolvedAdapterContext
+            let ctx = config.demuxAdapterContext
             let useRevcomp = config.searchReverseComplement
             var lines: [String] = []
             for assignment in config.sampleAssignments {
@@ -1264,7 +1264,7 @@ extension DemultiplexingPipeline {
             // reads can arrive in either orientation, so we generate BOTH orientations
             // explicitly (fwd--rev AND rev--fwd) instead of using --revcomp (which is
             // incompatible with linked adapter syntax).
-            let ctx = config.resolvedAdapterContext
+            let ctx = config.demuxAdapterContext
             var lines: [String] = []
             for assignment in config.sampleAssignments {
                 guard let fwdSeq = resolveSequence(
@@ -1303,7 +1303,7 @@ extension DemultiplexingPipeline {
             // Symmetric long-read kits with sample assignments from scout:
             // Use 5'-only specs with --revcomp for pass 1 (barcode identity detection).
             // The actual demux enforces both-end matching via a second pass with 3' adapter.
-            let ctx = config.resolvedAdapterContext
+            let ctx = config.demuxAdapterContext
             let useRevcomp = config.searchReverseComplement
             var lines: [String] = []
             for assignment in config.sampleAssignments {
@@ -1342,8 +1342,8 @@ extension DemultiplexingPipeline {
 
                 return (
                     name: sanitizedSampleIdentifier(assignment.sampleID),
-                    first: contextualizedSequence(forward, role: .i7, context: config.resolvedAdapterContext),
-                    second: contextualizedSequence(reverse, role: .i5, context: config.resolvedAdapterContext)
+                    first: contextualizedSequence(forward, role: .i7, context: config.demuxAdapterContext),
+                    second: contextualizedSequence(reverse, role: .i5, context: config.demuxAdapterContext)
                 )
             }
 
@@ -1368,7 +1368,7 @@ extension DemultiplexingPipeline {
             // Pass 1 detects barcode identity; for symmetric mode, the demux pipeline
             // runs a second pass with 3' adapter to enforce both-end matching.
             if config.barcodeKit.platform.readsCanBeReverseComplemented {
-                let ctx = config.resolvedAdapterContext
+                let ctx = config.demuxAdapterContext
                 let useRevcomp = config.searchReverseComplement
                 var lines: [String] = []
                 for barcode in config.barcodeKit.barcodes {
@@ -1388,7 +1388,7 @@ extension DemultiplexingPipeline {
             let entries: [(name: String, sequence: String)] = config.barcodeKit.barcodes.map { barcode in
                 (
                     name: barcode.id,
-                    sequence: contextualizedSequence(barcode.i7Sequence, role: .i7, context: config.resolvedAdapterContext)
+                    sequence: contextualizedSequence(barcode.i7Sequence, role: .i7, context: config.demuxAdapterContext)
                 )
             }
             try writeSingleEndAdapterFASTA(
@@ -1427,12 +1427,12 @@ extension DemultiplexingPipeline {
                     first: contextualizedSequence(
                         barcode.i7Sequence,
                         role: .i7,
-                        context: config.resolvedAdapterContext
+                        context: config.demuxAdapterContext
                     ),
                     second: contextualizedSequence(
                         i5,
                         role: .i5,
-                        context: config.resolvedAdapterContext
+                        context: config.demuxAdapterContext
                     )
                 )
             }
