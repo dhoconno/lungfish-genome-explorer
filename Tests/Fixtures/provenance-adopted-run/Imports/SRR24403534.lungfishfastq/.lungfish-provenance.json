@@ -1,0 +1,2448 @@
+{
+  "argv" : [
+    "lungfish-cli",
+    "import",
+    "fastq",
+    "<external>/c5-x2",
+    "--adopt",
+    "--project",
+    "@/",
+    "--format",
+    "json"
+  ],
+  "createdAt" : "2026-10-27T01:27:56Z",
+  "durableReplayArgv" : [
+    "lungfish-cli",
+    "import",
+    "fastq",
+    "<external>/c5-x2",
+    "--adopt",
+    "--project",
+    "@/",
+    "--format",
+    "json"
+  ],
+  "exitStatus" : 0,
+  "files" : [
+    {
+      "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+      "fileSize" : 184506113,
+      "format" : "fastq",
+      "path" : "<external>/R1.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+      "fileSize" : 187858336,
+      "format" : "fastq",
+      "path" : "<external>/R2.fastq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+      "fileSize" : 114431405,
+      "format" : "fastq",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "ec76f49ab734816d370a961981cc498297c965ab67c6f58638199ae0ba38bb59",
+      "fileSize" : 51773,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz.lungfish-meta.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "10bed2e21b3d670db907723b925231cbd6c3bc230f088c0fbcc8aa2680b9a8ff",
+      "fileSize" : 121613545,
+      "format" : "fastq",
+      "path" : "work/sample_fused_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "f598ea99b3a25147ab86880d2c4d1bd2b8edf1865ab0cca60c2dfe5bfd091e8a",
+      "fileSize" : 123436302,
+      "format" : "fastq",
+      "path" : "work/sample_fused_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "c7ceb8c45f0aaff2094cdea5f66811519594e76b34b39108cb0620f73c166efa",
+      "fileSize" : 133734,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/1-1-remove-duplicate-reads-adapter-quality-trim-SRR24403534_fused_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "39a3db490dc0c8f6aab70fd191f3ec2a91ea6da95069d711f4dd9248228fa3a3",
+      "fileSize" : 927,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/2-1-remove-human-reads-SRR24403534_deacon_summary.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "8309afdcac44c0041563c8d4c9f8646ad4e4efef904bbfe064e992b004b72496",
+      "fileSize" : 934,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/3-1-remove-ribosomal-rna-reads-SRR24403534_deacon_ribo_summary.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "037efc966e34dd6879de63c0fac49b34fb7b8f6d90cb2f6223bdaf53b2b99b68",
+      "fileSize" : 54783161,
+      "format" : "fastq",
+      "path" : "work/sample_merged.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "469a6f72789a60885f7bafc63d6563fe0e4b08558a63d31574188ff09a24da2e",
+      "fileSize" : 49956173,
+      "format" : "fastq",
+      "path" : "work/sample_unmerged_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "2753c7b24424bb7bf72a61aa38f8be91ed37c0420d0ee94984cf2b291331c418",
+      "fileSize" : 51725013,
+      "format" : "fastq",
+      "path" : "work/sample_unmerged_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "51c047bc83d86fee5e2363976c194565104b08417cf0509591682e4edc981903",
+      "fileSize" : 110761,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/4-1-merge-overlapping-pairs-SRR24403534_merge_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0b81ac738436b886ef4a2763c9ef0c9ae7d2905419fef4882828e88529bcdc95",
+      "fileSize" : 49935977,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "ef8dc2de08228da2aa09d98c59097f1fa48e1106d903547e6991447ccc761f4f",
+      "fileSize" : 51708830,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0a34b926634e1fff97908ddd306e2f2d95425fda79c7cb659fd9b9024ab77d27",
+      "fileSize" : 127630,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/6-1-remove-short-reads-unmerged-pairs-SRR24403534_lengthfilter_unmerged_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "194555e9783cd686cc425659fb3289edccbc4be4d5de7485cb25f5e7e148c562",
+      "fileSize" : 705311899,
+      "format" : "fastq",
+      "path" : "work/sample_mixed.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "7e4d3e636ab56d19799139788973ba9eafdad070bd5ad29fc6758fe0002612f2",
+      "fileSize" : 448197372,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "de797f0d4bc8636dddbb43d068dfa8844139d0ad6aa2879a18dc68cf667b5755",
+      "fileSize" : 257114527,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "a1577a1026c764c315aeda26023836545e76c62c5867bd50d5ca40518c0a71e6",
+      "fileSize" : 3279263603,
+      "format" : "unknown",
+      "path" : "databases/deacon-panhuman/panhuman-1.k31w15.idx",
+      "role" : "index"
+    },
+    {
+      "checksumSHA256" : "f88286f607bc062ef872b55cac9aff1d447f7106068cafefef72a3ba8e49ede6",
+      "fileSize" : 10107947,
+      "format" : "unknown",
+      "path" : "databases/deacon-ribokmers/ribokmers.k31w15.idx",
+      "role" : "index"
+    },
+    {
+      "checksumSHA256" : "9896c419d17c6c24f1eb49b82f91cef5a48ab76ad7d5e777be3fe0adb1a27d85",
+      "fileSize" : 55062785,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_merged.fq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "0b81ac738436b886ef4a2763c9ef0c9ae7d2905419fef4882828e88529bcdc95",
+      "fileSize" : 49935977,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R1.fq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "ef8dc2de08228da2aa09d98c59097f1fa48e1106d903547e6991447ccc761f4f",
+      "fileSize" : 51708830,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R2.fq.gz",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "ad29eedffbf85f51efbb3e4ec80730192d1c447bf98ee09964d5124bce97fadc",
+      "fileSize" : 448197372,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "e1ac195fd31fc71ab1abc7973f48dd0acc39f7a86d7d0aabc96017de31ea6752",
+      "fileSize" : 257114527,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "27a8ce22e18919b75beca884c04951426e0f3540f65a21f8df32c9a02242fab2",
+      "fileSize" : 705311899,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/combined.fastq",
+      "role" : "input"
+    },
+    {
+      "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+      "fileSize" : 114431405,
+      "format" : "fastq",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+      "role" : "input"
+    }
+  ],
+  "id" : "A3AE6388-17AF-4F25-801B-963923734614",
+  "options" : {
+    "defaults" : {
+      "clumpifyHeapGB" : {
+        "type" : "null"
+      },
+      "clumpingTool" : {
+        "type" : "string",
+        "value" : "auto"
+      },
+      "compressionLevel" : {
+        "type" : "string",
+        "value" : "balanced"
+      },
+      "forceReimport" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "optimizeStorage" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "auto"
+      },
+      "qualityBinning" : {
+        "type" : "string",
+        "value" : "illumina4"
+      },
+      "r2" : {
+        "type" : "null"
+      },
+      "recipe" : {
+        "type" : "string",
+        "value" : "none"
+      },
+      "sampleSheet" : {
+        "type" : "null"
+      },
+      "sampleSheetMetadata" : {
+        "type" : "null"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 20
+      }
+    },
+    "explicit" : {
+      "clumpifyHeapGB" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "clumpingTool" : {
+        "type" : "string",
+        "value" : "bbtools"
+      },
+      "compressionLevel" : {
+        "type" : "string",
+        "value" : "balanced"
+      },
+      "forceReimport" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "optimizeStorage" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "outputBundle" : {
+        "type" : "file",
+        "value" : "@/Imports/SRR24403534.lungfishfastq"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "platformConfidence" : {
+        "type" : "string",
+        "value" : "none"
+      },
+      "platformDetectorVersion" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "platformEvidence" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "The returned folder holds no reads, so the platform was not inferred from them."
+          }
+        ]
+      },
+      "platformSource" : {
+        "type" : "string",
+        "value" : "given"
+      },
+      "platformVendorDetail" : {
+        "type" : "null"
+      },
+      "projectDirectory" : {
+        "type" : "file",
+        "value" : "@/"
+      },
+      "qualityBinning" : {
+        "type" : "string",
+        "value" : "illumina4"
+      },
+      "r1" : {
+        "type" : "file",
+        "value" : "<external>/R1.fastq.gz"
+      },
+      "r2" : {
+        "type" : "file",
+        "value" : "<external>/R2.fastq.gz"
+      },
+      "recipe" : {
+        "type" : "string",
+        "value" : "illumina-paired-cleanup"
+      },
+      "sampleName" : {
+        "type" : "string",
+        "value" : "SRR24403534"
+      },
+      "sampleSheet" : {
+        "type" : "null"
+      },
+      "sampleSheetMetadata" : {
+        "type" : "null"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 1
+      }
+    },
+    "resolvedDefaults" : {
+      "bamPrimaryReadFilter" : {
+        "type" : "null"
+      },
+      "clumpifyHeapGB" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "clumpifyHeapSource" : {
+        "type" : "string",
+        "value" : "plan"
+      },
+      "clumpingEstimatedInputBytes" : {
+        "type" : "null"
+      },
+      "clumpingHeapBytes" : {
+        "type" : "integer",
+        "value" : 1073741824
+      },
+      "clumpingPhysicalMemoryBytes" : {
+        "type" : "null"
+      },
+      "clumpingPlanHeapBytes" : {
+        "type" : "integer",
+        "value" : 1073741824
+      },
+      "clumpingResolutionReason" : {
+        "type" : "string",
+        "value" : "explicit clumping tool selection"
+      },
+      "clumpingThresholdBytes" : {
+        "type" : "null"
+      },
+      "clumpingTool" : {
+        "type" : "string",
+        "value" : "bbtools"
+      },
+      "compressionLevel" : {
+        "type" : "string",
+        "value" : "balanced"
+      },
+      "finalSizeBytes" : {
+        "type" : "integer",
+        "value" : 114431405
+      },
+      "forceReimport" : {
+        "type" : "boolean",
+        "value" : false
+      },
+      "materializedInputFormat" : {
+        "type" : "string",
+        "value" : "fastq"
+      },
+      "metadataCSV" : {
+        "type" : "null"
+      },
+      "metadataJSON" : {
+        "type" : "file",
+        "value" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz.lungfish-meta.json"
+      },
+      "optimizeStorage" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "originalFilenames" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "SRR24403534_1.fastq.gz"
+          },
+          {
+            "type" : "string",
+            "value" : "SRR24403534_2.fastq.gz"
+          }
+        ]
+      },
+      "originalSizeBytes" : {
+        "type" : "integer",
+        "value" : 372364449
+      },
+      "outputBundle" : {
+        "type" : "file",
+        "value" : "@/Imports/SRR24403534.lungfishfastq"
+      },
+      "outputPairingMode" : {
+        "type" : "string",
+        "value" : "interleaved"
+      },
+      "pairedEndInput" : {
+        "type" : "boolean",
+        "value" : true
+      },
+      "pairing" : {
+        "type" : "string",
+        "value" : "paired"
+      },
+      "platform" : {
+        "type" : "string",
+        "value" : "illumina"
+      },
+      "platformConfidence" : {
+        "type" : "string",
+        "value" : "none"
+      },
+      "platformDetectorVersion" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "platformEvidence" : {
+        "type" : "array",
+        "value" : [
+          {
+            "type" : "string",
+            "value" : "The returned folder holds no reads, so the platform was not inferred from them."
+          }
+        ]
+      },
+      "platformSource" : {
+        "type" : "string",
+        "value" : "given"
+      },
+      "platformVendorDetail" : {
+        "type" : "null"
+      },
+      "primaryFASTQ" : {
+        "type" : "file",
+        "value" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz"
+      },
+      "processingCommandLine" : {
+        "type" : "string",
+        "value" : "/opt/lge/env/bin/clumpify.sh in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq -Xmx1g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=1 interleaved=t quantize=0,8,13,22,27,32,37 && /opt/lge/env/bin/clumpify.sh in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq -Xmx1g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=1 interleaved=f quantize=0,8,13,22,27,32,37"
+      },
+      "processingTool" : {
+        "type" : "string",
+        "value" : "clumpify.sh"
+      },
+      "processingToolVersion" : {
+        "type" : "string",
+        "value" : "40.02"
+      },
+      "projectDirectory" : {
+        "type" : "file",
+        "value" : "@/"
+      },
+      "qualityBinning" : {
+        "type" : "string",
+        "value" : "illumina4"
+      },
+      "qualityBinningSource" : {
+        "type" : "string",
+        "value" : "plan"
+      },
+      "r1" : {
+        "type" : "file",
+        "value" : "<external>/R1.fastq.gz"
+      },
+      "r2" : {
+        "type" : "file",
+        "value" : "<external>/R2.fastq.gz"
+      },
+      "recipe" : {
+        "type" : "string",
+        "value" : "illumina-paired-cleanup"
+      },
+      "recipeFormatVersion" : {
+        "type" : "integer",
+        "value" : 2
+      },
+      "recipePreset" : {
+        "type" : "string",
+        "value" : "wastewater-metagenomics"
+      },
+      "recipeRequestedName" : {
+        "type" : "string",
+        "value" : "wastewater-metagenomics"
+      },
+      "recipeSHA256" : {
+        "type" : "string",
+        "value" : "aeacbafe1b766dcd11d4c1d88bd4fe283f9b4575d5f87e3fc405f4d47ec051d6"
+      },
+      "recipeSwitch.removeDuplicates" : {
+        "type" : "string",
+        "value" : "on (preset)"
+      },
+      "recipeSwitch.removeRibosomalRNA" : {
+        "type" : "string",
+        "value" : "on (preset)"
+      },
+      "requestedClumpingTool" : {
+        "type" : "string",
+        "value" : "bbtools"
+      },
+      "resolvedClumpingTool" : {
+        "type" : "string",
+        "value" : "bbtools"
+      },
+      "resolvedClumpingToolSource" : {
+        "type" : "string",
+        "value" : "plan"
+      },
+      "sampleName" : {
+        "type" : "string",
+        "value" : "SRR24403534"
+      },
+      "sampleSheet" : {
+        "type" : "null"
+      },
+      "sampleSheetMetadata" : {
+        "type" : "null"
+      },
+      "sourceFormat" : {
+        "type" : "string",
+        "value" : "fastq"
+      },
+      "threads" : {
+        "type" : "integer",
+        "value" : 1
+      },
+      "threadsSource" : {
+        "type" : "string",
+        "value" : "plan"
+      },
+      "wasClumpified" : {
+        "type" : "boolean",
+        "value" : true
+      }
+    }
+  },
+  "output" : {
+    "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+    "fileSize" : 114431405,
+    "format" : "fastq",
+    "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+    "role" : "output"
+  },
+  "outputs" : [
+    {
+      "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+      "fileSize" : 114431405,
+      "format" : "fastq",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "ec76f49ab734816d370a961981cc498297c965ab67c6f58638199ae0ba38bb59",
+      "fileSize" : 51773,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz.lungfish-meta.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "10bed2e21b3d670db907723b925231cbd6c3bc230f088c0fbcc8aa2680b9a8ff",
+      "fileSize" : 121613545,
+      "format" : "fastq",
+      "path" : "work/sample_fused_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "f598ea99b3a25147ab86880d2c4d1bd2b8edf1865ab0cca60c2dfe5bfd091e8a",
+      "fileSize" : 123436302,
+      "format" : "fastq",
+      "path" : "work/sample_fused_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "c7ceb8c45f0aaff2094cdea5f66811519594e76b34b39108cb0620f73c166efa",
+      "fileSize" : 133734,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/1-1-remove-duplicate-reads-adapter-quality-trim-SRR24403534_fused_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "39a3db490dc0c8f6aab70fd191f3ec2a91ea6da95069d711f4dd9248228fa3a3",
+      "fileSize" : 927,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/2-1-remove-human-reads-SRR24403534_deacon_summary.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "8309afdcac44c0041563c8d4c9f8646ad4e4efef904bbfe064e992b004b72496",
+      "fileSize" : 934,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/3-1-remove-ribosomal-rna-reads-SRR24403534_deacon_ribo_summary.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "037efc966e34dd6879de63c0fac49b34fb7b8f6d90cb2f6223bdaf53b2b99b68",
+      "fileSize" : 54783161,
+      "format" : "fastq",
+      "path" : "work/sample_merged.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "469a6f72789a60885f7bafc63d6563fe0e4b08558a63d31574188ff09a24da2e",
+      "fileSize" : 49956173,
+      "format" : "fastq",
+      "path" : "work/sample_unmerged_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "2753c7b24424bb7bf72a61aa38f8be91ed37c0420d0ee94984cf2b291331c418",
+      "fileSize" : 51725013,
+      "format" : "fastq",
+      "path" : "work/sample_unmerged_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "51c047bc83d86fee5e2363976c194565104b08417cf0509591682e4edc981903",
+      "fileSize" : 110761,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/4-1-merge-overlapping-pairs-SRR24403534_merge_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0b81ac738436b886ef4a2763c9ef0c9ae7d2905419fef4882828e88529bcdc95",
+      "fileSize" : 49935977,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R1.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "ef8dc2de08228da2aa09d98c59097f1fa48e1106d903547e6991447ccc761f4f",
+      "fileSize" : 51708830,
+      "format" : "fastq",
+      "path" : "work/sample_lengthfilter_unmerged_R2.fq.gz",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "0a34b926634e1fff97908ddd306e2f2d95425fda79c7cb659fd9b9024ab77d27",
+      "fileSize" : 127630,
+      "format" : "json",
+      "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/6-1-remove-short-reads-unmerged-pairs-SRR24403534_lengthfilter_unmerged_fastp_report.json",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "194555e9783cd686cc425659fb3289edccbc4be4d5de7485cb25f5e7e148c562",
+      "fileSize" : 705311899,
+      "format" : "fastq",
+      "path" : "work/sample_mixed.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "7e4d3e636ab56d19799139788973ba9eafdad070bd5ad29fc6758fe0002612f2",
+      "fileSize" : 448197372,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq",
+      "role" : "output"
+    },
+    {
+      "checksumSHA256" : "de797f0d4bc8636dddbb43d068dfa8844139d0ad6aa2879a18dc68cf667b5755",
+      "fileSize" : 257114527,
+      "format" : "fastq",
+      "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq",
+      "role" : "output"
+    }
+  ],
+  "reproducibleCommand" : "lungfish-cli import fastq <external>/c5-x2 --adopt --project '@/' --format json",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.25 (11392)",
+    "architecture" : "arm64",
+    "containerDigest" : "eae819829358cca9b3bfeef86f5ecfec89726b53acf1dadcea832f3ccabc829a",
+    "containerImage" : "lge-tools-eae819829358.sif",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/lungfish-cli",
+    "managedToolLockSHA256" : "586edb75c2f2402e2eb845526051cc39c7542291036d638927ab6289cfc37e26",
+    "nodeRuntime" : {
+      "executorBuild" : "2d303f7a659efc2c102995fffdaffaf0b6932a56",
+      "executorSHA256" : "755d825b32391aa97924909c90a88dfdc6b4b65b4358e584db52d58ac40730e1",
+      "kernelRelease" : "5.14.0-725.el9.x86_64",
+      "machine" : "x86_64",
+      "orphanSweep" : "subreaper"
+    },
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)",
+    "siteFacts" : [
+      {
+        "key" : "Machine",
+        "value" : "oconnor2003.chtc.wisc.edu"
+      },
+      {
+        "key" : "Arch",
+        "value" : "X86_64"
+      },
+      {
+        "key" : "Microarch",
+        "value" : "x86_64-v4"
+      },
+      {
+        "key" : "OpSysAndVer",
+        "value" : "CentOS9"
+      },
+      {
+        "key" : "OpSysMajorVer",
+        "value" : "9"
+      },
+      {
+        "key" : "OSKernelRelease",
+        "value" : "5.14.0-725.el9.x86_64"
+      },
+      {
+        "key" : "Cpus",
+        "value" : "1"
+      },
+      {
+        "key" : "Memory",
+        "value" : "9216"
+      },
+      {
+        "key" : "Disk",
+        "value" : "10485760"
+      },
+      {
+        "key" : "ClusterId",
+        "value" : "594057"
+      },
+      {
+        "key" : "ProcId",
+        "value" : "0"
+      }
+    ]
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "completed",
+  "steps" : [
+    {
+      "argv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "inputs/R1.fastq.gz",
+        "-I",
+        "inputs/R2.fastq.gz",
+        "-o",
+        "work/sample_fused_R1.fq.gz",
+        "-O",
+        "work/sample_fused_R2.fq.gz",
+        "--dedup",
+        "--dup_calc_accuracy",
+        "3",
+        "--detect_adapter_for_pe",
+        "-g",
+        "--poly_g_min_len",
+        "10",
+        "-q",
+        "15",
+        "-u",
+        "40",
+        "-n",
+        "5",
+        "-l",
+        "15",
+        "-W",
+        "5",
+        "--cut_tail",
+        "-M",
+        "20",
+        "-w",
+        "1",
+        "-j",
+        "work/sample_fused_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "completedAt" : "2026-10-25T17:20:00Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "inputs/R1.fastq.gz",
+        "-I",
+        "inputs/R2.fastq.gz",
+        "-o",
+        "work/sample_fused_R1.fq.gz",
+        "-O",
+        "work/sample_fused_R2.fq.gz",
+        "--dedup",
+        "--dup_calc_accuracy",
+        "3",
+        "--detect_adapter_for_pe",
+        "-g",
+        "--poly_g_min_len",
+        "10",
+        "-q",
+        "15",
+        "-u",
+        "40",
+        "-n",
+        "5",
+        "-l",
+        "15",
+        "-W",
+        "5",
+        "--cut_tail",
+        "-M",
+        "20",
+        "-w",
+        "1",
+        "-j",
+        "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/1-1-remove-duplicate-reads-adapter-quality-trim-SRR24403534_fused_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "exitStatus" : 0,
+      "id" : "AB0ACFC7-EE17-4D18-9444-BF7E16CCEA90",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "10bed2e21b3d670db907723b925231cbd6c3bc230f088c0fbcc8aa2680b9a8ff",
+          "fileSize" : 121613545,
+          "format" : "fastq",
+          "path" : "work/sample_fused_R1.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "f598ea99b3a25147ab86880d2c4d1bd2b8edf1865ab0cca60c2dfe5bfd091e8a",
+          "fileSize" : 123436302,
+          "format" : "fastq",
+          "path" : "work/sample_fused_R2.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "c7ceb8c45f0aaff2094cdea5f66811519594e76b34b39108cb0620f73c166efa",
+          "fileSize" : 133734,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/1-1-remove-duplicate-reads-adapter-quality-trim-SRR24403534_fused_fastp_report.json",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 4580634624,
+      "reproducibleCommand" : "/opt/lge/env/bin/fastp -i inputs/R1.fastq.gz -I inputs/R2.fastq.gz -o work/sample_fused_R1.fq.gz -O work/sample_fused_R2.fq.gz --dedup --dup_calc_accuracy 3 --detect_adapter_for_pe -g --poly_g_min_len 10 -q 15 -u 40 -n 5 -l 15 -W 5 --cut_tail -M 20 -w 1 -j '@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/1-1-remove-duplicate-reads-adapter-quality-trim-SRR24403534_fused_fastp_report.json' -h /dev/null",
+      "resolvedOptions" : {
+        "recipeLogicalComponents" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "dictionary",
+              "value" : {
+                "displayName" : {
+                  "type" : "string",
+                  "value" : "Remove duplicate reads"
+                },
+                "typeID" : {
+                  "type" : "string",
+                  "value" : "fastp-dedup"
+                }
+              }
+            },
+            {
+              "type" : "dictionary",
+              "value" : {
+                "displayName" : {
+                  "type" : "string",
+                  "value" : "Adapter + quality trim"
+                },
+                "typeID" : {
+                  "type" : "string",
+                  "value" : "fastp-trim"
+                }
+              }
+            }
+          ]
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h43da1c4_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "fastp"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "1.3.6"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:18:22Z",
+      "stderr" : "Detecting adapter sequence for read1...\nNo adapter detected for read1\n\nDetecting adapter sequence for read2...\nNo adapter detected for read2\n\nRead1 before filtering:\ntotal reads: 2559001\ntotal bases: 386409151\nQ20 bases: 370821554(95.966%)\nQ30 bases: 350928949(90.818%)\nQ40 bases: 0(0%)\n\nRead2 before filtering:\ntotal reads: 2559001\ntotal bases: 386409151\nQ20 bases: 368175193(95.2812%)\nQ30 bases: 347163942(89.8436%)\nQ40 bases: 0(0%)\n\nRead1 after filtering:\ntotal reads: 1554238\ntotal bases: 231876162\nQ20 bases: 221016127(95.3165%)\nQ30 bases: 206777579(89.1759%)\nQ40 bases: 0(0%)\n\nRead2 after filtering:\ntotal reads: 1554238\ntotal bases: 231416991\nQ20 bases: 219595040(94.8915%)\nQ30 bases: 204732182(88.4689%)\nQ40 bases: 0(0%)\n\nFiltering result:\nreads passed filter: 5027404\nreads failed due to low quality: 89650\nreads failed due to too many N: 434\nreads failed due to too short: 514\nreads failed due to adapter dimer: 0\nreads with adapter trimmed: 110574\nbases trimmed due to adapters: 4037883\n\nDuplication rate: 37.4937%\n\nInsert size peak (evaluated by paired-end reads): 227\n\nJSON report: work/sample_fused_fastp_report.json\nHTML report: /dev/null\n\n/opt/lge/env/bin/fastp -i inputs/R1.fastq.gz -I inputs/R2.fastq.gz -o work/sample_fused_R1.fq.gz -O work/sample_fused_R2.fq.gz --dedup --dup_calc_accuracy 3 --detect_adapter_for_pe -g --poly_g_min_len 10 -q 15 -u 40 -n 5 -l 15 -W 5 --cut_tail -M 20 -w 1 -j work/sample_fused_fastp_report.json -h /dev/null \nfastp v1.3.6, time used: 97 seconds\n",
+      "toolName" : "fastp",
+      "toolVersion" : "1.3.6",
+      "wallTimeSeconds" : 97.75442857
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/deacon",
+        "filter",
+        "-d",
+        "databases/deacon-panhuman/panhuman-1.k31w15.idx",
+        "work/sample_fused_R1.fq.gz",
+        "work/sample_fused_R2.fq.gz",
+        "-o",
+        "work/sample_scrubbed_R1.fq.gz",
+        "-O",
+        "work/sample_scrubbed_R2.fq.gz",
+        "--summary",
+        "work/sample_deacon_summary.json",
+        "-t",
+        "1"
+      ],
+      "completedAt" : "2026-10-25T17:20:30Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/deacon",
+        "filter",
+        "-d",
+        "databases/deacon-panhuman/panhuman-1.k31w15.idx",
+        "work/sample_fused_R1.fq.gz",
+        "work/sample_fused_R2.fq.gz",
+        "-o",
+        "work/sample_scrubbed_R1.fq.gz",
+        "-O",
+        "work/sample_scrubbed_R2.fq.gz",
+        "--summary",
+        "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/2-1-remove-human-reads-SRR24403534_deacon_summary.json",
+        "-t",
+        "1"
+      ],
+      "exitStatus" : 0,
+      "id" : "A5A69CA9-BD16-4E9A-8D4A-86DF64F6FC5D",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "a1577a1026c764c315aeda26023836545e76c62c5867bd50d5ca40518c0a71e6",
+          "fileSize" : 3279263603,
+          "format" : "unknown",
+          "path" : "databases/deacon-panhuman/panhuman-1.k31w15.idx",
+          "role" : "index"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "39a3db490dc0c8f6aab70fd191f3ec2a91ea6da95069d711f4dd9248228fa3a3",
+          "fileSize" : 927,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/2-1-remove-human-reads-SRR24403534_deacon_summary.json",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 4859789312,
+      "reproducibleCommand" : "/opt/lge/env/bin/deacon filter -d databases/deacon-panhuman/panhuman-1.k31w15.idx work/sample_fused_R1.fq.gz work/sample_fused_R2.fq.gz -o work/sample_scrubbed_R1.fq.gz -O work/sample_scrubbed_R2.fq.gz --summary '@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/2-1-remove-human-reads-SRR24403534_deacon_summary.json' -t 1",
+      "resolvedOptions" : {
+        "databases" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "dictionary",
+              "value" : {
+                "fileName" : {
+                  "type" : "string",
+                  "value" : "panhuman-1.k31w15.idx"
+                },
+                "id" : {
+                  "type" : "string",
+                  "value" : "deacon-panhuman"
+                },
+                "indexFormat" : {
+                  "type" : "integer",
+                  "value" : 3
+                },
+                "kmerLength" : {
+                  "type" : "integer",
+                  "value" : 31
+                },
+                "lockPinned" : {
+                  "type" : "boolean",
+                  "value" : true
+                },
+                "path" : {
+                  "type" : "string",
+                  "value" : "databases/deacon-panhuman/panhuman-1.k31w15.idx"
+                },
+                "sha256" : {
+                  "type" : "string",
+                  "value" : "a1577a1026c764c315aeda26023836545e76c62c5867bd50d5ca40518c0a71e6"
+                },
+                "sizeBytes" : {
+                  "type" : "integer",
+                  "value" : 3279263603
+                },
+                "version" : {
+                  "type" : "string",
+                  "value" : "panhuman-1"
+                },
+                "windowSize" : {
+                  "type" : "integer",
+                  "value" : 15
+                }
+              }
+            }
+          ]
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h3edb6b3_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "deacon"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "0.16.0"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:20:05Z",
+      "stderr" : "Loaded index (k=31, w=15) in 7.85s\nDeacon v0.16.0; mode: deplete; input: paired; options: abs_threshold=2, rel_threshold=0.01, threads=1(1f+2c)\nRetained 3105172/3108476 sequences (99.894%), 462803089/463293153 bp (99.894%) in 14.89s. 208859 seqs/s (31.1 Mbp/s)\nFilter summary saved to \"work/sample_deacon_summary.json\"\n",
+      "toolName" : "deacon",
+      "toolVersion" : "0.16.0",
+      "wallTimeSeconds" : 24.615574411
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/deacon",
+        "filter",
+        "--deplete",
+        "-a",
+        "1",
+        "-r",
+        "0.0",
+        "databases/deacon-ribokmers/ribokmers.k31w15.idx",
+        "work/sample_scrubbed_R1.fq.gz",
+        "work/sample_scrubbed_R2.fq.gz",
+        "-o",
+        "work/sample_norrna_R1.fastq.gz",
+        "-O",
+        "work/sample_norrna_R2.fastq.gz",
+        "--summary",
+        "work/sample_deacon_ribo_summary.json",
+        "-t",
+        "1"
+      ],
+      "completedAt" : "2026-10-25T17:20:42Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/deacon",
+        "filter",
+        "--deplete",
+        "-a",
+        "1",
+        "-r",
+        "0.0",
+        "databases/deacon-ribokmers/ribokmers.k31w15.idx",
+        "work/sample_scrubbed_R1.fq.gz",
+        "work/sample_scrubbed_R2.fq.gz",
+        "-o",
+        "work/sample_norrna_R1.fastq.gz",
+        "-O",
+        "work/sample_norrna_R2.fastq.gz",
+        "--summary",
+        "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/3-1-remove-ribosomal-rna-reads-SRR24403534_deacon_ribo_summary.json",
+        "-t",
+        "1"
+      ],
+      "exitStatus" : 0,
+      "id" : "7EF844DD-1659-420D-821E-E61A066E5E55",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "f88286f607bc062ef872b55cac9aff1d447f7106068cafefef72a3ba8e49ede6",
+          "fileSize" : 10107947,
+          "format" : "unknown",
+          "path" : "databases/deacon-ribokmers/ribokmers.k31w15.idx",
+          "role" : "index"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "8309afdcac44c0041563c8d4c9f8646ad4e4efef904bbfe064e992b004b72496",
+          "fileSize" : 934,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/3-1-remove-ribosomal-rna-reads-SRR24403534_deacon_ribo_summary.json",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 46829568,
+      "reproducibleCommand" : "/opt/lge/env/bin/deacon filter --deplete -a 1 -r 0.0 databases/deacon-ribokmers/ribokmers.k31w15.idx work/sample_scrubbed_R1.fq.gz work/sample_scrubbed_R2.fq.gz -o work/sample_norrna_R1.fastq.gz -O work/sample_norrna_R2.fastq.gz --summary '@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/3-1-remove-ribosomal-rna-reads-SRR24403534_deacon_ribo_summary.json' -t 1",
+      "resolvedOptions" : {
+        "databases" : {
+          "type" : "array",
+          "value" : [
+            {
+              "type" : "dictionary",
+              "value" : {
+                "buildSourceSHA256" : {
+                  "type" : "string",
+                  "value" : "38607351140350d33c868919eb01aaa438c9b729470a094ab2eed55f8056fbf1"
+                },
+                "buildSourceSizeBytes" : {
+                  "type" : "integer",
+                  "value" : 9548991
+                },
+                "buildToolVersion" : {
+                  "type" : "string",
+                  "value" : "0.16.0"
+                },
+                "fileName" : {
+                  "type" : "string",
+                  "value" : "ribokmers.k31w15.idx"
+                },
+                "id" : {
+                  "type" : "string",
+                  "value" : "deacon-ribokmers"
+                },
+                "indexFormat" : {
+                  "type" : "integer",
+                  "value" : 3
+                },
+                "kmerLength" : {
+                  "type" : "integer",
+                  "value" : 31
+                },
+                "lockPinned" : {
+                  "type" : "boolean",
+                  "value" : true
+                },
+                "path" : {
+                  "type" : "string",
+                  "value" : "databases/deacon-ribokmers/ribokmers.k31w15.idx"
+                },
+                "sha256" : {
+                  "type" : "string",
+                  "value" : "f88286f607bc062ef872b55cac9aff1d447f7106068cafefef72a3ba8e49ede6"
+                },
+                "sizeBytes" : {
+                  "type" : "integer",
+                  "value" : 10107947
+                },
+                "version" : {
+                  "type" : "string",
+                  "value" : "bbmap-ribokmers-k31w15"
+                },
+                "windowSize" : {
+                  "type" : "integer",
+                  "value" : 15
+                }
+              }
+            }
+          ]
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h3edb6b3_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "deacon"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "0.16.0"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:20:32Z",
+      "stderr" : "Loaded index (k=31, w=15) in 27.42ms\nDeacon v0.16.0; mode: deplete; input: paired; options: abs_threshold=1, rel_threshold=0, threads=1(1f+2c)\nRetained 2255742/3105172 sequences (72.645%), 334706024/462803089 bp (72.321%) in 9.66s. 321523 seqs/s (47.9 Mbp/s)\nFilter summary saved to \"work/sample_deacon_ribo_summary.json\"\n",
+      "toolName" : "deacon",
+      "toolVersion" : "0.16.0",
+      "wallTimeSeconds" : 10.356095589
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "work/sample_norrna_R1.fastq.gz",
+        "-I",
+        "work/sample_norrna_R2.fastq.gz",
+        "--merge",
+        "--merged_out",
+        "work/sample_merged.fq.gz",
+        "--out1",
+        "work/sample_unmerged_R1.fq.gz",
+        "--out2",
+        "work/sample_unmerged_R2.fq.gz",
+        "--overlap_len_require",
+        "15",
+        "-A",
+        "-G",
+        "-Q",
+        "-L",
+        "-w",
+        "1",
+        "-j",
+        "work/sample_merge_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "completedAt" : "2026-10-25T17:21:15Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "work/sample_norrna_R1.fastq.gz",
+        "-I",
+        "work/sample_norrna_R2.fastq.gz",
+        "--merge",
+        "--merged_out",
+        "work/sample_merged.fq.gz",
+        "--out1",
+        "work/sample_unmerged_R1.fq.gz",
+        "--out2",
+        "work/sample_unmerged_R2.fq.gz",
+        "--overlap_len_require",
+        "15",
+        "-A",
+        "-G",
+        "-Q",
+        "-L",
+        "-w",
+        "1",
+        "-j",
+        "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/4-1-merge-overlapping-pairs-SRR24403534_merge_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "exitStatus" : 0,
+      "id" : "CAE28F2F-7DA5-4917-8984-097F67C9928E",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "037efc966e34dd6879de63c0fac49b34fb7b8f6d90cb2f6223bdaf53b2b99b68",
+          "fileSize" : 54783161,
+          "format" : "fastq",
+          "path" : "work/sample_merged.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "469a6f72789a60885f7bafc63d6563fe0e4b08558a63d31574188ff09a24da2e",
+          "fileSize" : 49956173,
+          "format" : "fastq",
+          "path" : "work/sample_unmerged_R1.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "2753c7b24424bb7bf72a61aa38f8be91ed37c0420d0ee94984cf2b291331c418",
+          "fileSize" : 51725013,
+          "format" : "fastq",
+          "path" : "work/sample_unmerged_R2.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "51c047bc83d86fee5e2363976c194565104b08417cf0509591682e4edc981903",
+          "fileSize" : 110761,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/4-1-merge-overlapping-pairs-SRR24403534_merge_fastp_report.json",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 1244303360,
+      "reproducibleCommand" : "/opt/lge/env/bin/fastp -i work/sample_norrna_R1.fastq.gz -I work/sample_norrna_R2.fastq.gz --merge --merged_out work/sample_merged.fq.gz --out1 work/sample_unmerged_R1.fq.gz --out2 work/sample_unmerged_R2.fq.gz --overlap_len_require 15 -A -G -Q -L -w 1 -j '@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/4-1-merge-overlapping-pairs-SRR24403534_merge_fastp_report.json' -h /dev/null",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h43da1c4_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "fastp"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "1.3.6"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:20:44Z",
+      "stderr" : "Read1 before filtering:\ntotal reads: 1127871\ntotal bases: 167580685\nQ20 bases: 159004670(94.8825%)\nQ30 bases: 148258721(88.4701%)\nQ40 bases: 0(0%)\n\nRead2 before filtering:\ntotal reads: 1127871\ntotal bases: 167125339\nQ20 bases: 157534581(94.2613%)\nQ30 bases: 146232625(87.4988%)\nQ40 bases: 0(0%)\n\nMerged and filtered:\ntotal reads: 514668\ntotal bases: 108704334\nQ20 bases: 104413353(96.0526%)\nQ30 bases: 98115737(90.2593%)\nQ40 bases: 0(0%)\n\nFiltering result:\nreads passed filter: 2255742\nreads failed due to low quality: 0\nreads failed due to too many N: 0\nreads corrected by overlap analysis: 251069\nbases corrected by overlap analysis: 698680\n\nDuplication rate: 0.165444%\n\nInsert size peak (evaluated by paired-end reads): 151\n\nRead pairs merged: 514668\n% of original read pairs: 45.6318%\n% in reads after filtering: 100%\n\n\nJSON report: work/sample_merge_fastp_report.json\nHTML report: /dev/null\n\n/opt/lge/env/bin/fastp -i work/sample_norrna_R1.fastq.gz -I work/sample_norrna_R2.fastq.gz --merge --merged_out work/sample_merged.fq.gz --out1 work/sample_unmerged_R1.fq.gz --out2 work/sample_unmerged_R2.fq.gz --overlap_len_require 15 -A -G -Q -L -w 1 -j work/sample_merge_fastp_report.json -h /dev/null \nfastp v1.3.6, time used: 31 seconds\n",
+      "toolName" : "fastp",
+      "toolVersion" : "1.3.6",
+      "wallTimeSeconds" : 31.241559898
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/seqkit",
+        "seq",
+        "-j",
+        "1",
+        "-m",
+        "50",
+        "work/sample_merged.fq.gz",
+        "-o",
+        "work/sample_lengthfilter_merged.fq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:21:28Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/seqkit",
+        "seq",
+        "-j",
+        "1",
+        "-m",
+        "50",
+        "work/sample_merged.fq.gz",
+        "-o",
+        "work/sample_lengthfilter_merged.fq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "33944C45-9DB5-40E0-A7BE-F147A26D2161",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 91090944,
+      "reproducibleCommand" : "/opt/lge/env/bin/seqkit seq -j 1 -m 50 work/sample_merged.fq.gz -o work/sample_lengthfilter_merged.fq.gz",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "he881be0_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "seqkit"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2.13.0"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:21:18Z",
+      "stderr" : "\u001b[33m[WARN]\u001b[0m you may switch on flag -g/--remove-gaps to remove spaces\n",
+      "toolName" : "seqkit",
+      "toolVersion" : "2.13.0",
+      "wallTimeSeconds" : 9.930399376
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "work/sample_unmerged_R1.fq.gz",
+        "-I",
+        "work/sample_unmerged_R2.fq.gz",
+        "-o",
+        "work/sample_lengthfilter_unmerged_R1.fq.gz",
+        "-O",
+        "work/sample_lengthfilter_unmerged_R2.fq.gz",
+        "-A",
+        "-G",
+        "-Q",
+        "-l",
+        "50",
+        "-w",
+        "1",
+        "-j",
+        "work/sample_lengthfilter_unmerged_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "completedAt" : "2026-10-25T17:21:47Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/fastp",
+        "-i",
+        "work/sample_unmerged_R1.fq.gz",
+        "-I",
+        "work/sample_unmerged_R2.fq.gz",
+        "-o",
+        "work/sample_lengthfilter_unmerged_R1.fq.gz",
+        "-O",
+        "work/sample_lengthfilter_unmerged_R2.fq.gz",
+        "-A",
+        "-G",
+        "-Q",
+        "-l",
+        "50",
+        "-w",
+        "1",
+        "-j",
+        "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/6-1-remove-short-reads-unmerged-pairs-SRR24403534_lengthfilter_unmerged_fastp_report.json",
+        "-h",
+        "/dev/null"
+      ],
+      "exitStatus" : 0,
+      "id" : "1029F16B-6AD2-4DD5-8675-2E721EC04CEF",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "0b81ac738436b886ef4a2763c9ef0c9ae7d2905419fef4882828e88529bcdc95",
+          "fileSize" : 49935977,
+          "format" : "fastq",
+          "path" : "work/sample_lengthfilter_unmerged_R1.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "ef8dc2de08228da2aa09d98c59097f1fa48e1106d903547e6991447ccc761f4f",
+          "fileSize" : 51708830,
+          "format" : "fastq",
+          "path" : "work/sample_lengthfilter_unmerged_R2.fq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "0a34b926634e1fff97908ddd306e2f2d95425fda79c7cb659fd9b9024ab77d27",
+          "fileSize" : 127630,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/6-1-remove-short-reads-unmerged-pairs-SRR24403534_lengthfilter_unmerged_fastp_report.json",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 1179414528,
+      "reproducibleCommand" : "/opt/lge/env/bin/fastp -i work/sample_unmerged_R1.fq.gz -I work/sample_unmerged_R2.fq.gz -o work/sample_lengthfilter_unmerged_R1.fq.gz -O work/sample_lengthfilter_unmerged_R2.fq.gz -A -G -Q -l 50 -w 1 -j '@/Imports/SRR24403534.lungfishfastq/metadata/recipe-step-artifacts/6-1-remove-short-reads-unmerged-pairs-SRR24403534_lengthfilter_unmerged_fastp_report.json' -h /dev/null",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h43da1c4_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "fastp"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "1.3.6"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:21:29Z",
+      "stderr" : "Read1 before filtering:\ntotal reads: 613203\ntotal bases: 92294930\nQ20 bases: 87521621(94.8282%)\nQ30 bases: 81521340(88.327%)\nQ40 bases: 0(0%)\n\nRead2 before filtering:\ntotal reads: 613203\ntotal bases: 92062954\nQ20 bases: 85858207(93.2603%)\nQ30 bases: 78937873(85.7434%)\nQ40 bases: 0(0%)\n\nRead1 after filtering:\ntotal reads: 612853\ntotal bases: 92259035\nQ20 bases: 87488754(94.8295%)\nQ30 bases: 81491254(88.3288%)\nQ40 bases: 0(0%)\n\nRead2 after filtering:\ntotal reads: 612853\ntotal bases: 92036520\nQ20 bases: 85834862(93.2617%)\nQ30 bases: 78917044(85.7454%)\nQ40 bases: 0(0%)\n\nFiltering result:\nreads passed filter: 1225706\nreads failed due to low quality: 0\nreads failed due to too many N: 0\nreads failed due to too short: 700\n\nDuplication rate: 0.0141878%\n\nInsert size peak (evaluated by paired-end reads): 0\n\nJSON report: work/sample_lengthfilter_unmerged_fastp_report.json\nHTML report: /dev/null\n\n/opt/lge/env/bin/fastp -i work/sample_unmerged_R1.fq.gz -I work/sample_unmerged_R2.fq.gz -o work/sample_lengthfilter_unmerged_R1.fq.gz -O work/sample_lengthfilter_unmerged_R2.fq.gz -A -G -Q -l 50 -w 1 -j work/sample_lengthfilter_unmerged_fastp_report.json -h /dev/null \nfastp v1.3.6, time used: 18 seconds\n",
+      "toolName" : "fastp",
+      "toolVersion" : "1.3.6",
+      "wallTimeSeconds" : 18.126812607
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_merged.fq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:22:08Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_merged.fq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "594E748F-47C7-499A-8591-D2B48504DE3F",
+      "inputs" : [
+        {
+          "checksumSHA256" : "9896c419d17c6c24f1eb49b82f91cef5a48ab76ad7d5e777be3fe0adb1a27d85",
+          "fileSize" : 55062785,
+          "format" : "fastq",
+          "path" : "work/sample_lengthfilter_merged.fq.gz",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "pigz",
+      "outputs" : [
+
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "reproducibleCommand" : "/opt/lge/env/bin/pigz -dc work/sample_lengthfilter_merged.fq.gz",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h421ea60_2"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "pigz"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2.8"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:21:48Z",
+      "toolName" : "pigz",
+      "toolVersion" : "2.8",
+      "wallTimeSeconds" : 4.384628295
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_unmerged_R1.fq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:22:08Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_unmerged_R1.fq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "656C2E5A-E3B4-4BA4-B07C-C46001F5A61B",
+      "inputs" : [
+        {
+          "checksumSHA256" : "0b81ac738436b886ef4a2763c9ef0c9ae7d2905419fef4882828e88529bcdc95",
+          "fileSize" : 49935977,
+          "format" : "fastq",
+          "path" : "work/sample_lengthfilter_unmerged_R1.fq.gz",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "pigz",
+      "outputs" : [
+
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "reproducibleCommand" : "/opt/lge/env/bin/pigz -dc work/sample_lengthfilter_unmerged_R1.fq.gz",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h421ea60_2"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "pigz"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2.8"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:21:48Z",
+      "toolName" : "pigz",
+      "toolVersion" : "2.8",
+      "wallTimeSeconds" : 10.99103065
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_unmerged_R2.fq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:22:08Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/pigz",
+        "-dc",
+        "work/sample_lengthfilter_unmerged_R2.fq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "FBA408B6-0CF3-4749-BA1F-CAEE843F9065",
+      "inputs" : [
+        {
+          "checksumSHA256" : "ef8dc2de08228da2aa09d98c59097f1fa48e1106d903547e6991447ccc761f4f",
+          "fileSize" : 51708830,
+          "format" : "fastq",
+          "path" : "work/sample_lengthfilter_unmerged_R2.fq.gz",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "pigz",
+      "outputs" : [
+        {
+          "checksumSHA256" : "194555e9783cd686cc425659fb3289edccbc4be4d5de7485cb25f5e7e148c562",
+          "fileSize" : 705311899,
+          "format" : "fastq",
+          "path" : "work/sample_mixed.fastq",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "reproducibleCommand" : "/opt/lge/env/bin/pigz -dc work/sample_lengthfilter_unmerged_R2.fq.gz",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h421ea60_2"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "pigz"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2.8"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:21:48Z",
+      "toolName" : "pigz",
+      "toolVersion" : "2.8",
+      "wallTimeSeconds" : 10.990515714
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/clumpify.sh",
+        "in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq",
+        "out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq",
+        "-Xmx1g",
+        "-eoom",
+        "ow=t",
+        "reorder",
+        "groups=auto",
+        "pigz=t",
+        "zl=4",
+        "threads=1",
+        "interleaved=t",
+        "quantize=0,8,13,22,27,32,37"
+      ],
+      "completedAt" : "2026-10-25T17:23:27Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/clumpify.sh",
+        "in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq",
+        "out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq",
+        "-Xmx1g",
+        "-eoom",
+        "ow=t",
+        "reorder",
+        "groups=auto",
+        "pigz=t",
+        "zl=4",
+        "threads=1",
+        "interleaved=t",
+        "quantize=0,8,13,22,27,32,37"
+      ],
+      "exitStatus" : 0,
+      "id" : "86D7E3FF-AF04-4DD8-9BFA-FBF91405488E",
+      "inputs" : [
+        {
+          "checksumSHA256" : "ad29eedffbf85f51efbb3e4ec80730192d1c447bf98ee09964d5124bce97fadc",
+          "fileSize" : 448197372,
+          "format" : "fastq",
+          "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "bbtools",
+      "outputs" : [
+        {
+          "checksumSHA256" : "7e4d3e636ab56d19799139788973ba9eafdad070bd5ad29fc6758fe0002612f2",
+          "fileSize" : 448197372,
+          "format" : "fastq",
+          "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 1075445760,
+      "reproducibleCommand" : "/opt/lge/env/bin/clumpify.sh in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.fastq out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/pairs.clumped.fastq -Xmx1g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=1 interleaved=t quantize=0,8,13,22,27,32,37",
+      "resolvedOptions" : {
+        "clumpifyGroups" : {
+          "type" : "integer",
+          "value" : 13
+        },
+        "clumpifyMemoryAvailableLine" : {
+          "type" : "string",
+          "value" : "Memory Available:       800 MB"
+        },
+        "clumpifyMemoryEstimateLine" : {
+          "type" : "string",
+          "value" : "Memory Estimate:        827 MB"
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h09cc210_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "clumpify.sh"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "40.02"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:22:08Z",
+      "toolName" : "clumpify.sh",
+      "toolVersion" : "40.02",
+      "wallTimeSeconds" : 6.144309422
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/clumpify.sh",
+        "in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq",
+        "out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq",
+        "-Xmx1g",
+        "-eoom",
+        "ow=t",
+        "reorder",
+        "groups=auto",
+        "pigz=t",
+        "zl=4",
+        "threads=1",
+        "interleaved=f",
+        "quantize=0,8,13,22,27,32,37"
+      ],
+      "completedAt" : "2026-10-25T17:23:27Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/clumpify.sh",
+        "in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq",
+        "out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq",
+        "-Xmx1g",
+        "-eoom",
+        "ow=t",
+        "reorder",
+        "groups=auto",
+        "pigz=t",
+        "zl=4",
+        "threads=1",
+        "interleaved=f",
+        "quantize=0,8,13,22,27,32,37"
+      ],
+      "exitStatus" : 0,
+      "id" : "FF971B81-5677-415B-A783-DB1395263072",
+      "inputs" : [
+        {
+          "checksumSHA256" : "e1ac195fd31fc71ab1abc7973f48dd0acc39f7a86d7d0aabc96017de31ea6752",
+          "fileSize" : 257114527,
+          "format" : "fastq",
+          "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "bbtools",
+      "outputs" : [
+        {
+          "checksumSHA256" : "de797f0d4bc8636dddbb43d068dfa8844139d0ad6aa2879a18dc68cf667b5755",
+          "fileSize" : 257114527,
+          "format" : "fastq",
+          "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 1030881280,
+      "reproducibleCommand" : "/opt/lge/env/bin/clumpify.sh in=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.fastq out=.clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/unpaired.clumped.fastq -Xmx1g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=1 interleaved=f quantize=0,8,13,22,27,32,37",
+      "resolvedOptions" : {
+        "clumpifyGroups" : {
+          "type" : "integer",
+          "value" : 1
+        },
+        "clumpifyMemoryAvailableLine" : {
+          "type" : "string",
+          "value" : "Memory Available:       800 MB"
+        },
+        "clumpifyMemoryEstimateLine" : {
+          "type" : "string",
+          "value" : "Memory Estimate:        415 MB"
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "h09cc210_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "clumpify.sh"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "40.02"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:22:08Z",
+      "toolName" : "clumpify.sh",
+      "toolVersion" : "40.02",
+      "wallTimeSeconds" : 14.277883647
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/bgzip",
+        "-@",
+        "1",
+        "-c",
+        ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/combined.fastq",
+        ">",
+        "out/sample.fastq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:23:27Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/bgzip",
+        "-@",
+        "1",
+        "-c",
+        ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/combined.fastq",
+        ">",
+        "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "87B53432-04B4-4049-B8D8-C9F0EDBED05E",
+      "inputs" : [
+        {
+          "checksumSHA256" : "27a8ce22e18919b75beca884c04951426e0f3540f65a21f8df32c9a02242fab2",
+          "fileSize" : 705311899,
+          "format" : "fastq",
+          "path" : ".clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/combined.fastq",
+          "role" : "input"
+        }
+      ],
+      "managedToolID" : "htslib",
+      "outputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "output"
+        }
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 33652736,
+      "reproducibleCommand" : "/opt/lge/env/bin/bgzip -@ 1 -c .clumpify-split-94C9A233-0FFC-4F68-AAB4-08A7E11AA155/combined.fastq '>' '@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz'",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "ha79157c_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "bgzip"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "1.24"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        },
+        "writer" : {
+          "type" : "dictionary",
+          "value" : {
+            "name" : {
+              "type" : "string",
+              "value" : "bgzip"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:22:08Z",
+      "toolName" : "bgzip",
+      "toolVersion" : "1.24",
+      "wallTimeSeconds" : 18.579481003
+    },
+    {
+      "argv" : [
+        "/opt/lge/env/bin/seqkit",
+        "stats",
+        "-a",
+        "-T",
+        "out/sample.fastq.gz"
+      ],
+      "completedAt" : "2026-10-25T17:23:47Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "/opt/lge/env/bin/seqkit",
+        "stats",
+        "-a",
+        "-T",
+        "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz"
+      ],
+      "exitStatus" : 0,
+      "id" : "DECF7273-B621-4032-A71A-222D55070E86",
+      "inputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "peakMemoryBytes" : 56897536,
+      "reproducibleCommand" : "/opt/lge/env/bin/seqkit stats -a -T '@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz'",
+      "resolvedOptions" : {
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "he881be0_0"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "seqkit"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2.13.0"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "imageManifest"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:23:27Z",
+      "toolName" : "seqkit",
+      "toolVersion" : "2.13.0",
+      "wallTimeSeconds" : 20.08736515
+    },
+    {
+      "argv" : [
+        "run",
+        "--plan",
+        "plan.json",
+        "--site-fact",
+        "Machine=oconnor2003.chtc.wisc.edu",
+        "--site-fact",
+        "Arch=X86_64",
+        "--site-fact",
+        "Microarch=x86_64-v4",
+        "--site-fact",
+        "OpSysAndVer=CentOS9",
+        "--site-fact",
+        "OpSysMajorVer=9",
+        "--site-fact",
+        "OSKernelRelease=5.14.0-725.el9.x86_64",
+        "--site-fact",
+        "Cpus=1",
+        "--site-fact",
+        "Memory=9216",
+        "--site-fact",
+        "Disk=10485760",
+        "--site-fact",
+        "ClusterId=594057",
+        "--site-fact",
+        "ProcId=0"
+      ],
+      "completedAt" : "2026-10-25T17:23:54Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "run",
+        "--plan",
+        "plan.json",
+        "--site-fact",
+        "Machine=oconnor2003.chtc.wisc.edu",
+        "--site-fact",
+        "Arch=X86_64",
+        "--site-fact",
+        "Microarch=x86_64-v4",
+        "--site-fact",
+        "OpSysAndVer=CentOS9",
+        "--site-fact",
+        "OpSysMajorVer=9",
+        "--site-fact",
+        "OSKernelRelease=5.14.0-725.el9.x86_64",
+        "--site-fact",
+        "Cpus=1",
+        "--site-fact",
+        "Memory=9216",
+        "--site-fact",
+        "Disk=10485760",
+        "--site-fact",
+        "ClusterId=594057",
+        "--site-fact",
+        "ProcId=0"
+      ],
+      "exitStatus" : 0,
+      "id" : "145198E3-45C6-4FC0-A61F-4CD435013759",
+      "inputs" : [
+
+      ],
+      "outputs" : [
+
+      ],
+      "parentStepID" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "reproducibleCommand" : "run --plan plan.json --site-fact Machine=oconnor2003.chtc.wisc.edu --site-fact Arch=X86_64 --site-fact Microarch=x86_64-v4 --site-fact OpSysAndVer=CentOS9 --site-fact OpSysMajorVer=9 --site-fact OSKernelRelease=5.14.0-725.el9.x86_64 --site-fact Cpus=1 --site-fact Memory=9216 --site-fact Disk=10485760 --site-fact ClusterId=594057 --site-fact ProcId=0",
+      "resolvedOptions" : {
+        "stepTitle" : {
+          "type" : "string",
+          "value" : "Count Q20 and Q30 bases"
+        },
+        "tool" : {
+          "type" : "dictionary",
+          "value" : {
+            "build" : {
+              "type" : "string",
+              "value" : "2d303f7a659efc2c102995fffdaffaf0b6932a56"
+            },
+            "id" : {
+              "type" : "string",
+              "value" : "lungfish-executor"
+            },
+            "version" : {
+              "type" : "string",
+              "value" : "2026.10.23"
+            },
+            "versionSource" : {
+              "type" : "string",
+              "value" : "planPin"
+            }
+          }
+        }
+      },
+      "startedAt" : "2026-10-25T17:23:47Z",
+      "toolName" : "lungfish-executor",
+      "toolVersion" : "2026.10.23",
+      "wallTimeSeconds" : 7.106692384
+    },
+    {
+      "argv" : [
+        "lungfish-executor",
+        "run",
+        "--plan",
+        "plan.json",
+        "--site-fact",
+        "Machine=oconnor2003.chtc.wisc.edu",
+        "--site-fact",
+        "Arch=X86_64",
+        "--site-fact",
+        "Microarch=x86_64-v4",
+        "--site-fact",
+        "OpSysAndVer=CentOS9",
+        "--site-fact",
+        "OpSysMajorVer=9",
+        "--site-fact",
+        "OSKernelRelease=5.14.0-725.el9.x86_64",
+        "--site-fact",
+        "Cpus=1",
+        "--site-fact",
+        "Memory=9216",
+        "--site-fact",
+        "Disk=10485760",
+        "--site-fact",
+        "ClusterId=594057",
+        "--site-fact",
+        "ProcId=0"
+      ],
+      "completedAt" : "2026-10-25T17:23:54Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-executor",
+        "run",
+        "--plan",
+        "plan.json",
+        "--site-fact",
+        "Machine=oconnor2003.chtc.wisc.edu",
+        "--site-fact",
+        "Arch=X86_64",
+        "--site-fact",
+        "Microarch=x86_64-v4",
+        "--site-fact",
+        "OpSysAndVer=CentOS9",
+        "--site-fact",
+        "OpSysMajorVer=9",
+        "--site-fact",
+        "OSKernelRelease=5.14.0-725.el9.x86_64",
+        "--site-fact",
+        "Cpus=1",
+        "--site-fact",
+        "Memory=9216",
+        "--site-fact",
+        "Disk=10485760",
+        "--site-fact",
+        "ClusterId=594057",
+        "--site-fact",
+        "ProcId=0"
+      ],
+      "exitStatus" : 0,
+      "id" : "CC4EF2E8-DD2B-407E-BB2B-A319AC65F695",
+      "inputs" : [
+
+      ],
+      "outputs" : [
+
+      ],
+      "parentStepID" : "D544781C-DD21-4E05-BA2F-C6555D8528E5",
+      "reproducibleCommand" : "lungfish-executor run --plan plan.json --site-fact Machine=oconnor2003.chtc.wisc.edu --site-fact Arch=X86_64 --site-fact Microarch=x86_64-v4 --site-fact OpSysAndVer=CentOS9 --site-fact OpSysMajorVer=9 --site-fact OSKernelRelease=5.14.0-725.el9.x86_64 --site-fact Cpus=1 --site-fact Memory=9216 --site-fact Disk=10485760 --site-fact ClusterId=594057 --site-fact ProcId=0",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-25T17:18:08Z",
+      "toolName" : "lungfish-executor run",
+      "toolVersion" : "2026.10.23",
+      "wallTimeSeconds" : 346.523410818
+    },
+    {
+      "argv" : [
+        "lungfish-cli",
+        "import",
+        "fastq",
+        "<external>/c5-x2",
+        "--adopt",
+        "--project",
+        "@/",
+        "--format",
+        "json"
+      ],
+      "completedAt" : "2026-10-27T01:27:56Z",
+      "dependsOn" : [
+
+      ],
+      "durableReplayArgv" : [
+        "lungfish-cli",
+        "import",
+        "fastq",
+        "<external>/c5-x2",
+        "--adopt",
+        "--project",
+        "@/",
+        "--format",
+        "json"
+      ],
+      "exitStatus" : 0,
+      "id" : "D544781C-DD21-4E05-BA2F-C6555D8528E5",
+      "inputs" : [
+        {
+          "checksumSHA256" : "5becca9f418e9ef261bff98d7278da4ad448f4ed03b5aac8e87f0b98f4d69bb4",
+          "fileSize" : 184506113,
+          "format" : "fastq",
+          "path" : "<external>/R1.fastq.gz",
+          "role" : "input"
+        },
+        {
+          "checksumSHA256" : "c0bcca329b7db922347da74d89ed6d7d51b54ffad7c42beb6e8d5dfbc2710889",
+          "fileSize" : 187858336,
+          "format" : "fastq",
+          "path" : "<external>/R2.fastq.gz",
+          "role" : "input"
+        }
+      ],
+      "outputs" : [
+        {
+          "checksumSHA256" : "725ea43eda733d384ef11251e12f01a42907274a8fb92079d2c78857a32e112f",
+          "fileSize" : 114431405,
+          "format" : "fastq",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz",
+          "role" : "output"
+        },
+        {
+          "checksumSHA256" : "ec76f49ab734816d370a961981cc498297c965ab67c6f58638199ae0ba38bb59",
+          "fileSize" : 51773,
+          "format" : "json",
+          "path" : "@/Imports/SRR24403534.lungfishfastq/SRR24403534.fastq.gz.lungfish-meta.json",
+          "role" : "output"
+        }
+      ],
+      "reproducibleCommand" : "lungfish-cli import fastq <external>/c5-x2 --adopt --project '@/' --format json",
+      "resolvedOptions" : {
+
+      },
+      "startedAt" : "2026-10-27T01:27:56Z",
+      "toolName" : "lungfish import fastq",
+      "toolVersion" : "Lungfish 2026.10.25 (11392)",
+      "wallTimeSeconds" : 0
+    }
+  ],
+  "tool" : {
+    "kind" : "cli",
+    "name" : "lungfish import fastq",
+    "version" : "Lungfish 2026.10.25 (11392)"
+  },
+  "toolName" : "lungfish import fastq",
+  "toolVersion" : "Lungfish 2026.10.25 (11392)",
+  "wallTimeSeconds" : 0.07557427883148193,
+  "workflowName" : "lungfish import fastq",
+  "workflowVersion" : "Lungfish 2026.10.25 (11392)"
+}
