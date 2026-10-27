@@ -55,6 +55,30 @@ extension ClassificationResultTests {
         XCTAssertEqual(try Data(contentsOf: sidecar), storedBytes, "reading a result never rewrites its sidecar")
     }
 
+    // MARK: - A scratch input of the run (BIO should-fix 1 of the PROJECT-ROOT review)
+
+    /// A run on a virtual bundle (subset, trim, demux) takes materialized inputs from `<project>/.tmp/` and deletes
+    /// them when it ends, and the sidecar stores the run's effective config, so `inputFiles` can name a scratch file
+    /// that no project holds. The open project holds the bundle the person named, so Extract and BLAST read that
+    /// bundle and are not refused for the scratch file.
+    func testLoadDoesNotRefuseForAScratchInputThatTheStoredProjectDeletedAfterTheRun() throws {
+        let fixture = try makeProjectCopy()
+        let bundle = "Imports/s.lungfishfastq"
+        try fixture.makeRead(at: fixture.copy(bundle))
+        var config = fixture.config(inputFiles: [fixture.old(".tmp/kraken2-ABC/s.fastq")])
+        config.originalInputFiles = [fixture.old(bundle)]
+        try fixture.writeResult(config: config)
+
+        let loaded = try ClassificationResult.load(from: fixture.loadedFolder)
+
+        XCTAssertNil(loaded.config.sourceMissingFromProject, "a scratch file the run deleted is not a read the project lacks")
+        XCTAssertEqual(
+            try KrakenResultReadSources.recordedInputs(of: loaded).map { $0.standardizedFileURL.path },
+            [fixture.copy(bundle).standardizedFileURL.path],
+            "the bundle the person named is the copy's"
+        )
+    }
+
     // MARK: - What stays as stored (green at the base)
 
     /// One project per read set. The copy holds the first mate and the original holds both, so taking mate 1 from
