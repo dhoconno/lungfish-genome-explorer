@@ -126,6 +126,59 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
         XCTAssertTrue(words?.hasSuffix("then choose BLAST Matching Reads….") == true, "the words end with the BLAST menu item: \(String(describing: words))")
     }
 
+    /// ARCH Backlog B12 (S2). On the drawer route Run resolves the classification record of the sample shown. A
+    /// sample whose folder holds none returned with a log line only, with the run flag the popover had set still
+    /// set and no words. It ends the run now, and the BLAST tab says which record is missing and what to try.
+    func testBlastOnASampleWithoutItsClassificationRecordSaysSoAndLeavesNoRunInFlight() throws {
+        _ = NSApplication.shared // The refusal's alert reads NSApp.keyWindow.
+        let batch = try TwoSampleKraken2Batch(in: root)
+        try FileManager.default.removeItem(at: Self.sidecar(of: batch.sampleADirectory))
+        let (taxonomy, node) = try openSampleA(of: batch)
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        taxonomy.beginBlastVerification(for: node) // what Run in the popover does first
+        taxonomy.onBlastVerification?(node, 10)
+
+        let words = "BLAST Matching Reads could not start because LGE could not find this sample's classification record. "
+            + "Run the classification again to rebuild it."
+        assertBlastRefused(by: taxonomy, before: before, startingWith: "BLAST Matching Reads could not start because")
+        XCTAssertTrue(blastTabText(of: taxonomy).contains(words), "the BLAST tab says what is missing: \(blastTabText(of: taxonomy))")
+    }
+
+    /// The same for a record that is there and cannot be read. The words carry the load's own reason, and the
+    /// reason's full stop is not doubled before "Run the classification again".
+    func testBlastOnASampleWhoseClassificationRecordCannotBeReadGivesTheReasonAndLeavesNoRunInFlight() throws {
+        _ = NSApplication.shared // The refusal's alert reads NSApp.keyWindow.
+        let batch = try TwoSampleKraken2Batch(in: root)
+        try Data("not a classification record".utf8).write(to: Self.sidecar(of: batch.sampleADirectory))
+        let (taxonomy, node) = try openSampleA(of: batch)
+        let before = Set(OperationCenter.shared.items.map(\.id))
+
+        taxonomy.beginBlastVerification(for: node) // what Run in the popover does first
+        taxonomy.onBlastVerification?(node, 10)
+
+        let start = "BLAST Matching Reads could not start because LGE could not read this sample's classification record: "
+        let end = ". Run the classification again to rebuild it."
+        assertBlastRefused(by: taxonomy, before: before, startingWith: start)
+        let words = try XCTUnwrap(blastTabText(of: taxonomy).first { $0.hasPrefix(start) })
+        XCTAssertTrue(words.hasSuffix(end), "the words end with what to try: \(words)")
+        let reason = words.dropFirst(start.count).dropLast(end.count)
+        XCTAssertFalse(reason.isEmpty, "the words give the reason the record could not be read: \(words)")
+        XCTAssertFalse(words.contains(".."), "the reason's own full stop is not doubled: \(words)")
+    }
+
+    private static func sidecar(of folder: URL) -> URL {
+        folder.appendingPathComponent(ClassificationResult.sidecarFilename)
+    }
+
+    /// The batch opened the way the sidebar does, with sample A shown and one of its species at hand.
+    private func openSampleA(of batch: TwoSampleKraken2Batch) throws -> (TaxonomyViewController, TaxonNode) {
+        let taxonomy = try harness.openFromSidebar(batch, showing: [TwoSampleKraken2Batch.sampleA])
+        let node = try XCTUnwrap(taxonomy.testTableView.tree?.node(taxId: 11))
+        XCTAssertEqual(taxonomy.owningSampleId(for: node), TwoSampleKraken2Batch.sampleA, "the species belongs to the sample shown")
+        return (taxonomy, node)
+    }
+
     /// What a BLAST that cannot start leaves behind. No Operations row began, the taxonomy view holds no run in
     /// flight, and the BLAST tab shows words that begin with `start`.
     private func assertBlastRefused(
