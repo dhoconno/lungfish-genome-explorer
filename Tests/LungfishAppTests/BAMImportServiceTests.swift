@@ -101,6 +101,24 @@ final class BAMImportServiceTests: XCTestCase {
         XCTAssertEqual(counts.total, 5_633_919)
     }
 
+    /// The supplementary fixture holds 13 alignment records for 11 reads: 10 mapped, 1 unmapped, and 2 supplementary
+    /// records of mapped reads. idxstats counts 12 mapped records, so the published counts are flagstat's primary lines.
+    func testPublishedReadCountsCountReadsNotSupplementaryRecords() throws {
+        let fixtureDatabase = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/mapping/supplementary-one-contig/fixture.lungfishref/alignments/fixture-track.stats.db")
+        let databaseURL = tempDir.appendingPathComponent("fixture-track.stats.db")
+        try FileManager.default.copyItem(at: fixtureDatabase, to: databaseURL)
+        let database = try AlignmentMetadataDatabase(url: databaseURL)
+
+        let counts = BAMImportService.publishedReadCounts(from: database)
+
+        XCTAssertEqual(counts.mapped, 10)
+        XCTAssertEqual(counts.unmapped, 1)
+        XCTAssertEqual(counts.total, 11)
+    }
+
     // MARK: - BAMImportError
 
     func testBAMImportErrorFileNotFoundDescription() {

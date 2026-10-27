@@ -100,6 +100,39 @@ final class AlignmentSummaryDistinctCountTests: XCTestCase {
         XCTAssertEqual(viewModel.trackNames, ["S1 [unmarked]", "S1 [dup-marked]"], "both tracks are still listed")
     }
 
+    /// The supplementary fixture holds 13 alignment records for 11 reads: 10 mapped, 1 unmapped (unplaced, so no
+    /// sequence row holds it) and 2 supplementary records of mapped reads. Total Mapped summed the 12 idxstats records.
+    func testSummaryCountsReadsNotSupplementaryAlignments() throws {
+        let fixtureBundle = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/mapping/supplementary-one-contig/fixture.lungfishref", isDirectory: true)
+        let bundleURL = tempDir.appendingPathComponent("fixture.lungfishref", isDirectory: true)
+        try FileManager.default.copyItem(at: fixtureBundle, to: bundleURL)
+        let manifest = BundleManifest(
+            name: "Fixture",
+            identifier: "bundle.fixture",
+            source: SourceInfo(organism: "Test organism", assembly: "fixture", database: "Test"),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "fixture-track", name: "Original",
+                    sourcePath: "alignments/fixture-track.sorted.bam",
+                    indexPath: "alignments/fixture-track.sorted.bam.bai",
+                    metadataDBPath: "alignments/fixture-track.stats.db",
+                    mappedReadCount: 12, unmappedReadCount: 1
+                ),
+            ]
+        )
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.loadStatistics(from: ReferenceBundle(url: bundleURL, manifest: manifest))
+
+        XCTAssertEqual(viewModel.totalMappedReads, 10)
+        XCTAssertEqual(viewModel.totalUnmappedReads, 1)
+        let mappedPercent = Double(viewModel.totalMappedReads)
+            / Double(viewModel.totalMappedReads + viewModel.totalUnmappedReads) * 100
+        XCTAssertEqual(String(format: "%.1f%%", mappedPercent), "90.9%", "Mapped % as the Inspector formats it")
+    }
+
     /// SARS-CoV-2 Amplicons demo: the minimap2 result showed Total Mapped
     /// 336.1K for 170,398 reads, the source track plus its primer-trimmed
     /// copy. Primer trim records its source only in the BAM's

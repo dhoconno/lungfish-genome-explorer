@@ -147,6 +147,48 @@ final class PreparedAlignmentAttachmentServiceTests: XCTestCase {
         XCTAssertEqual(metadataDB.getFileInfo("unmapped_reads"), "5633894")
     }
 
+    /// The attach publishes reads, not alignment records. flagstat and idxstats of the supplementary fixture: 13 records
+    /// for 11 reads, 12 mapped records of which 2 are supplementary, so 10 reads mapped and 1 did not.
+    func testAttachPublishesReadsNotSupplementaryRecords() async throws {
+        let bundleURL = try makeMinimalBundle(named: "supplementary-counts")
+        let (stagedBAM, stagedIndex) = try makeStagedArtifacts(in: tempDir)
+        let request = PreparedAlignmentAttachmentRequest(
+            bundleURL: bundleURL,
+            stagedBAMURL: stagedBAM,
+            stagedIndexURL: stagedIndex,
+            outputTrackID: "aln_supplementary",
+            outputTrackName: "supplementary",
+            relativeDirectory: "alignments"
+        )
+        let collector = StubPreparedAlignmentMetadataCollector(
+            idxstatsOutput: "fixture1\t1000\t12\t0\n*\t0\t0\t1\n",
+            flagstatOutput: """
+            13 + 0 in total (QC-passed reads + QC-failed reads)
+            11 + 0 primary
+            0 + 0 secondary
+            2 + 0 supplementary
+            0 + 0 duplicates
+            0 + 0 primary duplicates
+            12 + 0 mapped (92.31% : N/A)
+            10 + 0 primary mapped (90.91% : N/A)
+            """
+        )
+
+        let result = try await PreparedAlignmentAttachmentService(
+            metadataCollector: collector
+        ).attach(request: request)
+
+        XCTAssertEqual(result.trackInfo.mappedReadCount, 10)
+        XCTAssertEqual(result.trackInfo.unmappedReadCount, 1)
+        let manifestTrack = try XCTUnwrap(BundleManifest.load(from: bundleURL).alignments.first)
+        XCTAssertEqual(manifestTrack.mappedReadCount, 10)
+        let metadataPath = try XCTUnwrap(manifestTrack.metadataDBPath)
+        let metadataDB = try AlignmentMetadataDatabase(url: bundleURL.appendingPathComponent(metadataPath))
+        XCTAssertEqual(metadataDB.getFileInfo("total_reads"), "11")
+        XCTAssertEqual(metadataDB.getFileInfo("mapped_reads"), "10")
+        XCTAssertEqual(metadataDB.getFileInfo("unmapped_reads"), "1")
+    }
+
     /// 2.13 lane 13.16, review Fix 1. The attach moves the staged BAM and index into the bundle, and a caller such as
     /// `bam adopt-mapping` stages the user's only copy. When a later step throws, the attach gives both back to the
     /// staged paths, removes only what it made and restores the manifest's bytes.

@@ -63,4 +63,80 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         XCTAssertEqual(MapProgressLine.render("Mapping reads", isTerminal: true), "\rMapping reads")
         XCTAssertEqual(MapProgressLine.render("Mapping reads", isTerminal: false), "Mapping reads\n")
     }
+
+    // MARK: - Reads, not supplementary alignment records
+
+    /// A bundle written before this release keeps the idxstats sum in its manifest, 12 for the supplementary fixture
+    /// whose 11 reads hold 10 mapped reads and 2 supplementary alignments. The stats database holds flagstat's counts.
+    func testBundleInfoListsMappedReadsFromTheStatsDatabaseOverTheManifest() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        let command = try BundleInfoSubcommand.parse(["--no-color", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let row = try XCTUnwrap(output.split(separator: "\n").first { $0.contains("fixture-track") }, output)
+        let cells = row.split(separator: " ").map(String.init)
+        XCTAssertTrue(cells.contains("10"), "Mapped Reads reads 10 reads: \(row)")
+        XCTAssertFalse(cells.contains("12"), "not the manifest's 12 alignment records: \(row)")
+    }
+
+    func testBundleListShowsMappedReadsFromTheStatsDatabaseOverTheManifest() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        let command = try BundleListSubcommand.parse(["--no-color", "--tracks", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        XCTAssertTrue(output.contains("fixture-track: Original (bam, 10 mapped reads)"), output)
+    }
+
+    /// A copy of the fixture's viewer bundle (stats database, BAM and index) with a manifest that lists the track
+    /// with the old idxstats counts, as a bundle written before this release does.
+    private func makeBundleWithSupplementaryTrack() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bundle-mapped-reads-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fixtureBundle = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/mapping/supplementary-one-contig/fixture.lungfishref", isDirectory: true)
+        let bundleURL = folder.appendingPathComponent("fixture.lungfishref", isDirectory: true)
+        try FileManager.default.copyItem(at: fixtureBundle, to: bundleURL)
+        let manifest = BundleManifest(
+            name: "Fixture",
+            identifier: "test.fixture",
+            source: SourceInfo(organism: "Test", assembly: "TestAssembly", database: "Fixture"),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "fixture-track",
+                    name: "Original",
+                    sourcePath: "alignments/fixture-track.sorted.bam",
+                    indexPath: "alignments/fixture-track.sorted.bam.bai",
+                    metadataDBPath: "alignments/fixture-track.stats.db",
+                    mappedReadCount: 12,
+                    unmappedReadCount: 1
+                ),
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
+        let pipe = Pipe()
+        let originalStdout = dup(STDOUT_FILENO)
+        dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+        do {
+            try await operation()
+            fflush(stdout)
+        } catch {
+            fflush(stdout)
+            dup2(originalStdout, STDOUT_FILENO)
+            close(originalStdout)
+            pipe.fileHandleForWriting.closeFile()
+            throw error
+        }
+        dup2(originalStdout, STDOUT_FILENO)
+        close(originalStdout)
+        pipe.fileHandleForWriting.closeFile()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    }
 }

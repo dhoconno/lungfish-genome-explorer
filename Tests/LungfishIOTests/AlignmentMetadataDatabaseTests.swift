@@ -219,6 +219,29 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         XCTAssertEqual(db.totalUnmappedReads(), 0)
     }
 
+    /// The supplementary fixture holds 13 alignment records for 11 reads. Ten reads mapped, one did not, and two
+    /// supplementary records belong to mapped reads. idxstats and flagstat's `mapped` line count 12 records.
+    func testPrimaryReadCountsComeFromFlagstatNotIdxstats() throws {
+        let db = try makeDatabase()
+        db.addChromosomeStats(chromosome: "fixture1", length: 1000, mapped: 12, unmapped: 0)
+        XCTAssertNil(db.primaryReadCounts(), "without flagstat there are no read counts to give")
+        db.addFlagStat(category: "total", qcPass: 13, qcFail: 0)
+        db.addFlagStat(category: "mapped", qcPass: 12, qcFail: 0)
+        XCTAssertNil(db.primaryReadCounts(), "a flagstat from before samtools 1.9 has no primary lines")
+        db.addFlagStat(category: "primary", qcPass: 11, qcFail: 0)
+        XCTAssertNil(db.primaryReadCounts(), "primary mapped is still missing")
+        db.addFlagStat(category: "primary mapped", qcPass: 9, qcFail: 1)
+
+        let counts = try XCTUnwrap(db.primaryReadCounts())
+        XCTAssertEqual(counts.mapped, 10, "QC-passed and QC-failed reads both count")
+        XCTAssertEqual(counts.unmapped, 1)
+        XCTAssertEqual(db.totalMappedReads(), 12, "the idxstats sum stays the count of alignment records")
+        XCTAssertEqual(db.totalUnmappedReads(), 1)
+
+        db.addFlagStat(category: "primary", qcPass: 9, qcFail: 0)
+        XCTAssertNil(db.primaryReadCounts(), "primary below primary mapped is not a flagstat to trust")
+    }
+
     // MARK: - Flag Stats
 
     func testAddAndQueryFlagStats() throws {
