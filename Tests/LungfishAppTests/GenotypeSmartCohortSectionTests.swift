@@ -196,6 +196,37 @@ final class GenotypeSmartCohortSectionTests: XCTestCase {
         XCTAssertFalse(AccessibilityTreeProbe.isSelected(other))
     }
 
+    // MARK: - The delete buttons (walk WO-7)
+
+    /// Each delete button names its cohort. The four buttons of the built-in cohorts all read "Remove" to VoiceOver, and
+    /// their tooltip said "Delete cohort" without saying which one.
+    func testEachDeleteButtonNamesItsCohortToAssistiveTechnologyAndInItsTooltip() throws {
+        let cohorts = sampleCohorts()
+        let window = AccessibilityTreeProbe.host(
+            GenotypeSmartCohortSection(cohorts: cohorts, onSelect: { _ in }, onDelete: { _ in }, onAdd: { }),
+            size: CGSize(width: 320, height: 320)
+        )
+        defer { window.orderOut(nil) }
+        let root = try XCTUnwrap(window.contentView)
+        func deleteButtons() -> [NSObject] {
+            AccessibilityTreeProbe.all(in: root).filter {
+                AccessibilityTreeProbe.identifier($0) == "genotypeSmartCohortDeleteButton"
+            }
+        }
+        AccessibilityTreeProbe.waitUntil { deleteButtons().count == cohorts.count }
+
+        let buttons = deleteButtons()
+        XCTAssertEqual(buttons.count, cohorts.count, AccessibilityTreeProbe.dump(root))
+        XCTAssertEqual(
+            buttons.map { AccessibilityTreeProbe.label($0) ?? "" },
+            ["Remove Needs Review", "Remove Bw6+ carriers", "Remove Homozygous A"]
+        )
+        XCTAssertEqual(
+            buttons.map { AccessibilityTreeProbe.help($0) ?? "" },
+            ["Delete the Needs Review cohort", "Delete the Bw6+ carriers cohort", "Delete the Homozygous A cohort"]
+        )
+    }
+
     // MARK: - Restore Built-In Cohorts (plan decision S13)
 
     func testRestoreIsOfferedOnlyWhenABuiltInCohortIsMissing() {
