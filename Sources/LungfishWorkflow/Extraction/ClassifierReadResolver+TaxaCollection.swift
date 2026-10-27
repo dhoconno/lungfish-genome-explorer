@@ -121,7 +121,7 @@ extension ClassifierReadResolver {
     }
 
     /// One taxon of a collection: the resolver's Kraken2 extraction into `scratch`, gzipped into
-    /// `outputDirectory` under the taxon's name, with its roles and its record beside it.
+    /// `outputDirectory` under the taxon's name, with its pairing, its roles and its record beside it.
     private func extractCollectionTaxon(
         _ target: TaxonTarget,
         of collection: TaxaCollection,
@@ -152,8 +152,22 @@ extension ClassifierReadResolver {
         try Task.checkCancellation()
         let output = outputDirectory.appendingPathComponent("\(baseName).fastq.gz")
         try KrakenOutputCompactor.gzipCopy(source: plain, destination: output)
+        // The ingest that follows is a second process, `fastq ingest`, which the app starts once this one ends. It
+        // finds the layout measured here only in the file's metadata sidecar. A file of pairs alone records
+        // `interleaved`, as the bundle destination does, so a lone file is never ingested as single-end against its
+        // layout (WF-1). A mix of pairs and single reads keeps its roles and the `single_end` the ingest gives it.
+        var metadata = FASTQMetadataStore.load(for: output) ?? PersistedFASTQMetadata()
         if let roles = extraction.layout.roles(namedFor: output) {
-            FASTQMixedLayoutHint.write(roles, beside: output)
+            metadata.readClassification = roles
+        }
+        if extraction.layout.pairingMode == .interleaved {
+            metadata.ingestion = IngestionMetadata(
+                isCompressed: true, pairingMode: .interleaved, pairingSource: .detected,
+                originalFilenames: [output.lastPathComponent]
+            )
+        }
+        if metadata.readClassification != nil || metadata.ingestion != nil {
+            try FASTQMetadataStore.write(metadata, for: output)
         }
         try await TaxonomyExtractionPipeline().recordProvenance(
             config: TaxonomyExtractionConfig(

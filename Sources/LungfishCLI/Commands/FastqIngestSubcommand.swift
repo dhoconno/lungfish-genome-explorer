@@ -142,9 +142,16 @@ struct FastqIngestSubcommand: AsyncParsableCommand {
         ([input] + (pair.map { [$0] } ?? [])).map { URL(fileURLWithPath: $0).standardizedFileURL }
     }
 
+    /// The pairing a lone input is ingested with. It is interleaved when the input's metadata sidecar records
+    /// pairs alone, as `extract taxa-collection` writes it beside a file of pairs, and single-end otherwise. A lone
+    /// file is not set to single-end against its recorded layout, the rule `FASTQBatchImporter` follows.
+    static func pairingOfALoneFile(_ input: URL) -> FASTQIngestionConfig.PairingMode {
+        FASTQMetadataStore.load(for: input)?.ingestion?.pairingMode == .interleaved ? .interleaved : .singleEnd
+    }
+
     func runOptions() -> FastqIngestRun.Options {
         FastqIngestRun.Options(
-            pairingMode: pair == nil ? .singleEnd : .pairedEnd,
+            pairingMode: pair == nil ? Self.pairingOfALoneFile(inputURLs()[0]) : .pairedEnd,
             binning: binning,
             skipClumpify: skipClumpify,
             deleteOriginals: deleteOriginals,

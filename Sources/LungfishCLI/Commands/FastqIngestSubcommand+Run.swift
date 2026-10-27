@@ -380,6 +380,17 @@ struct FastqIngestRun {
         return found
     }
 
+    /// A removed original takes its own record and metadata sidecars with it, since both describe a file that
+    /// is gone (WF-1). The output's sidecar carries the first input's metadata on and the run's record merges the
+    /// folder's history, so the folder keeps one record for each file in it. The second file of a pair keeps its
+    /// metadata sidecar, which the output's does not carry. A sidecar that cannot be removed does not fail a run
+    /// whose output is in place.
+    private func retireSidecars(of original: URL) {
+        var sidecars = [ProvenanceRecorder.fileSidecarURL(for: original)]
+        if original == inputs[0] { sidecars.append(FASTQMetadataStore.metadataURL(for: original)) }
+        for sidecar in sidecars { try? FileManager.default.removeItem(at: sidecar) }
+    }
+
     /// Removes each input except the one that is the output itself, which a skipped clumpify of one
     /// gzip file leaves in place.
     private func removeOriginals(keeping output: URL) throws {
@@ -387,6 +398,7 @@ struct FastqIngestRun {
         for original in inputs where original.standardizedFileURL != output.standardizedFileURL {
             do {
                 try FileManager.default.removeItem(at: original)
+                retireSidecars(of: original)
             } catch {
                 failures.append("\(original.lastPathComponent) (\(error.localizedDescription))")
             }
