@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishCore
+import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -372,6 +374,56 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
         XCTAssertEqual(metadata.parameters["taxIds"], "1270,1,562")
         XCTAssertEqual(metadata.parameters["accessions"], "ACC_A")
+    }
+
+    // MARK: - resolveDestination .file opens its panel in the project
+
+    /// Keeps the folder the panel was asked to open in, nil when the caller names none.
+    private final class StartFolderSavePanel: SavePanelPresenting {
+        let url: URL
+        var folders: [URL?] = []
+        init(url: URL) { self.url = url }
+        func present(suggestedName: String, on window: NSWindow) async -> URL? {
+            folders.append(nil)
+            return url
+        }
+        func present(suggestedName: String, on window: NSWindow, startingIn folder: URL?) async -> URL? {
+            folders.append(folder)
+            return url
+        }
+    }
+
+    /// Extract Reads with Save to File… opens its panel in the project that holds the result, so a person who
+    /// last saved into another project does not land there (Phase 3.0 lane CONSENSUS-DEST, walk WO-3).
+    func testFileDestinationOpensItsPanelInTheProjectHoldingTheResult() async throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("wo3-\(UUID().uuidString)")
+        let projectURL = scratch.appendingPathComponent("P.lungfish", isDirectory: true)
+        let resultURL = projectURL.appendingPathComponent("Analyses/kraken2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let panel = StartFolderSavePanel(url: scratch.appendingPathComponent("reads.fastq"))
+        let action = TaxonomyReadExtractionAction.shared
+        let original = action.savePanelPresenter
+        action.savePanelPresenter = panel
+        defer { action.savePanelPresenter = original }
+        let context = TaxonomyReadExtractionAction.Context(
+            tool: .kraken2,
+            resultPath: resultURL,
+            selections: [ClassifierRowSelector(sampleId: "S1", accessions: [], taxIds: [562])],
+            suggestedName: "reads"
+        )
+        let model = ClassifierExtractionDialogViewModel(tool: .kraken2, selectionCount: 1, suggestedName: "reads")
+        model.destination = .file
+
+        let destination = try await action.resolveDestinationForTesting(model: model, context: context)
+
+        guard case .file(let url) = destination else { return XCTFail("Expected .file, got \(destination)") }
+        XCTAssertEqual(url, panel.url, "the panel's choice is the destination")
+        XCTAssertEqual(panel.folders.count, 1, "one panel opened")
+        XCTAssertEqual(
+            panel.folders.first??.resolvingSymlinksInPath().path, projectURL.resolvingSymlinksInPath().path,
+            "the panel opens in the project that holds the result, not in the last folder used"
+        )
     }
 
     // MARK: - CLI command reconstruction
