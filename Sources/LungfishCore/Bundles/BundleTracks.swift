@@ -676,6 +676,16 @@ public struct AlignmentTrackInfo: Codable, Sendable, Equatable, Identifiable {
         )
     }
 
+    /// Returns a copy of this track with different cached read counts; every other field is kept.
+    public func withReadCounts(mapped: Int64?, unmapped: Int64?) -> AlignmentTrackInfo {
+        AlignmentTrackInfo(
+            id: id, name: name, description: description, format: format, sourcePath: sourcePath,
+            sourceBookmark: sourceBookmark, indexPath: indexPath, indexBookmark: indexBookmark,
+            metadataDBPath: metadataDBPath, checksumSHA256: checksumSHA256, fileSizeBytes: fileSizeBytes,
+            addedDate: addedDate, mappedReadCount: mapped, unmappedReadCount: unmapped, sampleNames: sampleNames
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

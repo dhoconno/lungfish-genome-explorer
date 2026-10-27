@@ -54,7 +54,12 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
         switch globalOptions.outputFormat {
         case .json:
             let handler = JSONOutputHandler()
-            handler.writeData(BundleInfoOutput(manifest: manifest, path: bundlePath), label: nil)
+            // The manifest of a bundle made before the read counts were fixed holds the idxstats sums, so print the
+            // same reads the text form prints.
+            let shown = manifest.alignments.isEmpty
+                ? manifest
+                : manifest.displayingAlignments(BundleAlignmentTrackListing.withReads(manifest.alignments, in: bundleURL))
+            handler.writeData(BundleInfoOutput(manifest: shown, path: bundlePath), label: nil)
 
         case .tsv:
             print("name\tidentifier\torganism\tassembly\ttotal_length\tchromosomes\tannotations\tvariants\ttracks")

@@ -1344,6 +1344,36 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertTrue(manifest.alignments.isEmpty)
     }
 
+    /// `bundle info --format json` prints the manifest with the read counts the stats database holds. The copy must not
+    /// claim the bundle changed now, which is what `replacingAlignmentTrack` does with the modified date.
+    func testDisplayingAlignmentsKeepsTheModifiedDateAndSetsOnlyTheTracksGiven() {
+        let stored = Date(timeIntervalSince1970: 1_700_000_000)
+        let track = AlignmentTrackInfo(
+            id: "aln_1",
+            name: "Sample A reads",
+            sourcePath: "alignments/aln_1.sorted.bam",
+            indexPath: "alignments/aln_1.sorted.bam.bai",
+            mappedReadCount: 12,
+            unmappedReadCount: 1
+        )
+        let manifest = BundleManifest(
+            name: "Fixture",
+            identifier: "test.fixture",
+            modifiedDate: stored,
+            source: SourceInfo(organism: "Test", assembly: "TestAssembly", database: "Fixture"),
+            alignments: [track]
+        )
+
+        let shown = manifest.displayingAlignments([track.withReadCounts(mapped: 10, unmapped: 1)])
+
+        XCTAssertEqual(shown.modifiedDate, stored, "output must not claim the bundle changed now")
+        XCTAssertEqual(shown.alignments.first?.mappedReadCount, 10)
+        XCTAssertEqual(shown.alignments.first?.unmappedReadCount, 1)
+        XCTAssertEqual(shown.alignments.first?.sourcePath, track.sourcePath)
+        XCTAssertEqual(shown.name, manifest.name)
+        XCTAssertEqual(manifest.alignments.first?.mappedReadCount, 12, "the manifest given is not changed")
+    }
+
     // MARK: - MetadataGroup Save/Load Tests
 
     func testMetadataGroupSaveAndLoad() throws {
