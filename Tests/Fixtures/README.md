@@ -73,6 +73,12 @@ Small read fixtures used by deterministic assembly UI and XCUI coverage.
 | `ont/reads.fastq` | ONT-style single-read example with nanopore header |
 | `pacbio-hifi/reads.fastq` | PacBio HiFi example with `/ccs` header |
 
+## ont/
+
+| Path | Description |
+|------|-------------|
+| `nrg1-run/` | The Oxford Nanopore run folder of the 2026-10-26 GUI walk, copied from the Long Reads and Assembly demo project (`Practice Data/nrg1-ont-barcoded/ont-run`). `fastq_pass/` holds `barcode85` to `barcode91` (no `barcode88`) at two gzip chunks of 500 reads each, and `unclassified/` at one chunk of 204 reads. 990,786 bytes. The reads are human NRG1 amplicon reads from the public ENA runs ERR12259924 (barcode85 and unclassified), ERR12259925, ERR12259926, ERR12259928, ERR12259929 and ERR12259930, and the archive copies carry Q0 (`!`) on every base. `seqkit stats -a` on barcode85 gives 1,000 reads, 1,735,173 bases, min 148, max 3,994, median 1,861, N50 1,864 and GC 48.87%, and on `unclassified` 204 reads and 207,358 bases. `ONTImportStatisticsTests` reads it through the run folder, `fastq_pass` and one barcode folder |
+
 ## platform-headers/
 
 Four-read FASTQ files, two gzip copies and four unaligned BAM files, one per read-header form the sequencing-platform detector knows (Illumina, Element, MGI, Ion Torrent, Oxford Nanopore and PacBio forms, plus conflicts). Real header forms with synthetic bases. `platform-headers/README.md` names the source of each form, and `PlatformHeaderFixtures` in LungfishTestSupport resolves the paths. About 380 KB.

@@ -83,6 +83,38 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         )
     }
 
+    /// Phase 3.0 lane ONT (walk WF-8, BIO). A merge knows its sources' read and base counts, not the lengths and
+    /// qualities of the merged reads, so its sidecar never stores a zero min, max or N50 for reads it counted.
+    func testAMergedSidecarStoresNoStatisticsItDidNotMeasure() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let measured = FASTQDatasetStatistics(
+            readCount: 1, baseCount: 4, meanReadLength: 4, minReadLength: 4, maxReadLength: 4,
+            medianReadLength: 4, n50ReadLength: 4, meanQuality: 40, q20Percentage: 100, q30Percentage: 100,
+            gcContent: 0.5, readLengthHistogram: [4: 1], qualityScoreHistogram: [40: 4], perPositionQuality: []
+        )
+        let sources = try ["A", "B"].map { name in
+            try makeBundle(
+                root: root, name: name, fastqName: "reads.fastq", contents: "@\(name)\nACGT\n+\nIIII\n",
+                pairing: .singleEnd, statistics: measured, sequencingPlatform: .oxfordNanopore
+            )
+        }
+
+        let mergedURL = try await FASTQBundleMergeService.merge(
+            sourceBundleURLs: sources,
+            outputDirectory: root,
+            bundleName: "Merged Measured"
+        )
+
+        let merged = FASTQMetadataStore.load(for: mergedURL)
+        XCTAssertEqual(merged?.sequencingPlatform, .oxfordNanopore, "the sidecar keeps what the sources agree on")
+        if let statistics = merged?.computedStatistics, statistics.readCount > 0 {
+            XCTAssertGreaterThan(statistics.minReadLength, 0, "min of \(statistics.readCount) merged reads")
+            XCTAssertGreaterThan(statistics.maxReadLength, 0, "max of \(statistics.readCount) merged reads")
+            XCTAssertGreaterThan(statistics.n50ReadLength, 0, "N50 of \(statistics.readCount) merged reads")
+        }
+    }
+
     func testMergeCreatesMaterializedBundleForInterleavedInputs() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
