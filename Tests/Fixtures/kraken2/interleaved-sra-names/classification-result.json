@@ -1,0 +1,30 @@
+{
+  "config": {
+    "confidence": 0.2,
+    "databaseCatalogID": "kraken2-viral",
+    "databaseName": "Viral",
+    "databasePath": "database",
+    "databaseVersion": "20260626",
+    "goal": "classify",
+    "inputFiles": [
+      "source.fastq"
+    ],
+    "interleavedInput": true,
+    "isPairedEnd": false,
+    "memoryMapping": false,
+    "minimumHitGroups": 2,
+    "originalInputFiles": [
+      "source.fastq"
+    ],
+    "outputDirectory": ".",
+    "quickMode": false,
+    "sampleDisplayName": "SRR12486983",
+    "threads": 4
+  },
+  "outputPath": "classification.kraken",
+  "provenanceId": "8B6F0E2A-5C1D-4F7B-9A3E-2D4C6E8F1A0B",
+  "reportPath": "classification.kreport",
+  "runtime": 2.0,
+  "savedAt": "2026-10-26T19:00:00Z",
+  "toolVersion": "2.17.1"
+}
