@@ -110,16 +110,27 @@ final class FASTQQualityFractionsByteScanTests: XCTestCase {
         XCTAssertEqual(scanned, reference)
     }
 
-    func testEachFileDetectsItsOwnEncoding() async throws {
+    /// BIO-BIN-QIN N1. No file is guessed to be Phred+64, so a file whose bytes all sit at '@' or above counts every base
+    /// at Q20 and Q30, and the phred64 fixture holds 14 such bases. The counter once took thresholds of 'T' and '^'
+    /// from its first record. The record path, `FASTQReader`, still guesses from the first record, so the Phred+33 file
+    /// is the one compared with it.
+    func testEveryFileCountsAtPhred33() async throws {
         let phred64 = try write(Self.phred64Text, name: "phred64.fastq")
         let phred33 = try gzip(try write(Self.phred33Text, name: "phred33.fastq"))
-        let reference = try await recordCount([phred64, phred33])
-        let phred64Only = try await recordCount([phred64])
-        XCTAssertEqual(phred64Only.q30Count, 7, "phred+64 was detected")
 
-        let scanned = try await FASTQQualityFractions.scan([phred64, phred33])
+        let looksLike64 = try await FASTQQualityFractions.scan(phred64)
+        XCTAssertEqual(looksLike64, FASTQQualityFractions(baseCount: 14, q20Count: 14, q30Count: 14))
 
-        XCTAssertEqual(scanned, reference)
+        let reference = try await recordCount([phred33])
+        let scanned33 = try await FASTQQualityFractions.scan(phred33)
+        XCTAssertEqual(scanned33, reference)
+
+        let both = try await FASTQQualityFractions.scan([phred64, phred33])
+        XCTAssertEqual(both, FASTQQualityFractions(
+            baseCount: looksLike64.baseCount + scanned33.baseCount,
+            q20Count: looksLike64.q20Count + scanned33.q20Count,
+            q30Count: looksLike64.q30Count + scanned33.q30Count
+        ))
     }
 
     /// A chunk can end anywhere, inside a header, a quality line or a CRLF.

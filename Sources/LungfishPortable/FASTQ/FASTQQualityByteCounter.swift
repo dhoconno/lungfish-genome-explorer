@@ -10,11 +10,15 @@ import Foundation
 /// It follows `FASTQReader`'s record rules so the counts match the record
 /// path exactly: blank lines between records, wrapped sequence and quality
 /// lines (a quality line may start with '@' or '+'), one trailing CR dropped
-/// per line, the empty read whose blank quality line a line reader dropped,
-/// and the encoding detected once, from the first complete quality. A base
-/// counts at Q20 when its byte is at least the encoding's offset plus 20.
-/// The one difference: no line-length limit, where the reader refused lines
-/// over 1,000,000 characters.
+/// per line and the empty read whose blank quality line a line reader dropped.
+/// Every quality byte is read as Phred+33, so a base counts at Q20 when its
+/// byte is at least 53 and at Q30 when it is at least 63 (BIO-BIN-QIN N1). The
+/// counter once guessed the encoding from the first read, and a HiFi read with
+/// no score below Q31 and one at Q72 or above was taken for Phred+64, which
+/// counted the whole file at Q51 and Q61. Stored files are Phred+33, and an
+/// import refuses the old Phred+64 encoding.
+/// The one difference from the reader: no line-length limit, where the reader
+/// refused lines over 1,000,000 characters.
 package struct FASTQQualityByteCounter {
     private enum State {
         case header
@@ -27,10 +31,8 @@ package struct FASTQQualityByteCounter {
     private var lineNumber = 0
     private var sequenceLength = 0
     private var qualityLength = 0
-    /// The thresholds of the detected encoding, nil until the first record
-    /// completes; that record's quality bytes wait in `firstQuality`.
-    private var thresholds: (q20: UInt8, q30: UInt8)?
-    private var firstQuality: [UInt8] = []
+    /// The Phred+33 bytes of Q20 and Q30.
+    private let thresholds: (q20: UInt8, q30: UInt8) = (q20: 33 + 20, q30: 33 + 30)
     /// A line the last chunk ended inside.
     private var pendingLine: [UInt8] = []
     private var baseCount: Int64 = 0
@@ -117,20 +119,8 @@ package struct FASTQQualityByteCounter {
                     line: lineNumber, sequenceLength: sequenceLength, qualityLength: qualityLength
                 )
             }
-            if let thresholds {
-                count(bytes, thresholds: thresholds)
-            } else {
-                firstQuality.append(contentsOf: bytes)
-            }
+            count(bytes, thresholds: thresholds)
             guard qualityLength == sequenceLength else { return }
-
-            if thresholds == nil {
-                let encoding = QualityEncoding.detect(fromBytes: firstQuality)
-                let detected = (q20: encoding.asciiOffset + 20, q30: encoding.asciiOffset + 30)
-                thresholds = detected
-                firstQuality.withUnsafeBytes { count($0, thresholds: detected) }
-                firstQuality = []
-            }
             inRecord = false
             state = .header
         }
