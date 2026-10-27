@@ -43,7 +43,7 @@ Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1059
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1059
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
-Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 1857
+Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 1855
 Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1081
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift 1202
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift 1123
