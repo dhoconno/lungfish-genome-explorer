@@ -418,7 +418,7 @@ public final class AssemblyResultViewController: NSViewController {
             : "\(result.outputDirectory.lastPathComponent)-selected-contigs.fa"
 
         Task {
-            guard let destination = await savePanelPresenter.present(suggestedName: exportName, on: window) else {
+            guard let destination = await savePanelPresenter.present(suggestedName: exportName, on: window, startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: result.outputDirectory)) else {
                 return
             }
             try? await materializationAction.exportFASTA(

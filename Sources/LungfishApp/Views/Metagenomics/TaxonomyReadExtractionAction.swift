@@ -435,7 +435,7 @@ public final class TaxonomyReadExtractionAction {
 
         case .file:
             let suggested = "\(model.name).\(model.format.rawValue)"
-            guard let url = await savePanel.present(suggestedName: suggested, on: hostWindow) else {
+            guard let url = await savePanel.present(suggestedName: suggested, on: hostWindow, startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: context.resultPath)) else {
                 throw ClassifierExtractionError.cancelled
             }
             return .file(url)
