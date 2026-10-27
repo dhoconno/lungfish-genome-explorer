@@ -85,9 +85,10 @@ public enum MetagenomicsFilePanelFactory {
         )
     }
 
-    public static func readExtractionSavePanel(suggestedName: String) -> NSSavePanel {
+    public static func readExtractionSavePanel(suggestedName: String, startingIn folder: URL? = nil) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
+        if let folder { panel.directoryURL = folder }
         return panel
     }
 }

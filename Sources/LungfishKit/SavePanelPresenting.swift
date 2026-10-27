@@ -30,7 +30,11 @@ public struct DefaultSavePanelPresenter: SavePanelPresenting {
     public init() {}
 
     public func present(suggestedName: String, on window: NSWindow) async -> URL? {
-        let panel = MetagenomicsFilePanelFactory.readExtractionSavePanel(suggestedName: suggestedName)
+        await present(suggestedName: suggestedName, on: window, startingIn: nil)
+    }
+
+    public func present(suggestedName: String, on window: NSWindow, startingIn folder: URL?) async -> URL? {
+        let panel = MetagenomicsFilePanelFactory.readExtractionSavePanel(suggestedName: suggestedName, startingIn: folder)
         return await withCheckedContinuation { continuation in
             panel.beginSheetModal(for: window) { response in
                 continuation.resume(returning: response == .OK ? panel.url : nil)

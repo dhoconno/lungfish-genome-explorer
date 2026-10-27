@@ -10,16 +10,21 @@ final class FASTASequenceExtractionDialogModel {
     let selectionCount: Int
     var destination: DialogDestination = .bundle
     var name: String
+    /// True where Save as Bundle still asks for a place, so its label ends in an ellipsis as a menu item's does.
+    let bundleOpensSavePanel: Bool
 
-    init(selectionCount: Int, suggestedName: String) {
+    init(selectionCount: Int, suggestedName: String, bundleOpensSavePanel: Bool = false) {
         self.selectionCount = selectionCount
         self.name = suggestedName
+        self.bundleOpensSavePanel = bundleOpensSavePanel
     }
 
     var primaryButtonTitle: String { destination.primaryButtonTitle }
 
     /// The words beside a destination's radio button.
-    func label(for destination: DialogDestination) -> String { destination.label }
+    func label(for destination: DialogDestination) -> String {
+        destination == .bundle && bundleOpensSavePanel ? destination.label + "…" : destination.label
+    }
 }
 
 struct FASTASequenceExtractionDialog: View {
@@ -56,7 +61,7 @@ struct FASTASequenceExtractionDialog: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: model.destination == destination ? "largecircle.fill.circle" : "circle")
-                                    Text(destination.label)
+                                    Text(model.label(for: destination))
                                 }
                             }
                             .buttonStyle(.plain)

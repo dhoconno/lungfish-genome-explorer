@@ -41,6 +41,7 @@ extension ViewerViewController {
     @discardableResult
     static func beginAlignmentConsensusGenerationOperation(
         invocation: AlignmentConsensusInvocation,
+        routeContext: OperationRouteContext? = nil,
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
@@ -49,7 +50,8 @@ extension ViewerViewController {
             title: "Generate Alignment Consensus",
             detail: "Calling evidence-only consensus…",
             operationType: .export,
-            cliCommand: alignmentConsensusCLICommand(invocation)
+            cliCommand: alignmentConsensusCLICommand(invocation),
+            routeContext: routeContext
         )
         switch result {
         case .started(let operationID):
@@ -453,7 +455,8 @@ extension ViewerViewController {
         }
         let model = FASTASequenceExtractionDialogModel(
             selectionCount: 1,
-            suggestedName: exportRequest.suggestedName
+            suggestedName: exportRequest.suggestedName,
+            bundleOpensSavePanel: consensusProjectURL(for: context) == nil
         )
         let sheet = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
@@ -483,8 +486,9 @@ extension ViewerViewController {
 
     /// Resolves where the run writes and launches it. Clipboard and share run
     /// in a registered temp folder with `--output` a file name relative to it,
-    /// the contract's one relative path. File and bundle take the save panel's
-    /// choice, and its cancel launches nothing.
+    /// the contract's one relative path. File takes the save panel's choice, as
+    /// does a bundle with no project, and its cancel launches nothing. A bundle
+    /// in a project goes into it with no panel (ViewerViewController+ConsensusDestination.swift).
     private func chooseAlignmentConsensusOutput(
         _ destination: DialogDestination,
         name: String,
@@ -507,14 +511,13 @@ extension ViewerViewController {
                 context: context, exportRequest: exportRequest, window: window
             )
         case .bundle, .file:
-            let ext = destination == .bundle ? "lungfishref" : "fasta"
             Task { @MainActor [weak self] in
                 guard let self,
-                      let chosen = await alignmentExtractionSavePanelPresenter.present(suggestedName: "\(fileName).\(ext)", on: window) else {
+                      let output = await resolveConsensusFileOutput(destination, fileName: fileName, context: context, window: window) else {
                     return
                 }
                 launchAlignmentConsensus(
-                    destination, output: normalizedConsensusDestination(chosen, extension: ext).path, workingDirectory: nil,
+                    destination, output: output, workingDirectory: nil,
                     context: context, exportRequest: exportRequest, window: window
                 )
             }
@@ -540,7 +543,7 @@ extension ViewerViewController {
         )
         let message = Self.alignmentConsensusAllLowDepthMessage(minimumDepth: exportRequest.minDepth)
         let summary = Self.alignmentConsensusSummary(exportRequest)
-        let started = Self.beginAlignmentConsensusGenerationOperation(invocation: invocation) { operationID in
+        let started = Self.beginAlignmentConsensusGenerationOperation(invocation: invocation, routeContext: consensusRouteContext(for: context)) { operationID in
             activeConsensusGenerationOperationID = operationID
             activeConsensusGenerationTask = Self.runAlignmentConsensusThroughCLI(
                 invocation: invocation,
@@ -723,14 +726,6 @@ extension ViewerViewController {
         guard activeConsensusGenerationOperationID == operationID else { return }
         activeConsensusGenerationTask = nil
         activeConsensusGenerationOperationID = nil
-    }
-
-    private func normalizedConsensusDestination(_ url: URL, extension ext: String) -> URL {
-        let normalized = url.standardizedFileURL
-        guard normalized.pathExtension.lowercased() != ext else { return normalized }
-        return normalized.pathExtension.isEmpty
-            ? normalized.appendingPathExtension(ext)
-            : normalized.deletingPathExtension().appendingPathExtension(ext)
     }
 }
 
