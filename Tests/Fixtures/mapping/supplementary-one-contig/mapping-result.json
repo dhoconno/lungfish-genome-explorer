@@ -1,0 +1,27 @@
+{
+  "baiPath": "fixture.sorted.bam.bai",
+  "bamPath": "fixture.sorted.bam",
+  "contigs": [
+    {
+      "contigLength": 1000,
+      "contigName": "fixture1",
+      "coverageBreadth": 0.91,
+      "mappedReadPercent": 90.9090909090909,
+      "mappedReads": 10,
+      "meanDepth": 1.0,
+      "meanIdentity": 0.997,
+      "medianMAPQ": 60.0,
+      "readGroupIDs": []
+    }
+  ],
+  "mappedReads": 10,
+  "mapper": "minimap2",
+  "modeID": "short-read-default",
+  "referenceCount": 1,
+  "schemaVersion": 2,
+  "totalReads": 11,
+  "unalignedReferenceCount": 0,
+  "unmappedReads": 1,
+  "viewerBundlePath": "fixture.lungfishref",
+  "wallClockSeconds": 0.5
+}
