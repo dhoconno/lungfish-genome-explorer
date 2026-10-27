@@ -107,6 +107,8 @@ extension ClassifierReadResolver {
         var singleReadRole = ReadClassification.FileRole.unpaired
         // The completion message's note for each sample whose files changed but whose reads did not.
         var readChangeNotes: [String] = []
+        // How many samples were skipped because their reads changed, so a batch that skips all of them says so.
+        var readsChangedSkips = 0
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -210,6 +212,7 @@ extension ClassifierReadResolver {
                 logger.warning("Skipping sample \(sampleLabel, privacy: .private(mask: .hash)): \(refusal.localizedDescription, privacy: .public)")
                 progress?(baseFraction * 0.8 + 0.7 * sampleWeight, "\(sampleLabel): \(refusal.localizedDescription)")
                 skippedSamples.append(sampleLabel)
+                readsChangedSkips += 1
                 continue
             }
             // The files changed since the run, by the sizes it recorded, though every read it names is there (4.2, 4.3).
@@ -243,7 +246,9 @@ extension ClassifierReadResolver {
         }
         guard !producedURLs.isEmpty else {
             if !skippedSamples.isEmpty {
-                throw ClassifierExtractionError.allSamplesSkipped(skippedSamples)
+                throw readsChangedSkips == skippedSamples.count
+                    ? ClassifierExtractionError.allSamplesReadsChanged(skippedSamples)
+                    : ClassifierExtractionError.allSamplesSkipped(skippedSamples)
             }
             throw ClassifierExtractionError.zeroReadsExtracted
         }
@@ -276,11 +281,12 @@ extension ClassifierReadResolver {
         }
 
         progress?(0.9, "Routing to destination…")
+        let recorded = Self.recordingReadChangeNotes(readChangeNotes, in: destination, options: options)
         let outcome = try await routeToDestination(
             finalFile: finalFile,
             readCount: readCount,
-            destination: destination,
-            options: options,
+            destination: recorded.destination,
+            options: recorded.options,
             provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
             extractionClock: runClock,
             outputPairingMode: layout.mode,
@@ -297,6 +303,27 @@ extension ClassifierReadResolver {
             )
         }
         return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles), readFiles)
+    }
+
+    /// `destination` and `options` that carry `notes`, the words that the files changed but the reads did not, into
+    /// the extraction's record as well as its completion message (BIO-READ-IDENTITY 4.3): a bundle's parameters, from
+    /// which its provenance step takes its own, and a file export's resolved options.
+    static func recordingReadChangeNotes(
+        _ notes: [String], in destination: ExtractionDestination, options: ExtractionOptions
+    ) -> (destination: ExtractionDestination, options: ExtractionOptions) {
+        guard !notes.isEmpty else { return (destination, options) }
+        let note = notes.joined(separator: " ")
+        var recorded = destination
+        if case .bundle(let projectRoot, let displayName, let metadata) = destination {
+            recorded = .bundle(
+                projectRoot: projectRoot, displayName: displayName,
+                metadata: metadata.mergingParameters(["classifierExtractionReadsChangedNote": note])
+            )
+        }
+        let recordedOptions = options.fileProvenance.map {
+            options.recordingFileProvenance($0.mergingResolved(["readsChangedNote": .string(note)]))
+        } ?? options
+        return (recorded, recordedOptions)
     }
 
     /// Whether a Kraken 2 sample's source is one FASTQ holding interleaved

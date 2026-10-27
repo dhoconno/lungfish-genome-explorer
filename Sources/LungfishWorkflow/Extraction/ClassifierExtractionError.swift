@@ -78,6 +78,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// source FASTQ could not be resolved.
     case allSamplesSkipped([String])
 
+    /// Every selected sample was skipped because the reads at its place are not the reads the result was made
+    /// from (BIO-READ-IDENTITY 4.1, Phase 3.0 lane READ-IDENTITY).
+    case allSamplesReadsChanged([String])
+
     /// The underlying extraction was cancelled.
     case cancelled
 
@@ -139,6 +143,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
                 + "Put their files or bundle back in the same place in this project, "
                 + "or where the run recorded them, and try again. "
                 + "Or run the classification again in this project."
+        case .allSamplesReadsChanged(let samples):
+            return "No reads could be extracted: the reads of \(samples.count) sample(s) (\(samples.joined(separator: ", "))) "
+                + "are not the reads this result was made from. They were probably trimmed, filtered or basecalled "
+                + "again after the classification. Lungfish extracted nothing. Run the classification again on these "
+                + "reads, or put the reads it was made from back where it recorded them."
         case .cancelled:
             return "Extraction was cancelled"
         case .unsupportedCopyDestination:
