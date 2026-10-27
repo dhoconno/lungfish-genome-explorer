@@ -87,6 +87,21 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         XCTAssertTrue(output.contains("fixture-track: Original (bam, 10 mapped reads)"), output)
     }
 
+    /// The JSON form of `bundle info` prints the manifest, so it printed the idxstats sum a bundle written before this
+    /// release keeps there, 12, for a track whose stats database holds 10 mapped reads. Scripts read this form.
+    func testBundleInfoJSONPrintsReadsFromTheStatsDatabaseOverTheManifest() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        let command = try BundleInfoSubcommand.parse(["--format", "json", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any], output)
+        let manifest = try XCTUnwrap(object["manifest"] as? [String: Any], output)
+        let track = try XCTUnwrap((manifest["alignments"] as? [[String: Any]])?.first, output)
+        XCTAssertEqual(track["mapped_read_count"] as? Int, 10, "10 mapped reads, not the manifest's 12 alignment records")
+        XCTAssertEqual(track["unmapped_read_count"] as? Int, 1)
+        XCTAssertEqual(track["source_path"] as? String, "alignments/fixture-track.sorted.bam")
+    }
+
     /// A copy of the fixture's viewer bundle (stats database, BAM and index) with a manifest that lists the track
     /// with the old idxstats counts, as a bundle written before this release does.
     private func makeBundleWithSupplementaryTrack() throws -> URL {
