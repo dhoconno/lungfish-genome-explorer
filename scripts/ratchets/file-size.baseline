@@ -27,7 +27,7 @@ Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1344
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1048
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1026
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 1022
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1136
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
@@ -58,11 +58,11 @@ Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2315
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2194
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1412
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1411
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+AnnotationRendering.swift 1703
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2101
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1235
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1231
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2843
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 902
@@ -150,7 +150,7 @@ Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2529
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
-Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1155
+Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1154
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2667
