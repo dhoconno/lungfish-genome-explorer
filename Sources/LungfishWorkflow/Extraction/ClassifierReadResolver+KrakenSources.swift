@@ -297,10 +297,14 @@ extension ClassifierReadResolver {
             progress?(1.0, note)
         }
         if !skippedSamples.isEmpty {
-            progress?(
-                1.0,
-                "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) with unresolvable source data: \(skippedSamples.joined(separator: ", "))"
-            )
+            // A sample skipped for changed reads was resolved and read, so the line must not send a person looking for
+            // missing files (UX SF-2).
+            let cause = readsChangedSkips == 0
+                ? "with unresolvable source data"
+                : readsChangedSkips == skippedSamples.count
+                    ? "whose reads are not the reads this result was made from"
+                    : "that could not be extracted, some with unresolvable source data and some with reads that are not the reads this result was made from"
+            progress?(1.0, "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) \(cause): \(skippedSamples.joined(separator: ", "))")
         }
         return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles), readFiles)
     }

@@ -146,8 +146,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
         case .allSamplesReadsChanged(let samples):
             return "No reads could be extracted: the reads of \(samples.count) sample(s) (\(samples.joined(separator: ", "))) "
                 + "are not the reads this result was made from. They were probably trimmed, filtered or basecalled "
-                + "again after the classification. Lungfish extracted nothing. Run the classification again on these "
-                + "reads, or put the reads it was made from back where it recorded them."
+                + "again after the classification. Run the classification again on these reads, or put the reads "
+                + "each sample was made from back in the same place in this project, or where the run recorded them."
         case .cancelled:
             return "Extraction was cancelled"
         case .unsupportedCopyDestination:
