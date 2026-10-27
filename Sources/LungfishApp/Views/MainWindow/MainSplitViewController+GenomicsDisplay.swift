@@ -316,8 +316,7 @@ extension MainSplitViewController {
         }
 
         guard let fastqURL, let resolvedFASTQURLs, !resolvedFASTQURLs.isEmpty else {
-            mainSplitLogger.error("loadFASTQDatasetInBackground: No FASTQ payload or derivative manifest for '\(standardizedSourceURL.path, privacy: .public)'")
-            return
+            return showMissingFASTQPayload(standardizedSourceURL, viewerController: viewerController)
         }
 
         // Check for cached metadata. ONT imports also have a demux manifest

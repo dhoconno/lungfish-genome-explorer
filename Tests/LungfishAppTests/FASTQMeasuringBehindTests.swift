@@ -289,4 +289,25 @@ final class FASTQMeasuringBehindTests: XCTestCase {
             seen, [[previous.standardizedFileURL]], "the read-type change goes to the bundle it was made in"
         )
     }
+
+    // MARK: - A read set with no FASTQ file (review backlog 1)
+
+    /// A read set whose import has not written its file yet can be selected. It holds no FASTQ file and no manifest, so
+    /// there is nothing to open or to count, and the previous read set's dashboard and numbers must not stay under the
+    /// new selection.
+    func testAReadSetWithNoFASTQFileClearsThePreviousReadSet() throws {
+        defer { endRequests() }
+        let previous = try makePlainBundle(named: "SRR12486983")
+        showDashboard(of: previous, statistics: Self.previousStatistics)
+        let importing = root.appendingPathComponent("Importing.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: importing, withIntermediateDirectories: true)
+
+        split.loadFASTQDatasetInBackground(sourceURL: importing)
+
+        XCTAssertFalse(split.viewerController.isDisplayingFASTQDataset, "the previous dashboard is gone")
+        XCTAssertNil(
+            split.inspectorController.viewModel.documentSectionViewModel.fastqStatistics,
+            "the Inspector holds none of the previous numbers"
+        )
+    }
 }

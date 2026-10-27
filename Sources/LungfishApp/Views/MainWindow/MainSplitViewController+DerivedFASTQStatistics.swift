@@ -92,4 +92,14 @@ extension MainSplitViewController {
             }
         }
     }
+
+    /// Clears the viewer and the Inspector and says why, when a read set holds no FASTQ file to open.
+    func showMissingFASTQPayload(_ sourceURL: URL, viewerController: ViewerViewController) {
+        mainSplitLogger.error("loadFASTQDatasetInBackground: No FASTQ payload or derivative manifest for '\(sourceURL.path, privacy: .public)'")
+        inspectorController.clearSelection()
+        let name = sourceURL.deletingPathExtension().lastPathComponent
+        viewerController.clearViewport(
+            statusMessage: "No FASTQ file in \(name). Wait for its import to finish, or import the reads again."
+        )
+    }
 }
