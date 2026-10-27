@@ -88,7 +88,7 @@ Sources/LungfishCore/Services/Blast/BlastService.swift 1333
 Sources/LungfishCore/Services/NCBI/NCBIService.swift 1921
 Sources/LungfishCore/Storage/PortablePath.swift 1013
 Sources/LungfishCore/Storage/ProjectStore.swift 1568
-Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 1826
+Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 1823
 Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2413
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
