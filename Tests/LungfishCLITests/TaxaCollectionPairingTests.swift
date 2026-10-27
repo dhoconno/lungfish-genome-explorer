@@ -202,4 +202,38 @@ final class TaxaCollectionPairingTests: XCTestCase {
         )
         XCTAssertEqual(try workspace.sidecarsOfMissingFiles(), [])
     }
+
+    // MARK: - A layout left beside the name the extraction writes (BIO review of PAIRING, should-fix 2)
+
+    /// A run for the same taxon again, or a plain file that was deleted by hand, leaves the earlier file's
+    /// metadata beside the name the extraction writes. That layout describes the earlier file, so the
+    /// extraction replaces it with the layout it measured. The earlier file here was a file of pairs that left
+    /// `interleaved`, and the new file holds a pair and a single read. `FASTQMetadataStore.write` refuses a
+    /// file that is not there, so the earlier sidecar is encoded by hand.
+    func testTheExtractionReplacesALayoutLeftBesideTheFileItWrites() async throws {
+        try useOnePairAndOneSingleReadOnTaxid10298()
+        try FileManager.default.createDirectory(at: workspace.output, withIntermediateDirectories: true)
+        let beside = workspace.output.appendingPathComponent("HSV-1_taxid10298.fastq.gz")
+        var earlier = PersistedFASTQMetadata()
+        earlier.ingestion = IngestionMetadata(
+            isCompressed: true, pairingMode: .interleaved, pairingSource: .detected,
+            originalFilenames: [beside.lastPathComponent]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(earlier).write(to: FASTQMetadataStore.metadataURL(for: beside), options: .atomic)
+        XCTAssertEqual(
+            FASTQMetadataStore.load(for: beside)?.ingestion?.pairingMode, .interleaved,
+            "the earlier file's layout is in place before the extraction"
+        )
+
+        let file = try await workspace.extractedFile("10298,children,HSV-1")
+
+        XCTAssertEqual(file.lastPathComponent, beside.lastPathComponent)
+        XCTAssertNil(
+            FASTQMetadataStore.load(for: file)?.ingestion,
+            "the new file holds a single read, so the earlier interleaved layout does not describe it"
+        )
+        XCTAssertEqual(FASTQMetadataStore.load(for: file)?.readClassification?.unpairedReadCount, 1)
+    }
 }
