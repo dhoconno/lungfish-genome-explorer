@@ -204,6 +204,8 @@ final class DemultiplexStoredStatisticsTests: XCTestCase {
         let sheet = root.appendingPathComponent("samples.barcodes.csv")
         try "S1,BC1001,BC1021\n".write(to: sheet, atomically: true, encoding: .utf8)
 
+        // At base 74a78efaf this run already stops with "`.input-read-sets` couldn't be removed" (NSCocoaErrorDomain
+        // 4) before any statistic is compared, lane DEMUX-STATS Finding 1.
         let result = try await ONTPacBioBarcodeDemuxMaterializer().run(
             ONTPacBioBarcodeDemuxMaterializationRequest(
                 inputURL: input,

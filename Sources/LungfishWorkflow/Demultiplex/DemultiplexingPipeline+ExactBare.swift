@@ -81,21 +81,12 @@ extension DemultiplexingPipeline {
             )
         }
 
-        // One pass over the input counts every read's statistics. The workers of a multi-file root keep the length
-        // counts alone until their counts can be joined (lane DEMUX-STATS, see its Handoff).
+        // The pass that assigns the reads counts every statistic. On a multi-file root each worker counts its file and
+        // the counts are joined in file order (lane DEMUX-STATS).
         let counter = DemultiplexStatisticsCounter<String>()
-        var countedEveryRead = false
-        func stats(
-            for accumulator: ExactBareBarcodeAccumulator
-        ) -> FASTQDatasetStatistics {
-            if countedEveryRead { return counter.statistics(of: accumulator.barcodeID) }
-            return ExactBarcodeDemux.computeStatistics(
-                readCount: accumulator.readCount,
-                baseCount: accumulator.baseCount,
-                minReadLength: accumulator.finalizedMinReadLength,
-                maxReadLength: accumulator.maxReadLength,
-                readLengthHistogram: accumulator.readLengthHistogram
-            )
+        let shardCounters = inputURLs.map { _ in DemultiplexStatisticsCounter<String>() }
+        func stats(for accumulator: ExactBareBarcodeAccumulator) -> FASTQDatasetStatistics {
+            counter.statistics(of: accumulator.barcodeID)
         }
 
         var barcodeAccumulators = config.barcodeKit.barcodes.map {
@@ -134,7 +125,8 @@ extension DemultiplexingPipeline {
         func processShard(
             inputURL: URL,
             shardIndex: Int,
-            shardRoot: URL?
+            shardRoot: URL?,
+            shardCounter: DemultiplexStatisticsCounter<String>
         ) async throws -> ExactBareBarcodeShardResult {
             var shardBarcodeAccumulators = config.barcodeKit.barcodes.map {
                 ExactBareBarcodeAccumulator(barcodeID: $0.id)
@@ -161,6 +153,7 @@ extension DemultiplexingPipeline {
             func place(_ fragment: ExactBareMatePairer.Fragment) throws {
                 for record in fragment.records {
                     if let barcodeIndex = fragment.call {
+                        shardCounter.count(record, in: config.barcodeKit.barcodes[barcodeIndex].id)
                         shardBarcodeAccumulators[barcodeIndex].add(
                             readID: record.readID,
                             previewRecord: record,
@@ -174,6 +167,7 @@ extension DemultiplexingPipeline {
                             try shardOutputCache.write(record, to: shardFASTQURL(for: barcodeID))
                         }
                     } else {
+                        shardCounter.count(record, in: shardUnassigned.barcodeID)
                         shardUnassigned.add(
                             readID: record.readID,
                             previewRecord: record,
@@ -230,6 +224,7 @@ extension DemultiplexingPipeline {
         }
 
         func mergeShard(_ shard: ExactBareBarcodeShardResult, shardRoot: URL?) throws {
+            counter.merge(shardCounters[shard.shardIndex])
             totalReads += shard.totalReads
             assignedReads += shard.assignedReads
             mateCalls.add(shard.mateCalls)
@@ -280,11 +275,13 @@ extension DemultiplexingPipeline {
             try await withThrowingTaskGroup(of: ExactBareBarcodeShardResult.self) { group in
                 func submitShard(_ shardIndex: Int) {
                     let inputURL = inputURLs[shardIndex]
+                    let shardCounter = shardCounters[shardIndex]
                     group.addTask {
                         try await processShard(
                             inputURL: inputURL,
                             shardIndex: shardIndex,
-                            shardRoot: shardRoot
+                            shardRoot: shardRoot,
+                            shardCounter: shardCounter
                         )
                     }
                 }
@@ -319,7 +316,6 @@ extension DemultiplexingPipeline {
             }
         } else {
             progress(0.0, "Starting exact bare-barcode demultiplexing...")
-            countedEveryRead = true
 
             func place(_ fragment: ExactBareMatePairer.Fragment) throws {
                 for record in fragment.records {

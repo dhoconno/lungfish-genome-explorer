@@ -10,8 +10,8 @@ extension MainSplitViewController {
 
     /// Shows a derived bundle's stored statistics, which reflect every read and not the preview's subset. Statistics
     /// that were not counted (`FASTQStatisticsDisplayRules.storedStatisticsToShow`) are measured from the bundle's
-    /// reads first, materialized into a temporary folder outside the project. The view writes nothing into the
-    /// project, so a bundle made before lane DEMUX-STATS is measured each time it is shown.
+    /// reads, materialized into a temporary folder outside the project, and `DerivedFASTQStatisticsStore` writes them
+    /// back into the bundle's manifest, so a bundle made before lane DEMUX-STATS is measured once.
     func displayDerivedFASTQDataset(
         _ manifest: FASTQDerivedBundleManifest,
         sourceURL: URL,
@@ -43,10 +43,12 @@ extension MainSplitViewController {
             defer { try? FileManager.default.removeItem(at: folder) }
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                let reads = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
-                    fromBundle: sourceURL, tempDirectory: folder, progress: nil
-                )
-                let statistics = try await FASTQStatisticsService.compute(for: [reads], progress: { _ in }).statistics
+                let statistics = try await DerivedFASTQStatisticsStore.statistics(for: manifest, in: sourceURL) { bundle in
+                    let reads = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                        fromBundle: bundle, tempDirectory: folder, progress: nil
+                    )
+                    return try await FASTQStatisticsService.compute(for: [reads], progress: { _ in }).statistics
+                }
                 try Task.checkCancellation()
                 await MainActor.run {
                     guard let self, isCurrentRequest() else { return }

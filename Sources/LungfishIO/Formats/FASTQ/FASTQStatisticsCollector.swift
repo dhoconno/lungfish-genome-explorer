@@ -248,6 +248,35 @@ public final class FASTQStatisticsCollector {
         }
     }
 
+    /// Adds the counts of `other`, a collector that read other records of the same dataset, so this collector holds
+    /// what one collector reading both sets would hold. Workers that each read part of the input join their counts
+    /// with it (Phase 3.0 lane DEMUX-STATS). The error-probability sum is added as two sums, so mean Q can differ
+    /// from one pass in the last bits.
+    public func merge(_ other: FASTQStatisticsCollector) {
+        readCount += other.readCount
+        baseCount += other.baseCount
+        gcCount += other.gcCount
+        q20Count += other.q20Count
+        q30Count += other.q30Count
+        errorProbabilitySum += other.errorProbabilitySum
+        minReadLength = min(minReadLength, other.minReadLength)
+        maxReadLength = max(maxReadLength, other.maxReadLength)
+        for (length, count) in other.lengthHistogram {
+            lengthHistogram[length, default: 0] += count
+        }
+        for (quality, count) in other.qualityHistogram {
+            qualityHistogram[quality, default: 0] += count
+        }
+        while positionQualityHistograms.count < other.positionQualityHistograms.count {
+            positionQualityHistograms.append([Int](repeating: 0, count: 94))
+        }
+        for (position, histogram) in other.positionQualityHistograms.enumerated() {
+            for quality in histogram.indices {
+                positionQualityHistograms[position][quality] += histogram[quality]
+            }
+        }
+    }
+
     // MARK: - Finalization
 
     /// Compute final statistics from accumulated data.

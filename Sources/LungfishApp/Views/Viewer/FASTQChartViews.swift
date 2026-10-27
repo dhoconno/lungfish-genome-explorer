@@ -34,9 +34,9 @@ final class FASTQSummaryBar: GenomicSummaryCardBar {
             Card(label: "Mean Length", value: String(format: "%.0f bp", stats.meanReadLength)),
             Card(label: "Median Length", value: "\(stats.medianReadLength) bp"),
             Card(label: "N50", value: "\(stats.n50ReadLength) bp"),
-            Card(label: "Mean Q", value: String(format: "%.1f", stats.meanQuality)),
-            Card(label: "Q20", value: String(format: "%.1f%%", stats.q20Percentage)),
-            Card(label: "Q30", value: String(format: "%.1f%%", stats.q30Percentage)),
+            Card(label: "Mean Q", value: FASTQStatisticsDisplayRules.meanQualityText(stats)),
+            Card(label: "Q20", value: FASTQStatisticsDisplayRules.q20Text(stats)),
+            Card(label: "Q30", value: FASTQStatisticsDisplayRules.q30Text(stats)),
             Card(label: "GC", value: String(format: "%.1f%%", stats.gcContent * 100)),
         ]
     }
@@ -44,7 +44,7 @@ final class FASTQSummaryBar: GenomicSummaryCardBar {
     private func updateAccessibility(_ stats: FASTQDatasetStatistics) {
         setAccessibilityRole(.group)
         setAccessibilityLabel("FASTQ Summary Statistics")
-        let desc = "\(stats.readCount) reads, mean length \(Int(stats.meanReadLength)) bp, mean quality \(String(format: "%.1f", stats.meanQuality)), GC \(String(format: "%.1f%%", stats.gcContent * 100))"
+        let desc = "\(stats.readCount) reads, mean length \(Int(stats.meanReadLength)) bp, mean quality \(FASTQStatisticsDisplayRules.meanQualityText(stats)), GC \(String(format: "%.1f%%", stats.gcContent * 100))"
         setAccessibilityValue(desc)
     }
 }

@@ -66,6 +66,79 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         )
     }
 
+    // MARK: - Measured once
+
+    private actor CallCount {
+        private(set) var value = 0
+        func add() { value += 1 }
+    }
+
+    private func uncountedBundle() throws -> (URL, FASTQDerivedBundleManifest) {
+        let root = try TestTempDirectory.make(prefix: "derived-statistics-store")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let bundle = root.appendingPathComponent("BC01.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: "exact-barcode-demux", toolVersion: nil)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "BC01", parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq", rootFASTQFilename: "reads.fastq",
+            lineage: [operation], operation: operation,
+            cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 400), pairingMode: nil
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundle)
+        return (bundle, manifest)
+    }
+
+    @MainActor
+    func testUncountedStatisticsAreMeasuredOnceAndStoredSoTheNextDisplayDoesNotMeasure() async throws {
+        let (bundle, manifest) = try uncountedBundle()
+        let measures = CallCount()
+        let measure: @Sendable (URL) async throws -> FASTQDatasetStatistics = { _ in
+            await measures.add()
+            return Self.scored
+        }
+
+        let first = try await DerivedFASTQStatisticsStore.statistics(for: manifest, in: bundle, measure: measure)
+        let stored = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+        let second = try await DerivedFASTQStatisticsStore.statistics(for: stored, in: bundle, measure: measure)
+
+        XCTAssertEqual(first, Self.scored)
+        XCTAssertEqual(stored.cachedStatistics, Self.scored, "the measured statistics are stored in the manifest")
+        XCTAssertEqual(stored.name, manifest.name)
+        XCTAssertEqual(stored.payload, manifest.payload)
+        XCTAssertEqual(second, Self.scored)
+        let count = await measures.value
+        XCTAssertEqual(count, 1, "the second display shows the stored statistics")
+    }
+
+    @MainActor
+    func testAFailedSaveStillShowsTheNumbersAndIsNotTriedAgainThisSession() async throws {
+        let (bundle, manifest) = try uncountedBundle()
+        let measures = CallCount()
+        var saves = 0
+        let measure: @Sendable (URL) async throws -> FASTQDatasetStatistics = { _ in
+            await measures.add()
+            return Self.scored
+        }
+        let failingSave: (FASTQDerivedBundleManifest, URL) throws -> Void = { _, _ in
+            saves += 1
+            throw CocoaError(.fileWriteVolumeReadOnly)
+        }
+
+        let first = try await DerivedFASTQStatisticsStore.statistics(
+            for: manifest, in: bundle, measure: measure, save: failingSave
+        )
+        let second = try await DerivedFASTQStatisticsStore.statistics(
+            for: manifest, in: bundle, measure: measure, save: failingSave
+        )
+
+        XCTAssertEqual(first, Self.scored, "the numbers are shown although they could not be stored")
+        XCTAssertEqual(second, Self.scored)
+        let count = await measures.value
+        XCTAssertEqual(count, 1, "kept for the session, so not measured again")
+        XCTAssertEqual(saves, 1, "the save is not tried again")
+    }
+
     func testReadsWithNoScoresSayNoQualityScoresInPlaceOfMeanQQ20AndQ30() {
         let fasta = FASTQDatasetStatistics.measuringFASTA(text: ">a\nACGTGGCC\n>b\nGGCATT\n")
         XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(fasta), "No quality scores")

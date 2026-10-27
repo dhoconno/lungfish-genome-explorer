@@ -1126,9 +1126,9 @@ public struct DocumentSection: View {
 
                 Divider()
 
-                metadataRow(label: "Mean Q", value: String(format: "%.1f", stats.meanQuality))
-                metadataRow(label: "Q20 Bases", value: String(format: "%.1f%%", stats.q20Percentage))
-                metadataRow(label: "Q30 Bases", value: String(format: "%.1f%%", stats.q30Percentage))
+                metadataRow(label: "Mean Q", value: FASTQStatisticsDisplayRules.meanQualityText(stats))
+                metadataRow(label: "Q20 Bases", value: FASTQStatisticsDisplayRules.q20Text(stats))
+                metadataRow(label: "Q30 Bases", value: FASTQStatisticsDisplayRules.q30Text(stats))
                 metadataRow(label: "GC Content", value: String(format: "%.1f%%", stats.gcContent * 100))
             }
             .padding(.top, 4)

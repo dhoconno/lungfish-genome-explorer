@@ -428,49 +428,4 @@ public enum ExactBarcodeDemux {
             ambiguousReadCount: ambiguousReads
         )
     }
-
-    /// Computes `FASTQDatasetStatistics` from collected demux metrics.
-    public static func computeStatistics(
-        readCount: Int,
-        baseCount: Int64,
-        minReadLength: Int,
-        maxReadLength: Int,
-        readLengthHistogram: [Int: Int]
-    ) -> FASTQDatasetStatistics {
-        guard readCount > 0 else { return .empty }
-
-        let meanLength = Double(baseCount) / Double(readCount)
-
-        // Compute median from histogram
-        let sortedLengths = readLengthHistogram.sorted { $0.key < $1.key }
-        var cumulative = 0
-        var medianLength = 0
-        let medianTarget = readCount / 2
-        for (length, count) in sortedLengths {
-            cumulative += count
-            if cumulative > medianTarget {
-                medianLength = length
-                break
-            }
-        }
-
-        let n50Length = SequenceLengthStatistics.nx(histogram: readLengthHistogram, totalBases: baseCount)
-
-        return FASTQDatasetStatistics(
-            readCount: readCount,
-            baseCount: baseCount,
-            meanReadLength: meanLength,
-            minReadLength: minReadLength,
-            maxReadLength: maxReadLength,
-            medianReadLength: medianLength,
-            n50ReadLength: n50Length,
-            meanQuality: 0,
-            q20Percentage: 0,
-            q30Percentage: 0,
-            gcContent: 0,
-            readLengthHistogram: readLengthHistogram,
-            qualityScoreHistogram: [:],
-            perPositionQuality: []
-        )
-    }
 }
