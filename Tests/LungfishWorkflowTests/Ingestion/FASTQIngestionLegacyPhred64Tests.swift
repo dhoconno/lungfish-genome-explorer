@@ -44,6 +44,22 @@ final class FASTQIngestionLegacyPhred64Tests: XCTestCase {
         }
     }
 
+    /// Fix round 4, BIO SF1a. ONT chunk binning calls `binQualities`, which launches `reformat.sh` with `qin=33` and
+    /// never passes `run`, so it checks the file itself. The refusal comes before any tool starts, so no output exists.
+    func testBinQualitiesRefusesAPhred64File() async throws {
+        let root = try TestTempDirectory.make(prefix: "legacy-phred64-bin")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("illumina15.fastq")
+        try Self.illumina15Records().write(to: input, atomically: true, encoding: .utf8)
+        let output = root.appendingPathComponent("binned.fastq.gz")
+        do {
+            _ = try await FASTQIngestionPipeline().binQualities(of: input, into: output, scheme: .fiveStep, threads: 2)
+            XCTFail("a Phred+64 file was binned as Phred+33")
+        } catch is QualityEncoding.LegacyPhred64Refusal {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the refusal came before any output was written")
+        }
+    }
+
     /// 200 reads of 100 bases with quality bytes 66 (`B`, Q2) to 104 (`h`, Q40), as Illumina 1.5 wrote them.
     private static func illumina15Records() -> String {
         let bases = String(String(repeating: "ACGT", count: 26).prefix(100))
