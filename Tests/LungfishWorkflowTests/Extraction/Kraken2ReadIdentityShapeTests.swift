@@ -11,6 +11,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
+import os
 @testable import LungfishWorkflow
 
 @MainActor
@@ -76,20 +77,12 @@ final class Kraken2ReadIdentityShapeTests: XCTestCase {
     }
 
     /// A batch whose every selected sample has reads one base shorter than kraken2 saw: the error says the reads
-    /// changed, not that their files could not be found.
+    /// changed, not that their files could not be found, says once that nothing was extracted, and says where the
+    /// reads go back in the words of the sibling for samples that could not be found (UX SF-2).
     func testABatchWhoseEverySampleWasSkippedForChangedReadsSaysSo() async throws {
-        let root = try TestTempDirectory.make(prefix: "kraken2-batch-changed")
-        addTeardownBlock { TestTempDirectory.cleanup(root) }
-        let fixture = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
-        let batch = root.appendingPathComponent("kraken2-mini", isDirectory: true)
-        try FileManager.default.copyItem(at: fixture, to: batch)
+        let (root, batch) = try makeMiniBatch()
         for sample in ["SRR35517702", "SRR35517703"] {
-            let reads = batch.appendingPathComponent("\(sample)/source.fastq")
-            let lines = try String(contentsOf: reads, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
-            try lines.enumerated().map { $0.offset % 2 == 1 ? String($0.element.dropLast()) : String($0.element) }
-                .joined(separator: "\n").write(to: reads, atomically: true, encoding: .utf8)
+            try shorten(sample: sample, in: batch)
         }
 
         do {
@@ -106,10 +99,83 @@ final class Kraken2ReadIdentityShapeTests: XCTestCase {
             let words = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             XCTAssertTrue(words.contains("trimmed, filtered or basecalled again"), words)
             XCTAssertFalse(words.contains("could not be found"), words)
+            XCTAssertFalse(words.contains("extracted nothing"), words)
+            XCTAssertTrue(words.contains("in the same place in this project, or where the run recorded them"), words)
         }
     }
 
+    /// A batch where only one of two samples has reads one base shorter than kraken2 saw: that sample is skipped and
+    /// the other is extracted, and the closing line names the changed reads and not unresolvable source data, since
+    /// the skipped sample was resolved and read (UX SF-2).
+    func testAPartialBatchNamesChangedReadsInItsClosingLine() async throws {
+        let (root, batch) = try makeMiniBatch()
+        try shorten(sample: "SRR35517702", in: batch)
+        let messages = OSAllocatedUnfairLock<[String]>(initialState: [])
+
+        let outcome = try await ClassifierReadResolver().resolveAndExtract(
+            tool: .kraken2, resultPath: batch,
+            selections: [
+                ClassifierRowSelector(sampleId: "SRR35517702", taxIds: [1270]),
+                ClassifierRowSelector(sampleId: "SRR35517703", taxIds: [1]),
+            ],
+            options: ExtractionOptions(), destination: .file(root.appendingPathComponent("out.fastq")),
+            progress: { _, message in messages.withLock { $0.append(message) } }
+        )
+
+        XCTAssertGreaterThan(outcome.readCount, 0, "the sample whose reads are intact is extracted")
+        let closing = try XCTUnwrap(messages.withLock { $0.last })
+        XCTAssertTrue(closing.hasPrefix("Extracted "), closing)
+        XCTAssertTrue(
+            closing.contains("Skipped 1 sample(s) whose reads are not the reads this result was made from: SRR35517702"),
+            closing
+        )
+        XCTAssertFalse(closing.contains("unresolvable"), closing)
+    }
+
+    /// Both refusals say what happened and what to try next. The form for none of the reads being there says that
+    /// nothing was extracted or sent, and the count sentence has no double negative (UX SF-1).
+    func testTheRefusalsSayWhatHappenedAndWhatToTry() {
+        let place = "Imports/s.lungfishfastq"
+        let noneThere = ClassifierExtractionError.kraken2ReadsChanged(place: place, missing: 4, otherLength: 0, named: 4)
+            .errorDescription ?? ""
+        XCTAssertTrue(
+            noneThere.hasPrefix("None of the reads this result names are in \(place). It may hold other reads under the same name."),
+            noneThere
+        )
+        XCTAssertTrue(noneThere.contains("Lungfish extracted nothing."), noneThere)
+        XCTAssertTrue(noneThere.contains("put the reads it was made from back at \(place)."), noneThere)
+
+        let noneThereForBLAST = ClassifierExtractionError.kraken2ReadsChangedForBLAST(place: place, missing: 4, otherLength: 0, named: 4)
+            .errorDescription ?? ""
+        XCTAssertTrue(noneThereForBLAST.contains("Lungfish sent nothing to BLAST."), noneThereForBLAST)
+        XCTAssertFalse(noneThereForBLAST.contains("extracted nothing"), noneThereForBLAST)
+
+        let oneOtherLength = ClassifierExtractionError.kraken2ReadsChanged(place: place, missing: 0, otherLength: 1, named: 1)
+            .errorDescription ?? ""
+        XCTAssertTrue(oneOtherLength.contains("Of the 1 read it names, 0 are missing and 1 has another length."), oneOtherLength)
+    }
+
     // MARK: - Fixture
+
+    /// A copy of the two-sample Kraken2 batch fixture in a scratch folder, and the folder.
+    private func makeMiniBatch() throws -> (root: URL, batch: URL) {
+        let root = try TestTempDirectory.make(prefix: "kraken2-batch-changed")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kraken2-mini", isDirectory: true)
+        let batch = root.appendingPathComponent("kraken2-mini", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: batch)
+        return (root, batch)
+    }
+
+    /// `sample`'s reads one base shorter under the same names: the sequence and quality line of every record.
+    private func shorten(sample: String, in batch: URL) throws {
+        let reads = batch.appendingPathComponent("\(sample)/source.fastq")
+        let lines = try String(contentsOf: reads, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+        try lines.enumerated().map { $0.offset % 2 == 1 ? String($0.element.dropLast()) : String($0.element) }
+            .joined(separator: "\n").write(to: reads, atomically: true, encoding: .utf8)
+    }
 
     private func makeProject(records: [(String, Int)]) throws -> ReadIdentityProject {
         let root = try TestTempDirectory.make(prefix: "kraken2-read-identity-shapes")
