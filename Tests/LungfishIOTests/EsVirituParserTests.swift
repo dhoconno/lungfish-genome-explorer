@@ -325,6 +325,22 @@ final class EsVirituParserTests: XCTestCase {
         }
     }
 
+    /// An unsegmented virus keeps its contig's own RPKMF and depth bit for bit (BIO-ASSEMBLY-RPKMF, section 4). Each
+    /// contig spans its whole assembly, so the short cut applies. Recomputing 76 / 17.705 / 3.518659 gives
+    /// 1.2199456439429746, not the 1.2199456439429743 EsViritu wrote, and 0.1 * 3 / 3 gives 0.10000000000000002.
+    func testUnsegmentedAssemblyKeepsItsContigRPKMFAndDepthBitForBit() throws {
+        let text = """
+        sample_ID\tName\tdescription\tLength\tSegment\tAccession\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tRPKMF\tread_count\tcovered_bases\tmean_coverage\tavg_read_identity\tPi\tfiltered_reads_in_sample
+        SAMPLE01\tSoloA\tgenome\t17705\tNA\tSOLOA00001.1\tGCA_SOLOA.1\t17705\tViruses\tDuplornaviricota\tResentoviricetes\tReovirales\tSedoreoviridae\tRotavirus\tSoloA species\tNA\t1.2199456439429743\t76\t111\t2.5\t0.97\t0.021\t3518659
+        SAMPLE01\tSoloB\tgenome\t3\tNA\tSOLOB00001.1\tGCA_SOLOB.1\t3\tViruses\tDuplornaviricota\tResentoviricetes\tReovirales\tSedoreoviridae\tRotavirus\tSoloB species\tNA\t1.0\t5\t3\t0.1\t0.97\t0.021\t3518659
+        """
+        let assemblies = EsVirituDetectionParser.groupByAssembly(try EsVirituDetectionParser.parse(text: text))
+        let soloA = try XCTUnwrap(assemblies.first { $0.assembly == "GCA_SOLOA.1" })
+        let soloB = try XCTUnwrap(assemblies.first { $0.assembly == "GCA_SOLOB.1" })
+        XCTAssertEqual(soloA.rpkmf, 1.2199456439429743) // exact, no accuracy
+        XCTAssertEqual(soloB.meanCoverage, 0.1) // exact, no accuracy
+    }
+
     // MARK: - Detection Parser: Codable
 
     func testViralDetectionCodable() throws {
