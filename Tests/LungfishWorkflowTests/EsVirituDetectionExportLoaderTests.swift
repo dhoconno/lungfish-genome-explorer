@@ -70,14 +70,15 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         XCTAssertEqual(detection.length, 1_000)
     }
 
-    func testAssemblyWeightsCoverageAndIdentityByReadCountAndKeepsRowOrder() throws {
+    func testAssemblyMeasuresDepthOverTheAssemblyWeightsIdentityByReadCountAndKeepsRowOrder() throws {
         let group = [
             Self.row(sample: "sample-A", accession: "acc-2", assembly: "asm-1", readCount: 30, meanCoverage: 4, avgReadIdentity: 1),
             Self.row(sample: "sample-A", accession: "acc-1", assembly: "asm-1", readCount: 10, meanCoverage: 0, avgReadIdentity: 0.5),
         ]
         let assembly = try XCTUnwrap(EsVirituDetectionExport.assembly(from: group))
         XCTAssertEqual(assembly.totalReads, 40)
-        XCTAssertEqual(assembly.meanCoverage, 3, accuracy: 1e-12)
+        // Aligned bases over Asm_length, (4 * 1000 + 0 * 1000) / 2000 (read-weighted it was 3).
+        XCTAssertEqual(assembly.meanCoverage, 2, accuracy: 1e-12)
         XCTAssertEqual(assembly.avgReadIdentity, 0.875, accuracy: 1e-12)
         XCTAssertEqual(assembly.contigs.map(\.accession), ["acc-2", "acc-1"])
         XCTAssertNil(EsVirituDetectionExport.assembly(from: []))

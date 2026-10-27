@@ -172,21 +172,17 @@ extension EsVirituDetectionExport {
     }
 
     /// The rows of one sample and assembly as the assembly the viewer shows, with its contigs in the rows' order.
-    /// Coverage and identity are averaged over the contigs weighted by read count, as
-    /// `EsVirituDetectionParser.groupByAssembly` does for one sample. Nil for no rows.
+    /// RPKMF and mean depth are measured over the whole assembly (``ViralAssembly/esVirituRPKMF(of:)`` and
+    /// ``ViralAssembly/meanDepth(of:)``), as `EsVirituDetectionParser.groupByAssembly` measures them for one sample.
+    /// Identity is the mean over the assembly's reads, weighted by read count. Nil for no rows.
     public static func assembly(from group: [EsVirituDetectionRow]) -> ViralAssembly? {
         guard let first = group.first else { return nil }
         let totalReads = group.reduce(0) { $0 + $1.readCount }
         let contigs = group.map(detection(from:))
-        let weightedCoverage: Double
         let weightedIdentity: Double
         if totalReads > 0 {
-            weightedCoverage = contigs.reduce(0.0) {
-                $0 + $1.meanCoverage * Double($1.readCount)
-            } / Double(totalReads)
             weightedIdentity = ViralAssembly.readWeightedMean(of: contigs, totalReads: totalReads) { $0.avgReadIdentity }
         } else {
-            weightedCoverage = 0
             weightedIdentity = 0
         }
         return ViralAssembly(
@@ -197,8 +193,8 @@ extension EsVirituDetectionExport {
             genus: first.genus,
             species: first.species,
             totalReads: totalReads,
-            rpkmf: first.rpkmf ?? 0,
-            meanCoverage: weightedCoverage,
+            rpkmf: ViralAssembly.esVirituRPKMF(of: contigs),
+            meanCoverage: ViralAssembly.meanDepth(of: contigs),
             avgReadIdentity: weightedIdentity,
             contigs: contigs
         )

@@ -569,9 +569,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             let totalCoveredBases = group.reduce(0) { $0 + ($1.coveredBases ?? 0) }
             let assemblyLen = first.assemblyLength ?? 1
             let breadth = assemblyLen > 0 ? Double(totalCoveredBases) / Double(assemblyLen) : 0
-            let coverageValues = group.compactMap(\.meanCoverage)
-            let avgDepth = coverageValues.isEmpty ? 0.0 :
-                coverageValues.reduce(0, +) / Double(coverageValues.count)
+
+            // One ViralAssembly built from the DB rows, as the export does, gives the row's RPKMF and depth and the
+            // detail pane's whole-genome numbers. Without it the detail pane stays blank when a row is clicked
+            // (``batchAssemblyLookup`` lookup misses and ``showAssemblyDetail`` is never called).
+            let assembly = EsVirituDetectionExport.assembly(from: group)
 
             batchRows.append(BatchEsVirituRow(
                 sample: first.sample,
@@ -580,16 +582,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 assembly: first.assembly,
                 readCount: totalReads,
                 uniqueReads: totalUniqueReads,
-                rpkmf: first.rpkmf ?? 0,
+                rpkmf: assembly?.rpkmf ?? 0,
                 coverageBreadth: breadth,
-                coverageDepth: avgDepth
+                coverageDepth: assembly?.meanCoverage ?? 0
             ))
-
-            // Build a ViralAssembly for the detail pane from the DB rows, as the
-            // export does. Without this the detail pane stays blank when a row
-            // is clicked (``batchAssemblyLookup`` lookup misses and
-            // ``showAssemblyDetail`` is never called).
-            batchAssemblyLookup[key] = EsVirituDetectionExport.assembly(from: group)
+            batchAssemblyLookup[key] = assembly
         }
 
         // Resolve BAM paths from DB columns.

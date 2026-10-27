@@ -530,7 +530,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // RPKMF column
         let rpkmfCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.rpkmf))
         rpkmfCol.title = "RPKMF"
-        rpkmfCol.headerToolTip = "Reads per kilobase per million filtered reads."
+        rpkmfCol.headerToolTip = "Reads per kilobase per million filtered reads. A virus row counts its whole genome, as EsViritu's assembly summary does."
         rpkmfCol.width = 70
         rpkmfCol.minWidth = 50
         rpkmfCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.rpkmf, ascending: false)

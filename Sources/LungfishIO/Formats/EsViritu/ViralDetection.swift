@@ -209,10 +209,11 @@ public struct ViralAssembly: Sendable, Codable, Identifiable, Hashable {
     /// Total mapped reads across all contigs in this assembly.
     public let totalReads: Int
 
-    /// Reads per kilobase per million filtered reads (assembly-level).
+    /// Reads per kilobase of the whole assembly per million filtered reads, as EsViritu's assembly summary gives it
+    /// (``esVirituRPKMF(of:)``).
     public let rpkmf: Double
 
-    /// Mean read depth across the assembly.
+    /// Mean read depth over the whole assembly, the aligned bases over ``assemblyLength`` (``meanDepth(of:)``).
     public let meanCoverage: Double
 
     /// Average percent identity of mapped reads across the assembly.
@@ -297,6 +298,32 @@ extension ViralAssembly {
         let shared = value(first)
         if contigs.allSatisfy({ value($0) == shared }) { return shared }
         return contigs.reduce(0.0) { $0 + value($1) * Double($1.readCount) } / Double(totalReads)
+    }
+}
+
+// MARK: - A virus row measured over its whole genome
+
+extension ViralAssembly {
+    /// EsViritu's assembly RPKMF (`esv_funcs.assembly_table_maker`, the RPKMF of
+    /// `*.detected_virus.assembly_summary.tsv`): the contigs' reads per kilobase of the whole assembly
+    /// (Asm_length, every segment, read or not) per million filtered reads. One unsegmented contig keeps its own
+    /// value. A missing length or filtered count (a damaged table) leaves one contig its own value and more 0.
+    public static func esVirituRPKMF(of contigs: [ViralDetection]) -> Double {
+        let length = contigs.map(\.assemblyLength).max() ?? 0
+        if contigs.count == 1, contigs[0].length == length { return contigs[0].rpkmf }
+        let filtered = contigs.map(\.filteredReadsInSample).max() ?? 0
+        guard length > 0, filtered > 0 else { return contigs.count == 1 ? contigs[0].rpkmf : 0 }
+        let reads = contigs.reduce(0) { $0 + $1.readCount }
+        return Double(reads) / (Double(length) / 1000) / (Double(filtered) / 1e6)
+    }
+
+    /// Mean depth over the whole assembly: the contigs' aligned bases (mean coverage times length) over
+    /// Asm_length, the denominator RPKMF and breadth use. One unsegmented contig keeps its own mean coverage.
+    public static func meanDepth(of contigs: [ViralDetection]) -> Double {
+        let length = contigs.map(\.assemblyLength).max() ?? 0
+        if contigs.count == 1, contigs[0].length == length { return contigs[0].meanCoverage }
+        guard length > 0 else { return contigs.count == 1 ? contigs[0].meanCoverage : 0 }
+        return contigs.reduce(0.0) { $0 + $1.meanCoverage * Double($1.length) } / Double(length)
     }
 }
 

@@ -207,9 +207,9 @@ public enum EsVirituDetectionParser {
 
     /// Parses detections and groups them into assembly-level aggregates.
     ///
-    /// Contigs sharing the same assembly accession are grouped together.
-    /// Assembly-level metrics are computed as weighted averages or sums
-    /// of the constituent contigs.
+    /// Contigs sharing the same assembly accession are grouped together. Read counts are summed, RPKMF and mean depth
+    /// are measured over the whole assembly (``ViralAssembly/esVirituRPKMF(of:)`` and ``ViralAssembly/meanDepth(of:)``),
+    /// and identity is the mean over the assembly's reads, weighted by read count.
     ///
     /// - Parameter detections: Parsed contig-level detections.
     /// - Returns: An array of ``ViralAssembly`` values sorted by total reads descending.
@@ -221,19 +221,12 @@ public enum EsVirituDetectionParser {
             guard let first = contigs.first else { continue }
 
             let totalReads = contigs.reduce(0) { $0 + $1.readCount }
-            let totalRpkmf = contigs.reduce(0.0) { $0 + $1.rpkmf }
 
-            // Weighted average coverage and identity by read count
-            let weightedCoverage: Double
+            // Weighted average identity by read count
             let weightedIdentity: Double
             if totalReads > 0 {
-                weightedCoverage = contigs.reduce(0.0) {
-                    $0 + $1.meanCoverage * Double($1.readCount)
-                } / Double(totalReads)
                 weightedIdentity = ViralAssembly.readWeightedMean(of: contigs, totalReads: totalReads) { $0.avgReadIdentity }
             } else {
-                weightedCoverage = contigs.reduce(0.0) { $0 + $1.meanCoverage }
-                    / Double(max(contigs.count, 1))
                 weightedIdentity = contigs.reduce(0.0) { $0 + $1.avgReadIdentity }
                     / Double(max(contigs.count, 1))
             }
@@ -246,8 +239,8 @@ public enum EsVirituDetectionParser {
                 genus: first.genus,
                 species: first.species,
                 totalReads: totalReads,
-                rpkmf: totalRpkmf,
-                meanCoverage: weightedCoverage,
+                rpkmf: ViralAssembly.esVirituRPKMF(of: contigs),
+                meanCoverage: ViralAssembly.meanDepth(of: contigs),
                 avgReadIdentity: weightedIdentity,
                 contigs: contigs
             ))

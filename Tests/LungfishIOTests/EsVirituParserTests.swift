@@ -230,11 +230,13 @@ final class EsVirituParserTests: XCTestCase {
         XCTAssertEqual(rvfv.assembly, "GCF_000856585.1")
         XCTAssertEqual(rvfv.totalReads, 500)
         XCTAssertEqual(rvfv.contigs.count, 2)
-        XCTAssertEqual(rvfv.rpkmf, 140.0, accuracy: 0.01) // 80 + 60
+        // RPKMF over the whole assembly: 500 reads / 11.979 kb / 1.0 million filtered reads (the contigs' sum was 140)
+        XCTAssertEqual(rvfv.rpkmf, 41.7397, accuracy: 0.001) // 500 / 11.979 / 1.0
         XCTAssertEqual(rvfv.family, "Phenuiviridae")
 
-        // Weighted average coverage: (12.5*300 + 10.0*200) / 500 = 5750/500 = 11.5
-        XCTAssertEqual(rvfv.meanCoverage, 11.5, accuracy: 0.01)
+        // Mean depth over the whole assembly, the aligned bases over Asm_length (read-weighted it was 11.5):
+        // (12.5 * 6404 + 10.0 * 3885) / 11979 = (80050 + 38850) / 11979 = 9.9257
+        XCTAssertEqual(rvfv.meanCoverage, 9.9257, accuracy: 0.001)
 
         // Weighted average identity: (97.8*300 + 96.0*200) / 500 = (29340+19200)/500 = 97.08
         XCTAssertEqual(rvfv.avgReadIdentity, 97.08, accuracy: 0.01)
