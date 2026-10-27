@@ -235,6 +235,10 @@ final class MappingContigFallbackTests: XCTestCase {
             isOwn("/Volumes/Clone/B.lungfish/Analyses/minimap2-2026-10-24/sample.sorted.bam"),
             "a project that was moved or cloned keeps the folder and the file name"
         )
+        XCTAssertTrue(
+            isOwn("@/Analyses/minimap2-2026-10-24/sample.sorted.bam"),
+            "a saved project stores the BAM path relative to the project as @/..."
+        )
         XCTAssertFalse(
             isOwn("/Projects/A.lungfish/Analyses/minimap2-2026-10-24/v.lungfishref/alignments/fixture-track.sorted.bam"),
             "a filtered track names the track it was made from"
