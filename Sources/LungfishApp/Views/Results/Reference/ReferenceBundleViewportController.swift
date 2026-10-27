@@ -58,7 +58,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             }
         ).rows
     }
-    var alignmentTrackSummaryWarning: String?
+    var alignmentTrackSummaryWarning: String? { didSet { alignmentTrackSummaryProgress = nil } }
+    var alignmentTrackSummaryProgress: String?
     private var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
     /// Row identity restoration emits the normal table selection callback.
@@ -906,6 +907,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         mappingRowsRefreshTask?.cancel()
         visibleAlignmentSummaryOverride = nil
         alignmentTrackSummaryWarning = nil
+        alignmentTrackSummaryProgress = tracks.map(\.name).joined(separator: ", ")
         updateSummaryBar()
         contigTableView.configure(rows: [])
         let builder = alignmentTrackSummaryBuilder
@@ -1313,6 +1315,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 if stats.isImported(from: resultBAMURL) {
                     self.applyOriginalMappingRows(preferredSelectionName: preferred)
                 } else if track.metadataDBPath != nil {
+                    self.alignmentTrackSummaryProgress = track.name
                     self.applyVisibleAlignmentRows([], track: track, mappedReads: stats.mappedReads, totalReads: stats.totalReads, preferredSelectionName: preferred)
                 }
             }
@@ -1334,6 +1337,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     throw MappingSummaryReturnedNoRows()
                 }
                 guard let self, self.alignmentTrackSummaryRefreshID == refreshID else { return }
+                self.alignmentTrackSummaryProgress = nil
                 self.applyVisibleAlignmentRows(
                     sampleSummaries, track: track, mappedReads: stats.mappedReads,
                     totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName

@@ -156,12 +156,18 @@ extension ReferenceBundleViewportController {
         return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")). Open the mapping again to try once more, or run the mapping again if it keeps failing. Reason: \(first.reason)"
     }
 
-    /// The summary line with the words of an alignment summary build after it, in orange, when it has any.
+    /// The summary line with the words of an alignment summary build after it. The words of a build that
+    /// failed come in orange. While a build measures tracks whose rows the table does not show yet, "Measuring"
+    /// comes in the secondary colour, since waiting is no warning. Assigning the failure words ends the
+    /// measuring words (see `alignmentTrackSummaryWarning`), and so does the build's own rows.
     func withSummaryWarning(_ text: String) -> String {
-        guard let alignmentTrackSummaryWarning else { return text }
-        summaryLabel.textColor = .systemOrange
-        summaryLabel.toolTip = alignmentTrackSummaryWarning
-        return text + " — Warning: \(alignmentTrackSummaryWarning)"
+        if let alignmentTrackSummaryWarning {
+            summaryLabel.textColor = .systemOrange
+            summaryLabel.toolTip = alignmentTrackSummaryWarning
+            return text + " — Warning: \(alignmentTrackSummaryWarning)"
+        }
+        guard let alignmentTrackSummaryProgress, !alignmentTrackSummaryProgress.isEmpty else { return text }
+        return text + " — Measuring the alignment statistics for \(alignmentTrackSummaryProgress)…"
     }
 
     /// FASTA descriptions for the sequences the table shows, never a
