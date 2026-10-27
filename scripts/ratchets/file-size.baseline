@@ -103,7 +103,7 @@ Sources/LungfishGenotypeUI/GenotypeResultViewController.swift 11232
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonModel.swift 843
 Sources/LungfishGenotypeUI/GenotypeSampleComparisonPanel.swift 1372
 Sources/LungfishIO/Bundles/AlignmentDataProvider.swift 1229
-Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift 877
+Sources/LungfishIO/Bundles/AlignmentMetadataDatabase.swift 875
 Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift 991
 Sources/LungfishIO/Bundles/GenotypeHaplotypeAnalyzer.swift 1368
 Sources/LungfishIO/Bundles/MHCReferenceRecordCatalog.swift 922
