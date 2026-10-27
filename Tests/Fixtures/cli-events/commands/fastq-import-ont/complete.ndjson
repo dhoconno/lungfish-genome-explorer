@@ -2,15 +2,17 @@
 {"event":"progress","message":"Detecting ONT directory layout...","progress":0,"schemaVersion":2}
 {"event":"progress","message":"barcode01: Copying 1 chunks...","progress":0,"schemaVersion":2}
 {"event":"progress","message":"barcode01: Copied 1\/1 chunks","progress":0,"schemaVersion":2}
-{"event":"progress","message":"barcode01: Counting reads across 1 chunks...","progress":0,"schemaVersion":2}
+{"event":"progress","message":"barcode01: Measuring reads across 1 chunks...","progress":0,"schemaVersion":2}
 {"event":"progress","message":"barcode01: Generating preview...","progress":0,"schemaVersion":2}
 {"event":"progress","message":"Completed 1\/2 barcodes","progress":0.4,"schemaVersion":2}
 {"event":"progress","message":"barcode02: Copying 1 chunks...","progress":0.4,"schemaVersion":2}
 {"event":"progress","message":"barcode02: Copied 1\/1 chunks","progress":0.4,"schemaVersion":2}
-{"event":"progress","message":"barcode02: Counting reads across 1 chunks...","progress":0.4,"schemaVersion":2}
+{"event":"progress","message":"barcode02: Measuring reads across 1 chunks...","progress":0.4,"schemaVersion":2}
 {"event":"progress","message":"barcode02: Generating preview...","progress":0.4,"schemaVersion":2}
 {"event":"progress","message":"Completed 2\/2 barcodes","progress":0.8,"schemaVersion":2}
 {"event":"progress","message":"barcode01: binning quality scores of chunk_0.fastq","progress":0.8,"schemaVersion":2}
 {"event":"progress","message":"barcode02: binning quality scores of chunk_0.fastq","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"barcode01: measuring reads","progress":1,"schemaVersion":2}
+{"event":"progress","message":"barcode02: measuring reads","progress":1,"schemaVersion":2}
 {"event":"progress","message":"Import complete (3 reads, 0.0s)","progress":1,"schemaVersion":2}
 {"event":"complete","message":"2 barcode bundles, 3 reads","output":"\/work\/imported\/barcode01.lungfishfastq","outputs":["\/work\/imported\/barcode01.lungfishfastq","\/work\/imported\/barcode02.lungfishfastq"],"progress":1,"schemaVersion":2}

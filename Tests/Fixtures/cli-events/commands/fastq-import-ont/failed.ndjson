@@ -1,2 +1,2 @@
 {"event":"start","message":"Detecting layout...","progress":0,"schemaVersion":2}
-{"error":"'empty-run' does not appear to be an ONT output directory","event":"failed","schemaVersion":2}
+{"error":"'empty-run' holds no fastq_pass folder and no barcode folders. Choose the run folder that MinKNOW wrote, its fastq_pass folder or one barcode folder.","event":"failed","schemaVersion":2}
