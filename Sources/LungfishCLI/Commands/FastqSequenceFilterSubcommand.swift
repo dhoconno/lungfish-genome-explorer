@@ -58,43 +58,14 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         let pairingDecision = pairing.resolvePairing(inputURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
         let isInterleaved = pairingDecision.pairAware
 
-        var args: [String] = ["in=\(inputURL.path)"]
-
-        if keepMatched {
-            args.append("outm=\(output.output)")
-        } else {
-            args.append("out=\(output.output)")
+        var referenceURL: URL?
+        if sequence == nil, let fastaPath {
+            referenceURL = try validateInput(fastaPath)
         }
-        // Pair-aware: a pair counts as matched when either mate matches
-        // (bbduk's default removeifeitherbad=t), so `outm=` receives both
-        // mates and `out=` drops both. Nothing is ever split. interleaved=f
-        // is stated for the single-read case so bbduk's own name detection
-        // cannot pair a mixed file by position.
-        args.append(isInterleaved ? "interleaved=t" : "interleaved=f")
-
-        if let sequence {
-            args.append("literal=\(sequence)")
-        } else if let fastaPath {
-            let fastaURL = try validateInput(fastaPath)
-            args.append("ref=\(fastaURL.path)")
-        }
-
-        args.append("k=\(minOverlap)")
-        args.append("hdist=0")
-        args.append("edist=\(max(1, Int((errorRate * Double(minOverlap)).rounded())))")
-
-        if searchReverseComplement {
-            args.append("rcomp=t")
-        }
-
-        switch searchEnd {
-        case "left":
-            args.append("restrictleft=\(minOverlap * 3)")
-        case "right":
-            args.append("restrictright=\(minOverlap * 3)")
-        default:
-            break
-        }
+        let args = Self.bbdukArguments(
+            inputURL: inputURL, outputPath: output.output, keepMatched: keepMatched, interleaved: isInterleaved,
+            literal: sequence, referenceURL: referenceURL, minOverlap: minOverlap, errorRate: errorRate,
+            searchReverseComplement: searchReverseComplement, searchEnd: searchEnd)
 
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)

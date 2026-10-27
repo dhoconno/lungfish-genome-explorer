@@ -6,6 +6,7 @@ import Foundation
 import os.log
 import LungfishCore
 import LungfishIO
+import LungfishPortable
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "FASTQBatchImporter")
 
@@ -2265,16 +2266,9 @@ public enum FASTQBatchImporter {
                 let mergedURL = workspace.appendingPathComponent("step_\(absIndex)_merged.fastq")
                 let unmergedURL = workspace.appendingPathComponent("step_\(absIndex)_unmerged.fastq")
 
-                var args = [
-                    "in=\(currentURL.path)",
-                    "out=\(mergedURL.path)",
-                    "outu=\(unmergedURL.path)",
-                    "minoverlap=\(minOverlap)",
-                    "threads=\(config.threads)",
-                    // bbmerge only pairs identically named mates when told to.
-                    currentIsInterleaved ? "interleaved=t" : "interleaved=f",
-                ]
-                if strictness == .strict { args.append("strict=t") }
+                let args = FASTQBatchImporter.mergeArguments(
+                    input: currentURL, merged: mergedURL, unmerged: unmergedURL, minOverlap: minOverlap,
+                    threads: config.threads, interleaved: currentIsInterleaved, strict: strictness == .strict)
 
                 let env = await bbToolsEnvironment()
                 let mergeResult = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .bbmerge, atLeast: 1800, inputs: [currentURL]))
@@ -2315,11 +2309,8 @@ public enum FASTQBatchImporter {
 
                 if currentIsInterleaved {
                     // Use bbduk for paired-aware length filter on interleaved data
-                    var args = ["in=\(currentURL.path)", "out=\(outputURL.path)"]
-                    if let m = minLen { args.append("minlen=\(m)") }
-                    if let m = maxLen { args.append("maxlen=\(m)") }
-                    args.append("interleaved=t")
-                    args.append("threads=\(config.threads)")
+                    let args = FASTQBatchImporter.interleavedLengthFilterArguments(
+                        input: currentURL, output: outputURL, minLength: minLen, maxLength: maxLen, threads: config.threads)
                     let env = await bbToolsEnvironment()
                     let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .bbduk, atLeast: 1800, inputs: [currentURL]))
                     guard result.isSuccess else {
@@ -2566,12 +2557,7 @@ public enum FASTQBatchImporter {
         let env = await bbToolsEnvironment()
         let result = try await runner.run(
             .reformat,
-            arguments: [
-                "in1=\(r1.path)",
-                "in2=\(r2.path)",
-                "out=\(output.path)",
-                "interleaved=t",
-            ],
+            arguments: BBToolsPairArguments.interleave(r1: r1.path, r2: r2.path, output: output.path),
             environment: env,
             timeout: ImportToolTimeout.seconds(for: .reformat, atLeast: 1800, inputs: [r1, r2])
         )
@@ -2586,12 +2572,7 @@ public enum FASTQBatchImporter {
         let env = await bbToolsEnvironment()
         let result = try await runner.run(
             .reformat,
-            arguments: [
-                "in=\(sourceFASTQ.path)",
-                "out1=\(outputR1.path)",
-                "out2=\(outputR2.path)",
-                "interleaved=t",
-            ],
+            arguments: BBToolsPairArguments.deinterleave(input: sourceFASTQ.path, out1: outputR1.path, out2: outputR2.path),
             environment: env,
             timeout: ImportToolTimeout.seconds(for: .reformat, atLeast: 1800, inputs: [sourceFASTQ])
         )

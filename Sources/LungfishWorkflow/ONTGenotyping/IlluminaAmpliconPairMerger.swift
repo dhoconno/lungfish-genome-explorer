@@ -275,13 +275,8 @@ public enum IlluminaAmpliconPairMerger {
         )
         defer { staging.cleanUp() }
 
-        let arguments = [
-            "in=\(staging.runInputURL.path)",
-            "out=\(staging.runMergedURL.path)",
-            "outu=\(staging.runUnmergedURL.path)",
-            "interleaved=t",
-            "threads=\(max(1, threads))",
-        ]
+        let arguments = Self.bbmergeArguments(
+            input: staging.runInputURL, merged: staging.runMergedURL, unmerged: staging.runUnmergedURL, threads: threads)
 
         let (status, stderr) = try await runBBMerge(
             bbmergeURL: bbmergeURL,

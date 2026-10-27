@@ -119,19 +119,9 @@ extension FASTQDerivativeService {
                 commandLine = "clumpify.sh dedupe=t subs=\(subs)\(optical ? " optical=t dupedist=\(opticalDist)" : "") interleaved=\(currentIsInterleaved)"
                 let env = await bbToolsEnvironment()
                 let heapGB = ManagedJavaHeapPolicy.heapGB(minimumGB: 1)
-                var args = [
-                    "in=\(currentURL.path)",
-                    "out=\(outputURL.path)",
-                    "-Xmx\(heapGB)g",
-                    "dedupe=t",
-                    "subs=\(subs)",
-                    "ow=t",
-                ]
-                if currentIsInterleaved { args.append("interleaved=t") }
-                if optical {
-                    args.append("optical=t")
-                    args.append("dupedist=\(opticalDist)")
-                }
+                let args = Self.dedupeArguments(
+                    input: currentURL, output: outputURL, heapGB: heapGB, substitutions: subs,
+                    interleaved: currentIsInterleaved, optical: optical, opticalDistance: opticalDist)
                 let dedupeResult = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
                 guard dedupeResult.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("clumpify deduplication failed: \(dedupeResult.stderr)")

@@ -576,17 +576,7 @@ extension FullLengthONTMHCGenotypingPipeline {
 
         if let forwardPrimerURL = request.forwardPrimerURL {
             let output = sampleDirectory.appendingPathComponent("02-forward-trimmed.fastq")
-            let args = [
-                "in=\(currentFASTQ.path)",
-                "out=\(output.path)",
-                "ref=\(forwardPrimerURL.path)",
-                "k=15",
-                "mink=11",
-                "hdist=1",
-                "ktrim=l",
-                "rcomp=t",
-                "threads=1",
-            ]
+            let args = Self.primerTrimArguments(input: currentFASTQ, output: output, primers: forwardPrimerURL, ktrim: "l")
             try await runNativeTool(
                 .bbduk,
                 arguments: args,
@@ -601,17 +591,7 @@ extension FullLengthONTMHCGenotypingPipeline {
 
         if let reversePrimerURL = request.reversePrimerURL {
             let output = sampleDirectory.appendingPathComponent("03-reverse-trimmed.fastq")
-            let args = [
-                "in=\(currentFASTQ.path)",
-                "out=\(output.path)",
-                "ref=\(reversePrimerURL.path)",
-                "k=15",
-                "mink=11",
-                "hdist=1",
-                "ktrim=r",
-                "rcomp=t",
-                "threads=1",
-            ]
+            let args = Self.primerTrimArguments(input: currentFASTQ, output: output, primers: reversePrimerURL, ktrim: "r")
             try await runNativeTool(
                 .bbduk,
                 arguments: args,
@@ -627,13 +607,9 @@ extension FullLengthONTMHCGenotypingPipeline {
         let filtered = sampleDirectory.appendingPathComponent("04-length-filtered.fastq")
         try await runNativeTool(
             .reformat,
-            arguments: [
-                "in=\(currentFASTQ.path)",
-                "out=\(filtered.path)",
-                "minlength=\(request.minimumLength)",
-                "maxlength=\(request.maximumLength)",
-                "threads=1",
-            ],
+            arguments: Self.lengthFilterArguments(
+                input: currentFASTQ, output: filtered, minimumLength: request.minimumLength,
+                maximumLength: request.maximumLength),
             inputs: [currentFASTQ],
             outputs: [filtered],
             workingDirectory: sampleDirectory,

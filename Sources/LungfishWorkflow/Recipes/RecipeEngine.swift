@@ -654,14 +654,7 @@ public final class RecipeEngine: Sendable {
             "\(context.sampleName)_conv_R2.fq.gz")
 
         let env = await bbToolsEnvironment()
-        let args = [
-            "in=\(input.r1.path)",
-            "out=\(outR1.path)",
-            "out2=\(outR2.path)",
-            "interleaved=t",
-            "threads=\(context.threads)",
-            "ow=t",
-        ]
+        let args = Self.interleavedToPairedArguments(input: input.r1, out1: outR1, out2: outR2, threads: context.threads)
 
         let result = try await context.runner.run(
             .reformat,

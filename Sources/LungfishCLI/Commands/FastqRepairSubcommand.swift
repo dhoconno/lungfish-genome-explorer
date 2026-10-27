@@ -41,11 +41,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         let repairedURL = tempDir.appendingPathComponent("repaired.fastq")
         let singletonsURL = tempDir.appendingPathComponent("singletons.fastq")
 
-        let args = [
-            "in=\(inputURL.path)",
-            "out=\(repairedURL.path)",
-            "outs=\(singletonsURL.path)",
-        ]
+        let args = Self.repairArguments(input: inputURL, repaired: repairedURL, singletons: singletonsURL)
 
         let env = await bbToolsEnvironment(runner: runner)
         let runClock = ProvenanceRunClock()

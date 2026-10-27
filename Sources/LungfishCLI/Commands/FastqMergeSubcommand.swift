@@ -71,14 +71,8 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             throw ValidationError("The input holds no interleaved pairs to merge (\(resolution.reason)) Nothing was written.")
         }
 
-        var args = [
-            "in=\(bbmergeInputURL.path)",
-            "out=\(mergedURL.path)",
-            "outu=\(unmergedURL.path)",
-            "minoverlap=\(minOverlap)",
-            "interleaved=t",
-        ]
-        if strict { args.append("strict=t") }
+        let args = Self.bbmergeArguments(
+            input: bbmergeInputURL, merged: mergedURL, unmerged: unmergedURL, minOverlap: minOverlap, strict: strict)
         let outputSources = [mergedURL, unmergedURL] + (passthroughURL.map { [$0] } ?? [])
 
         let env = await bbToolsEnvironment(runner: runner)

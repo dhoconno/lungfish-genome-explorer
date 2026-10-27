@@ -93,22 +93,8 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         let result: NativeToolResult
         if isInterleaved {
             toolName = "reformat"
-            var reformatArgs = [
-                "in=\(inputURL.path)",
-                "out=\(output.output)",
-                "interleaved=t",
-            ]
-            if let proportion {
-                reformatArgs.append("samplerate=\(proportion)")
-            }
-            if let count {
-                // With interleaved=t, reformat.sh's samplereadstarget counts
-                // output PAIRS. --count is a read count (the dialog says
-                // "Keep a fixed number of reads"), so ask for count/2 pairs.
-                reformatArgs.append("samplereadstarget=\(Self.interleavedPairTarget(forReadCount: count))")
-            }
-            reformatArgs.append("sampleseed=\(resolvedSeed)")
-            args = reformatArgs
+            args = Self.reformatSampleArguments(
+                input: inputURL.path, output: output.output, proportion: proportion, count: count, seed: resolvedSeed)
             let env = await bbToolsEnvironment(runner: runner)
             result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
             guard result.isSuccess else {

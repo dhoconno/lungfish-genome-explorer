@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 extension FASTQBundleMergeService {
 
@@ -53,12 +54,7 @@ extension FASTQBundleMergeService {
         let runner = NativeToolRunner.shared
         let result = try await runner.run(
             .reformat,
-            arguments: [
-                "in1=\(r1.path)",
-                "in2=\(r2.path)",
-                "out=\(outputURL.path)",
-                "interleaved=t",
-            ],
+            arguments: BBToolsPairArguments.interleave(r1: r1.path, r2: r2.path, output: outputURL.path),
             environment: await bbToolsEnvironment(),
             timeout: 1800
         )

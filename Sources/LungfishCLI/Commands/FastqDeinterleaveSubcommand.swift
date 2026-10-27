@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Deinterleave
 
@@ -71,12 +72,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
         switch resolution.layout {
         case .strictlyInterleaved:
             let runner = NativeToolRunner.shared
-            let args = [
-                "in=\(inputURL.path)",
-                "out1=\(out1)",
-                "out2=\(out2)",
-                "interleaved=t",
-            ]
+            let args = BBToolsPairArguments.deinterleave(input: inputURL.path, out1: out1, out2: out2)
             let env = await bbToolsEnvironment(runner: runner)
             let runClock = ProvenanceRunClock()
             let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)

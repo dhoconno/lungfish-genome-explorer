@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 private struct ScrubHumanProvenanceFile: Sendable {
     let url: URL
@@ -376,12 +377,8 @@ private extension FastqScrubHumanSubcommand {
         runner: NativeToolRunner
     ) async throws -> ScrubHumanInvocationRecord {
         let env = await bbToolsEnvironment(runner: runner)
-        let arguments = [
-            "in=\(inputFASTQ.path)",
-            "out1=\(outputR1.path)",
-            "out2=\(outputR2.path)",
-            "interleaved=t",
-        ]
+        let arguments = BBToolsPairArguments.deinterleave(
+            input: inputFASTQ.path, out1: outputR1.path, out2: outputR2.path)
         let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,
@@ -412,12 +409,8 @@ private extension FastqScrubHumanSubcommand {
         runner: NativeToolRunner
     ) async throws -> ScrubHumanInvocationRecord {
         let env = await bbToolsEnvironment(runner: runner)
-        let arguments = [
-            "in1=\(inputR1.path)",
-            "in2=\(inputR2.path)",
-            "out=\(outputFASTQ.path)",
-            "interleaved=t",
-        ]
+        let arguments = BBToolsPairArguments.interleave(
+            r1: inputR1.path, r2: inputR2.path, output: outputFASTQ.path)
         let stepClock = ProvenanceRunClock()
         let result = try await runner.run(
             .reformat,

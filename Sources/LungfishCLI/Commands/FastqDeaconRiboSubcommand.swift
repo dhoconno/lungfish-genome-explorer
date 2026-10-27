@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 struct DeaconRiboOutputPlan: Sendable, Equatable {
     let nonRRNAOutputURLs: [URL]
@@ -120,12 +121,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 let inputR1 = scratchDirectory.appendingPathComponent("\(stem).input.R1.fastq")
                 let inputR2 = scratchDirectory.appendingPathComponent("\(stem).input.R2.fastq")
                 let record = try await Self.reformatPairs(
-                    arguments: [
-                        "in=\(inputURLs[0].path)",
-                        "out1=\(inputR1.path)",
-                        "out2=\(inputR2.path)",
-                        "interleaved=t",
-                    ],
+                    arguments: BBToolsPairArguments.deinterleave(
+                        input: inputURLs[0].path, out1: inputR1.path, out2: inputR2.path),
                     outputs: [inputR1, inputR2]
                 )
                 invocations.append(record)
@@ -157,12 +154,8 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                         throw CLIError.conversionFailed(reason: "Deacon rRNA filter failed: \(deaconRecord.stderr)")
                     }
                     let joinRecord = try await Self.reformatPairs(
-                        arguments: [
-                            "in1=\(outputR1.path)",
-                            "in2=\(outputR2.path)",
-                            "out=\(finalOutputURL.path)",
-                            "interleaved=t",
-                        ],
+                        arguments: BBToolsPairArguments.interleave(
+                            r1: outputR1.path, r2: outputR2.path, output: finalOutputURL.path),
                         outputs: [finalOutputURL]
                     )
                     invocations.append(joinRecord)

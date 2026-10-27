@@ -288,6 +288,11 @@ extension RecipeEngine {
         ["in=\(r1.path)", "in2=\(r2.path)", "out=\(output.path)", "interleaved=t", "threads=\(threads)", "ow=t"]
     }
 
+    /// The `reformat.sh` argv that splits an interleaved file into R1 and R2 files.
+    static func interleavedToPairedArguments(input: URL, out1: URL, out2: URL, threads: Int) -> [String] {
+        ["in=\(input.path)", "out=\(out1.path)", "out2=\(out2.path)", "interleaved=t", "threads=\(threads)", "ow=t"]
+    }
+
     /// The one file the merged-to-mixed conversion writes.
     static func mixedOutput(workspace: URL, sampleName: String) -> URL {
         workspace.appendingPathComponent("\(sampleName)_mixed.fastq")

@@ -47,20 +47,9 @@ extension FASTQDerivativeService {
         let unmergedR1URL = outputBundleURL.appendingPathComponent("unmerged_R1.fastq")
         let unmergedR2URL = outputBundleURL.appendingPathComponent("unmerged_R2.fastq")
 
-        var args = [
-            "in=\(sourceFASTQ.path)",
-            "out=\(mergedURL.path)",
-            "outu=\(unmergedInterleavedURL.path)",
-            "minoverlap=\(minOverlap)",
-            // Stated, not guessed: bbmerge's own detection does not pair
-            // identically named mates (SRA dumps), and on /1 /2 names it
-            // pairs by position and drops the last read of an odd count.
-            isInterleaved ? "interleaved=t" : "interleaved=f",
-        ]
-
-        if strictness == .strict {
-            args.append("strict=t")
-        }
+        let args = Self.mergeArguments(
+            source: sourceFASTQ, merged: mergedURL, unmerged: unmergedInterleavedURL, minOverlap: minOverlap,
+            interleaved: isInterleaved, strict: strictness == .strict)
 
         let env = await bbToolsEnvironment()
         let result = try await runNativeTool(

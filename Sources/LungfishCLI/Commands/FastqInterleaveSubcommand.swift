@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Interleave
 
@@ -39,11 +40,7 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
-        let args = [
-            "in1=\(in1)",
-            "in2=\(in2)",
-            "out=\(output.output)",
-        ]
+        let args = BBToolsPairArguments.interleave(r1: in1, r2: in2, output: output.output)
 
         let env = await bbToolsEnvironment(runner: runner)
         let runClock = ProvenanceRunClock()
