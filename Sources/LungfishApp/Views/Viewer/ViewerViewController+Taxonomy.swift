@@ -88,7 +88,9 @@ extension ViewerViewController {
         controller.onBlastVerification = { [weak self, weak controller] node, readCount in
             if case .failure(let error) = capturedInputs, let refusal = error as? ClassifierExtractionError,
                case .sourceNotInProject = refusal {
-                return showBlastVerificationErrorAlert(refusal.localizedDescription)
+                controller?.showBlastFailure(message: refusal.localizedDescription, runID: controller?.currentBlastRunID)
+                showBlastVerificationErrorAlert(refusal.localizedDescription)
+                return
             }
             self?.beginKraken2BlastSubmit(
                 controller: controller, node: node, readCount: readCount, classResult: result,
@@ -178,7 +180,9 @@ extension ViewerViewController {
             let recorded = Result { try KrakenResultReadSources.recordedInputs(of: sampleResult, refusalAction: .blast) }
             if case .failure(let error) = recorded, let refusal = error as? ClassifierExtractionError,
                case .sourceNotInProject = refusal {
-                return showBlastVerificationErrorAlert(refusal.localizedDescription)
+                controller.showBlastFailure(message: refusal.localizedDescription, runID: controller.currentBlastRunID)
+                showBlastVerificationErrorAlert(refusal.localizedDescription)
+                return
             }
             let sourceInputs = (try? recorded.get()) ?? []
             self?.beginKraken2BlastSubmit(
