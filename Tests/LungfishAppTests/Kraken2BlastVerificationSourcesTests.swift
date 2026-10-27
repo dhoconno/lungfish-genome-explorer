@@ -109,6 +109,36 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         }
     }
 
+    /// A Kraken2 result whose read files hold the same names with other lengths fails the BLAST request with the words
+    /// of the BLAST refusal and builds no request. `KrakenReadsChanged` has no words of its own, so the conversion in
+    /// `kraken2BlastVerificationRequest` is what keeps "The operation couldn't be completed" from the alert
+    /// (BIO-READ-IDENTITY 4.1, UX SF-3).
+    func testChangedReadsFailWithTheWordsOfBLASTAndBuildNoRequest() async throws {
+        let shape = try XCTUnwrap(Kraken2BlastShapes(in: root).all.first)
+        for input in shape.inputs {
+            let files = input.pathExtension == "fastq"
+                ? [input]
+                : try FileManager.default.contentsOfDirectory(at: input, includingPropertiesForKeys: nil).filter { $0.pathExtension == "fastq" }
+            for file in files {
+                let lines = try String(contentsOf: file, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+                try lines.enumerated().map { $0.offset % 2 == 1 ? String($0.element.dropLast(5)) : String($0.element) }
+                    .joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+            }
+        }
+        do {
+            _ = try await appRequest(shape.result)
+            XCTFail("a request over reads that are not the reads of the result is refused")
+        } catch {
+            XCTAssertEqual(
+                error as? ClassifierExtractionError,
+                .kraken2ReadsChangedForBLAST(
+                    place: KrakenResultReadSources.place(of: shape.inputs), missing: 0, otherLength: 2, named: 2
+                )
+            )
+            XCTAssertTrue(error.localizedDescription.contains("Lungfish sent nothing to BLAST."), error.localizedDescription)
+        }
+    }
+
     // MARK: - Helpers
 
     /// The request the viewer's BLAST row builds for taxon 100 of `result`,

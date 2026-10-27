@@ -15,6 +15,7 @@ import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+import LungfishWorkflow
 
 /// Holds a lookup until the test opens it. A lookup whose task was cancelled meanwhile ends with `CancellationError`.
 private actor LookupGate {
@@ -183,6 +184,47 @@ final class Kraken2BlastSubmitRowTests: XCTestCase {
         XCTAssertEqual(staged.filter { $0.hasPrefix("blast-submit-") }, [], "no query was staged")
         XCTAssertEqual(spy.failures, [])
         XCTAssertEqual(spy.results.count, 0)
+    }
+
+    /// A lookup that refuses because the read files hold other reads than the result was made from ends the row Failed
+    /// with the refusal's words, shows them once on the drawer, starts no leaf and stages no query. The row's catch is
+    /// what keeps "The operation couldn't be completed" from the person (BIO-READ-IDENTITY 4.1, UX SF-3).
+    func testALookupThatRefusesChangedReadsEndsTheRowWithItsWords() async throws {
+        let (project, result) = try makeProject()
+        let marker = folder.appendingPathComponent("leaf-ran")
+        let cli = try standInCLI("/usr/bin/touch '\(marker.path)'\nexit 1\n")
+        let words = ClassifierExtractionError.kraken2ReadsChangedForBLAST(
+            place: "Imports/s.lungfishfastq", missing: 0, otherLength: 4, named: 4
+        ).localizedDescription
+        let spy = RowDrawerSpy()
+        var rowID: UUID?
+
+        let task = try XCTUnwrap(ViewerViewController.launchKraken2BlastSubmit(
+            taxonName: "Escherichia coli", projectURL: project, resultDirectory: result,
+            runner: CLIBlastSubmitRunner(cliURLOverride: cli),
+            lookup: {
+                throw ClassifierExtractionError.kraken2ReadsChangedForBLAST(
+                    place: "Imports/s.lungfishfastq", missing: 0, otherLength: 4, named: 4
+                )
+            }
+        ) { id in
+            rowID = id
+            return spy.drawer
+        })
+        let id = try XCTUnwrap(rowID)
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        await task.value
+
+        let ended = try XCTUnwrap(item(id))
+        XCTAssertEqual(ended.state, .failed)
+        XCTAssertEqual(ended.errorMessage, words, "the row's error text is the refusal's words")
+        XCTAssertTrue(words.contains("Lungfish sent nothing to BLAST."), words)
+        XCTAssertEqual(spy.failures, [words], "the drawer shows the refusal once")
+        XCTAssertEqual(spy.results.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "no leaf started")
+        let staged = (try? FileManager.default.contentsOfDirectory(atPath: project.appendingPathComponent(".tmp").path)) ?? []
+        XCTAssertEqual(staged.filter { $0.hasPrefix("blast-submit-") }, [], "no query was staged")
     }
 
     // MARK: - Fixtures
