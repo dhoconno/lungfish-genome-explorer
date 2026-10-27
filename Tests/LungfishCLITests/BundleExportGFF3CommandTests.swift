@@ -67,6 +67,20 @@ final class BundleExportGFF3CommandTests: XCTestCase {
         XCTAssertEqual(envelope.options.defaults.keys.sorted(), ["featureSource", "outputFormat"])
     }
 
+    /// Phase 3.0 lane GFF3-FIDELITY (walk GFF3-a). The app's Export > Annotations (GFF3)… runs this leaf, and a bundle's
+    /// database holds no source for a feature, so every line carries the undefined value `.` in column 2 and none
+    /// claims that Lungfish made the feature.
+    func testTheLeafWritesTheUndefinedSourceInColumnTwo() async throws {
+        let output = folder.appendingPathComponent("source.gff3")
+        _ = try await command(["bundle", "export-gff3", bundle.path, "-o", output.path]).export()
+        let columnTwo = try String(contentsOf: output, encoding: .utf8)
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("#") }
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false)[1] }
+        XCTAssertFalse(columnTwo.isEmpty)
+        XCTAssertEqual(columnTwo.map(String.init), Array(repeating: ".", count: columnTwo.count), "column 2 of each line")
+    }
+
     func testSelectionFormWritesTheDocumentAnnotationsAndNamesOnlyTheSelection() async throws {
         let output = folder.appendingPathComponent("document.gff3")
         let annotations = [
