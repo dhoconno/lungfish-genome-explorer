@@ -120,6 +120,10 @@ final class ReadExtractionServiceTests: XCTestCase {
         }
         XCTAssertEqual(filename, "kraken2-concat.fasta")
         XCTAssertEqual(manifest.sequenceFormat, .fasta)
+        // The derived manifest stores the bases and lengths of the FASTA it holds. It stored a base count of 0.
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 2)
+        XCTAssertEqual(manifest.cachedStatistics.baseCount, 16)
+        XCTAssertEqual(manifest.cachedStatistics.maxReadLength, 8)
 
         let resolved = try XCTUnwrap(
             FASTQBundle.resolvePrimarySequenceURL(for: bundleURL),

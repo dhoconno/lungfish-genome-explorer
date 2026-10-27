@@ -127,6 +127,87 @@ final class ONTImportStatisticsTests: XCTestCase {
         XCTAssertEqual(bridged.minReadLength, 3)
     }
 
+    // MARK: - WF-8, the file shapes the parser reads
+
+    /// A FASTQ of `reads` records, each `ACGTACGT` over `IIIIIIII`.
+    private func fastq(reads: Int, newline: String = "\n", finalNewline: Bool = true) -> String {
+        var text = (0..<reads).map { "@read\($0) runid=abc\(newline)ACGTACGT\(newline)+\(newline)IIIIIIII" }
+            .joined(separator: newline)
+        if finalNewline && reads > 0 { text += newline }
+        return text
+    }
+
+    /// A file the parser cannot read ends the measure with an error. The line counter this parse replaced gave such a
+    /// file a count of 0 and went on (`ONTReadCountPinTests`).
+    private func assertMeasuringThrows(
+        _ file: URL,
+        _ label: String,
+        testFile: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            let counted = try await ONTDirectoryImporter.measureStatistics(of: [file])
+            XCTFail("\(label) gave a count of \(counted.readCount) reads where it must throw", file: testFile, line: line)
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty, label, file: testFile, line: line)
+        }
+    }
+
+    /// The shapes the retired line counter was pinned on, now for the parser. One shape differs from the base on
+    /// purpose. A chunk with no final newline counted one read short at the base (3 reads gave 2).
+    func testMeasuringCountsEveryReadWhateverTheFileShape() async throws {
+        let folder = try makeFolder()
+        func write(_ text: String, _ name: String) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            try Data(text.utf8).write(to: url)
+            return url
+        }
+
+        var plainFiles: [URL] = []
+        var gzipFiles: [URL] = []
+        for (index, reads) in [10, 20, 30].enumerated() {
+            let text = fastq(reads: reads)
+            plainFiles.append(try write(text, "plain_\(index).fastq"))
+            gzipFiles.append(try GzipPinSupport.gzip(text, in: folder, named: "gzip_\(index).fastq"))
+        }
+        for (label, files) in [("plain", plainFiles), ("gzip", gzipFiles)] {
+            let total = try await ONTDirectoryImporter.measureStatistics(of: files)
+            XCTAssertEqual(total.readCount, 60, "\(label) folder")
+            XCTAssertEqual(total.baseCount, 480, "\(label) folder")
+            for (file, reads) in zip(files, [10, 20, 30]) {
+                let one = try await ONTDirectoryImporter.measureStatistics(of: [file])
+                XCTAssertEqual(one.readCount, reads, "\(label) \(file.lastPathComponent)")
+            }
+        }
+
+        let crlf = try await ONTDirectoryImporter.measureStatistics(
+            of: [try write(fastq(reads: 3, newline: "\r\n"), "crlf.fastq")]
+        )
+        XCTAssertEqual(crlf.readCount, 3, "CRLF line ends")
+        XCTAssertEqual(crlf.baseCount, 24, "a CRLF file counts no carriage return as a base")
+
+        let noFinalNewline = try await ONTDirectoryImporter.measureStatistics(
+            of: [try write(fastq(reads: 3, finalNewline: false), "no-final-newline.fastq")]
+        )
+        XCTAssertEqual(noFinalNewline.readCount, 3, "no final newline, 2 at the base")
+
+        let empty = try await ONTDirectoryImporter.measureStatistics(of: [try write("", "empty.fastq")])
+        XCTAssertEqual(empty.readCount, 0, "empty file")
+
+        let first = try GzipPinSupport.gzip(fastq(reads: 2), in: folder, named: "member-a.fastq")
+        let second = try GzipPinSupport.gzip(fastq(reads: 3), in: folder, named: "member-b.fastq")
+        let joined = folder.appendingPathComponent("joined.fastq.gz")
+        try (Data(contentsOf: first) + Data(contentsOf: second)).write(to: joined)
+        let members = try await ONTDirectoryImporter.measureStatistics(of: [joined])
+        XCTAssertEqual(members.readCount, 5, "two gzip members joined")
+
+        let whole = try GzipPinSupport.gzip(fastq(reads: 1_000), in: folder, named: "whole.fastq")
+        let cut = try GzipPinSupport.truncated(whole, removing: 30, as: "cut.fastq.gz")
+        await assertMeasuringThrows(cut, "a truncated gzip")
+        let notGzip = try write(fastq(reads: 5), "not-gzip.fastq.gz")
+        await assertMeasuringThrows(notGzip, "a plain-text file named .fastq.gz")
+    }
+
     // MARK: - WO-10, the reads left out
 
     func testTheManifestRecordsTheUnclassifiedReadsItLeftOut() async throws {

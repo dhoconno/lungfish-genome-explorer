@@ -741,20 +741,6 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertEqual(loaded?.cachedStatistics.meanReadLength, 150.0)
     }
 
-    func testPlaceholderStatistics() {
-        let stats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 10_000, baseCount: 1_500_000)
-        XCTAssertEqual(stats.readCount, 10_000)
-        XCTAssertEqual(stats.baseCount, 1_500_000)
-        XCTAssertEqual(stats.meanReadLength, 150.0)
-        XCTAssertEqual(stats.minReadLength, 0)
-        XCTAssertEqual(stats.maxReadLength, 0)
-        XCTAssertTrue(stats.readLengthHistogram.isEmpty)
-        XCTAssertTrue(stats.qualityScoreHistogram.isEmpty)
-
-        let emptyStats = FASTQDatasetStatistics.countsOnlyFixture(readCount: 0, baseCount: 0)
-        XCTAssertEqual(emptyStats.meanReadLength, 0)
-    }
-
     // MARK: - Trim Validation Edge Cases
 
     func testLoadRejectsReversedTrimPositions() throws {

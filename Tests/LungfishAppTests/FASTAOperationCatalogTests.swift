@@ -67,6 +67,22 @@ final class FASTAOperationCatalogTests: XCTestCase {
         XCTAssertEqual(finalEnvelope.output?.originPath, bundleURL.appendingPathComponent("selection.fasta").path)
     }
 
+    /// Before Phase 3.0 lane ONT the bundle stored a count of records and bases and 0 for every length.
+    func testTheBundleCachesMeasuredLengths() throws {
+        let bundleURL = try FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: [">short\nACGTA\n", ">long\nACGTACGTACGT\n"],
+            suggestedName: "measured lengths",
+            projectURL: nil
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 2)
+        XCTAssertEqual(manifest.cachedStatistics.baseCount, 17)
+        XCTAssertEqual(manifest.cachedStatistics.minReadLength, 5)
+        XCTAssertEqual(manifest.cachedStatistics.maxReadLength, 12)
+    }
+
     func testCatalogOnlyReturnsFASTACompatibleOperations() {
         let ids = Set(FASTAOperationCatalog.availableOperationKinds().map(\.rawValue))
 
