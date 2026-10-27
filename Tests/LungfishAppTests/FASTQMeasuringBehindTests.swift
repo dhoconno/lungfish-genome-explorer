@@ -244,4 +244,49 @@ final class FASTQMeasuringBehindTests: XCTestCase {
             "the sample metadata section shows the bundle's own sample"
         )
     }
+
+    // MARK: - The section around a counted bundle and a moved target (review should-fix 1)
+
+    /// A counted bundle's dashboard loads its own sample metadata into the section without a clear, so the edit made a
+    /// moment earlier was dropped, and its armed autosave then wrote into the next bundle. The edit is saved to its own
+    /// bundle first and the wait is cancelled.
+    func testAnEditToOneBundlesMetadataIsSavedToItWhenACountedBundleIsShown() throws {
+        defer { endRequests() }
+        let previous = try makePlainBundle(named: "SRR12486983")
+        showDashboard(of: previous, statistics: Self.previousStatistics)
+        let section = split.inspectorController.fastqMetadataSectionViewModel
+        section.metadata?.sampleType = "nasal swab"
+        section.scheduleAutosave()
+        XCTAssertTrue(section.hasUnsavedChanges, "the edit waits for its autosave")
+
+        let next = try makePlainBundle(named: "BC01")
+        showDashboard(of: next, statistics: Self.countedStatistics)
+
+        let saved = try? String(
+            contentsOf: previous.appendingPathComponent(FASTQBundleCSVMetadata.filename), encoding: .utf8
+        )
+        XCTAssertTrue(saved?.contains("nasal swab") == true, "the edit is saved to the bundle it was made in")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: next.appendingPathComponent(FASTQBundleCSVMetadata.filename).path),
+            "the edit is not written into the next bundle"
+        )
+    }
+
+    /// The sidebar moves the read-type targets to the clicked bundle (`selectionDidChange`) while the section still
+    /// shows the previous one. A read-type change made just before the click belongs to the previous bundle alone.
+    func testAReadTypeEditIsSentToItsOwnBundleWhenTheSidebarMovesTheTargets() throws {
+        defer { endRequests() }
+        let previous = try makePlainBundle(named: "SRR12486983")
+        showDashboard(of: previous, statistics: Self.previousStatistics)
+        let section = split.inspectorController.fastqMetadataSectionViewModel
+        var seen: [[URL]] = []
+        section.platformLabelChanger = { _, bundleURLs, _ in seen.append(bundleURLs.map(\.standardizedFileURL)) }
+        section.setAssemblyReadType(.ontReads)
+
+        section.setReadTypeTargetBundleURLs([try makePlainBundle(named: "BC02")])
+
+        XCTAssertEqual(
+            seen, [[previous.standardizedFileURL]], "the read-type change goes to the bundle it was made in"
+        )
+    }
 }

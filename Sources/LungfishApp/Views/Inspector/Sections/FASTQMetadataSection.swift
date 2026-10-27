@@ -134,6 +134,8 @@ public final class FASTQMetadataSectionViewModel {
 
     /// Loads metadata from a FASTQ bundle.
     func load(from bundleURL: URL, readTypeTargetBundleURLs: [URL]? = nil) {
+        saveEditInProgress()
+        autosaveWorkItem?.cancel()
         self.bundleURL = bundleURL
         self.readTypeTargetBundleURLs = Self.normalizedReadTypeTargets(
             readTypeTargetBundleURLs ?? [bundleURL],
@@ -156,10 +158,17 @@ public final class FASTQMetadataSectionViewModel {
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
 
+    /// Saves an edit that still waits for its autosave to the bundle it was made in, with the targets it was made for.
+    /// Called before the section changes bundle or moves its read-type targets, since either would drop the edit or
+    /// send it to the next bundle (Phase 3.0 lane DEMUX-STATS-BEHIND, item 5).
+    func saveEditInProgress() {
+        if bundleURL != nil, hasUnsavedChanges { performSave() }
+    }
+
     /// Clears the metadata display. An edit that still waits for its autosave is saved to its own bundle first,
     /// since clearing cancels the wait and the edit would be dropped (Phase 3.0 lane DEMUX-STATS-BEHIND, item 5).
     func clear() {
-        if hasUnsavedChanges { performSave() }
+        saveEditInProgress()
         metadata = nil
         bundleURL = nil
         lastSavedMetadata = nil
@@ -240,6 +249,7 @@ public final class FASTQMetadataSectionViewModel {
     }
 
     func setReadTypeTargetBundleURLs(_ bundleURLs: [URL]) {
+        saveEditInProgress()
         guard let bundleURL else {
             readTypeTargetBundleURLs = Self.normalizedReadTypeTargets(bundleURLs, fallback: nil)
             return
