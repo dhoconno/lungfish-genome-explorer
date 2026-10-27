@@ -2363,8 +2363,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let experiment = manifest?.experiment ?? "nvd"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
-            title: "Export NVD Contigs",
-            suggestedName: "\(experiment)_nvd_contigs.tsv"
+            title: "Export NVD Contigs", suggestedName: "\(experiment)_nvd_contigs.tsv",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: bundleURL)
         )
 
         savePanel.beginSheetModal(for: window) { [weak self] response in

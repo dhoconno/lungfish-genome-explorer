@@ -1557,8 +1557,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             return
         }
 
-        let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension)
-
+        let folder = MetagenomicsFilePanelFactory.startFolder(forResultAt: recordURL)
+        let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension, startingIn: folder)
         guard let parentWindow = window else {
             blastLogger.warning("No parent window for export save panel")
             return

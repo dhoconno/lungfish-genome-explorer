@@ -1582,8 +1582,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         let baseName = classificationResult?.config.inputFiles.first?
             .deletingPathExtension().lastPathComponent ?? "classification"
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
-            title: "Export Taxonomy as \(fileTypeName)",
-            suggestedName: "\(baseName)_classification.\(format.rawValue)"
+            title: "Export Taxonomy as \(fileTypeName)", suggestedName: "\(baseName)_classification.\(format.rawValue)",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: source.sourceURL)
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in

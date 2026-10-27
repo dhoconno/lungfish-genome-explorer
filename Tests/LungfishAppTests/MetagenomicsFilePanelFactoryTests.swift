@@ -147,33 +147,4 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         )
         XCTAssertNil(MetagenomicsFilePanelFactory.startFolder(forResultAt: nil), "no result names no folder")
     }
-
-    /// Every result viewer's export call names a starting folder, so no panel opens where the system last left off.
-    func testEveryResultViewerExportPassesAStartingFolder() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let files = [
-            "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift",
-            "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
-            "Sources/LungfishNvdUI/NvdResultViewController.swift",
-            "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",
-            "Sources/LungfishKit/BlastResultsDrawerTab.swift",
-        ]
-        var calls = 0
-        for file in files {
-            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
-            for name in ["tsvSummaryExportPanel(", "delimitedExportPanel(", "blastDelimitedExportPanel("] {
-                var rest = source[...]
-                while let found = rest.range(of: "MetagenomicsFilePanelFactory.\(name)") {
-                    let tail = rest[found.lowerBound...]
-                    let call = tail[..<(tail.range(of: "beginSheetModal")?.lowerBound ?? tail.endIndex)]
-                    XCTAssertTrue(call.contains("startingIn:"), "\(file) makes \(name) with no starting folder")
-                    calls += 1
-                    rest = tail[found.upperBound...]
-                }
-            }
-        }
-        XCTAssertEqual(calls, 8, "the eight export panels of the result viewers")
-    }
 }

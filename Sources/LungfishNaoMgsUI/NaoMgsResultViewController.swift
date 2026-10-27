@@ -2753,8 +2753,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let sampleName = manifest?.sampleName ?? "naomgs"
 
         let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
-            title: "Export NAO-MGS Summary",
-            suggestedName: "\(sampleName)_naomgs_summary.tsv"
+            title: "Export NAO-MGS Summary", suggestedName: "\(sampleName)_naomgs_summary.tsv",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: bundleURL)
         )
 
         savePanel.beginSheetModal(for: window) { [weak self] response in

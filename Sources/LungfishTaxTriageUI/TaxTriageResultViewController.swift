@@ -3267,9 +3267,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard let window = view.window, !exportSelectedSampleIds().isEmpty, exportDatabaseIsPresent(in: window) else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
-            title: "Export Organism Matrix",
-            suggestedName: "organism_matrix.csv",
-            contentTypes: [.commaSeparatedText]
+            title: "Export Organism Matrix", suggestedName: "organism_matrix.csv",
+            contentTypes: [.commaSeparatedText],
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: batchGroupURL)
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -3320,8 +3320,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
               !exportSelectedSampleIds().isEmpty, exportDatabaseIsPresent(in: window) else { return }
 
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
-            title: "Export Batch Report",
-            suggestedName: "batch_report.txt"
+            title: "Export Batch Report", suggestedName: "batch_report.txt",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: batchGroupURL)
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -3377,8 +3377,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             baseName = taxTriageConfig?.samples.first?.sampleId ?? "taxtriage"
         }
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
-            title: "Export TaxTriage Results as \(fileTypeName)",
-            suggestedName: "\(baseName)_results.\(fileExtension)"
+            title: "Export TaxTriage Results as \(fileTypeName)", suggestedName: "\(baseName)_results.\(fileExtension)",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: batchGroupURL)
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in

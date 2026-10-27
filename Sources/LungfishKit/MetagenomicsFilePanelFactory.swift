@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishIO
 import UniformTypeIdentifiers
 
 @MainActor
@@ -52,9 +53,20 @@ public enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    /// The folder a save panel for the result at `resultURL` opens in. Inert until the next commit.
+    /// The folder a save panel for the result at `resultURL` opens in (Phase 3.0 lane CONSENSUS-DEST, walk WO-3).
+    /// It is the project that holds the result, else the result's own folder, and a result file stands for its
+    /// folder. A panel given it never opens in the last folder used, which can be another project's. Nil when
+    /// the caller has no result.
     public static func startFolder(forResultAt resultURL: URL?) -> URL? {
-        nil
+        guard let resultURL else { return nil }
+        if let project = ProjectTempDirectory.findProjectRoot(resultURL) { return project }
+        let isFolder = (try? resultURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        return (isFolder ? resultURL : resultURL.deletingLastPathComponent()).standardizedFileURL
+    }
+
+    /// Opens `panel` in `folder`, and leaves the system's choice alone when the caller names none.
+    private static func start(_ panel: NSSavePanel, in folder: URL?) {
+        if let folder { panel.directoryURL = folder }
     }
 
     public static func tsvSummaryExportPanel(
@@ -66,6 +78,7 @@ public enum MetagenomicsFilePanelFactory {
         panel.allowedContentTypes = [.tabSeparatedText]
         panel.nameFieldStringValue = suggestedName
         panel.title = title
+        start(panel, in: folder)
         return panel
     }
 
@@ -82,6 +95,7 @@ public enum MetagenomicsFilePanelFactory {
         panel.allowedContentTypes = contentTypes
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = suggestedName
+        start(panel, in: folder)
         return panel
     }
 
@@ -99,7 +113,7 @@ public enum MetagenomicsFilePanelFactory {
     public static func readExtractionSavePanel(suggestedName: String, startingIn folder: URL? = nil) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
-        if let folder { panel.directoryURL = folder }
+        start(panel, in: folder)
         return panel
     }
 }

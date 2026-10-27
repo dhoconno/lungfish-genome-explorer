@@ -1497,8 +1497,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
         let baseName = result.sampleId
         let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
-            title: "Export Detections as \(fileTypeName)",
-            suggestedName: "\(baseName)_detections.\(format.rawValue)"
+            title: "Export Detections as \(fileTypeName)", suggestedName: "\(baseName)_detections.\(format.rawValue)",
+            startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: batchURL)
         )
 
         panel.beginSheetModal(for: window) { [weak self] response in
