@@ -180,55 +180,6 @@ final class DemultiplexStoredStatisticsTests: XCTestCase {
         return reads
     }
 
-    // MARK: - ONT reads with PacBio barcode pairs, materialized per sample
-
-    func testTheONTPacBioMaterializerStoresTheCountedStatisticsOfEverySampleItWrites() async throws {
-        let rc = PlatformAdapters.reverseComplement
-        let forward = "CACATATCAGAGTGCG"  // BC1001
-        let reverse = "CTATACATAGTGATGT"  // BC1021
-        let input = root.appendingPathComponent("barcode13", isDirectory: true)
-        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
-        var reads: [(id: String, sequence: String)] = []
-        for (index, insert) in [1_200, 1_300, 1_400, 1_500].enumerated() {
-            reads.append((
-                "read-\(index)",
-                Self.bases(60, seed: 60 + index) + forward + Self.bases(insert, seed: 70 + index) + rc(reverse)
-                    + Self.bases(60, seed: 80 + index)
-            ))
-        }
-        reads.append(("off-target", Self.bases(1_400, seed: 90)))
-        try Self.fastq(Array(reads.prefix(3)))
-            .write(to: input.appendingPathComponent("chunk-1.fastq"), atomically: true, encoding: .utf8)
-        try Self.fastq(Array(reads.dropFirst(3)))
-            .write(to: input.appendingPathComponent("chunk-2.fastq"), atomically: true, encoding: .utf8)
-        let sheet = root.appendingPathComponent("samples.barcodes.csv")
-        try "S1,BC1001,BC1021\n".write(to: sheet, atomically: true, encoding: .utf8)
-
-        // At base 74a78efaf this run already stops with "`.input-read-sets` couldn't be removed" (NSCocoaErrorDomain
-        // 4) before any statistic is compared, lane DEMUX-STATS Finding 1.
-        let result = try await ONTPacBioBarcodeDemuxMaterializer().run(
-            ONTPacBioBarcodeDemuxMaterializationRequest(
-                inputURL: input,
-                barcodeDefinitionsURL: sheet,
-                outputDirectory: root.appendingPathComponent("pacbio-out", isDirectory: true),
-                force: true,
-                threads: 1,
-                chunkJobs: 2,
-                maxReadsPerSlice: 0
-            ),
-            progress: { _, _ in }
-        )
-
-        XCTAssertEqual(result.assignedReadCount, 4)
-        let bundle = try XCTUnwrap(result.outputBundleURLs.first)
-        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
-        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
-        let measured = try await FASTQReader(validateSequence: false).computeStatistics(from: payload, sampleLimit: 0)
-        DemultiplexStoredStatisticsAssertions.assertStored(
-            manifest.cachedStatistics, equals: measured.statistics, bundle.lastPathComponent
-        )
-    }
-
     // MARK: - Helpers
 
     /// Checks that each bundle's derived manifest stores what a fresh collector pass counts over the reads the bundle

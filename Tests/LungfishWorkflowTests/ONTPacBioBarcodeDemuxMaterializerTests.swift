@@ -153,6 +153,61 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
         XCTAssertTrue(progressEvents.contains { $0.1.contains("PacBio barcode demultiplexing complete") })
     }
 
+    /// The exact sample-sheet route stores, in each sample's derived manifest, the statistics of the reads it wrote
+    /// (Phase 3.0 lane DEMUX-STATS). At the base it stored mean Q, Q20, Q30 and GC as 0 that nobody counted. The
+    /// request is the one of the test above, and the reads carry scores that vary and bases that are not all one letter.
+    func testExactSampleSheetBundleStoresTheCountedStatistics() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputDirectory = root.appendingPathComponent("barcode13", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        let barcodesCSV = root.appendingPathComponent("NB13_MHC-I_plate1.barcodes.csv")
+        let outputDirectory = root.appendingPathComponent("mhc-pacbio-demux", isDirectory: true)
+
+        let forward = "CACATATCAGAGTGCG"  // BC1001
+        let reverse = "CTATACATAGTGATGT"  // BC1021
+        var reads: [(id: String, sequence: String)] = []
+        for (index, insert) in [1_200, 1_300, 1_400, 1_500].enumerated() {
+            reads.append((
+                "read-\(index)",
+                DemultiplexStoredStatisticsTests.bases(60, seed: 60 + index) + forward
+                    + DemultiplexStoredStatisticsTests.bases(insert, seed: 70 + index) + reverseComplement(reverse)
+                    + DemultiplexStoredStatisticsTests.bases(60, seed: 80 + index)
+            ))
+        }
+        reads.append(("off-target", DemultiplexStoredStatisticsTests.bases(1_400, seed: 90)))
+        try DemultiplexStoredStatisticsTests.fastq(Array(reads.prefix(3)))
+            .write(to: inputDirectory.appendingPathComponent("chunk-1.fastq"), atomically: true, encoding: .utf8)
+        try DemultiplexStoredStatisticsTests.fastq(Array(reads.dropFirst(3)))
+            .write(to: inputDirectory.appendingPathComponent("chunk-2.fastq"), atomically: true, encoding: .utf8)
+        try """
+        32286-001_DL46,BC1001,BC1021
+        """.write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTPacBioBarcodeDemuxMaterializer().run(
+            ONTPacBioBarcodeDemuxMaterializationRequest(
+                inputURL: inputDirectory,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: outputDirectory,
+                force: true,
+                threads: 1,
+                chunkJobs: 2,
+                maxReadsPerSlice: 0
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.assignedReadCount, 4)
+        let bundle = try XCTUnwrap(result.outputBundleURLs.first)
+        let payload = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+        let measured = try await FASTQReader(validateSequence: false).computeStatistics(from: payload, sampleLimit: 0)
+        DemultiplexStoredStatisticsAssertions.assertStored(
+            manifest.cachedStatistics, equals: measured.statistics, bundle.lastPathComponent
+        )
+    }
+
     func testRepeatedPacBioSampleNamesMaterializeNumberedBundlesInSheetOrder() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
