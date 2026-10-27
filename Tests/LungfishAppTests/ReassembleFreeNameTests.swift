@@ -93,7 +93,9 @@ final class ReassembleFreeNameTests: XCTestCase {
                 minContigLength: 500,
                 selectedProfileID: "meta-sensitive",
                 extraArguments: ["--presets", "meta-large"],
-                profileSelectionBasis: "chosen in the wizard"
+                profileSelectionBasis: "chosen in the wizard",
+                inputLayout: .pairedFiles,
+                inputRoles: [.mateR1, .mateR2]
             )
         }
 
