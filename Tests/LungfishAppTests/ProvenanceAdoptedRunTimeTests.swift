@@ -1,4 +1,4 @@
-// ProvenanceAdoptedRunTimeTests.swift - The Run Summary of an adopted Linux run names the run's time and the adopt's time
+// ProvenanceAdoptedRunTimeTests.swift - The Run Summary of an adopted Linux run names the Linux run's time and shows no adopt row
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -9,10 +9,11 @@ import XCTest
 import LungfishCore
 import LungfishTestSupport
 
-/// Walk finding WO-5 (UX-WALK row WO-5). The record an adopt writes holds the Mac's adopt as its own wall time, and the
-/// Linux run as its `lungfish-executor run` step. The Run Summary read `Wall Time <1s` for a run whose executor step took
-/// 5m 46s, so it timed the adopt and its words did not say so. The summary of an adopted run now reads the run's own wall
-/// time as "Wall Time (Linux run)" and the adopt's as "Adopt Time (this Mac)". Any other record keeps "Wall Time".
+/// Walk finding WO-5 (UX-WALK row WO-5). The record an adopt writes holds the Mac's write of the record as its own wall
+/// time, and the Linux run as its `lungfish-executor run` step. The Run Summary read `Wall Time <1s` for a run whose
+/// executor step took 5m 46s, so it timed the write of the record and its words did not say so. The summary of an adopted
+/// run now reads the run's own wall time as "Wall Time (Linux run)" and shows no row for the record's own time, which
+/// times only the Mac's write of the record and not the adopt (UX review SF-1). Any other record keeps "Wall Time".
 ///
 /// The record is the one the 2026-10-26 walk read, unchanged (`Tests/Fixtures/provenance-adopted-run/README.md`). Its
 /// step 14 is the quality-count step that runs the `lungfish-executor` binary for 7.1 s, and its step 15 is the run
@@ -100,39 +101,38 @@ final class ProvenanceAdoptedRunTimeTests: XCTestCase {
 
     // MARK: - An adopted run
 
-    /// The summary reads the executor run step's 346.5 s and the adopt's 0.08 s, each under words that say whose time it is.
-    /// A quality-count step of 7.1 s runs the same binary and must not be taken for the run.
-    func testTheRunSummaryOfAnAdoptedRunNamesTheLinuxRunsTimeAndTheAdoptsTime() async throws {
+    /// The summary reads the executor run step's 346.5 s under words that say whose time it is. A quality-count step of
+    /// 7.1 s runs the same binary and must not be taken for the run. The record's own 0.08 s times only the Mac's write of
+    /// the record, so no row shows it.
+    func testTheRunSummaryOfAnAdoptedRunNamesTheLinuxRunsTime() async throws {
         let model = try await loadAdopted()
         let texts = try runSummaryTexts(model)
 
         XCTAssertEqual(value(of: linuxRunLabel, in: texts), "5m 46s", "\(texts)")
-        XCTAssertEqual(value(of: adoptLabel, in: texts), "<1s", "\(texts)")
+        XCTAssertNil(value(of: adoptLabel, in: texts), "The record's own time is not the adopt's. \(texts)")
         XCTAssertNil(value(of: "Wall Time", in: texts), "An adopted run has no row that says Wall Time and nothing more. \(texts)")
     }
 
-    func testTheLinuxRunRowComesBeforeTheAdoptRowAndAfterTheExitStatus() async throws {
+    func testTheLinuxRunRowComesAfterTheExitStatusAndBeforeSteps() async throws {
         let model = try await loadAdopted()
         let texts = try runSummaryTexts(model)
 
         let exit = try XCTUnwrap(texts.firstIndex(of: "Exit Status"), "\(texts)")
         let run = try XCTUnwrap(texts.firstIndex(of: linuxRunLabel), "\(texts)")
-        let adopt = try XCTUnwrap(texts.firstIndex(of: adoptLabel), "\(texts)")
         XCTAssertLessThan(exit, run)
-        XCTAssertLessThan(run, adopt)
-        XCTAssertEqual(texts[adopt + 2], "Steps", "The Steps row follows the two time rows. \(texts)")
+        XCTAssertEqual(texts[run + 2], "Steps", "The Steps row follows the Linux run row. \(texts)")
     }
 
-    func testTheCopyTextOfAnAdoptedRunNamesBothTimesInSeconds() async throws {
+    func testTheCopyTextOfAnAdoptedRunNamesTheLinuxRunsTimeInSeconds() async throws {
         let model = try await loadAdopted()
         let lines = copiedRunSummary(model)
 
         XCTAssertTrue(lines.contains("\(linuxRunLabel): 346.52 s"), "\(lines)")
-        XCTAssertTrue(lines.contains("\(adoptLabel): 0.08 s"), "\(lines)")
+        XCTAssertFalse(lines.contains { $0.hasPrefix(adoptLabel) }, "\(lines)")
         XCTAssertFalse(lines.contains { $0.hasPrefix("Wall Time:") }, "No bare Wall Time line. \(lines)")
     }
 
-    /// A launcher record that lost the run's wall time says so in the run's row and keeps the adopt's.
+    /// A launcher record that lost the run's wall time says so in the run's row.
     func testAnAdoptedRunWhoseExecutorStepStatesNoWallTimeReadsNotRecorded() async throws {
         let model = try await loadAdopted { [executorRunStep] object in
             var steps = object["steps"] as? [[String: Any]] ?? []
@@ -144,7 +144,6 @@ final class ProvenanceAdoptedRunTimeTests: XCTestCase {
         let texts = try runSummaryTexts(model)
 
         XCTAssertEqual(value(of: linuxRunLabel, in: texts), "Not recorded", "\(texts)")
-        XCTAssertEqual(value(of: adoptLabel, in: texts), "<1s", "\(texts)")
         XCTAssertTrue(copiedRunSummary(model).contains("\(linuxRunLabel): Not recorded"), "\(copiedRunSummary(model))")
     }
 
