@@ -11,6 +11,16 @@ import Foundation
 @MainActor
 public protocol SavePanelPresenting {
     func present(suggestedName: String, on window: NSWindow) async -> URL?
+
+    /// Presents the panel opened in `folder`, or where the system last left it when `folder` is nil.
+    func present(suggestedName: String, on window: NSWindow, startingIn folder: URL?) async -> URL?
+}
+
+public extension SavePanelPresenting {
+    /// A presenter that knows no starting folder ignores it.
+    func present(suggestedName: String, on window: NSWindow, startingIn folder: URL?) async -> URL? {
+        await present(suggestedName: suggestedName, on: window)
+    }
 }
 
 // MARK: - Default implementations

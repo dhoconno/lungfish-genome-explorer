@@ -17,6 +17,9 @@ final class FASTASequenceExtractionDialogModel {
     }
 
     var primaryButtonTitle: String { destination.primaryButtonTitle }
+
+    /// The words beside a destination's radio button.
+    func label(for destination: DialogDestination) -> String { destination.label }
 }
 
 struct FASTASequenceExtractionDialog: View {

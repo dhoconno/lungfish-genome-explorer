@@ -118,7 +118,7 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
             contig: Self.contig, contigLength: Self.contigLength,
             alignmentSnapshot: alignmentSnapshot, indexSnapshot: try snapshot(index), decodingReferenceSnapshot: nil,
             filters: .init(minimumDepth: minimumDepth, minimumMapQ: 0, minimumBaseQuality: 0, excludedFlags: 0x904, readGroups: []),
-            outputCapability: .userSelectedDestination, sourceReads: .bamFallback, presentationLabel: "S1 \(Self.contig)"
+            outputCapability: outputCapability, sourceReads: .bamFallback, presentationLabel: "S1 \(Self.contig)"
         )
     }
 
@@ -372,5 +372,161 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
         let row = try XCTUnwrap(rows(after: known).first, "the run began a row")
         XCTAssertEqual("\(row.state) \(row.detail)", "completed Consensus FASTA saved")
         XCTAssertEqual(row.outputURLs.map(\.path), [fasta.path, record.path])
+    }
+
+    // MARK: - Where a consensus saved as a bundle goes (Phase 3.0 lane CONSENSUS-DEST, owner WF-9)
+
+    /// What the viewport names for a mapping in a project, `.projectDerivedRoot`, or with no project.
+    private var outputCapability: AlignmentOutputCapability = .userSelectedDestination
+
+    /// A save panel that this route must not open. Asked anyway, it fails the case and still answers with
+    /// `url`, so the run ends and the case can say where the output went.
+    private final class ForbiddenSavePanel: SavePanelPresenting {
+        let url: URL
+        var requests: [String] = []
+        init(url: URL) { self.url = url }
+        func present(suggestedName: String, on window: NSWindow) async -> URL? {
+            requests.append(suggestedName)
+            XCTFail("this route must open no save panel, but \(suggestedName) was asked for")
+            return url
+        }
+    }
+
+    /// A save panel that keeps the folder it was asked to open in, nil when the route names none.
+    private final class StartFolderSavePanel: SavePanelPresenting {
+        let url: URL
+        var requests: [(name: String, folder: URL?)] = []
+        init(url: URL) { self.url = url }
+        func present(suggestedName: String, on window: NSWindow) async -> URL? {
+            requests.append((suggestedName, nil))
+            return url
+        }
+        func present(suggestedName: String, on window: NSWindow, startingIn folder: URL?) async -> URL? {
+            requests.append((suggestedName, folder))
+            return url
+        }
+    }
+
+    /// A project folder and a mapping result in it, the root the viewport names as `.projectDerivedRoot`.
+    private func makeProject() throws -> (project: URL, result: URL) {
+        let project = scratch.appendingPathComponent("P.lungfish", isDirectory: true)
+        let result = project.appendingPathComponent("Analyses/minimap2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        return (project, result)
+    }
+
+    /// Runs Generate Consensus on a mapping result inside a project, picks `destination` in the sheet,
+    /// presses its button and waits for the row to end.
+    private func consensusRow(
+        in result: URL, destination: DialogDestination, panel: any SavePanelPresenting
+    ) async throws -> OperationCenter.Item {
+        let known = Set(OperationCenter.shared.items.map(\.id))
+        outputCapability = .projectDerivedRoot(result)
+        viewer.alignmentExtractionSavePanelPresenter = panel
+        viewer.alignmentActionContext = try context(minimumDepth: 1)
+        viewer.presentAlignmentConsensusGeneration()
+        await waitUntil(budget: .lookup) { self.dialog != nil }
+        let host = try XCTUnwrap(dialog, "the destination sheet")
+        host.rootView.model.destination = destination
+        host.rootView.onPrimary()
+        await waitUntil(budget: .lookup) { self.rows(after: known).contains { !$0.state.isActive } }
+        return try XCTUnwrap(rows(after: known).first, "the run began a row")
+    }
+
+    /// The value after `--output` in a recorded command, which is quoted when its path holds a space.
+    private func outputPath(in command: String) -> String? {
+        guard let flag = command.range(of: " --output ") else { return nil }
+        let rest = command[flag.upperBound...]
+        guard rest.first == "'" else { return String(rest.prefix { $0 != " " }) }
+        return String(rest.dropFirst().prefix { $0 != "'" })
+    }
+
+    private func isInside(_ path: String?, _ folder: URL) -> Bool {
+        guard let path else { return false }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            .hasPrefix(folder.resolvingSymlinksInPath().path + "/")
+    }
+
+    /// UX's WF-9 case. In a project, Save as Bundle shows no file dialog. The run writes the `.lungfishref`
+    /// into the project, and the row's command and bundle name the same path there.
+    func testConsensusSaveAsBundleInAProjectWritesIntoTheProjectWithNoPanel() async throws {
+        let (project, result) = try makeProject()
+        let panel = ForbiddenSavePanel(url: scratch.appendingPathComponent("out/S1.lungfishref"))
+        let row = try await consensusRow(in: result, destination: .bundle, panel: panel)
+
+        XCTAssertEqual(panel.requests, [], "no save panel opens")
+        XCTAssertEqual("\(row.state) \(row.detail)", "completed Consensus reference bundle created")
+        let command = row.cliCommand ?? "no command"
+        let output = outputPath(in: command)
+        XCTAssertTrue(isInside(output, project), "the command's --output is inside the project. \(command)")
+        XCTAssertEqual(row.bundleURLs.count, 1, "the row names one bundle")
+        let bundle = try XCTUnwrap(row.bundleURLs.first, "the row names the bundle")
+        XCTAssertTrue(isInside(bundle.path, project), "the bundle is inside the project. \(bundle.path)")
+        XCTAssertEqual(
+            output.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
+            bundle.resolvingSymlinksInPath().path,
+            "the row's bundle is the command's --output"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("manifest.json").path))
+    }
+
+    /// The name typed in the dialog is made unique as the other Save as Bundle routes do, so a second
+    /// consensus under the same name lands beside the first as `-2`.
+    func testConsensusBundleNameIsMadeUniqueWhenTaken() async throws {
+        let (project, result) = try makeProject()
+        let first = try await consensusRow(
+            in: result, destination: .bundle,
+            panel: ForbiddenSavePanel(url: scratch.appendingPathComponent("out/first.lungfishref"))
+        )
+        let second = try await consensusRow(
+            in: result, destination: .bundle,
+            panel: ForbiddenSavePanel(url: scratch.appendingPathComponent("out/second.lungfishref"))
+        )
+        let one = try XCTUnwrap(first.bundleURLs.first, "the first row names its bundle")
+        let two = try XCTUnwrap(second.bundleURLs.first, "the second row names its bundle")
+        XCTAssertTrue(isInside(two.path, project), "the second bundle is inside the project. \(two.path)")
+        XCTAssertEqual(
+            two.deletingLastPathComponent().resolvingSymlinksInPath().path,
+            one.deletingLastPathComponent().resolvingSymlinksInPath().path,
+            "both bundles land together"
+        )
+        XCTAssertEqual(two.lastPathComponent, one.deletingPathExtension().lastPathComponent + "-2.lungfishref")
+    }
+
+    /// Save to File… keeps its panel, which starts in the open project and not in the last folder used.
+    func testConsensusSaveToFileInAProjectStartsItsPanelInTheProject() async throws {
+        let (project, result) = try makeProject()
+        let panel = StartFolderSavePanel(url: scratch.appendingPathComponent("out/S1.fasta"))
+        let row = try await consensusRow(in: result, destination: .file, panel: panel)
+
+        XCTAssertEqual("\(row.state) \(row.detail)", "completed Consensus FASTA saved")
+        XCTAssertEqual(panel.requests.map { $0.name }, ["S1-MT192765.1-consensus.fasta"])
+        XCTAssertEqual(
+            panel.requests.map { $0.folder?.resolvingSymlinksInPath().path },
+            [project.resolvingSymlinksInPath().path],
+            "the panel starts in the project"
+        )
+    }
+
+    /// The Bundle label carries an ellipsis only where a save panel still follows, a mapping with no project.
+    func testTheBundleLabelNamesASavePanelOnlyWhereOneFollows() async throws {
+        let (_, result) = try makeProject()
+        outputCapability = .projectDerivedRoot(result)
+        viewer.alignmentActionContext = try context(minimumDepth: 1)
+        viewer.presentAlignmentConsensusGeneration()
+        await waitUntil(budget: .lookup) { self.dialog != nil }
+        var host = try XCTUnwrap(dialog, "the destination sheet in a project")
+        XCTAssertEqual(host.rootView.model.label(for: .bundle), "Save as Bundle")
+        XCTAssertEqual(host.rootView.model.label(for: .file), "Save to File…")
+        host.rootView.onCancel()
+        await waitUntil(timeout: .seconds(10)) { self.window.attachedSheet == nil }
+
+        outputCapability = .userSelectedDestination
+        viewer.alignmentActionContext = try context(minimumDepth: 1)
+        viewer.presentAlignmentConsensusGeneration()
+        await waitUntil(budget: .lookup) { self.dialog != nil }
+        host = try XCTUnwrap(dialog, "the destination sheet with no project")
+        XCTAssertEqual(host.rootView.model.label(for: .bundle), "Save as Bundle…")
+        host.rootView.onCancel()
     }
 }
