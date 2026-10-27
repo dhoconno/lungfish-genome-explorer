@@ -13,7 +13,7 @@ package enum BBToolsPairArguments {
             "in2=\(r2)",
             "out=\(output)",
             "interleaved=t",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 
     /// One interleaved file into R1 and R2 files.
@@ -23,6 +23,6 @@ package enum BBToolsPairArguments {
             "out1=\(out1)",
             "out2=\(out2)",
             "interleaved=t",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishPortable
 
 extension FASTQBatchImporter {
     /// The `bbmerge.sh` argv of a recipe merge step.
@@ -25,6 +26,7 @@ extension FASTQBatchImporter {
             interleaved ? "interleaved=t" : "interleaved=f",
         ]
         if strict { args.append("strict=t") }
+        args += BBToolsQualityArguments.readAndWrite
         return args
     }
 
@@ -41,6 +43,7 @@ extension FASTQBatchImporter {
         if let maxLength { args.append("maxlen=\(maxLength)") }
         args.append("interleaved=t")
         args.append("threads=\(threads)")
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 }
@@ -54,7 +57,7 @@ extension IlluminaAmpliconPairMerger {
             "outu=\(unmerged.path)",
             "interleaved=t",
             "threads=\(max(1, threads))",
-        ]
+        ] + BBToolsQualityArguments.readAndWrite
     }
 }
 
@@ -72,7 +75,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             "ktrim=\(ktrim)",
             "rcomp=t",
             "threads=1",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 
     /// The `reformat.sh` argv that keeps the reads of a full-length ONT sample inside the length window.
@@ -83,6 +86,6 @@ extension FullLengthONTMHCGenotypingPipeline {
             "minlength=\(minimumLength)",
             "maxlength=\(maximumLength)",
             "threads=1",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }

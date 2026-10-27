@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Low-Complexity (Entropy) Filter
 
@@ -88,6 +89,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
         // detection bbduk splits identical-name mates and pairs /1 /2 or
         // Casava names by position, which aborts on a mixed file.
         args.append(interleaved ? "interleaved=t" : "interleaved=f")
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 

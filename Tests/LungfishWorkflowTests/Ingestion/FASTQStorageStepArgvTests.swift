@@ -136,7 +136,7 @@ final class FASTQStorageStepArgvTests: XCTestCase {
 
     private func reformatArgv(in1: String, in2: String, out: String) -> [String] {
         ["<reformat.sh>", "in1=\(in1)", "in2=\(in2)", "out=\(out)", "ow=t", "pigz=t", "zl=4", "threads=2",
-         "interleaved=t"]
+         "interleaved=t", "qin=33", "qout=33", "maxcalledquality=93"]
     }
 
     func testStorageStepArgvUnchangedThroughPortableSeam() async throws {

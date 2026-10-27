@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishPortable
 
 extension FASTQDerivativeService {
     /// The `clumpify.sh` argv of a recipe dedupe step on one file, interleaved or not.
@@ -28,6 +29,7 @@ extension FASTQDerivativeService {
             args.append("optical=t")
             args.append("dupedist=\(opticalDistance)")
         }
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 
@@ -51,6 +53,7 @@ extension FASTQDerivativeService {
             interleaved ? "interleaved=t" : "interleaved=f",
         ]
         if strict { args.append("strict=t") }
+        args += BBToolsQualityArguments.readAndWrite
         return args
     }
 }

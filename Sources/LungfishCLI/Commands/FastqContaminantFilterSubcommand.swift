@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Contaminant Filter
 
@@ -94,6 +95,7 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
 
         let referenceURL = try bbdukReferenceURL(mode: mode, reference: reference, homeDirectory: homeDirectory)
         args.append("ref=\(referenceURL.path)")
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 

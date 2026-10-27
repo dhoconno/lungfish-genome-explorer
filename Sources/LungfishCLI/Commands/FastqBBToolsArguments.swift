@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishPortable
 
 extension FastqSequenceFilterSubcommand {
     /// The `bbduk.sh` argv of one sequence filter run. `literal` wins over `referenceURL`, as the options do.
@@ -54,6 +55,7 @@ extension FastqSequenceFilterSubcommand {
         default:
             break
         }
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 }
@@ -69,6 +71,7 @@ extension FastqMergeSubcommand {
             "interleaved=t",
         ]
         if strict { args.append("strict=t") }
+        args += BBToolsQualityArguments.readAndWrite
         return args
     }
 }
@@ -97,6 +100,7 @@ extension FastqSubsampleSubcommand {
             args.append("samplereadstarget=\(Self.interleavedPairTarget(forReadCount: count))")
         }
         args.append("sampleseed=\(seed)")
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 }
@@ -108,7 +112,7 @@ extension FastqRepairSubcommand {
             "in=\(input.path)",
             "out=\(repaired.path)",
             "outs=\(singletons.path)",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }
 
@@ -131,6 +135,6 @@ extension FastqErrorCorrectSubcommand {
             // lost its adjacency (final review A, N7). The records written
             // are the same either way.
             "ordered=t",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }

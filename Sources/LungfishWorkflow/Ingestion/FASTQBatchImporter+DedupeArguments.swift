@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishPortable
 
 extension FASTQBatchImporter {
     /// The `clumpify.sh` argv of a recipe dedupe step on separate R1 and R2 files. It pins the heap and carries
@@ -22,6 +23,7 @@ extension FASTQBatchImporter {
         if optical {
             args += ["optical=t", "dupedist=\(opticalDistance)"]
         }
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 
@@ -40,6 +42,6 @@ extension FASTQBatchImporter {
             // Stated, not guessed: BBTools does not pair identically named mates on its own, and when it does pair
             // /1 /2 names by position an odd record count loses a read.
             interleaved ? "interleaved=t" : "interleaved=f",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }

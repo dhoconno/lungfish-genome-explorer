@@ -6,6 +6,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 extension FastqPrimerRemovalSubcommand {
     /// The second bbduk pass, which removes a primer that a read runs
@@ -49,7 +50,7 @@ extension FastqPrimerRemovalSubcommand.ToolArguments {
     func readThroughArguments(input: String, output: String, paired: Bool) -> [String]? {
         guard case .bbduk(_, _, let minKmer, let hammingDistance, _, let readThrough) = engine else { return nil }
         if paired {
-            return ["in=\(input)", "out=\(output)", "tbo=t", "interleaved=t"]
+            return ["in=\(input)", "out=\(output)", "tbo=t", "interleaved=t"] + BBToolsQualityArguments.keepEveryScore
         }
         return [
             "in=\(input)",
@@ -62,7 +63,7 @@ extension FastqPrimerRemovalSubcommand.ToolArguments {
             "restrictright=\(readThrough.window)",
             "interleaved=f",
             readThrough.primers,
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 }
 

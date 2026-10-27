@@ -112,24 +112,24 @@ final class BBToolsOutOfMemoryTests: XCTestCase {
         XCTAssertEqual(optical, [
             "in1=/work/in_R1.fastq", "in2=/work/in_R2.fastq", "out1=/work/out_R1.fastq", "out2=/work/out_R2.fastq",
             "-Xmx4g", "-eoom", "dedupe=t", "subs=2", "ow=t", "threads=4", "optical=t", "dupedist=100",
-        ])
+        ] + ["qin=33", "qout=33", "maxcalledquality=93"])
         let plain = FASTQBatchImporter.pairedDedupeArguments(
             r1: mateOne, r2: mateTwo, outR1: outOne, outR2: outTwo, heapGB: 4, substitutions: 0,
             optical: false, opticalDistance: 2500, threads: 4)
         XCTAssertEqual(plain, [
             "in1=/work/in_R1.fastq", "in2=/work/in_R2.fastq", "out1=/work/out_R1.fastq", "out2=/work/out_R2.fastq",
             "-Xmx4g", "-eoom", "dedupe=t", "subs=0", "ow=t", "threads=4",
-        ])
+        ] + ["qin=33", "qout=33", "maxcalledquality=93"])
         XCTAssertEqual(
             FASTQBatchImporter.interleavedDedupeArguments(
                 input: reads, output: out, optical: false, threads: 4, interleaved: true),
             ["in=/work/reads.fastq", "out=/work/out.fastq.gz", "-eoom", "dedupe=t", "optical=f", "threads=4",
-             "interleaved=t"])
+             "interleaved=t", "qin=33", "qout=33", "maxcalledquality=93"])
         XCTAssertEqual(
             FASTQBatchImporter.interleavedDedupeArguments(
                 input: reads, output: out, optical: true, threads: 2, interleaved: false),
             ["in=/work/reads.fastq", "out=/work/out.fastq.gz", "-eoom", "dedupe=t", "optical=t", "threads=2",
-             "interleaved=f"])
+             "interleaved=f", "qin=33", "qout=33", "maxcalledquality=93"])
     }
 
     func testOnlyStatusThreeBecomesTheSentence() {

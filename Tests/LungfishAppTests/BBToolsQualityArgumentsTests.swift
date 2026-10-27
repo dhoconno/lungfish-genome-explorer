@@ -31,9 +31,12 @@ final class BBToolsQualityArgumentsTests: XCTestCase {
             primers: "literal=ACGTACGTACGTACGT", kmerSize: 15, minKmer: 11, hammingDistance: 1, searchWindow: 60,
             readThrough: FastqPrimerRemovalSubcommand.ReadThroughPass(
                 primers: "literal=ACGTACGTACGTACGT", kmerSize: 15, window: 24)))
-        let reference = out.deletingLastPathComponent().appendingPathComponent("reference.fa")
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bbtools-qin-unit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let reference = folder.appendingPathComponent("reference.fa")
         try Data(">c\nACGT\n".utf8).write(to: reference)
-        defer { try? FileManager.default.removeItem(at: reference) }
 
         let sites: [(String, [String], [String])] = [
             // clumpify, steps that pass reads through

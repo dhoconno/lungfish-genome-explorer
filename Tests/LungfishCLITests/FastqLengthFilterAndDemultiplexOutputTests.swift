@@ -53,7 +53,9 @@ final class FastqLengthFilterAndDemultiplexOutputTests: XCTestCase {
         XCTAssertTrue(decision.pairAware)
         let plan = command.plan(inputURL: bundle.fastqURL, decision: decision)
         XCTAssertEqual(plan.tool, .bbduk)
-        XCTAssertEqual(plan.arguments, ["in=\(bundle.fastqURL.path)", "out=\(output)", "interleaved=t", "minlen=50"])
+        XCTAssertEqual(
+            plan.arguments,
+            ["in=\(bundle.fastqURL.path)", "out=\(output)", "interleaved=t", "minlen=50", "qin=33", "qout=33", "maxcalledquality=93"])
         XCTAssertEqual(plan, FASTQLengthFilterPlan.make(
             inputPath: bundle.fastqURL.path, outputPath: output, minLength: 50, maxLength: nil, pairAware: true
         ))

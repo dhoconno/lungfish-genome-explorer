@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Primer Removal
 
@@ -327,7 +328,7 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
                     "restrictleft=\(searchWindow)",
                     paired ? "interleaved=t" : "interleaved=f",
                     primers,
-                ]
+                ] + BBToolsQualityArguments.keepEveryScore
             case .cutadaptLinked(let linkedPrimers, let errorRate, let minimumOverlap):
                 // Paired, the same linked primers are searched in both mates
                 // and --pair-filter any discards a pair when either mate lacks

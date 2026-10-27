@@ -119,10 +119,12 @@ final class FASTQLengthFilterPlanTests: XCTestCase {
             minLength: 50, maxLength: nil, pairAware: true, threads: 4
         )
         XCTAssertEqual(plan.tool, .bbduk)
-        XCTAssertEqual(plan.arguments, ["in=/in/reads.fastq", "out=/out/kept.fastq", "interleaved=t", "minlen=50"])
+        XCTAssertEqual(
+            plan.arguments,
+            ["in=/in/reads.fastq", "out=/out/kept.fastq", "interleaved=t", "minlen=50", "qin=33", "qout=33", "maxcalledquality=93"])
         XCTAssertTrue(plan.isPairAware)
         XCTAssertEqual(plan.timeout, 1800)
-        XCTAssertEqual(plan.toolCommand, "bbduk.sh in=/in/reads.fastq out=/out/kept.fastq interleaved=t minlen=50")
+        XCTAssertEqual(plan.toolCommand, "bbduk.sh in=/in/reads.fastq out=/out/kept.fastq interleaved=t minlen=50 qin=33 qout=33 maxcalledquality=93")
     }
 
     func testSingleReadPlanRunsSeqkitSeq() {
@@ -137,7 +139,7 @@ final class FASTQLengthFilterPlanTests: XCTestCase {
 
     func testMaximumOnlyPlansOnBothTools() {
         let paired = FASTQLengthFilterPlan.make(inputPath: "a", outputPath: "b", minLength: nil, maxLength: 120, pairAware: true)
-        XCTAssertEqual(paired.arguments, ["in=a", "out=b", "interleaved=t", "maxlen=120"])
+        XCTAssertEqual(paired.arguments, ["in=a", "out=b", "interleaved=t", "maxlen=120", "qin=33", "qout=33", "maxcalledquality=93"])
         let single = FASTQLengthFilterPlan.make(inputPath: "a", outputPath: "b", minLength: nil, maxLength: 120, pairAware: false, threads: 2)
         XCTAssertEqual(single.arguments, ["seq", "-j", "2", "-M", "120", "a", "-o", "b"])
     }

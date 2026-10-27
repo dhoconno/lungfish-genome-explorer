@@ -86,6 +86,7 @@ extension RunPlanTests {
         XCTAssertEqual(launches[1].argv, [
             fixture.tools[1].path, "in1=\(scratch)/sample_R1_val_1.fq", "in2=\(scratch)/sample_R2_val_2.fq",
             "out=out/sample.fastq.gz", "ow=t", "pigz=t", "zl=4", "threads=1", "interleaved=t",
+            "qin=33", "qout=33", "maxcalledquality=93",
         ])
         XCTAssertEqual(stored.argv, trim)
         for launch in launches {

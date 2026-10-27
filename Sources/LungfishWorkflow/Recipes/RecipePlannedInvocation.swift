@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishPortable
 
 /// One tool run of a recipe as it is decided before anything starts: the tool, its argv and the files it leaves.
 ///
@@ -286,11 +287,13 @@ extension RecipeEngine {
     /// The `reformat.sh` argv that interleaves an R1/R2 pair.
     static func pairedToInterleavedArguments(r1: URL, r2: URL, output: URL, threads: Int) -> [String] {
         ["in=\(r1.path)", "in2=\(r2.path)", "out=\(output.path)", "interleaved=t", "threads=\(threads)", "ow=t"]
+            + BBToolsQualityArguments.keepEveryScore
     }
 
     /// The `reformat.sh` argv that splits an interleaved file into R1 and R2 files.
     static func interleavedToPairedArguments(input: URL, out1: URL, out2: URL, threads: Int) -> [String] {
         ["in=\(input.path)", "out=\(out1.path)", "out2=\(out2.path)", "interleaved=t", "threads=\(threads)", "ow=t"]
+            + BBToolsQualityArguments.keepEveryScore
     }
 
     /// The one file the merged-to-mixed conversion writes.

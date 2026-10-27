@@ -7,6 +7,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishPortable
 
 // MARK: - Deduplicate
 
@@ -65,6 +66,7 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             args.append("optical=t")
             args.append("dupedist=\(opticalDistance)")
         }
+        args += BBToolsQualityArguments.keepEveryScore
         return args
     }
 

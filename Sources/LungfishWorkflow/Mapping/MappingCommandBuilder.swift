@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishPortable
 
 public struct ManagedMappingCommand: Sendable, Equatable {
     public let executable: String
@@ -236,7 +237,8 @@ public enum MappingCommandBuilder {
         let executable = nativeTool.executableName
         let readGroup = request.resolvedReadGroup(defaultPlatform: platformName(for: mode))
 
-        var arguments = request.advancedArguments + [
+        // qin=33 comes first, so a qin= among the advanced arguments (a Phred+64 file) is read last and wins.
+        var arguments = BBToolsQualityArguments.input + request.advancedArguments + [
             "ref=\(referenceURL.path)",
             "out=\(rawAlignmentURL.path)",
             "threads=\(request.threads)",

@@ -44,7 +44,7 @@ extension PortableStoragePlan {
             "zl=\(compressionLevel)",
             "threads=\(max(1, threads))",
             "interleaved=t",
-        ]
+        ] + BBToolsQualityArguments.keepEveryScore
     }
 
     /// The one single-end output of a Trim Galore call in `directory`.

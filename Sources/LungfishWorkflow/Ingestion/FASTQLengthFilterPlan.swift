@@ -12,6 +12,7 @@
 // from this plan: bbduk for interleaved input, seqkit for single reads.
 
 import Foundation
+import LungfishPortable
 
 public struct FASTQLengthFilterPlan: Equatable, Sendable {
     /// `bbduk` for a pair-aware run, `seqkit` for single reads.
@@ -57,6 +58,7 @@ public struct FASTQLengthFilterPlan: Equatable, Sendable {
             if let maxLength {
                 args.append("maxlen=\(maxLength)")
             }
+            args += BBToolsQualityArguments.keepEveryScore
             return FASTQLengthFilterPlan(tool: .bbduk, arguments: args)
         }
         var args = ["seq", "-j", String(threads)]
