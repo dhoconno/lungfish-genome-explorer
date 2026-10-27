@@ -136,7 +136,14 @@ public struct KrakenResultReadSources: Sendable, Equatable {
         of result: ClassificationResult,
         refusalAction: ClassifierExtractionError.SourceRefusalAction = .extract
     ) throws -> [URL] {
-        let config = result.config
+        try recordedInputs(ofConfig: result.config, refusalAction: refusalAction)
+    }
+
+    /// ``recordedInputs(of:refusalAction:)`` of a config, which the end of a run reads before its result exists.
+    static func recordedInputs(
+        ofConfig config: ClassificationConfig,
+        refusalAction: ClassifierExtractionError.SourceRefusalAction = .extract
+    ) throws -> [URL] {
         // A result made in another project whose reads the open project lacks names no read elsewhere, so it
         // refuses in words that name the missing place and `refusalAction`, the menu item to choose next (WF-3).
         if let place = config.sourceMissingFromProject {
@@ -205,7 +212,7 @@ public struct KrakenResultReadSources: Sendable, Equatable {
     }
 
     /// The files of one input.
-    private static func files(of input: URL, materializationDirectory: URL) async throws -> [File] {
+    static func files(of input: URL, materializationDirectory: URL) async throws -> [File] {
         guard FASTQBundle.isBundleURL(input) else { return [File(url: input, role: .reads)] }
         var materializer: (any CLISequenceInputMaterializing & Sendable)?
         if let manifest = FASTQBundle.loadDerivedManifest(in: input) {
@@ -244,7 +251,7 @@ public struct KrakenResultReadSources: Sendable, Equatable {
     /// Whether a virtual derivative only picks records of its source
     /// unchanged, a subset or demultiplexed reads with no trim and no
     /// orientation file, so its read IDs pick from the source's files.
-    private static func selectsRecordsUnchanged(_ bundle: URL, payload: FASTQDerivativePayload) -> Bool {
+    static func selectsRecordsUnchanged(_ bundle: URL, payload: FASTQDerivativePayload) -> Bool {
         let fileManager = FileManager.default
         switch payload {
         case .subset:

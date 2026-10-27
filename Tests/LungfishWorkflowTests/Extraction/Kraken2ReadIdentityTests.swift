@@ -69,7 +69,7 @@ final class Kraken2ReadIdentityTests: XCTestCase {
             identities: [ReadFileIdentity(url: project.payload, sizeBytes: recordedSize, sha256: nil)]
         )
         try project.replaceReads(Self.classifiedReads.reversed(), comment: " imported-again")
-        let messages = MessageLog()
+        let messages = ReadIdentityMessages()
 
         let outcome = try await ClassifierReadResolver().resolveAndExtract(
             tool: .kraken2, resultPath: project.resultFolder, selections: [ClassifierRowSelector(taxIds: [562])],
@@ -188,7 +188,7 @@ final class Kraken2ReadIdentityTests: XCTestCase {
         }
     }
 
-    static func fastq(_ records: [(String, String)], comment: String = "") -> String {
+    nonisolated static func fastq(_ records: [(String, String)], comment: String = "") -> String {
         records.map { "@\($0.0)\(comment)\n\($0.1)\n+\n\(String(repeating: "I", count: $0.1.count))\n" }.joined()
     }
 }
@@ -260,7 +260,7 @@ struct ReadIdentityProject {
 }
 
 /// The progress messages of one extraction, from whatever thread reports them.
-final class MessageLog: @unchecked Sendable {
+final class ReadIdentityMessages: @unchecked Sendable {
     private let lock = NSLock()
     private var messages: [String] = []
 

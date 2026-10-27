@@ -138,6 +138,12 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// refuse and read nothing from the other project (walk WF-3, the UX ruling of 2026-10-26).
     public var sourceMissingFromProject: String?
 
+    /// The size and SHA-256 of every read file Extract and BLAST read for this result, recorded when the run ended
+    /// (BIO-READ-IDENTITY 4.2). Extract and BLAST compare the sizes with one `stat` each, and a size that differs
+    /// picks the words of their read check. Nil for a result written before the record existed, which encodes as
+    /// it did.
+    public var readFileIdentities: [ReadFileIdentity]?
+
     /// How the configured inputs pair up (GUI/CLI parity with EsViritu).
     public enum ReadFormat: String, Sendable, Codable, CaseIterable {
         case unpaired
@@ -599,6 +605,20 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
     }
 }
 
+/// The size and SHA-256 of one read file a Kraken2 result was made from, recorded when its run ended
+/// (BIO-READ-IDENTITY 4.2). `sha256` is nil when the file could not be read for its digest.
+public struct ReadFileIdentity: Codable, Sendable, Equatable {
+    public var url: URL
+    public var sizeBytes: UInt64
+    public var sha256: String?
+
+    public init(url: URL, sizeBytes: UInt64, sha256: String?) {
+        self.url = url
+        self.sizeBytes = sizeBytes
+        self.sha256 = sha256
+    }
+}
+
 // MARK: - Validation
 
 extension ClassificationConfig {
@@ -628,6 +648,7 @@ extension ClassificationConfig {
         case extraArguments
         case storedSingleReadFiles = "singleReadFiles"
         case storedPlansReadSet = "plansReadSet"
+        case readFileIdentities
     }
 
     public init(from decoder: Decoder) throws {
@@ -687,6 +708,7 @@ extension ClassificationConfig {
         originalInputFiles = try container.decodeIfPresent([URL].self, forKey: .originalInputFiles)
         storedSingleReadFiles = try container.decodeIfPresent([URL].self, forKey: .storedSingleReadFiles)
         storedPlansReadSet = try container.decodeIfPresent(Bool.self, forKey: .storedPlansReadSet)
+        readFileIdentities = try container.decodeIfPresent([ReadFileIdentity].self, forKey: .readFileIdentities)
     }
 
     /// Validates this configuration, checking file existence and parameter ranges.

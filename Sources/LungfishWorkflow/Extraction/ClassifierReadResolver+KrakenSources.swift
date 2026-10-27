@@ -105,6 +105,8 @@ extension ClassifierReadResolver {
         // Whether any sample's reads hold mates, so the output may too.
         var sourcesHoldMates = false
         var singleReadRole = ReadClassification.FileRole.unpaired
+        // The completion message's note for each sample whose files changed but whose reads did not.
+        var readChangeNotes: [String] = []
 
         for (jobIndex, job) in sampleJobs.enumerated() {
             try Task.checkCancellation()
@@ -210,6 +212,10 @@ extension ClassifierReadResolver {
                 skippedSamples.append(sampleLabel)
                 continue
             }
+            // The files changed since the run, by the sizes it recorded, though every read it names is there (4.2, 4.3).
+            if KrakenResultReadSources.readFilesChanged(since: classResult.config) {
+                readChangeNotes.append(KrakenResultReadSources.changedReadsNote(place: KrakenResultReadSources.place(of: sources.inputs)))
+            }
             extractedSamples.append((extraction.outputs, sources.files))
         }
 
@@ -281,6 +287,9 @@ extension ClassifierReadResolver {
             outputRoles: layout.roles,
             progress: progress
         )
+        for note in readChangeNotes {
+            progress?(1.0, note)
+        }
         if !skippedSamples.isEmpty {
             progress?(
                 1.0,

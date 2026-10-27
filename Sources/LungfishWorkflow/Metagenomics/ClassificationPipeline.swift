@@ -198,7 +198,7 @@ public actor ClassificationPipeline {
     // MARK: - Private Pipeline
 
     /// Core pipeline implementation shared by `classify` and `profile`.
-    private func runPipeline(
+    func runPipelineInDigestScope(
         config requested: ClassificationConfig,
         profileRequest: BrackenProfileRequest?,
         progress: (@Sendable (Double, String) -> Void)?
@@ -890,7 +890,7 @@ public actor ClassificationPipeline {
         let totalRuntime = runClock.elapsed
 
         let result = ClassificationResult(
-            config: effectiveConfig,
+            config: await effectiveConfig.recordingReadFileIdentities(),
             tree: tree,
             reportURL: effectiveConfig.reportURL,
             outputURL: retainedOutputURL,

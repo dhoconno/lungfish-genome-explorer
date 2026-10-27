@@ -325,11 +325,13 @@ extension ClassificationResult {
         let readLists = [config.inputFiles, config.originalInputFiles ?? [], config.singleReadFiles]
         var reads = readLists.map { $0.map { resolve($0) } }
         var sourceMissingFromProject: String?
+        var readsInLoadedProject = false
         if let projects {
             let inProject = readLists.map { $0.map { resolve($0, inLoadedProject: true) } }
             let moved = zip(reads.joined(), inProject.joined()).filter { $0 != $1 }.map { $1 }
             if !moved.isEmpty {
                 reads = inProject
+                readsInLoadedProject = true
                 // A run on a virtual bundle takes scratch inputs from `<project>/.tmp/` and deletes them when it
                 // ends, so a scratch file that is gone is not a read the open project lacks (BIO should-fix 1).
                 let scratch = ProjectTempDirectory.tempRoot(for: projects.loaded).standardizedFileURL.path + "/"
@@ -365,6 +367,10 @@ extension ClassificationResult {
         resolved.singleReadFiles = reads[2]
         resolved.plansReadSet = config.plansReadSet
         resolved.sourceMissingFromProject = sourceMissingFromProject
+        // Each recorded read file follows its read, so Extract and BLAST compare the files they read (4.2).
+        resolved.readFileIdentities = config.readFileIdentities?.map {
+            ReadFileIdentity(url: resolve($0.url, inLoadedProject: readsInLoadedProject), sizeBytes: $0.sizeBytes, sha256: $0.sha256)
+        }
         return resolved
     }
 
