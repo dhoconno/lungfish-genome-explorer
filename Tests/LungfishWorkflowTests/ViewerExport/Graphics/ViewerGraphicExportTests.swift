@@ -65,4 +65,76 @@ final class ViewerGraphicExportTests: XCTestCase {
         XCTAssertEqual(Self.labelRuns(figure.scene), ["chr1", "1,101 - 1,300 bp", "of 3 kb total"])
         XCTAssertFalse(figure.scene.omissions.contains { $0.trackID == "label" }, "the label fits at 600 points")
     }
+
+    /// The walk's 400-base window reads as the window writes it, with the contig name first.
+    func testLabelRunsOfTheWalksWindow() {
+        let frame = ViewerFigureFrame(
+            chromosome: "chr20_10.0-10.5Mb", start: 250_000, end: 250_400, pixelWidth: 1648, sequenceLength: 500_001,
+            trailingInset: ViewerFigureFrame.defaultTrailingInset
+        )
+        XCTAssertEqual(
+            ViewerFigureRangeLabelTrack.runs(frame: frame), ["chr20_10.0-10.5Mb", "250,001 - 250,400 bp", "of 500.0 kb total"]
+        )
+        XCTAssertEqual(ViewerFigureRangeLabelTrack.totalText(812), "of 812 bp total")
+        XCTAssertEqual(ViewerFigureRangeLabelTrack.totalText(29_903), "of 29.9 kb total")
+        XCTAssertEqual(ViewerFigureRangeLabelTrack.totalText(2_000_000), "of 2 Mb total")
+    }
+
+    /// A narrow figure leaves the length out first and records it.
+    func testLabelLeavesOutTheLengthFirstWhenTheFigureIsNarrow() async throws {
+        let frame = ViewerFigureFrame(chromosome: "chr1", start: 1_100, end: 1_300, pixelWidth: 200, sequenceLength: 3_000)
+        let scene = try await ViewerFigureSceneBuilder.build(frame: frame, appearance: .light, tracks: [ViewerFigureRangeLabelTrack()])
+        XCTAssertEqual(Self.labelRuns(scene), ["chr1", "1,101 - 1,300 bp"])
+        XCTAssertEqual(scene.omissions.map(\.trackID), ["label"])
+        XCTAssertEqual(scene.omissions.first?.kind, .labelsOmitted)
+        XCTAssertEqual(scene.omissions.first?.count, 1)
+    }
+
+    /// The threshold is inclusive, 1,000 bases a point draws and one base more does not.
+    func testDepthTrackDrawsUpToItsThreshold() {
+        let width = 800
+        let data = width - Int(ViewerFigureFrame.defaultTrailingInset)
+        func frame(_ end: Int) -> ViewerFigureFrame {
+            ViewerFigureFrame(
+                chromosome: "chr1", start: 0, end: Double(end), pixelWidth: width,
+                trailingInset: ViewerFigureFrame.defaultTrailingInset
+            )
+        }
+        XCTAssertTrue(ViewerFigureDepthTrack.draws(at: frame(1_000 * data)))
+        XCTAssertFalse(ViewerFigureDepthTrack.draws(at: frame(1_000 * data + 1)))
+        XCTAssertEqual(ViewerFigureDepthTrack(trackID: "reads", source: nil, frame: frame(1_000 * data)).height, 60)
+        XCTAssertEqual(ViewerFigureDepthTrack(trackID: "reads", source: nil, frame: frame(1_000 * data + 1)).height, 16)
+    }
+
+    /// Below the threshold the track adds one coverage layer across its area in the scale it was given.
+    func testDepthTrackDrawsOneCoverageLayerInTheNamedScale() {
+        let frame = ViewerFigureFrame(chromosome: "chr1", start: 1_100, end: 1_500, pixelWidth: 800, trailingInset: 12)
+        let track = ViewerFigureDepthTrack(trackID: "reads", source: nil, frame: frame, scaleMode: .log10)
+        let area = ViewerFigureRect(x: 0, y: 40, width: 800, height: track.height)
+        let depths = [ViewerFigureCoverageLayer.Depth(position: 1_200, depth: 7)]
+        var canvas = ViewerFigureCanvas()
+        track.draw(depths, into: &canvas, frame: frame, area: area)
+        XCTAssertEqual(canvas.items, [.layer(.coverage(ViewerFigureCoverageLayer(
+            rect: area, regionStart: 1_100, regionEnd: 1_500, depths: depths, scaleMode: .log10
+        )))])
+        XCTAssertEqual(canvas.omissions, [])
+    }
+
+    /// Above the threshold the track reads nothing and draws UX's one line, and the scene records a `trackNotDrawn` fact.
+    func testDepthTrackLeavesItselfOutAboveItsThresholdWithOneLine() async throws {
+        let frame = ViewerFigureFrame(
+            chromosome: "chr1", start: 0, end: 1_200_000, pixelWidth: 800, trailingInset: ViewerFigureFrame.defaultTrailingInset
+        )
+        let scene = try await ViewerFigureSceneBuilder.build(
+            frame: frame, appearance: .light, tracks: [ViewerFigureDepthTrack(trackID: "reads", source: nil, frame: frame)]
+        )
+        let strings = scene.items.compactMap { item -> String? in
+            if case .text(let text) = item { text.string } else { nil }
+        }
+        XCTAssertEqual(strings, ["Depth not drawn at 1522.8 bases per point. Export 788000 bases or fewer at this width to draw it."])
+        XCTAssertEqual(scene.height, 16)
+        XCTAssertEqual(scene.omissions, [ViewerFigureOmission(
+            trackID: "reads", kind: .trackNotDrawn, reason: "depth not drawn above 1000 bases per point", count: nil
+        )])
+    }
 }

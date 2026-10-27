@@ -122,7 +122,7 @@ public enum ViewerFigureOmissionKind: String, Sendable, Hashable, Codable, CaseI
     case labelsOmitted
     /// A font that fell back to another face.
     case fontFallback
-    /// A track the figure has no builder for.
+    /// A track the figure has no builder for, or a Depth track the figure's scale left out.
     case trackNotDrawn
 }
 

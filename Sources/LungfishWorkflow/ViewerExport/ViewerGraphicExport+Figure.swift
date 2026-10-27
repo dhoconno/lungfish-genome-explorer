@@ -186,6 +186,8 @@ extension ViewerGraphicExport {
             pixelWidth: Int((settings.width ?? defaultWidth).rounded()), sequenceLength: region.contigLength,
             trailingInset: ViewerFigureFrame.defaultTrailingInset
         )
+        // Every figure names its contig and range at the top, as the window's info bar does (WF-5).
+        builders.append(ViewerFigureRangeLabelTrack())
         if settings.includeRuler {
             builders.append(ViewerFigureRulerTrack())
         }
@@ -233,16 +235,25 @@ extension ViewerGraphicExport {
                         gzipIndexURL: genome.gzipIndexPath.map { bundle.resolved($0) }
                     )
                 }
+                let source = ViewerFigureReadTrack.Source(
+                    alignmentPath: alignmentURL.path, indexPath: indexURL.path, format: info.format,
+                    referenceFastaPath: referenceURL?.path, chromosomeAliases: aliases.map,
+                    mismatchReference: genomeFiles.map {
+                        .init(fastaURL: $0.fastaURL, indexURL: $0.indexURL, gzipIndexURL: $0.gzipIndexURL)
+                    }
+                )
+                // The Depth track above the reads, as the window draws its coverage strip, in the scale the command
+                // names (WF-5).
+                let depth = ViewerFigureDepthTrack(
+                    trackID: id, source: source, frame: frame, scaleMode: settings.coverageScale ?? .default,
+                    excludeFlags: options.excludeFlags, minMapQ: options.minMapQ
+                )
+                builders.append(depth)
+                if ViewerFigureDepthTrack.draws(at: frame) {
+                    facts.append(ViewerGraphicTrackFact(id: id, kind: "depth", displayMode: depth.scaleMode.rawValue, height: depth.height))
+                }
                 let track = ViewerFigureReadTrack(
-                    trackID: id,
-                    source: .init(
-                        alignmentPath: alignmentURL.path, indexPath: indexURL.path, format: info.format,
-                        referenceFastaPath: referenceURL?.path, chromosomeAliases: aliases.map,
-                        mismatchReference: genomeFiles.map {
-                            .init(fastaURL: $0.fastaURL, indexURL: $0.indexURL, gzipIndexURL: $0.gzipIndexURL)
-                        }
-                    ),
-                    height: height ?? defaultReadHeight, options: options
+                    trackID: id, source: source, height: height ?? defaultReadHeight, options: options
                 )
                 builders.append(track)
                 inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? []) + (genomeFiles?.inputFiles ?? [])

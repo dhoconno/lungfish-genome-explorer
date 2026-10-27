@@ -169,7 +169,7 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
             if area.height >= Self.overflowBarHeight {
                 let lines = Self.zoomLines(frame: frame)
                 let fits = try canvas.textWidth(lines.full, fontNames: Self.fontNames, size: 9) <= area.width - 8
-                try drawLine(fits ? lines.full : lines.short, top: area.y, area: area, into: &canvas)
+                try Self.drawLine(fits ? lines.full : lines.short, top: area.y, area: area, into: &canvas)
             }
             return
         }
@@ -219,7 +219,7 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
             omit(.labelsOmitted, "base letters of the base tier", drawn, into: &canvas)
         }
         if bar {
-            try drawLine(
+            try Self.drawLine(
                 Self.overflowLine(capped: overflow, pastHeight: pastHeight, maxRows: options.maxRows, height: area.height),
                 top: area.y + area.height - Self.overflowBarHeight, area: area, into: &canvas
             )
@@ -247,8 +247,9 @@ public struct ViewerFigureReadTrack: ViewerFigureTrackBuilding {
         canvas.omit(ViewerFigureOmission(trackID: trackID, kind: kind, reason: reason, count: count))
     }
 
-    /// The live overflow bar across the track with its top at `barTop`, and `line` centred in it.
-    private func drawLine(
+    /// The live overflow bar across the track with its top at `barTop`, and `line` centred in it. The Depth track draws
+    /// its line in the same bar.
+    static func drawLine(
         _ line: String, top barTop: Double, area: ViewerFigureRect, into canvas: inout ViewerFigureCanvas
     ) throws(ViewerFigureFontError) {
         canvas.fill(ViewerFigureRect(x: area.x, y: barTop, width: area.width, height: Self.overflowBarHeight),

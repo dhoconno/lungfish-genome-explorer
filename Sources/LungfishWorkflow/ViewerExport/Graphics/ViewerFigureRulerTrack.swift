@@ -7,8 +7,9 @@ import Foundation
 
 /// The coordinate ruler of a figure, its minor and major ticks, position labels, bottom line and
 /// border, as the live `EnhancedCoordinateRulerView` draws its ruler band
-/// (`drawCoordinateRuler`, `calculateTickInterval`, `formatPosition`). The live view's info bar
-/// and mini map are controls and stay out of a figure. The ruler opens no file.
+/// (`drawCoordinateRuler`, `calculateTickInterval`, `formatPosition`). The live view's mini map
+/// and the info bar's controls stay out of a figure, and `ViewerFigureRangeLabelTrack` writes the
+/// info bar's range above every figure. The ruler opens no file.
 ///
 /// Labels use `Menlo-Regular` at 10 points. The live labels use the monospaced system face at
 /// medium weight, which CoreText names only by a private dot name, so a figure names an
