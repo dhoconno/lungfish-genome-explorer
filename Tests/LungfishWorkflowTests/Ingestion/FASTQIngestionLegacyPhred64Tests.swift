@@ -11,8 +11,9 @@ import LungfishTestSupport
 
 /// Phase 3.0 lane BIN, fix round 2 (BIO-BIN-QIN, N2, S1). Every storage step tells BBTools the scores are Phred+33, so
 /// an import of a file in the old Phred+64 encoding (Illumina pipeline 1.3 to 1.7) stops before any storage step, and
-/// the error's words are what the operation row shows. The run is the no-clumping, no-binning route, which starts no
-/// BBTools, so this is a pure test. The file is read once as plain text and once as gzip, the route most imports take.
+/// the error's words are what the operation row shows. The guard throws before any tool starts, so every route is a pure
+/// test: no binning and no clumping, the reformat route and the clumpify route. Each file is read once as plain text and
+/// once as gzip, the form most imports take.
 final class FASTQIngestionLegacyPhred64Tests: XCTestCase {
     func testAPhred64FileIsRefusedWithWordsThatSayHowToConvertIt() async throws {
         let root = try TestTempDirectory.make(prefix: "legacy-phred64")
@@ -21,25 +22,32 @@ final class FASTQIngestionLegacyPhred64Tests: XCTestCase {
         try Self.illumina15Records().write(to: plain, atomically: true, encoding: .utf8)
         let gzipped = try Self.gzipped(plain)
 
-        for input in [plain, gzipped] {
-            let output = root.appendingPathComponent("out-\(input.pathExtension)", isDirectory: true)
-            do {
-                _ = try await FASTQIngestionPipeline().run(
-                    config: FASTQIngestionConfig(
-                        inputFiles: [input], pairingMode: .singleEnd, outputDirectory: output, threads: 2,
-                        deleteOriginals: false, qualityBinning: .none, skipClumpify: true
-                    ),
-                    progress: { _, _ in }
-                )
-                XCTFail("\(input.lastPathComponent) was imported although its scores are Phred+64")
-            } catch {
-                let words = error.localizedDescription
-                XCTAssertTrue(words.contains("Phred+64"), "\(input.lastPathComponent): the words name the encoding: \(words)")
-                XCTAssertTrue(words.contains("Phred+33"), "\(input.lastPathComponent): the words say what LGE stores: \(words)")
-                XCTAssertTrue(
-                    words.contains("reformat.sh qin=64 qout=33"),
-                    "\(input.lastPathComponent): the words say how to convert the file: \(words)"
-                )
+        // Fix round 4, SWIFT S3. The guard sits above the storage switch, so every route refuses: no binning and no
+        // clumping (no BBTools), the reformat route and the clumpify route. It throws before any tool starts, so none runs.
+        let routes: [(name: String, binning: QualityBinningScheme, skipClumpify: Bool)] = [
+            ("none", .none, true), ("reformat", .fiveStep, true), ("clumpify", .fiveStep, false),
+        ]
+        for route in routes {
+            for input in [plain, gzipped] {
+                let label = "\(route.name) route, \(input.lastPathComponent)"
+                let output = root.appendingPathComponent("out-\(route.name)-\(input.pathExtension)", isDirectory: true)
+                do {
+                    _ = try await FASTQIngestionPipeline().run(
+                        config: FASTQIngestionConfig(
+                            inputFiles: [input], pairingMode: .singleEnd, outputDirectory: output, threads: 2,
+                            deleteOriginals: false, qualityBinning: route.binning, skipClumpify: route.skipClumpify
+                        ),
+                        progress: { _, _ in }
+                    )
+                    XCTFail("\(label) was imported although its scores are Phred+64")
+                } catch {
+                    let words = error.localizedDescription
+                    XCTAssertTrue(words.contains("Phred+64"), "\(label): the words name the encoding: \(words)")
+                    XCTAssertTrue(words.contains("Phred+33"), "\(label): the words say what LGE stores: \(words)")
+                    XCTAssertTrue(
+                        words.contains("reformat.sh qin=64 qout=33"), "\(label): the words say how to convert the file: \(words)"
+                    )
+                }
             }
         }
     }
