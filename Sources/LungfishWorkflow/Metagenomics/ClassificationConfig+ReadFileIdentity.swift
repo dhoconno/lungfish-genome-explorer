@@ -51,7 +51,13 @@ extension KrakenResultReadSources {
     /// Whether a read file the run recorded has another size now, or is gone: one `stat` per file (4.2). False for a
     /// result that recorded none, whose read check alone decides.
     public static func readFilesChanged(since config: ClassificationConfig) -> Bool {
-        (config.readFileIdentities ?? []).contains { identity in
+        readFilesChanged(identities: config.readFileIdentities)
+    }
+
+    /// ``readFilesChanged(since:)`` for the identities alone, for a caller that holds no config, such as the viewer's
+    /// BLAST row and `blast verify`, which say when the files changed as Extract does (BIO-READ-IDENTITY B1).
+    public static func readFilesChanged(identities: [ReadFileIdentity]?) -> Bool {
+        (identities ?? []).contains { identity in
             let size = (try? FileManager.default.attributesOfItem(atPath: identity.url.path)[.size] as? NSNumber)?.uint64Value
             return size != identity.sizeBytes
         }

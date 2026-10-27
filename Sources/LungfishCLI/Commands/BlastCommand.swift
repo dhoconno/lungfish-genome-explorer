@@ -278,6 +278,15 @@ extension BlastCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
+            // Every drawn read passed the check, but a read file has another size than the run recorded. The request
+            // goes on, and stderr says so in the words Extract adds to its completion (BIO-READ-IDENTITY B1). The
+            // sizes sit in the result saved beside the output, and without one there is nothing to compare.
+            let recorded = try? ClassificationResult.load(from: krakenOutputURL.deletingLastPathComponent())
+            if KrakenResultReadSources.readFilesChanged(identities: recorded?.config.readFileIdentities) {
+                let note = KrakenResultReadSources.changedReadsNote(place: KrakenResultReadSources.place(of: readFiles.inputs))
+                FileHandle.standardError.write(Data(formatter.warning(note).appending("\n").utf8))
+            }
+
             if chatty {
                 let mate2 = built.sequenceMates.values.filter { $0 == 2 }.count
                 print(formatter.info("Selected \(built.sequences.count) reads (\(mate2) submitted as mate 2)"))

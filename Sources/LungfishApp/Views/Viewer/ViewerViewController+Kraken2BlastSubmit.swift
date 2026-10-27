@@ -31,6 +31,7 @@ extension ViewerViewController {
         let taxId = node.taxId
         let tree = classResult.tree
         let classificationOutput = classResult.outputURL
+        let readFileIdentities = classResult.config.readFileIdentities
         Self.launchKraken2BlastSubmit(
             taxonName: taxonName, projectURL: projectURL, resultDirectory: resultDirectory, sample: sample,
             lookup: {
@@ -38,6 +39,9 @@ extension ViewerViewController {
                     taxonName: taxonName, taxId: taxId, tree: tree, classificationOutput: classificationOutput,
                     sourceInputs: sourceInputs, readCount: readCount
                 )
+            },
+            readsChangedNote: {
+                await Self.kraken2BlastChangedFilesNote(identities: readFileIdentities, sourceInputs: sourceInputs)
             }
         ) { [weak controller] operationID in
             let runID = controller?.beginBlastVerification(for: node)
@@ -58,7 +62,10 @@ extension ViewerViewController {
     /// cancel during the lookup ends the row Cancelled with no search, no stage and no alert. The row then takes the
     /// plan's command through `setCommand`, the argv the leaf runs, and ``launchBlastSubmit(_:operationID:runner:drawer:completeDetail:)``
     /// runs it on `runner` with the drawer `makeDrawer` gives for the row, replacing the row's cancel callback with
-    /// the runner's before anything awaits. Returns the row's task, or nil when the panel refused the row.
+    /// the runner's before anything awaits. `readsChangedNote` runs once the lookup has built the request, so every
+    /// drawn read passed the read check, and gives the words that the read files changed after the result was made,
+    /// which the row logs before the search goes on (BIO-READ-IDENTITY B1). Returns the row's task, or nil when the
+    /// panel refused the row.
     @discardableResult
     static func launchKraken2BlastSubmit(
         taxonName: String,
@@ -67,6 +74,7 @@ extension ViewerViewController {
         sample: String? = nil,
         runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
         lookup: @escaping @Sendable () async throws -> BlastVerificationRequest,
+        readsChangedNote: (@Sendable () async -> String?)? = nil,
         makeDrawer: (UUID) -> BlastSubmitDrawer
     ) -> Task<Void, Never>? {
         var launched: Task<Void, Never>?
@@ -76,11 +84,15 @@ extension ViewerViewController {
             let task = Task { @MainActor in
                 do {
                     let request = try await lookup()
+                    let filesChanged = await readsChangedNote?()
                     try Task.checkCancellation()
                     // A Cancel moves the row to cancelling at once but stops this task a moment later, so the
                     // row is asked as well as the task (12.08 fix recipe, step 5).
                     guard OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else {
                         throw CancellationError()
+                    }
+                    if let filesChanged {
+                        _ = OperationCenter.shared.updateWithLog(id: operationID, progress: 0.05, detail: filesChanged)
                     }
                     let plan = try kraken2BlastSubmitPlan(
                         request: request, projectURL: projectURL, resultDirectory: resultDirectory, sample: sample
@@ -143,5 +155,12 @@ extension ViewerViewController {
             taxonName: taxonName, taxId: taxId, tree: tree, classificationOutput: classificationOutput,
             sourceInputs: sourceInputs, readCount: readCount
         )
+    }
+
+    /// The words that the read files of `sourceInputs` changed after the result was made, when a size in `identities`
+    /// is not the file's size now, else nil (BIO-READ-IDENTITY B1). It is one `stat` per file, off the main actor.
+    @concurrent nonisolated static func kraken2BlastChangedFilesNote(identities: [ReadFileIdentity]?, sourceInputs: [URL]) async -> String? {
+        guard KrakenResultReadSources.readFilesChanged(identities: identities) else { return nil }
+        return KrakenResultReadSources.changedReadsNote(place: KrakenResultReadSources.place(of: sourceInputs))
     }
 }
