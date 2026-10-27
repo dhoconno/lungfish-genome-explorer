@@ -94,6 +94,52 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: lockURL(for: projectURL)), originalData)
     }
 
+    /// 3.0 WF-2. Finder copies the lock with the project, and the copied record names
+    /// the original. `project lock` on the copy replaces that lock with one naming the
+    /// copy and leaves the original's lock as it was.
+    func testLockReplacesACopiedLock() async throws {
+        let projectURL = try makeProject()
+        try await ProjectCommand.LockSubcommand.parse([projectURL.path, "--quiet"]).run()
+        let originalData = try Data(contentsOf: lockURL(for: projectURL))
+        let copyURL = tempDir.appendingPathComponent("Shared.lungfish copy", isDirectory: true)
+        try FileManager.default.copyItem(at: projectURL, to: copyURL)
+
+        try await ProjectCommand.LockSubcommand.parse([copyURL.path, "--quiet"]).run()
+
+        let record = try loadLockRecord(from: copyURL)
+        XCTAssertEqual(record["projectPath"] as? String, copyURL.standardizedFileURL.path)
+        XCTAssertEqual(try Data(contentsOf: lockURL(for: projectURL)), originalData)
+    }
+
+    func testUnlockRemovesACopiedLockWithoutForce() async throws {
+        let projectURL = try makeProject()
+        try await ProjectCommand.LockSubcommand.parse([projectURL.path, "--quiet"]).run()
+        let originalData = try Data(contentsOf: lockURL(for: projectURL))
+        let copyURL = tempDir.appendingPathComponent("Shared.lungfish copy", isDirectory: true)
+        try FileManager.default.copyItem(at: projectURL, to: copyURL)
+        try writeLockRecord(
+            [
+                "schemaVersion": 1,
+                "toolName": "lungfish project lock",
+                "appVersion": "lungfish-cli 0.0.0-test",
+                "projectPath": projectURL.standardizedFileURL.path,
+                "mode": "exclusive",
+                "user": NSUserName(),
+                "host": ProcessInfo.processInfo.hostName,
+                "pid": Int(getppid()),
+                "processStartTime": "",
+                "cwd": "/tmp",
+                "createdAt": "2000-01-01T00:00:00Z",
+            ],
+            to: copyURL
+        )
+
+        try await ProjectCommand.UnlockSubcommand.parse([copyURL.path, "--quiet"]).run()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL(for: copyURL).path))
+        XCTAssertEqual(try Data(contentsOf: lockURL(for: projectURL)), originalData)
+    }
+
     func testLockRefusesRemoteLockWithoutForce() async throws {
         let projectURL = try makeProject()
         try writeLockRecord(

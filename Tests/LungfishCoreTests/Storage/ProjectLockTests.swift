@@ -213,6 +213,32 @@ final class ProjectLockTests: XCTestCase {
         }
     }
 
+    // MARK: - 3.0 WF-2: a lock Finder copied with its project
+
+    /// The walk's case. Folder B holds a lock that names folder A and this process.
+    /// It does not hold B, so a writer opens B and rewrites B's lock to name B. The
+    /// same record in folder A still holds A.
+    func testLockCopiedWithItsProjectDoesNotHoldTheCopy() throws {
+        let folderA = tempDir.appendingPathComponent("A.lungfish", isDirectory: true)
+        let folderB = tempDir.appendingPathComponent("A.lungfish copy", isDirectory: true)
+        for folder in [folderA, folderB] {
+            let created = try ProjectStore(creating: folder)
+            withExtendedLifetime(created) {}
+        }
+        let manager = ProjectLockManager()
+        let record = ProjectLockRecord.current(projectURL: folderA, mode: "exclusive", toolName: "test", appVersion: "test")
+        try manager.writeLock(record, to: ProjectLockManager.lockURL(for: folderA))
+        try manager.writeLock(record, to: ProjectLockManager.lockURL(for: folderB))
+
+        let storeB = try ProjectStore(opening: folderB, access: .writable)
+
+        XCTAssertEqual(try manager.readLock(forProjectAt: folderB)?.projectPath, folderB.standardizedFileURL.path)
+        XCTAssertThrowsError(try ProjectStore(opening: folderA, access: .writable),
+            "The same record in the folder it names still holds that folder")
+        XCTAssertEqual(try manager.readLock(forProjectAt: folderA), record)
+        withExtendedLifetime(storeB) {}
+    }
+
     private func nativeMachineIdentifier() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
         var timeout = timespec(tv_sec: 1, tv_nsec: 0)
