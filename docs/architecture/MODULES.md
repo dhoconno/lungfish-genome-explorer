@@ -29,7 +29,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1572 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1574 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
@@ -3424,6 +3424,7 @@ None.
 - `ViewerFigureColorRole` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureTheme.swift`
 - `ViewerFigureContextLayer` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureContextLayers.swift`
 - `ViewerFigureCoverageLayer` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureContextLayers.swift`
+- `ViewerFigureDepthTrack` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureDepthTrack.swift`
 - `ViewerFigureFontError` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureFonts.swift`
 - `ViewerFigureFontResolution` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureFonts.swift`
 - `ViewerFigureFonts` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureFonts.swift`
@@ -3435,6 +3436,7 @@ None.
 - `ViewerFigureOmissionKind` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureScene.swift`
 - `ViewerFigurePaint` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureScene.swift`
 - `ViewerFigurePoint` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureScene.swift`
+- `ViewerFigureRangeLabelTrack` struct, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureRangeLabelTrack.swift`
 - `ViewerFigureRasterizer` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureRasterizer.swift`
 - `ViewerFigureRasterizerError` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureRasterizer.swift`
 - `ViewerFigureReadSample` enum, `Sources/LungfishWorkflow/ViewerExport/Graphics/ViewerFigureReadSample.swift`
