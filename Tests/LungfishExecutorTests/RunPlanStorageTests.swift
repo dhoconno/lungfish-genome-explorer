@@ -10,7 +10,8 @@ extension RunPlanTests {
     /// review).
     func clumpifyPlan(
         _ body: String, deadline: Double = 60, bgzip bgzipBody: String = "[ \"$1\" = \"-h\" ] && echo 'Version: 1.0'",
-        manifestListsBgzip: Bool = true, inputText: String? = nil
+        manifestListsBgzip: Bool = true, inputText: String? = nil,
+        leadingRecipe: String? = nil // the shell body of a recipe step that runs first and writes out/trimmed.fastq for the storage step
     ) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
         // A plan pins its input by SHA-256, so a test's own reads go in before the plan is written.
@@ -20,14 +21,18 @@ extension RunPlanTests {
         // asks, with the `Version:` line of the version the plan pins (C4-3 C-4), and the manifest lists it.
         let bgzip = try fixture.addTool("bgzip", bgzipBody)
         let gzip = try fixture.addLoggingGzip()
+        var recipe: PlanToolPin?
+        if let leadingRecipe { recipe = try fixture.addTool("trim-reads", leadingRecipe) }
         let manifest = try fixture.writeManifest(excluding: manifestListsBgzip ? [] : ["bgzip"])
         let step = PlanStep(
             id: "storage", title: "Store reads", kind: .storage, tool: clumpify, arguments: [],
             environment: [PlanEnvironmentVariable(name: "_JAVA_OPTIONS", value: "-Xmx1g")], deadlineSeconds: deadline,
-            inputs: ["inputs/R1.fastq"], outputs: ["out/sample.fastq.gz"]
+            inputs: [recipe == nil ? "inputs/R1.fastq" : "out/trimmed.fastq"], outputs: ["out/sample.fastq.gz"]
         )
+        var steps = [step]
+        if let recipe { steps.insert(RunPlanFixture.step("trim", recipe, outputs: ["out/trimmed.fastq"]), at: 0) }
         let plan = try fixture.writePlan(
-            [step], manifestPin: manifest.pin,
+            steps, manifestPin: manifest.pin,
             storage: PlanStorageSettings(
                 clumpingTool: .bbtools, compressor: .bgzip, qualityBinning: .illumina4, threads: 1, clumpifyHeapGB: 1,
                 compressionLevel: 4, threadsSource: .option, clumpifyHeapSource: .option, clumpingToolSource: .option,
