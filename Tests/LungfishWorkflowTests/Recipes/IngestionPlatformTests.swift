@@ -44,6 +44,25 @@ struct IngestionPlatformTests {
         #expect(platform.defaultQualityBinning == .illumina4)  // illumina4 on every platform (lane C2-BINNING)
     }
 
+    /// BIO-BIN (Phase 3.0 lane BIN, S1). An Illumina import bins in steps of five, which keeps every Q10, Q20 and Q30
+    /// count as sequenced, and an ONT, PacBio or unknown import keeps every score. The unknown case is read through
+    /// the import configuration, the reader that resolves a sample's platform.
+    @Test func testDefaultBinningPerPlatform() {
+        #expect(IngestionPlatform.illumina.defaultQualityBinning.rawValue == "fiveStep")
+        #expect(IngestionPlatform.ont.defaultQualityBinning == .none)
+        #expect(IngestionPlatform.pacbio.defaultQualityBinning == .none)
+        let project = URL(fileURLWithPath: "/tmp/binning-default.lungfish")
+        for (platform, expected) in [
+            (LungfishIO.SequencingPlatform.illumina, "fiveStep"),
+            (.oxfordNanopore, "none"), (.pacbio, "none"), (.unknown, "none"),
+        ] {
+            let config = FASTQBatchImporter.ImportConfig(
+                projectDirectory: project, platform: .given(platform), threadsSource: .default, clumpifyHeapGB: nil
+            )
+            #expect(config.qualityBinning.rawValue == expected, "\(platform)")
+        }
+    }
+
     @Test func testAutoDetectIllumina() {
         let header = "@A00488:61:HMLGNDSXX:4:1101:1234:5678 1:N:0:ACGTACGT"
         let detected = LungfishIO.SequencingPlatform.detect(fromHeader: header)

@@ -39,6 +39,47 @@ final class ONTImportQualityBinningAppliedTests: XCTestCase {
         XCTAssertEqual(kept, .boolean(false))
     }
 
+    /// BIO-BIN (Phase 3.0 lane BIN, S1). A chunked import that names no binning, the app's and the CLI's default ONT
+    /// import, keeps every score. A read the basecaller gave Q0 on every base stays Q0, where `illumina4` stored it as
+    /// Q8. It needs no BBTools, since nothing bins.
+    func testDefaultChunkedImportKeepsScores() async throws {
+        let source = root.appendingPathComponent("run-default/fastq_pass", isDirectory: true)
+        let barcode = source.appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcode, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(to: barcode.appendingPathComponent("chunk_0.fastq"), atomically: true, encoding: .utf8)
+        let output = source.deletingLastPathComponent().appendingPathComponent("out", isDirectory: true)
+
+        let result = try await ONTImportWorkflow(optimizationRunner: { _, _, _ in [] }).importDirectory(
+            config: ONTImportConfig(sourceDirectory: source, outputDirectory: output, storageMode: .chunked),
+            context: ONTImportWorkflow.CommandContext(
+                caller: .cli,
+                workflowName: "lungfish fastq import-ont",
+                workflowVersion: "test",
+                toolName: "lungfish fastq import-ont",
+                toolVersion: "test",
+                argv: ["lungfish-cli", "fastq", "import-ont"],
+                reproducibleCommand: "lungfish-cli fastq import-ont",
+                explicitOptions: [:],
+                defaultOptions: [:],
+                resolvedOptions: [:]
+            ),
+            optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: false),
+            progress: { _, _ in }
+        )
+        XCTAssertEqual(result.provenanceEnvelope.options.resolvedDefaults["qualityBinningApplied"], .boolean(false))
+        let bundle = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let chunks = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: bundle))
+        var reads = 0
+        for chunk in chunks {
+            for try await record in FASTQReader(validateSequence: false).records(from: chunk) {
+                reads += 1
+                XCTAssertEqual(record.quality.count, 4)
+                XCTAssertEqual(record.quality.maxQuality, 0, "a Q0 read is stored as Q0, not raised")
+            }
+        }
+        XCTAssertEqual(reads, 1)
+    }
+
     private func applied(optimizeStorage: Bool, binning: QualityBinningScheme) async throws -> ParameterValue? {
         let source = root.appendingPathComponent("run-\(UUID().uuidString)/fastq_pass", isDirectory: true)
         let barcode = source.appendingPathComponent("barcode01", isDirectory: true)

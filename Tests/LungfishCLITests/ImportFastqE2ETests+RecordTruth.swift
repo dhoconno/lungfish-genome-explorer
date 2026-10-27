@@ -251,6 +251,47 @@ extension ImportFastqE2ETests {
         XCTAssertTrue(recordTruthNames(envelope.argv, "--quality-binning", "none"), "\(envelope.argv)")
     }
 
+    /// BIO-BIN (Phase 3.0 lane BIN, S1). An Illumina import that names no binning stores Q20 and Q30 shares equal to
+    /// the ones counted from the file as sequenced. The fixture (`Fixtures/quality-binning/q18-q19-q20-q30.fastq`)
+    /// holds Q17 to Q21, Q28 to Q31 and Q37 bases, so a scheme that moves Q18 and Q19 up to Q22, as `illumina4` did,
+    /// shows 85 percent at Q20 where the reads hold 45.
+    func testIlluminaDefaultKeepsQ20() async throws {
+        try await recordTruthRequire(.seqkit, .clumpify)
+        guard let fixtures = recordTruthFixtures else { try ToolAvailability.skipOrFail("Fixtures not found") }
+        let sequenced = fixtures.deletingLastPathComponent()
+            .appendingPathComponent("quality-binning/q18-q19-q20-q30.fastq")
+        let root = try TestTempDirectory.make(prefix: "record-truth-q20")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let input = root.appendingPathComponent("input")
+        let project = root.appendingPathComponent("p.lungfish")
+        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: project.appendingPathComponent("Imports"), withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: sequenced, to: input.appendingPathComponent("thresholds.fastq"))
+
+        let run = try recordTruthRun(
+            ["import", "fastq", input.path, "--project", project.path, "--platform", "illumina",
+             "--no-optimize-storage", "--compression", "fast"],
+            scratch: root, timeout: 900
+        )
+        XCTAssertFalse(run.timedOut, "import fastq did not end within 900 s: \(run.output)")
+        XCTAssertEqual(run.status, 0, "import fastq failed: \(run.output)")
+        let bundle = try XCTUnwrap(try recordTruthBundles(in: project).first, "the import wrote no bundle")
+        let payload = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(at: bundle, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent.hasSuffix(".fastq.gz") }
+        )
+        let stored = try XCTUnwrap(FASTQMetadataStore.load(for: payload)?.computedStatistics)
+        let counted = try await FASTQQualityFractions.scan(sequenced)
+
+        XCTAssertEqual(counted.q20Percentage, 45, accuracy: 1e-9, "the fixture holds 36 of 80 bases at Q20 or above")
+        XCTAssertEqual(stored.q20Percentage, counted.q20Percentage, accuracy: 1e-9,
+                       "the stored Q20 share is the sequenced one")
+        XCTAssertEqual(stored.q30Percentage, counted.q30Percentage, accuracy: 1e-9,
+                       "the stored Q30 share is the sequenced one")
+    }
+
     /// Whether `argv` holds `flag` followed by `value`.
     private func recordTruthNames(_ argv: [String], _ flag: String, _ value: String) -> Bool {
         zip(argv, argv.dropFirst()).contains { $0 == flag && $1 == value }
