@@ -169,7 +169,10 @@ final class AnnotationGFF3ExportRowTests: XCTestCase {
         func features(_ range: Range<Int>) -> [String: (id: String, parent: String?)] {
             Dictionary(uniqueKeysWithValues: range.map { index in
                 let pairs = AnnotationDatabase.parseAttributes(column9[index])
-                return (pairs["Name"] ?? "", (pairs["ID"] ?? "", pairs["Parent"]))
+                // A row whose name is only its ID exports no Name (lane GFF3-FIDELITY), so its ID less the `b:` track prefix names it.
+                let id = pairs["ID"] ?? ""
+                let name = pairs["Name"] ?? String(id.split(separator: ":").last ?? "")
+                return (name, (id, pairs["Parent"]))
             })
         }
         let a = features(0..<3)
