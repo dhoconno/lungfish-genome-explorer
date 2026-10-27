@@ -44,14 +44,14 @@
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
       "sha256": "<SHA256-R10>",
-      "sizeBytes": 4702
+      "sizeBytes": 4784
     },
     {
       "exists": true,
       "path": "<RUN_ROOT>/genotype/out/SIMULATED-MHC-haplotypes.lungfishgenotype/.amplicon-genotyping/inputs/illumina-sample-manifest.json",
       "role": "input",
       "sha256": "<SHA256-R10>",
-      "sizeBytes": 4702
+      "sizeBytes": 4784
     }
   ],
   "options": {

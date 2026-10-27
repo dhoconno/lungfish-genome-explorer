@@ -41,7 +41,9 @@
           "out=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>\/SIMULATED-MHC-A-pairs.merged.fastq",
           "outu=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-1>\/SIMULATED-MHC-A-pairs.unmerged.fastq",
           "interleaved=t",
-          "threads=2"
+          "threads=2",
+          "qin=33",
+          "qout=33"
         ],
         "disposition" : "bbmerge-merged",
         "mappedRecordCount" : 204,
@@ -69,7 +71,9 @@
           "out=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>\/SIMULATED-MHC-B-pairs.merged.fastq",
           "outu=<RUN_ROOT>\/genotype\/tmp\/bbmerge-<UUID-2>\/SIMULATED-MHC-B-pairs.unmerged.fastq",
           "interleaved=t",
-          "threads=2"
+          "threads=2",
+          "qin=33",
+          "qout=33"
         ],
         "disposition" : "bbmerge-merged",
         "mappedRecordCount" : 172,
