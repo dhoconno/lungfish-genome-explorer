@@ -52,7 +52,16 @@ public enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    public static func tsvSummaryExportPanel(title: String, suggestedName: String) -> NSSavePanel {
+    /// The folder a save panel for the result at `resultURL` opens in. Inert until the next commit.
+    public static func startFolder(forResultAt resultURL: URL?) -> URL? {
+        nil
+    }
+
+    public static func tsvSummaryExportPanel(
+        title: String,
+        suggestedName: String,
+        startingIn folder: URL? = nil
+    ) -> NSSavePanel {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.tabSeparatedText]
         panel.nameFieldStringValue = suggestedName
@@ -63,7 +72,8 @@ public enum MetagenomicsFilePanelFactory {
     public static func delimitedExportPanel(
         title: String? = nil,
         suggestedName: String,
-        contentTypes: [UTType] = [.plainText]
+        contentTypes: [UTType] = [.plainText],
+        startingIn folder: URL? = nil
     ) -> NSSavePanel {
         let panel = NSSavePanel()
         if let title {
@@ -75,13 +85,14 @@ public enum MetagenomicsFilePanelFactory {
         return panel
     }
 
-    public static func blastDelimitedExportPanel(fileExtension: String) -> NSSavePanel {
+    public static func blastDelimitedExportPanel(fileExtension: String, startingIn folder: URL? = nil) -> NSSavePanel {
         let contentTypes: [UTType] = fileExtension == "csv"
             ? [.commaSeparatedText]
             : [.tabSeparatedText]
         return delimitedExportPanel(
             suggestedName: "blast_results.\(fileExtension)",
-            contentTypes: contentTypes
+            contentTypes: contentTypes,
+            startingIn: folder
         )
     }
 

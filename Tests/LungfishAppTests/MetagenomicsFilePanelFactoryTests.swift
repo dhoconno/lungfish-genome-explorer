@@ -87,4 +87,93 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         XCTAssertEqual(panel.allowedContentTypes, [])
         XCTAssertTrue(panel.canCreateDirectories)
     }
+
+    // MARK: - Where a save panel opens (Phase 3.0 lane CONSENSUS-DEST, walk WO-3)
+
+    /// A project with a classifier result in it, in a temp folder that the case removes.
+    private func makeProject() throws -> (project: URL, result: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("panel-start-\(UUID().uuidString)", isDirectory: true)
+        let project = root.appendingPathComponent("P.lungfish", isDirectory: true)
+        let result = project.appendingPathComponent("Analyses/kraken2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return (project, result)
+    }
+
+    private func assertStarts(
+        inside project: URL, _ panel: NSSavePanel, _ what: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let start = panel.directoryURL?.resolvingSymlinksInPath().path
+        let root = project.resolvingSymlinksInPath().path
+        XCTAssertTrue(
+            start == root || start?.hasPrefix(root + "/") == true,
+            "\(what) starts in \(start ?? "the last folder used"), not in the project",
+            file: file, line: line
+        )
+    }
+
+    /// The walk met an Export as CSV whose panel opened in another project, the last folder used.
+    func testEveryExportPanelMadeForAResultInAProjectStartsInsideTheProject() throws {
+        let (project, result) = try makeProject()
+        let folder = MetagenomicsFilePanelFactory.startFolder(forResultAt: result)
+        assertStarts(inside: project, MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
+            title: "Export", suggestedName: "a.tsv", startingIn: folder), "the TSV summary panel")
+        assertStarts(inside: project, MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export", suggestedName: "a.csv", startingIn: folder), "the delimited export panel")
+        assertStarts(inside: project, MetagenomicsFilePanelFactory.blastDelimitedExportPanel(
+            fileExtension: "csv", startingIn: folder), "the BLAST export panel")
+        assertStarts(inside: project, MetagenomicsFilePanelFactory.readExtractionSavePanel(
+            suggestedName: "a.fastq", startingIn: folder), "the read extraction panel")
+    }
+
+    func testAResultOutsideAProjectStartsItsPanelInItsOwnFolder() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("panel-start-\(UUID().uuidString)", isDirectory: true)
+        let result = root.appendingPathComponent("kraken2-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let record = result.appendingPathComponent("results.json")
+        try Data("{}".utf8).write(to: record)
+
+        XCTAssertEqual(
+            MetagenomicsFilePanelFactory.startFolder(forResultAt: result)?.resolvingSymlinksInPath().path,
+            result.resolvingSymlinksInPath().path, "a result folder is its own start folder"
+        )
+        XCTAssertEqual(
+            MetagenomicsFilePanelFactory.startFolder(forResultAt: record)?.resolvingSymlinksInPath().path,
+            result.resolvingSymlinksInPath().path, "a result file starts in its folder"
+        )
+        XCTAssertNil(MetagenomicsFilePanelFactory.startFolder(forResultAt: nil), "no result names no folder")
+    }
+
+    /// Every result viewer's export call names a starting folder, so no panel opens where the system last left off.
+    func testEveryResultViewerExportPassesAStartingFolder() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let files = [
+            "Sources/LungfishEsVirituUI/EsVirituResultViewController.swift",
+            "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
+            "Sources/LungfishNvdUI/NvdResultViewController.swift",
+            "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift",
+            "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",
+            "Sources/LungfishKit/BlastResultsDrawerTab.swift",
+        ]
+        var calls = 0
+        for file in files {
+            let source = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            for name in ["tsvSummaryExportPanel(", "delimitedExportPanel(", "blastDelimitedExportPanel("] {
+                var rest = source[...]
+                while let found = rest.range(of: "MetagenomicsFilePanelFactory.\(name)") {
+                    let tail = rest[found.lowerBound...]
+                    let call = tail[..<(tail.range(of: "beginSheetModal")?.lowerBound ?? tail.endIndex)]
+                    XCTAssertTrue(call.contains("startingIn:"), "\(file) makes \(name) with no starting folder")
+                    calls += 1
+                    rest = tail[found.upperBound...]
+                }
+            }
+        }
+        XCTAssertEqual(calls, 8, "the eight export panels of the result viewers")
+    }
 }
