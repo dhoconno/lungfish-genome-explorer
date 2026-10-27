@@ -84,7 +84,7 @@ public enum PortableStoragePlan {
     /// BBTools reads and writes Phred+33 and keeps every score up to Q93. With qin=auto bbmap 40.02 switches to ASCII-64
     /// at the first score of about Q55 in a short read, then stores every later score 31 too low, stops, or hangs; its
     /// called-quality cap of 50 lowers HiFi and Element scores under `none` (BIO-BIN-QIN).
-    package static let qualityEncodingArguments = ["qin=33", "qout=33", "maxcalledquality=93"]
+    package static let qualityEncodingArguments = BBToolsQualityArguments.keepEveryScore
 
     /// The `quantize=` argument clumpify.sh and reformat.sh share for a scheme.
     package static func quantizeArgument(for scheme: QualityBinningScheme) -> String? {
