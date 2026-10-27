@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishCore
 @testable import LungfishIO
 
 final class ProjectTempDirectoryTests: XCTestCase {
@@ -51,6 +52,21 @@ final class ProjectTempDirectoryTests: XCTestCase {
         let found = ProjectTempDirectory.findProjectRoot(importsPath)
         XCTAssertNotNil(found)
         XCTAssertEqual(found?.standardizedFileURL, projectDir.standardizedFileURL)
+    }
+
+    /// Finder names a copy of `P.lungfish` `P.lungfish copy`, and the app opens it as a project, so a file of a
+    /// result inside it has the copy as its project (walk WF-3, Phase 3.0 lane PROJECT-ROOT).
+    @MainActor
+    func testFindProjectRootReturnsFinderCopyFromNestedResult() throws {
+        let original = testRoot.appendingPathComponent("P.lungfish", isDirectory: true)
+        _ = try ProjectFile.create(at: original, name: "P")
+        let copy = testRoot.appendingPathComponent("P.lungfish copy", isDirectory: true)
+        try FileManager.default.copyItem(at: original, to: copy)
+        let file = copy.appendingPathComponent("Analyses/r/file.txt")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: file)
+
+        XCTAssertEqual(ProjectTempDirectory.findProjectRoot(file)?.standardizedFileURL, copy.standardizedFileURL)
     }
 
     func testFindProjectRootReturnsNilOutsideProject() throws {
