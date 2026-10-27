@@ -14,7 +14,7 @@ import LungfishCore
 /// Supports:
 /// - Standard FASTQ format
 /// - Multi-line sequences (wrapping)
-/// - Automatic quality encoding detection
+/// - Phred+33 scores, or the encoding the caller passes (the reader never guesses one)
 /// - Compressed files (.gz) via automatic decompression
 ///
 /// ## Usage
@@ -30,7 +30,7 @@ public final class FASTQReader: Sendable {
 
     // MARK: - Configuration
 
-    /// Quality encoding to use (nil = auto-detect)
+    /// Quality encoding to use (nil = Phred+33, the only encoding LGE stores)
     public let encoding: QualityEncoding?
 
     /// Whether to validate sequence characters
@@ -44,7 +44,7 @@ public final class FASTQReader: Sendable {
     /// Creates a FASTQ reader.
     ///
     /// - Parameters:
-    ///   - encoding: Quality encoding (nil for auto-detection)
+    ///   - encoding: Quality encoding (nil reads Phred+33, which is what LGE stores)
     ///   - validateSequence: Whether to validate sequence characters
     ///   - maxLineLength: Maximum line length
     public init(
@@ -93,7 +93,7 @@ public final class FASTQReader: Sendable {
 
         private let reader: FASTQReader
         private var lines: AsyncThrowingStream<String, Error>.AsyncIterator
-        private var detectedEncoding: QualityEncoding?
+        private let callerEncoding: QualityEncoding?
         private var lineNumber = 0
         private var currentHeader: String?
         private var currentSequence = ""
@@ -105,7 +105,7 @@ public final class FASTQReader: Sendable {
         init(reader: FASTQReader, lines: AsyncThrowingStream<String, Error>) {
             self.reader = reader
             self.lines = lines.makeAsyncIterator()
-            self.detectedEncoding = reader.encoding
+            self.callerEncoding = reader.encoding
         }
 
         func next() async throws -> FASTQRecord? {
@@ -178,7 +178,7 @@ public final class FASTQReader: Sendable {
                         identifier: identifier,
                         description: description,
                         sequence: "",
-                        quality: QualityScore(ascii: "", encoding: detectedEncoding ?? .phred33)
+                        quality: QualityScore(ascii: "", encoding: callerEncoding ?? .phred33)
                     )
 
                     currentHeader = String(line.dropFirst())
@@ -212,15 +212,10 @@ public final class FASTQReader: Sendable {
                     return nil
                 }
 
-                // Auto-detect encoding from first record
-                if detectedEncoding == nil {
-                    detectedEncoding = QualityEncoding.detect(from: currentQuality)
-                }
-
                 let (identifier, description) = reader.parseHeader(header)
                 let quality = QualityScore(
                     ascii: currentQuality,
-                    encoding: detectedEncoding ?? .phred33
+                    encoding: callerEncoding ?? .phred33
                 )
 
                 let record = FASTQRecord(
@@ -517,7 +512,7 @@ public final class FASTQReader: Sendable {
         from url: URL,
         _ body: (FASTQRecord) throws -> Void
     ) throws {
-        var detectedEncoding = self.encoding
+        let callerEncoding = self.encoding
         var lineNumber = 0
         var currentHeader: String?
         var currentSequence = ""
@@ -588,7 +583,7 @@ public final class FASTQReader: Sendable {
                         identifier: identifier,
                         description: description,
                         sequence: "",
-                        quality: QualityScore(ascii: "", encoding: detectedEncoding ?? .phred33)
+                        quality: QualityScore(ascii: "", encoding: callerEncoding ?? .phred33)
                     )
                     try body(record)
 
@@ -623,15 +618,10 @@ public final class FASTQReader: Sendable {
                     return
                 }
 
-                // Auto-detect encoding from first record
-                if detectedEncoding == nil {
-                    detectedEncoding = QualityEncoding.detect(from: currentQuality)
-                }
-
                 let (identifier, description) = self.parseHeader(header)
                 let quality = QualityScore(
                     ascii: currentQuality,
-                    encoding: detectedEncoding ?? .phred33
+                    encoding: callerEncoding ?? .phred33
                 )
 
                 let record = FASTQRecord(

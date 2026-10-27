@@ -13,8 +13,8 @@
 import Foundation
 
 extension FASTQQualityFractions {
-    /// Counts every base of every record in `urls`, each file with its own
-    /// detected encoding. The bytes are counted as they stream past rather
+    /// Counts every base of every record in `urls` at Phred+33, the only
+    /// encoding LGE stores. The bytes are counted as they stream past rather
     /// than parsed into records, which ran at about 50 MB/s and kept a
     /// 100 GB import busy for half an hour.
     public static func scan(_ urls: [URL]) async throws -> FASTQQualityFractions {

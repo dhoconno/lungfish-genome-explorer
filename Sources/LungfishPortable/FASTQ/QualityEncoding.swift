@@ -101,6 +101,8 @@ extension QualityEncoding {
     /// - If all characters >= 64, could be Phred+64 or Phred+33 with high quality
     /// - Default to Phred+33 (most common modern format)
     ///
+    /// Diagnostic only. LGE reads and stores Phred+33 and never uses this guess to read scores (BIO-BIN-QIN).
+    ///
     /// - Parameter ascii: Sample of ASCII quality characters
     /// - Returns: Detected encoding
     public static func detect(from ascii: String) -> QualityEncoding {
