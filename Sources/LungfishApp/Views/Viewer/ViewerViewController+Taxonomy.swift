@@ -172,9 +172,27 @@ extension ViewerViewController {
 
         controller.onBlastVerification = { [weak self, weak controller] node, readCount in
             guard let controller else { return }
-            guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node),
-                  let sampleResult = try? ClassificationResult.load(from: sampleDirectory) else {
+            // Run marked the search begun, so a start that fails ends it as every other BLAST failure does, in words
+            // that say which record is the problem (ARCH Backlog B12).
+            guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node) else {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
+                let words = "BLAST Matching Reads could not start because LGE could not find this sample's classification record. "
+                    + "Run the classification again to rebuild it."
+                controller.showBlastFailure(message: words, runID: controller.currentBlastRunID)
+                showBlastVerificationErrorAlert(words)
+                return
+            }
+            let sampleResult: ClassificationResult
+            do {
+                sampleResult = try ClassificationResult.load(from: sampleDirectory)
+            } catch {
+                taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
+                var reason = error.localizedDescription
+                if reason.hasSuffix(".") { reason.removeLast() }
+                let words = "BLAST Matching Reads could not start because LGE could not read this sample's classification record: "
+                    + "\(reason). Run the classification again to rebuild it."
+                controller.showBlastFailure(message: words, runID: controller.currentBlastRunID)
+                showBlastVerificationErrorAlert(words)
                 return
             }
             let recorded = Result { try KrakenResultReadSources.recordedInputs(of: sampleResult, refusalAction: .blast) }
