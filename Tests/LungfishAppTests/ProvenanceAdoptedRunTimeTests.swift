@@ -6,6 +6,7 @@ import SwiftUI
 import ViewInspector
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 import LungfishCore
 import LungfishTestSupport
 
@@ -159,5 +160,13 @@ final class ProvenanceAdoptedRunTimeTests: XCTestCase {
         let lines = copiedRunSummary(model)
         XCTAssertTrue(lines.contains("Wall Time: 12.40 s"), "\(lines)")
         XCTAssertFalse(lines.contains { $0.hasPrefix(linuxRunLabel) || $0.hasPrefix(adoptLabel) }, "\(lines)")
+    }
+
+    // MARK: - The executor step's name
+
+    /// The summary finds the executor's step by a copy of the name the adopt writes. A rename at the writer would put every
+    /// new adopted run back on one Wall Time row, and the fixture would not notice.
+    func testTheExecutorStepNameIsTheNameTheAdoptWrites() {
+        XCTAssertEqual(ProvenanceLinuxRun.executorStepToolName, ExecutorRunAdoption.executorToolName)
     }
 }
