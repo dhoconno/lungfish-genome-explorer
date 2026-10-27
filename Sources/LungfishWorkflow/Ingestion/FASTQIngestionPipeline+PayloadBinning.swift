@@ -21,6 +21,9 @@ extension FASTQIngestionPipeline {
         progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
     ) async throws -> StepExecution {
         precondition(scheme != .none, "binQualities needs a binning scheme")
+        // `run` guards every route it takes, and chunk binning does not pass `run`, so the file is checked here before
+        // reformat.sh is told its scores are Phred+33 (BIO-BIN-QIN N2, fix round 4 item 1).
+        try QualityEncoding.refuseLegacyPhred64([inputFile], launcher: ToolProcessChildLauncher())
         let record = try await reformatQuantize(
             config: FASTQIngestionConfig(
                 inputFiles: [inputFile],
