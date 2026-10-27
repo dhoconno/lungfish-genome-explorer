@@ -15,6 +15,7 @@ public struct ONTImportWorkflow: Sendable {
         case outputAlreadyExists([String])
         case optimizationRequiresFlattenedStorage
         case missingFlattenedPayload(String)
+        case missingBarcodeFolder(String)
 
         public var errorDescription: String? {
             switch self {
@@ -24,6 +25,9 @@ public struct ONTImportWorkflow: Sendable {
                 return "ONT import storage optimization requires flattened storage mode."
             case .missingFlattenedPayload(let path):
                 return "ONT import could not find a flattened FASTQ payload in \(path)."
+            case .missingBarcodeFolder(let bundle):
+                return "ONT import could not match '\(bundle)' to a barcode folder of the source, "
+                    + "so it could not record which files the bundle came from. Import the run folder again."
             }
         }
     }
@@ -617,7 +621,7 @@ public struct ONTImportWorkflow: Sendable {
         if let barcodeDirectory = barcodeDirectories.first(where: { $0.barcodeName == barcodeName }) {
             return barcodeDirectory
         }
-        throw ONTImportError.notONTDirectory(bundleURL)
+        throw ImportError.missingBarcodeFolder(bundleURL.lastPathComponent)
     }
 
     private func expectedBundleURLs(

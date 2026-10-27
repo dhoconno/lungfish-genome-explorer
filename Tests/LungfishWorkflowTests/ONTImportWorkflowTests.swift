@@ -65,6 +65,17 @@ final class ONTImportWorkflowTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: focusedURL.path))
     }
 
+    /// A bundle the import made that no barcode folder of the source matches is a fault of the import, not a folder
+    /// the person chose, so its words must not call the folder a non-ONT folder (review fix UX SF1).
+    func testABundleWithNoBarcodeFolderIsNotCalledANonONTFolder() {
+        let error = ONTImportWorkflow.ImportError.missingBarcodeFolder("barcode85.lungfishfastq")
+        XCTAssertEqual(
+            error.errorDescription,
+            "ONT import could not match 'barcode85.lungfishfastq' to a barcode folder of the source, "
+                + "so it could not record which files the bundle came from. Import the run folder again."
+        )
+    }
+
     func testProvenanceDescriptorsUseOriginalInputsAndFinalOutputs() async throws {
         let sourceURL = try makeONTSource(barcodeChunks: [
             "barcode01": ["chunk_0.fastq", "chunk_1.fastq"],
