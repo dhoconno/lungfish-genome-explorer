@@ -330,8 +330,12 @@ extension ClassificationResult {
             let moved = zip(reads.joined(), inProject.joined()).filter { $0 != $1 }.map { $1 }
             if !moved.isEmpty {
                 reads = inProject
-                sourceMissingFromProject = moved.first { !FileManager.default.fileExists(atPath: $0.path) }
-                    .map { sourcePlace(of: $0, inProject: projects.loaded) }
+                // A run on a virtual bundle takes scratch inputs from `<project>/.tmp/` and deletes them when it
+                // ends, so a scratch file that is gone is not a read the open project lacks (BIO should-fix 1).
+                let scratch = ProjectTempDirectory.tempRoot(for: projects.loaded).standardizedFileURL.path + "/"
+                sourceMissingFromProject = moved.first {
+                    !$0.standardizedFileURL.path.hasPrefix(scratch) && !FileManager.default.fileExists(atPath: $0.path)
+                }.map { sourcePlace(of: $0, inProject: projects.loaded) }
             }
         }
         var resolved = ClassificationConfig(
