@@ -86,6 +86,21 @@ struct PlanRunner {
         }
         record.searchPath = searchFolders
         record.runtimes = Self.runtimes(of: prepared)
+        // Every storage route tells BBTools the scores are Phred+33, and a recipe step may rewrite the scores before the
+        // storage step reads them, so the plan's own read inputs are checked once, before any step runs (BIO-BIN-QIN N2,
+        // fix round 4 item 3). The storage step checks its own inputs again.
+        do {
+            let root = URL(fileURLWithPath: resolver.workRoot)
+            let reads = prepared.plan.entries.filter { $0.role == .input }.map { root.appendingPathComponent($0.relativePath) }
+            try QualityEncoding.refuseLegacyPhred64(reads, launcher: ExecutorChildLauncher(
+                controller: controller, decompressor: prepared.decompressor,
+                allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
+            ))
+        } catch {
+            record.outcome = .failed
+            record.reason = error.localizedDescription
+            return
+        }
         var adoptedSoFar = 0
         var readCounts: [String: Int64] = [:]
         for step in prepared.plan.steps {
