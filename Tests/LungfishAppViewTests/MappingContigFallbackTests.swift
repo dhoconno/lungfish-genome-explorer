@@ -245,6 +245,24 @@ final class MappingContigFallbackTests: XCTestCase {
         )
     }
 
+    /// A managed samtools wrapper can hand back a failed streamed step as an empty, successful parse. A track
+    /// that holds mapped reads and measures none failed to measure, in All Alignments as on the visible track.
+    func testAllAlignmentsSaysSoWhenTheBuilderReturnsNoRowsForATrackWithReads() async throws {
+        let (viewport, _) = try openFixture(originalSourcePath: "/elsewhere/reads/other.sorted.bam") { _, _, _ in
+            []
+        }
+        await viewport.mappingRowsRefreshTask?.value
+
+        viewport.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: ""])
+        await viewport.mappingRowsRefreshTask?.value
+
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.count, 0)
+        XCTAssertTrue(
+            viewport.testSummaryText.contains("Could not measure the alignment statistics for Original"),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
+    }
+
     // MARK: - The mapping's own BAM
 
     func testOwnBAMIsRecognisedByItsFolderAndFileName() {
