@@ -197,7 +197,10 @@ final class DemultiplexStoredStatisticsTests: XCTestCase {
             ))
         }
         reads.append(("off-target", Self.bases(1_400, seed: 90)))
-        try Self.fastq(reads).write(to: input.appendingPathComponent("chunk-1.fastq"), atomically: true, encoding: .utf8)
+        try Self.fastq(Array(reads.prefix(3)))
+            .write(to: input.appendingPathComponent("chunk-1.fastq"), atomically: true, encoding: .utf8)
+        try Self.fastq(Array(reads.dropFirst(3)))
+            .write(to: input.appendingPathComponent("chunk-2.fastq"), atomically: true, encoding: .utf8)
         let sheet = root.appendingPathComponent("samples.barcodes.csv")
         try "S1,BC1001,BC1021\n".write(to: sheet, atomically: true, encoding: .utf8)
 
@@ -208,7 +211,7 @@ final class DemultiplexStoredStatisticsTests: XCTestCase {
                 outputDirectory: root.appendingPathComponent("pacbio-out", isDirectory: true),
                 force: true,
                 threads: 1,
-                chunkJobs: 1,
+                chunkJobs: 2,
                 maxReadsPerSlice: 0
             ),
             progress: { _, _ in }

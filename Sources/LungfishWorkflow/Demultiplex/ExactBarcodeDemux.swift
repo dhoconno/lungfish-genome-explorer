@@ -125,6 +125,8 @@ public struct ExactBarcodeSampleResult: Sendable {
     public let maxReadLength: Int
     /// Read length histogram for N50/median computation.
     public let readLengthHistogram: [Int: Int]
+    /// Every statistic of the sample's reads, counted as they were assigned.
+    public let statistics: FASTQDatasetStatistics
 }
 
 /// Aggregate result from exact barcode demultiplexing.
@@ -147,6 +149,8 @@ public struct ExactBarcodeDemuxResult: Sendable {
     public let unassignedMinReadLength: Int
     /// Max read length for unassigned.
     public let unassignedMaxReadLength: Int
+    /// Every statistic of the unassigned reads, counted as they were read.
+    public let unassignedStatistics: FASTQDatasetStatistics
     /// Count of reads left unassigned specifically because they matched more
     /// than one sample's barcode pair (a subset of `unassignedReadCount`).
     /// These are chimeric or ambiguous reads, not simply barcode-free reads.
@@ -186,6 +190,7 @@ public enum ExactBarcodeDemux {
                 unassignedReadIDs: [], unassignedPreview: [],
                 unassignedReadCount: 0, unassignedBaseCount: 0,
                 unassignedMinReadLength: 0, unassignedMaxReadLength: 0,
+                unassignedStatistics: .empty,
                 ambiguousReadCount: 0
             )
         }
@@ -255,6 +260,8 @@ public enum ExactBarcodeDemux {
         var unassignedBaseCount: Int64 = 0
         var unassignedMinLength = Int.max
         var unassignedMaxLength = 0
+        let counter = DemultiplexStatisticsCounter<Int>()
+        let unassignedGroup = -1
 
         var totalReads = 0
         var assignedReads = 0
@@ -315,6 +322,7 @@ public enum ExactBarcodeDemux {
                 unassignedBaseCount += Int64(record.baseCount)
                 unassignedMinLength = min(unassignedMinLength, seqLen)
                 unassignedMaxLength = max(unassignedMaxLength, seqLen)
+                counter.count(record, in: unassignedGroup)
                 continue
             }
 
@@ -358,6 +366,7 @@ public enum ExactBarcodeDemux {
                 sampleMinLength[idx] = min(sampleMinLength[idx], seqLen)
                 sampleMaxLength[idx] = max(sampleMaxLength[idx], seqLen)
                 sampleLengthHistograms[idx][seqLen, default: 0] += 1
+                counter.count(record, in: idx)
                 assignedReads += 1
             } else {
                 if distinctSamples.count > 1 {
@@ -371,6 +380,7 @@ public enum ExactBarcodeDemux {
                 unassignedBaseCount += Int64(record.baseCount)
                 unassignedMinLength = min(unassignedMinLength, seqLen)
                 unassignedMaxLength = max(unassignedMaxLength, seqLen)
+                counter.count(record, in: unassignedGroup)
             }
         }
 
@@ -395,7 +405,8 @@ public enum ExactBarcodeDemux {
                 baseCount: sampleBaseCounts[index],
                 minReadLength: sampleMinLength[index],
                 maxReadLength: sampleMaxLength[index],
-                readLengthHistogram: sampleLengthHistograms[index]
+                readLengthHistogram: sampleLengthHistograms[index],
+                statistics: counter.statistics(of: index)
             ))
         }
 
@@ -413,6 +424,7 @@ public enum ExactBarcodeDemux {
             unassignedBaseCount: unassignedBaseCount,
             unassignedMinReadLength: unassignedReadCount > 0 ? unassignedMinLength : 0,
             unassignedMaxReadLength: unassignedMaxLength,
+            unassignedStatistics: counter.statistics(of: unassignedGroup),
             ambiguousReadCount: ambiguousReads
         )
     }

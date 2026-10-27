@@ -305,28 +305,14 @@ extension MainSplitViewController {
                 self.activeFASTQSourceURL?.standardizedFileURL == standardizedSourceURL
         }
 
-        // Derived bundles use cached manifest stats (which reflect the true read count,
-        // not the preview file's 1,000-read subset).
+        // Derived bundles show their manifest's statistics, measuring the reads when those were not counted.
         if let derivedManifest {
-            viewerController.displayFASTQDataset(
-                statistics: derivedManifest.cachedStatistics,
-                records: [],
+            displayDerivedFASTQDataset(
+                derivedManifest,
+                sourceURL: standardizedSourceURL,
                 fastqURL: fastqURL,
-                sraRunInfo: nil,
-                enaReadRecord: nil,
-                ingestionMetadata: derivedManifest.pairingMode.map {
-                    IngestionMetadata(
-                        isClumpified: true,
-                        isCompressed: true,
-                        pairingMode: $0,
-                        qualityBinning: nil,
-                        originalFilenames: [],
-                        ingestionDate: derivedManifest.createdAt,
-                        originalSizeBytes: nil
-                    )
-                },
-                fastqSourceURL: standardizedSourceURL,
-                fastqDerivativeManifest: derivedManifest
+                viewerController: viewerController,
+                isCurrentRequest: isCurrentRequest
             )
             return
         }

@@ -44,7 +44,7 @@ extension ProjectUniversalSearchIndex {
 
         if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL),
            let sidecar = FASTQMetadataStore.load(for: fastqURL) {
-            if let stats = sidecar.computedStatistics {
+            if let stats = sidecar.computedStatistics, stats.isMeasured {
                 attributes["read_count"] = stats.readCount
                 attributes["base_count"] = stats.baseCount
                 attributes["mean_read_length"] = stats.meanReadLength

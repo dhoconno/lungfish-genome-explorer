@@ -81,10 +81,15 @@ extension DemultiplexingPipeline {
             )
         }
 
+        // One pass over the input counts every read's statistics. The workers of a multi-file root keep the length
+        // counts alone until their counts can be joined (lane DEMUX-STATS, see its Handoff).
+        let counter = DemultiplexStatisticsCounter<String>()
+        var countedEveryRead = false
         func stats(
             for accumulator: ExactBareBarcodeAccumulator
         ) -> FASTQDatasetStatistics {
-            ExactBarcodeDemux.computeStatistics(
+            if countedEveryRead { return counter.statistics(of: accumulator.barcodeID) }
+            return ExactBarcodeDemux.computeStatistics(
                 readCount: accumulator.readCount,
                 baseCount: accumulator.baseCount,
                 minReadLength: accumulator.finalizedMinReadLength,
@@ -314,10 +319,12 @@ extension DemultiplexingPipeline {
             }
         } else {
             progress(0.0, "Starting exact bare-barcode demultiplexing...")
+            countedEveryRead = true
 
             func place(_ fragment: ExactBareMatePairer.Fragment) throws {
                 for record in fragment.records {
                     if let barcodeIndex = fragment.call {
+                        counter.count(record, in: config.barcodeKit.barcodes[barcodeIndex].id)
                         barcodeAccumulators[barcodeIndex].add(
                             readID: record.readID,
                             previewRecord: record,
@@ -331,6 +338,7 @@ extension DemultiplexingPipeline {
                             try outputCache.write(record, to: fastqURL(for: barcodeID))
                         }
                     } else {
+                        counter.count(record, in: unassigned.barcodeID)
                         unassigned.add(
                             readID: record.readID,
                             previewRecord: record,

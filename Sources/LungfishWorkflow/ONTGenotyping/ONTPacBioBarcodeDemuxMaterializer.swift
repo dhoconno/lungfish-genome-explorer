@@ -1032,13 +1032,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 payload: .full(fastqFilename: fastqURL.lastPathComponent),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: ExactBarcodeDemux.computeStatistics(
-                    readCount: sampleResult.readCount,
-                    baseCount: sampleResult.baseCount,
-                    minReadLength: sampleResult.minReadLength,
-                    maxReadLength: sampleResult.maxReadLength,
-                    readLengthHistogram: sampleResult.readLengthHistogram
-                ),
+                cachedStatistics: sampleResult.statistics,
                 pairingMode: nil,
                 sequenceFormat: .fastq,
                 provenance: SampleProvenance(

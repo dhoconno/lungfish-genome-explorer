@@ -752,18 +752,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             )
                         )
                     }
-                    // Compute full statistics (histograms, quality, GC) via native Swift scanner.
+                    // Count every statistic with the native reader, for a moved file too, whose seqkit stats -T row
+                    // stored median, N50, scores and GC as 0 (lane DEMUX-STATS).
                     let statsSource = capturedIsVirtual ? file.url : bundleURL.appendingPathComponent(file.url.lastPathComponent)
-                    let statistics: FASTQDatasetStatistics
-                    if capturedIsVirtual {
-                        let reader = FASTQReader(validateSequence: false)
-                        statistics = try await reader.computeStatistics(from: statsSource, sampleLimit: 0).statistics
-                    } else {
-                        statistics = try await self.computeMaterializedFASTQStatistics(
-                            from: statsSource,
-                            runner: capturedRunner
-                        )
-                    }
+                    let statistics = try await FASTQReader(validateSequence: false)
+                        .computeStatistics(from: statsSource, sampleLimit: 0).statistics
 
                     return .finished(VirtualBundleResult(
                         baseName: file.baseName,
@@ -1037,13 +1030,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     toolUsed: "exact-barcode-demux",
                     toolVersion: nil
                 )
-                let stats = ExactBarcodeDemux.computeStatistics(
-                    readCount: sampleResult.readCount,
-                    baseCount: sampleResult.baseCount,
-                    minReadLength: sampleResult.minReadLength,
-                    maxReadLength: sampleResult.maxReadLength,
-                    readLengthHistogram: sampleResult.readLengthHistogram
-                )
+                let stats = sampleResult.statistics
                 let derivedManifest = FASTQDerivedBundleManifest(
                     name: sampleResult.sampleName,
                     parentBundleRelativePath: parentRelativePath,
@@ -1122,13 +1109,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     toolUsed: "exact-barcode-demux",
                     toolVersion: nil
                 )
-                let stats = ExactBarcodeDemux.computeStatistics(
-                    readCount: demuxResult.unassignedReadCount,
-                    baseCount: demuxResult.unassignedBaseCount,
-                    minReadLength: demuxResult.unassignedMinReadLength,
-                    maxReadLength: demuxResult.unassignedMaxReadLength,
-                    readLengthHistogram: [:]
-                )
+                let stats = demuxResult.unassignedStatistics
                 let derivedManifest = FASTQDerivedBundleManifest(
                     name: "unassigned",
                     parentBundleRelativePath: parentRelativePath,
@@ -2114,12 +2095,14 @@ extension DemultiplexingPipeline {
         let baseCount = Int64(try integerValue("sum_len"))
         guard readCount > 0 else { return .empty }
 
+        // A -T row counts reads and bases and nothing this run uses beyond them. The record is never a bundle's
+        // statistics, and its longest read stays 0 so `isMeasured` calls it unmeasured (lane DEMUX-STATS).
         return FASTQDatasetStatistics(
             readCount: readCount,
             baseCount: baseCount,
-            meanReadLength: Double(baseCount) / Double(readCount),
-            minReadLength: try integerValue("min_len"),
-            maxReadLength: try integerValue("max_len"),
+            meanReadLength: 0,
+            minReadLength: 0,
+            maxReadLength: 0,
             medianReadLength: 0,
             n50ReadLength: 0,
             meanQuality: 0,
