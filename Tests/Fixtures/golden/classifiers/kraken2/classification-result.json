@@ -40,6 +40,13 @@
     ],
     "outputDirectory" : "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Analyses\/kraken2-golden",
     "quickMode" : false,
+    "readFileIdentities" : [
+      {
+        "sha256" : "0515ba304cb1bf7abcdd9c156b6affad7e580273f983dfed2e8fe2d918e800ff",
+        "sizeBytes" : 9413,
+        "url" : "file:\/\/<RUN_ROOT>\/classifiers\/Golden.lungfish\/Imports\/sarscov2-R1.lungfishfastq\/sarscov2-R1.fastq.gz"
+      }
+    ],
     "sampleDisplayName" : "len-150-any-00000000",
     "threads" : 2
   },
