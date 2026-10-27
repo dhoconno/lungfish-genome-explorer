@@ -1068,15 +1068,12 @@ extension SequenceViewerView {
 
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
 
-        // Limit fetch to a reasonable size to avoid loading hundreds of MB.
-        // Always fetch at least 100 Kb to provide buffer for panning.
-        let maxFetchSize = AppSettings.shared.sequenceFetchCapKb * 1_000
-        let center = (region.start + region.end) / 2
-        let visibleSpan = region.end - region.start
-        let halfFetch = min(maxFetchSize / 2, max(50_000, visibleSpan / 2 + visibleSpan))
-        let expandedStart = max(0, center - halfFetch)
-        let expandedEnd = min(Int(chromLength), center + halfFetch)
-        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
+        // The window is bounded by the fetch cap and at least 100 Kb wide for panning.
+        let expandedRegion = Self.sequenceFetchWindow(
+            visible: region,
+            chromosomeLength: Int(chromLength),
+            capBases: AppSettings.shared.sequenceFetchCapKb * 1_000
+        )
 
         sequenceViewerLogger.info("fetchSequenceAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(expandedRegion.length) bp)")
 
@@ -1364,7 +1361,7 @@ extension SequenceViewerView {
         context.strokePath()
 
         // Show "Fetching sequence..." if we're loading data for this zoom level
-        if isFetchingBundleData && frame.scale < showLineThreshold {
+        if showsFetchingSequenceLabel(frame: frame) {
             let label = "Fetching sequence..." as NSString
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 11),
