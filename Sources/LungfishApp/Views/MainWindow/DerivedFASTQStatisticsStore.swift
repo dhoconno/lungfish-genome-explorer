@@ -1,58 +1,40 @@
-// DerivedFASTQStatisticsStore.swift - Measures a derived bundle's uncounted statistics once and stores them
+// DerivedFASTQStatisticsStore.swift - Measures a derived bundle's uncounted statistics once a session
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import Foundation
 import LungfishIO
-import os.log
-
-private let storeLogger = Logger(subsystem: "com.lungfish.app", category: "DerivedFASTQStatisticsStore")
 
 /// The statistics a view shows for a derived bundle (Phase 3.0 lane DEMUX-STATS).
 ///
 /// Stored statistics that were counted are shown as stored. Statistics that were not counted
-/// (`FASTQStatisticsDisplayRules.storedStatisticsToShow`) are measured from the bundle's reads once and written back
-/// into the bundle's derived manifest, through the save the demultiplexer uses, so a large bundle is measured at most
-/// once. When the save fails, on a read-only volume or a locked project, the measured numbers are still shown and kept
-/// for this session, and the save is not tried again.
+/// (`FASTQStatisticsDisplayRules.storedStatisticsToShow`) are measured from the bundle's reads, and the result is kept
+/// in memory for this session. A view writes nothing into the project (Phase 2.6 lane B3, UX 6), because recorded
+/// directory digests cover the bundle's files, so an older bundle is measured once each session.
 @MainActor
 enum DerivedFASTQStatisticsStore {
 
-    /// Measured statistics whose save failed, by bundle path, kept for this session.
-    private static var unsaved: [String: FASTQDatasetStatistics] = [:]
+    /// Measured statistics by bundle path with a stamp of the manifest file, kept for this session. A view writes
+    /// nothing into the project (Phase 2.6 lane B3, UX 6), so an older bundle is measured once each session.
+    private static var measuredThisSession: [String: (stamp: String, statistics: FASTQDatasetStatistics)] = [:]
 
     static func statistics(
         for manifest: FASTQDerivedBundleManifest,
         in bundleURL: URL,
-        measure: @Sendable (URL) async throws -> FASTQDatasetStatistics,
-        save: (FASTQDerivedBundleManifest, URL) throws -> Void = { try FASTQBundle.saveDerivedManifest($0, in: $1) }
+        measure: @Sendable (URL) async throws -> FASTQDatasetStatistics
     ) async throws -> FASTQDatasetStatistics {
         if let stored = FASTQStatisticsDisplayRules.storedStatisticsToShow(manifest.cachedStatistics) {
             return stored
         }
         let key = bundleURL.standardizedFileURL.path
-        if let kept = unsaved[key] { return kept }
-
+        var info = stat()
+        let stamp = stat(FASTQBundle.derivedManifestURL(in: bundleURL).path, &info) == 0
+            ? "\(info.st_ino)|\(info.st_size)|\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec)" : key
+        if let kept = measuredThisSession[key], kept.stamp == stamp { return kept.statistics }
         let measured = try await measure(bundleURL)
-        let updated = FASTQDerivedBundleManifest(
-            id: manifest.id, name: manifest.name, createdAt: manifest.createdAt,
-            parentBundleRelativePath: manifest.parentBundleRelativePath,
-            rootBundleRelativePath: manifest.rootBundleRelativePath,
-            rootFASTQFilename: manifest.rootFASTQFilename,
-            payload: manifest.payload, lineage: manifest.lineage, operation: manifest.operation,
-            cachedStatistics: measured,
-            pairingMode: manifest.pairingMode, readClassification: manifest.readClassification,
-            batchOperationID: manifest.batchOperationID, sequenceFormat: manifest.sequenceFormat,
-            provenance: manifest.provenance, payloadChecksums: manifest.payloadChecksums,
-            materializationState: manifest.materializationState
-        )
-        do {
-            try save(updated, bundleURL)
-        } catch {
-            unsaved[key] = measured
-            storeLogger.error(
-                "Measured \(bundleURL.lastPathComponent, privacy: .public) but could not store the statistics: \(error.localizedDescription, privacy: .public). Showing them for this session."
-            )
+        measuredThisSession[key] = (stamp, measured)
+        if measuredThisSession.count > 32, let old = measuredThisSession.keys.first(where: { $0 != key }) {
+            measuredThisSession[old] = nil
         }
         return measured
     }

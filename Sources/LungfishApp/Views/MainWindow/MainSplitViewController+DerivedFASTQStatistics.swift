@@ -10,8 +10,8 @@ extension MainSplitViewController {
 
     /// Shows a derived bundle's stored statistics, which reflect every read and not the preview's subset. Statistics
     /// that were not counted (`FASTQStatisticsDisplayRules.storedStatisticsToShow`) are measured from the bundle's
-    /// reads, materialized into a temporary folder outside the project, and `DerivedFASTQStatisticsStore` writes them
-    /// back into the bundle's manifest, so a bundle made before lane DEMUX-STATS is measured once.
+    /// reads, materialized into a temporary folder outside the project, and the result is kept in memory for the
+    /// session, because a view writes nothing into the project.
     func displayDerivedFASTQDataset(
         _ manifest: FASTQDerivedBundleManifest,
         sourceURL: URL,
