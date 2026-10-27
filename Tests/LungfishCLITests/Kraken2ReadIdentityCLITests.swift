@@ -91,7 +91,56 @@ final class Kraken2ReadIdentityCLITests: XCTestCase {
         XCTAssertEqual(written.filter { $0.contains(".fastq") }, [], "a refused collection writes no FASTQ")
     }
 
+    /// BIO B1. The reads keep the lengths kraken2 saw, so every drawn read passes the check, but the size the result
+    /// recorded for its read file is not the file's size now. `blast verify` goes on to submit, as it did, and says
+    /// on stderr that the files changed, in the words Extract adds to its completion. The submit fails at the closed
+    /// stand-in port, after the note.
+    func testBlastVerifyNotesFilesThatChangedWhenEveryDrawnReadPasses() throws {
+        try saveResultRecordingPayloadSize(offsetBy: 1)
+
+        let result = try runCLI(blastVerifyArguments)
+
+        XCTAssertTrue(result.stderr.contains("changed after this result was made"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Lungfish sent nothing to BLAST"), result.stderr)
+    }
+
+    /// The same result with the size its read file has: no note. The test passes at the base on purpose, since it
+    /// guards the note against being written for every draw.
+    func testBlastVerifyStaysSilentWhenTheSizesAreEqual() throws {
+        try saveResultRecordingPayloadSize(offsetBy: 0)
+
+        let result = try runCLI(blastVerifyArguments)
+
+        XCTAssertFalse(result.stderr.contains("changed after this result was made"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Lungfish sent nothing to BLAST"), result.stderr)
+    }
+
     // MARK: - Helpers
+
+    private var blastVerifyArguments: [String] {
+        [
+            "blast", "verify", "--kreport", report.path, "--kraken-output", krakenOutput.path,
+            "--source", bundle.path, "--taxid", "562", "--reads", "4",
+        ]
+    }
+
+    /// The reads put back at the length kraken2 saw, and the result saved again with the size of its read file
+    /// `offset` bytes off the file's own, so a draw passes the check and the sizes differ (or agree, at 0).
+    private func saveResultRecordingPayloadSize(offsetBy offset: UInt64) throws {
+        let payload = bundle.appendingPathComponent("reads.fastq")
+        try Self.fastq(["r1", "r2", "r3", "r4"], length: 20).write(to: payload, atomically: true, encoding: .utf8)
+        let size = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: payload.path)[.size] as? UInt64)
+        var config = ClassificationConfig(
+            inputFiles: [payload], isPairedEnd: false, databaseName: "TestDB",
+            databasePath: URL(fileURLWithPath: "/nonexistent/db", isDirectory: true), outputDirectory: resultFolder
+        )
+        config.originalInputFiles = [bundle]
+        config.readFileIdentities = [ReadFileIdentity(url: payload, sizeBytes: size + offset, sha256: nil)]
+        try ClassificationResult(
+            config: config, tree: try KreportParser.parse(url: report), reportURL: report, outputURL: krakenOutput,
+            brackenURL: nil, runtime: 1, toolVersion: "2.1.3", provenanceId: nil
+        ).save(to: resultFolder)
+    }
 
     private nonisolated static func fastq(_ names: [String], length: Int) -> String {
         zip(names, ["A", "C", "G", "T"]).map { name, base in
