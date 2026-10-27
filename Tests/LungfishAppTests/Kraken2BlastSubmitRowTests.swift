@@ -227,6 +227,49 @@ final class Kraken2BlastSubmitRowTests: XCTestCase {
         XCTAssertEqual(staged.filter { $0.hasPrefix("blast-submit-") }, [], "no query was staged")
     }
 
+    /// A lookup that built its request, so every drawn read passed the read check, while the read files had changed
+    /// since the result was made, gives the row the note that the files changed. The row logs those words before it
+    /// plans the search, so they stand ahead of its "Submitting" line, and the search then goes on to the leaf: the
+    /// note is a caution and not a refusal (BIO-READ-IDENTITY B1, the BLAST row note of the fix round).
+    func testTheRowLogsTheNoteThatTheFilesChangedBeforeTheSearchAndGoesOn() async throws {
+        let (project, result) = try makeProject()
+        let marker = folder.appendingPathComponent("leaf-ran")
+        let words = "BLAST search failed: the stand-in fails"
+        let events = folder.appendingPathComponent("failed.ndjson")
+        try (#"{"error":"\#(words)","event":"failed","schemaVersion":2}"# + "\n").write(to: events, atomically: true, encoding: .utf8)
+        let cli = try standInCLI("/usr/bin/touch '\(marker.path)'\n/bin/cat '\(events.path)'\nexit 1\n")
+        let note = "the files changed"
+        let spy = RowDrawerSpy()
+        var rowID: UUID?
+
+        let task = try XCTUnwrap(ViewerViewController.launchKraken2BlastSubmit(
+            taxonName: "Escherichia coli", projectURL: project, resultDirectory: result,
+            runner: CLIBlastSubmitRunner(cliURLOverride: cli),
+            lookup: { [request = Self.request] in request },
+            readsChangedNote: { note }
+        ) { id in
+            rowID = id
+            return spy.drawer
+        })
+        let id = try XCTUnwrap(rowID)
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        await task.value
+
+        let ended = try XCTUnwrap(item(id))
+        let log = ended.logEntries.map(\.message)
+        let noted = try XCTUnwrap(log.firstIndex(of: note), "the row's log holds the note: \(log)")
+        let submitting = try XCTUnwrap(log.firstIndex { $0.hasPrefix("Submitting 2 reads") }, "the row logs the search: \(log)")
+        XCTAssertLessThan(noted, submitting, "the note stands in the log before the search starts: \(log)")
+        XCTAssertEqual(log.filter { $0 == note }.count, 1, "the note is logged once: \(log)")
+        XCTAssertNotNil(ended.cliCommand, "the search was planned")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path), "the note stops nothing: the leaf ran")
+        XCTAssertEqual(ended.state, .failed)
+        XCTAssertEqual(ended.errorMessage, words, "the row ends with the leaf's own message, not the note")
+        XCTAssertEqual(spy.failures, [words], "the drawer shows the leaf's message once")
+        XCTAssertEqual(spy.results.count, 0)
+    }
+
     // MARK: - Fixtures
 
     private static let request = BlastVerificationRequest(

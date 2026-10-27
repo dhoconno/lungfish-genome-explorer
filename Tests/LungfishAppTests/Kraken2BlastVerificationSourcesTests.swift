@@ -139,6 +139,30 @@ final class Kraken2BlastVerificationSourcesTests: XCTestCase {
         }
     }
 
+    /// The words the BLAST row logs when the read files changed after the result was made and every drawn read still
+    /// passed: a recorded size that is not the file's size gives the note Extract gives, naming the result's place, and
+    /// the file's own size gives nothing, so the note is not written for every search (BIO-READ-IDENTITY B1, the BLAST
+    /// row note of the fix round).
+    func testTheChangedFilesNoteIsTheWordsOfExtractForAnotherSizeAndNilForTheSameSize() async throws {
+        let file = root.appendingPathComponent("note-reads.fastq")
+        let text = Kraken2BlastShapes.fastq([("n1", Kraken2BlastShapes.mate1Sequence), ("n2", Kraken2BlastShapes.mate2Sequence)])
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let size = UInt64(text.utf8.count)
+
+        let another = await ViewerViewController.kraken2BlastChangedFilesNote(
+            identities: [ReadFileIdentity(url: file, sizeBytes: size + 7, sha256: nil)], sourceInputs: [file]
+        )
+        XCTAssertEqual(
+            another, KrakenResultReadSources.changedReadsNote(place: KrakenResultReadSources.place(of: [file])),
+            "a recorded size that is not the file's gives the words Extract gives"
+        )
+
+        let same = await ViewerViewController.kraken2BlastChangedFilesNote(
+            identities: [ReadFileIdentity(url: file, sizeBytes: size, sha256: nil)], sourceInputs: [file]
+        )
+        XCTAssertNil(same, "the file's own size gives no note")
+    }
+
     // MARK: - Helpers
 
     /// The request the viewer's BLAST row builds for taxon 100 of `result`,
