@@ -156,6 +156,10 @@ public struct GenotypeSmartCohortSection: View {
     @ViewBuilder
     private func cohortRow(_ cohort: DisplayedCohort) -> some View {
         let presentation = Self.rowPresentation(for: cohort)
+        // The delete button is an icon, so these words are all a person hears or reads. They name the cohort, since
+        // every row has the same button (walk WO-7).
+        let removeLabel = "Remove \(cohort.filter.name)"
+        let deleteHelp = "Delete the \(cohort.filter.name) cohort"
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Button(action: { onSelect(cohort.filter) }) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -197,7 +201,8 @@ public struct GenotypeSmartCohortSection: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.regular)
-            .help("Delete cohort")
+            .help(deleteHelp)
+            .accessibilityLabel(removeLabel)
             .accessibilityIdentifier("genotypeSmartCohortDeleteButton")
         }
     }
