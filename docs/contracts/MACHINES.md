@@ -21,6 +21,22 @@ The release Mac holds the signing identity, the notary profile and the Sparkle k
 
 A development Mac needs no release verification root (`~/.lungfish-verify`) and no packaged releases under `build/Release`, because it never packages.
 
+## Storage on the Mac Studio
+
+The Mac Studio has two disks. The internal disk (1.8 TiB APFS, FileVault) holds the system, the accounts, the checkouts and everything a release or a gate reads. Hourly local Time Machine snapshots keep every deleted block on it until they are thinned. The scratch disk `/Volumes/lge_scratch` is a Samsung T7 USB SSD (2 TB APFS on a 10 Gb/s link, not encrypted, owners enabled), left out of Time Machine and Spotlight, with no local snapshots. The owner set it up on 2026-10-27 and keeps it connected. LGE's files on it live under `/Volumes/lge_scratch/lge`, which belongs to `dho`.
+
+| Data | Disk | Why |
+|---|---|---|
+| Release builds, `build/Release`, `/private/var/tmp/lungfish-release-cache` and the signing setup | Internal | The release scripts and Sparkle name these paths, and the scratch disk is not encrypted |
+| The primary checkout, the program worktree and its `.build`, landings and every gate | Internal | Gate timings and evidence were measured there (`docs/contracts/VERIFICATION-ORDER.md`) |
+| The golden environment `/Users/Shared/lungfish-golden` | Internal | The goldens record its fixed path, and the runner account shares it |
+| `~/.lungfish` and `~/.lungfish-stable` | Internal | The installed apps and Debug use them as storage roots |
+| The system temporary folder and `TMPDIR` | Internal | `ProjectTempDirectory` honours `TMPDIR` and `FileManager` does not, so moving it would put one run's files on two disks |
+| Lane, continuation and fix builds | Internal until the build trial of backlog row SCRATCH-BUILD-TRIAL passes | They are the 18 GB folders that filled the internal disk in Phase 3.0 |
+| Closed walk corpora and phase-end worktree bundles | Scratch, under `/Volumes/lge_scratch/lge/archive/` | Nothing reads them by path during a session |
+
+When the scratch disk is missing or full, nothing large moves to the internal disk without the owner's word. `docs/contracts/RUNNING-A-PHASE-SESSION.md` says what a session does instead.
+
 ## The golden environment
 
 The golden captures run `lungfish-cli` against a managed storage root at `/Users/Shared/lungfish-golden/storage`. The path is the same on every Mac, so the goldens record the same tool and database paths whoever runs them. The folder holds ten conda environments (minimap2, samtools, seqkit, kraken2, esviritu, bbtools, pysam, openpyxl, xz and zstd), one test-only Python environment (ivar-oracle, which runs the viralrecon script that IVarConverterViralReconParityTests compares the Swift iVar converter with) and two databases (the Kraken2 Viral database and the EsViritu Viral DB), about 5 GB in all.
