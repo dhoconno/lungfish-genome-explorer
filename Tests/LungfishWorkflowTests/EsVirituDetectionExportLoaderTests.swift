@@ -99,6 +99,22 @@ final class EsVirituDetectionExportLoaderTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(EsVirituDetectionExport.assembly(from: group)).avgReadIdentity, identity, "three contigs")
     }
 
+    /// Contigs of different identities keep the read-weighted sum and divide, bit for bit (walk WO-2 changed only
+    /// contigs of one identity).
+    func testAnAssemblyOfContigsWithDifferentIdentitiesKeepsTheReadWeightedSumToTheLastDigit() throws {
+        let parts: [(identity: Double, reads: Int)] = [(0.9969929135297527, 5), (0.98, 7), (0.9954517210367101, 41)]
+        let rows = parts.enumerated().map { index, part in
+            Self.row(
+                sample: "sample-A", accession: "acc-\(index)", assembly: "asm-1",
+                readCount: part.reads, avgReadIdentity: part.identity
+            )
+        }
+        let total = parts.reduce(0) { $0 + $1.reads }
+        let expected = parts.reduce(0.0) { $0 + $1.identity * Double($1.reads) } / Double(total)
+        let assembly = try XCTUnwrap(EsVirituDetectionExport.assembly(from: rows))
+        XCTAssertEqual(assembly.avgReadIdentity, expected, "different identities keep the old arithmetic exactly")
+    }
+
     func testBatchResultKeepsTheSelectedSamplesInTheViewersOrder() {
         let rows = [
             Self.row(sample: "sample-B", accession: "b-1", assembly: "asm-9", readCount: 20),
