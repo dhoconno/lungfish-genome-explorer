@@ -630,7 +630,7 @@ extension TaxaCollectionsDrawerView: NSOutlineViewDelegate {
             button.bezelStyle = .accessoryBarAction
             button.controlSize = .small
             button.font = .systemFont(ofSize: 10)
-            button.setAccessibilityLabel("Extract all taxa in \(item.collection.name)")
+            button.setAccessibilityLabel("Extract ticked taxa in \(item.collection.name)")
             button.isEnabled = !item.enabledTargets.isEmpty
             button.toolTip = button.isEnabled ? nil : "Tick at least one taxon to extract its reads."
             button.setAccessibilityHelp(button.toolTip)

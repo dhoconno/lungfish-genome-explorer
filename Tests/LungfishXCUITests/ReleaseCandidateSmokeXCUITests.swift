@@ -80,7 +80,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
                                                             "Toggle Taxa Collections Drawer", "Collections")).firstMatch
         XCTAssertTrue(drawer.waitForExistence(timeout: 15), "The Kraken2 result shows its Collections button")
         drawer.click()
-        let extract = robot.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Extract all taxa in")).firstMatch
+        let extract = robot.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Extract ticked taxa in")).firstMatch
         XCTAssertTrue(extract.waitForExistence(timeout: 10), "The collections drawer offers Extract")
         extract.click()
         let landed = NSPredicate { _, _ in !ReleaseSmokeFixtures.paths(in: renamed, named: "extracted-").isEmpty }

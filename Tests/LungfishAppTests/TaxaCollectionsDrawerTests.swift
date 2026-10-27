@@ -524,6 +524,7 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         XCTAssertFalse(none.isEnabled, "Extract must be disabled while no taxon is ticked, not a beep alone")
         XCTAssertEqual(none.toolTip, Self.tickATaxonHelp)
         XCTAssertEqual(none.accessibilityHelp(), Self.tickATaxonHelp)
+        XCTAssertEqual(none.accessibilityLabel(), "Extract ticked taxa in \(item.collection.name)")
         none.performClick(nil)
         XCTAssertTrue(received.isEmpty, "A disabled Extract starts nothing")
 
