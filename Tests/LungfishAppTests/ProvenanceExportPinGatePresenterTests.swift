@@ -80,6 +80,36 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         return (shown, proceeded)
     }
 
+    /// Counts the clicks of each alert button by replacing its action, so a key's answer shows without a sheet up.
+    @MainActor
+    private final class ClickCounter: NSObject {
+        private(set) var counts: [Int]
+
+        init(buttons: [NSButton]) {
+            counts = Array(repeating: 0, count: buttons.count)
+            super.init()
+            for (index, button) in buttons.enumerated() {
+                button.tag = index
+                button.target = self
+                button.action = #selector(clicked(_:))
+            }
+        }
+
+        @objc private func clicked(_ sender: NSButton) {
+            counts[sender.tag] += 1
+        }
+    }
+
+    private func keyDown(
+        _ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [], in window: NSWindow
+    ) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+            keyCode: keyCode
+        ))
+    }
+
     // MARK: - The sheet
 
     func testTheSheetNamesEachUnpinnedToolAndItsReasonWithCancelAsTheDefault() throws {
@@ -113,6 +143,22 @@ final class ProvenanceExportPinGatePresenterTests: XCTestCase {
         XCTAssertEqual(alert.buttons[1].keyEquivalent, "")
         XCTAssertEqual(alert.buttons[0].accessibilityIdentifier(), ProvenanceExportPinSheetModel.cancelIdentifier)
         XCTAssertEqual(alert.buttons[1].accessibilityIdentifier(), ProvenanceExportPinSheetModel.exportAnywayIdentifier)
+    }
+
+    func testEscapeAnswersCancelAsReturnDoesAndNoKeyExportsAnyway() throws {
+        // Walk WO-6. Cancel holds Return, so no button held Escape and the sheet stayed up when a person pressed it.
+        // The keys go through the alert's window, as the application sends them to a sheet.
+        let model = try XCTUnwrap(ProvenanceExportPinSheetModel(gate: try request().pinGate(exporter: exporter)))
+        let alert = ProvenanceExportPinGatePresenter.makeAlert(model)
+        let clicks = ClickCounter(buttons: alert.buttons)
+
+        XCTAssertTrue(alert.window.performKeyEquivalent(with: try keyDown("\r", keyCode: 36, in: alert.window)), "Return is handled")
+        XCTAssertEqual(clicks.counts, [1, 0], "Return clicks Cancel")
+        XCTAssertTrue(alert.window.performKeyEquivalent(with: try keyDown("\u{1b}", keyCode: 53, in: alert.window)), "Escape is handled")
+        XCTAssertEqual(clicks.counts, [2, 0], "Escape clicks Cancel too")
+        let commandPeriod = try keyDown(".", keyCode: 47, modifiers: .command, in: alert.window)
+        XCTAssertTrue(alert.window.performKeyEquivalent(with: commandPeriod), "Command-period, which AppKit pairs with Escape, is handled")
+        XCTAssertEqual(clicks.counts, [3, 0], "Command-period clicks Cancel too, and no key clicked Export Anyway…")
     }
 
     func testConfirmHandsTheOverrideToTheLeafAndCancelLeavesTheFolderUnchanged() throws {
