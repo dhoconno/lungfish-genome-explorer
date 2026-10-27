@@ -197,4 +197,51 @@ final class FASTQMeasuringBehindTests: XCTestCase {
         XCTAssertTrue(viewer.isDisplayingFASTQDataset, "the dashboard of BC01 shows")
         XCTAssertTrue(viewer.progressOverlay.isHidden, "the abandoned count leaves no spinner behind")
     }
+
+    // MARK: - The Inspector around the clear (item 5)
+
+    /// The sample metadata section saves an edit 0.5 s after the last keystroke, and clearing the section for the next
+    /// selection cancels that wait. An edit made just before the person selected the next read set was dropped. It is
+    /// saved to its own bundle first, and it is never written into the next bundle.
+    func testAnEditToOneBundlesMetadataIsSavedToItWhenAnUncountedBundleIsSelected() throws {
+        defer { endRequests() }
+        let previous = try makePlainBundle(named: "SRR12486983")
+        showDashboard(of: previous, statistics: Self.previousStatistics)
+        let section = split.inspectorController.fastqMetadataSectionViewModel
+        section.metadata?.sampleType = "nasal swab"
+        section.scheduleAutosave()
+        XCTAssertTrue(section.hasUnsavedChanges, "the edit waits for its autosave")
+
+        let next = try makeDerivedBundle(named: "BC02")
+        split.loadFASTQDatasetInBackground(sourceURL: next)
+
+        let saved = try? String(
+            contentsOf: previous.appendingPathComponent(FASTQBundleCSVMetadata.filename), encoding: .utf8
+        )
+        XCTAssertTrue(saved?.contains("nasal swab") == true, "the edit is saved to the bundle it was made in")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: next.appendingPathComponent(FASTQBundleCSVMetadata.filename).path),
+            "the edit is not written into the next bundle"
+        )
+    }
+
+    /// The clear drops what the sidebar's notification told the Inspector (the selection identity and the targets), so
+    /// this pins that the Inspector still takes the bundle's own numbers and sample metadata when its count ends.
+    func testTheInspectorShowsTheBundlesOwnNumbersWhenItsCountEnds() throws {
+        defer { endRequests() }
+        let previous = try makePlainBundle(named: "SRR12486983")
+        showDashboard(of: previous, statistics: Self.previousStatistics)
+        let next = try makeDerivedBundle(named: "BC02")
+        split.inspectorController.activeContentSelectionIdentity = split.contentSelectionIdentity(
+            url: next, kind: "fastqBundle", resultID: "BC02"
+        )
+
+        split.loadFASTQDatasetInBackground(sourceURL: next)
+        showDashboard(of: next, statistics: Self.countedStatistics)
+
+        XCTAssertEqual(
+            split.inspectorController.fastqMetadataSectionViewModel.metadata?.sampleName, "BC02",
+            "the sample metadata section shows the bundle's own sample"
+        )
+    }
 }

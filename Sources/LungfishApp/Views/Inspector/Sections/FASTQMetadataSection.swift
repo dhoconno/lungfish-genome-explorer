@@ -156,8 +156,10 @@ public final class FASTQMetadataSectionViewModel {
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
 
-    /// Clears the metadata display.
+    /// Clears the metadata display. An edit that still waits for its autosave is saved to its own bundle first,
+    /// since clearing cancels the wait and the edit would be dropped (Phase 3.0 lane DEMUX-STATS-BEHIND, item 5).
     func clear() {
+        if hasUnsavedChanges { performSave() }
         metadata = nil
         bundleURL = nil
         lastSavedMetadata = nil
