@@ -478,6 +478,82 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         XCTAssertEqual(calls, 0)
     }
 
+    // MARK: - Extract Says Why It Is Unavailable (3.0 lane DRAWER-EXTRACT-WORDS)
+
+    /// The help under the disabled Extract button while no taxon is ticked.
+    private static let tickATaxonHelp = "Tick at least one taxon to extract its reads."
+
+    /// A drawer in an off-screen window tall enough that every row of its first collection is live.
+    private func makeLiveDrawer() -> (drawer: TaxaCollectionsDrawerView, window: NSWindow) {
+        let drawer = TaxaCollectionsDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 900))
+        let window = NSWindow(contentRect: drawer.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = drawer
+        drawer.layoutSubtreeIfNeeded()
+        return (drawer, window)
+    }
+
+    /// The button in the cell of column `columnID` at `row`. Fetch it again after every tick, since a
+    /// tick may rebuild the collection row.
+    private func cellButton(_ drawer: TaxaCollectionsDrawerView, column columnID: String, row: Int) throws -> NSButton {
+        let column = try XCTUnwrap(drawer.outlineView.tableColumns.firstIndex { $0.identifier.rawValue == columnID })
+        let cell = try XCTUnwrap(drawer.outlineView.view(atColumn: column, row: row, makeIfNecessary: true))
+        return try XCTUnwrap(cell.subviews.compactMap { $0 as? NSButton }.first)
+    }
+
+    /// Extract with no taxon ticked used to beep and write a log line, which showed the person nothing.
+    /// The button is now disabled with words that say what to do, and enabled again by the next tick.
+    func testExtractIsDisabledWithHelpWhileNoTaxonIsTicked() throws {
+        let (drawer, window) = makeLiveDrawer()
+        withExtendedLifetime(window) {}
+        var received: [TaxaCollection] = []
+        drawer.onBatchExtract = { received.append($0) }
+
+        let item = try XCTUnwrap(drawer.collectionItem(at: 0))
+        drawer.outlineView.expandItem(item)
+        drawer.layoutSubtreeIfNeeded()
+        XCTAssertTrue(try cellButton(drawer, column: "action", row: 0).isEnabled, "With every taxon ticked Extract is available")
+
+        // Untick every taxon the way a person does, by clicking its tick box (row 0 is the collection).
+        for index in item.collection.taxa.indices {
+            try cellButton(drawer, column: "collectionName", row: index + 1).performClick(nil)
+        }
+        XCTAssertTrue(item.enabledTargets.isEmpty, "The clicks must untick every taxon")
+
+        let none = try cellButton(drawer, column: "action", row: 0)
+        XCTAssertFalse(none.isEnabled, "Extract must be disabled while no taxon is ticked, not a beep alone")
+        XCTAssertEqual(none.toolTip, Self.tickATaxonHelp)
+        XCTAssertEqual(none.accessibilityHelp(), Self.tickATaxonHelp)
+        none.performClick(nil)
+        XCTAssertTrue(received.isEmpty, "A disabled Extract starts nothing")
+
+        // The next tick enables Extract again and takes the help away.
+        try cellButton(drawer, column: "collectionName", row: 1).performClick(nil)
+        let one = try cellButton(drawer, column: "action", row: 0)
+        XCTAssertTrue(one.isEnabled, "Ticking one taxon enables Extract again")
+        XCTAssertNil(one.toolTip)
+        one.performClick(nil)
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received.first?.taxa.map(\.taxId), [item.collection.taxa[0].taxId])
+    }
+
+    /// A list that reloads (a new result sets the tree) keeps the ticks, so it builds the same button.
+    func testExtractStaysDisabledWhenTheListReloadsWithNoTaxonTicked() throws {
+        let (drawer, window) = makeLiveDrawer()
+        withExtendedLifetime(window) {}
+        let item = try XCTUnwrap(drawer.collectionItem(at: 0))
+        XCTAssertTrue(try cellButton(drawer, column: "action", row: 0).isEnabled)
+
+        for target in item.collection.taxa {
+            item.enabledTaxa[target.taxId] = false
+        }
+        drawer.setTree(nil)
+
+        let button = try cellButton(drawer, column: "action", row: 0)
+        XCTAssertFalse(button.isEnabled)
+        XCTAssertEqual(button.toolTip, Self.tickATaxonHelp)
+    }
+
     func testControllerExtractFiresOncePerDrawerRequest() throws {
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
