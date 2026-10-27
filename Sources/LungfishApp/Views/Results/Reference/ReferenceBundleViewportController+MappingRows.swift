@@ -155,6 +155,14 @@ extension ReferenceBundleViewportController {
         return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")): \(first.reason)"
     }
 
+    /// The summary line with the words of an alignment summary build after it, in orange, when it has any.
+    func withSummaryWarning(_ text: String) -> String {
+        guard let alignmentTrackSummaryWarning else { return text }
+        summaryLabel.textColor = .systemOrange
+        summaryLabel.toolTip = alignmentTrackSummaryWarning
+        return text + " — Warning: \(alignmentTrackSummaryWarning)"
+    }
+
     /// FASTA descriptions for the sequences the table shows, never a
     /// dictionary over every sequence of a large reference.
     static func fastaDescriptions(

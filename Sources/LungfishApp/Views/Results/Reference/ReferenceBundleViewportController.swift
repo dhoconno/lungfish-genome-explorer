@@ -58,7 +58,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             }
         ).rows
     }
-    private var alignmentTrackSummaryWarning: String?
+    var alignmentTrackSummaryWarning: String?
     private var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
     /// Row identity restoration emits the normal table selection callback.
@@ -486,14 +486,6 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 self?.defaultLeadingFraction(for: MappingPanelLayout.current()) ?? 0.4
             }
         )
-    }
-
-    /// The summary line with the words of an alignment summary build after it, in orange, when it has any.
-    private func withSummaryWarning(_ text: String) -> String {
-        guard let alignmentTrackSummaryWarning else { return text }
-        summaryLabel.textColor = .systemOrange
-        summaryLabel.toolTip = alignmentTrackSummaryWarning
-        return text + " — Warning: \(alignmentTrackSummaryWarning)"
     }
 
     private func updateSummaryBar() {
