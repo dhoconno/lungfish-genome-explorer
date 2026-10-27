@@ -139,7 +139,7 @@ public class ViewerViewController: NSViewController {
     public private(set) var statusBar: ViewerStatusBar!
 
     /// Progress indicator overlay
-    private var progressOverlay: ProgressOverlayView!
+    private(set) var progressOverlay: ProgressOverlayView!
 
     /// Gene tab bar for multi-gene navigation (hidden when not in gene list mode)
     var geneTabBarView: GeneTabBarView!
