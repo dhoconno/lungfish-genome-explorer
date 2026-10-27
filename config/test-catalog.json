@@ -36,7 +36,7 @@
       "purpose": "All GUI-capable SwiftPM targets, including mixed state/view suites",
       "harness": "swift",
       "include": "^(LungfishKitTests|LungfishTwelveSUITests|LungfishAlignmentUITests|LungfishAssemblyUITests|LungfishNvdUITests|LungfishNaoMgsUITests|LungfishTaxTriageUITests|LungfishEsVirituUITests|LungfishGenotypeUITests|LungfishPhylogeneticsUITests|LungfishAppTests|LungfishAppViewTests|LungfishAppWorkflowTests|LungfishOperationsTests)\\.",
-      "exclude": "^LungfishAppTests\\.ViralReconLiveConformanceTests(/|$)",
+      "exclude": "^LungfishAppTests\\.(ViralReconLiveConformanceTests|BBToolsQualityEncodingConformanceTests)(/|$)",
       "resources": [
         "window-server",
         "shared-defaults"
@@ -59,9 +59,9 @@
     },
     {
       "id": "app-live-conformance",
-      "purpose": "Live Viral Recon Nextflow conformance of the app target (Docker, demo archive and built CLI when LUNGFISH_REQUIRE_TOOLS is set); the ui and tool-conformance profiles both select it, and no other app-target class reaches tool-conformance",
+      "purpose": "Live conformance of the app target: Viral Recon Nextflow (Docker, demo archive and built CLI when LUNGFISH_REQUIRE_TOOLS is set) and the BBTools quality-flag conformance (the managed BBTools tools on every score from Q0 to Q93); the ui and tool-conformance profiles both select it, and no other app-target class reaches tool-conformance",
       "harness": "swift",
-      "include": "^LungfishAppTests\\.ViralReconLiveConformanceTests(/|$)",
+      "include": "^LungfishAppTests\\.(ViralReconLiveConformanceTests|BBToolsQualityEncodingConformanceTests)(/|$)",
       "exclude": "",
       "resources": [
         "managed-tools",
