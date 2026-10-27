@@ -181,6 +181,28 @@ final class SequenceViewerFetchDrawTests: XCTestCase {
         XCTAssertEqual(viewer.sequenceFetchGeneration, 1, "the cache covers the view, so the second draw starts no fetch")
     }
 
+    /// A fetch in flight when the view widens past the cap lands, and the redraw of the wide view starts no second one
+    /// (SEQ-FETCH-CAP SWIFT review, should-fix 1).
+    func testAFetchInFlightWhenTheViewWidensPastTheCapLandsAndStartsNoSecondFetch() async throws {
+        let viewer = try makeViewer(frameStart: 100_000, frameEnd: 100_400)
+        try draw(viewer)
+        XCTAssertEqual(viewer.sequenceFetchGeneration, 1)
+        XCTAssertTrue(viewer.isFetchingBundleData, "the 400-base view starts its fetch")
+        // The view widens past the 500 Kb cap while that fetch runs.
+        retainedViewController?.referenceFrame?.start = 0
+        retainedViewController?.referenceFrame?.end = 500_001
+        try draw(viewer)
+        XCTAssertEqual(viewer.sequenceFetchGeneration, 1, "a fetch is running and the wide view starts none")
+        await settleFetch(of: viewer)
+        try draw(viewer)
+        XCTAssertEqual(viewer.sequenceFetchGeneration, 1, "the redraw after the landing starts no second fetch")
+        XCTAssertFalse(viewer.isFetchingBundleData, "no fetch runs, so no flag is left set")
+        XCTAssertNil(viewer.bundleFetchError)
+        let cached = try XCTUnwrap(viewer.cachedSequenceRegion, "the fetch in flight landed its window")
+        XCTAssertLessThanOrEqual(cached.start, 100_000)
+        XCTAssertGreaterThanOrEqual(cached.end, 100_400)
+    }
+
     // MARK: - Fixture
 
     private func settleFetch(of viewer: SequenceViewerView) async {
