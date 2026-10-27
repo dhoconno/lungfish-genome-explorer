@@ -132,12 +132,20 @@ final class MappingContigFallbackTests: XCTestCase {
             viewport.testContigTableView.displayedRows.map(\.mappedReads), [],
             "a track that is not the mapping's own has no measured rows yet"
         )
-        XCTAssertEqual(viewport.testSummaryText, "Original — 10 / 11 reads mapped (90.9%)")
+        XCTAssertEqual(
+            viewport.testSummaryText,
+            "Original — 10 / 11 reads mapped (90.9%) — Measuring the alignment statistics for Original…",
+            "an empty table says that the statistics are being measured"
+        )
 
         let refresh = try XCTUnwrap(viewport.mappingRowsRefreshTask)
         gate.open()
         await refresh.value
         XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.mappedReads), [10])
+        XCTAssertEqual(
+            viewport.testSummaryText, "Original — 10 / 11 reads mapped (90.9%)",
+            "the words go when the rows arrive"
+        )
     }
 
     /// A track made by the filter service has a stats database and names no source, so it is not the
@@ -267,6 +275,38 @@ final class MappingContigFallbackTests: XCTestCase {
         XCTAssertEqual(viewport.testContigTableView.displayedRows.count, 0)
         XCTAssertTrue(
             viewport.testSummaryText.contains("Could not measure the alignment statistics for Original"),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
+    }
+
+    /// All Alignments clears the table and fills it once every track is measured, so the summary bar
+    /// says that it is measuring, as it does on a visible track that shows no rows yet.
+    func testAllAlignmentsSaysItIsMeasuringWhileTheBuilderRuns() async throws {
+        let gate = BuilderGate()
+        defer { gate.open() }
+        var holdsBuilds = false
+        let (viewport, _) = try openFixture(originalSourcePath: "/elsewhere/reads/other.sorted.bam") { _, _, _ in
+            if holdsBuilds { await gate.wait() }
+            return [Self.measuredRow]
+        }
+        await viewport.mappingRowsRefreshTask?.value
+        holdsBuilds = true
+
+        viewport.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: ""])
+        try await waitUntil { gate.arrivals == 1 }
+
+        XCTAssertTrue(viewport.testContigTableView.displayedRows.isEmpty)
+        XCTAssertTrue(
+            viewport.testSummaryText.contains("Measuring the alignment statistics for Original"),
+            "the summary bar reads: \(viewport.testSummaryText)"
+        )
+
+        let refresh = try XCTUnwrap(viewport.mappingRowsRefreshTask)
+        gate.open()
+        await refresh.value
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.map(\.mappedReads), [10])
+        XCTAssertFalse(
+            viewport.testSummaryText.contains("Measuring"),
             "the summary bar reads: \(viewport.testSummaryText)"
         )
     }
