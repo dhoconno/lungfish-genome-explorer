@@ -201,7 +201,7 @@ extension RunPlanTests {
         let argv = fixture.text("logs/reformat.argv").split(separator: "\n").map(String.init)
         XCTAssertEqual(argv, [
             "in=inputs/R1.fastq", "out=out/sample.fastq.gz", "ow=t", "pigz=t", "zl=4", "threads=1", "interleaved=f",
-            "quantize=0,8,13,22,27,32,37",
+            "qin=33", "qout=33", "maxcalledquality=93", "quantize=0,8,13,22,27,32,37",
         ])
         XCTAssertEqual(stored.argv, [fixture.tools[0].path] + argv)
         XCTAssertEqual(stored.storage?.clumpingRan, false)
