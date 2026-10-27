@@ -247,6 +247,8 @@ extension ViewerViewController {
             resultDirectory: resultFolder,
             outputDirectory: resultFolder.appendingPathComponent("extracted-\(collection.id)")
         )
+        // The sample the alert names when the collection finds no reads, as the table names it.
+        let sample = Kraken2TaxonomyTableExport.sidecarSampleId(config: classResult.config)
         ViewerViewController.beginTaxaCollectionExtractionOperation(
             collection: collection,
             arguments: arguments,
@@ -269,9 +271,9 @@ extension ViewerViewController {
                 } catch is CancellationError {
                     // The runner acknowledged the cancel on the row, and the command stopped.
                 } catch {
-                    let errorDesc = error.localizedDescription
-                    _ = OperationCenter.shared.fail(id: opID, detail: errorDesc)
-                    showTaxonomyExtractionErrorAlert(errorDesc)
+                    let words = Self.taxonomyExtractionAlertWords(for: error, sample: sample)
+                    _ = OperationCenter.shared.fail(id: opID, detail: words.text)
+                    showTaxonomyExtractionAlert(words)
                 }
             }
         }
@@ -359,16 +361,30 @@ extension ViewerViewController {
 // Bundle creation now handled by ReadExtractionService.createBundle() called inline
 // in the extraction Task.detached block above.
 
-/// Presents an error alert for a failed taxonomy extraction.
+/// The words of the alert a taxa collection extraction ends in when its command fails.
+struct TaxonomyExtractionAlertWords: Equatable {
+    let title: String
+    let text: String
+    let style: NSAlert.Style
+}
+
+extension ViewerViewController {
+    /// The alert for `error`, which ended `lungfish-cli extract taxa-collection` on the result of `sample`.
+    static func taxonomyExtractionAlertWords(for error: Error, sample: String) -> TaxonomyExtractionAlertWords {
+        TaxonomyExtractionAlertWords(title: "Taxonomy Extraction Failed", text: error.localizedDescription, style: .warning)
+    }
+}
+
+/// Presents the alert a failed taxonomy extraction ends in.
 ///
 /// Uses `beginSheetModal` per macOS 26 conventions (never `runModal()`).
 /// Accesses the window via `NSApp` to avoid capturing `self`.
-private func showTaxonomyExtractionErrorAlert(_ errorDescription: String) {
+private func showTaxonomyExtractionAlert(_ words: TaxonomyExtractionAlertWords) {
     MainActor.assumeIsolated {
         let alert = NSAlert()
-        alert.messageText = "Taxonomy Extraction Failed"
-        alert.informativeText = errorDescription
-        alert.alertStyle = .warning
+        alert.messageText = words.title
+        alert.informativeText = words.text
+        alert.alertStyle = words.style
         alert.addButton(withTitle: "OK")
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window)

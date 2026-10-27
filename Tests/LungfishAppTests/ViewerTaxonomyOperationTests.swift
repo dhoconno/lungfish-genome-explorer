@@ -156,4 +156,44 @@ final class ViewerTaxonomyOperationTests: XCTestCase {
         XCTAssertEqual(parsed.map(\.displayName), collection.taxa.map(\.displayName))
         XCTAssertFalse(collection.taxa.isEmpty)
     }
+
+    // MARK: - The alert a failed collection extraction ends in (walk OBS-W5)
+
+    /// A collection whose ticked taxa have no reads in the sample writes no file, and the command's record then refuses
+    /// the run with the provenance builder's own sentence, which is not for a person to read.
+    func testACollectionWithNoReadsInTheSampleEndsInAnInformationalAlertThatSaysSo() {
+        let sentence = ProvenanceBuilderError.missingOutput("lungfish extract taxa-collection").errorDescription ?? ""
+        XCTAssertTrue(sentence.contains("without recording at least one scientific output"), sentence)
+        let failure = CLISubprocessTransport.RunError.failedEvent(message: sentence, detail: nil)
+
+        let words = ViewerViewController.taxonomyExtractionAlertWords(for: failure, sample: "SRR36291587")
+
+        XCTAssertEqual(words.title, "No reads to extract")
+        XCTAssertEqual(
+            words.text,
+            "None of the ticked taxa has reads in SRR36291587, so there was nothing to extract. "
+                + "Tick a taxon that has reads in this sample, then choose Extract."
+        )
+        XCTAssertEqual(words.style, .informational)
+    }
+
+    func testEveryOtherExtractionFailureKeepsItsWarningAlertAndItsWords() {
+        let failures: [Error] = [
+            CLISubprocessTransport.RunError.failedEvent(message: "Classification result not found: /tmp/x", detail: nil),
+            CLISubprocessTransport.RunError.failedEvent(message: "The source reads were not found.", detail: "Run it again."),
+            CLISubprocessTransport.RunError.nonZeroExit(status: 1, stderr: "seqkit failed"),
+            CLISubprocessTransport.RunError.missingCompletion,
+            // The builder's refusal of another command, or for another reason, is not this ending.
+            CLISubprocessTransport.RunError.failedEvent(
+                message: ProvenanceBuilderError.missingOutput("lungfish extract reads").errorDescription ?? "", detail: nil
+            ),
+            ProvenanceBuilderError.missingRuntimeIdentity("lungfish extract taxa-collection"),
+        ]
+        for failure in failures {
+            let words = ViewerViewController.taxonomyExtractionAlertWords(for: failure, sample: "S1")
+            XCTAssertEqual(words.title, "Taxonomy Extraction Failed", failure.localizedDescription)
+            XCTAssertEqual(words.text, failure.localizedDescription)
+            XCTAssertEqual(words.style, .warning, failure.localizedDescription)
+        }
+    }
 }
