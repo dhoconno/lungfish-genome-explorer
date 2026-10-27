@@ -156,17 +156,17 @@ extension ClassifierReadResolver {
         // finds the layout measured here only in the file's metadata sidecar. A file of pairs alone records
         // `interleaved`, as the bundle destination does, so a lone file is never ingested as single-end against its
         // layout (WF-1). A mix of pairs and single reads keeps its roles and the `single_end` the ingest gives it.
-        var metadata = FASTQMetadataStore.load(for: output) ?? PersistedFASTQMetadata()
-        if let roles = extraction.layout.roles(namedFor: output) {
-            metadata.readClassification = roles
-        }
-        if extraction.layout.pairingMode == .interleaved {
-            metadata.ingestion = IngestionMetadata(
+        let earlier = FASTQMetadataStore.load(for: output)
+        var metadata = earlier ?? PersistedFASTQMetadata()
+        // The file was just written, so a layout already recorded beside its name describes an earlier file.
+        metadata.readClassification = extraction.layout.roles(namedFor: output)
+        metadata.ingestion = extraction.layout.pairingMode == .interleaved
+            ? IngestionMetadata(
                 isCompressed: true, pairingMode: .interleaved, pairingSource: .detected,
                 originalFilenames: [output.lastPathComponent]
             )
-        }
-        if metadata.readClassification != nil || metadata.ingestion != nil {
+            : nil
+        if earlier != nil || metadata.readClassification != nil || metadata.ingestion != nil {
             try FASTQMetadataStore.write(metadata, for: output)
         }
         try await TaxonomyExtractionPipeline().recordProvenance(
