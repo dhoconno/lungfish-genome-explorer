@@ -334,33 +334,31 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         return result
     }
 
-    /// Returns total mapped read count.
-    public func totalMappedReads() -> Int64 {
-        let sql = "SELECT COALESCE(SUM(mapped_reads), 0) FROM chromosome_stats"
+    /// Alignment records that mapped, summed over the sequences (idxstats). A supplementary record counts again beside its read, so this is no read count.
+    public func totalMappedReads() -> Int64 { chromosomeSum("mapped_reads") }
+
+    /// Alignment records that did not map (idxstats), raised to flagstat's total less its mapped. No read count either.
+    public func totalUnmappedReads() -> Int64 {
+        let chromosomeTotal = chromosomeSum("unmapped_reads")
+        guard let flagstatTotal = flagStatCount(category: "total"), let flagstatMapped = flagStatCount(category: "mapped"),
+              flagstatTotal >= flagstatMapped else { return chromosomeTotal }
+        return max(chromosomeTotal, flagstatTotal - flagstatMapped)
+    }
+
+    /// Reads rather than alignment records, from flagstat's `primary mapped` line and its `primary` line less that. `nil` when either
+    /// line is missing, as in a flagstat from before samtools 1.9, or `primary` is below `primary mapped`. Callers then use the sums above.
+    public func primaryReadCounts() -> (mapped: Int64, unmapped: Int64)? {
+        guard let mapped = flagStatCount(category: "primary mapped"), let primary = flagStatCount(category: "primary"),
+              mapped >= 0, primary >= mapped else { return nil }
+        return (mapped, primary - mapped)
+    }
+
+    private func chromosomeSum(_ column: String) -> Int64 {
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        guard sqlite3_prepare_v2(db, "SELECT COALESCE(SUM(\(column)), 0) FROM chromosome_stats", -1, &stmt, nil) == SQLITE_OK else { return 0 }
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return sqlite3_column_int64(stmt, 0)
-    }
-
-    /// Returns total unmapped read count.
-    public func totalUnmappedReads() -> Int64 {
-        let sql = "SELECT COALESCE(SUM(unmapped_reads), 0) FROM chromosome_stats"
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        let chromosomeTotal = sqlite3_column_int64(stmt, 0)
-
-        guard let flagstatTotal = flagStatCount(category: "total"),
-              let flagstatMapped = flagStatCount(category: "mapped"),
-              flagstatTotal >= flagstatMapped else {
-            return chromosomeTotal
-        }
-        let wholeFileUnmapped = flagstatTotal - flagstatMapped
-        guard wholeFileUnmapped >= chromosomeTotal else { return chromosomeTotal }
-        return wholeFileUnmapped
     }
 
     private func flagStatCount(category: String) -> Int64? {

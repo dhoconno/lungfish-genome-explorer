@@ -109,7 +109,7 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
                 print("\n" + formatter.header("Alignment Tracks"))
                 print(formatter.table(
                     headers: BundleAlignmentTrackListing.tableHeaders,
-                    rows: BundleAlignmentTrackListing.tableRows(manifest.alignments, formatter: formatter)
+                    rows: BundleAlignmentTrackListing.tableRows(manifest.alignments, bundleURL: bundleURL, formatter: formatter)
                 ))
             }
 

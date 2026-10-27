@@ -71,7 +71,7 @@ struct BundleListSubcommand: AsyncParsableCommand {
         if !files {
             if !manifest.alignments.isEmpty {
                 print("\n" + formatter.header("Alignment Tracks"))
-                for line in BundleAlignmentTrackListing.listLines(manifest.alignments, formatter: formatter) {
+                for line in BundleAlignmentTrackListing.listLines(manifest.alignments, bundleURL: bundleURL, formatter: formatter) {
                     print("  \(line)")
                 }
             }

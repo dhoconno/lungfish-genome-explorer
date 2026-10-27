@@ -324,12 +324,15 @@ public final class BAMImportService: @unchecked Sendable {
         )
     }
 
+    /// The counts a track publishes in its manifest entry and its stats database: reads, from flagstat's primary lines. A
+    /// database without them (flagstat before samtools 1.9) publishes the idxstats sums, which count supplementary records
+    /// too. Call it after the database holds the flagstat.
     static func publishedReadCounts(
         from metadataDB: AlignmentMetadataDatabase
     ) -> (mapped: Int64, unmapped: Int64, total: Int64) {
-        let mapped = metadataDB.totalMappedReads()
-        let unmapped = metadataDB.totalUnmappedReads()
-        return (mapped, unmapped, mapped + unmapped)
+        let reads = metadataDB.primaryReadCounts()
+            ?? (mapped: metadataDB.totalMappedReads(), unmapped: metadataDB.totalUnmappedReads())
+        return (reads.mapped, reads.unmapped, reads.mapped + reads.unmapped)
     }
 
     // MARK: - Helpers

@@ -93,17 +93,17 @@ struct AlignmentTrackStatsSnapshot: Sendable {
         )
     }
 
-    /// Primary mapped and primary reads from flagstat. A flagstat that predates the
+    /// The reads of the database, from `primaryReadCounts()`. A flagstat that predates the
     /// primary lines (samtools before 1.9) gives its `mapped` and `total` record
     /// counts, as the mapping record's own parse does, and a database without
-    /// flagstat gives its per-sequence totals. `nil` sends the caller to the counts
-    /// the manifest declares.
+    /// flagstat gives its per-sequence totals, which are record counts too. `nil` sends
+    /// the caller to the counts the manifest declares.
     private static func readCounts(in database: AlignmentMetadataDatabase) -> (mapped: Int, total: Int)? {
-        let flagStats = database.flagStats()
-        for (mappedCategory, totalCategory) in [("primary mapped", "primary"), ("mapped", "total")] {
-            if let counts = flagStatCounts(flagStats, mapped: mappedCategory, total: totalCategory) {
-                return counts
-            }
+        if let reads = database.primaryReadCounts() {
+            return (Int(clamping: reads.mapped), Int(clamping: reads.mapped + reads.unmapped))
+        }
+        if let counts = flagStatCounts(database.flagStats(), mapped: "mapped", total: "total") {
+            return counts
         }
         let databaseMapped = database.totalMappedReads()
         let databaseUnmapped = database.totalUnmappedReads()

@@ -256,8 +256,9 @@ public actor PreparedAlignmentAttachmentService {
                 format: request.format
             )
 
-            let mappedReads = metadataDB.totalMappedReads()
-            let unmappedReads = metadataDB.totalUnmappedReads()
+            let readCounts = BAMImportService.publishedReadCounts(from: metadataDB)
+            let mappedReads = readCounts.mapped
+            let unmappedReads = readCounts.unmapped
             let fileSize = try? fileSizeOfItem(at: bamURL)
             let trackInfo = AlignmentTrackInfo(
                 id: outputTrackID,
@@ -471,11 +472,10 @@ public actor PreparedAlignmentAttachmentService {
         metadataDB.setFileInfo("inference_confidence", value: "\(inferredReference.confidence)")
         metadataDB.setFileInfo("genome_size", value: "\(inferredReference.totalLength)")
 
-        let mappedReads = metadataDB.totalMappedReads()
-        let unmappedReads = metadataDB.totalUnmappedReads()
-        metadataDB.setFileInfo("total_reads", value: "\(mappedReads + unmappedReads)")
-        metadataDB.setFileInfo("mapped_reads", value: "\(mappedReads)")
-        metadataDB.setFileInfo("unmapped_reads", value: "\(unmappedReads)")
+        let readCounts = BAMImportService.publishedReadCounts(from: metadataDB)
+        metadataDB.setFileInfo("total_reads", value: "\(readCounts.total)")
+        metadataDB.setFileInfo("mapped_reads", value: "\(readCounts.mapped)")
+        metadataDB.setFileInfo("unmapped_reads", value: "\(readCounts.unmapped)")
 
         return sampleNames
     }

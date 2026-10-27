@@ -533,15 +533,15 @@ public final class ReadStyleSectionViewModel {
         for (trackId, db) in databases {
             let countsTowardTotals = countedTrackIDs.contains(trackId)
 
-            // Chromosome stats
+            // Chromosome stats. The totals count reads, so a track whose flagstat has the primary lines adds those. Its per-sequence
+            // rows count each supplementary alignment again and give the totals of a database without the lines.
+            let reads = countsTowardTotals ? db.primaryReadCounts() : nil
+            aggMapped += reads?.mapped ?? 0
+            aggUnmapped += reads?.unmapped ?? 0
             for stat in db.chromosomeStats() where countsTowardTotals {
-                aggMapped += stat.mappedReads
-                aggUnmapped += stat.unmappedReads
+                if reads == nil { aggMapped += stat.mappedReads; aggUnmapped += stat.unmappedReads }
                 chromStatsList.append(ChromosomeReadStat(
-                    chromosome: stat.chromosome,
-                    length: stat.length,
-                    mappedReads: stat.mappedReads,
-                    unmappedReads: stat.unmappedReads
+                    chromosome: stat.chromosome, length: stat.length, mappedReads: stat.mappedReads, unmappedReads: stat.unmappedReads
                 ))
             }
 
