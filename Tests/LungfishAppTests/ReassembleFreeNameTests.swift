@@ -72,6 +72,40 @@ final class ReassembleFreeNameTests: XCTestCase {
         XCTAssertEqual(run.item.title, "SPAdes Assembly: Mito Assembly")
     }
 
+    /// The new name replaces the project name and nothing else, and its row logs why the name changed.
+    func testTheFreeNameChangesOnlyTheProjectName() throws {
+        let root = try TestTempDirectory.make(prefix: "reassemble-free-name-fields")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("demo.lungfishref", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        func request(named name: String) -> AssemblyRunRequest {
+            AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [root.appendingPathComponent("R1.fastq"), root.appendingPathComponent("R2.fastq")],
+                projectName: name,
+                outputDirectory: root,
+                pairedEnd: true,
+                threads: 3,
+                memoryGB: 8,
+                minContigLength: 500,
+                selectedProfileID: "meta-sensitive",
+                extraArguments: ["--presets", "meta-large"],
+                profileSelectionBasis: "chosen in the wizard"
+            )
+        }
+
+        let planned = AssemblyRunner.requestWithFreeProjectName(request(named: "demo"))
+        XCTAssertEqual(planned.request, request(named: "demo-2"))
+        XCTAssertEqual(planned.note, "demo.lungfishref already exists in \(root.lastPathComponent), so this run is named demo-2.")
+
+        let untouched = AssemblyRunner.requestWithFreeProjectName(request(named: "other"))
+        XCTAssertEqual(untouched.request, request(named: "other"))
+        XCTAssertNil(untouched.note, "a free name logs nothing")
+    }
+
     // MARK: - Helpers
 
     /// Starts the Reassemble run of `projectName` in a project's `Analyses` folder that already holds a

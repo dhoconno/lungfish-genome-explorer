@@ -49,6 +49,21 @@ final class AssemblyFailureAlertTests: XCTestCase {
         XCTAssertTrue(alert.message.contains(words), alert.message)
     }
 
+    /// The alert quotes the first 600 characters of a long reason and says so when a command gave none.
+    func testALongReasonIsCutAndAnEmptyOneSaysSo() {
+        let cut = AssemblyRunner.failureAlert(
+            toolDisplayName: "MEGAHIT",
+            projectName: "demo",
+            message: String(repeating: "x", count: 700)
+        )
+        XCTAssertTrue(cut.message.contains(String(repeating: "x", count: 600) + "..."), "the cut ends in dots")
+        XCTAssertFalse(cut.message.contains(String(repeating: "x", count: 601)), "nothing past the cut")
+
+        let empty = AssemblyRunner.failureAlert(toolDisplayName: "MEGAHIT", projectName: "demo", message: "  \n")
+        XCTAssertEqual(empty.title, "MEGAHIT Assembly Failed")
+        XCTAssertTrue(empty.message.contains("The command gave no reason."), empty.message)
+    }
+
     // MARK: - Helpers
 
     /// Runs a managed assembly on a stand-in `lungfish-cli` that fails with `failedLine`, and returns the

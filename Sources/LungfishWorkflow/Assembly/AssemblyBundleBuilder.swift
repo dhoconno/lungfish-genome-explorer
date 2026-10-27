@@ -763,7 +763,7 @@ public enum AssemblyBundleBuildError: Error, LocalizedError {
         case .indexFailed(let detail):
             return "FASTA indexing failed: \(detail)"
         case .outputBundleAlreadyExists(let url):
-            return "Output assembly bundle already exists: \(url.path)"
+            return "Output assembly bundle already exists: \(url.path). Choose another project name or move the existing bundle."
         case .validationFailed(let detail):
             return "Bundle validation failed: \(detail)"
         }

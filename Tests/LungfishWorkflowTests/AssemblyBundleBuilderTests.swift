@@ -249,6 +249,17 @@ final class AssemblyBundleBuilderTests: XCTestCase {
         }
     }
 
+    /// The refusal of a bundle that exists names it and says what to try next (REASSEMBLE-FREE-NAME). The app
+    /// picks a free name before it runs, so these words reach a person through `lungfish-cli assemble`.
+    func testAnExistingBundleRefusalNamesItAndSaysWhatToTryNext() {
+        let words = AssemblyBundleBuildError
+            .outputBundleAlreadyExists(URL(fileURLWithPath: "/tmp/Existing.lungfishref"))
+            .localizedDescription
+
+        XCTAssertTrue(words.contains("/tmp/Existing.lungfishref"), words)
+        XCTAssertTrue(words.contains("Choose another project name"), words)
+    }
+
     // MARK: - A cancel before the publish (Phase 2.10 lane A46, ruling-A46-bundle)
 
     /// A cancel that comes while the bundle is checked stops the build before it publishes. The build

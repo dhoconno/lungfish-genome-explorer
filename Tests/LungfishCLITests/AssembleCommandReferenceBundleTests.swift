@@ -80,7 +80,9 @@ final class AssembleCommandReferenceBundleTests: XCTestCase {
         let run = try await assemble(in: side)
 
         XCTAssertEqual((run.error as? ExitCode)?.rawValue, CLIExitCode.inputError.rawValue, "\(String(describing: run.error))")
-        XCTAssertEqual(run.failed, "Output assembly bundle already exists: \(bundle.path)")
+        let failed = try XCTUnwrap(run.failed)
+        XCTAssertTrue(failed.hasPrefix("Output assembly bundle already exists: \(bundle.path)"), failed)
+        XCTAssertTrue(failed.contains("Choose another project name"), "the refusal says what to try next: \(failed)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: run.output.path), "the assembler never ran")
         XCTAssertEqual(try String(contentsOf: sentinel, encoding: .utf8), "keep me\n", "the existing bundle is untouched")
     }

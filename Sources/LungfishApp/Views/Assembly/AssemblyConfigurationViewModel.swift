@@ -128,7 +128,9 @@ public enum AssemblyRunner {
 
     /// The part of `runValidated` after its checks, which a test calls. Begins the row for the
     /// normalized `request` and runs it on `lungfish-cli assemble`. Returns the row's ID, or nil when
-    /// it was refused.
+    /// it was refused. A project name whose bundle exists in the output folder takes the next free name
+    /// first (``requestWithFreeProjectName(_:)``), and `presentFailureAlert` takes the place of the
+    /// failure alert in a test.
     @discardableResult
     static func startManagedAssembly(
         request: AssemblyRunRequest,
@@ -136,12 +138,17 @@ public enum AssemblyRunner {
         runner: CLIReadsRunner = CLIReadsRunner(),
         presentFailureAlert: (@MainActor @Sendable (AssemblyFailureAlert) -> Void)? = nil
     ) -> UUID? {
+        let planned = requestWithFreeProjectName(request)
+        let request = planned.request
         let executionRequest = Self.executionRequest(for: request)
         let began = beginAssemblyOperation(
             request: request,
             outputDirectory: executionRequest.outputDirectory,
             routeContext: routeContext
         ) { opID in
+            if let note = planned.note {
+                OperationCenter.shared.log(id: opID, level: .info, message: note)
+            }
             let arguments = managedAssemblyCLIArguments(for: request, outputDirectory: executionRequest.outputDirectory)
             Task.detached {
                 await runManagedAssemblyThroughCLI(
@@ -149,7 +156,8 @@ public enum AssemblyRunner {
                     executionRequest: executionRequest,
                     routeContext: routeContext,
                     operationID: opID,
-                    runner: runner
+                    runner: runner,
+                    presentFailureAlert: presentFailureAlert
                 )
             }
             OperationCenter.shared.setCancelCallback(for: opID) { runner.cancel() }
@@ -163,13 +171,16 @@ public enum AssemblyRunner {
     /// bundle, and a cancel that came after that leaves the row cancelled and reloads the sidebar
     /// (fix 8). A run that threw removes nothing, since the command owns both and the bundle builder
     /// removes its own staging folder. The row opens the bundle the command named, never a path the
-    /// app computes (UX), and a run with no contigs completes with a warning, as in process.
+    /// app computes (UX), and a run with no contigs completes with a warning, as in process. A run that
+    /// failed ends its row Failed and shows the failure alert (UX 4), which `presentFailureAlert` replaces
+    /// in a test. A cancel shows none.
     static func runManagedAssemblyThroughCLI(
         arguments: [String],
         executionRequest: AssemblyRunRequest,
         routeContext: OperationRouteContext?,
         operationID opID: UUID,
-        runner: CLIReadsRunner
+        runner: CLIReadsRunner,
+        presentFailureAlert: (@MainActor @Sendable (AssemblyFailureAlert) -> Void)? = nil
     ) async {
         do {
             let completion = try await runner.runEvents(arguments: arguments, operationID: opID, startAsLog: true)
@@ -201,6 +212,16 @@ public enum AssemblyRunner {
             OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
             if failed {
                 postNotification(title: "Assembly Failed", body: error.localizedDescription, isSuccess: false)
+                let words = failureAlert(
+                    toolDisplayName: executionRequest.tool.displayName,
+                    projectName: executionRequest.projectName,
+                    message: error.localizedDescription
+                )
+                if let presentFailureAlert {
+                    presentFailureAlert(words)
+                } else {
+                    showFailureAlert(words, routeContext: routeContext)
+                }
             }
         }
     }
@@ -431,6 +452,37 @@ public enum AssemblyRunner {
         }
     }
 
+    // MARK: - A free output name
+
+    /// `request` under the next free project name when its bundle is taken in its output folder, with the
+    /// words its row logs about the new name. A name nothing holds comes back as it is, with no words.
+    ///
+    /// The bundle builder names the bundle `<project name>.lungfishref` after it replaces spaces and
+    /// slashes (``AssemblyBundleBuilder/publishedBundle(outputDirectory:bundleName:)``), and it refuses a
+    /// bundle that exists, as `lungfish-cli assemble` must, since the command never overwrites. The app
+    /// plans its runs, so it takes the name MAFFT, IQ-TREE and Extract Subtree take, `-2` and on, from the
+    /// one helper they share (``ViewerViewController/nextAvailableBundleURL(suggestedName:pathExtension:in:)``).
+    /// The pipeline's folder, the row, the recorded command and the bundle then all carry that name
+    /// (REASSEMBLE-FREE-NAME, ARCH's ruling on obs-23).
+    static func requestWithFreeProjectName(
+        _ request: AssemblyRunRequest
+    ) -> (request: AssemblyRunRequest, note: String?) {
+        let taken = AssemblyBundleBuilder.publishedBundle(
+            outputDirectory: request.outputDirectory,
+            bundleName: request.projectName
+        )
+        guard FileManager.default.fileExists(atPath: taken.url.path) else { return (request, nil) }
+        let free = ViewerViewController.nextAvailableBundleURL(
+            suggestedName: taken.safeName,
+            pathExtension: "lungfishref",
+            in: request.outputDirectory
+        )
+        let freeName = free.deletingPathExtension().lastPathComponent
+        let folderName = request.outputDirectory.lastPathComponent
+        let note = "\(taken.url.lastPathComponent) already exists in \(folderName), so this run is named \(freeName)."
+        return (request.renamed(to: freeName), note)
+    }
+
     // MARK: - Disk Space Check
 
     /// Checks whether the output directory has sufficient disk space for assembly.
@@ -477,6 +529,54 @@ public enum AssemblyRunner {
             alert.beginSheetModal(for: window)
         }
         logger.warning("Assembly blocked: insufficient disk space (required=\(required), available=\(available))")
+    }
+
+    // MARK: - The failure alert
+
+    /// The alert of a failed run (UX 4). It names the run that stopped and gives the command's own words
+    /// for why, then says where to read more and what to do next. The row and its log keep the whole
+    /// reason, so the alert quotes at most its first 600 characters.
+    nonisolated static func failureAlert(
+        toolDisplayName: String,
+        projectName: String,
+        message: String
+    ) -> AssemblyFailureAlert {
+        let limit = 600
+        var reason = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if reason.isEmpty { reason = "The command gave no reason." }
+        if reason.count > limit { reason = String(reason.prefix(limit)) + "..." }
+        return AssemblyFailureAlert(
+            title: "\(toolDisplayName) Assembly Failed",
+            message: """
+                The \(toolDisplayName) assembly named \(projectName) stopped before it finished.
+
+                \(reason)
+
+                To read what the assembler printed, choose View Log on the failed row in the Operations panel. \
+                Then fix the cause, or change the reads or the settings, and run the assembly again.
+                """
+        )
+    }
+
+    /// Shows `words` as a sheet on the route's window. With no window the app shows it application-modal
+    /// through `NSApp.presentError`, since the project rules forbid `runModal`. A test runner has no app
+    /// bundle, and an application-modal alert there waits for a click that never comes, so it shows nothing.
+    static func showFailureAlert(_ words: AssemblyFailureAlert, routeContext: OperationRouteContext?) {
+        guard runsInAppBundle else { return }
+        let alert = NSAlert()
+        alert.messageText = words.title
+        alert.informativeText = words.message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.applyLungfishBranding()
+        let window = AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?.window
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            NSApp.presentError(AssemblyFailureAlertError(title: words.title, message: words.message))
+        }
     }
 
     // MARK: - Notifications
@@ -528,5 +628,36 @@ public enum AssemblyRunner {
     /// (`bundleProxyForCurrentProcess is nil`).
     private static var runsInAppBundle: Bool {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundleURL.pathExtension == "app"
+    }
+}
+
+/// The failure alert as an error, which AppKit shows application-modal with the title in bold over the message.
+private struct AssemblyFailureAlertError: LocalizedError {
+    let title: String
+    let message: String
+
+    var errorDescription: String? { title }
+    var recoverySuggestion: String? { message }
+}
+
+private extension AssemblyRunRequest {
+    /// This request under another project name, every other field as it is.
+    func renamed(to projectName: String) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments,
+            profileSelectionBasis: profileSelectionBasis,
+            inputLayout: inputLayout,
+            inputRoles: inputRoles
+        )
     }
 }
