@@ -170,6 +170,8 @@ extension PlanRunner {
         plan: ExecutionPlan, step: PlanStep, inputs: [URL], output: URL, root: URL, environment: [String: String],
         launcher: ExecutorToolLauncher, childLauncher: ExecutorChildLauncher
     ) async throws {
+        // Every storage route tells BBTools the scores are Phred+33 (BIO-BIN-QIN N2), so a Phred+64 input stops the step here.
+        try QualityEncoding.refuseLegacyPhred64(inputs, launcher: childLauncher)
         let storage = PortableStorageStep(launcher: launcher, childLauncher: childLauncher)
         let compressor = PortableCompressor(rawValue: plan.storage.compressor.rawValue)
         switch plan.storage.clumpingTool {

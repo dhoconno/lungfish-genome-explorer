@@ -207,10 +207,9 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             outputFile = config.outputDirectory.appendingPathComponent("\(baseName).clumped.fastq.gz")
         }
 
-        try FileManager.default.createDirectory(
-            at: config.outputDirectory,
-            withIntermediateDirectories: true
-        )
+        // Every storage step tells BBTools the scores are Phred+33 (BIO-BIN-QIN N2), so a Phred+64 file stops here.
+        try QualityEncoding.refuseLegacyPhred64(config.inputFiles, launcher: ToolProcessChildLauncher())
+        try FileManager.default.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
         // Step 1: Clumpify + quality bin (50% of progress)
         let clumpifiedFile: URL
