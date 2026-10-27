@@ -16,7 +16,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 332 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 333 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -642,6 +642,7 @@ None.
 - `ProjectLockRecoveryResult` struct, `Sources/LungfishCore/Storage/ProjectLockRecovery.swift`
 - `ProjectLockRecoverySnapshot` struct, `Sources/LungfishCore/Storage/ProjectLockRecovery.swift`
 - `ProjectLockStatus` enum, `Sources/LungfishCore/Storage/ProjectLock.swift`
+- `ProjectRootTest` enum, `Sources/LungfishCore/Storage/ProjectRootTest.swift`
 - `ProjectSequenceSnapshot` struct, `Sources/LungfishCore/Storage/ProjectStore.swift`
 - `ProjectStore` class, `Sources/LungfishCore/Storage/ProjectStore.swift`
 - `ProjectStoreError` enum, `Sources/LungfishCore/Storage/ProjectStore.swift`
