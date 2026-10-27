@@ -144,11 +144,73 @@ extension QualityEncoding {
 
 extension QualityEncoding {
 
+    /// The refusal of a file in the old Phred+64 encoding (BIO-BIN-QIN, N2). Its words are what an import's operation row
+    /// and an executor step's reason show.
+    package struct LegacyPhred64Refusal: Error, LocalizedError, Equatable {
+        package init() {}
+
+        package var errorDescription: String? {
+            "This file's quality scores look like the old Phred+64 encoding (Illumina pipeline 1.3 to 1.7). "
+                + "LGE stores Phred+33 scores only. Convert the file first, for example with reformat.sh qin=64 qout=33, "
+                + "then import the new file."
+        }
+    }
+
     /// True when the first 10,000 records of `url` look like the old Phred+64 encoding (BIO-BIN-QIN, N2).
     ///
-    /// Declared by the tests-first commit of the fix, so its tests compile. It reads nothing and answers false until the
-    /// fix commit that follows.
+    /// Every storage step tells BBTools the scores are Phred+33 (``PortableStoragePlan/qualityEncodingArguments``), so
+    /// such a file would be stored 31 too high. ``detect(from:)`` is no guard, since it calls a real HiFi read Phred+64
+    /// and a typical Illumina 1.5 file (bytes `B` to `h`) Phred+33. This test is true when no quality byte is below 64,
+    /// none is above 105 (`i`) and the mean read length is under 400, so a modern file with a score below Q31, a score
+    /// of Q73 or more, or long reads is never refused. A plain or gzip file is read through `launcher`.
     package static func looksLikeLegacyPhred64(_ url: URL, launcher: any PortableChildLauncher) throws -> Bool {
-        false
+        let reader = try FASTQRawLineReader(url: url, launcher: launcher)
+        defer { reader.close() }
+        /// The next line without its carriage return, nil at the end of the file.
+        func next() throws -> [UInt8]? {
+            guard var line = try reader.nextLine() else { return nil }
+            if line.last == 0x0D { line.removeLast() }
+            return line
+        }
+        var records = 0
+        var bases = 0
+        var lowest = UInt8.max
+        var highest = UInt8.min
+        while records < 10_000, let header = try next() {
+            if header.isEmpty { continue }
+            guard header.first == UInt8(ascii: "@") else { return false }
+            var sequenceLength = 0
+            var reachedQualities = false
+            while let line = try next() {
+                if line.first == UInt8(ascii: "+") {
+                    reachedQualities = true
+                    break
+                }
+                sequenceLength += line.count
+            }
+            guard reachedQualities else { return false }
+            var qualityLength = 0
+            while qualityLength < sequenceLength, let line = try next() {
+                for byte in line {
+                    lowest = min(lowest, byte)
+                    highest = max(highest, byte)
+                }
+                qualityLength += line.count
+            }
+            // One byte below '@' or above 'i' settles it, since the answer can only stay no.
+            if lowest < 64 || highest > 105 { return false }
+            records += 1
+            bases += sequenceLength
+        }
+        guard records > 0, lowest <= highest else { return false }
+        return bases / records < 400
+    }
+
+    /// Throws ``LegacyPhred64Refusal`` when any of `urls` looks like the old Phred+64 encoding. A file this guard cannot
+    /// read is left for the storage tool to report in its own words.
+    package static func refuseLegacyPhred64(_ urls: [URL], launcher: any PortableChildLauncher) throws {
+        for url in urls where (try? looksLikeLegacyPhred64(url, launcher: launcher)) == true {
+            throw LegacyPhred64Refusal()
+        }
     }
 }
