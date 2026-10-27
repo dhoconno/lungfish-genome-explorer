@@ -230,9 +230,7 @@ public enum EsVirituDetectionParser {
                 weightedCoverage = contigs.reduce(0.0) {
                     $0 + $1.meanCoverage * Double($1.readCount)
                 } / Double(totalReads)
-                weightedIdentity = contigs.reduce(0.0) {
-                    $0 + $1.avgReadIdentity * Double($1.readCount)
-                } / Double(totalReads)
+                weightedIdentity = ViralAssembly.readWeightedMean(of: contigs, totalReads: totalReads) { $0.avgReadIdentity }
             } else {
                 weightedCoverage = contigs.reduce(0.0) { $0 + $1.meanCoverage }
                     / Double(max(contigs.count, 1))

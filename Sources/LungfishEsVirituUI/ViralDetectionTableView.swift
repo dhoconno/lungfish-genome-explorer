@@ -952,7 +952,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 tsvFields: [
                     a.name, a.assembly, a.family ?? "", a.genus ?? "", a.species ?? "",
                     "\(a.totalReads)", String(format: "%.2f", a.rpkmf),
-                    String(format: "%.2f", a.meanCoverage), String(a.avgReadIdentity),
+                    String(format: "%.2f", a.meanCoverage), ViralDetection.identityText(a.avgReadIdentity),
                     "\(a.contigs.count) segments", "\(a.assemblyLength)",
                 ]
             )
@@ -967,7 +967,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 tsvFields: [
                     d.name, d.accession, d.family ?? "", d.genus ?? "", d.species ?? "",
                     "\(d.readCount)", String(format: "%.2f", d.rpkmf),
-                    String(format: "%.2f", d.meanCoverage), String(d.avgReadIdentity),
+                    String(format: "%.2f", d.meanCoverage), ViralDetection.identityText(d.avgReadIdentity),
                     d.segment ?? "", "\(d.length)",
                 ]
             )

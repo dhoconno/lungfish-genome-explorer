@@ -270,6 +270,36 @@ public struct ViralAssembly: Sendable, Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Identity in copies, exports and assembly rows
+
+extension ViralDetection {
+    /// The text a copy or an export writes for an identity fraction, the shortest text that reads back as the same
+    /// number. The table's Copy Row as TSV and the delimited export both write it, so one cell never reads two ways
+    /// (walk WO-2).
+    public static func identityText(_ identity: Double) -> String {
+        String(identity)
+    }
+}
+
+extension ViralAssembly {
+    /// The mean of `value` over `contigs` weighted by read count, for contigs that hold `totalReads` reads in all.
+    ///
+    /// Contigs that share one value weigh to that value exactly. Summing value times reads and dividing by the reads
+    /// is off by one in the last digit for some read counts. It gave 0.9969929135297526 for the one value
+    /// 0.9969929135297527 over 5 reads, so an assembly row of one contig copied a different number than the export
+    /// writes for its contig (walk WO-2). Values that differ keep the sum and divide form.
+    public static func readWeightedMean(
+        of contigs: [ViralDetection],
+        totalReads: Int,
+        _ value: (ViralDetection) -> Double
+    ) -> Double {
+        guard let first = contigs.first else { return 0 }
+        let shared = value(first)
+        if contigs.allSatisfy({ value($0) == shared }) { return shared }
+        return contigs.reduce(0.0) { $0 + value($1) * Double($1.readCount) } / Double(totalReads)
+    }
+}
+
 // MARK: - ViralTaxProfile
 
 /// A taxonomic profile entry from the EsViritu `tax_profile.tsv` output.

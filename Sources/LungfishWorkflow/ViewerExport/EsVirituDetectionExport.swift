@@ -105,7 +105,7 @@ extension EsVirituDetectionExport {
                 "\(detection.readCount)",
                 String(format: "%.2f", detection.rpkmf),
                 String(format: "%.2f", detection.meanCoverage),
-                String(detection.avgReadIdentity),
+                ViralDetection.identityText(detection.avgReadIdentity),
                 "\(detection.coveredBases)",
                 String(format: "%.6f", detection.pi),
                 "\(detection.assemblyLength)",
@@ -184,9 +184,7 @@ extension EsVirituDetectionExport {
             weightedCoverage = contigs.reduce(0.0) {
                 $0 + $1.meanCoverage * Double($1.readCount)
             } / Double(totalReads)
-            weightedIdentity = contigs.reduce(0.0) {
-                $0 + $1.avgReadIdentity * Double($1.readCount)
-            } / Double(totalReads)
+            weightedIdentity = ViralAssembly.readWeightedMean(of: contigs, totalReads: totalReads) { $0.avgReadIdentity }
         } else {
             weightedCoverage = 0
             weightedIdentity = 0
