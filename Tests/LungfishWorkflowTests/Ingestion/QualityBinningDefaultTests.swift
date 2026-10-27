@@ -7,10 +7,10 @@ import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
 
-/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING. An Illumina import bins with `fiveStep` and every other
-/// platform keeps every score unless the user picks a scheme, a recipe's declared value applies when no flag is given
-/// and a flag wins. A record written before C2-BINNING names no binning for the routes whose default was `none`, and
-/// its replay runs the value the record states.
+/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING, with the owner's ruling of 2026-10-27. Every platform bins
+/// with `fiveStep` unless the user picks a scheme (None keeps every score), a recipe's declared value applies when no
+/// flag is given and a flag wins. A record written before C2-BINNING names no binning for the routes whose default
+/// was `none`, and its replay runs the value the record states.
 final class QualityBinningDefaultTests: XCTestCase {
 
     private let project = URL(fileURLWithPath: "/tmp/quality-binning-default.lungfish")
@@ -20,20 +20,17 @@ final class QualityBinningDefaultTests: XCTestCase {
     func testQualityBinningDefaultFollowsThePlatform() {
         for platform in IngestionPlatform.allCases {
             let config = FASTQBatchImporter.ImportConfig(projectDirectory: project, platform: platform)
-            XCTAssertEqual(config.qualityBinning, platform == .illumina ? .fiveStep : .none, "\(platform)")
+            XCTAssertEqual(config.qualityBinning, .fiveStep, "\(platform)")
             XCTAssertEqual(config.commandDefaultQualityBinning, config.qualityBinning, "the record names what ran")
         }
     }
 
-    /// The one function every route reads. Illumina alone bins, so the owner's other answer, binning every platform,
-    /// is one line in `IngestionPlatform.platformsBinnedByDefault`.
+    /// The one function every route reads. The owner's ruling of 2026-10-27 bins every platform, which is the set of
+    /// every platform in `IngestionPlatform.platformsBinnedByDefault`, and narrowing it again is that one line.
     func testOneFunctionGivesEveryPlatformsDefault() {
-        XCTAssertEqual(IngestionPlatform.platformsBinnedByDefault, [.illumina])
+        XCTAssertEqual(IngestionPlatform.platformsBinnedByDefault, Set(LungfishIO.SequencingPlatform.allCases))
         for platform in LungfishIO.SequencingPlatform.allCases {
-            XCTAssertEqual(
-                IngestionPlatform.defaultQualityBinning(for: platform), platform == .illumina ? .fiveStep : .none,
-                "\(platform)"
-            )
+            XCTAssertEqual(IngestionPlatform.defaultQualityBinning(for: platform), .fiveStep, "\(platform)")
         }
     }
 

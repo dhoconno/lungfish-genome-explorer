@@ -12,8 +12,8 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 
-/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING. The Import FASTQ sheet opens with the detected platform's
-/// default, `fiveStep` for Illumina and `none` for ONT, PacBio and unknown reads, and the ONT route the window runs
+/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING, with the owner's ruling of 2026-10-27. The Import FASTQ
+/// sheet opens on `fiveStep` for every platform and offers None on every platform, and the ONT route the window runs
 /// without the sheet launches the CLI with the value named. The assertions read the configuration the sheet hands
 /// back and the command the coordinator launches.
 @MainActor
@@ -24,13 +24,13 @@ final class FASTQImportQualityBinningDefaultTests: XCTestCase {
             r1: URL(fileURLWithPath: "/data/Sample_R1_001.fastq.gz"),
             r2: URL(fileURLWithPath: "/data/Sample_R2_001.fastq.gz")
         )
-        for platform: LungfishIO.SequencingPlatform in [.illumina, .oxfordNanopore, .pacbio, .unknown] {
+        for platform in LungfishIO.SequencingPlatform.allCases {
             var captured: FASTQImportConfiguration?
             let sheet = FASTQImportConfigSheet(pairs: [pair], detectedPlatform: platform, onImport: { captured = $0 })
             sheet.loadViewIfNeeded()
             let importButton = Self.descendants(of: sheet.view).compactMap { $0 as? NSButton }.first { $0.title == "Import" }
             importButton?.performClick(nil)
-            XCTAssertEqual(captured?.qualityBinning, platform == .illumina ? .fiveStep : QualityBinningScheme.none, "\(platform)")
+            XCTAssertEqual(captured?.qualityBinning, QualityBinningScheme.fiveStep, "\(platform)")
         }
     }
 
@@ -45,8 +45,8 @@ final class FASTQImportQualityBinningDefaultTests: XCTestCase {
             OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: arguments),
             as: FastqImportONTSubcommand.self
         )
-        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.none, "an ONT import keeps every score")
-        XCTAssertTrue(zip(arguments, arguments.dropFirst()).contains { $0 == "--quality-binning" && $1 == "none" },
+        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.fiveStep, "an ONT import bins in steps of five by default")
+        XCTAssertTrue(zip(arguments, arguments.dropFirst()).contains { $0 == "--quality-binning" && $1 == "fiveStep" },
                       "\(arguments)")
     }
 
@@ -77,7 +77,8 @@ final class FASTQImportQualityBinningDefaultTests: XCTestCase {
     }
 
     /// A popup the user left on the detected platform's default follows the Platform popup to the new platform's
-    /// default, so reads corrected from Illumina to Nanopore keep every score, and back again bin in steps of five.
+    /// default, which is `fiveStep` for every platform, so reads corrected from Illumina to Nanopore and back again
+    /// keep binning in steps of five.
     func testQualityBinningDefaultFollowsAPlatformChange() throws {
         let pair = FASTQFilePair(
             r1: URL(fileURLWithPath: "/data/Sample_R1_001.fastq.gz"),
@@ -96,13 +97,36 @@ final class FASTQImportQualityBinningDefaultTests: XCTestCase {
 
         platformPopup.selectItem(withTitle: nanopore.title)
         XCTAssertTrue(platformPopup.sendAction(platformPopup.action, to: platformPopup.target))
-        XCTAssertEqual(binningPopup.titleOfSelectedItem, QualityBinningScheme.none.displayName)
+        XCTAssertEqual(binningPopup.titleOfSelectedItem, QualityBinningScheme.fiveStep.displayName)
         platformPopup.selectItem(withTitle: illumina.title)
         XCTAssertTrue(platformPopup.sendAction(platformPopup.action, to: platformPopup.target))
         let importButton = Self.descendants(of: sheet.view).compactMap { $0 as? NSButton }.first { $0.title == "Import" }
         importButton?.performClick(nil)
 
         XCTAssertEqual(captured?.qualityBinning, .fiveStep)
+    }
+
+    /// The owner's ruling of 2026-10-27, "the option to save full quality scores for all read types". The sheet offers
+    /// None whatever platform it opens on, and choosing it hands `none` to the route.
+    func testNoneIsOfferedAndHandedOnForEveryPlatform() throws {
+        let pair = FASTQFilePair(
+            r1: URL(fileURLWithPath: "/data/Sample_R1_001.fastq.gz"),
+            r2: URL(fileURLWithPath: "/data/Sample_R2_001.fastq.gz")
+        )
+        let binningTitles = Set([QualityBinningScheme.fiveStep, .eightLevel, .none].map(\.displayName))
+        for platform in LungfishIO.SequencingPlatform.allCases {
+            var captured: FASTQImportConfiguration?
+            let sheet = FASTQImportConfigSheet(pairs: [pair], detectedPlatform: platform, onImport: { captured = $0 })
+            sheet.loadViewIfNeeded()
+            let views = Self.descendants(of: sheet.view)
+            let binning = try XCTUnwrap(
+                views.compactMap { $0 as? NSPopUpButton }.first { Set($0.itemTitles) == binningTitles }, "\(platform)"
+            )
+            XCTAssertTrue(binning.isEnabled, "\(platform)")
+            binning.selectItem(withTitle: QualityBinningScheme.none.displayName)
+            views.compactMap { $0 as? NSButton }.first { $0.title == "Import" }?.performClick(nil)
+            XCTAssertEqual(captured?.qualityBinning, QualityBinningScheme.none, "\(platform)")
+        }
     }
 
     private static func descendants(of view: NSView) -> [NSView] {

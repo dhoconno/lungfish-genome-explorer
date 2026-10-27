@@ -30,7 +30,7 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertFalse(config.optimizeStorage)
         // ONT with no flags keeps auto, which clumps nothing for long reads (D8 B).
         XCTAssertEqual(config.clumpingTool, .auto)
-        XCTAssertEqual(config.qualityBinning, QualityBinningScheme.none, "ONT keeps every score (BIO-BIN)")
+        XCTAssertEqual(config.qualityBinning, QualityBinningScheme.fiveStep, "ONT bins in steps of five by default")
     }
 
     func testImportConfigExplicitOverrides() {
@@ -68,7 +68,7 @@ final class ImportConfigTests: XCTestCase {
             projectDirectory: URL(fileURLWithPath: "/tmp/test.lungfish"),
             platform: .pacbio
         )
-        XCTAssertEqual(config.qualityBinning, QualityBinningScheme.none, "PacBio takes its platform default, which keeps every score")
+        XCTAssertEqual(config.qualityBinning, QualityBinningScheme.fiveStep, "PacBio takes its platform default, fiveStep")
         XCTAssertFalse(config.optimizeStorage)
         XCTAssertEqual(config.clumpingTool, .auto)
     }

@@ -5,8 +5,8 @@
 // Lane C2-ONTBIN (owner answer OQ1, 2026-10-22, "Bin chunked ONT payloads"). The ONT run folder import stores
 // chunked payloads by default. Before this lane they kept every quality score whatever `--quality-binning` said,
 // because only Optimize Storage binned and it needs flattened storage. An import that names a scheme now bins each
-// chunk with the same `quantize=` argument the Illumina route's clumpify takes, and `none`, the ONT default since
-// BIO-BIN (Phase 3.0 lane BIN), keeps every chunk as the run wrote it.
+// chunk with the same `quantize=` argument the Illumina route's clumpify takes, and `none`, which a user may choose on
+// any platform, keeps every chunk as the run wrote it (BIO-BIN, Phase 3.0 lane BIN).
 // The assertions read the stored chunks and the provenance records. Binning needs the managed BBTools, so the
 // binning tests skip without it unless LUNGFISH_REQUIRE_TOOLS is set.
 

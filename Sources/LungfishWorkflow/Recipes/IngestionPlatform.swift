@@ -90,10 +90,11 @@ public enum IngestionPlatform: String, Codable, CaseIterable, Sendable {
     }
 
     /// The platforms whose imports bin quality scores when neither the user nor a recipe names a scheme (BIO-BIN,
-    /// Phase 3.0). `fiveStep` fits short-read scores and keeps every Q10, Q20 and Q30 count, and ONT, PacBio and
-    /// unknown reads keep every score. The owner's answer Q4 of 2026-10-22 set binning on everywhere, and binning
-    /// every platform with `fiveStep` is this one line, `Set(LungfishIO.SequencingPlatform.allCases)`.
-    public static let platformsBinnedByDefault: Set<LungfishIO.SequencingPlatform> = [.illumina]
+    /// Phase 3.0). Every platform is in the set, by the owner's ruling of 2026-10-27, "the default should be 5 quality
+    /// bins with the option to save full quality scores for all read types". `fiveStep` keeps every Q10, Q20 and Q30
+    /// count, and every import route still takes `none` to keep every score. BIO's first ruling binned Illumina alone,
+    /// `[.illumina]`, and narrowing the default again is this one line.
+    public static let platformsBinnedByDefault: Set<LungfishIO.SequencingPlatform> = Set(LungfishIO.SequencingPlatform.allCases)
 
     /// The binning an import of `platform` runs when the user names none. Every import route reads this one function,
     /// so the routes cannot drift apart. A route that knows no platform asks with `.unknown`.

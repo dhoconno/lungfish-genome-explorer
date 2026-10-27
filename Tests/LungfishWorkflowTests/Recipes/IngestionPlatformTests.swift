@@ -15,7 +15,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Illumina")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == .fiveStep)  // fiveStep for Illumina alone (BIO-BIN)
+        #expect(platform.defaultQualityBinning == .fiveStep)  // fiveStep on every platform (owner ruling of 2026-10-27)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -24,7 +24,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Oxford Nanopore")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)
+        #expect(platform.defaultQualityBinning == .fiveStep)
         #expect(platform.defaultCompressionLevel == .balanced)
     }
 
@@ -33,7 +33,7 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "PacBio")
         #expect(platform.defaultPairing == .singleEnd)
         #expect(platform.defaultOptimizeStorage == false)
-        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)
+        #expect(platform.defaultQualityBinning == .fiveStep)
     }
 
     @Test func testUltimaDefaults() {
@@ -41,25 +41,22 @@ struct IngestionPlatformTests {
         #expect(platform.displayName == "Ultima Genomics")
         #expect(platform.defaultPairing == .interleaved)
         #expect(platform.defaultOptimizeStorage == true)
-        #expect(platform.defaultQualityBinning == QualityBinningScheme.none)  // keeps every score (BIO-BIN)
+        #expect(platform.defaultQualityBinning == .fiveStep)
     }
 
-    /// BIO-BIN (Phase 3.0 lane BIN, S1). An Illumina import bins in steps of five, which keeps every Q10, Q20 and Q30
-    /// count as sequenced, and an ONT, PacBio or unknown import keeps every score. The unknown case is read through
-    /// the import configuration, the reader that resolves a sample's platform.
+    /// BIO-BIN (Phase 3.0 lane BIN, S1), with the owner's ruling of 2026-10-27. Every platform bins in steps of five,
+    /// which keeps every Q10, Q20 and Q30 count as sequenced, and None stays on offer to keep every score. The unknown
+    /// case is read through the import configuration, the reader that resolves a sample's platform.
     @Test func testDefaultBinningPerPlatform() {
         #expect(IngestionPlatform.illumina.defaultQualityBinning.rawValue == "fiveStep")
-        #expect(IngestionPlatform.ont.defaultQualityBinning == .none)
-        #expect(IngestionPlatform.pacbio.defaultQualityBinning == .none)
+        #expect(IngestionPlatform.ont.defaultQualityBinning == .fiveStep)
+        #expect(IngestionPlatform.pacbio.defaultQualityBinning == .fiveStep)
         let project = URL(fileURLWithPath: "/tmp/binning-default.lungfish")
-        for (platform, expected) in [
-            (LungfishIO.SequencingPlatform.illumina, "fiveStep"),
-            (.oxfordNanopore, "none"), (.pacbio, "none"), (.unknown, "none"),
-        ] {
+        for platform in LungfishIO.SequencingPlatform.allCases {
             let config = FASTQBatchImporter.ImportConfig(
                 projectDirectory: project, platform: .given(platform), threadsSource: .default, clumpifyHeapGB: nil
             )
-            #expect(config.qualityBinning.rawValue == expected, "\(platform)")
+            #expect(config.qualityBinning == .fiveStep, "\(platform)")
         }
     }
 

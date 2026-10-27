@@ -80,7 +80,7 @@ final class ONTImportOperationCoordinatorOperationTests: XCTestCase {
         XCTAssertEqual(command.concurrency, 1)
         XCTAssertEqual(command.storageMode, .flattened)
         XCTAssertFalse(command.optimizeStorage)
-        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.none, "an ONT import keeps every score (BIO-BIN)")
+        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.fiveStep, "an ONT import bins in steps of five by default")
     }
 
     func testEveryImportOptionReachesTheRecordedCommand() throws {

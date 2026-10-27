@@ -7,10 +7,11 @@ import LungfishCore
 import LungfishWorkflow
 @testable import LungfishCLI
 
-/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING. Each route given no binning flag takes the default of the
-/// platform it knows, `fiveStep` for Illumina and `none` for every other platform and for a route that reads no
-/// platform. A route that knows its binning before the reads arrive names it in the argv it records, so a record
-/// replays the same whatever the default is. The assertions read the parsed commands and the argv each one records.
+/// BIO-BIN (Phase 3.0 lane BIN), narrowing lane C2-BINNING, with the owner's ruling of 2026-10-27. Each route given no
+/// binning flag takes `fiveStep`, for every platform it knows and for a route that reads no platform, and every route
+/// takes `none` when the flag names it. A route that knows its binning before the reads arrive names it in the argv
+/// it records, so a record replays the same whatever the default is. The assertions read the parsed commands and the
+/// argv each one records.
 final class QualityBinningDefaultRouteTests: XCTestCase {
 
     /// With `--platform auto` the import decides each sample's platform from its reads, so the download names no
@@ -22,35 +23,41 @@ final class QualityBinningDefaultRouteTests: XCTestCase {
     }
 
     func testQualityBinningDefaultOfANamedPlatformReachesTheSRABundleCommand() throws {
-        for (platform, binning) in [("illumina", "fiveStep"), ("ont", "none"), ("pacbio", "none")] {
+        for platform in ImportPlatformRequest.cliValues where platform != "auto" {
             let command = try SRADownloadSubcommand.parse([
                 "SRR11140748", "--bundle", "--project", "/tmp/P.lungfish", "--platform", platform,
             ])
             let argv = command.sraDownloadCommand()
-            XCTAssertTrue(Self.names(argv, "--quality-binning", binning), "\(argv)")
+            XCTAssertTrue(Self.names(argv, "--quality-binning", "fiveStep"), "\(platform): \(argv)")
         }
     }
 
+    /// Keeping every score is open on every platform, whether the platform is named or left to `auto`.
     func testQualityBinningDefaultGivesWayToTheSRABundlesFlag() throws {
-        let command = try SRADownloadSubcommand.parse([
-            "SRR11140748", "--bundle", "--project", "/tmp/P.lungfish", "--quality-binning", "none",
-        ])
-        let argv = command.sraDownloadCommand()
-        XCTAssertTrue(Self.names(argv, "--quality-binning", "none"), "\(argv)")
-        XCTAssertEqual(argv.filter { $0 == "--quality-binning" }.count, 1, "\(argv)")
+        for platform in ImportPlatformRequest.cliValues {
+            let command = try SRADownloadSubcommand.parse([
+                "SRR11140748", "--bundle", "--project", "/tmp/P.lungfish", "--platform", platform, "--quality-binning", "none",
+            ])
+            let argv = command.sraDownloadCommand()
+            XCTAssertTrue(Self.names(argv, "--quality-binning", "none"), "\(platform): \(argv)")
+            XCTAssertEqual(argv.filter { $0 == "--quality-binning" }.count, 1, "\(platform): \(argv)")
+        }
     }
 
     func testQualityBinningDefaultReachesTheFastqIngestCommand() throws {
         let command = try FastqIngestSubcommand.parse(["/tmp/reads.fastq.gz"])
-        XCTAssertEqual(command.binning, QualityBinningScheme.none, "the command reads no platform")
-        XCTAssertTrue(Self.names(command.replayArgv(), "--binning", "none"), "\(command.replayArgv())")
-        let fiveStep = try FastqIngestSubcommand.parse(["/tmp/reads.fastq.gz", "--binning", "fiveStep"])
-        XCTAssertEqual(fiveStep.binning, .fiveStep)
+        XCTAssertEqual(command.binning, QualityBinningScheme.fiveStep, "the command reads no platform")
+        XCTAssertTrue(Self.names(command.replayArgv(), "--binning", "fiveStep"), "\(command.replayArgv())")
+        let kept = try FastqIngestSubcommand.parse(["/tmp/reads.fastq.gz", "--binning", "none"])
+        XCTAssertEqual(kept.binning, QualityBinningScheme.none, "keeping every score is open")
+        XCTAssertTrue(Self.names(kept.replayArgv(), "--binning", "none"), "\(kept.replayArgv())")
     }
 
     func testQualityBinningDefaultReachesTheONTCommand() throws {
         let command = try FastqImportONTSubcommand.parse(["/tmp/fastq_pass", "--output", "/tmp/out"])
-        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.none, "an ONT import keeps every score")
+        XCTAssertEqual(command.qualityBinning, QualityBinningScheme.fiveStep, "an ONT import bins in steps of five by default")
+        let kept = try FastqImportONTSubcommand.parse(["/tmp/fastq_pass", "--output", "/tmp/out", "--quality-binning", "none"])
+        XCTAssertEqual(kept.qualityBinning, QualityBinningScheme.none, "keeping every score is open")
         let explicit = try FastqImportONTSubcommand.parse(["/tmp/fastq_pass", "--output", "/tmp/out", "--quality-binning", "eightLevel"])
         XCTAssertEqual(explicit.qualityBinning, .eightLevel)
     }

@@ -39,10 +39,15 @@ final class ONTImportQualityBinningAppliedTests: XCTestCase {
         XCTAssertEqual(kept, .boolean(false))
     }
 
-    /// BIO-BIN (Phase 3.0 lane BIN, S1). A chunked import that names no binning, the app's and the CLI's default ONT
-    /// import, keeps every score. A read the basecaller gave Q0 on every base stays Q0, where `illumina4` stored it as
-    /// Q8. It needs no BBTools, since nothing bins.
-    func testDefaultChunkedImportKeepsScores() async throws {
+    /// The ONT import's binning default is `fiveStep`, as it is for every platform (owner ruling of 2026-10-27).
+    func testTheONTImportDefaultIsFiveStep() {
+        XCTAssertEqual(ONTImportWorkflow.OptimizationConfig(optimizeStorage: false).qualityBinning, .fiveStep)
+    }
+
+    /// BIO-BIN (Phase 3.0 lane BIN, S1). A chunked import that names `none` keeps every score, so keeping full scores
+    /// is open for ONT reads. A read the basecaller gave Q0 on every base stays Q0, where `illumina4` stored it as Q8.
+    /// It needs no BBTools, since nothing bins.
+    func testChunkedImportThatNamesNoneKeepsScores() async throws {
         let source = root.appendingPathComponent("run-default/fastq_pass", isDirectory: true)
         let barcode = source.appendingPathComponent("barcode01", isDirectory: true)
         try FileManager.default.createDirectory(at: barcode, withIntermediateDirectories: true)
@@ -63,7 +68,7 @@ final class ONTImportQualityBinningAppliedTests: XCTestCase {
                 defaultOptions: [:],
                 resolvedOptions: [:]
             ),
-            optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: false),
+            optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: false, qualityBinning: .none),
             progress: { _, _ in }
         )
         XCTAssertEqual(result.provenanceEnvelope.options.resolvedDefaults["qualityBinningApplied"], .boolean(false))

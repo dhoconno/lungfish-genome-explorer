@@ -149,13 +149,15 @@ final class FASTQIngestionInPlaceLiveConformanceTests: XCTestCase {
         let fm = FileManager.default
         XCTAssertFalse(fm.fileExists(atPath: input.path), "the original is deleted (deleteOriginals: true)")
         XCTAssertTrue(fm.fileExists(atPath: output.path))
-        // The route reads no platform, so it bins with the unknown platform's default, which keeps every score (BIO-BIN).
+        // The route reads no platform, so it bins with the default of every platform, fiveStep (owner ruling of
+        // 2026-10-27), which stores each Q40 score as Q37, the value of the last step.
         let binning = IngestionPlatform.defaultQualityBinning(for: .unknown)
-        XCTAssertEqual(binning, .none, "the expected reads below keep every Q40 score")
+        XCTAssertEqual(binning, .fiveStep, "the expected reads below hold each Q40 score as Q37")
+        let binned = Self.reads.map { $0.replacingOccurrences(of: "IIIIIIIIIIIIIIII", with: "FFFFFFFFFFFFFFFF") }
         XCTAssertEqual(
             try records(of: output).sorted(),
-            Self.reads.sorted(),
-            "the clumpified reads equal the original's with every score kept, in any order"
+            binned.sorted(),
+            "the clumpified reads equal the original's with each Q40 score stored as Q37, in any order"
         )
 
         // The sidecar.
