@@ -10,9 +10,11 @@ extension RunPlanTests {
     /// review).
     func clumpifyPlan(
         _ body: String, deadline: Double = 60, bgzip bgzipBody: String = "[ \"$1\" = \"-h\" ] && echo 'Version: 1.0'",
-        manifestListsBgzip: Bool = true
+        manifestListsBgzip: Bool = true, inputText: String? = nil
     ) throws -> (fixture: RunPlanFixture, plan: String, manifest: String) {
         var fixture = try RunPlanFixture()
+        // A plan pins its input by SHA-256, so a test's own reads go in before the plan is written.
+        if let inputText { try RunPlanFixture.write(inputText, to: fixture.planFolder + "/inputs/R1.fastq") }
         let clumpify = try fixture.addTool("clumpify.sh", body)
         // BIO N3. The plan pins the bgzip BBTools writes through, and by default it answers `bgzip -h` as BBTools' probe
         // asks, with the `Version:` line of the version the plan pins (C4-3 C-4), and the manifest lists it.
