@@ -87,6 +87,22 @@ Four-read FASTQ files, two gzip copies and four unaligned BAM files, one per rea
 
 One text snapshot per project that the sidebar-scan safety nets scan, with one sidebar row on each line. The projects are built in a scratch folder on every run, so these files hold expectations only. `ClassifierLayoutFixtures` builds the project of `classifier-layouts.txt`. With `analysis-naming.txt` and `analyses-seeds.txt`, that snapshot covers every classifier result layout that LGE writes today and the layouts the analysis run executor writes. Rewrite the snapshots with `LUNGFISH_UPDATE_SIDEBAR_SNAPSHOTS=1` and review the diff before committing.
 
+## mapping/
+
+Mapping results for the mapping viewport tests.
+
+| Path | Description |
+|------|-------------|
+| `supplementary-one-contig/` | A mapping result whose sorted BAM has one reference sequence, one read group with a sample name, 10 primary mapped reads, 2 supplementary records and 1 unmapped read, with its `mapping-result.json` and the viewer track's stats database. idxstats and flagstat `mapped` count 12 reads where the record counts 10 |
+
+The reads are wholly synthetic. `supplementary-one-contig/README.md` lists every count and says why the stats database names a folder that exists on no Mac. `make_fixture.py` rebuilds every file, checks each count and writes `.lungfish-provenance.json`. The viewport tests read the folder through `#filePath`, and `TestFixtures.mappingSupplementaryOneContig` resolves it for the integration tests.
+
+Regenerate it from the repository root with:
+
+```sh
+python3 Tests/Fixtures/mapping/supplementary-one-contig/make_fixture.py Tests/Fixtures/mapping/supplementary-one-contig <empty scratch folder>
+```
+
 ## Usage in Tests
 
 ```swift

@@ -1,0 +1,283 @@
+{
+  "argv": [
+    "python3",
+    "Tests/Fixtures/mapping/supplementary-one-contig/make_fixture.py",
+    "Tests/Fixtures/mapping/supplementary-one-contig",
+    "<empty scratch folder>"
+  ],
+  "createdAt": "2026-10-27T03:27:49Z",
+  "exitStatus": 0,
+  "externalToolInvocations": [
+    {
+      "argv": [
+        "samtools",
+        "--version"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools --version",
+      "stderr": "",
+      "subcommand": "--version",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.26699
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "--no-PG",
+        "-b",
+        "-o",
+        "$SCRATCH/fixture.unsorted.bam",
+        "$SCRATCH/fixture.sam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view --no-PG -b -o $SCRATCH/fixture.unsorted.bam $SCRATCH/fixture.sam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.023142
+    },
+    {
+      "argv": [
+        "samtools",
+        "sort",
+        "--no-PG",
+        "-o",
+        "fixture.sorted.bam",
+        "$SCRATCH/fixture.unsorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools sort --no-PG -o fixture.sorted.bam $SCRATCH/fixture.unsorted.bam",
+      "stderr": "",
+      "subcommand": "sort",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.015475
+    },
+    {
+      "argv": [
+        "samtools",
+        "index",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools index fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "index",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.018431
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-c",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -c fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.011377
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-c",
+        "-F",
+        "2308",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -c -F 2308 fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.01648
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-c",
+        "-f",
+        "2048",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -c -f 2048 fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.019691
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-c",
+        "-f",
+        "4",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -c -f 4 fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.016067
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-c",
+        "-F",
+        "2304",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -c -F 2304 fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.012453
+    },
+    {
+      "argv": [
+        "samtools",
+        "idxstats",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools idxstats fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "idxstats",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.014288
+    },
+    {
+      "argv": [
+        "samtools",
+        "flagstat",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools flagstat fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "flagstat",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.01509
+    },
+    {
+      "argv": [
+        "samtools",
+        "coverage",
+        "--ff",
+        "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools coverage --ff UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "coverage",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.016792
+    },
+    {
+      "argv": [
+        "samtools",
+        "view",
+        "-H",
+        "fixture.sorted.bam"
+      ],
+      "exitStatus": 0,
+      "name": "samtools",
+      "reproducibleCommand": "samtools view -H fixture.sorted.bam",
+      "stderr": "",
+      "subcommand": "view",
+      "version": "samtools 1.24",
+      "wallTimeSeconds": 0.017493
+    }
+  ],
+  "files": [
+    {
+      "checksumSHA256": "760db3c139c186448ce95717a2ae3bb5494627bd0dfb95eefea44c9e9e9dc90e",
+      "fileSize": 805,
+      "path": "fixture.sorted.bam"
+    },
+    {
+      "checksumSHA256": "b933026a04620d4c1cb25868a1856479abd075df503d1358781ce2c32243e6db",
+      "fileSize": 96,
+      "path": "fixture.sorted.bam.bai"
+    },
+    {
+      "checksumSHA256": "10955b568d95e56a828d7d51eb728cb31237506421ae97f6bee920b263337bf2",
+      "fileSize": 644,
+      "path": "mapping-result.json"
+    },
+    {
+      "checksumSHA256": "760db3c139c186448ce95717a2ae3bb5494627bd0dfb95eefea44c9e9e9dc90e",
+      "fileSize": 805,
+      "path": "fixture.lungfishref/alignments/fixture-track.sorted.bam"
+    },
+    {
+      "checksumSHA256": "b933026a04620d4c1cb25868a1856479abd075df503d1358781ce2c32243e6db",
+      "fileSize": 96,
+      "path": "fixture.lungfishref/alignments/fixture-track.sorted.bam.bai"
+    },
+    {
+      "checksumSHA256": "d31a42ecd05c7fcad58045cd6ec583bbdf5d6897155ad97e0aedd10ffffd086a",
+      "fileSize": 53248,
+      "path": "fixture.lungfishref/alignments/fixture-track.stats.db"
+    }
+  ],
+  "inputFiles": [],
+  "options": {
+    "contigLength": 1000,
+    "contigName": "fixture1",
+    "primaryMappedReads": 10,
+    "readGroup": "rg1",
+    "readLength": 100,
+    "sample": "sample1",
+    "seed": 20261026,
+    "supplementaryRecords": 2,
+    "syntheticData": true,
+    "unmappedReads": 1
+  },
+  "reproducibleCommand": "python3 Tests/Fixtures/mapping/supplementary-one-contig/make_fixture.py Tests/Fixtures/mapping/supplementary-one-contig <empty scratch folder>",
+  "reproducibleShellCommand": "python3 Tests/Fixtures/mapping/supplementary-one-contig/make_fixture.py Tests/Fixtures/mapping/supplementary-one-contig <empty scratch folder>",
+  "runtimeIdentity": {
+    "machine": "arm64",
+    "operatingSystem": "Darwin",
+    "operatingSystemRelease": "25.6.0",
+    "pythonVersion": "3.14.8",
+    "samtoolsCondaEnvironment": "samtools",
+    "samtoolsExecutable": "$HOME/.lungfish/conda/envs/samtools/bin/samtools",
+    "samtoolsExecutableChecksumSHA256": "02d2761d2baa72dfd072c757b33e52bf00c29cfd5d1ffda0ef9d810b2d7ad796"
+  },
+  "schemaVersion": 1,
+  "status": "completed",
+  "stderr": "",
+  "syntheticData": true,
+  "toolName": "make_fixture.py",
+  "toolVersion": "1.0.0",
+  "wallTimeSeconds": 0.490259,
+  "warnings": [
+    "Wholly synthetic reads for mapping viewport tests. No biological sample, reference or external volume is used."
+  ],
+  "workflowName": "mapping-supplementary-one-contig-fixture-generation"
+}

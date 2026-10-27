@@ -10,8 +10,10 @@ folder holds the SAM text and the unsorted BAM, and both are deleted at the end
 (an alignment lives as sorted, indexed BAM, never as SAM). samtools comes from
 the managed environment unless LUNGFISH_SAMTOOLS names another one.
 """
+import hashlib
 import json
 import os
+import platform
 import random
 import re
 import shutil
@@ -19,6 +21,8 @@ import sqlite3
 import statistics
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 SAMTOOLS = os.environ.get("LUNGFISH_SAMTOOLS", "/Users/dho/.lungfish/conda/envs/samtools/bin/samtools")
@@ -47,9 +51,33 @@ CREATE TABLE IF NOT EXISTS provenance (step_order INTEGER PRIMARY KEY, tool TEXT
 """
 
 
+FIXTURE = SCRATCH = None  # set by main()
+INVOCATIONS = []
+
+
+def portable(argument):
+    """An argument without this account's fixture and scratch folders."""
+    return argument.replace(f"{FIXTURE}/", "").replace(f"{SCRATCH}/", "$SCRATCH/")
+
+
 def samtools(*arguments):
+    start = time.monotonic()
     completed = subprocess.run([SAMTOOLS, *arguments], check=True, capture_output=True, text=True)
+    argv = ["samtools", *[portable(argument) for argument in arguments]]
+    INVOCATIONS.append({
+        "argv": argv,
+        "exitStatus": completed.returncode,
+        "name": "samtools",
+        "reproducibleCommand": " ".join(argv),
+        "stderr": completed.stderr,
+        "subcommand": arguments[0],
+        "wallTimeSeconds": round(time.monotonic() - start, 6),
+    })
     return completed.stdout
+
+
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def normalize_flagstat_category(raw):
@@ -106,7 +134,67 @@ def sam_text(reference, rng):
     return "\n".join(lines) + "\n"
 
 
+def write_provenance(fixture, version, created, started):
+    """The record of this run, in the shape of the neighbouring generated fixtures."""
+    produced = [
+        RESULT_BAM, RESULT_BAM + ".bai", "mapping-result.json",
+        f"{VIEWER_BUNDLE}/alignments/{TRACK_ID}.sorted.bam",
+        f"{VIEWER_BUNDLE}/alignments/{TRACK_ID}.sorted.bam.bai",
+        f"{VIEWER_BUNDLE}/alignments/{TRACK_ID}.stats.db",
+    ]
+    files = [
+        {"checksumSHA256": sha256(fixture / name), "fileSize": (fixture / name).stat().st_size, "path": name}
+        for name in produced
+    ]
+    for invocation in INVOCATIONS:
+        invocation["version"] = version
+    runtime = {
+        "machine": platform.machine(),
+        "operatingSystem": platform.system(),
+        "operatingSystemRelease": platform.release(),
+        "pythonVersion": platform.python_version(),
+        "samtoolsCondaEnvironment": "samtools",
+        "samtoolsExecutable": SAMTOOLS.replace(str(Path.home()), "$HOME"),
+        "samtoolsExecutableChecksumSHA256": sha256(SAMTOOLS),
+    }
+    folder = "Tests/Fixtures/mapping/supplementary-one-contig"
+    command = f"python3 {folder}/make_fixture.py {folder} <empty scratch folder>"
+    provenance = {
+        "argv": ["python3", f"{folder}/make_fixture.py", folder, "<empty scratch folder>"],
+        "createdAt": created,
+        "exitStatus": 0,
+        "externalToolInvocations": INVOCATIONS,
+        "files": files,
+        "inputFiles": [],
+        "options": {
+            "contigLength": CONTIG_LENGTH, "contigName": CONTIG, "primaryMappedReads": 10,
+            "readGroup": READ_GROUP, "readLength": READ_LENGTH, "sample": SAMPLE, "seed": 20261026,
+            "supplementaryRecords": 2, "syntheticData": True, "unmappedReads": 1,
+        },
+        "reproducibleCommand": command,
+        "reproducibleShellCommand": command,
+        "runtimeIdentity": runtime,
+        "schemaVersion": 1,
+        "status": "completed",
+        "stderr": "",
+        "syntheticData": True,
+        "toolName": "make_fixture.py",
+        "toolVersion": "1.0.0",
+        "wallTimeSeconds": round(time.monotonic() - started, 6),
+        "warnings": [
+            "Wholly synthetic reads for mapping viewport tests. No biological sample, reference or external volume is used."
+        ],
+        "workflowName": "mapping-supplementary-one-contig-fixture-generation",
+    }
+    (fixture / ".lungfish-provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
+
+
 def main(fixture, scratch):
+    global FIXTURE, SCRATCH
+    FIXTURE, SCRATCH = fixture, scratch
+    started = time.monotonic()
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    version = samtools("--version").splitlines()[0]
     rng = random.Random(20261026)
     reference = "".join(rng.choice("ACGT") for _ in range(CONTIG_LENGTH))
     scratch.mkdir(parents=True, exist_ok=True)
@@ -218,6 +306,7 @@ def main(fixture, scratch):
             )
     database.commit()
     database.close()
+    write_provenance(fixture, version, created, started)
     print(json.dumps({"flagstat": flags, "coverage": coverage, "record": record["contigs"][0]}, indent=1))
 
 

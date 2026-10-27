@@ -173,6 +173,49 @@ public enum TestFixtures {
         }
     }
 
+    /// A mapping result whose BAM holds one reference sequence, 10 primary mapped reads, 2
+    /// supplementary records and 1 unmapped read (Phase 3.0 walk finding WF-4).
+    ///
+    /// The folder is the result directory. It holds the record, the result's sorted BAM and a
+    /// viewer bundle folder with the track's copy of the BAM and its stats database. That
+    /// database counts 12 mapped reads (idxstats) where the record counts 10.
+    public enum mappingSupplementaryOneContig {
+        private static let dir = "mapping/supplementary-one-contig"
+
+        /// Fixture folder, the mapping result's directory.
+        public static var resultDirectory: URL {
+            let url = fixturesBaseURL.appendingPathComponent(dir, isDirectory: true)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir). Run its make_fixture.py."
+            )
+            return url
+        }
+
+        /// `mapping-result.json`, the record (10 mapped reads of 11).
+        public static var record: URL { fixture("mapping-result.json") }
+
+        /// The result's coordinate-sorted BAM.
+        public static var sortedBam: URL { fixture("fixture.sorted.bam") }
+
+        /// The index of ``sortedBam``.
+        public static var bamIndex: URL { fixture("fixture.sorted.bam.bai") }
+
+        /// The viewer track's stats database, as an import fills it.
+        public static var trackStatsDatabase: URL {
+            fixture("fixture.lungfishref/alignments/fixture-track.stats.db")
+        }
+
+        private static func fixture(_ name: String) -> URL {
+            let url = resultDirectory.appendingPathComponent(name)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir)/\(name). Run its make_fixture.py."
+            )
+            return url
+        }
+    }
+
     /// Canonical QIAseq Direct SARS-CoV-2 primer scheme bundle.
     ///
     /// The fixture entry is a symlink pointing into

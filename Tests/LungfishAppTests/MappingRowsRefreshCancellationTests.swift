@@ -39,7 +39,12 @@ final class MappingRowsRefreshCancellationTests: XCTestCase {
                 value += 1
                 return value
             }
-            guard build == 1 else { return [] }
+            guard build == 1 else {
+                return [MappingContigSummary(
+                    contigName: "chr1", contigLength: 100, mappedReads: 1, mappedReadPercent: 100,
+                    meanDepth: 2, coverageBreadth: 0.5, medianMAPQ: 60, meanIdentity: 1
+                )]
+            }
             do {
                 try await Task.sleep(for: .seconds(60))
             } catch {
@@ -71,6 +76,10 @@ final class MappingRowsRefreshCancellationTests: XCTestCase {
         let rowsShown = await waitUntil(timeout: .seconds(30)) {
             viewport.testContigTableView.displayedRows.contains { $0.sampleID == "S1" }
         }
-        XCTAssertTrue(rowsShown, "the newer refresh shows the stored rows with reads")
+        XCTAssertTrue(rowsShown, "the newer refresh shows the rows its summary build measured")
+        let shown = viewport.testContigTableView.displayedRows.first { $0.sampleID == "S1" }
+        XCTAssertEqual(shown?.contigName, "chr1")
+        XCTAssertEqual(shown?.mappedReads, 1)
+        XCTAssertEqual(shown?.meanDepth, 2, "the builder's depth, not a zero that nobody measured")
     }
 }
