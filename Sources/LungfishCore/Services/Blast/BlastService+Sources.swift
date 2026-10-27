@@ -144,12 +144,16 @@ extension BlastService {
         let sampledSet = Set(sampledIds)
         logger.info("extractSequencesAndBuild: sampled \(sampledIds.count, privacy: .public) of \(matchingReadIds.count, privacy: .public) fragments (seed \(seed, privacy: .public))")
 
-        // Hit strings decide which mate of a pair carries the taxon's evidence.
+        // Hit strings decide which mate of a pair carries the taxon's evidence, and the lengths kraken2 recorded
+        // check the records drawn (BIO-READ-IDENTITY 4.1).
         var hitStrings: [String: String] = [:]
+        var recordedLengths: [String: [KrakenReadLength]]?
         if let classificationOutputURL,
            FileManager.default.fileExists(atPath: classificationOutputURL.path) {
             do {
-                hitStrings = try lookupKrakenHitStrings(classificationOutputURL, fragmentIds: sampledSet)
+                let evidence = try lookupKrakenEvidence(classificationOutputURL, fragmentIds: sampledSet)
+                hitStrings = evidence.hitStrings
+                recordedLengths = evidence.lengths
             } catch let cancel as CancellationError {
                 // A cancel during the lookup ends the run, never a submission of mate 1 (S38, 2.12 lane 12.10).
                 throw cancel
@@ -172,6 +176,23 @@ extension BlastService {
                 isGzip: isGzip
             )
             records += found.map { (id: $0.id, mate: $0.mate ?? source.unmarkedMate, sequence: $0.sequence) }
+        }
+
+        // Every fragment drawn must be in the sources with the lengths kraken2 recorded, or the files at the
+        // result's place hold other reads under the same names, and nothing is sent (BIO-READ-IDENTITY 4.1).
+        if let recordedLengths {
+            var drawn: [String: [KrakenReadLength]] = [:]
+            for record in records {
+                drawn[record.id, default: []].append(KrakenReadLength(mate: record.mate, length: record.sequence.utf8.count))
+            }
+            var check = KrakenReadCheck()
+            for id in sampledIds {
+                check.add(expected: recordedLengths[id] ?? [], found: drawn[id] ?? [])
+            }
+            guard check.passes else {
+                logger.error("extractSequencesAndBuild: \(check.missing, privacy: .public) of \(check.named, privacy: .public) drawn fragments are missing and \(check.otherLength, privacy: .public) have another length than kraken2 recorded")
+                throw KrakenReadsChanged(check: check)
+            }
         }
 
         // Group records by fragment and number the mates. An explicit /1, /2
@@ -231,5 +252,27 @@ extension BlastService {
             relatedTaxIds: context.relatedTaxIds,
             relatedTaxonNames: context.relatedNames
         )
+    }
+
+    /// The Kraken 2 hit strings (column 5) and the lengths kraken2 recorded (column 4) of the given fragment IDs,
+    /// in one pass. The hit strings are the ones ``lookupKrakenHitStrings(_:fragmentIds:)`` reads, and every line
+    /// of a fragment adds its lengths, so the two mates of a run without `--paired` both count.
+    func lookupKrakenEvidence(
+        _ classificationOutputURL: URL,
+        fragmentIds: Set<String>
+    ) throws -> (hitStrings: [String: String], lengths: [String: [KrakenReadLength]]) {
+        var hitStrings: [String: String] = [:]
+        var lengths: [String: [KrakenReadLength]] = [:]
+        try forEachKrakenOutputLine(classificationOutputURL) { line in
+            let cols = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false)
+            guard cols.count >= 4 else { return }
+            let (id, mate) = Self.normalizeFragmentId(cols[1].trimmingCharacters(in: .whitespaces))
+            guard fragmentIds.contains(id) else { return }
+            lengths[id, default: []] += KrakenReadLength.lengths(column: cols[3].trimmingCharacters(in: .whitespaces), mateInID: mate)
+            if cols.count >= 5, hitStrings.count < fragmentIds.count {
+                hitStrings[id] = String(cols[4])
+            }
+        }
+        return (hitStrings, lengths)
     }
 }

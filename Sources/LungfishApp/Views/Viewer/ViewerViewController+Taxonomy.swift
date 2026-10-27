@@ -451,6 +451,18 @@ func kraken2BlastVerificationRequest(
         throw BlastServiceError.noSequences
     }
 
+    // A drawn read that is missing or has another length than kraken2 recorded means the files at the result's place
+    // hold other reads under the same names, so the alert names the place and nothing is sent (BIO-READ-IDENTITY 4.1).
+    func refusingChangedReads(_ build: () async throws -> BlastVerificationRequest) async throws -> BlastVerificationRequest {
+        do {
+            return try await build()
+        } catch let changed as KrakenReadsChanged {
+            throw ClassifierExtractionError.readsChanged(
+                place: KrakenResultReadSources.place(of: sourceInputs), check: changed.check, forBLAST: true
+            )
+        }
+    }
+
     // Build read ID set for this taxon using the indexed
     // sidecar when available (O(k) vs O(n) linear scan).
     // Clade (sampling targets and supporting hits) plus the
@@ -467,7 +479,7 @@ func kraken2BlastVerificationRequest(
         db.close()
         taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
 
-        return try await service.buildVerificationRequestFromReadIds(
+        return try await refusingChangedReads { try await service.buildVerificationRequestFromReadIds(
             taxonName: taxonName,
             taxId: taxId,
             matchingReadIds: matchingReadIds,
@@ -477,11 +489,11 @@ func kraken2BlastVerificationRequest(
             classificationOutputURL: classificationOutput,
             acceptedTaxonNames: acceptedTaxonNames,
             taxonomyContext: taxonomyContext
-        )
+        ) }
     }
     // Slow path: linear scan (index will be built on next classification)
     taxonomyLogger.info("BLAST: no index available, using linear scan")
-    return try await service.buildVerificationRequest(
+    return try await refusingChangedReads { try await service.buildVerificationRequest(
         taxonName: taxonName,
         taxId: taxId,
         targetTaxIds: targetTaxIds,
@@ -490,7 +502,7 @@ func kraken2BlastVerificationRequest(
         readCount: readCount,
         acceptedTaxonNames: acceptedTaxonNames,
         taxonomyContext: taxonomyContext
-    )
+    ) }
 }
 
 /// Operations-panel summary for a finished BLAST verification.

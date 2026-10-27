@@ -285,7 +285,7 @@ public actor BlastService {
     }
 
     /// Streams the lines of a plain or gzip-compressed Kraken 2 output file.
-    private func forEachKrakenOutputLine(
+    func forEachKrakenOutputLine(
         _ url: URL,
         _ body: (Substring) -> Void
     ) throws {

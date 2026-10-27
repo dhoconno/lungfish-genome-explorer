@@ -196,6 +196,20 @@ extension ClassifierReadResolver {
                 }
             )
 
+            // Every read the selection names must be there with the length kraken2 recorded, or the files at the
+            // result's place hold other reads under the same names (BIO-READ-IDENTITY 4.1). One result refuses in
+            // words, and a batch skips the sample with the same words.
+            guard extraction.check.passes else {
+                for case let output? in extraction.outputs { try? FileManager.default.removeItem(at: output) }
+                let refusal = ClassifierExtractionError.readsChanged(
+                    place: KrakenResultReadSources.place(of: sources.inputs), check: extraction.check
+                )
+                guard job.sampleId != nil else { throw refusal }
+                logger.warning("Skipping sample \(sampleLabel, privacy: .private(mask: .hash)): \(refusal.localizedDescription, privacy: .public)")
+                progress?(baseFraction * 0.8 + 0.7 * sampleWeight, "\(sampleLabel): \(refusal.localizedDescription)")
+                skippedSamples.append(sampleLabel)
+                continue
+            }
             extractedSamples.append((extraction.outputs, sources.files))
         }
 

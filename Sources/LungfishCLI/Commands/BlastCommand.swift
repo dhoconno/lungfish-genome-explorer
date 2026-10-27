@@ -268,6 +268,14 @@ extension BlastCommand {
             } catch BlastServiceError.noSequences {
                 print(formatter.warning("No reads for taxon \(taxId) could be read from the classification output and source FASTQ"))
                 throw CLIExitCode.inputError.exitCode
+            } catch let changed as KrakenReadsChanged {
+                // The sources hold other reads under the names kraken2 classified, so nothing is sent and the
+                // words go to stderr (BIO-READ-IDENTITY 4.1 and 4.3).
+                let refusal = ClassifierExtractionError.readsChanged(
+                    place: KrakenResultReadSources.place(of: readFiles.inputs), check: changed.check, forBLAST: true
+                )
+                FileHandle.standardError.write(Data(formatter.error(refusal.localizedDescription).appending("\n").utf8))
+                throw CLIExitCode.inputError.exitCode
             }
 
             if chatty {

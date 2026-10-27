@@ -14,7 +14,7 @@ import os.log
 /// Distinct from the lower-level `ExtractionError` so callers can differentiate
 /// resolver-scoped failures (BAM-not-found-for-sample, missing Kraken2 output,
 /// etc.) from primitive samtools/seqkit failures.
-public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
+public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatable {
 
     /// The requested tool does not expose BAM-backed reads.
     case unsupportedBAMTool(ClassifierTool)
@@ -47,6 +47,14 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
         case extract = "Extract"
         case blast = "BLAST Matching Reads\u{2026}"
     }
+
+    /// The reads at `place` are not the reads a Kraken2 result was made from: of the `named` reads the selection
+    /// names, `missing` are not there and `otherLength` are there with another length than kraken2 recorded, so
+    /// Extract wrote nothing (BIO-READ-IDENTITY 4.1 and 4.3, lane READ-IDENTITY). A pair counts once.
+    case kraken2ReadsChanged(place: String, missing: Int, otherLength: Int, named: Int)
+
+    /// The same refusal for BLAST Matching Reads and `lungfish-cli blast verify`, which sent nothing to BLAST.
+    case kraken2ReadsChangedForBLAST(place: String, missing: Int, otherLength: Int, named: Int)
 
     /// A per-sample samtools invocation failed.
     case samtoolsFailed(sampleId: String, stderr: String)
@@ -104,6 +112,15 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "The reads this result came from, \(place), are not in this project, "
                 + "so Lungfish did not look for them anywhere else. "
                 + "Import \(name) into this project again, then choose \(action.rawValue)."
+        case .kraken2ReadsChanged(let place, let missing, let otherLength, let named):
+            return Self.readsChangedWords(
+                place: place, missing: missing, otherLength: otherLength, named: named, outcome: nil
+            )
+        case .kraken2ReadsChangedForBLAST(let place, let missing, let otherLength, let named):
+            return Self.readsChangedWords(
+                place: place, missing: missing, otherLength: otherLength, named: named,
+                outcome: "Lungfish sent nothing to BLAST."
+            )
         case .samtoolsFailed(let sampleId, let stderr):
             return "samtools view failed for sample '\(sampleId)': \(stderr)"
         case .clipboardCapExceeded(let requested, let cap):
@@ -127,6 +144,27 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
         case .unsupportedCopyDestination:
             return "Clipboard / share destinations are not supported from the CLI"
         }
+    }
+
+    /// The refusal for `check` of the reads at `place`, Extract's or, when `forBLAST`, BLAST's.
+    public static func readsChanged(place: String, check: KrakenReadCheck, forBLAST: Bool = false) -> Self {
+        forBLAST
+            ? .kraken2ReadsChangedForBLAST(place: place, missing: check.missing, otherLength: check.otherLength, named: check.named)
+            : .kraken2ReadsChanged(place: place, missing: check.missing, otherLength: check.otherLength, named: check.named)
+    }
+
+    /// The words of the two refusals (the BIO ruling's 4.3). When none of the reads is there and none has another
+    /// length, the place may hold other reads under the same name, and the words say so (4.5, case (c)). `outcome` is
+    /// what BLAST did, and nil gives Extract's.
+    private static func readsChangedWords(place: String, missing: Int, otherLength: Int, named: Int, outcome: String?) -> String {
+        if missing == named, otherLength == 0 {
+            let words = "None of the reads this result names are in \(place). It may hold other reads under the same name."
+            return outcome.map { words + " " + $0 } ?? words
+        }
+        return "The reads at \(place) are not the reads this result was made from: \(missing) of the \(named) reads it "
+            + "names are not there and \(otherLength) have another length. They were probably trimmed, filtered or "
+            + "basecalled again after the classification. \(outcome ?? "Lungfish extracted nothing.") Run the "
+            + "classification again on these reads, or put the reads it was made from back at \(place)."
     }
 
     /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that

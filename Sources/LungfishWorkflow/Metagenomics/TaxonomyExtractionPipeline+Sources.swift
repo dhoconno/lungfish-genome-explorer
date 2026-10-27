@@ -13,20 +13,22 @@ extension TaxonomyExtractionPipeline {
     /// Each R1 file and the R2 file after it are read in step, as kraken2
     /// read them, and every other file with seqkit grep. `config` gives the
     /// taxa, the classification output, and the folder and base name of the
-    /// outputs. Its source files are `files`.
+    /// outputs. Its source files are `files`. `check` says whether every read
+    /// the selection names was found with the length kraken2 recorded
+    /// (``checkReads(_:of:named:matching:)``, BIO-READ-IDENTITY 4.1).
     func extractEachFile(
         config: TaxonomyExtractionConfig,
         files: [KrakenResultReadSources.File],
         tree: TaxonTree,
         progress: (@Sendable (Double, String) -> Void)?
-    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int) {
+    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int, check: KrakenReadCheck) {
         for (index, file) in files.enumerated() where file.role == .r1 {
             guard index + 1 < files.count, files[index + 1].role == .r2 else {
                 throw ClassifierExtractionError.kraken2SourceMissing
             }
         }
         let matePairStarts = files.indices.filter { files[$0].role == .r1 }
-        return try await extractEachSource(
+        let extraction = try await extractEachSource(
             config: TaxonomyExtractionConfig(
                 taxIds: config.taxIds,
                 includeChildren: config.includeChildren,
@@ -38,8 +40,15 @@ extension TaxonomyExtractionPipeline {
             ),
             tree: tree,
             matePairStarts: matePairStarts,
+            readLengths: true,
             progress: progress
         )
+        let pairedRun = KrakenResultReadSources.classifiedPairs(in: config.classificationOutput)
+        let check = try Self.checkReads(
+            extraction.outputs, of: files, named: extraction.named,
+            matching: config.keepReadPairs || pairedRun ? .fragmentName : .firstWord
+        )
+        return (extraction.outputs, extraction.taxIds, extraction.readCount, check)
     }
 
     /// Writes a taxon's reads, extracted file by file from `files`
