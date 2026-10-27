@@ -10,8 +10,8 @@ import LungfishTestSupport
 /// A derived bundle's manifest stores statistics that the FASTQ view, its charts and the Inspector show. Bundles
 /// demultiplexed before Phase 3.0 lane DEMUX-STATS stored 0 for GC, mean Q, Q20 and Q30, and on the cutadapt route and
 /// for unassigned reads 0 for median and N50 too, and those were shown as measured (walk WF-8b). The view now measures
-/// the reads of such a bundle when it is shown, and words a record with reads and no scores as "No quality scores"
-/// (ONT-BIO Backlog 3).
+/// the reads of such a bundle when it is shown, keeps the numbers in memory for the session because a view writes
+/// nothing into the project, and words a record with reads and no scores as "No quality scores" (ONT-BIO Backlog 3).
 final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
 
     private static let scored = FASTQDatasetStatistics(
@@ -66,11 +66,21 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         )
     }
 
-    // MARK: - Measured once
+    // MARK: - Measured once this session, and nothing written
 
     private actor CallCount {
         private(set) var value = 0
         func add() { value += 1 }
+    }
+
+    private func uncountedManifest(named name: String) -> FASTQDerivedBundleManifest {
+        let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: "exact-barcode-demux", toolVersion: nil)
+        return FASTQDerivedBundleManifest(
+            name: name, parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq", rootFASTQFilename: "reads.fastq",
+            lineage: [operation], operation: operation,
+            cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 400), pairingMode: nil
+        )
     }
 
     private func uncountedBundle() throws -> (URL, FASTQDerivedBundleManifest) {
@@ -78,20 +88,17 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         addTeardownBlock { TestTempDirectory.cleanup(root) }
         let bundle = root.appendingPathComponent("BC01.\(FASTQBundle.directoryExtension)", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: "exact-barcode-demux", toolVersion: nil)
-        let manifest = FASTQDerivedBundleManifest(
-            name: "BC01", parentBundleRelativePath: "../root.lungfishfastq",
-            rootBundleRelativePath: "../root.lungfishfastq", rootFASTQFilename: "reads.fastq",
-            lineage: [operation], operation: operation,
-            cachedStatistics: .countsOnlyFixture(readCount: 4, baseCount: 400), pairingMode: nil
-        )
+        let manifest = uncountedManifest(named: "BC01")
         try FASTQBundle.saveDerivedManifest(manifest, in: bundle)
         return (bundle, manifest)
     }
 
+    /// A view writes nothing into the project (Phase 2.6 lane B3, UX 6), so the measured numbers live in memory.
     @MainActor
-    func testUncountedStatisticsAreMeasuredOnceAndStoredSoTheNextDisplayDoesNotMeasure() async throws {
+    func testUncountedStatisticsAreMeasuredOnceThisSessionAndTheManifestIsNotRewritten() async throws {
         let (bundle, manifest) = try uncountedBundle()
+        let manifestURL = FASTQBundle.derivedManifestURL(in: bundle)
+        let before = try Data(contentsOf: manifestURL)
         let measures = CallCount()
         let measure: @Sendable (URL) async throws -> FASTQDatasetStatistics = { _ in
             await measures.add()
@@ -99,44 +106,35 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         }
 
         let first = try await DerivedFASTQStatisticsStore.statistics(for: manifest, in: bundle, measure: measure)
-        let stored = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
-        let second = try await DerivedFASTQStatisticsStore.statistics(for: stored, in: bundle, measure: measure)
+        let second = try await DerivedFASTQStatisticsStore.statistics(for: manifest, in: bundle, measure: measure)
 
         XCTAssertEqual(first, Self.scored)
-        XCTAssertEqual(stored.cachedStatistics, Self.scored, "the measured statistics are stored in the manifest")
-        XCTAssertEqual(stored.name, manifest.name)
-        XCTAssertEqual(stored.payload, manifest.payload)
         XCTAssertEqual(second, Self.scored)
         let count = await measures.value
-        XCTAssertEqual(count, 1, "the second display shows the stored statistics")
+        XCTAssertEqual(count, 1, "the second display shows the numbers kept in memory")
+        let after = try Data(contentsOf: manifestURL)
+        XCTAssertEqual(after, before, "showing a bundle leaves its derived manifest as it was")
     }
 
+    /// The kept numbers belong to one version of the manifest file. When another operation changes the file, the
+    /// bundle is measured again.
     @MainActor
-    func testAFailedSaveStillShowsTheNumbersAndIsNotTriedAgainThisSession() async throws {
+    func testAChangedManifestIsMeasuredAgain() async throws {
         let (bundle, manifest) = try uncountedBundle()
         let measures = CallCount()
-        var saves = 0
         let measure: @Sendable (URL) async throws -> FASTQDatasetStatistics = { _ in
             await measures.add()
             return Self.scored
         }
-        let failingSave: (FASTQDerivedBundleManifest, URL) throws -> Void = { _, _ in
-            saves += 1
-            throw CocoaError(.fileWriteVolumeReadOnly)
-        }
+        _ = try await DerivedFASTQStatisticsStore.statistics(for: manifest, in: bundle, measure: measure)
 
-        let first = try await DerivedFASTQStatisticsStore.statistics(
-            for: manifest, in: bundle, measure: measure, save: failingSave
-        )
-        let second = try await DerivedFASTQStatisticsStore.statistics(
-            for: manifest, in: bundle, measure: measure, save: failingSave
-        )
+        // The real save is allowed in a test. A longer name makes the file a different size, so no sleep is needed.
+        let changed = uncountedManifest(named: "BC01 changed by another operation")
+        try FASTQBundle.saveDerivedManifest(changed, in: bundle)
+        _ = try await DerivedFASTQStatisticsStore.statistics(for: changed, in: bundle, measure: measure)
 
-        XCTAssertEqual(first, Self.scored, "the numbers are shown although they could not be stored")
-        XCTAssertEqual(second, Self.scored)
         let count = await measures.value
-        XCTAssertEqual(count, 1, "kept for the session, so not measured again")
-        XCTAssertEqual(saves, 1, "the save is not tried again")
+        XCTAssertEqual(count, 2, "the manifest file changed, so the kept numbers no longer apply")
     }
 
     func testReadsWithNoScoresSayNoQualityScoresInPlaceOfMeanQQ20AndQ30() {
@@ -148,5 +146,23 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(Self.scored), "18.4")
         XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(Self.scored), "60.0%")
         XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(Self.scored), "40.0%")
+    }
+
+    /// The record `seqkit stats -a -T` builds has mean Q, Q20 and Q30 of reads that carry scores and no score
+    /// histogram. Those reads have scores, so the words must not hide the numbers (BIO review B1).
+    func testARecordWithScoresAndNoHistogramShowsItsNumbers() {
+        let scoresWithoutHistogram = FASTQDatasetStatistics(
+            readCount: 4, baseCount: 400,
+            meanReadLength: 100, minReadLength: 88, maxReadLength: 118,
+            medianReadLength: 98, n50ReadLength: 108,
+            meanQuality: 18.4, q20Percentage: 60, q30Percentage: 40, gcContent: 0.51,
+            readLengthHistogram: [88: 1, 98: 1, 108: 1, 118: 1], qualityScoreHistogram: [:],
+            perPositionQuality: []
+        )
+
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasNoQualityScores(scoresWithoutHistogram))
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(scoresWithoutHistogram), "18.4")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(scoresWithoutHistogram), "60.0%")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(scoresWithoutHistogram), "40.0%")
     }
 }
