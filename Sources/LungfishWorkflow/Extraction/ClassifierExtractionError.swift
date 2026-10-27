@@ -164,16 +164,16 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
 
     /// The words of the two refusals (the BIO ruling's 4.3). When none of the reads is there and none has another
     /// length, the place may hold other reads under the same name, and the words say so (4.5, case (c)). `outcome` is
-    /// what BLAST did, and nil gives Extract's.
+    /// what BLAST did, and nil gives Extract's. Both forms end with what Lungfish did and what to try (UX SF-1).
     private static func readsChangedWords(place: String, missing: Int, otherLength: Int, named: Int, outcome: String?) -> String {
+        let nothing = outcome ?? "Lungfish extracted nothing."
+        let next = "Run the classification again on these reads, or put the reads it was made from back at \(place)."
         if missing == named, otherLength == 0 {
-            let words = "None of the reads this result names are in \(place). It may hold other reads under the same name."
-            return outcome.map { words + " " + $0 } ?? words
+            return "None of the reads this result names are in \(place). It may hold other reads under the same name. \(nothing) \(next)"
         }
-        return "The reads at \(place) are not the reads this result was made from: \(missing) of the \(named) reads it "
-            + "names are not there and \(otherLength) have another length. They were probably trimmed, filtered or "
-            + "basecalled again after the classification. \(outcome ?? "Lungfish extracted nothing.") Run the "
-            + "classification again on these reads, or put the reads it was made from back at \(place)."
+        return "The reads at \(place) are not the reads this result was made from. Of the \(named) \(named == 1 ? "read" : "reads") it names, "
+            + "\(missing) \(missing == 1 ? "is" : "are") missing and \(otherLength) \(otherLength == 1 ? "has" : "have") another length. "
+            + "They were probably trimmed, filtered or basecalled again after the classification. \(nothing) \(next)"
     }
 
     /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that
