@@ -210,6 +210,37 @@ final class ProjectLockCopiedFolderTests: XCTestCase {
         _ = (first, second)
     }
 
+    // MARK: - Closing either folder leaves the other folder's lock in place
+
+    /// The copy's rewritten lock names the copy, so closing the original removes only the original's lock.
+    func testClosingTheOriginalLeavesTheCopysLockInPlace() throws {
+        let copied: ProjectStore
+        do {
+            let store = try ProjectStore(opening: original, access: .writable)
+            try FileManager.default.copyItem(at: original, to: copy)
+            copied = try ProjectStore(opening: copy, access: .writable)
+            withExtendedLifetime(store) {}
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectLockManager.lockURL(for: original).path),
+            "Closing the original removes its own lock")
+        XCTAssertEqual(try ProjectLockManager().readLock(forProjectAt: copy)?.projectPath, copy.standardizedFileURL.path)
+        XCTAssertTrue(ProjectStore.ownsWriterLease(at: copy))
+        withExtendedLifetime(copied) {}
+    }
+
+    /// Closing the copy removes only the copy's lock and leaves the original's bytes as they were.
+    func testClosingTheCopyLeavesTheOriginalsLockInPlace() throws {
+        let store = try ProjectStore(opening: original, access: .writable)
+        let originalLock = try Data(contentsOf: ProjectLockManager.lockURL(for: original))
+        try FileManager.default.copyItem(at: original, to: copy)
+        do { let copied = try ProjectStore(opening: copy, access: .writable); withExtendedLifetime(copied) {} }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ProjectLockManager.lockURL(for: copy).path),
+            "Closing the copy removes its own lock")
+        XCTAssertEqual(try Data(contentsOf: ProjectLockManager.lockURL(for: original)), originalLock)
+        XCTAssertTrue(ProjectStore.ownsWriterLease(at: original))
+        withExtendedLifetime(store) {}
+    }
+
     // MARK: - Helpers
 
     private func copyWhileTheOriginalIsOpenThenCloseIt() throws {
