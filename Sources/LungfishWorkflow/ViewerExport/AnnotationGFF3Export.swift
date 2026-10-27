@@ -16,8 +16,10 @@ public enum AnnotationGFF3Export {
     public static let commandPath = ["bundle", "export-gff3"]
     /// The workflow name the leaf's record carries (ARCH ruling 1.4).
     public static let workflowName = "lungfish bundle export-gff3"
-    /// The GFF3 source column every exported feature carries.
-    public static let featureSource = "Lungfish"
+    /// The GFF3 source column every exported feature carries, the undefined value `.`. A bundle's annotation database
+    /// holds a feature's attributes and not its source, so the export has no source to name and does not claim that
+    /// Lungfish made the feature (Phase 3.0 lane GFF3-FIDELITY, walk GFF3-a).
+    public static let featureSource = "."
 
     /// A bundle's annotations with the files read for them.
     public struct BundleAnnotations: Sendable {

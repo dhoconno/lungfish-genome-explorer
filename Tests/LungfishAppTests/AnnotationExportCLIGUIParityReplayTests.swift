@@ -256,7 +256,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try encoder.encode(FrozenSelection(source: source, annotations: annotations)).write(to: selectionURL, options: .atomic)
-            try await GFF3Writer.write(annotations, to: payloadURL, source: "Lungfish")
+            try await GFF3Writer.write(annotations, to: payloadURL, source: AnnotationGFF3Export.featureSource)
             var argv = ["Lungfish.app", "export-gff3", "--source-kind", source.kind.rawValue]
             for url in source.urls { argv += ["--source", url.path] }
             argv += ["--output", outputURL.path]
@@ -273,7 +273,7 @@ extension AnnotationExportCLIGUIParityReplayTests {
                     "sourceName": .string(source.name),
                     "sourcePaths": .array(source.urls.map { .file($0) }),
                     "outputPath": .file(outputURL)],
-                defaults: ["outputFormat": .string("gff3"), "featureSource": .string("Lungfish")],
+                defaults: ["outputFormat": .string("gff3"), "featureSource": .string(AnnotationGFF3Export.featureSource)],
                 resolved: ["annotationCount": .integer(annotations.count),
                     "replayScope": .string("retained-selection snapshot byte replay"),
                     "replaysUpstreamAnalysis": .boolean(false)],

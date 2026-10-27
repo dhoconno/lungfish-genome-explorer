@@ -40,7 +40,8 @@ public final class GFF3Writer {
     /// Output file URL
     public let url: URL
 
-    /// Source field to use when writing (default: "Lungfish")
+    /// Source field written for every annotation, since an annotation carries no source of its own (default: ".", the
+    /// undefined value of GFF3). A caller that knows the source of its features passes it.
     public let defaultSource: String
 
     /// Whether to write the GFF3 header
@@ -58,10 +59,10 @@ public final class GFF3Writer {
     ///
     /// - Parameters:
     ///   - url: Output file URL
-    ///   - defaultSource: Source field for features without explicit source (default: "Lungfish")
+    ///   - defaultSource: Source field for features without explicit source (default: ".", the undefined value of GFF3)
     ///   - includeHeader: Whether to write the ##gff-version 3 header (default: true)
     /// - Throws: If the file cannot be created
-    public init(url: URL, defaultSource: String = "Lungfish", includeHeader: Bool = true) throws {
+    public init(url: URL, defaultSource: String = ".", includeHeader: Bool = true) throws {
         self.url = url
         self.defaultSource = defaultSource
         self.includeHeader = includeHeader
@@ -158,9 +159,9 @@ public final class GFF3Writer {
     /// - Parameters:
     ///   - features: Array of GFF3Feature to write
     ///   - url: Output file URL
-    ///   - source: Default source field (default: "Lungfish")
+    ///   - source: Default source field (default: ".", the undefined value of GFF3)
     /// - Throws: If writing fails
-    public static func write(_ features: [GFF3Feature], to url: URL, source: String = "Lungfish") async throws {
+    public static func write(_ features: [GFF3Feature], to url: URL, source: String = ".") async throws {
         let writer = try GFF3Writer(url: url, defaultSource: source)
         defer { writer.close() }
         try await writer.write(features)
@@ -171,9 +172,9 @@ public final class GFF3Writer {
     /// - Parameters:
     ///   - annotations: Array of SequenceAnnotation to write
     ///   - url: Output file URL
-    ///   - source: Default source field (default: "Lungfish")
+    ///   - source: Default source field (default: ".", the undefined value of GFF3)
     /// - Throws: If writing fails
-    public static func write(_ annotations: [SequenceAnnotation], to url: URL, source: String = "Lungfish") async throws {
+    public static func write(_ annotations: [SequenceAnnotation], to url: URL, source: String = ".") async throws {
         let writer = try GFF3Writer(url: url, defaultSource: source)
         defer { writer.close() }
         try await writer.write(annotations)
@@ -316,7 +317,9 @@ public final class GFF3Writer {
         let row = GFF3ExportIdentifiers.Row(annotation: annotation)
         var attributes: [String: String] = [:]
         attributes["ID"] = row.map { identifiers.exportedID(of: $0) } ?? annotation.id.uuidString
-        attributes["Name"] = annotation.name
+        if Self.exportsName(of: annotation, row: row) {
+            attributes["Name"] = annotation.name
+        }
 
         // Add the note. An annotation read from an annotation database keeps its stored `Note=` pair as the qualifier
         // `Note` and leaves `note` nil (`AnnotationDatabaseRecord.toAnnotation`), so the qualifier is the note then.
@@ -406,6 +409,18 @@ public final class GFF3Writer {
         }
 
         return features
+    }
+
+    /// Whether an annotation exports `Name=<its name>` (walk GFF3-b, UX ruling). It does, except for a database row whose
+    /// stored attributes hold no `Name` and whose name is only its stored `ID`, the display name the import falls back
+    /// to (`AnnotationDatabase.displayName`). The file had no Name there, so the export adds none. The writer cannot tell
+    /// a feature that Lungfish made from one that a file brought, since an annotation carries no origin and a primer
+    /// (`Primer3DesignPipeline.bed14`) or a manual annotation (`ReferenceBundleManualAnnotationService`) is a database row
+    /// like an imported one, with stored attributes and no `Name`. So a name that says more than the ID is kept for every
+    /// annotation, and so is the name of an annotation that is not a database row.
+    private static func exportsName(of annotation: SequenceAnnotation, row: GFF3ExportIdentifiers.Row?) -> Bool {
+        guard let storedID = row?.storedID, annotation.qualifiers["Name"] == nil else { return true }
+        return annotation.name != storedID
     }
 
     private func annotationTypeToGFF3Type(_ type: AnnotationType) -> String {

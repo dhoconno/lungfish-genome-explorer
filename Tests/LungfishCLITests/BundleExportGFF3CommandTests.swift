@@ -39,7 +39,7 @@ final class BundleExportGFF3CommandTests: XCTestCase {
 
     private static func builderBytes(_ annotations: [SequenceAnnotation], in folder: URL) async throws -> Data {
         let url = folder.appendingPathComponent("builder-\(UUID().uuidString).gff3")
-        try await GFF3Writer.write(annotations, to: url, source: "Lungfish")
+        try await GFF3Writer.write(annotations, to: url, source: AnnotationGFF3Export.featureSource)
         return try Data(contentsOf: url)
     }
 
