@@ -189,6 +189,27 @@ final class ProjectLockCopiedFolderTests: XCTestCase {
         XCTAssertEqual(ProjectLockManager().status(of: record, forProjectAt: original), .active)
     }
 
+    // MARK: - The registry of lease records
+
+    /// Two leases that hold equal records count twice, so ending one keeps the record held.
+    func testEqualLeaseRecordsAreHeldUntilTheLastLeaseEnds() throws {
+        let record = ProjectLockRecord.current(projectURL: copy, mode: "write",
+            toolName: ProjectLockManager.writerLeaseToolName, appVersion: "test")
+        let synchronization = ProjectStoreSynchronization()   // the folder does not exist, so no lock file is touched
+        func lease() -> ProjectStoreWriterLease {
+            ProjectWriterLeaseRecords.register(ProjectStoreWriterLease(lockURL: ProjectLockManager.lockURL(for: copy),
+                projectURL: copy, record: record, synchronization: synchronization))
+        }
+        var first: ProjectStoreWriterLease? = lease()
+        var second: ProjectStoreWriterLease? = lease()
+        XCTAssertTrue(ProjectStore.hasLiveWriterLease(holding: record))
+        first = nil
+        XCTAssertTrue(ProjectStore.hasLiveWriterLease(holding: record), "The second lease still holds an equal record")
+        second = nil
+        XCTAssertFalse(ProjectStore.hasLiveWriterLease(holding: record))
+        _ = (first, second)
+    }
+
     // MARK: - Helpers
 
     private func copyWhileTheOriginalIsOpenThenCloseIt() throws {

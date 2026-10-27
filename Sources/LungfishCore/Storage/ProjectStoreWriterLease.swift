@@ -39,5 +39,6 @@ final class ProjectStoreWriterLease: @unchecked Sendable {
         if (try? manager.readLock(at: current)) == record {
             try? manager.removeLockIfPresent(at: current)
         }
+        ProjectWriterLeaseRecords.remove(record)
     }
 }
