@@ -632,12 +632,8 @@ final class MetadataImportSheet: NSViewController {
             dismiss(nil)
         } catch {
             logger.error("Failed to save imported metadata: \(error.localizedDescription)")
-            let alert = NSAlert()
-            alert.messageText = "Import Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
             if let window = view.window {
-                alert.beginSheetModal(for: window)
+                FailurePresenter.present(SidebarFailureReports.saveImportedSampleMetadata(error), in: window)
             }
         }
     }

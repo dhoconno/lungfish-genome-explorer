@@ -701,13 +701,9 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
         // Show error if some items failed
         if !failedItems.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Some items could not be deleted"
-            alert.informativeText = failedItems.map { "\($0.0): \($0.1.localizedDescription)" }.joined(separator: "\n")
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
             if let window = view.window {
-                alert.beginSheetModal(for: window)
+                let report = SidebarFailureReports.deleteItems(failedItems.map { (name: $0.0, error: $0.1) })
+                FailurePresenter.present(report, in: window)
             }
         }
 
