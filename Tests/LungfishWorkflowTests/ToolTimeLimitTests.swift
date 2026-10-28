@@ -60,44 +60,170 @@ final class ToolTimeLimitTests: XCTestCase {
                      "the process GATK runner has no wall-clock limit unless its caller sets one")
     }
 
-    /// The `timeout: TimeInterval = <seconds>` defaults that stay, each one a probe, a version check or an install.
-    /// Any other default of that form in Workflow or CLI source is an analysis tool with a limit.
-    private static let keptDefaults: [(file: String, line: String)] = [
-        ("Sources/LungfishWorkflow/Variants/GATKInstalledToolVersion.swift", "timeout: TimeInterval = 60"), // version check
-        ("Sources/LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift", "timeout: TimeInterval = 30"), // runtime probe
-        ("Sources/LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift", "timeout: TimeInterval = 3_600"), // install step
-        ("Sources/LungfishWorkflow/Engines/DockerRuntime.swift", "timeout: TimeInterval = 120.0"), // docker control command
-        ("Sources/LungfishWorkflow/Native/ShellUtilities.swift", "timeout: TimeInterval = 30"), // version check
+    // MARK: - Fixed limits in the source
+
+    /// What the fixed limits of one source file stand for. `helper` counts the lines whose limit stays, which are
+    /// a probe, a version check, an install or database step, a network call or a viewer query, and a stop of such
+    /// a limit says why. `fixed` counts analysis tools that still stop at a fixed limit. They wait for a lane that
+    /// lifts them (backlog row TTL-FIXED-LIMITS-REST) and the guard keeps them from growing.
+    private struct Entry {
+        let file: String
+        let helper: Int
+        let fixed: Int
+        let reason: String
+        var count: Int { helper + fixed }
+    }
+
+    private static func entry(_ file: String, helper: Int = 0, fixed: Int = 0, _ reason: String) -> Entry {
+        Entry(file: "Sources/" + file, helper: helper, fixed: fixed, reason: reason)
+    }
+
+    /// Every file of `Sources` that holds a fixed limit, with how many lines of each kind. A file the lane lifted
+    /// holds only the helper lines it kept.
+    private static let entries: [Entry] = [
+        entry("LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+SRAWindowDownload.swift", helper: 1, "network request"),
+        entry("LungfishApp/Views/Viewer/ProgressOverlayView.swift", helper: 1, "overlay delay, no tool"),
+        entry("LungfishCLI/Commands/BuildDbCommand+SamtoolsProvenance.swift", fixed: 1, "samtools step of build-db"),
+        entry("LungfishCLI/Commands/DebugCommand.swift", helper: 2, "debug probes"),
+        entry("LungfishCLI/Commands/FastqContaminantFilterSubcommand.swift", fixed: 1, "bbduk"),
+        entry("LungfishCLI/Commands/FastqDeaconRiboSubcommand.swift", fixed: 2, "deacon, reformat"),
+        entry("LungfishCLI/Commands/FastqDeinterleaveSubcommand.swift", fixed: 1, "reformat"),
+        entry("LungfishCLI/Commands/FastqEntropyFilterSubcommand.swift", fixed: 1, "bbduk"),
+        entry("LungfishCLI/Commands/FastqErrorCorrectSubcommand.swift", fixed: 1, "tadpole"),
+        entry("LungfishCLI/Commands/FastqInterleaveSubcommand.swift", fixed: 1, "reformat"),
+        entry("LungfishCLI/Commands/FastqMergeSubcommand.swift", fixed: 1, "bbmerge"),
+        entry("LungfishCLI/Commands/FastqOrientSubcommand.swift", fixed: 1, "vsearch"),
+        entry("LungfishCLI/Commands/FastqPairedSearchSupport.swift", fixed: 2, "seqkit"),
+        entry("LungfishCLI/Commands/FastqPrimerRemovalSubcommand+ReadThrough.swift", fixed: 2, "primer removal"),
+        entry("LungfishCLI/Commands/FastqRepairSubcommand.swift", fixed: 1, "repair"),
+        entry("LungfishCLI/Commands/FastqRiboDetectorSubcommand.swift", fixed: 1, "ribodetector"),
+        entry("LungfishCLI/Commands/FastqSearchMotifSubcommand.swift", fixed: 1, "seqkit"),
+        entry("LungfishCLI/Commands/FastqSearchTextSubcommand.swift", fixed: 2, "seqkit"),
+        entry("LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift", fixed: 1, "bbduk"),
+        entry("LungfishCLI/Commands/FastqSubsampleSubcommand.swift", fixed: 1, "reformat"),
+        entry("LungfishCLI/Commands/FreyjaCommand.swift", fixed: 1, "freyja, 24 h"),
+        entry("LungfishCLI/Commands/ImportCommand+BAM.swift", helper: 1, fixed: 1, "idxstats lookup, samtools index"),
+        entry("LungfishCLI/Commands/ImportCommand.swift", helper: 1, "version probe"),
+        entry("LungfishCLI/Commands/MarkdupCommand.swift", helper: 1, "version probe"),
+        entry("LungfishCLI/LungfishCLI.swift", helper: 1, "exit code 124, no limit"),
+        entry("LungfishCLI/Support/CLIProvenanceSupport.swift", helper: 1, "version probe"),
+        entry("LungfishCore/Process/ProcessTreeTerminator.swift", helper: 1, "wait after a kill"),
+        entry("LungfishCore/Services/AI/AnthropicProvider.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/AI/GeminiProvider.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/AI/OpenAIProvider.swift", helper: 2, "network request"),
+        entry("LungfishCore/Services/Blast/BlastService.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/ENA/ENAService.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/NCBI/NCBIService.swift", helper: 4, "network request"),
+        entry("LungfishCore/Services/NCBI/SRAService+ENADownload.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/NCBI/SRAService.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/Pathoplexus/PathoplexusService.swift", helper: 1, "network request"),
+        entry("LungfishGenotypeUI/GenotypeAnnotationPublicationChain.swift", helper: 1, "wait for a save"),
+        entry("LungfishIO/Bundles/AlignmentDataProvider.swift", helper: 15, "viewer queries on a region or an index"),
+        entry("LungfishIO/Bundles/VariantDatabase+Cache.swift", helper: 2, "cache warm wait"),
+        entry("LungfishKit/CLIBinaryLocator.swift", helper: 1, "probe"),
+        entry("LungfishNaoMgsUI/NaoMgsResultViewController.swift", helper: 1, "viewer query"),
+        entry("LungfishOperations/AI/AIAssistantService.swift", helper: 1, "network request"),
+        entry("LungfishOperations/FASTQBundleMergeService+Join.swift", fixed: 1, "reformat"),
+        entry("LungfishOperations/FASTQDerivativeService+BBTools.swift", fixed: 1, "bbmerge"),
+        entry("LungfishOperations/FASTQDerivativeService+Helpers.swift", fixed: 2, "reformat"),
+        entry("LungfishOperations/FASTQDerivativeService+RecipePipeline.swift", fixed: 1, "clumpify"),
+        entry("LungfishOperations/FASTQStatisticsService.swift", fixed: 2, "seqkit stats and head"),
+        entry("LungfishPortable/FASTQ/PortableStorageStep+WriterProbe.swift", helper: 1, "bgzip probe"),
+        entry("LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift", helper: 1, fixed: 2, "version probe, samtools index, markdup scaled limit"),
+        entry("LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift", helper: 1, fixed: 2, "header read, reheader and index"),
+        entry("LungfishWorkflow/Alignment/BundleAlignmentFilterService.swift", fixed: 4, "samtools view, sort, index, count"),
+        entry("LungfishWorkflow/Alignment/Minimap2Pipeline.swift", fixed: 3, "minimap2 scaled limit, samtools index and stats"),
+        entry("LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift", helper: 1, "install step"),
+        entry("LungfishWorkflow/Conda/ManagedToolLock.swift", helper: 11, "smoke probes"),
+        entry("LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift", helper: 2, "runtime probe and install step"),
+        entry("LungfishWorkflow/Conda/PackToolSmokeTest.swift", helper: 4, "smoke probes"),
+        entry("LungfishWorkflow/Conda/PluginPack.swift", helper: 20, "smoke probes"),
+        entry("LungfishWorkflow/Conda/PluginPackStatusService.swift", helper: 2, "probe and install hook"),
+        entry("LungfishWorkflow/Databases/DatabaseRegistry.swift", helper: 3, "database fetch, index info and version probe"),
+        entry("LungfishWorkflow/DemoProjects/DemoProjectArchiveLoader.swift", helper: 1, "network request"),
+        entry("LungfishWorkflow/Demultiplex/DemultiplexingPipeline+Scout.swift", helper: 4, "scout on a bounded read subset"),
+        entry("LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift", helper: 1, fixed: 8, "preview head, cutadapt and seqkit steps"),
+        entry("LungfishWorkflow/Dependencies/ReconcilerServices.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Engines/ContainerRuntimeProbe.swift", helper: 2, "probe"),
+        entry("LungfishWorkflow/Engines/DockerRuntime.swift", helper: 4, fixed: 1, "docker control commands, container run to completion"),
+        entry("LungfishWorkflow/Extraction/BAMRegionMatcher.swift", helper: 1, "header read"),
+        entry("LungfishWorkflow/Extraction/ClassifierReadResolver.swift", fixed: 3, "samtools view"),
+        entry("LungfishWorkflow/Extraction/FASTQCLIMaterializer.swift", fixed: 1, "seqkit materialize, scaled limit"),
+        entry("LungfishWorkflow/Ingestion/FASTQBatchImporter.swift", helper: 1, fixed: 17, "import steps scaled from input size, stats sample"),
+        entry("LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift", fixed: 1, "quality binning, scaled limit"),
+        entry("LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift", fixed: 1, "bbduk, seqkit"),
+        entry("LungfishWorkflow/Ingestion/ONTBAMImportMaterializer.swift", fixed: 3, "samtools, pigz, collate scaled limit"),
+        entry("LungfishWorkflow/Mapping/BAMImportService.swift", fixed: 2, "samtools index, sort scaled limit"),
+        entry("LungfishWorkflow/Mapping/MappingToolVersionProbe.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Metagenomics/ClassificationPipeline.swift", helper: 1, "bracken --help probe"),
+        entry("LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift", fixed: 2, "kraken2-build, bracken-build"),
+        entry("LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift", helper: 1, "faidx lookup"),
+        entry("LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Native/NativeToolRunner.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Native/ShellUtilities.swift", helper: 1, "version check"),
+        entry("LungfishWorkflow/Nextflow/NextflowEngineProcess+DockerWait.swift", helper: 1, "wait for the engine"),
+        entry("LungfishWorkflow/Nextflow/NextflowVersionProbe.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline+SampleExecution.swift", fixed: 2, "samtools, blastn"),
+        entry("LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline+Savont.swift", fixed: 1, "savont"),
+        entry("LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift", fixed: 2, "mapping and pysam, 24 h"),
+        entry("LungfishWorkflow/Orient/OrientPipeline.swift", fixed: 1, "vsearch"),
+        entry("LungfishWorkflow/PrimerAnalysis/PrimerOrderSheetWriter.swift", helper: 2, "order sheet tool and its version"),
+        entry("LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift", helper: 3, "probes"),
+        entry("LungfishWorkflow/PrimerDesign/Primer3DesignRunner.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/PrimerDesign/PrimerAnalysisNativeInspectionService.swift", helper: 1, "probe"),
+        entry("LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift", helper: 1, fixed: 1, "version probe, database build"),
+        entry("LungfishWorkflow/Primers/BAMPrimerTrimPipeline.swift", fixed: 3, "ivar, samtools sort and index"),
+        entry("LungfishWorkflow/Savont/SavontClusteringPipeline.swift", fixed: 1, "savont, 2 h"),
+        entry("LungfishWorkflow/Variants/BAMVariantCallingPreflight.swift", helper: 1, "header read"),
+        entry("LungfishWorkflow/Variants/GATKInstalledToolVersion.swift", helper: 1, "version check"),
+        entry("LungfishWorkflow/Variants/VCFHeaderPathSanitizer.swift", helper: 1, fixed: 3, "header read, reheader and index"),
+        entry("LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift", helper: 1, "samtools view -H header read"),
     ]
 
-    func testNoAnalysisToolDeclaresAFiniteDefaultLimit() throws {
+    /// The forms a fixed limit takes in source. A literal after a `timeout` label at a call site (`timeout: 7200`,
+    /// `timeout: 24 * 3_600`, `timeoutSeconds: 10`), a default of any numeric type, a constant named for a timeout,
+    /// a limit built from `.seconds`, a limit scaled from the input size, a product of 24 and 3,600 and a computed limit.
+    private static let forms: [NSRegularExpression] = [
+        #"[Tt]imeout\w*\s*:\s*[0-9]"#,
+        #"[Tt]imeout\w*\s*:\s*(TimeInterval|Double|Int|Duration)\??\s*=\s*(\.seconds\()?[0-9]"#,
+        #"[Tt]imeout\w*\s*=\s*[0-9]"#,
+        #"[Tt]imeout\w*\s*:\s*[A-Za-z.]*seconds\(\s*[0-9]"#,
+        #"ImportToolTimeout\.seconds\("#,
+        #"24\s*\*\s*3_?600"#,
+        #"\bvar\s+\w*[Tt]imeout\w*\s*:\s*TimeInterval\s*\{"#,
+        #"[Tt]imeout\w*\s*=\s*(max|min)\("#,
+    ].map { try! NSRegularExpression(pattern: $0) }
+
+    func testNoAnalysisToolFixesAWallClockLimitAtACallSite() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let pattern = try NSRegularExpression(pattern: #"timeout: TimeInterval = [0-9]"#)
-        var offenders: [String] = []
-        var seen = Set<String>()
-        for folder in ["Sources/LungfishWorkflow", "Sources/LungfishCLI"] {
-            for url in try repositoryFiles(under: root.appendingPathComponent(folder)) where url.pathExtension == "swift" {
-                let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                let lines = try readRepositorySource(url).components(separatedBy: "\n")
-                for (index, raw) in lines.enumerated() {
-                    let text = raw.trimmingCharacters(in: .whitespaces)
-                    guard !text.hasPrefix("//"),
-                          pattern.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil else { continue }
-                    let declaration = text.hasSuffix(",") ? String(text.dropLast()) : text
-                    if Self.keptDefaults.contains(where: { $0.file == rel && $0.line == declaration }) {
-                        seen.insert("\(rel) \(declaration)")
-                    } else {
-                        offenders.append("\(rel):\(index + 1): \(text)")
-                    }
+        var found: [String: [Int]] = [:]
+        for url in try repositoryFiles(under: root.appendingPathComponent("Sources")) where url.pathExtension == "swift" {
+            let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            let source = try readRepositorySource(url)
+            guard source.contains("imeout") || source.contains("24 *") || source.contains("24*") else { continue }
+            let lines = source.components(separatedBy: "\n")
+            for (index, raw) in lines.enumerated() {
+                let text = raw.trimmingCharacters(in: .whitespaces)
+                guard !text.hasPrefix("//"), text.contains("imeout") || text.contains("24 *") || text.contains("24*") else { continue }
+                let range = NSRange(text.startIndex..., in: text)
+                if Self.forms.contains(where: { $0.firstMatch(in: text, range: range) != nil }) {
+                    found[rel, default: []].append(index + 1)
                 }
             }
         }
+        let allowed = Dictionary(uniqueKeysWithValues: Self.entries.map { ($0.file, $0.count) })
+        let offenders = found.keys.sorted().compactMap { file -> String? in
+            let lines = found[file] ?? []
+            guard lines.count > (allowed[file] ?? 0) else { return nil }
+            return "\(file): \(lines.count) fixed limits, \(allowed[file] ?? 0) allowed, at lines \(lines.map(String.init).joined(separator: ","))"
+        }
         XCTAssertTrue(offenders.isEmpty,
-                      "An analysis tool has no wall-clock limit by default. Remove the default, or list it in keptDefaults with its reason:\n"
+                      "An analysis tool has no wall-clock limit by default. Lift the limit, or list the file in entries as a helper with its reason:\n"
                       + offenders.joined(separator: "\n"))
-        let stale = Self.keptDefaults.map { "\($0.file) \($0.line)" }.filter { !seen.contains($0) }
-        XCTAssertTrue(stale.isEmpty, "keptDefaults names a default that no longer exists:\n" + stale.joined(separator: "\n"))
+        let stale = Self.entries.filter { (found[$0.file]?.count ?? 0) < $0.count }
+            .map { "\($0.file): lists \($0.count), finds \(found[$0.file]?.count ?? 0)" }
+        XCTAssertTrue(stale.isEmpty, "entries lists limits that no longer exist. Lower or remove the entry:\n" + stale.joined(separator: "\n"))
     }
 
     // MARK: - Words of a stop by a limit
