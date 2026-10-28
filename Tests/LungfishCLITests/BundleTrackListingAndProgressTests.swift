@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
+import LungfishIO
 
 final class BundleTrackListingAndProgressTests: XCTestCase {
     private var manifest: BundleManifest {
@@ -100,6 +101,52 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         XCTAssertEqual(track["mapped_read_count"] as? Int, 10, "10 mapped reads, not the manifest's 12 alignment records")
         XCTAssertEqual(track["unmapped_read_count"] as? Int, 1)
         XCTAssertEqual(track["source_path"] as? String, "alignments/fixture-track.sorted.bam")
+    }
+
+    // MARK: - A count says what it counts and where it comes from
+
+    /// A stats database that cannot be read gives no flagstat count, so the listing falls back to the manifest's count.
+    /// The fallback was silent, and a manifest from before this release holds the idxstats sum, 12 for 10 reads.
+    func testBundleListSaysTheCountIsFromTheManifestWhenTheStatsDatabaseIsDamaged() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        try Data("not a database".utf8).write(to: bundleURL.appendingPathComponent("alignments/fixture-track.stats.db"))
+        let command = try BundleListSubcommand.parse(["--no-color", "--tracks", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let line = try XCTUnwrap(output.split(separator: "\n").first { $0.contains("fixture-track:") }.map(String.init), output)
+        XCTAssertTrue(line.contains("12"), "the manifest's number is still the number to show: \(line)")
+        XCTAssertTrue(line.contains("manifest"), "the line says the count is the manifest's: \(line)")
+        XCTAssertFalse(line.contains("12 mapped reads"), "an unreadable database gives no read count: \(line)")
+    }
+
+    func testBundleInfoSaysTheCountIsFromTheManifestWhenTheStatsDatabaseIsMissing() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        try FileManager.default.removeItem(at: bundleURL.appendingPathComponent("alignments/fixture-track.stats.db"))
+        let command = try BundleInfoSubcommand.parse(["--no-color", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let row = try XCTUnwrap(output.split(separator: "\n").first { $0.contains("fixture-track") }.map(String.init), output)
+        XCTAssertTrue(row.contains("12"), "the manifest's number is still the number to show: \(row)")
+        XCTAssertTrue(row.contains("manifest"), "the row says the count is the manifest's: \(row)")
+    }
+
+    /// A database with idxstats and flagstat's `mapped` line but no `primary` lines holds alignment records.
+    func testBundleListLabelsAlignmentsWhenTheStatsDatabaseHasNoPrimaryLines() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        let databaseURL = bundleURL.appendingPathComponent("alignments/fixture-track.stats.db")
+        try FileManager.default.removeItem(at: databaseURL)
+        do {
+            let database = try AlignmentMetadataDatabase.create(at: databaseURL)
+            database.addChromosomeStats(chromosome: "fixture1", length: 1_000, mapped: 12, unmapped: 0)
+            database.addFlagStat(category: "total", qcPass: 13, qcFail: 0)
+            database.addFlagStat(category: "mapped", qcPass: 12, qcFail: 0)
+        }
+        let command = try BundleListSubcommand.parse(["--no-color", "--tracks", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let line = try XCTUnwrap(output.split(separator: "\n").first { $0.contains("fixture-track:") }.map(String.init), output)
+        XCTAssertTrue(line.contains("12 mapped alignments"), "alignment records are labelled as such: \(line)")
+        XCTAssertFalse(line.contains("mapped reads"), "alignment records are no reads: \(line)")
     }
 
     /// A copy of the fixture's viewer bundle (stats database, BAM and index) with a manifest that lists the track

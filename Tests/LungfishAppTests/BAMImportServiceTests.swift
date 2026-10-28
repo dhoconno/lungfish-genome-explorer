@@ -117,6 +117,27 @@ final class BAMImportServiceTests: XCTestCase {
         XCTAssertEqual(counts.mapped, 10)
         XCTAssertEqual(counts.unmapped, 1)
         XCTAssertEqual(counts.total, 11)
+        XCTAssertTrue(counts.areReads, "flagstat's primary lines count reads")
+    }
+
+    /// A database without the primary lines publishes the idxstats sums, which are alignment records, and says so.
+    func testPublishedCountsOfADatabaseWithoutPrimaryLinesAreMarkedAsAlignmentRecords() throws {
+        let databaseURL = tempDir.appendingPathComponent("records.stats.db")
+        let database = try AlignmentMetadataDatabase.create(at: databaseURL)
+        database.populateFromIdxstats("""
+        PX392161\t2280\t12\t0
+        *\t0\t0\t1
+        """)
+        database.populateFromFlagstat("""
+        13 + 0 in total (QC-passed reads + QC-failed reads)
+        12 + 0 mapped (92.31% : N/A)
+        """)
+
+        let counts = BAMImportService.publishedReadCounts(from: database)
+
+        XCTAssertEqual(counts.mapped, 12)
+        XCTAssertEqual(counts.total, 13)
+        XCTAssertFalse(counts.areReads, "these counts include supplementary records, so they are no read counts")
     }
 
     // MARK: - BAMImportError

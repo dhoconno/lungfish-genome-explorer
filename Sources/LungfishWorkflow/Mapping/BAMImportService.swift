@@ -329,10 +329,10 @@ public final class BAMImportService: @unchecked Sendable {
     /// too. Call it after the database holds the flagstat.
     static func publishedReadCounts(
         from metadataDB: AlignmentMetadataDatabase
-    ) -> (mapped: Int64, unmapped: Int64, total: Int64) {
+    ) -> (mapped: Int64, unmapped: Int64, total: Int64, areReads: Bool) {
         let reads = metadataDB.primaryReadCounts()
             ?? (mapped: metadataDB.totalMappedReads(), unmapped: metadataDB.totalUnmappedReads())
-        return (reads.mapped, reads.unmapped, reads.mapped + reads.unmapped)
+        return (reads.mapped, reads.unmapped, reads.mapped + reads.unmapped, true)
     }
 
     // MARK: - Helpers
