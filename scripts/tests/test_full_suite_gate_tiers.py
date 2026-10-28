@@ -182,12 +182,22 @@ class FullSuiteGateTierTests(unittest.TestCase):
 LEAKED_PLIST = "ExampleTests-00000001-0000-4000-8000-000000000001.plist"
 
 
+def _gate_text_with_no_load_flakes() -> str:
+    """The gate with an empty KNOWN_LOAD_FLAKES. The fake swift of these tests lists a few stand-in tests only, so the
+    real list, which names a test their discovery does not hold, would fail every run as stale."""
+    lines = _gate_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("KNOWN_LOAD_FLAKES=("))
+    end = start if lines[start].endswith("=()") else lines.index(")", start)
+    return "\n".join(lines[:start] + ["KNOWN_LOAD_FLAKES=()"] + lines[end + 1:]) + "\n"
+
+
 def _make_gate_project(root):
     """Give the empty folder `root` the gate, its helpers, a git repository and a bin folder with a
     fake swift, xcrun and sleep. Returns the bin folder."""
     (root / ".gitignore").write_text(".build/\n")
     (root / "scripts/release").mkdir(parents=True)
-    shutil.copy2(ROOT / "scripts/full-suite-gate.sh", root / "scripts/full-suite-gate.sh")
+    (root / "scripts/full-suite-gate.sh").write_text(_gate_text_with_no_load_flakes(), encoding="utf-8")
+    (root / "scripts/full-suite-gate.sh").chmod(0o755)
     helper = ROOT / "scripts/release/gate_evidence.py"
     if helper.exists():
         shutil.copy2(helper, root / "scripts/release/gate_evidence.py")

@@ -75,10 +75,12 @@ def _gate_text():
 
 
 def _write_gate_with_list(path, entries):
-    """Write a copy of the gate at `path` whose empty KNOWN_LOAD_FLAKES holds `entries`."""
-    original = _gate_text()
-    text = original.replace("KNOWN_LOAD_FLAKES=()\n", "KNOWN_LOAD_FLAKES=(\n" + "".join(f"    '{e}'\n" for e in entries) + ")\n", 1)
-    assert text != original, "the gate has no empty KNOWN_LOAD_FLAKES=() line to fill"
+    """Write a copy of the gate at `path` whose KNOWN_LOAD_FLAKES holds exactly `entries`, whatever the gate lists."""
+    lines = _gate_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("KNOWN_LOAD_FLAKES=("))
+    end = start if lines[start].endswith("=()") else lines.index(")", start)
+    filled = ["KNOWN_LOAD_FLAKES=("] + [f"    '{e}'" for e in entries] + [")"]
+    text = "\n".join(lines[:start] + filled + lines[end + 1:]) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 

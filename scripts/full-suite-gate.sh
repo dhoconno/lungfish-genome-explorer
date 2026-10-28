@@ -213,11 +213,18 @@ KNOWN_PREEXISTING_FAILURES=''
 # in gate.result.json) name the test as a load flake. A second failure leaves the tier red. An
 # entry that names no discovered test fails the run as stale. The list is part of the canonical
 # selection (--describe-selection prints it), so evidence made with another list never covers a
-# commit. Empty at Phase 3.0, because no test failed under load and passed alone twice in one
-# phase in the records of Phases 2.12 to 2.14.
+# commit. At Phase 3.0 it holds one test, named with its records below. The records of Phases 2.12
+# to 2.14 held none.
 # The rerun applies to a run of one attempt, the unit and full tiers. The integration tier runs each class
 # alone and never reruns a listed test, so an entry for a test that only that tier runs has no effect.
-KNOWN_LOAD_FLAKES=()
+KNOWN_LOAD_FLAKES=(
+    # testBundleViewStateSaveDeliversNoPaths waits on fseventsd, and it failed under fseventsd load (near 100 percent
+    # CPU) twice in Phase 3.0. Record 1, the full tier of 2026-10-27 21:37 (6.9 s, the stream was sent the folder's
+    # creation): runner.log:16481-16483 in .build/gate-logs/gate-20261027-213752-92baa6559-30912/primary of the program
+    # worktree. Record 2, the serial check of 2026-10-28 02:54 (the probe stream received nothing in 30 s):
+    # cand/check-serial-2-LungfishOperationsTests.txt:169-170 in the phase records.
+    'LungfishOperationsTests.FileSystemWatcherTests/testBundleViewStateSaveDeliversNoPaths'
+)
 # A LungfishAppTests class whose name ends in ReplayTests replays a recorded
 # lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
 # it runs serially in the integration tier. A name rule, not a list, so a new
