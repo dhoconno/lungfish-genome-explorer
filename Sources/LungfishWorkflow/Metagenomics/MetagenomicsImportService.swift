@@ -2174,7 +2174,7 @@ private func nvdPopulateUniqueReads(
             let countResult = nvdCountReadsWithTelemetry(
                 bamURL: bamURL,
                 accession: row.sseqid,
-                flagFilter: 0x404,
+                flagFilter: 0xD04, // UNMAP | DUP | SECONDARY | SUPPLEMENTARY
                 samtoolsPath: samtoolsPath,
                 samtoolsVersion: samtoolsVersion,
                 databaseURL: databaseURL

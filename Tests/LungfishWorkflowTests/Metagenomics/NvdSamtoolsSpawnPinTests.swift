@@ -10,7 +10,8 @@ import LungfishIO
 /// Pins of `metagenomicsExternalToolVersion` (the `--version` probe that gives every samtools step its `toolVersion`)
 /// and `nvdCountReadsWithTelemetry` (the `view -c` that fills `unique_reads`), both private to
 /// `MetagenomicsImportService`, through `importNvd` with a stand-in samtools (Phase 2.13 lane 13.10, M2 (3)).
-/// They pass on the `Process` spawns of the base and unchanged on `ToolProcess`.
+/// They pass on the `Process` spawns of the base and unchanged on `ToolProcess`. Phase 3.1 lane NVD moved the mask of
+/// the count from `-F 0x404` (1028) to `-F 0xD04` (3332), so a read counts once (NVD-UNIQUE-READS-DOUBLE-COUNT).
 final class NvdSamtoolsSpawnPinTests: XCTestCase {
     private var workspace: URL!
 
@@ -69,7 +70,8 @@ final class NvdSamtoolsSpawnPinTests: XCTestCase {
               args=""
               for a in "$@"; do args="${args}[${a}]"; done
               printf '%s\n' "$args" >> "$dir/calls.log"
-              if [ "${4:-}" = "1028" ]; then
+              # The count of the import names an accession. The counts of markdup use -F 3332 too and name none.
+              if [ "${4:-}" = "3332" ] && [ -n "${6:-}" ]; then
         \#(countCode)
               else
                 echo 7
@@ -130,14 +132,15 @@ final class NvdSamtoolsSpawnPinTests: XCTestCase {
         let step = try countStep(imported)
         XCTAssertEqual(step.argv.count, 7)
         XCTAssertEqual(step.argv.first, imported.samtools.path)
-        XCTAssertEqual(Array(step.argv[1...4]), ["view", "-c", "-F", "1028"])
+        XCTAssertEqual(Array(step.argv[1...4]), ["view", "-c", "-F", "3332"])
         XCTAssertEqual(URL(fileURLWithPath: step.argv[5]).lastPathComponent, "S1.bam")
         XCTAssertEqual(step.argv.last, "gb|NC_001|")
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertEqual(step.toolVersion, "samtools fake 1.0")
         XCTAssertTrue(step.outputs.contains { $0.path.hasSuffix("hits.sqlite") })
         XCTAssertEqual(imported.calls.filter { $0 == "[--version]" }.count, 1)
-        let counts = imported.calls.filter { $0.hasPrefix("[view][-c][-F][1028][") }
+        // The two counts of markdup use -F 3332 as well, so the count of the import is the one that names the accession.
+        let counts = imported.calls.filter { $0.hasPrefix("[view][-c][-F][3332][") && $0.hasSuffix("][gb|NC_001|]") }
         XCTAssertEqual(counts.count, 1)
         XCTAssertTrue(counts.first?.hasSuffix("/S1.bam][gb|NC_001|]") == true, "\(counts)")
     }
