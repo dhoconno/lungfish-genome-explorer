@@ -65,12 +65,12 @@ When a session adds only one small fix, the integration, review and final-candid
 
 ## What each step costs
 
-Measured on the laptop (14-core M4 Pro) on 2026-10-07.
+Measured on the laptop (14-core M4 Pro) on 2026-10-07, except the full tier row.
 
 | Step | Time |
 |---|---|
 | Unit tier | 23 to 26 minutes |
-| Full tier, one serial process for each test bundle (Stable only) | about 2 hours on the Mac Studio on 2026-10-27, and the gate stops it at 210 minutes |
+| Full tier, one serial process for each test bundle (Stable only) | about 2 hours on the Mac Studio, from 56 minutes of the run of 2026-10-27 before LungfishAppTests and a serial scan of the rest on the same commit, and the gate stops it at 210 minutes |
 | Replay suites | about 1 minute |
 | Golden comparison | about 1.5 minutes |
 | Release compile, cold | about 11 minutes |

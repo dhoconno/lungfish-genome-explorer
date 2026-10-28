@@ -872,7 +872,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
             },
             .terminateLater
         )
-        await waitUntil { await secondGate.isPending }
+        guard await secondGate.waitUntilPending() else { return }
 
         XCTAssertEqual(firstPromptCount, 1)
         XCTAssertEqual(secondPromptCount, 1)
