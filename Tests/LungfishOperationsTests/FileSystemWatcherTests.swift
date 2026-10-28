@@ -6,6 +6,7 @@ import XCTest
 import Foundation
 import CoreServices
 import LungfishCore
+import LungfishTestSupport
 @testable import LungfishOperations
 
 /// Tests for the FileSystemWatcher class.
@@ -80,6 +81,37 @@ final class FileSystemWatcherTests: XCTestCase {
     private func settleWatcherRegistration(_ watcher: FileSystemWatcher) async throws {
         await watcher.waitForPendingStreamSetup()
         try await Task.sleep(for: .milliseconds(500))
+    }
+
+    /// The wait for fseventsd to report a new folder. It can lag by seconds when it is busy, and the lane rules give
+    /// a file-system wait 30 s.
+    private static let fileSystemBudget = WaitBudget(name: "fileSystem", duration: .seconds(30))
+
+    /// Creates `folder` while a probe stream watches `directory`, and returns true once the probe has been sent the
+    /// creation. fseventsd gives a creation its event id when it gets to it, so a stream that starts soon after the
+    /// folder appears can be sent the creation as well. Once the probe has been sent it, the id is behind the start
+    /// of any stream made afterwards, which is the state of an already-open project. Fails with words and returns
+    /// false when fseventsd never reports the folder.
+    @MainActor
+    private func createFolderAndWaitForFseventsd(_ folder: URL, in directory: URL) async throws -> Bool {
+        var reported: [String] = []
+        let probe = FileSystemWatcher { changes in
+            reported.append(contentsOf: changes.all.map(\.lastPathComponent))
+        }
+        probe.startWatching(directory: directory)
+        await probe.waitForPendingStreamSetup()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let seen = await LungfishTestSupport.waitUntil(budget: Self.fileSystemBudget) {
+            reported.contains(folder.lastPathComponent)
+        }
+        probe.stopWatching()
+        XCTAssertTrue(
+            seen,
+            "fseventsd never reported the new folder \(folder.lastPathComponent) within "
+                + "\(Self.fileSystemBudget.seconds) seconds, so the test cannot tell the view state saves from the "
+                + "folder's creation. The probe stream received \(reported). Try again when fseventsd is idle."
+        )
+        return seen
     }
 
     // MARK: - Non-blocking setup (2026-09-02 launch hang)
@@ -747,10 +779,9 @@ final class FileSystemWatcherTests: XCTestCase {
         let tempDir = try createTempDirectory()
         defer { removeTempDirectory(tempDir) }
         let bundle = tempDir.appendingPathComponent("Ref.lungfishref", isDirectory: true)
-        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        // Let fseventsd record the new folder first, as in an already-open project. A stream that starts
-        // within milliseconds of the creation is sent the creation as well.
-        try await Task.sleep(for: .seconds(1))
+        // Create the folder first, as in an already-open project, and wait until fseventsd has reported it. A stream
+        // that starts before then is sent the creation as well, and a fixed sleep only guessed at fseventsd's lag.
+        guard try await createFolderAndWaitForFseventsd(bundle, in: tempDir) else { return }
 
         var received: [String] = []
         let watcher = FileSystemWatcher { changes in
