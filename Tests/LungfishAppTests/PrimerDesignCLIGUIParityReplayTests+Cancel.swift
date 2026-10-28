@@ -117,13 +117,17 @@ extension PrimerDesignCLIGUIParityReplayTests {
     }
 
     /// A stand-in `primer3_core` that answers `--about` and otherwise writes its pid to `pidFile` and sleeps a minute.
+    /// The pid goes to `pidFile.tmp` and moves into place, so `pidFile` never exists empty. Both cancel watches fire on
+    /// its existence, and the row's case parses it after the cancel, where a SIGTERM between the shell's create and its
+    /// write once left an empty file for `Int32(...)` to read as nil (item 10, the race of item 9b).
     static func writeSleepingPrimer3(in folder: URL, pidFile: URL) throws -> URL {
         let url = folder.appendingPathComponent("sleeping-primer3/primer3_core")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let script = """
         #!/bin/sh
         if [ "$1" = "--about" ]; then echo "libprimer3 release 2.6.1"; exit 0; fi
-        echo $$ > '\(pidFile.path)'
+        echo $$ > '\(pidFile.path).tmp'
+        /bin/mv '\(pidFile.path).tmp' '\(pidFile.path)'
         exec sleep 60
         """
         try Data((script + "\n").utf8).write(to: url)
