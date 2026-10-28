@@ -1881,7 +1881,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         do {
             try applySelectedAnnotationsToSelectedRows()
         } catch {
-            presentError(error, title: "Apply Annotation Failed")
+            presentFailure(ViewerFailureReports.applyAlignmentAnnotations(error))
         }
     }
 
@@ -2087,7 +2087,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                         type: typePopup.selectedItem?.title ?? "region"
                     )
                 } catch {
-                    self.presentError(error, title: "Add Annotation Failed")
+                    self.presentFailure(ViewerFailureReports.addAlignmentAnnotation(error))
                 }
             }
         }
@@ -2302,8 +2302,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         return intervals
     }
 
-    private func presentError(_ error: Error, title: String) {
-        presentErrorMessage(title: title, message: error.localizedDescription)
+    private func presentFailure(_ report: FailureReport) {
+        if let window = view.window { FailurePresenter.present(report, in: window) }
     }
 
     private func presentErrorMessage(title: String, message: String) {

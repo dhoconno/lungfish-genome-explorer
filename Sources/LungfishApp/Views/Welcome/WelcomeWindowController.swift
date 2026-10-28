@@ -1774,13 +1774,8 @@ public final class WelcomeWindowController: NSWindowController {
             onProjectSelected?(project.url)
 
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Failed to Create Project"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
             if let window = self.window {
-                alert.beginSheetModal(for: window)
+                FailurePresenter.present(WelcomeFailureReports.createProject(error), in: window)
             }
         }
     }

@@ -1,4 +1,5 @@
 import AppKit
+import LungfishKit
 import LungfishWorkflow
 import UniformTypeIdentifiers
 
@@ -199,10 +200,6 @@ extension AnnotationTableDrawerView {
 
     private func presentScientificExportError(_ error: Error) {
         guard let window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Export Failed"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.beginSheetModal(for: window)
+        FailurePresenter.present(ViewerFailureReports.exportTable(error), in: window)
     }
 }

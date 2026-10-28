@@ -4391,11 +4391,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         if let error = firstError {
-                            let errorAlert = NSAlert()
-                            errorAlert.alertStyle = .warning
-                            errorAlert.messageText = "Could Not Delete Column"
-                            errorAlert.informativeText = error.localizedDescription
-                            errorAlert.beginSheetModal(for: window)
+                            FailurePresenter.present(ViewerFailureReports.deleteSampleMetadataColumn(fieldToRemove, error), in: window)
                             return
                         }
 

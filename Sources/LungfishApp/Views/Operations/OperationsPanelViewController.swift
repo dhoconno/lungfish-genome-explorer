@@ -531,9 +531,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
                 try InterruptedAnalysisRunDiscovery.removePartialOutput(itemID: itemID)
             } catch {
                 guard let window = self?.view.window else { return }
-                let failure = NSAlert(error: error)
-                failure.messageText = "Could Not Remove Partial Output"
-                failure.beginSheetModal(for: window)
+                FailurePresenter.present(OperationsPanelFailureReports.removePartialOutput(error), in: window)
             }
         }
         if let window = view.window {
@@ -638,10 +636,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
             NSSound.beep()
             return
         }
-        let alert = NSAlert(error: error)
-        alert.messageText = "Unable to Write Operation Log"
-        alert.informativeText = "Lungfish could not create a local log file for this operation."
-        alert.beginSheetModal(for: window)
+        FailurePresenter.present(OperationsPanelFailureReports.writeOperationLog(error), in: window)
     }
 
     /// Formats log entries into a plain-text string for clipboard copy.

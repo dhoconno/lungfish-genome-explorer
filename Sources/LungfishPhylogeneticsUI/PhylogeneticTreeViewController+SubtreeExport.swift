@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishKit
 
 extension PhylogeneticTreeViewController {
     /// The save panel's suggested file name for an exported clade. Path
@@ -21,11 +22,17 @@ extension PhylogeneticTreeViewController {
             NSSound.beep()
             return
         }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Export Subtree Failed"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        FailurePresenter.present(Self.subtreeExportFailure(error), in: window)
+    }
+
+    /// The words of the Export Subtree failure. The error's text goes only to
+    /// the details area (ALERT-PRESENTER, Phase 3.1).
+    static func subtreeExportFailure(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Export the subtree",
+            whatHappened: "The Newick file of the selected clade was not saved.",
+            nextStep: "Check that the folder you chose can be written to and has free space, then export the subtree again.",
+            underlying: error
+        )
     }
 }

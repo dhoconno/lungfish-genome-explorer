@@ -1597,12 +1597,7 @@ extension SequenceViewerView {
             sequenceViewerLogger.warning("Unable to prepare FASTA operation input: \(error.localizedDescription, privacy: .public)")
             return
         }
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Sequence Operation Unavailable"
-        alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
+        FailurePresenter.present(ViewerFailureReports.prepareSelectedSequence(error), in: window)
     }
 
     func selectedSequenceName(chromosome: String, start: Int, end: Int) -> String {
