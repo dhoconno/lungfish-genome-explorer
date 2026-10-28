@@ -847,6 +847,14 @@ def run_swift_gate(args):
                     "profile": profile, "workers": args.workers}
         if observed != expected:
             raise EvidenceError("profile selection differs from canonical catalog")
+    # A run of named bundles (--bundles) binds itself to the whole full-tier run it answers (--rerun-of).
+    rerun_of = getattr(args, "rerun_of", None)
+    if ((getattr(args, "bundles", None) is not None or rerun_of)
+            and (args.tier != "full" or not getattr(args, "full_tier_bundle", None))):
+        raise EvidenceError("--bundles and --rerun-of work only with --tier full")
+    if rerun_of and getattr(args, "bundles", None) is None:
+        raise EvidenceError("--rerun-of needs --bundles, the bundles that answer the run it names")
+    rerun_of = rerun_of_record(rerun_of) if rerun_of else None
     directory.mkdir(parents=True, exist_ok=False)
     source, started = source_identity(root), now()
     runtime = runtime_identity()
@@ -1002,7 +1010,7 @@ def run_swift_gate(args):
     if class_bound is not None:
         result["classBound"] = class_bound
     if order and args.tier == "full":
-        result["options"]["bundleOrder"] = order
+        result["options"].update(bundleOrder=order, bundles=getattr(args, "bundles", None), rerunOf=rerun_of)
     if bundle_bound is not None:
         result["bundleBound"], result["binPathCommand"] = bundle_bound, bin_command
     # Every authoritative attempt decides: the one primary attempt, each class of a split run or each bundle of the
@@ -1250,13 +1258,19 @@ def neutral_delta(root, ancestor, commit, patterns):
     release-neutral, or None when commit does not descend from ancestor or
     any changed path is not neutral. Renames count as a delete plus an add,
     so moving a file out of a neutral folder is never hidden."""
+    paths = changed_paths(root, ancestor, commit)
+    return paths if paths is not None and all(is_release_neutral(path, patterns) for path in paths) else None
+
+
+def changed_paths(root, ancestor, commit):
+    """Every path changed from ancestor to commit, sorted, with renames split into a delete and an add, or None when
+    commit does not descend from ancestor."""
     if _git(root, "merge-base", "--is-ancestor", ancestor, commit).returncode != 0:
         return None
     diff = _git(root, "diff", "--name-only", "-z", "--no-renames", ancestor, commit)
     if diff.returncode != 0:
         return None
-    paths = sorted(os.fsdecode(raw) for raw in diff.stdout.split(b"\0") if raw)
-    return paths if all(is_release_neutral(path, patterns) for path in paths) else None
+    return sorted(os.fsdecode(raw) for raw in diff.stdout.split(b"\0") if raw)
 
 
 def evidence_log_roots(root):
@@ -1375,6 +1389,172 @@ def find_unit_evidence(root, commit, patterns, logs=None):
         status, path, digest = newest[ancestor]
         return record("inherited" if status == "green" else "red", ancestor, path, digest, changed)
     return None
+
+
+def full_result_status(result, expected):
+    """Classify one retained full-tier result (Phase 3.1 ruling QA-RELEASE-LOOP, question 3) as ("green", []),
+    ("red", the bundles whose attempt failed) or ("red", None) when the run failed outside its bundles, as a leak
+    of Preferences does. None when it is not a canonical, clean full-tier run of one attempt a bundle (its options
+    equal the canonical selection apart from bundles and rerunOf), or when its failure says nothing about the code:
+    a watchdog, a bundle out of its bound, a spent budget, a changed checkout or a check that could not read its input."""
+    options = result.get("options", {})
+    if (result.get("kind") != "swift" or not isinstance(options, dict) or options.get("tier") != "full"
+            or not isinstance(result.get("bundleBound"), dict)):
+        return None
+    if any(options.get(key) != value for key, value in expected.items() if key not in ("bundles", "rerunOf")):
+        return None
+    source = result.get("source", {})
+    if (not isinstance(source, dict) or source.get("clean") is not True
+            or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("commit", "")))):
+        return None
+    if result.get("authorized") is True:
+        try:
+            validate_result(result, source)
+        except EvidenceError:
+            return None
+        return "green", []
+    attempts = [attempt for attempt in result.get("attempts", []) if isinstance(attempt, dict)]
+    authoritative = [attempt for attempt in attempts if attempt.get("role") == "authoritative"]
+    bound = result["bundleBound"]
+    commands = [result.get("identityCommand"), result.get("sdkCommand"), result.get("binPathCommand"),
+                *result.get("discovery", []), *authoritative]
+    if (any(isinstance(command, dict) and command.get("intervention") is not None for command in commands)
+            or bound.get("timedOut") or bound.get("unrun") or not isinstance(bound.get("plan"), list)
+            or len(authoritative) != len(bound["plan"]) or not authoritative):
+        return None
+    if any("source changed" in str(error) or re.match(r"preferences-leaks [\w-]+ exited 4\b", str(error))
+           for error in result.get("errors", [])):
+        return None
+    red = sorted({str(attempt.get("bundle")) for attempt in authoritative if attempt.get("passed") is not True})
+    return "red", (red if red and not result.get("errors") else None)
+
+
+def package_test_folders(root):
+    """The test folder of each SwiftPM test target, `Tests/<bundle>/` unless Package.swift names another path."""
+    from release_contract import swiftpm_targets
+    text = (Path(root) / "Package.swift").read_text(encoding="utf-8")
+    return {name: path.rstrip("/") + "/" for kind, name, path in swiftpm_targets(text) if kind == "testTarget"}
+
+
+def full_evidence_results(record):
+    """The (resultPath, resultSha256) of every result a full-tier record cites, its base first."""
+    if record.get("kind") == "composite":
+        return [(record["base"]["resultPath"], record["base"]["resultSha256"]),
+                *[(rerun["resultPath"], rerun["resultSha256"]) for rerun in record["reruns"]]]
+    return [(record["resultPath"], record["resultSha256"])]
+
+
+def find_full_evidence(root, commit, patterns, test_folders, logs=None):
+    """Return the full-tier record for commit, or None when nothing covers it (docs/contracts/VERIFICATION-ORDER.md,
+    rows "Stable keeps the full tier" and "Rerun one bundle").
+
+    Only canonical, clean full-tier runs count (full_result_status), and the newest whole run on a commit decides
+    that commit. kind "exact" means the newest whole run on commit passed, and kind "inherited" that it passed on
+    the nearest ancestor and every change since is release-neutral. Otherwise the nearest ancestor whose whole run
+    differs from commit only in release-neutral paths and the test folders of SwiftPM test targets decides. Every
+    bundle red in that run, and every bundle whose folder changed since, needs its newest rerun bound to that run
+    (--rerun-of) green, on a commit between the two whose folder for that bundle equals the candidate's, and then
+    the record is kind "composite". A red rerun of code the candidate shares, or a red run with release-neutral
+    changes since, gives kind "red". Without logs, every worktree's gate logs are searched."""
+    root = Path(root)
+    log_roots = [Path(logs)] if logs else evidence_log_roots(root)
+    ancestry = _git(root, "rev-list", "--max-count=5000", commit)
+    ancestors = ancestry.stdout.decode().split() if ancestry.returncode == 0 else [commit]
+    known, expected, wholes, reruns = set(ancestors), None, [], []
+    for log_root in log_roots:
+        try:
+            directories = [entry for entry in log_root.iterdir() if entry.is_dir() and not entry.is_symlink()]
+        except OSError:
+            continue
+        for directory in directories:
+            named = GATE_DIRECTORY_NAME.match(directory.name)
+            if named and not any(full.startswith(named.group(1)) for full in ancestors):
+                continue
+            path = directory / "gate.result.json"
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                result = read_json(path)
+                if expected is None:
+                    expected = canonical_tier_options("full", False)
+                status = full_result_status(result, expected)
+                if status is None or result["source"]["commit"] not in known:
+                    continue
+                options = result["options"]
+                run = {"modified": path.stat().st_mtime, "status": status[0], "red": status[1],
+                       "commit": result["source"]["commit"], "path": str(path),
+                       "digest": file_record(path, directory)["sha256"], "options": options}
+                (wholes if options.get("bundles") is None else reruns).append(run)
+            except (EvidenceError, OSError, ValueError, KeyError, TypeError):
+                continue
+    newest = {}
+    # Newest first, and at equal times a failure wins, so a tie never hides one.
+    for run in sorted(wholes, key=lambda run: (run["modified"], run["status"] == "red"), reverse=True):
+        newest.setdefault(run["commit"], run)
+
+    def under(path, folders):
+        return any(path.startswith(folder) for folder in folders)
+
+    every_folder = list(test_folders.values())
+
+    def eligible(paths):
+        return all(is_release_neutral(path, patterns) or under(path, every_folder) for path in paths)
+
+    def same(options, other):
+        def strip(value):
+            return {key: item for key, item in value.items() if key not in ("bundles", "rerunOf")}
+        return strip(options) == strip(other)
+
+    def record(kind, run, changed):
+        return {"schemaVersion": 1, "kind": kind, "candidateCommit": commit, "gatedCommit": run["commit"],
+                "resultPath": run["path"], "resultSha256": run["digest"], "changedPaths": changed,
+                "releaseNeutralPaths": list(patterns)}
+
+    for gated in ancestors:
+        base = newest.get(gated)
+        delta = None if base is None else changed_paths(root, gated, commit)
+        if delta is None:
+            continue
+        neutral = all(is_release_neutral(path, patterns) for path in delta)
+        if base["status"] == "green" and neutral:
+            return record("exact" if gated == commit else "inherited", base, delta)
+        if not eligible(delta):
+            continue
+        # This run decides: the candidate shares its code, and only test folders and release-neutral paths differ.
+        if base["red"] is None and base["status"] == "red":
+            return record("red", base, delta) if neutral else None
+        needed = sorted(set(base["red"]) | {bundle for bundle, folder in test_folders.items() if under_paths(delta, folder)})
+        covered, red_rerun = [], None
+        for bundle in needed:
+            folders = every_folder if bundle == SWIFT_TESTING_BUNDLE else [test_folders.get(bundle, "\0")]
+            bound = [run for run in reruns if bundle in (run["options"].get("bundles") or [])
+                     and isinstance(run["options"].get("rerunOf"), dict)
+                     and run["options"]["rerunOf"].get("commit") == gated
+                     and run["options"]["rerunOf"].get("resultSha256") == base["digest"]
+                     and same(run["options"], base["options"]) and changed_paths(root, gated, run["commit"]) is not None]
+            latest = max(bound, key=lambda run: (run["modified"], run["status"] == "red"), default=None)
+            since = None if latest is None else changed_paths(root, latest["commit"], commit)
+            fresh = since is not None and eligible(since) and not any(under(path, folders) for path in since)
+            if latest is None or not fresh:
+                break
+            if latest["status"] == "red":
+                red_rerun = latest
+                break
+            covered.append({"bundle": bundle, "commit": latest["commit"], "resultPath": latest["path"],
+                            "resultSha256": latest["digest"]})
+        if len(covered) == len(needed):
+            return {"schemaVersion": 1, "kind": "composite", "candidateCommit": commit,
+                    "base": {"commit": gated, "resultPath": base["path"], "resultSha256": base["digest"],
+                             "redBundles": list(base["red"])},
+                    "reruns": covered, "changedPaths": delta, "releaseNeutralPaths": list(patterns)}
+        if red_rerun is not None:
+            return record("red", red_rerun, changed_paths(root, red_rerun["commit"], commit))
+        return record("red", base, delta) if base["status"] == "red" and neutral else None
+    return None
+
+
+def under_paths(paths, folder):
+    return any(path.startswith(folder) for path in paths)
 
 
 # How long a waiter gives other gate runs, and how long a run folder may go
@@ -1569,6 +1749,48 @@ def run_unit_evidence(args):
     # 0 covered, 1 not covered, 3 the code already failed the unit tier,
     # 4 (with --wait) a run it waited for outlasted the budget.
     return 0 if covered else (3 if red else 1)
+
+
+def run_full_evidence(args):
+    """Print one line for each commit and exit as unit-evidence does: 0 when a green full-tier record covers every
+    commit, 1 when one is not covered, 3 when one already failed the full tier."""
+    root = Path(args.root).resolve()
+    patterns = release_neutral_patterns(root)
+    folders = package_test_folders(root)
+    covered, red = True, False
+    for commit in args.commit:
+        resolved = _git(root, "rev-parse", "--verify", "--quiet", commit + "^{commit}")
+        full = resolved.stdout.decode().strip() if resolved.returncode == 0 else ""
+        record = find_full_evidence(root, full, patterns, folders, args.logs) if full else None
+        if record is None:
+            covered = False
+            print(f"none {commit}")
+        elif record["kind"] == "red":
+            covered, red = False, True
+            print(f"red {full} failed on {record['gatedCommit']} {record['resultPath']}")
+        elif record["kind"] == "composite":
+            bundles = ", ".join(rerun["bundle"] for rerun in record["reruns"])
+            print(f"composite {full} from {record['base']['commit']} with green reruns of {bundles} "
+                  f"({len(record['changedPaths'])} changed paths) {record['base']['resultPath']}")
+        elif record["kind"] == "exact":
+            print(f"exact {full} {record['resultPath']}")
+        else:
+            print(f"inherited {full} from {record['gatedCommit']} "
+                  f"({len(record['changedPaths'])} release-neutral paths) {record['resultPath']}")
+    return 0 if covered else (3 if red else 1)
+
+
+def rerun_of_record(path):
+    """The rerunOf record of a run of named bundles, which binds it to the whole full-tier run it answers."""
+    path = Path(path).resolve()
+    result = read_json(path)
+    options = result.get("options", {})
+    commit = str(result.get("source", {}).get("commit", "")) if isinstance(result.get("source"), dict) else ""
+    if (result.get("kind") != "swift" or not isinstance(options, dict) or options.get("tier") != "full"
+            or options.get("bundles") is not None or "bundleBound" not in result
+            or not re.fullmatch(r"[0-9a-f]{40}", commit)):
+        raise EvidenceError("--rerun-of must name the gate.result.json of a whole full-tier run on a clean commit")
+    return {"commit": commit, "resultPath": str(path), "resultSha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
 def result_files(result):
@@ -1825,6 +2047,11 @@ def main():
     swift.add_argument("--full-tier-bundle", action="append", default=[], metavar="BUNDLE",
                        help="A test bundle of FULL_TIER_BUNDLES in full-suite-gate.sh, in its order. With --tier full "
                             "each bundle runs as its own attempt under its own bound, then Swift Testing.")
+    swift.add_argument("--bundles", type=lambda value: value.split(","), default=None, metavar="A,B",
+                       help="With --tier full, run only these bundles of FULL_TIER_BUNDLES (or swift-testing), in its "
+                            "order, each as its own attempt.")
+    swift.add_argument("--rerun-of", default=None, metavar="RESULT",
+                       help="With --bundles, the gate.result.json of the whole full-tier run these bundles answer.")
     swift.add_argument("--timeout-seconds", type=int, default=None,
                         help="Overall wall-clock budget for the primary test-runner attempt. "
                              "Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
@@ -1854,10 +2081,19 @@ def main():
                                "Exit 4 if one outlasts --wait-seconds.")
     coverage.add_argument("--wait-seconds", type=float, default=GATE_RUN_BUDGET_SECONDS, help=argparse.SUPPRESS)
     coverage.add_argument("--poll-seconds", type=float, default=30.0, help=argparse.SUPPRESS)
+    full = sub.add_parser(
+        "full-evidence",
+        help="Exit 0 when a green full-tier record covers every commit, exactly, through release-neutral paths "
+             "or through green reruns of the bundles whose test folders changed or ran red; print one line per commit.")
+    full.add_argument("--root", required=True)
+    full.add_argument("--commit", action="append", required=True)
+    full.add_argument("--logs", help="One gate log folder to search instead of every worktree's .build/gate-logs.")
     args = parser.parse_args()
     try:
         if args.command == "unit-evidence":
             return run_unit_evidence(args)
+        if args.command == "full-evidence":
+            return run_full_evidence(args)
         return run_swift_gate(args) if args.command == "swift" else run_python_gate(args)
     except (EvidenceError, OSError, ValueError) as error:
         print("GATE FAIL: " + str(error), file=sys.stderr)

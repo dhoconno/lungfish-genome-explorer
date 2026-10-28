@@ -187,6 +187,28 @@ class ReleaseContract:
         }
 
 
+SWIFTPM_TARGET = re.compile(
+    r"^[ \t]*\.(target|executableTarget|testTarget|binaryTarget|systemLibrary|plugin|macro)\(", re.M)
+
+
+def swiftpm_targets(package_text: str) -> list[tuple[str, str, str]]:
+    """(kind, name, path) for each target a Package.swift declares, one a line that starts with `.<kind>(`, in the
+    file's order. The path is the one the target names, or SwiftPM's default, `Tests/<name>` for a test target and
+    `Sources/<name>` for any other. A target referenced by `.target(name:)` on a line of its own in a dependency list
+    would read as a declaration, and this Package.swift writes its dependencies as names and products."""
+    starts = [(match.start(), match.group(1)) for match in SWIFTPM_TARGET.finditer(package_text)]
+    targets = []
+    for index, (start, kind) in enumerate(starts):
+        block = package_text[start:starts[index + 1][0] if index + 1 < len(starts) else len(package_text)]
+        name = re.search(r'\bname:\s*"([^"]+)"', block)
+        if name is None:
+            continue
+        path = re.search(r'\bpath:\s*"([^"]+)"', block)
+        default = ("Tests/" if kind == "testTarget" else "Sources/") + name.group(1)
+        targets.append((kind, name.group(1), (path.group(1) if path else default).strip("/")))
+    return targets
+
+
 def _require_object(value: Any, location: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{location} must be a JSON object")

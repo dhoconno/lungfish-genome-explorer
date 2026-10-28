@@ -94,6 +94,8 @@ SKIP=""
 PARALLEL=0
 TIMEOUT_SECONDS=""
 CLASS_TIMEOUT_SECONDS=""
+BUNDLES=""
+RERUN_OF=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --describe-selection) DESCRIBE_SELECTION=1; shift ;;
@@ -132,6 +134,17 @@ while [ $# -gt 0 ]; do
         --tier)
             [ $# -ge 2 ] || { echo "--tier requires a value" >&2; exit 64; }
             TIER="$2"
+            shift 2
+            ;;
+        --bundles)
+            # Rerun one bundle (docs/contracts/VERIFICATION-ORDER.md): only these bundles of FULL_TIER_BUNDLES.
+            [ $# -ge 2 ] && [ -n "$2" ] || { echo "--bundles requires a comma-separated list of bundles" >&2; exit 64; }
+            BUNDLES="$2"
+            shift 2
+            ;;
+        --rerun-of)
+            [ $# -ge 2 ] && [ -f "$2" ] || { echo "--rerun-of requires the gate.result.json of the full-tier run it answers" >&2; exit 64; }
+            RERUN_OF="$2"
             shift 2
             ;;
         *)
@@ -334,6 +347,14 @@ if [ "$TIER" = "full" ] && [ -n "$CLASS_TIMEOUT_SECONDS" ]; then
     echo "--class-timeout-seconds splits a serial run by class, and the full tier runs one attempt for each bundle under its own bound" >&2
     exit 64
 fi
+if { [ -n "$BUNDLES" ] || [ -n "$RERUN_OF" ]; } && [ "$TIER" != "full" ]; then
+    echo "--bundles and --rerun-of rerun bundles of the full tier, so they need --tier full" >&2
+    exit 64
+fi
+if [ -n "$RERUN_OF" ] && [ -z "$BUNDLES" ]; then
+    echo "--rerun-of needs --bundles, the bundles that answer the run it names" >&2
+    exit 64
+fi
 
 EFFECTIVE_TIER="${TIER:-full}"
 if [ -z "$TIER" ] && [ -n "$FILTER" ]; then EFFECTIVE_TIER=custom; fi
@@ -402,6 +423,8 @@ run_gate() {
             command+=(--full-tier-bundle "$bundle")
         done
     fi
+    [ -n "$BUNDLES" ] && command+=(--bundles "$BUNDLES")
+    [ -n "$RERUN_OF" ] && command+=(--rerun-of "$RERUN_OF")
     [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
     [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")

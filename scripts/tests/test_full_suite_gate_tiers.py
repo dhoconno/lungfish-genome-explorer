@@ -8,6 +8,7 @@ and scheduling, including serial coverage for storage suites.
 import argparse
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import re
@@ -889,8 +890,49 @@ class FullTierBundleTests(unittest.TestCase):
                 self.assertTrue(any(words in error for error in evidence["errors"]), evidence["errors"])
 
 
+    def test_a_rerun_runs_only_the_named_bundles_with_their_swift_tests_and_binds_the_run_it_answers(self):
+        with tempfile.TemporaryDirectory(prefix="lungfish-rerun-of-") as temp:
+            red = Path(temp) / "gate.result.json"
+            red.write_text(json.dumps({"kind": "swift", "source": {"commit": "b" * 40, "clean": True},
+                                       "options": {"tier": "full", "bundles": None}, "bundleBound": {}}))
+            calls, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES,
+                                                          bundles=["LungfishCLITests"], rerun_of=str(red))
+            self.assertEqual(status, 0, evidence["errors"])
+            self.assertEqual(evidence["options"]["bundles"], ["LungfishCLITests"])
+            self.assertEqual(evidence["options"]["rerunOf"], {
+                "commit": "b" * 40, "resultPath": str(red.resolve()),
+                "resultSha256": hashlib.sha256(red.read_bytes()).hexdigest()})
+            self.assertEqual([(a["bundle"], a["harness"]) for a in evidence["attempts"]],
+                             [("LungfishCLITests", "xctest"), ("LungfishCLITests", "swift-testing")])
+            swift = [call["argv"] for call in calls if call["name"] == "runner"][1]
+            self.assertEqual(swift[swift.index("--filter") + 1], r"^LungfishCLITests\.")
+            GATE.validate_result(*_clean_copy(evidence))
+            _, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES,
+                                                      bundles=["LungfishCoreTests"])
+            self.assertEqual((status, evidence["attempts"]), (1, []))
+            self.assertTrue(any("--bundles must name bundles" in error for error in evidence["errors"]))
+            rerun = Path(temp) / "rerun.json"
+            rerun.write_text(json.dumps({"kind": "swift", "source": {"commit": "c" * 40, "clean": True},
+                                         "options": {"tier": "full", "bundles": ["LungfishAppTests"]},
+                                         "bundleBound": {}}))
+            for path, words in ((rerun, "whole full-tier run"), (Path(temp) / "missing.json", "missing")):
+                with self.subTest(rerun_of=path.name), self.assertRaisesRegex(GATE.EvidenceError, words):
+                    run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES,
+                                        bundles=["LungfishCLITests"], rerun_of=str(path))
+
+
 class FullTierScriptTests(unittest.TestCase):
     run_gate = GateBehaviorTests.run_gate
+
+    def test_bundles_and_rerun_of_need_the_full_tier_and_rerun_of_needs_bundles(self):
+        for options, words in ((("--tier", "unit", "--bundles", "LungfishAppTests"), "need --tier full"),
+                               (("--bundles", "LungfishAppTests"), "need --tier full"),
+                               (("--tier", "full", "--rerun-of", __file__), "--rerun-of needs --bundles")):
+            with self.subTest(options=options):
+                result, evidence = self.run_gate("bundles", *options, full_tier_bundles=TWO_BUNDLES)
+                self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+                self.assertIn(words, result.stderr)
+                self.assertIsNone(evidence)
 
     def test_a_quiet_full_tier_runs_each_bundle_of_its_list_and_passes(self):
         with mock.patch.dict(os.environ):
