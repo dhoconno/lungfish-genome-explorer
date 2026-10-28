@@ -138,4 +138,17 @@ final class InspectorReadTotalsKindTests: XCTestCase {
         XCTAssertEqual(viewModel.totalUnmappedReads, 1)
         XCTAssertTrue(viewModel.totalMappedLabel.contains("alignments"), viewModel.totalMappedLabel)
     }
+
+    /// A counted track whose database holds neither flagstat lines nor per-sequence rows has no count. The Inspector read Total
+    /// Mapped 0 and Total Unmapped 0 for it while the header says the total is unknown, so a zero read as a measurement
+    /// (review of lane MAPPED, F5).
+    func testTotalsOfADatabaseWithNoCountsAreNotShownAsZeros() throws {
+        _ = try AlignmentMetadataDatabase.create(at: bundleURL.appendingPathComponent("alignments/empty.stats.db"))
+        let viewModel = loadedViewModel([track("empty")])
+
+        XCTAssertTrue(viewModel.totalsAreUnmeasured, "no count of either kind, so the rows say so and show no zeros")
+        let note = viewModel.alignmentCountsNote
+        XCTAssertTrue(note?.contains("again") == true, "the note says what to try next: \(note ?? "none")")
+        XCTAssertNil(viewModel.mappedPercent, "there is no share of nothing")
+    }
 }

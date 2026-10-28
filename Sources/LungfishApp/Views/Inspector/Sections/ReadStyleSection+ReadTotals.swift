@@ -46,6 +46,9 @@ extension ReadStyleSectionViewModel {
     /// True when no counted track has read counts, so the two totals are alignment records.
     private var totalsAreAlignments: Bool { totalsByKind.readTracks == 0 && totalsByKind.alignmentTracks > 0 }
 
+    /// True when counted tracks were offered and none of them holds a count of either kind, so the two totals are unknown.
+    var totalsAreUnmeasured: Bool { false }
+
     var totalMappedLabel: String { totalsAreAlignments ? "Total Mapped (alignments)" : "Total Mapped" }
     var totalUnmappedLabel: String { totalsAreAlignments ? "Total Unmapped (alignments)" : "Total Unmapped" }
     var mappedPercentLabel: String { totalsAreAlignments ? "Mapped % (alignments)" : "Mapped %" }

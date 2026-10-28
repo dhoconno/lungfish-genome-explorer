@@ -101,6 +101,8 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         XCTAssertEqual(track["mapped_read_count"] as? Int, 10, "10 mapped reads, not the manifest's 12 alignment records")
         XCTAssertEqual(track["unmapped_read_count"] as? Int, 1)
         XCTAssertEqual(track["source_path"] as? String, "alignments/fixture-track.sorted.bam")
+        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], "each count says what it counts: \(output)")
+        XCTAssertEqual(bases["fixture-track"], "reads")
     }
 
     // MARK: - A count says what it counts and where it comes from
@@ -147,6 +149,38 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         let line = try XCTUnwrap(output.split(separator: "\n").first { $0.contains("fixture-track:") }.map(String.init), output)
         XCTAssertTrue(line.contains("12 mapped alignments"), "alignment records are labelled as such: \(line)")
         XCTAssertFalse(line.contains("mapped reads"), "alignment records are no reads: \(line)")
+    }
+
+    /// `bundle info --format json` keeps `mapped_read_count` and says beside it what each count counts (review of lane MAPPED, F3).
+    func testBundleInfoJSONSaysTheCountIsTheManifestsWhenTheStatsDatabaseIsMissing() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        try FileManager.default.removeItem(at: bundleURL.appendingPathComponent("alignments/fixture-track.stats.db"))
+        let command = try BundleInfoSubcommand.parse(["--format", "json", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any], output)
+        let track = try XCTUnwrap(((object["manifest"] as? [String: Any])?["alignments"] as? [[String: Any]])?.first, output)
+        XCTAssertEqual(track["mapped_read_count"] as? Int, 12, "the key keeps its meaning and the manifest's number")
+        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], output)
+        XCTAssertEqual(bases["fixture-track"], "manifest", "a script can tell the manifest's copy from reads")
+    }
+
+    func testBundleInfoJSONSaysAlignmentsWhenTheStatsDatabaseHasNoPrimaryLines() async throws {
+        let bundleURL = try makeBundleWithSupplementaryTrack()
+        let databaseURL = bundleURL.appendingPathComponent("alignments/fixture-track.stats.db")
+        try FileManager.default.removeItem(at: databaseURL)
+        do {
+            let database = try AlignmentMetadataDatabase.create(at: databaseURL)
+            database.addChromosomeStats(chromosome: "fixture1", length: 1_000, mapped: 12, unmapped: 0)
+            database.addFlagStat(category: "total", qcPass: 13, qcFail: 0)
+            database.addFlagStat(category: "mapped", qcPass: 12, qcFail: 0)
+        }
+        let command = try BundleInfoSubcommand.parse(["--format", "json", bundleURL.path])
+        let output = try await captureStandardOutput { try await command.run() }
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any], output)
+        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], output)
+        XCTAssertEqual(bases["fixture-track"], "alignments", "alignment records are no reads, and a script can see it")
     }
 
     /// A copy of the fixture's viewer bundle (stats database, BAM and index) with a manifest that lists the track
