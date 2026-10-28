@@ -1044,7 +1044,7 @@ final class ClassifierReadResolverTests: XCTestCase {
                 "includeUnmappedMates": .boolean(false),
             ],
             resolved: [
-                "samtoolsExcludeFlags": .integer(0x404),
+                "samtoolsExcludeFlags": .integer(ExtractionOptions().samtoolsExcludeFlags),
             ]
         )
     }
@@ -1317,8 +1317,8 @@ final class ClassifierReadResolverTests: XCTestCase {
     /// Exercises the `includeUnmappedMates: true` path. The sarscov2 fixture
     /// may not contain unmapped mates, so this test primarily pins the API
     /// surface: both flag settings should succeed and produce a non-zero
-    /// count. `false` → `0x404` (exclude unmapped + duplicates + qcfail),
-    /// `true` → `0x400` (exclude duplicates + qcfail only).
+    /// count. `false` is `0xD04` (unmapped, secondary, duplicate and supplementary records excluded),
+    /// `true` is `0xD00` (the same, keeping unmapped mates).
     func testExtractViaBAM_includeUnmappedMates_succeeds() async throws {
         let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "um")
         defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }

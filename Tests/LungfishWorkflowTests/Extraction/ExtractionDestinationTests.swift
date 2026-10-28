@@ -9,14 +9,14 @@ final class ExtractionDestinationTests: XCTestCase {
 
     // MARK: - ExtractionOptions
 
-    func testOptions_samtoolsExcludeFlags_includeUnmappedMatesFalse_returns0x404() {
+    func testOptions_samtoolsExcludeFlags_includeUnmappedMatesFalse_returns0xD04() {
         let opts = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
-        XCTAssertEqual(opts.samtoolsExcludeFlags, 0x404)
+        XCTAssertEqual(opts.samtoolsExcludeFlags, 0xD04)
     }
 
-    func testOptions_samtoolsExcludeFlags_includeUnmappedMatesTrue_returns0x400() {
+    func testOptions_samtoolsExcludeFlags_includeUnmappedMatesTrue_returns0xD00() {
         let opts = ExtractionOptions(format: .fastq, includeUnmappedMates: true)
-        XCTAssertEqual(opts.samtoolsExcludeFlags, 0x400)
+        XCTAssertEqual(opts.samtoolsExcludeFlags, 0xD00)
     }
 
     func testOptions_format_roundTripsFASTQandFASTA() {

@@ -574,7 +574,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertFalse(argv.contains("--destination"))
         XCTAssertEqual(provenance?.explicitOptions["destination"]?.stringValue, "file")
         XCTAssertEqual(provenance?.explicitOptions["outputPath"]?.fileValue?.path, outputURL.path)
-        XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0x400)
+        XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0xD00)
     }
 
     func testFileProvenanceOptionsPreserveStructuredKrakenSelectionsThroughResolver() async throws {

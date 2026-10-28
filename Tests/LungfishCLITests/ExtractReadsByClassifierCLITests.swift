@@ -538,7 +538,7 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         XCTAssertEqual(options.format, .fastq)
         XCTAssertFalse(options.includeUnmappedMates)
         // Sanity-check the samtools flag derivation (the resolver reads this).
-        XCTAssertEqual(options.samtoolsExcludeFlags, 0x404)
+        XCTAssertEqual(options.samtoolsExcludeFlags, 0xD04)
     }
 
     func testMakeExtractionOptions_includeUnmappedMates_flowsThrough() throws {
@@ -552,8 +552,8 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         ])
         let options = cmd.makeExtractionOptions()
         XCTAssertTrue(options.includeUnmappedMates)
-        // With --include-unmapped-mates, samtools should drop the 0x004 bit.
-        XCTAssertEqual(options.samtoolsExcludeFlags, 0x400)
+        // With --include-unmapped-mates, the mask 0xD00 leaves 0x004 out, so unmapped mates stay.
+        XCTAssertEqual(options.samtoolsExcludeFlags, 0xD00)
     }
 
     func testMakeExtractionOptions_readFormatFasta_flowsThrough() throws {

@@ -24,7 +24,7 @@ import LungfishTestSupport
 /// | I2 | Menu item enabled: `isEnabled == true` under the same conditions |
 /// | I3 | Click wiring: activating the menu fires `onExtractReadsRequested` (or shared.present) |
 /// | I4 | Count-sequence agreement: extracted FASTQ record count equals `MarkdupService.countReads` |
-/// | I5 | Samtools flag dispatch: resolver uses `-F 0x404` (strict) or `-F 0x400` (loose) |
+/// | I5 | Samtools flag dispatch: resolver uses `-F 0xD04` (strict) or `-F 0xD00` (loose) |
 /// | I6 | Clipboard cap enforcement: dialog disables Clipboard above cap; the copy route rejects past cap (ClassifierExtractionCopyRouteTests) |
 /// | I7 | CLI/GUI round-trip equivalence: the CLI command stamped by the GUI reproduces the same FASTQ |
 /// | I8 | A BAM that links out of the result is refused with its own words and never read (U36) |
@@ -297,14 +297,14 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
 
     // MARK: - I5: Samtools flag dispatch
 
-    func testI5_excludeFlags_includeUnmappedMatesFalse_is0x404() {
+    func testI5_excludeFlags_includeUnmappedMatesFalse_is0xD04() {
         let opts = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
-        XCTAssertEqual(opts.samtoolsExcludeFlags, 0x404)
+        XCTAssertEqual(opts.samtoolsExcludeFlags, 0xD04)
     }
 
-    func testI5_excludeFlags_includeUnmappedMatesTrue_is0x400() {
+    func testI5_excludeFlags_includeUnmappedMatesTrue_is0xD00() {
         let opts = ExtractionOptions(format: .fastq, includeUnmappedMates: true)
-        XCTAssertEqual(opts.samtoolsExcludeFlags, 0x400)
+        XCTAssertEqual(opts.samtoolsExcludeFlags, 0xD00)
     }
 
     /// Parameterized over all 4 BAM-backed tools: verify the resolver actually
