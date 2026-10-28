@@ -213,8 +213,8 @@ KNOWN_PREEXISTING_FAILURES=''
 # in gate.result.json) name the test as a load flake. A second failure leaves the tier red. An
 # entry that names no discovered test fails the run as stale. The list is part of the canonical
 # selection (--describe-selection prints it), so evidence made with another list never covers a
-# commit. At Phase 3.0 it holds one test, named with its records below. The records of Phases 2.12
-# to 2.14 held none.
+# commit. At Phase 3.0 it holds two tests, each named with its records below. The records of Phases
+# 2.12 to 2.14 held none.
 # The rerun applies to a run of one attempt, the unit and full tiers. The integration tier runs each class
 # alone and never reruns a listed test, so an entry for a test that only that tier runs has no effect.
 KNOWN_LOAD_FLAKES=(
@@ -224,6 +224,14 @@ KNOWN_LOAD_FLAKES=(
     # worktree. Record 2, the serial check of 2026-10-28 02:54 (the probe stream received nothing in 30 s):
     # cand/check-serial-2-LungfishOperationsTests.txt:169-170 in the phase records.
     'LungfishOperationsTests.FileSystemWatcherTests/testBundleViewStateSaveDeliversNoPaths'
+    # testACancelOfAStagedSnapshotStopsTheCommandWithEveryCoreBusy checks no scientific result, only that the
+    # lungfish-cli convert of a cancelled export ends inside CLIProcessLauncher.operationGrace (6.0 s). It failed only
+    # on that elapsed time (6.07 to 6.18 s in the two records below, ended by SIGKILL), in four serial runs after long
+    # test load. Alone it takes 4.3 to 4.8 s (nine runs in a row after one 6.04 s run right after a serial run).
+    # Record 1, the full tier of 2026-10-28: runner.log:64913-64916 in
+    # .build/gate-logs/gate-20261028-003938-5653c9e7b-190/primary of the program worktree. Record 2, the serial
+    # diagnostic of 2026-10-28 04:15: cand/diag-7b-app.txt:16924-16928 in the phase records.
+    'LungfishAppTests.SequenceExportPinConformanceTests/testACancelOfAStagedSnapshotStopsTheCommandWithEveryCoreBusy'
 )
 # A LungfishAppTests class whose name ends in ReplayTests replays a recorded
 # lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
