@@ -277,9 +277,10 @@ grep -E "^Test Case '.*' (passed|failed)" "$logs/xctest-in-arm64-swift-container
 # SwiftPM 6.4 builds a Linux test target as a test runner plus a shared library (<Target>-test-runner and <Target>.so
 # under .build/out/Products). Older layouts build one .xctest file. Every one of these files goes into the record.
 test_binary_args=()
+# find -H searches a .build that is a link, as on the scratch disk. Plain find stops at a link given as the start.
 while IFS= read -r test_file; do
   test_binary_args+=("testBinary.file=${test_file#"$repo"/}|$(size_of "$test_file")|$(sha256_of "$test_file")")
-done < <(find "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so' -o -name '*.xctest' \) | sort)
+done < <(find -H "$pkg/.build" -type f \( -name '*-test-runner' -o -name '*Tests.so' -o -name '*.xctest' \) | sort)
 [ "${#test_binary_args[@]}" -gt 0 ] || die "swift test left no test runner, test library or .xctest file under $pkg/.build"
 
 # The same launcher tests again, against the static musl binary that ships and not the glibc debug build above, so descriptor

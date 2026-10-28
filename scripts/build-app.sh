@@ -267,7 +267,8 @@ done < <(/usr/bin/find "$BUILD_DIR" -maxdepth 1 -type d -name '*.bundle' -print0
 
 SPARKLE_FRAMEWORK_SOURCE="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 if [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
-    SPARKLE_FRAMEWORK_SOURCE="$(/usr/bin/find "$PROJECT_ROOT/.build" -path '*/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework' -type d -print -quit)"
+    # find -H searches a .build that is a link, as on the scratch disk. Plain find stops at a link given as the start.
+    SPARKLE_FRAMEWORK_SOURCE="$(/usr/bin/find -H "$PROJECT_ROOT/.build" -path '*/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework' -type d -print -quit)"
 fi
 if [ -z "$SPARKLE_FRAMEWORK_SOURCE" ] || [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
     echo -e "${RED}Error: Sparkle.framework not found in SwiftPM artifacts${NC}"
