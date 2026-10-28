@@ -4,18 +4,6 @@
 
 import AppKit
 
-/// A generic, localizable error used to route a title/message pair through
-/// `NSApp.presentError` when no window is available for a sheet. Internal
-/// implementation detail of `WarningPresenter.present` — not part of its
-/// public surface.
-struct WarningPresenterError: LocalizedError {
-    let title: String
-    let message: String
-
-    var errorDescription: String? { title }
-    var recoverySuggestion: String? { message }
-}
-
 /// Shared beep+NSAlert warning presentation, extracted (round-2 structural
 /// backlog item 1, 2026-08-08 repo review fix campaign) from three
 /// hand-copied `presentWarning(title:message:)` private methods
@@ -27,24 +15,30 @@ struct WarningPresenterError: LocalizedError {
 /// centralizes the *default* presentation behavior that seam falls back to,
 /// so existing tests that set `warningPresenter` to a spy continue to work
 /// unchanged.
+///
+/// Since Phase 3.1 (ALERT-PRESENTER) this is a shim. A site that shows a
+/// caught error builds a `FailureReport` and calls `FailurePresenter`, and
+/// `present(title:message:in:)` forwards its alert to the same presentation
+/// path for warnings whose words are already plain.
 public enum WarningPresenter {
-    /// Presents a warning alert as a sheet on `window`, or via
-    /// `NSApp.presentError` when no window is available. Does NOT beep —
+    /// Presents a warning alert as a sheet on `window`, or as a modal alert
+    /// when no window is available. Does NOT beep —
     /// callers that want the system alert sound call `NSSound.beep()`
     /// themselves at the failure site, matching the pre-existing per-VC
     /// convention where not every warning is preceded by a beep.
     @MainActor
     public static func present(title: String, message: String, in window: NSWindow?) {
+        FailurePresenter.show(alert(title: title, message: message), in: window, completion: nil)
+    }
+
+    /// The warning alert `present` shows, built without a sheet for tests.
+    @MainActor
+    static func alert(title: String, message: String) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-
-        if let window = window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            NSApp.presentError(WarningPresenterError(title: title, message: message))
-        }
+        return alert
     }
 }
