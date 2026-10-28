@@ -255,7 +255,8 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
 
     def recording(argv, root, directory, name, **keywords):
         calls.append({"name": name, "argv": argv, "timeout": keywords.get("timeout_seconds"),
-                      "unbuffered": (keywords.get("env") or {}).get("NSUnbufferedIO")})
+                      "unbuffered": (keywords.get("env") or {}).get("NSUnbufferedIO"),
+                      "env": dict(keywords.get("env") or {})})
         return real(argv, root, directory, name, **keywords)
 
     with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
@@ -823,6 +824,18 @@ class FullTierBundleTests(unittest.TestCase):
         self.assertEqual(evidence["options"]["bundleOrder"], TWO_BUNDLES)
         self.assertTrue(evidence["authorized"])
         GATE.validate_result(*_clean_copy(evidence))
+
+    def test_full_tier_xctest_attempts_switch_off_in_process_swift_testing(self):
+        # Review LOOP-M1, SF-1. A direct xctest run would also run the bundle's Swift Testing functions, unscored.
+        calls, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 0, evidence["errors"])
+        runners = [call for call in calls if call["name"] == "runner"]
+        direct = [call for call in runners if call["argv"][0] == "xcrun"]
+        swift = [call for call in runners if "--disable-xctest" in call["argv"]]
+        self.assertEqual((len(direct), len(swift)), (2, 1))
+        for call in direct:
+            self.assertEqual(call["env"].get("SWIFT_TESTING_ENABLED"), "0", call["argv"])
+        self.assertNotIn("SWIFT_TESTING_ENABLED", swift[0]["env"])
 
     def test_the_reader_refuses_a_full_tier_run_that_lost_reordered_or_listed_a_bundle(self):
         _, _, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES)

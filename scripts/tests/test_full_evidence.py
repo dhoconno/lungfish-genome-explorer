@@ -9,6 +9,7 @@ gate_evidence.find_full_evidence, the full-evidence command and release.py what 
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -195,6 +196,23 @@ class FindFullEvidenceTests(FullEvidenceTestCase):
         rerun = self.full(b, "rerun-b", bundles=[APP], rerun_of=base, red=[APP])
         record = self.find_full(b)
         self.assertEqual((record["kind"], record["gatedCommit"], record["resultPath"]), ("red", b, str(rerun)))
+
+    def test_a_rerun_bound_to_another_run_of_the_same_commit_covers_nothing(self):
+        base1 = self.full(self.a, "full-a1", red=[APP])
+        base2 = self.full(self.a, "full-a2", red=[APP])
+        # Two real runs differ at least by their clock, so their digests differ. The fixture's runs would be equal.
+        later = json.loads(base2.read_text())
+        later.update(startedAt="2026-10-28T03:00:00+00:00", endedAt="2026-10-28T05:00:00+00:00")
+        write_json(base2, later)
+        os.utime(base1, (1_800_000_000, 1_800_000_000))
+        os.utime(base2, (1_800_000_100, 1_800_000_100))
+        b = self.change("Tests/LungfishAppTests/AppTests.swift")
+        self.full(b, "rerun-b1", bundles=[APP], rerun_of=base1)
+        self.assertIsNone(self.find_full(b), "a rerun bound to an older run of the commit answers no run in force")
+        self.full(b, "rerun-b2", bundles=[APP], rerun_of=base2)
+        record = self.find_full(b)
+        self.assertEqual(record["kind"], "composite")
+        self.assertEqual(record["base"]["resultPath"], str(base2))
 
 
 class Reached(Exception):

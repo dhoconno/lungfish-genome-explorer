@@ -598,6 +598,11 @@ class FrontDoorTransactionTests(GateOperationsMixin, unittest.TestCase):
                     self.assertEqual(copied.read_bytes(), Path(recorded["resultPath"]).read_bytes())
                     listed = {item["path"]: item for item in manifest["files"]}
                     self.assertEqual(listed["unit-precondition.result.json"]["sha256"], recorded["resultSha256"])
+                    if channel == "stable":
+                        # The full-tier record and the result it cites reach the manifest the receipt binds.
+                        self.assertIn("full-precondition.json", listed)
+                        self.assertEqual(listed["full-precondition-0.result.json"]["sha256"],
+                                         hashlib.sha256(cited.read_bytes()).hexdigest())
 
                     # Handing the evidence to the builder re-verifies it. A dirty tree, a
                     # changed log or a changed unit-precondition record each stop the package.

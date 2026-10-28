@@ -795,7 +795,10 @@ def run_bundle_attempts(attempt, bound, selection, directory):
         name = f"bundle-{index:02d}"
         if step["harness"] == "xctest":
             chosen = {"xctest": [t for t in selection["xctest"] if test_bundle(t) == bundle], "swift-testing": []}
-            result = attempt(name, "", "", False, "authoritative", chosen, timeout, environment,
+            # A direct xctest run also runs the bundle's Swift Testing functions in the same process, which this
+            # attempt does not score and the last harness runs again (review LOOP-M1, Q2), so switch them off here.
+            result = attempt(name, "", "", False, "authoritative", chosen, timeout,
+                             {**environment, "SWIFT_TESTING_ENABLED": "0"},
                              argv=["xcrun", "xctest", bound["binPath"] + "/" + bundle + ".xctest"])
         else:
             chosen = {"xctest": [], "swift-testing": selected(selection["swift-testing"], step["filter"], "")}
