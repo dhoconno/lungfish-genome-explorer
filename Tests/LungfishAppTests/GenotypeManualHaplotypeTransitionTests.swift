@@ -2,10 +2,24 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
+import LungfishKit
 import LungfishTestSupport
 
 @MainActor
 final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
+    /// The quit and window-close paths ask to confirm first when an operation is running, and the sheet they open
+    /// waits for a click, so a row an earlier test left Running keeps these tests from the code they check. A process
+    /// that runs every class of the bundle (the full tier) once hung here that way. Fail at once and name the rows.
+    override func setUp() async throws {
+        try await super.setUp()
+        let running = OperationCenter.shared.activeItems.map { "\($0.title) (\($0.operationType), \($0.state.rawValue))" }
+        guard running.isEmpty else {
+            throw LeftoverOperationsError(description: "An earlier test left \(running.count) operation(s) running in "
+                + "OperationCenter.shared: \(running.joined(separator: ", ")). The quit and window-close warnings would wait "
+                + "for a click, so this class stops here. Finish the operation in the test that began it.")
+        }
+    }
+
     func testEveryAbandoningTransitionCanBeCancelledWithoutMutation() async {
         let transitions: [GenotypeManualHaplotypeDraftCoordinator.Transition] = [
             .selection,
@@ -125,7 +139,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                 return await gate.wait()
             }
         }
-        await gate.waitUntilPending()
+        guard await gate.waitUntilPending() else { return }
         let quit = Task { @MainActor in
             await coordinator.prepare(for: .appQuit) {
                 promptCount += 1
@@ -164,7 +178,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                 await gate.wait()
             }
         }
-        await gate.waitUntilPending()
+        guard await gate.waitUntilPending() else { return }
 
         let selectionAllowed = await coordinator.prepare(
             for: .selection,
@@ -268,7 +282,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         )
 
         XCTAssertFalse(controller.windowShouldClose(window))
-        await gate.waitUntilPending()
+        guard await gate.waitUntilPending() else { return }
         XCTAssertFalse(controller.windowShouldClose(window))
         XCTAssertEqual(promptCount, 1)
 
@@ -300,7 +314,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
             .projectSwitch,
             mutation: { applied.append(0) }
         ))
-        await gate.waitUntilPending()
+        guard await gate.waitUntilPending() else { return }
         for index in 1...100 {
             XCTAssertTrue(controller.deferManualHaplotypeTransition(
                 .projectSwitch,
@@ -344,9 +358,9 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
             .projectSwitch,
             mutation: { applied.append("older") }
         ))
-        await decisionGate.waitUntilPending()
+        guard await decisionGate.waitUntilPending() else { return }
         await decisionGate.resume(with: .discard)
-        await completionGate.waitUntilPending()
+        guard await completionGate.waitUntilPending() else { return }
         XCTAssertFalse(isDirty)
 
         XCTAssertTrue(controller.deferManualHaplotypeTransition(
@@ -592,7 +606,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                     in: [first, second]
                 )
         }
-        await secondGate.waitUntilPending()
+        guard await secondGate.waitUntilPending() else { return }
         firstDraft = "edited-after-discard"
         firstRevision = UUID()
         await secondGate.resume(with: .discard)
@@ -642,7 +656,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                     in: [first, second]
                 )
         }
-        await firstGate.waitUntilPending()
+        guard await firstGate.waitUntilPending() else { return }
         secondDirty = true
         secondRevision = UUID()
         await firstGate.resume(with: .discard)
@@ -682,7 +696,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                     in: [controller]
                 )
         }
-        await preflightGate.waitUntilPending()
+        guard await preflightGate.waitUntilPending() else { return }
         revision = UUID()
         await preflightGate.resume(with: .save)
 
@@ -765,7 +779,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
                     controllers: { liveControllers }
                 )
         }
-        await secondFinalizerGate.waitUntilPending()
+        guard await secondFinalizerGate.waitUntilPending() else { return }
         firstDirty = true
         firstRevision = UUID()
         addedDirty = true
@@ -902,7 +916,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
             },
             .terminateLater
         )
-        await gate.waitUntilPending()
+        guard await gate.waitUntilPending() else { return }
         await gate.resume(with: .discard)
         await delegate.testingWaitForManualHaplotypeTermination()
 
@@ -917,6 +931,10 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
     }
 }
 
+private struct LeftoverOperationsError: Error, CustomStringConvertible {
+    let description: String
+}
+
 private actor AsyncManualHaplotypeDecisionGate {
     private var continuation:
         CheckedContinuation<GenotypeManualHaplotypeDraftDecision, Never>?
@@ -927,10 +945,14 @@ private actor AsyncManualHaplotypeDecisionGate {
         }
     }
 
-    func waitUntilPending() async {
-        while continuation == nil {
-            await Task.yield()
+    /// Waits for the coordinator to ask for a decision. When none comes within the standard budget the test fails
+    /// with words and this returns false, so the caller stops and the tier does not hang.
+    func waitUntilPending(file: StaticString = #filePath, line: UInt = #line) async -> Bool {
+        let pending = await waitUntil(budget: .standard) { continuation != nil }
+        if !pending {
+            XCTFail("No decision was asked for within \(WaitBudget.standard.seconds) seconds.", file: file, line: line)
         }
+        return pending
     }
 
     var isPending: Bool {

@@ -312,6 +312,14 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
                 cliCommand: nil
             ).rowID
         }
+        // Cancelling the runner leaves the row Running, since the caller ends it. Finish it here, so a process that
+        // runs every class of the bundle (the full tier) does not carry a Running row into the classes after this one.
+        addTeardownBlock {
+            await MainActor.run {
+                _ = OperationCenter.shared.complete(id: opID, detail: "Test finished")
+                OperationCenter.shared.clearItem(id: opID)
+            }
+        }
         let runner = CLIMSAAlignmentRunner(cliURLOverride: fakeCLI)
         let runTask = Task {
             try await runner.run(arguments: [], operationID: opID)
