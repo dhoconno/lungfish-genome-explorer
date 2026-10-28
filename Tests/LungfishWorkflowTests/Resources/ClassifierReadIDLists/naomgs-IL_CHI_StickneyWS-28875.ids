@@ -1,0 +1,12 @@
+# Frozen read IDs, lane IDPINS of Phase 3.1. Taken from the tool run directly, never from the app's output.
+# fixture: Tests/Fixtures/naomgs/virus_hits_final.tsv.gz, imported as the app imports it (database and BAMs)
+# sample: MU-CASPER-2026-03-31-a-IL_CHI_StickneyWS_20260308, taxon 28875 (aligner_taxid_lca)
+# command: samtools view -F 0xD04 -N <the seq_id of the fixture rows of that sample and taxon> bams/<sample>.bam <the prim_align_genome_id_all of those rows> | cut -f1 | LC_ALL=C sort -u
+# accessions: KU048583.1 KU048553.1
+# tsv rows of the sample and taxon: 6 read names
+# records: 8 (the number of records the same selection holds before the IDs are made unique)
+# unique: 4
+LH00642:161:23KFJ7LT4:2:1331:20578:13303
+LH00642:161:23KFJ7LT4:2:2267:5037:23238
+LH00642:161:23KFJ7LT4:2:2373:29339:4769
+LH00642:161:23KFJ7LT4:6:1262:7302:22257

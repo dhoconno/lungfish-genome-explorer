@@ -1,0 +1,11 @@
+# Frozen read IDs, lane IDPINS of Phase 3.1. Taken from the tool run directly, never from the app's output.
+# fixture: Tests/Fixtures/kraken2/interleaved-sra-names
+# command: awk -F'\t' '$1=="C" && ($3==3050292 || $3==10298) {print $2}' classification.kraken | LC_ALL=C sort -u
+# taxa: children of 3050292, which classification.kreport gives as 3050292, 10298
+# records of the ID lines in source.fastq: 8
+# records: 8 (the number of records the same selection holds before the IDs are made unique)
+# unique: 4
+SRR12486983.1
+SRR12486983.2
+SRR12486983.3
+SRR12486983.4
