@@ -283,8 +283,10 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
 
     /// A project with a source bundle that holds a plain FASTA with its index, so reading it needs no
     /// tool, a FASTA document of the same sequence for the route with no reference bundle, and a conda root whose bgzip and samtools answer a version probe and whose bgzip sleeps on
-    /// any other call after it wrote `$$` beside itself. The leaf reads the root from
-    /// `LUNGFISH_CONDA_ROOT`, so the stand-ins win over a real tool.
+    /// any other call after it wrote `$$` beside itself. The write goes to a temporary file that moves into place, so
+    /// `bgzip.pid` never exists empty. Both cancel watches fire on that file's existence, and a SIGTERM that landed
+    /// between the shell's create and its write once left an empty file, which `Int32(...)` read as nil (item 9b).
+    /// The leaf reads the root from `LUNGFISH_CONDA_ROOT`, so the stand-ins win over a real tool.
     nonisolated private static func makeFixture(in root: URL) throws {
         let fileManager = FileManager.default
         let bundle = root.appendingPathComponent(sourcePath, isDirectory: true)
@@ -320,7 +322,9 @@ final class RegionBundleExtractionSIGTERMReplayTests: XCTestCase {
         case "$*" in
           *version*) echo "bgzip (htslib) 1.20"; exit 0 ;;
         esac
-        echo $$ > "$(dirname "$0")/bgzip.pid"
+        d=$(dirname "$0")
+        echo $$ > "$d/bgzip.pid.tmp"
+        /bin/mv "$d/bgzip.pid.tmp" "$d/bgzip.pid"
         exec sleep 120
         """
         let samtools = """
