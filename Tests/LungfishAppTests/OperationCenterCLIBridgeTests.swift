@@ -25,6 +25,10 @@ import LungfishWorkflow
 /// the closure the bridge returns, then read the row once every event has been applied. A run's log
 /// holds its start line and each progress message once, so the expectations of the label tests list
 /// the progress messages of their captured runs.
+///
+/// Every test ends its row with `finishAndClearForTest(id:)`. The row-rule tests never complete their rows,
+/// and `clearItem` leaves a Running row in place, where the quit and window-close paths of a later class in
+/// the same process would wait for a click on it (`LeftoverOperationsGuard.swift`).
 @MainActor
 final class OperationCenterCLIBridgeTests: XCTestCase {
     private var folder: URL!
@@ -71,7 +75,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
             bundleImports.reset()
             let cli = try standInCLI(playing: try transcript("tree-reroot", as: variant), variant: variant)
             let id = beginRow(title: "Reroot tree", type: .phylogeneticTreeTransform)
-            defer { OperationCenter.shared.clearItem(id: id) }
+            defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
             let result = try await CLITreeRunner(label: "tree transform", cliURLOverride: cli)
                 .run(arguments: ["tree", "reroot"], operationID: id)
@@ -102,7 +106,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
             bundleImports.reset()
             let cli = try standInCLI(playing: try transcript("msa-export-with-warning", as: variant), variant: variant)
             let id = beginRow(title: "Export alignment", type: .multipleSequenceAlignmentAction)
-            defer { OperationCenter.shared.clearItem(id: id) }
+            defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
             let result = try await CLIMSAActionRunner(cliURLOverride: cli)
                 .run(arguments: ["msa", "export"], operationID: id)
@@ -128,7 +132,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
             bundleImports.reset()
             let cli = try standInCLI(playing: try transcript("tree-reroot-failed", as: variant), variant: variant, exitStatus: 1)
             let id = beginRow(title: "Reroot tree", type: .phylogeneticTreeTransform)
-            defer { OperationCenter.shared.clearItem(id: id) }
+            defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
             do {
                 _ = try await CLITreeRunner(label: "tree transform", cliURLOverride: cli)
@@ -155,7 +159,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains(#""event":"failed""#) }, "the stand-in prints no failed event")
         let cli = try standInCLI(playing: lines, variant: .version1, standardError: [errorLine], exitStatus: 2)
         let id = beginRow(title: "Reroot tree", type: .phylogeneticTreeTransform)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
         do {
             _ = try await CLITreeRunner(label: "tree transform", cliURLOverride: cli)
@@ -206,7 +210,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
             let id = beginRow(title: "Extract alignment", type: .multipleSequenceAlignmentAction) {
                 FileManager.default.createFile(atPath: go.path, contents: nil)
             }
-            defer { OperationCenter.shared.clearItem(id: id) }
+            defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
             let runner = CLIMSAActionRunner(cliURLOverride: cli)
             let run = Task { try await runner.run(arguments: ["msa", "extract"], operationID: id) }
@@ -238,7 +242,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// arrives late does not pull the bar back to 0.
     func testALowerFractionLeavesTheBarWhereItIs() async throws {
         let id = beginRow(title: "Hold the bar", type: .phylogeneticTreeTransform)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
 
         var bar: [Double] = []
@@ -264,7 +268,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// bar after every change the row publishes.
     func testEventsFromSeveralThreadsNeverLowerTheBar() async throws {
         let id = beginRow(title: "Hold the bar", type: .phylogeneticTreeTransform)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
         let seen = BarSamples()
         let subscription = OperationCenter.shared.changes.sink { change in
@@ -294,7 +298,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// an empty message changes the bar only.
     func testAProgressMessageIsLoggedOnceWhenItChanges() async throws {
         let id = beginRow(title: "Log once", type: .phylogeneticTreeTransform)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
 
         let events: [CLIEvent] = [
@@ -331,7 +335,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// each time it arrives, as the row logged it before the bridge logged progress.
     func testALogLineRightAfterItsProgressEventIsNotLoggedTwice() async throws {
         let id = beginRow(title: "Pairs", type: .classification)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
 
         for _ in 0..<3 {
@@ -357,7 +361,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// the detail first (Phase 2.10 U32 review fix 1).
     func testTheClassifierDatabaseStepLogsItsDetailBeforeTodaysDatabaseLine() async throws {
         let id = beginRow(title: "EsViritu sarscov2", type: .classification)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
         var rowEvents = CLIClassifierRowEvents(tool: .esViritu, sampleIDs: ["sarscov2"])
         let events: [CLIEvent] = [
@@ -377,7 +381,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// sequence the producer sent.
     func testEventsKeepTheirArrivalOrder() async throws {
         let id = beginRow(title: "Order", type: .phylogeneticTreeTransform)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
 
         var events: [CLIEvent] = []
@@ -409,7 +413,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
     /// log keeps it. An empty message, a start event and a log event never reach the overlay.
     func testTheOverlayGetsAProgressMessageOnlyWhileTheRowRuns() async throws {
         let id = beginRow(title: "Overlay", type: .phylogeneticTreeTransform) {}
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let overlay = OverlayLines()
         let handle = OperationCenterCLIBridge.onEvent(operationID: id) { line in overlay.lines.append(line) }
 
@@ -447,7 +451,7 @@ final class OperationCenterCLIBridgeTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.hasSuffix("(option)") }, "the switch the option set says so")
 
         let id = beginRow(title: "Import FASTQ", type: .ingestion)
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = OperationCenterCLIBridge.onEvent(operationID: id)
         handle(.start(message: "Importing FASTQ"))
         for line in lines {
