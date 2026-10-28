@@ -507,12 +507,20 @@ def analyze_attempt(directory, command, selection, parallel, require_tools):
 # runs out its 15-minute bound and one phase of growth at the rate of 2.12
 # (49.8 to 78.0 minutes, 28 minutes), about 121 minutes, with room above that
 # for a build beside the tier (Phase 2.13 ruling QA-13.55).
+# The full tier runs one serial process for each test bundle and has no class bound, so one hung test holds the
+# run until this budget ends it. Its budget covers a quiet run of the tier, about 120 minutes at the Stable
+# 2026.10.27 base (57 minutes for every bundle before LungfishAppTests, then 24 minutes for the first 3,115 of its
+# 7,388 tests, about 33 for the other 4,273 at the same 0.46 seconds each, and about 6 for the 79
+# LungfishAlignmentUITests tests and the 1,080 Swift Testing tests), one phase of growth at the integration tier's
+# rate (28.0 over 78.0 minutes, 36 percent, 43 minutes) and the same room for a build beside the tier (29 over
+# 121 minutes, 24 percent), about 202 minutes, rounded up to 210. The old 90 minutes ended that run at 81 minutes of
+# work, inside a hung test, and could never have held the tier (Phase 3.0 lane SERIAL-TIER).
 DEFAULT_TIER_TIMEOUT_SECONDS = {
     "smoke": 5 * 60,
     "unit": 45 * 60,
     "integration": 150 * 60,
     "conformance": 90 * 60,
-    "full": 90 * 60,
+    "full": 210 * 60,
 }
 
 # The bound (seconds) for each class of a serial run, by tier (Phase 2.11 Q65,

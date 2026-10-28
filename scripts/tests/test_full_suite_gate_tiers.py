@@ -512,6 +512,17 @@ class GateBehaviorTests(unittest.TestCase):
         self.assertEqual(budget, 150 * 60)
         self.assertGreaterEqual(budget, 4680.5 + GATE.DEFAULT_CLASS_TIMEOUT_SECONDS["integration"] + 1692)
 
+    # Phase 3.0 lane SERIAL-TIER. The full budget holds a quiet run of the tier (about 120 minutes at the Stable
+    # 2026.10.27 base, with 57 minutes before LungfishAppTests), one phase of growth at the integration rate
+    # (28.0 over 78.0 minutes) and the room for a build beside the tier (29 over 121 minutes). The 90 minutes it
+    # had before ended that run inside a hung test at 81 minutes of work and could not have held it.
+    def test_the_full_budget_holds_a_quiet_run_a_phase_of_growth_and_a_build(self):
+        budget = GATE.DEFAULT_TIER_TIMEOUT_SECONDS["full"]
+        quiet = 120 * 60
+        self.assertEqual(budget, 210 * 60)
+        self.assertLess(90 * 60, quiet)
+        self.assertGreaterEqual(budget, quiet * (1 + 28.0 / 78.0) * (1 + 29.0 / 121))
+
     def test_a_hung_serial_class_is_killed_and_named_and_the_next_class_still_runs(self):
         result, evidence, child = self.run_hang_gate("--tier", "integration", "--class-timeout-seconds", "2")
         self.assertIsNotNone(evidence, result.stdout + result.stderr)
