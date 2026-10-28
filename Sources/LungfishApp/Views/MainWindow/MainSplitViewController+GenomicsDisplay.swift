@@ -215,18 +215,14 @@ extension MainSplitViewController {
 
                 } catch {
                     let errorMessage = "\(error)"
+                    let report = MainWindowFailureReports.importVCFFiles(error)
                     DispatchQueue.main.async { [weak viewerController] in
                         MainActor.assumeIsolated {
                             viewerController?.hideProgress()
                             mainSplitLogger.error("loadVCFFilesInBackground: Failed - \(errorMessage)")
 
-                            let alert = NSAlert()
-                            alert.messageText = "Failed to Import VCF Files"
-                            alert.informativeText = errorMessage
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
                             if let window = viewerController?.view.window ?? NSApp.keyWindow {
-                                alert.beginSheetModal(for: window)
+                                FailurePresenter.present(report, in: window)
                             }
                         }
                     }
@@ -409,6 +405,7 @@ extension MainSplitViewController {
                 mainSplitLogger.debug("loadFASTQDatasetInBackground: Statistics computation cancelled (gen=\(generation))")
             } catch {
                 let errorMessage = "\(error)"
+                let report = MainWindowFailureReports.readFASTQFile(error)
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self = self, isCurrentRequest() else { return }
@@ -416,14 +413,8 @@ extension MainSplitViewController {
                         viewerController.hideProgress()
                         mainSplitLogger.error("loadFASTQDatasetInBackground: Failed - \(errorMessage)")
 
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Analyze FASTQ File"
-                        alert.informativeText = errorMessage
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
                         if let window = self.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
+                            FailurePresenter.present(report, in: window)
                         }
                     }
                 }

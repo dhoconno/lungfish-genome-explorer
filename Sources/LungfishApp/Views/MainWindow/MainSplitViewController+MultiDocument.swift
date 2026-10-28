@@ -40,11 +40,9 @@ extension MainSplitViewController {
                     guard let self else { return }
                     self.inspectorController.clearSelection()
                     self.viewerController.clearViewport(statusMessage: "Unable to load \(url.lastPathComponent): \(error.localizedDescription)")
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.addButton(withTitle: "OK")
-                    if let window = self.view.window { alert.beginSheetModal(for: window) }
+                    if let window = self.view.window {
+                        FailurePresenter.present(MainWindowFailureReports.openFile(named: url.lastPathComponent, error), in: window)
+                    }
                 },
                 loading: { [weak self] active in
                     guard let self else { return }

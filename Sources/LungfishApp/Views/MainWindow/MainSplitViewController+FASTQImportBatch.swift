@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 extension MainSplitViewController {
@@ -128,14 +129,10 @@ extension MainSplitViewController {
                         requestID: requestID, sample: pair, success: false, error: error.localizedDescription, cancelled: error is CancellationError
                     )
                     guard !(error is CancellationError) else { return }
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Import FASTQ"
-                    alert.informativeText = "\(error)"
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.applyLungfishBranding()
                     if let window = self?.view.window ?? NSApp.keyWindow {
-                        alert.beginSheetModal(for: window)
+                        FailurePresenter.present(
+                            MainWindowFailureReports.importPairedFASTQFiles(sampleName: pair.sampleName, error), in: window
+                        )
                     }
                 }
             }

@@ -437,14 +437,8 @@ extension MainSplitViewController {
             } catch {
                 mainSplitLogger.error("importFASTQFileInBackground: Failed to remove existing bundle: \(error)")
                 self.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
-                let alert = NSAlert()
-                alert.messageText = "Failed to Replace Bundle"
-                alert.informativeText = "\(error)"
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.applyLungfishBranding()
                 if let window = self.view.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window)
+                    FailurePresenter.present(MainWindowFailureReports.replaceExistingFASTQBundle(error), in: window)
                 }
                 return
             }
@@ -492,14 +486,8 @@ extension MainSplitViewController {
                 mainSplitLogger.error("importFASTQFileInBackground: \(error)")
                 self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription, cancelled: error is CancellationError)
                 guard !(error is CancellationError) else { return }
-                let alert = NSAlert()
-                alert.messageText = "Failed to Import FASTQ"
-                alert.informativeText = "\(error)"
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.applyLungfishBranding()
                 if let window = self?.view.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window)
+                    FailurePresenter.present(MainWindowFailureReports.importFASTQFile(error), in: window)
                 }
             }
         }
@@ -786,14 +774,8 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc, cancelled: !accepted)
 
                             guard accepted else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "ONT Sample Split Failed"
-                            alert.informativeText = "\(error)"
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
-                            alert.applyLungfishBranding()
                             if let window = self?.view.window ?? NSApp.keyWindow {
-                                alert.beginSheetModal(for: window) { _ in }
+                                FailurePresenter.present(MainWindowFailureReports.splitONTReadsBySample(error), in: window)
                             }
                         }
                     }
@@ -919,14 +901,8 @@ extension MainSplitViewController {
                             self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: errorDesc, cancelled: !accepted)
 
                             guard accepted else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "ONT PacBio Barcode Demultiplex Failed"
-                            alert.informativeText = "\(error)"
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
-                            alert.applyLungfishBranding()
                             if let window = self?.view.window ?? NSApp.keyWindow {
-                                alert.beginSheetModal(for: window) { _ in }
+                                FailurePresenter.present(MainWindowFailureReports.demultiplexReadsByBarcode(error), in: window)
                             }
                         }
                     }
@@ -991,14 +967,8 @@ extension MainSplitViewController {
     }
 
     private func presentONTImportFailure(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "ONT Import Failed"
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.applyLungfishBranding()
         if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window) { _ in }
+            FailurePresenter.present(MainWindowFailureReports.importONTRunFolder(error), in: window)
         }
     }
 
