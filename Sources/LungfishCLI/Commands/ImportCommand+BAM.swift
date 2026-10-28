@@ -141,11 +141,7 @@ extension ImportCommand {
                 )
 
                 // Attempt to collect statistics via samtools.
-                var totalReads: Int64 = 0
-                var mappedReads: Int64 = 0
-                var unmappedReads: Int64 = 0
-                var refContigs = 0
-                var statsCollected = false
+                var statistics: BAMImportStatistics?
                 var provenanceMessages: [String] = []
                 var provenanceSteps: [ProvenanceStep] = []
                 let samtoolsVersion = await detectNativeToolVersion(.samtools)
@@ -173,21 +169,12 @@ extension ImportCommand {
                         completedAt: idxstatsCompletedAt
                     ))
                     if idxstatsResult.isSuccess {
-                        let lines = idxstatsResult.stdout.split(separator: "\n")
-                        for line in lines {
-                            let cols = line.split(separator: "\t")
-                            guard cols.count >= 4 else { continue }
-                            let refName = String(cols[0])
-                            let mapped = Int64(cols[2]) ?? 0
-                            let unmapped = Int64(cols[3]) ?? 0
-                            mappedReads += mapped
-                            unmappedReads += unmapped
-                            if refName != "*" {
-                                refContigs += 1
-                            }
-                        }
-                        totalReads = mappedReads + unmappedReads
-                        statsCollected = true
+                        // idxstats counts alignment records, so the reads come from flagstat's primary lines.
+                        let flagstat = await collectFlagstat(
+                            of: destURL, version: samtoolsVersion, format: alignmentFormat,
+                            steps: &provenanceSteps, messages: &provenanceMessages
+                        )
+                        statistics = BAMImportStatistics(idxstats: idxstatsResult.stdout, flagstat: flagstat)
                     } else {
                         provenanceMessages.append(
                             "samtools idxstats exited \(idxstatsResult.exitCode): \(idxstatsResult.stderr)"
@@ -279,11 +266,7 @@ extension ImportCommand {
                         outputURL: destURL,
                         format: ext,
                         indexArtifact: indexArtifact,
-                        statsCollected: statsCollected,
-                        totalReads: totalReads,
-                        mappedReads: mappedReads,
-                        unmappedReads: unmappedReads,
-                        refContigs: refContigs
+                        statistics: statistics
                     ),
                     toolName: "lungfish import bam",
                     toolVersion: LungfishCLI.configuration.version,
@@ -302,16 +285,11 @@ extension ImportCommand {
                 printHumanLine(formatter.header("Summary"), eventsOn: eventsOn)
                 printHumanLine("", eventsOn: eventsOn)
 
-                if statsCollected {
-                    let mappedPct = totalReads > 0
-                        ? String(format: "%.2f%%", Double(mappedReads) / Double(totalReads) * 100)
-                        : "N/A"
-                    printHumanLine(formatter.keyValueTable([
-                        ("Total reads", formatNumber(totalReads)),
-                        ("Mapped reads", "\(formatNumber(mappedReads)) (\(mappedPct))"),
-                        ("Unmapped reads", formatNumber(unmappedReads)),
-                        ("Reference contigs", String(refContigs)),
-                    ]), eventsOn: eventsOn)
+                if let statistics {
+                    printHumanLine(formatter.keyValueTable(statistics.summaryRows(formatNumber: formatNumber)), eventsOn: eventsOn)
+                    if let note = statistics.alignmentCountsNote, !globalOptions.quiet {
+                        warn(note, formatter: formatter, emitter: emitter, eventsOn: eventsOn)
+                    }
                 } else {
                     printHumanLine(formatter.keyValueTable([
                         ("File", destURL.lastPathComponent),
@@ -557,24 +535,61 @@ extension ImportCommand {
             outputURL: URL,
             format: String,
             indexArtifact: (sourceURL: URL?, destinationURL: URL)?,
-            statsCollected: Bool,
-            totalReads: Int64,
-            mappedReads: Int64,
-            unmappedReads: Int64,
-            refContigs: Int
+            statistics: BAMImportStatistics?
         ) -> [String: ParameterValue] {
-            [
+            var resolved: [String: ParameterValue] = [
                 "outputFile": .string(outputURL.path),
                 "outputDirectory": .string(outputURL.deletingLastPathComponent().path),
                 "format": .string(format),
                 "indexFile": indexArtifact.map { .string($0.destinationURL.path) } ?? .null,
                 "indexSource": indexArtifact?.sourceURL.map { .string($0.path) } ?? .null,
-                "statsCollected": .boolean(statsCollected),
-                "totalReads": .integer(Int(totalReads)),
-                "mappedReads": .integer(Int(mappedReads)),
-                "unmappedReads": .integer(Int(unmappedReads)),
-                "referenceContigs": .integer(refContigs)
+                "statsCollected": .boolean(statistics != nil),
+                // A run that collected no statistics keeps the zeros it always recorded.
+                "totalReads": .integer(0),
+                "mappedReads": .integer(0),
+                "unmappedReads": .integer(0),
+                "referenceContigs": .integer(0)
             ]
+            if let statistics {
+                resolved.merge(statistics.provenanceValues()) { _, collected in collected }
+            }
+            return resolved
+        }
+
+        /// Runs `samtools flagstat` on the copied file and returns its text, or `nil` when samtools failed or is missing. The
+        /// reads come from its primary lines (`BAMImportStatistics`), and without them the Summary says it counts alignments.
+        private func collectFlagstat(
+            of destURL: URL,
+            version: String,
+            format: FileFormat,
+            steps: inout [ProvenanceStep],
+            messages: inout [String]
+        ) async -> String? {
+            let clock = ProvenanceRunClock()
+            do {
+                let result = try await NativeToolRunner.shared.run(.samtools, arguments: ["flagstat", destURL.path], timeout: 3600)
+                let completedAt = clock.now
+                steps.append(try nativeToolProvenanceStep(
+                    toolName: "samtools",
+                    toolVersion: version,
+                    result: result,
+                    fallbackArgv: ["samtools", "flagstat", destURL.path],
+                    inputs: [
+                        ProvenanceFileDescriptor.file(url: destURL, format: format, role: .input)
+                    ],
+                    outputs: [],
+                    startedAt: clock.startedAt,
+                    completedAt: completedAt
+                ))
+                guard result.isSuccess else {
+                    messages.append("samtools flagstat exited \(result.exitCode): \(result.stderr)")
+                    return nil
+                }
+                return result.stdout
+            } catch {
+                messages.append("samtools flagstat unavailable: \(error.localizedDescription)")
+                return nil
+            }
         }
 
         private func alignmentFileFormat(forExtension ext: String) -> FileFormat {
@@ -585,5 +600,101 @@ extension ImportCommand {
             default: return .unknown
             }
         }
+    }
+}
+
+/// The counts the plain route of `import bam` prints and records. Flagstat's `primary` and `primary mapped` lines give reads.
+/// The idxstats sums count alignment records, with each secondary and supplementary record once more and the `*` row of the
+/// unmapped records that have no reference, so they are no read counts. Without the primary lines (a samtools before 1.9, a
+/// flagstat that failed, or text that did not parse) the counts shown are the alignment records, and the Summary and the
+/// record say so. The `totalReads`, `mappedReads` and `unmappedReads` keys of the record hold reads or null, never records.
+struct BAMImportStatistics: Equatable {
+    struct Counts: Equatable {
+        var mapped: Int64
+        var unmapped: Int64
+        var total: Int64 { mapped + unmapped }
+    }
+
+    enum Unit: String {
+        case reads
+        case alignments
+    }
+
+    /// Reads, from flagstat's primary lines, or `nil` when it gave none.
+    let reads: Counts?
+    /// The idxstats sums, one count for each alignment record.
+    let alignments: Counts
+    /// The reference sequences idxstats listed, its `*` row left out.
+    let referenceContigs: Int
+
+    init(idxstats: String, flagstat: String?) {
+        var mapped: Int64 = 0
+        var unmapped: Int64 = 0
+        var contigs = 0
+        for line in idxstats.split(separator: "\n") {
+            let cols = line.split(separator: "\t")
+            guard cols.count >= 4 else { continue }
+            mapped += Int64(cols[2]) ?? 0
+            unmapped += Int64(cols[3]) ?? 0
+            if cols[0] != "*" { contigs += 1 }
+        }
+        alignments = Counts(mapped: mapped, unmapped: unmapped)
+        referenceContigs = contigs
+        reads = flagstat.flatMap(Self.primaryReads(in:))
+    }
+
+    /// `primary mapped` and `primary` less that, as `AlignmentMetadataDatabase.primaryReadCounts()` reads them. `nil` when
+    /// either line is missing or `primary` is below `primary mapped`.
+    private static func primaryReads(in flagstat: String) -> Counts? {
+        let parsed = (try? AlignmentMetadataDatabase.parseFlagstat(json: flagstat))
+            ?? (try? AlignmentMetadataDatabase.parseFlagstat(flagstat))
+        guard let categories = parsed?.categories,
+              let mapped = categories["primary mapped"], let primary = categories["primary"] else { return nil }
+        let mappedReads = mapped.qcPass + mapped.qcFail
+        let primaryReads = primary.qcPass + primary.qcFail
+        guard mappedReads >= 0, primaryReads >= mappedReads else { return nil }
+        return Counts(mapped: mappedReads, unmapped: primaryReads - mappedReads)
+    }
+
+    var unit: Unit { reads == nil ? .alignments : .reads }
+
+    /// The counts the Summary prints and the read keys of the record hold: the reads when flagstat gave them.
+    var shown: Counts { reads ?? alignments }
+
+    /// The Summary rows. The unit is in every label, so a person never reads alignment records as reads.
+    func summaryRows(formatNumber: (Int64) -> String) -> [(String, String)] {
+        let counts = shown
+        let noun = unit.rawValue
+        let percent = counts.total > 0 ? String(format: "%.2f%%", Double(counts.mapped) / Double(counts.total) * 100) : "N/A"
+        return [
+            ("Total \(noun)", formatNumber(counts.total)),
+            ("Mapped \(noun)", "\(formatNumber(counts.mapped)) (\(percent))"),
+            ("Unmapped \(noun)", formatNumber(counts.unmapped)),
+            ("Reference contigs", String(referenceContigs)),
+        ]
+    }
+
+    /// Words after the Summary when its counts are alignment records, `nil` for reads.
+    var alignmentCountsNote: String? {
+        guard reads == nil else { return nil }
+        return "These counts are alignments, so a read that aligns in more than one place counts once for each place. "
+            + "Samtools flagstat gave no read counts for this file. "
+            + "Run the import again, and if this note returns, check that the installed samtools is version 1.9 or later."
+    }
+
+    /// The count keys of the run's record. `countUnit` says which pair the Summary printed, and the alignment records are
+    /// under their own keys, so no key changes its meaning.
+    func provenanceValues() -> [String: ParameterValue] {
+        func integer(_ value: Int64?) -> ParameterValue { value.map { .integer(Int($0)) } ?? .null }
+        return [
+            "countUnit": .string(unit.rawValue),
+            "totalReads": integer(reads?.total),
+            "mappedReads": integer(reads?.mapped),
+            "unmappedReads": integer(reads?.unmapped),
+            "totalAlignments": integer(alignments.total),
+            "mappedAlignments": integer(alignments.mapped),
+            "unmappedAlignments": integer(alignments.unmapped),
+            "referenceContigs": .integer(referenceContigs),
+        ]
     }
 }
