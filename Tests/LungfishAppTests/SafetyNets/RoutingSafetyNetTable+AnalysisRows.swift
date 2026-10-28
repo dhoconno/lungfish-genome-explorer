@@ -28,7 +28,8 @@ extension RoutingSafetyNetTable {
                         mode: .assembly,
                         native: ["assembly tool=spades output=\(path) contigs=\(context.render(contigs))"],
                         inspector: ["assembly"],
-                        provenance: "analysisResult \(path)"
+                        provenance: "analysisResult \(path)",
+                        inspectorTab: "assembly document of [document, view, provenance]"
                     )
                 )
             },
@@ -52,7 +53,10 @@ extension RoutingSafetyNetTable {
                         reference: "mappingResult bundle=\(context.render(viewerBundle)) result=\(path) bam=\(context.render(bam)) \(publishedSARSTracks)",
                         bamContext: "\(path) samples=[sample]",
                         inspector: ["bundle=\(context.render(viewerBundle))", "mapping"],
-                        provenance: "analysisResult \(path)"
+                        provenance: "analysisResult \(path)",
+                        drawer: "reference annotation open",
+                        inspectorTab: mappingTab,
+                        inspectorBlocks: ["document", "alignmentBundle"]
                     )
                 )
             },
@@ -68,7 +72,9 @@ extension RoutingSafetyNetTable {
                         mode: .mapping,
                         reference: "mappingResult bundle=- result=\(path) bam=\(context.render(bam)) manifest=none",
                         inspector: ["mapping"],
-                        provenance: "analysisResult \(path)"
+                        provenance: "analysisResult \(path)",
+                        drawer: "reference annotation closed",
+                        inspectorTab: mappingTab
                     )
                 )
             },
@@ -95,7 +101,10 @@ extension RoutingSafetyNetTable {
                         reference: "directBundle bundle=\(context.render(bundle)) \(publishedSARSTracks)",
                         bamContext: "\(context.render(bundle)) samples=[sample]",
                         inspector: ["bundle=\(context.render(bundle))", "viralRecon"],
-                        provenance: "analysisResult \(context.render(analysis))"
+                        provenance: "analysisResult \(context.render(analysis))",
+                        drawer: "reference annotation open",
+                        inspectorTab: mappingTab,
+                        inspectorBlocks: ["document", "alignmentBundle"]
                     )
                 )
             },
@@ -115,7 +124,10 @@ extension RoutingSafetyNetTable {
                         reference: "directBundle bundle=\(context.render(sample.referenceBundleURL)) \(publishedSARSTracks)",
                         bamContext: "\(context.render(sample.referenceBundleURL)) samples=[sample]",
                         inspector: ["bundle=\(context.render(sample.referenceBundleURL))", "viralRecon"],
-                        provenance: "analysisResult \(context.render(sample.bundleDirectory))"
+                        provenance: "analysisResult \(context.render(sample.bundleDirectory))",
+                        drawer: "reference annotation open",
+                        inspectorTab: mappingTab,
+                        inspectorBlocks: ["document", "alignmentBundle"]
                     )
                 )
             },
@@ -125,7 +137,9 @@ extension RoutingSafetyNetTable {
                     item: try RoutingSafetyNetItems.scannedAnalysis(order),
                     expected: RoutingObservation(
                         viewports: ["PrimerOrderHostingController"],
-                        inspector: ["primerAnalysis=\(context.render(order)) order"]
+                        inspector: ["primerAnalysis=\(context.render(order)) order"],
+                        inspectorTab: primerTab,
+                        inspectorBlocks: ["primerAnalysisBundle"]
                     )
                 )
             },
@@ -137,7 +151,8 @@ extension RoutingSafetyNetTable {
                         mode: .genomics,
                         document: context.render(fasta),
                         loaded: [context.render(fasta)],
-                        provenance: "sequence \(context.render(fasta))"
+                        provenance: "sequence \(context.render(fasta))",
+                        inspectorTab: genomicsTab
                     )
                 )
             },
@@ -161,7 +176,10 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[HG002]",
                         native: ["taxonomy batch=\(path) selected=[HG002]"],
-                        provenance: "classificationResult \(path)"
+                        provenance: "classificationResult \(path)",
+                        drawer: "taxa collections closed",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: summaryBlocks(samples: 1)
                     )
                 )
             },
@@ -180,7 +198,9 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[\(naoMgsCanonicalSamples)]",
                         inspector: ["naoMgs=\(samples.sorted().first ?? "-")"],
-                        provenance: "naoMgsResult \(path)"
+                        provenance: "naoMgsResult \(path)",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: naoMgsBlocks
                     )
                 )
             },
@@ -199,7 +219,9 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[\(samples.sorted().joined(separator: ","))]",
                         inspector: ["nvd=\(nvdExperiment)"],
-                        provenance: "nvdResult \(path)"
+                        provenance: "nvdResult \(path)",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: nvdBlocks
                     )
                 )
             },
@@ -215,7 +237,9 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         viewports: ["CzIdResultViewController"],
                         mode: .metagenomics,
-                        provenance: "czIdResult \(context.render(bundle))"
+                        provenance: "czIdResult \(context.render(bundle))",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: ["selectAResult", "panelLayout"]
                     )
                 )
             },

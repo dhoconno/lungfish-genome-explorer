@@ -140,6 +140,30 @@ enum RoutingSafetyNetTable {
     /// The experiment name the committed NVD BLAST table carries.
     static let nvdExperiment = "100"
 
+    // MARK: Inspector tabs and blocks
+
+    /// The Inspector of a genomics document or native genomics bundle.
+    static let genomicsTab = "genomics document of [document, selection, view, derive, provenance]"
+    /// The Inspector of a reference or mapping viewport.
+    static let mappingTab = "mapping document of [document, selection, view, derive, provenance]"
+    /// The Inspector of a classifier result, on its Summary tab.
+    static let summaryTab = "metagenomics resultSummary of [resultSummary, provenance]"
+    /// The Inspector of a saved primer analysis or a reviewed primer order.
+    static let primerTab = "empty document of [document, files, provenance]"
+
+    /// The Summary blocks of a Kraken2, EsViritu or TaxTriage result: the
+    /// Panel Layout, the run's Operation Details when its manifest or sidecar
+    /// names the tool, and the Sample Filter with one entry per sample.
+    static func summaryBlocks(tool: String? = nil, samples: Int) -> [String] {
+        ["panelLayout"] + (tool.map { ["operationDetails=\($0)"] } ?? []) + ["sampleFilter=\(samples)"]
+    }
+
+    /// The Summary blocks of the committed NAO-MGS result, with its five canonical samples.
+    static let naoMgsBlocks = ["naoMgs", "seeTheViewer", "panelLayout", "sampleFilter=5"]
+
+    /// The Summary blocks of the committed NVD result, with its three samples.
+    static let nvdBlocks = ["nvd", "seeTheViewer", "panelLayout", "sampleFilter=3"]
+
     /// The canonical samples of the committed NAO-MGS virus hits table.
     ///
     /// The table names seven sequencing lanes. The sample identity index

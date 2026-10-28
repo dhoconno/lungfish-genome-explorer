@@ -54,7 +54,10 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[HG002,MMU-17]",
                         native: ["taxonomy batch=\(path) selected=[HG002,MMU-17]"],
-                        provenance: "classificationResult \(path)"
+                        provenance: "classificationResult \(path)",
+                        drawer: "taxa collections closed",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: summaryBlocks(samples: 2)
                     )
                 )
             },
@@ -74,7 +77,9 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[HG002,MMU-17]",
                         native: ["esViritu batch=\(path) selected=[HG002,MMU-17]"],
-                        provenance: "esvirituResult \(path)"
+                        provenance: "esvirituResult \(path)",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: summaryBlocks(samples: 2)
                     )
                 )
             },
@@ -95,7 +100,10 @@ extension RoutingSafetyNetTable {
                         classifierContext: "\(path) samples=[HG002,MMU-17]",
                         native: ["taxTriage batch=\(path) selected=[HG002,MMU-17]"],
                         inspector: ["batchOperation=TaxTriage"],
-                        provenance: "taxTriageResult \(path)"
+                        provenance: "taxTriageResult \(path)",
+                        drawer: "TaxTriage BLAST closed",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: summaryBlocks(tool: "TaxTriage", samples: 2)
                     )
                 )
             },
@@ -113,7 +121,9 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[\(naoMgsCanonicalSamples)]",
                         inspector: ["naoMgs=\(samples.sorted().first ?? "-")"],
-                        provenance: "naoMgsResult \(path)"
+                        provenance: "naoMgsResult \(path)",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: naoMgsBlocks
                     )
                 )
             },
@@ -131,7 +141,9 @@ extension RoutingSafetyNetTable {
                         mode: .metagenomics,
                         classifierContext: "\(path) samples=[\(samples.sorted().joined(separator: ","))]",
                         inspector: ["nvd=\(nvdExperiment)"],
-                        provenance: "nvdResult \(path)"
+                        provenance: "nvdResult \(path)",
+                        inspectorTab: summaryTab,
+                        inspectorBlocks: nvdBlocks
                     )
                 )
             },
@@ -192,7 +204,8 @@ extension RoutingSafetyNetTable {
                         mode: .genomics,
                         document: context.render(fasta),
                         loaded: [context.render(fasta)],
-                        provenance: "sequence \(context.render(fasta))"
+                        provenance: "sequence \(context.render(fasta))",
+                        inspectorTab: genomicsTab
                     )
                 )
             },
@@ -259,7 +272,8 @@ extension RoutingSafetyNetTable {
                         mode: .genomics,
                         document: "Inputs/MT192765.1.fasta",
                         loaded: ["Inputs/MT192765.1.fasta"],
-                        provenance: "sequence Inputs/MT192765.1.fasta"
+                        provenance: "sequence Inputs/MT192765.1.fasta",
+                        inspectorTab: genomicsTab
                     )
                 )
             },
@@ -280,7 +294,8 @@ extension RoutingSafetyNetTable {
                         mode: .genomics,
                         document: "Inputs/genome.gff3",
                         loaded: ["Inputs/genome.gff3"],
-                        provenance: "annotation Inputs/genome.gff3"
+                        provenance: "annotation Inputs/genome.gff3",
+                        inspectorTab: genomicsTab
                     )
                 )
             },
@@ -329,7 +344,10 @@ extension RoutingSafetyNetTable {
                         reference: "directBundle bundle=Genotyping/DW472.mapped.lungfishref \(RoutingSafetyNetTable.publishedSARSTracks)",
                         bamContext: "Genotyping/DW472.mapped.lungfishref samples=[sample]",
                         inspector: ["bundle=Genotyping/DW472.mapped.lungfishref"],
-                        provenance: "referenceBundle Genotyping/DW472.mapped.lungfishref"
+                        provenance: "referenceBundle Genotyping/DW472.mapped.lungfishref",
+                        drawer: "reference annotation open",
+                        inspectorTab: mappingTab,
+                        inspectorBlocks: ["document", "alignmentBundle"]
                     )
                 )
             },
