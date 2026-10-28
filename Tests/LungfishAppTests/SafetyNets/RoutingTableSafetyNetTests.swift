@@ -135,6 +135,12 @@ final class RoutingTableSafetyNetTests: XCTestCase {
             SidebarItemTypeCatalog.caseName(row.type),
             "\(label): the sidebar row has a different type than the table states"
         )
+        // Every outcome is a kind of the view-switch matrix, so a row that
+        // opens a new viewport joins ViewSwitchMatrixTests in the same change.
+        XCTAssertNotNil(
+            ViewSwitchKinds.kind(of: fixture.expected),
+            "\(label): the view-switch matrix has no kind for the outcome \(ViewSwitchKinds.outcome(of: fixture.expected)). Add one to ViewSwitchKinds.all"
+        )
 
         let split = MainSplitViewController()
         split.loadViewIfNeeded()

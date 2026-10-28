@@ -394,6 +394,21 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(status: "Previewing: spades.log", quickLook: "Inputs/spades.log")
                 )
             },
+            RoutingRow(family: .files, name: "Nextflow script previews as text", type: .unknown) { context in
+                // macOS has no preview for main.nf, so the viewer draws it as
+                // text itself and the recording renderer is never reached. The
+                // view-switch matrix uses this row for its Quick Look kind,
+                // because a recorded preview leaves no view for the next
+                // route to remove.
+                let script = try SafetyNetFiles.write(
+                    "nextflow.enable.dsl = 2\n\nworkflow {\n    println 'HG002'\n}\n",
+                    to: context.url("Inputs/main.nf")
+                )
+                return RoutingRowFixture(
+                    item: RoutingSafetyNetItems.scanned(script),
+                    expected: RoutingObservation(status: "Previewing: main.nf", quickLook: "Inputs/main.nf as text")
+                )
+            },
             RoutingRow(family: .files, name: "Lungfish package with no viewer", type: .document) { context in
                 // A .lungfishtax folder without its CZ ID manifest is shown as an
                 // opaque package and previewed, never walked as a folder.
