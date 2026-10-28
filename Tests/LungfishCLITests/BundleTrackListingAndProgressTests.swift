@@ -136,6 +136,9 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
     }
 
     private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
+        // Flush what earlier tests left in the buffer before the redirect. A process that runs many classes with
+        // stdout on a file or a pipe keeps their text there, and it would reach this pipe ahead of the JSON.
+        fflush(stdout)
         let pipe = Pipe()
         let originalStdout = dup(STDOUT_FILENO)
         dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
