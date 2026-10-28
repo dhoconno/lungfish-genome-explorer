@@ -534,10 +534,10 @@ public final class ReadStyleSectionViewModel {
             let countsTowardTotals = countedTrackIDs.contains(trackId)
 
             // Chromosome stats. A track whose flagstat has the primary lines adds reads to the totals. Its per-sequence rows
-            // count each supplementary alignment again, so a database without the lines adds them as alignments, apart.
+            // count each supplementary alignment again, so a database without them adds its alignment records, apart (`alignmentRecordCounts`).
             let reads = countsTowardTotals ? db.primaryReadCounts() : nil
             let chromosomes = countsTowardTotals ? db.chromosomeStats() : []
-            kinds.add(reads: reads, alignments: chromosomes.map { (mapped: $0.mappedReads, unmapped: $0.unmappedReads) })
+            kinds.add(reads: reads, alignments: reads == nil && countsTowardTotals ? Self.alignmentRecordCounts(of: db) : [])
             for stat in chromosomes {
                 chromStatsList.append(ChromosomeReadStat(
                     chromosome: stat.chromosome, length: stat.length, mappedReads: stat.mappedReads, unmappedReads: stat.unmappedReads

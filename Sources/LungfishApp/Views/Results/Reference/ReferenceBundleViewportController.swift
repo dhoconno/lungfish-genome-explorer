@@ -496,7 +496,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         if let summary = visibleAlignmentSummaryOverride {
             summaryLabel.stringValue = withSummaryWarning(Self.alignmentSummaryText(
                 track: summary.trackName, mapped: summary.mappedReads, total: summary.totalReads, areReads: summary.countsAreReads
-            ))
+            ), tip: Self.alignmentSummaryTip(total: summary.totalReads, areReads: summary.countsAreReads))
             return
         }
 

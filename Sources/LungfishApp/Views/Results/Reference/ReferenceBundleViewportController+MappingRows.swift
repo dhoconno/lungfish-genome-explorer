@@ -174,11 +174,21 @@ extension ReferenceBundleViewportController {
         return "\(track) — \(mapped.formatted()) / \(total.formatted()) \(unit) mapped (\(percent))"
     }
 
+    /// The tip of the summary line when its counts are alignments or its total is unknown, `nil` for measured reads. It
+    /// holds the reason and the next step in full, since the line itself can clip on a narrow pane.
+    static func alignmentSummaryTip(total: Int, areReads: Bool) -> String? {
+        if total <= 0 {
+            return "The total number of reads was not stored, so there is no percentage. Run the mapping or import the alignment again to count its reads."
+        }
+        return areReads ? nil : "These counts are alignments, so a read that aligns in more than one place counts once for each place. Run the mapping or import the alignment again to count its reads."
+    }
+
     /// The summary line with the words of an alignment summary build after it. The words of a build that
     /// failed come in orange. While a build measures tracks whose rows the table does not show yet, "Measuring"
     /// comes in the secondary colour, since waiting is no warning. Assigning the failure words ends the
     /// measuring words (see `alignmentTrackSummaryWarning`), and so does the build's own rows.
-    func withSummaryWarning(_ text: String) -> String {
+    func withSummaryWarning(_ text: String, tip: String? = nil) -> String {
+        summaryLabel.toolTip = tip
         if let alignmentTrackSummaryWarning {
             summaryLabel.textColor = .systemOrange
             summaryLabel.toolTip = alignmentTrackSummaryWarning

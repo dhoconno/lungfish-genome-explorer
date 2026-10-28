@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// The totals of the counted alignment tracks, by the kind of count each track gives. Reads come from flagstat's
 /// `primary` lines. A track whose database has no such lines (flagstat before samtools 1.9, text that did not parse,
@@ -69,8 +70,25 @@ extension ReadStyleSectionViewModel {
     var alignmentCountsNote: String? {
         guard totalsByKind.alignmentTracks > 0 else { return nil }
         if totalsByKind.readTracks > 0 {
-            return "Some tracks have no read counts. Their alignments are listed apart and not added to the reads. Run the mapping or import those alignments again to count their reads."
+            return "Some tracks have no read counts. Their alignments are listed separately and not added to the reads. Run the mapping or import those alignments again to count their reads."
         }
-        return "These totals count alignments, so a read with a supplementary alignment counts more than once. Run the mapping or import the alignment again to count its reads."
+        return "These totals count alignments, so a read that aligns in more than one place counts once for each place. Run the mapping or import the alignment again to count its reads."
+    }
+
+    /// The alignment records of a database with no `primary` lines, as the one pair the Total rows add. They follow the
+    /// order the header of a mapping result and `bundle list` use. Flagstat's `mapped` and `total` lines come first, and
+    /// their difference holds the unmapped records that have no reference (idxstats' `*` row, which the database skips).
+    /// The per-sequence sums come next, with the database's own correction on the unmapped side. A database with
+    /// neither has no count, so the result is empty.
+    static func alignmentRecordCounts(of database: AlignmentMetadataDatabase) -> [(mapped: Int64, unmapped: Int64)] {
+        let flagStats = database.flagStats()
+        func count(_ category: String) -> Int64? {
+            flagStats.first { $0.category == category }.map { $0.qcPass + $0.qcFail }
+        }
+        if let mapped = count("mapped"), let total = count("total"), total >= mapped {
+            return [(mapped: mapped, unmapped: total - mapped)]
+        }
+        guard !database.chromosomeStats().isEmpty else { return [] }
+        return [(mapped: database.totalMappedReads(), unmapped: database.totalUnmappedReads())]
     }
 }
