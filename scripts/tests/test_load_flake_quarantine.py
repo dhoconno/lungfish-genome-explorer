@@ -333,6 +333,43 @@ class LoadFlakeValidationTests(unittest.TestCase):
             GATE.validate_result(value, value["source"])
 
 
+class LoadFlakeAcrossBundlesTests(unittest.TestCase):
+    """The full tier runs one authoritative attempt for each bundle (Phase 3.1 ruling QA-RELEASE-LOOP, question 2), so
+    its listed load flakes clear together, when every failure across the bundle attempts is a listed test and nothing
+    else went wrong in any of them. scripts.tests.test_full_suite_gate_tiers runs the same rule through the gate."""
+
+    @staticmethod
+    def attempt(*failed, exit_status=None):
+        def harness(tests):
+            return {"failedTests": list(tests), "failures": len(tests), "completed": True,
+                    "missingTests": [], "unexpectedTests": []}
+        status = (1 if failed else 0) if exit_status is None else exit_status
+        return {"role": "authoritative", "exitStatus": status, "passed": status == 0, "intervention": None,
+                "errors": ["failure diagnostic in runner output", "xctest failed or incomplete"] if failed else [],
+                "harnesses": {"xctest": harness(failed), "swift-testing": harness(())}}
+
+    def test_listed_failures_in_several_bundles_clear_together_and_a_passed_bundle_adds_nothing(self):
+        attempts = [self.attempt(), self.attempt(TEST_A), self.attempt(TEST_C)]
+        self.assertEqual(GATE.load_flake_failures(attempts, [TEST_A, TEST_C]), [TEST_A, TEST_C])
+        self.assertEqual(GATE.load_flake_failures(attempts[:2], [TEST_A]), [TEST_A])
+
+    def test_one_unlisted_failure_or_one_crash_in_any_bundle_clears_nothing(self):
+        self.assertIsNone(GATE.load_flake_failures([self.attempt(TEST_A), self.attempt(TEST_C)], [TEST_A]))
+        self.assertIsNone(GATE.load_flake_failures([self.attempt(TEST_A), self.attempt(TEST_C, exit_status=139)],
+                                                   [TEST_A, TEST_C]))
+        self.assertIsNone(GATE.load_flake_failures([self.attempt(), self.attempt()], [TEST_A]), "nothing failed")
+
+    def test_the_reader_takes_reruns_after_several_authoritative_attempts_only_from_a_full_tier_run(self):
+        result = {"options": {"loadFlakes": [TEST_A]}, "loadFlakes": {"failed": [TEST_A]}}
+        rerun = {"role": "load-flake-rerun", "harnesses": {"xctest": {"selectedTests": [TEST_A]}}}
+        attempts = [self.attempt(), self.attempt(TEST_A), rerun]
+        with self.assertRaisesRegex(GATE.EvidenceError, "retried gate cannot authorize candidate"):
+            GATE.validate_load_flake_reruns(result, attempts)
+        cleared = GATE.validate_load_flake_reruns({**result, "bundleBound": {}}, attempts)
+        self.assertEqual(len(cleared), 1)
+        self.assertIs(cleared[0], attempts[1])
+
+
 class LoadFlakeGateScriptTests(unittest.TestCase):
     """The real gate script, with a list in a copy of it, against the fake swift."""
 

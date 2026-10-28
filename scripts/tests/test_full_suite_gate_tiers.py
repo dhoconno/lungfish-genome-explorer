@@ -191,12 +191,26 @@ def _gate_text_with_no_load_flakes() -> str:
     return "\n".join(lines[:start] + ["KNOWN_LOAD_FLAKES=()"] + lines[end + 1:]) + "\n"
 
 
-def _make_gate_project(root):
+def _with_full_tier_bundles(text, bundles):
+    """The gate text with FULL_TIER_BUNDLES holding exactly `bundles`, the bundles a fake swift holds."""
+    lines = text.splitlines()
+    start = lines.index("FULL_TIER_BUNDLES=(")
+    end = lines.index(")", start)
+    return "\n".join(lines[:start + 1] + ["    " + bundle for bundle in bundles] + lines[end:]) + "\n"
+
+
+def _make_gate_project(root, full_tier_bundles=None):
     """Give the empty folder `root` the gate, its helpers, a git repository and a bin folder with a
-    fake swift, xcrun and sleep. Returns the bin folder."""
+    fake swift, xcrun, defaults and sleep. `full_tier_bundles` replaces the gate's FULL_TIER_BUNDLES.
+    The fake xcrun hands `xcrun xctest <bundle>` to the fake swift, and the fake defaults says the
+    xctest tool's domain holds DatabaseStorageLocation only when STUB_DATABASE_STORAGE_LOCATION=1.
+    Returns the bin folder."""
     (root / ".gitignore").write_text(".build/\n")
     (root / "scripts/release").mkdir(parents=True)
-    (root / "scripts/full-suite-gate.sh").write_text(_gate_text_with_no_load_flakes(), encoding="utf-8")
+    text = _gate_text_with_no_load_flakes()
+    if full_tier_bundles is not None:
+        text = _with_full_tier_bundles(text, full_tier_bundles)
+    (root / "scripts/full-suite-gate.sh").write_text(text, encoding="utf-8")
     (root / "scripts/full-suite-gate.sh").chmod(0o755)
     helper = ROOT / "scripts/release/gate_evidence.py"
     if helper.exists():
@@ -210,10 +224,21 @@ def _make_gate_project(root):
     xcrun = bin_dir / "xcrun"
     xcrun.write_text(
         "#!/bin/sh\n"
+        "if [ \"${1:-}\" = xctest ]; then exec \"$(dirname \"$0\")/swift\" \"$@\"; fi\n"
         "if [ \"${GATE_SCENARIO:-}\" = sdk_failure ]; then exit 1; fi\n"
         f"printf '%s\\n' '{FIXTURE_SDK_PATH}'\n"
     )
     xcrun.chmod(0o755)
+    defaults = bin_dir / "defaults"
+    defaults.write_text(
+        "#!/bin/sh\n"
+        "if [ \"${1:-}\" = read ] && [ \"${2:-}\" = com.apple.dt.xctest.tool ] && [ \"${3:-}\" = DatabaseStorageLocation ]; then\n"
+        "    if [ \"${STUB_DATABASE_STORAGE_LOCATION:-}\" = 1 ]; then echo /Users/fixture/storage; exit 0; fi\n"
+        "    exit 1\n"
+        "fi\n"
+        "exec /usr/bin/defaults \"$@\"\n"
+    )
+    defaults.chmod(0o755)
     sleep = bin_dir / "sleep"
     sleep.write_text("#!/bin/sh\nexit 0\n")
     sleep.chmod(0o755)
@@ -249,14 +274,16 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
 
 
 class GateBehaviorTests(unittest.TestCase):
-    def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed="", timeout=15):
+    def run_gate(self, scenario, *options, env=None, with_leak_check=False, allowed="", timeout=15,
+                 full_tier_bundles=None):
         """Run the real gate and gate_evidence.py against a fake swift. env adds variables to the
         run. with_leak_check also gives the project the Preferences check, an allowed list holding
         `allowed`, a test file that builds ExampleTests-<UUID> names and a Preferences folder under
-        .build that the fake swift fills with the names in STUB_WRITES while the tests run."""
+        .build that the fake swift fills with the names in STUB_WRITES while the tests run.
+        full_tier_bundles replaces the project gate's FULL_TIER_BUNDLES."""
         with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
             root = Path(temp)
-            bin_dir = _make_gate_project(root)
+            bin_dir = _make_gate_project(root, full_tier_bundles)
             environment = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
                            "GATE_SCENARIO": scenario}
             if with_leak_check:
@@ -717,6 +744,189 @@ class ClassFilterTests(unittest.TestCase):
             GATE.class_filter("M.A", "testOne", self.DISCOVERED, chosen, "")
 
 
+# The full tier (Phase 3.1 ruling QA-RELEASE-LOOP, question 2). The bundle scenarios of FAKE_SWIFT hold these tests.
+BUNDLED_TESTS = ["LungfishAppTests.FirstTests/testOne", "LungfishCLITests.SecondTests/testTwo"]
+BUNDLED_SWIFT = "LungfishCLITests.MixedTests/testB()"
+TWO_BUNDLES = ["LungfishAppTests", "LungfishCLITests"]
+RULED_ORDER = [
+    "LungfishAppTests", "LungfishCLITests", "LungfishAppViewTests", "LungfishAppWorkflowTests",
+    "LungfishWorkflowTests", "LungfishIOTests", "LungfishCoreTests", "LungfishOperationsTests",
+    "LungfishGenotypeUITests", "LungfishKitTests", "LungfishIntegrationTests", "LungfishTaxTriageUITests",
+    "LungfishTwelveSUITests", "LungfishExecutorTests", "LungfishAlignmentUITests", "LungfishEsVirituUITests",
+    "LungfishPortableTests", "LungfishPhylogeneticsUITests", "LungfishAssemblyUITests", "LungfishNvdUITests",
+    "LungfishNaoMgsUITests",
+]
+
+
+def _gate_bundles():
+    lines = _gate_text().splitlines()
+    start = lines.index("FULL_TIER_BUNDLES=(")
+    return [line.strip() for line in lines[start + 1:lines.index(")", start)]]
+
+
+def _describe_tier(tier):
+    return json.loads(subprocess.check_output(
+        ["/bin/bash", str(ROOT / "scripts/full-suite-gate.sh"), "--tier", tier, "--describe-selection"],
+        env={**os.environ, "LUNGFISH_RELEASE_PYTHON": sys.executable}))
+
+
+def _clean_copy(evidence):
+    """The evidence of an in-process run as the gate script on a clean commit would leave it. The fixture project has
+    untracked files, and run_gate_in_process records no argv, so the reader is asked about the result's shape alone."""
+    source = {**evidence["source"], "clean": True, "commit": "fixture"}
+    return {**copy.deepcopy(evidence), "source": source, "argv": ["scripts/full-suite-gate.sh", "--tier", "full"]}, source
+
+
+class FullTierBundleTests(unittest.TestCase):
+    def test_full_tier_bundles_list_every_test_target_once(self):
+        targets = re.findall(r'\.testTarget\(\s*name:\s*"([^"]+)"', (ROOT / "Package.swift").read_text())
+        bundles = _gate_bundles()
+        self.assertEqual(len(targets), 21, "Package.swift holds 21 test targets at the ruling")
+        self.assertEqual(len(bundles), len(set(bundles)), "a bundle is listed twice")
+        self.assertEqual(sorted(bundles), sorted(targets), "FULL_TIER_BUNDLES must list every .testTarget once")
+        self.assertEqual(bundles, RULED_ORDER, "the order the ruling set")
+
+    def test_the_full_tier_selection_prints_the_bundle_order_and_no_other_tier_does(self):
+        self.assertEqual(_describe_tier("full")["bundleOrder"], RULED_ORDER)
+        for tier in ("smoke", "unit", "integration", "conformance"):
+            with self.subTest(tier=tier):
+                self.assertNotIn("bundleOrder", _describe_tier(tier))
+
+    def test_each_bundle_bound_is_twice_its_full_5_time_rounded_up_to_5_minutes_with_a_floor_of_10(self):
+        expected = dict.fromkeys([*RULED_ORDER, "swift-testing"], 10 * 60)
+        expected.update(LungfishAppTests=90 * 60, LungfishCLITests=45 * 60, LungfishWorkflowTests=35 * 60)
+        self.assertEqual(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, expected)
+        self.assertEqual([GATE.full_tier_bound(s) for s in (0.1, 300, 301, 450, 2647.984)], [600, 600, 900, 900, 5400])
+
+    def test_full_tier_attempt_passes_no_xctest_list(self):
+        calls, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 0, evidence["errors"])
+        products = evidence["bundleBound"]["binPath"]
+        runners = [call for call in calls if call["name"] == "runner"]
+        self.assertEqual([call["argv"] for call in runners[:2]],
+                         [["xcrun", "xctest", products + "/" + bundle + ".xctest"] for bundle in TWO_BUNDLES])
+        for call in runners:
+            self.assertNotIn("-XCTest", call["argv"])
+        self.assertIn("--disable-xctest", runners[2]["argv"])
+        self.assertNotIn("--filter", runners[2]["argv"])
+        self.assertEqual([call["timeout"] for call in runners], [90 * 60, 45 * 60, 10 * 60])
+        self.assertEqual([call["unbuffered"] for call in runners], ["YES"] * 3)
+        self.assertEqual(next(call["argv"] for call in calls if call["name"] == "bin-path"),
+                         ["swift", "build", "--skip-update", *build_options(FIXTURE_SDK_PATH), "--show-bin-path"])
+        self.assertEqual([(a["bundle"], a["harness"], a["role"]) for a in evidence["attempts"]],
+                         [("LungfishAppTests", "xctest", "authoritative"), ("LungfishCLITests", "xctest", "authoritative"),
+                          ("swift-testing", "swift-testing", "authoritative")])
+        self.assertEqual([a["harnesses"]["xctest"]["completedTests"] for a in evidence["attempts"][:2]],
+                         [[test] for test in BUNDLED_TESTS])
+        self.assertEqual(evidence["attempts"][2]["harnesses"]["swift-testing"]["completedTests"], [BUNDLED_SWIFT])
+        self.assertEqual(evidence["options"]["bundleOrder"], TWO_BUNDLES)
+        self.assertTrue(evidence["authorized"])
+        GATE.validate_result(*_clean_copy(evidence))
+
+    def test_the_reader_refuses_a_full_tier_run_that_lost_reordered_or_listed_a_bundle(self):
+        _, _, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES)
+        good, source = _clean_copy(evidence)
+        GATE.validate_result(good, source)
+
+        def lose(r): del r["attempts"][1]
+        def swap(r): r["attempts"][0], r["attempts"][1] = r["attempts"][1], r["attempts"][0]
+        def listed(r): r["attempts"][0]["argv"] = r["attempts"][0]["argv"][:2] + ["-XCTest", BUNDLED_TESTS[0]] + r["attempts"][0]["argv"][2:]
+        def elsewhere(r): r["bundleBound"]["binPath"] = "/tmp/other-products"
+        def hung(r): r["bundleBound"]["timedOut"] = ["LungfishAppTests"]
+        def unordered(r): r["options"]["bundleOrder"] = list(reversed(TWO_BUNDLES))
+        def no_swift(r): del r["attempts"][2]
+        for change in (lose, swap, listed, elsewhere, hung, unordered, no_swift):
+            with self.subTest(change=change.__name__):
+                broken = copy.deepcopy(good)
+                change(broken)
+                with self.assertRaises(GATE.EvidenceError):
+                    GATE.validate_result(broken, source)
+
+    def test_a_hung_bundle_is_killed_and_named_and_the_next_bundle_still_runs(self):
+        with mock.patch.dict(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, {"LungfishAppTests": 2}):
+            _, status, evidence = run_gate_in_process("bundle_hang", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 1)
+        self.assertFalse(evidence["authorized"])
+        self.assertEqual(len(evidence["attempts"]), 3, "the next bundle and Swift Testing still run")
+        hung, after, _ = evidence["attempts"]
+        self.assertEqual((hung["bundle"], hung["intervention"], hung["timeoutSeconds"]), ("LungfishAppTests", "timeout", 2))
+        self.assertEqual(hung["unfinishedTests"], [BUNDLED_TESTS[0]])
+        self.assertEqual((after["bundle"], after["passed"]), ("LungfishCLITests", True))
+        self.assertEqual(evidence["bundleBound"]["timedOut"], ["LungfishAppTests"])
+        self.assertIn("LungfishAppTests ran out of its 2 s bound in " + BUNDLED_TESTS[0], evidence["errors"][0])
+
+    def test_a_bundle_that_would_start_after_the_budget_is_spent_is_named_unrun(self):
+        _, status, evidence = run_gate_in_process("bundle_hang", "full", "", full_tier_bundle=TWO_BUNDLES,
+                                                  timeout_seconds=2)
+        self.assertEqual(status, 1)
+        self.assertEqual([a["bundle"] for a in evidence["attempts"]], ["LungfishAppTests"])
+        self.assertEqual(evidence["bundleBound"]["unrun"], ["LungfishCLITests", "swift-testing"])
+        self.assertIn("the run's 2 s budget ran out before 2 bundles ran: LungfishCLITests, swift-testing",
+                      evidence["errors"])
+
+    def test_listed_load_flakes_of_every_bundle_clear_together(self):
+        _, status, evidence = run_gate_in_process("bundle_fail", "full", "", full_tier_bundle=TWO_BUNDLES,
+                                                  load_flake=[BUNDLED_TESTS[0]])
+        self.assertEqual(status, 0, evidence["errors"])
+        self.assertEqual([a["role"] for a in evidence["attempts"]], ["authoritative"] * 3 + ["load-flake-rerun"])
+        self.assertEqual(evidence["attempts"][3]["harnesses"]["xctest"]["selectedTests"], [BUNDLED_TESTS[0]])
+        self.assertEqual(evidence["loadFlakes"]["passedAlone"], [BUNDLED_TESTS[0]])
+        GATE.validate_result(*_clean_copy(evidence))
+        _, status, evidence = run_gate_in_process("bundle_fail", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 1)
+        self.assertEqual([a["role"] for a in evidence["attempts"]], ["authoritative"] * 3, "no rerun, no retry")
+
+    def test_an_order_that_misses_a_discovered_bundle_or_names_an_empty_or_unbounded_one_runs_nothing(self):
+        cases = {"LungfishCLITests": ["LungfishAppTests"],
+                 "no discovered XCTest test: LungfishCoreTests": [*TWO_BUNDLES, "LungfishCoreTests"],
+                 "no measured time in FULL_TIER_MEASURED_SECONDS, so it has no bound: LungfishNewTests":
+                     [*TWO_BUNDLES, "LungfishNewTests"]}
+        for words, order in cases.items():
+            with self.subTest(order=order):
+                _, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=order)
+                self.assertEqual(status, 1)
+                self.assertEqual(evidence["attempts"], [])
+                self.assertTrue(any(words in error for error in evidence["errors"]), evidence["errors"])
+
+
+class FullTierScriptTests(unittest.TestCase):
+    run_gate = GateBehaviorTests.run_gate
+
+    def test_a_quiet_full_tier_runs_each_bundle_of_its_list_and_passes(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LUNGFISH_STORAGE_ROOT", None)
+            result, evidence = self.run_gate("bundles", "--tier", "full", "--quiet", full_tier_bundles=TWO_BUNDLES)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("GATE PASS", result.stdout)
+        self.assertEqual([a["bundle"] for a in evidence["attempts"]], [*TWO_BUNDLES, "swift-testing"])
+        self.assertEqual(evidence["options"]["bundleOrder"], TWO_BUNDLES)
+
+    def test_the_full_tier_refuses_an_exported_storage_root(self):
+        result, evidence = self.run_gate("bundles", "--tier", "full", full_tier_bundles=TWO_BUNDLES,
+                                         env={"LUNGFISH_STORAGE_ROOT": "/tmp/lungfish-fixture-storage"})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("refuses to run while LUNGFISH_STORAGE_ROOT is exported", result.stderr)
+        self.assertIn("Unset it", result.stderr)
+        self.assertIsNone(evidence)
+
+    def test_the_full_tier_refuses_a_database_storage_location_in_the_xctest_domain(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LUNGFISH_STORAGE_ROOT", None)
+            result, evidence = self.run_gate("bundles", "--tier", "full", full_tier_bundles=TWO_BUNDLES,
+                                             env={"STUB_DATABASE_STORAGE_LOCATION": "1"})
+        self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+        self.assertIn("defaults domain holds DatabaseStorageLocation", result.stderr)
+        self.assertIn("defaults delete com.apple.dt.xctest.tool DatabaseStorageLocation", result.stderr)
+        self.assertIsNone(evidence)
+
+    def test_a_class_bound_is_refused_for_the_full_tier(self):
+        result, evidence = self.run_gate("bundles", "--tier", "full", "--class-timeout-seconds", "5",
+                                         full_tier_bundles=TWO_BUNDLES)
+        self.assertEqual(result.returncode, 64, result.stdout + result.stderr)
+        self.assertIn("the full tier runs one attempt for each bundle", result.stderr)
+        self.assertIsNone(evidence)
+
+
 FAKE_SWIFT = r'''import json, os, pathlib, re, signal, subprocess, sys, time
 args = sys.argv[1:]
 scenario = os.environ["GATE_SCENARIO"]
@@ -728,8 +938,13 @@ def events(records):
         pathlib.Path(output).write_text("".join(json.dumps({"version": 0, **r}) + "\n" for r in records))
 def event(kind, **kw):
     return {"kind": "event", "payload": {"kind": kind, **kw}}
+# The bundle scenarios hold one XCTest case in each of two bundles and one Swift Testing function in the second
+# (BUNDLED_TESTS and BUNDLED_SWIFT in the test module), for the full tier, which runs each bundle's .xctest directly.
+# bundle_hang hangs in the first bundle's case and bundle_fail fails it when the bundle runs whole.
+BUNDLED = ["LungfishAppTests.FirstTests/testOne", "LungfishCLITests.SecondTests/testTwo"]
+bundle_scenario = scenario in ("bundles", "bundle_hang", "bundle_fail")
 # STUB_SWIFT_MODULE moves the swift-testing function out of the integration tier, so that a unit tier run selects it.
-test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
+test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishCLITests" if bundle_scenario else "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
 # Two serial classes (SERIAL_TESTS in the test module). In class_hang the first class hangs: it
 # starts a child that ignores SIGTERM in a session of its own, writes the child's PID to
@@ -746,14 +961,58 @@ if "list" in args:
     if "--disable-swift-testing" in args:
         if serial_scenario:
             print("\n".join(SERIAL))
+        elif bundle_scenario:
+            print("\n".join(BUNDLED))
         elif scenario != "empty":
             print("LungfishCoreTests.ExampleTests/testA")
         if scenario == "missing_case":
             print("LungfishCoreTests.ExampleTests/testMissing")
     else:
-        if scenario in ("mixed", "swift_partial", "swift_assertion_retry"):
+        swift_listed = scenario in ("mixed", "swift_partial", "swift_assertion_retry") or bundle_scenario
+        if swift_listed:
             print(test_id.rsplit("/", 1)[0])
-        events([metadata] if scenario in ("mixed", "swift_partial", "swift_assertion_retry") else [])
+        events([metadata] if swift_listed else [])
+    sys.exit(0)
+if args[:1] == ["build"] and "--show-bin-path" in args:
+    products = pathlib.Path.cwd() / ".build" / "fake-products"
+    for bundle in ("LungfishAppTests", "LungfishCLITests"):
+        (products / (bundle + ".xctest")).mkdir(parents=True, exist_ok=True)
+    print(products)
+    sys.exit(0)
+if args[:1] == ["xctest"]:
+    bundle = pathlib.Path(args[-1]).name[:-len(".xctest")]
+    chosen = [t for t in BUNDLED if t.startswith(bundle + ".")]
+    failed = []
+    print("Test Suite 'All tests' started at 2026-10-28", flush=True)
+    for test in chosen:
+        suite, name = test.split("/")
+        print("Test Case '-[" + suite + " " + name + "]' started.", flush=True)
+        if scenario == "bundle_hang" and bundle == "LungfishAppTests":
+            time.sleep(120)
+            sys.exit(3)
+        if scenario == "bundle_fail" and bundle == "LungfishAppTests":
+            failed.append(test)
+        print("Test Case '-[" + suite + " " + name + "]' " + ("failed" if test in failed else "passed") + " (0.1 seconds).")
+    print("Test Suite 'All tests' " + ("failed" if failed else "passed") + " at 2026-10-28")
+    print("\t Executed " + str(len(chosen)) + " test" + ("" if len(chosen) == 1 else "s") + ", with " + str(len(failed)) + " failure" + ("" if len(failed) == 1 else "s") + " (0 unexpected) in 0.1 (0.1) seconds")
+    sys.exit(1 if failed else 0)
+if bundle_scenario:
+    # swift test --skip-build: the Swift Testing harness with --disable-xctest, or a load flake rerun of one case.
+    include = option("--filter")
+    records = [event("runStarted")]
+    if "--disable-xctest" in args:
+        if not include or re.search(include, test_id):
+            records += [metadata, event("testStarted", testID=test_id), event("testEnded", testID=test_id)]
+    else:
+        chosen = [t for t in BUNDLED if include and re.search(include, t)]
+        print("Test Suite 'Selected tests' started at 2026-10-28")
+        for test in chosen:
+            suite, name = test.split("/")
+            print("Test Case '-[" + suite + " " + name + "]' passed (0.1 seconds).")
+        print("Test Suite 'Selected tests' passed at 2026-10-28")
+        print("Executed " + str(len(chosen)) + " test" + ("" if len(chosen) == 1 else "s") + ", with 0 failures (0 unexpected) in 0.1 seconds")
+    events(records + [event("runEnded")])
+    print("✔ Test run with " + str(len(records) // 3) + " tests passed after 0.001 seconds.")
     sys.exit(0)
 for name in filter(None, os.environ.get("STUB_WRITES", "").split(",")):
     pathlib.Path(os.environ["LUNGFISH_PREFERENCES_DIR"], name).write_text("{}")

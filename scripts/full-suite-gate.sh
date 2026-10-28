@@ -39,6 +39,17 @@
 # is named too (GATE CLASS UNRUN). --class-timeout-seconds gives any serial run
 # the same split.
 #
+# The full tier (Phase 3.1 ruling QA-RELEASE-LOOP). --tier full runs each test
+# bundle of FULL_TIER_BUNDLES (below) as its own attempt, in that order, by
+# running its .xctest directly with no list of tests, then Swift Testing last.
+# Each bundle has its own bound (FULL_TIER_BUNDLE_TIMEOUT_SECONDS in
+# scripts/release/gate_evidence.py), so a bundle that hangs is killed and named
+# (GATE BUNDLE TIMEOUT) and the next bundle still runs. --tier full refuses to
+# start while LUNGFISH_STORAGE_ROOT is exported or the xctest tool's defaults
+# domain holds DatabaseStorageLocation, since either one points every test at
+# another storage root. A bare run with no --tier keeps one attempt and is not
+# full-tier evidence.
+#
 # The conformance tier needs LUNGFISH_STORAGE_ROOT set to the receipt root, the
 # folder of the dependency receipt. release.py sets it for a step that needs
 # tools, and this script does not, so export it before a run by hand. The golden
@@ -233,6 +244,35 @@ KNOWN_LOAD_FLAKES=(
     # diagnostic of 2026-10-28 04:15: cand/diag-7b-app.txt:16924-16928 in the phase records.
     'LungfishAppTests.SequenceExportPinConformanceTests/testACancelOfAStagedSnapshotStopsTheCommandWithEveryCoreBusy'
 )
+# The order of the full tier (Phase 3.1 ruling QA-RELEASE-LOOP, question 2), one entry for each .testTarget of
+# Package.swift. LungfishAppTests runs first, since every App-side red of Phase 3.0 showed there, then the CLI bundle,
+# with the second serial-only history, then the two other app-hosted bundles. The four bundles that read the storage
+# root follow, largest first, then the rest by size, largest first. Swift Testing runs after them all. The list is part
+# of the canonical selection (--describe-selection prints it as bundleOrder), so evidence made in another order never
+# covers a commit. A new test target joins this list and FULL_TIER_MEASURED_SECONDS in scripts/release/gate_evidence.py.
+FULL_TIER_BUNDLES=(
+    LungfishAppTests
+    LungfishCLITests
+    LungfishAppViewTests
+    LungfishAppWorkflowTests
+    LungfishWorkflowTests
+    LungfishIOTests
+    LungfishCoreTests
+    LungfishOperationsTests
+    LungfishGenotypeUITests
+    LungfishKitTests
+    LungfishIntegrationTests
+    LungfishTaxTriageUITests
+    LungfishTwelveSUITests
+    LungfishExecutorTests
+    LungfishAlignmentUITests
+    LungfishEsVirituUITests
+    LungfishPortableTests
+    LungfishPhylogeneticsUITests
+    LungfishAssemblyUITests
+    LungfishNvdUITests
+    LungfishNaoMgsUITests
+)
 # A LungfishAppTests class whose name ends in ReplayTests replays a recorded
 # lungfish-cli command with real tools (docs/contracts/CLI-EQUIVALENCE.md), so
 # it runs serially in the integration tier. A name rule, not a list, so a new
@@ -290,11 +330,40 @@ if [ "$PARALLEL" -eq 1 ]; then
     fi
 fi
 
+if [ "$TIER" = "full" ] && [ -n "$CLASS_TIMEOUT_SECONDS" ]; then
+    echo "--class-timeout-seconds splits a serial run by class, and the full tier runs one attempt for each bundle under its own bound" >&2
+    exit 64
+fi
+
 EFFECTIVE_TIER="${TIER:-full}"
 if [ -z "$TIER" ] && [ -n "$FILTER" ]; then EFFECTIVE_TIER=custom; fi
+# The bundle order joins the selection only for --tier full, the one run that splits by bundle.
+BUNDLE_ORDER=""
+if [ "$TIER" = "full" ]; then
+    BUNDLE_ORDER="$(IFS=,; echo "${FULL_TIER_BUNDLES[*]}")"
+fi
 if [ "$DESCRIBE_SELECTION" -eq 1 ]; then
-    "${LUNGFISH_RELEASE_PYTHON:-python3}" -c 'import json,sys; print(json.dumps(dict(zip(("tier","filter","skip"), sys.argv[1:4]), parallel=sys.argv[4]=="1", requireTools=sys.argv[5]=="1", loadFlakes=sorted(set(sys.argv[6:])))))' "$EFFECTIVE_TIER" "$FILTER" "$SKIP" "$PARALLEL" "$REQUIRE_TOOLS" ${KNOWN_LOAD_FLAKES[@]+"${KNOWN_LOAD_FLAKES[@]}"}
+    "${LUNGFISH_RELEASE_PYTHON:-python3}" -c '
+import json, sys
+selection = dict(zip(("tier", "filter", "skip"), sys.argv[1:4]), parallel=sys.argv[4] == "1",
+                 requireTools=sys.argv[5] == "1", loadFlakes=sorted(set(sys.argv[7:])))
+if sys.argv[6]:
+    selection["bundleOrder"] = sys.argv[6].split(",")
+print(json.dumps(selection))
+' "$EFFECTIVE_TIER" "$FILTER" "$SKIP" "$PARALLEL" "$REQUIRE_TOOLS" "$BUNDLE_ORDER" ${KNOWN_LOAD_FLAKES[@]+"${KNOWN_LOAD_FLAKES[@]}"}
     exit $?
+fi
+# Two states that point every test at another storage root (Phase 3.0, full-3 and its 127 red tests). The full tier
+# refuses to start on either, as cand/full-5.sh of Phase 3.0 checked by hand, and exits 78 with what to do.
+if [ "$TIER" = "full" ]; then
+    if [ "${LUNGFISH_STORAGE_ROOT+set}" = set ]; then
+        echo "The full tier refuses to run while LUNGFISH_STORAGE_ROOT is exported (it is '${LUNGFISH_STORAGE_ROOT}'), because every test would then read that storage root. Unset it in this shell and run the tier again." >&2
+        exit 78
+    fi
+    if command -v defaults >/dev/null 2>&1 && defaults read com.apple.dt.xctest.tool DatabaseStorageLocation >/dev/null 2>&1; then
+        echo "The full tier refuses to run while the xctest tool's defaults domain holds DatabaseStorageLocation, because every test would then read that storage root. Remove it with 'defaults delete com.apple.dt.xctest.tool DatabaseStorageLocation' and run the tier again." >&2
+        exit 78
+    fi
 fi
 mkdir -p "$LOG_DIR"
 
@@ -326,6 +395,13 @@ run_gate() {
     for flake in ${KNOWN_LOAD_FLAKES[@]+"${KNOWN_LOAD_FLAKES[@]}"}; do
         command+=(--load-flake "$flake")
     done
+    # The full tier runs one attempt for each bundle, in this order.
+    local bundle
+    if [ -n "$BUNDLE_ORDER" ]; then
+        for bundle in "${FULL_TIER_BUNDLES[@]}"; do
+            command+=(--full-tier-bundle "$bundle")
+        done
+    fi
     [ "$PARALLEL" -eq 1 ] && command+=(--parallel)
     [ "$REQUIRE_TOOLS" -eq 1 ] && command+=(--require-tools)
     [ -n "$TIMEOUT_SECONDS" ] && command+=(--timeout-seconds "$TIMEOUT_SECONDS")
@@ -375,6 +451,8 @@ else
             [ -f "$EVIDENCE_DIR/preferences.txt" ] && cat "$EVIDENCE_DIR/preferences.txt"
             # So does a class of a split run that ran out of its bound or never started.
             [ -f "$EVIDENCE_DIR/class-timeouts.txt" ] && cat "$EVIDENCE_DIR/class-timeouts.txt"
+            # And a bundle of the full tier that ran out of its bound or never started.
+            [ -f "$EVIDENCE_DIR/bundle-timeouts.txt" ] && cat "$EVIDENCE_DIR/bundle-timeouts.txt"
         fi
         # A listed load flake that failed in the tier is named whatever the verdict, on a pass and on a fail.
         [ -f "$EVIDENCE_DIR/load-flakes.txt" ] && cat "$EVIDENCE_DIR/load-flakes.txt"

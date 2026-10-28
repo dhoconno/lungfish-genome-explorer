@@ -13,6 +13,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -538,10 +539,84 @@ DEFAULT_CLASS_TIMEOUT_SECONDS = {
     "integration": 15 * 60,
 }
 
+# The full tier (Phase 3.1 ruling QA-RELEASE-LOOP, question 2). full-suite-gate.sh passes its list FULL_TIER_BUNDLES,
+# in order, as --full-tier-bundle. Each bundle runs as its own authoritative attempt, its .xctest run directly by
+# xctest with no -XCTest list, because in serial mode SwiftPM turns a --filter into one comma-separated argument (728,573
+# bytes for the 7,388 tests of LungfishAppTests in full-5, 69 percent of ARG_MAX on galah). Swift Testing runs last as
+# the bundle "swift-testing". A bundle that hangs is killed with its process tree and named, and the next bundle still
+# runs. The tier budget above bounds the whole run, and a bundle that would start after it is spent does not run and is
+# named. A bundle's bound is twice its time in full-5, the full tier of 2026-10-28 on 2aab8bf5d (the time each bundle's
+# outer suite printed in primary/runner.log of gate-20261028-075143-2aab8bf5d-13859 in the phase-3-0 worktree), rounded
+# up to 5 minutes, with a floor of 10 minutes. Swift Testing's 68 seconds are its time in the serial scan of 2026-10-27
+# (the budget note above). A new test target needs its measured time here before the full tier runs it.
+SWIFT_TESTING_BUNDLE = "swift-testing"
+FULL_TIER_MEASURED_SECONDS = {
+    "LungfishAppTests": 2647.984, "LungfishCLITests": 1285.178, "LungfishAppViewTests": 63.079,
+    "LungfishAppWorkflowTests": 8.995, "LungfishWorkflowTests": 976.420, "LungfishIOTests": 130.203,
+    "LungfishCoreTests": 92.419, "LungfishOperationsTests": 104.707, "LungfishGenotypeUITests": 288.232,
+    "LungfishKitTests": 44.181, "LungfishIntegrationTests": 11.370, "LungfishTaxTriageUITests": 12.244,
+    "LungfishTwelveSUITests": 16.012, "LungfishExecutorTests": 51.378, "LungfishAlignmentUITests": 1.102,
+    "LungfishEsVirituUITests": 4.438, "LungfishPortableTests": 0.119, "LungfishPhylogeneticsUITests": 4.596,
+    "LungfishAssemblyUITests": 2.062, "LungfishNvdUITests": 5.894, "LungfishNaoMgsUITests": 180.871,
+    SWIFT_TESTING_BUNDLE: 68.0,
+}
+
+
+def full_tier_bound(seconds):
+    """Twice a measured time, rounded up to whole 5 minutes, and never under 10 minutes."""
+    return max(10 * 60, math.ceil(2 * seconds / (5 * 60)) * 5 * 60)
+
+
+FULL_TIER_BUNDLE_TIMEOUT_SECONDS = {bundle: full_tier_bound(seconds)
+                                    for bundle, seconds in FULL_TIER_MEASURED_SECONDS.items()}
+
 
 def serial_class(test):
     """The class of an XCTest case or the suite of a Swift Testing function."""
     return test.split("/", 1)[0]
+
+
+def test_bundle(test):
+    """The bundle (the SwiftPM test target) of an XCTest case or a Swift Testing function."""
+    return test.split(".", 1)[0]
+
+
+def plan_full_tier(order, bundles, selection):
+    """The attempts of a full-tier run, in the order of FULL_TIER_BUNDLES. A whole run takes every bundle and then the
+    Swift Testing harness. A run of named bundles (--bundles) takes those bundles, then the Swift Testing functions of
+    each, or the whole harness when it names swift-testing. Refuses an order the bound table or the discovery cannot
+    hold, so a test target can neither go unrun nor run without a bound."""
+    if (not order or len(set(order)) != len(order) or SWIFT_TESTING_BUNDLE in order
+            or any(not isinstance(bundle, str) or not re.fullmatch(r"[A-Za-z0-9_]+", bundle) for bundle in order)):
+        raise EvidenceError("FULL_TIER_BUNDLES must name each test bundle once")
+    unbounded = [bundle for bundle in [*order, SWIFT_TESTING_BUNDLE] if bundle not in FULL_TIER_BUNDLE_TIMEOUT_SECONDS]
+    if unbounded:
+        raise EvidenceError("FULL_TIER_BUNDLES names a bundle with no measured time in FULL_TIER_MEASURED_SECONDS, "
+                            "so it has no bound: " + ", ".join(unbounded))
+    outside = sorted({test_bundle(test) for tests in selection.values() for test in tests} - set(order))
+    if outside:
+        raise EvidenceError("discovered tests lie in bundles that FULL_TIER_BUNDLES does not name: " + ", ".join(outside))
+    empty = [bundle for bundle in order if not any(test_bundle(test) == bundle for test in selection["xctest"])]
+    if empty:
+        raise EvidenceError("FULL_TIER_BUNDLES names bundles with no discovered XCTest test: " + ", ".join(empty))
+    if bundles is not None:
+        unknown = [bundle for bundle in bundles if bundle not in order and bundle != SWIFT_TESTING_BUNDLE]
+        if not bundles or unknown or len(set(bundles)) != len(bundles):
+            raise EvidenceError("--bundles must name bundles of FULL_TIER_BUNDLES or swift-testing, each once"
+                                + (": " + ", ".join(unknown) if unknown else ""))
+    run = list(order) if bundles is None else [b for b in [*order, SWIFT_TESTING_BUNDLE] if b in bundles]
+    plan = [{"bundle": bundle, "harness": "xctest", "timeoutSeconds": FULL_TIER_BUNDLE_TIMEOUT_SECONDS[bundle]}
+            for bundle in run if bundle != SWIFT_TESTING_BUNDLE]
+    swift = FULL_TIER_BUNDLE_TIMEOUT_SECONDS[SWIFT_TESTING_BUNDLE]
+    if bundles is None or SWIFT_TESTING_BUNDLE in run:
+        if selection["swift-testing"]:
+            plan.append({"bundle": SWIFT_TESTING_BUNDLE, "harness": "swift-testing", "filter": "", "timeoutSeconds": swift})
+    else:
+        plan += [{"bundle": bundle, "harness": "swift-testing", "filter": "^" + re.escape(bundle) + r"\.",
+                  "timeoutSeconds": swift}
+                 for bundle in run if any(test_bundle(test) == bundle for test in selection["swift-testing"])]
+    return {"order": list(order), "bundles": run, "plan": plan, "budgetSeconds": None, "binPath": None,
+            "timedOut": [], "unrun": []}
 
 
 # Load flakes (docs/contracts/VERIFICATION-ORDER.md, rule "Timed-out waits"). full-suite-gate.sh lists in
@@ -554,11 +629,27 @@ LOAD_FLAKE_RERUN_SECONDS = 10 * 60
 LOAD_FLAKE_ID = re.compile(r"^[^\s/]+(?:/[^\s/]+)+$")
 
 
-def load_flake_failures(primary, listed):
-    """The failed tests of a primary attempt when every one is a listed load flake and nothing else went wrong,
-    else None. Nothing else went wrong means a plain test failure exit with every selected test completed, and
-    no error beyond the two that a failed test itself causes in analyze_attempt (a crash, a missing test, a hang,
-    a skip under --require-tools or an unexplained diagnostic gives None)."""
+def load_flake_failures(authoritative, listed):
+    """The failed tests of the authoritative attempts (the one primary attempt, or each bundle of a full-tier run)
+    when every one is a listed load flake and nothing else went wrong in any attempt, else None. An attempt that
+    passed adds nothing. In an attempt that failed, nothing else went wrong means a plain test failure exit with
+    every selected test completed, and no error beyond the two that a failed test itself causes in analyze_attempt
+    (a crash, a missing test, a hang, a skip under --require-tools or an unexplained diagnostic gives None)."""
+    attempts = [authoritative] if isinstance(authoritative, dict) else list(authoritative)
+    if not listed or not attempts:
+        return None
+    failed = set()
+    for attempt in attempts:
+        if attempt.get("passed") is True and attempt.get("exitStatus") == 0:
+            continue
+        one = _attempt_load_flake_failures(attempt, listed)
+        if one is None:
+            return None
+        failed.update(one)
+    return sorted(failed) or None
+
+
+def _attempt_load_flake_failures(primary, listed):
     harnesses = primary.get("harnesses")
     if (not listed or not isinstance(harnesses, dict) or primary.get("exitStatus") != 1
             or primary.get("intervention") is not None):
@@ -575,22 +666,27 @@ def load_flake_failures(primary, listed):
 
 
 def validate_load_flake_reruns(result, attempts):
-    """Check a run of more than one attempt that claims a load flake clearance and return its primary attempt,
-    whose own failure the reruns clear. Any other shape cannot authorize a candidate."""
+    """Check a run that claims a load flake clearance and return its authoritative attempts that failed, whose
+    failures the reruns clear. The authoritative attempts come first, one primary attempt or, in a full-tier run,
+    one a bundle, and every later attempt is a rerun. Any other shape cannot authorize a candidate."""
     listed = result.get("options", {}).get("loadFlakes")
-    if (not isinstance(listed, list) or len(attempts) < 2 or attempts[0].get("role") != "authoritative"
-            or any(attempt.get("role") != "load-flake-rerun" for attempt in attempts[1:])):
+    count = next((index for index, attempt in enumerate(attempts) if attempt.get("role") != "authoritative"),
+                 len(attempts))
+    authoritative, reruns = attempts[:count], attempts[count:]
+    if (not isinstance(listed, list) or not authoritative or not reruns
+            or (len(authoritative) > 1 and "bundleBound" not in result)
+            or any(attempt.get("role") != "load-flake-rerun" for attempt in reruns)):
         raise EvidenceError("retried gate cannot authorize candidate")
-    failed = load_flake_failures(attempts[0], listed)
-    if failed is None or len(attempts) - 1 != len(failed):
+    failed = load_flake_failures(authoritative, listed)
+    if failed is None or len(reruns) != len(failed):
         raise EvidenceError("retried gate cannot authorize candidate")
-    for test, rerun in zip(failed, attempts[1:]):
+    for test, rerun in zip(failed, reruns):
         alone = [name for h in rerun.get("harnesses", {}).values() for name in h.get("selectedTests", [])]
         if alone != [test]:
             raise EvidenceError("load flake rerun did not select its test alone")
     if not isinstance(result.get("loadFlakes"), dict) or result["loadFlakes"].get("failed") != failed:
         raise EvidenceError("load flake record differs from the retained attempts")
-    return attempts[0]
+    return [attempt for attempt in authoritative if not (attempt.get("passed") is True and attempt.get("exitStatus") == 0)]
 
 
 def class_filter(suite, selection_filter, discovered, chosen, exclude):
@@ -674,6 +770,69 @@ def run_class_attempts(attempt, bound, selection, discovered, args, directory):
     return errors
 
 
+def run_bundle_attempts(attempt, bound, selection, directory):
+    """Run each step of a full-tier plan (plan_full_tier) as its own authoritative attempt under its own bound
+    (FULL_TIER_BUNDLE_TIMEOUT_SECONDS) within the run's budget, recording each bundle that ran out or never started in
+    `bound`. A bundle's XCTest attempt runs its .xctest directly, and a Swift Testing attempt runs swift test with
+    --disable-xctest. Returns the errors that name them. The same lines go to stdout as they happen and to
+    bundle-timeouts.txt, which the quiet gate prints after its fail line."""
+    budget, started, notes, errors = bound["budgetSeconds"], time.monotonic(), [], []
+    # Unbuffered stdio, as in run_class_attempts, so the start line of the case a hung bundle is in reaches the log.
+    environment = {**os.environ, "NSUnbufferedIO": "YES"}
+    for index, step in enumerate(bound["plan"]):
+        remaining = None if budget is None else budget - (time.monotonic() - started)
+        if remaining is not None and remaining <= 0:
+            bound["unrun"] = [later["bundle"] for later in bound["plan"][index:]]
+            count = len(bound["unrun"])
+            message = (f"the run's {budget} s budget ran out before {count} bundle{'' if count == 1 else 's'} ran: "
+                       + ", ".join(bound["unrun"]))
+            notes.append("GATE BUNDLE UNRUN: " + message)
+            errors.append(message)
+            print(notes[-1], flush=True)
+            break
+        bundle, limit_seconds = step["bundle"], step["timeoutSeconds"]
+        timeout = limit_seconds if remaining is None else min(limit_seconds, remaining)
+        name = f"bundle-{index:02d}"
+        if step["harness"] == "xctest":
+            chosen = {"xctest": [t for t in selection["xctest"] if test_bundle(t) == bundle], "swift-testing": []}
+            result = attempt(name, "", "", False, "authoritative", chosen, timeout, environment,
+                             argv=["xcrun", "xctest", bound["binPath"] + "/" + bundle + ".xctest"])
+        else:
+            chosen = {"xctest": [], "swift-testing": selected(selection["swift-testing"], step["filter"], "")}
+            result = attempt(name, step["filter"], "", False, "authoritative", chosen, timeout, environment,
+                             extra=["--disable-xctest"])
+        result.update({"bundle": bundle, "harness": step["harness"], "timeoutSeconds": timeout})
+        if result.get("intervention") == "timeout":
+            result["unfinishedTests"] = unfinished_tests(
+                (directory / result["files"][0]["path"]).read_text(errors="replace"))
+            bound["timedOut"].append(bundle)
+            where = ", ".join(result["unfinishedTests"]) or "a case the log does not name"
+            if timeout >= limit_seconds:
+                limit = f"its {timeout:.0f} s bound"
+            else:
+                limit = f"the run's {budget} s budget, which left it {timeout:.0f} s"
+            message = f"{bundle} ran out of {limit} in {where} and was killed with its process tree"
+            notes.append("GATE BUNDLE TIMEOUT: " + message)
+            errors.append("bundle " + message)
+            print(notes[-1], flush=True)
+    if notes:
+        (directory / "bundle-timeouts.txt").write_text("".join(note + "\n" for note in notes))
+    return errors
+
+
+def full_tier_bin_path(root, directory, options):
+    """The command record of swift build --show-bin-path with the gate's options, and the folder it names, which
+    holds each bundle's .xctest, or None when the command failed or named no canonical absolute path."""
+    command = command_record(["swift", "build", "--skip-update", *options, "--show-bin-path"], root, directory,
+                             "bin-path", split=True)
+    lines = (directory / "bin-path.log").read_text(errors="replace").strip().splitlines()
+    path = lines[-1].strip() if lines else ""
+    if (command["exitStatus"] or command.get("intervention") is not None or not os.path.isabs(path)
+            or os.path.normpath(path) != path):
+        return command, None
+    return command, path
+
+
 def run_swift_gate(args):
     root, directory = Path(args.root).resolve(), Path(args.output).resolve()
     profile = getattr(args, "profile", None)
@@ -746,19 +905,40 @@ def run_swift_gate(args):
         class_bound = {"classTimeoutSeconds": class_timeout, "budgetSeconds": timeout_seconds,
                        "classes": sorted({serial_class(t) for tests in selection.values() for t in tests}),
                        "timedOut": [], "unrun": []}
+    # The full tier runs one attempt a bundle (plan_full_tier). A bare run with no --tier passes no bundle order, keeps
+    # one attempt and is not full-tier evidence, because its options lack the order.
+    order = list(getattr(args, "full_tier_bundle", None) or [])
+    bundle_bound = bin_command = None
+    if not errors and args.tier == "full" and order:
+        class_bound = None
+        try:
+            bundle_bound = plan_full_tier(order, getattr(args, "bundles", None), selection)
+            bundle_bound["budgetSeconds"] = timeout_seconds
+            bin_command, bundle_bound["binPath"] = full_tier_bin_path(root, directory, options)
+            if bundle_bound["binPath"] is None:
+                raise EvidenceError("swift build --show-bin-path did not name the folder of the test bundles")
+            absent = [step["bundle"] for step in bundle_bound["plan"] if step["harness"] == "xctest"
+                      and not (Path(bundle_bound["binPath"]) / (step["bundle"] + ".xctest")).is_dir()]
+            if absent:
+                raise EvidenceError(f"{bundle_bound['binPath']} holds no .xctest for " + ", ".join(absent)
+                                    + ", so build the tests first with swift build --build-tests")
+        except EvidenceError as error:
+            errors.append(str(error))
     preferences_before = directory / "preferences-before.json"
     if not errors:
         errors += preferences_leaks(root, directory, "snapshot", "--output", str(preferences_before))
     if not errors:
-        def attempt(name, include, exclude, parallel, role, chosen, timeout=timeout_seconds, environment=None):
+        def attempt(name, include, exclude, parallel, role, chosen, timeout=timeout_seconds, environment=None,
+                    argv=None, extra=()):
             target = directory / name
             target.mkdir()
-            command = [*common, "--skip-build", "--xunit-output", str(target / "xctest.xml"), "--event-stream-output-path", str(target / "swift-testing.jsonl"), "--event-stream-version", "0"]
-            if include:
+            # argv runs a command other than swift test, which a full-tier bundle attempt does (its .xctest alone).
+            command = list(argv) if argv else [*common, "--skip-build", *extra, "--xunit-output", str(target / "xctest.xml"), "--event-stream-output-path", str(target / "swift-testing.jsonl"), "--event-stream-version", "0"]
+            if include and not argv:
                 command += ["--filter", include]
-            if exclude:
+            if exclude and not argv:
                 command += ["--skip", exclude]
-            if parallel:
+            if parallel and not argv:
                 command += ["--parallel", "--verbose"]
                 if getattr(args, "workers", None):
                     command += ["--num-workers", str(args.workers)]
@@ -771,11 +951,26 @@ def run_swift_gate(args):
                 record["path"] = name + "/" + record["path"]
             attempts.append(result)
             return result
+
+        def rerun_load_flakes(flaky):
+            # Every failure is a listed load flake and nothing else went wrong. Each one runs once more alone, which is
+            # the retry, so no class-wide diagnostic retry follows. A rerun is bound well under the tier's budget.
+            rerun_bound = min(LOAD_FLAKE_RERUN_SECONDS, timeout_seconds or LOAD_FLAKE_RERUN_SECONDS)
+            for index, test in enumerate(flaky):
+                include = "^" + re.escape(test) + "$"
+                chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
+                attempt(f"load-flake-{index}", include, "", False, "load-flake-rerun", chosen, rerun_bound)
     if not errors and class_bound is not None:
         try:
             errors += run_class_attempts(attempt, class_bound, selection, discovered_tests, args, directory)
         except EvidenceError as error:
             errors.append(str(error))
+    elif not errors and bundle_bound is not None:
+        errors += run_bundle_attempts(attempt, bundle_bound, selection, directory)
+        # Each bundle ran alone, so no diagnostic retry follows. The listed load flakes of every bundle clear together.
+        flaky = None if errors else load_flake_failures([a for a in attempts if a["role"] == "authoritative"], listed)
+        if flaky:
+            rerun_load_flakes(flaky)
     elif not errors:
         primary = attempt("primary", args.filter, args.skip, args.parallel, "authoritative", selection)
         # Assertion-only failures from complete runs, in XCTest or swift-testing, can be diagnosed in
@@ -786,13 +981,7 @@ def run_swift_gate(args):
         classes = sorted({t.split("/")[0] for t in failed})
         flaky = load_flake_failures(primary, listed)
         if flaky:
-            # Every failure is a listed load flake and nothing else went wrong. Each one runs once more alone, which is
-            # the retry, so no class-wide diagnostic retry follows. A rerun is bound well under the tier's budget.
-            rerun_bound = min(LOAD_FLAKE_RERUN_SECONDS, timeout_seconds or LOAD_FLAKE_RERUN_SECONDS)
-            for index, test in enumerate(flaky):
-                include = "^" + re.escape(test) + "$"
-                chosen = {h: selected(tests, include, "") for h, tests in selection.items()}
-                attempt(f"load-flake-{index}", include, "", False, "load-flake-rerun", chosen, rerun_bound)
+            rerun_load_flakes(flaky)
         elif primary["exitStatus"] == 1 and all(h["completed"] for h in primary["harnesses"].values()) and 1 <= len(classes) <= 12:
             for index, suite in enumerate(classes):
                 include = "^" + re.escape(suite) + "(/|$)"
@@ -812,8 +1001,13 @@ def run_swift_gate(args):
               "errors": errors}
     if class_bound is not None:
         result["classBound"] = class_bound
-    # Every authoritative attempt decides: the one primary attempt, or each class of a split run. A primary attempt
-    # whose only failures are listed load flakes is cleared when each one passed alone on its rerun.
+    if order and args.tier == "full":
+        result["options"]["bundleOrder"] = order
+    if bundle_bound is not None:
+        result["bundleBound"], result["binPathCommand"] = bundle_bound, bin_command
+    # Every authoritative attempt decides: the one primary attempt, each class of a split run or each bundle of the
+    # full tier. Authoritative attempts whose only failures are listed load flakes are cleared when each one passed
+    # alone on its rerun.
     authoritative = [a for a in attempts if a["role"] == "authoritative"]
     reruns = [a for a in attempts if a["role"] == "load-flake-rerun"]
     cleared = bool(flaky) and len(reruns) == len(flaky) and all(a["passed"] for a in reruns)
@@ -896,6 +1090,56 @@ def validate_class_split(bound, attempts):
                 raise EvidenceError("class-split attempt selected another class's tests")
 
 
+def validate_bundle_split(result, authoritative, swiftpm_options):
+    """A full-tier run (plan_full_tier) authorizes only when it ran its plan: each bundle of its selection once, in the
+    order of FULL_TIER_BUNDLES, as an authoritative attempt that ran that bundle's .xctest directly with no list of
+    tests and selected that bundle's tests alone, then its Swift Testing attempts, with no bundle out of its bound or
+    left unrun. The folder of the bundles must come from swift build --show-bin-path with the gate's options."""
+    bound, options = result.get("bundleBound"), result.get("options", {})
+    order = options.get("bundleOrder") if isinstance(options, dict) else None
+    bundles = options.get("bundles") if isinstance(options, dict) else None
+    plan = bound.get("plan") if isinstance(bound, dict) else None
+    if (not isinstance(order, list) or not order or bound.get("order") != order or bound.get("timedOut")
+            or bound.get("unrun") or not isinstance(plan, list) or not plan
+            or any(not isinstance(step, dict) for step in plan)):
+        raise EvidenceError("full-tier gate did not run every bundle once")
+    run = order if bundles is None else bundles
+    steps = [(step.get("bundle"), step.get("harness")) for step in plan]
+    swift_steps = [bundle for bundle, harness in steps if harness == "swift-testing"]
+    if (not isinstance(run, list) or bound.get("bundles") != [b for b in [*order, SWIFT_TESTING_BUNDLE] if b in run]
+            or steps != [(attempt.get("bundle"), attempt.get("harness")) for attempt in authoritative]
+            or [bundle for bundle, harness in steps if harness == "xctest"] != [b for b in order if b in run]
+            or any(harness not in ("xctest", "swift-testing") for _, harness in steps)
+            or steps[:len(steps) - len(swift_steps)] != [(b, "xctest") for b in order if b in run]
+            or ((bundles is None or SWIFT_TESTING_BUNDLE in run) and swift_steps not in ([], [SWIFT_TESTING_BUNDLE]))):
+        raise EvidenceError("full-tier gate did not run every bundle once")
+    command = result.get("binPathCommand")
+    bin_path = bound.get("binPath")
+    if (not isinstance(command, dict)
+            or command.get("argv") != ["swift", "build", "--skip-update", *swiftpm_options, "--show-bin-path"]
+            or command.get("exitStatus") != 0 or command.get("intervention") is not None
+            or not isinstance(bin_path, str) or not os.path.isabs(bin_path) or os.path.normpath(bin_path) != bin_path):
+        raise EvidenceError("full-tier gate did not find its bundles through swift build --show-bin-path")
+    for step, attempt in zip(plan, authoritative):
+        harnesses = attempt.get("harnesses", {}) if isinstance(attempt.get("harnesses"), dict) else {}
+        xctests = harnesses.get("xctest", {}).get("selectedTests", [])
+        swift = harnesses.get("swift-testing", {}).get("selectedTests", [])
+        bundle, argv = step["bundle"], attempt.get("argv") if isinstance(attempt.get("argv"), list) else []
+        if step["harness"] == "xctest":
+            good = (argv == ["xcrun", "xctest", bin_path + "/" + bundle + ".xctest"] and not swift
+                    and all(isinstance(test, str) and test_bundle(test) == bundle for test in xctests))
+        else:
+            whole = bundle == SWIFT_TESTING_BUNDLE
+            pattern = "" if whole else "^" + re.escape(bundle) + r"\."
+            given = argv[argv.index("--filter") + 1:argv.index("--filter") + 2] if "--filter" in argv else []
+            good = (isinstance(argv, list) and "--disable-xctest" in argv and step.get("filter") == pattern
+                    and not xctests and argv.count("--filter") == (0 if whole else 1)
+                    and given == ([] if whole else [pattern])
+                    and (whole or all(isinstance(test, str) and test_bundle(test) == bundle for test in swift)))
+        if not good:
+            raise EvidenceError("full-tier attempt ran another bundle's tests or a list of tests")
+
+
 def validate_result(result, source):
     if result.get("schemaVersion") != 1 or result.get("authorized") is not True or not same_source(result.get("source", {}), source) or result.get("errors"):
         raise EvidenceError("gate result failed or source differs from candidate")
@@ -922,7 +1166,11 @@ def validate_result(result, source):
             "--triple", "--arch", "--destination", "-Xlinker", "-Xcc",
         }
         forbidden_equals = (*forbidden_overrides, "--build-system", "-Xswiftc")
-        swiftpm_commands = result.get("discovery", []) + result.get("attempts", [])
+        # A full-tier bundle attempt runs its .xctest directly, and validate_bundle_split checks its command.
+        direct = [attempt for attempt in result.get("attempts", [])
+                  if isinstance(attempt, dict) and isinstance(attempt.get("argv"), list) and attempt["argv"][:1] == ["xcrun"]]
+        swiftpm_commands = result.get("discovery", []) + [
+            attempt for attempt in result.get("attempts", []) if not any(attempt is other for other in direct)]
         for command in swiftpm_commands:
             argv = command.get("argv")
             tail = argv[len(expected_prefix):] if isinstance(argv, list) else []
@@ -940,18 +1188,27 @@ def validate_result(result, source):
                 )
             ):
                 raise EvidenceError("SwiftPM gate did not use the selected SDK and swiftbuild options")
-        commands = [result.get("identityCommand", {}), sdk] + swiftpm_commands
-        if any(command.get("intervention") is not None for command in commands):
+        commands = [result.get("identityCommand", {}), sdk, *swiftpm_commands, *direct]
+        if "binPathCommand" in result:
+            commands.append(result["binPathCommand"])
+        if any(not isinstance(command, dict) or command.get("intervention") is not None for command in commands):
             raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
-        cleared = None
+        cleared = []
         if "classBound" in result:
             validate_class_split(result["classBound"], attempts)
+        elif "bundleBound" in result:
+            authoritative = [attempt for attempt in attempts if attempt.get("role") == "authoritative"]
+            validate_bundle_split(result, authoritative, expected_options)
+            if len(authoritative) != len(attempts):
+                cleared = validate_load_flake_reruns(result, attempts)
+        elif direct:
+            raise EvidenceError("gate ran a test bundle directly outside a full-tier plan")
         elif len(attempts) != 1 or attempts[0].get("role") != "authoritative":
             # More than one attempt authorizes only when load flake reruns clear the primary attempt's failures.
             cleared = validate_load_flake_reruns(result, attempts)
         for attempt in attempts:
-            if attempt is cleared:
+            if any(attempt is other for other in cleared):
                 continue
             harnesses = attempt.get("harnesses", {})
             if attempt.get("exitStatus") != 0 or attempt.get("passed") is not True or attempt.get("errors") or not harnesses:
@@ -1318,6 +1575,7 @@ def result_files(result):
     records = list(result.get("files", []))
     records += result.get("identityCommand", {}).get("files", [])
     records += result.get("sdkCommand", {}).get("files", [])
+    records += result.get("binPathCommand", {}).get("files", [])
     for command in result.get("discovery", []) + result.get("attempts", []):
         records += command.get("files", [])
     return records
@@ -1564,6 +1822,9 @@ def main():
                        help="A test of KNOWN_LOAD_FLAKES in full-suite-gate.sh, as Target.Class/test. It still runs. "
                             "When it is the only failure of the primary attempt, it runs once more alone, and a pass "
                             "there leaves the run green and names the test as a load flake in the evidence.")
+    swift.add_argument("--full-tier-bundle", action="append", default=[], metavar="BUNDLE",
+                       help="A test bundle of FULL_TIER_BUNDLES in full-suite-gate.sh, in its order. With --tier full "
+                            "each bundle runs as its own attempt under its own bound, then Swift Testing.")
     swift.add_argument("--timeout-seconds", type=int, default=None,
                         help="Overall wall-clock budget for the primary test-runner attempt. "
                              "Overrides the tier default in DEFAULT_TIER_TIMEOUT_SECONDS; "
