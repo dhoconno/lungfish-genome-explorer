@@ -56,6 +56,8 @@ final class MappingHeaderCountWordsTests: XCTestCase {
         XCTAssertFalse(text.contains("10 / 10"), "the mapped count is not its own total: \(text)")
         XCTAssertTrue(text.contains("unknown"), "the words say that the total is unknown: \(text)")
         XCTAssertTrue(text.contains("10"), "the 10 mapped reads the build measured still show: \(text)")
+        XCTAssertTrue(text.contains("10 reads mapped"), "the rows of the summary build count primary reads, so the unit is reads: \(text)")
+        XCTAssertTrue(viewport.summaryLabel.toolTip?.contains("again") == true, "the tip carries the next step: \(viewport.summaryLabel.toolTip ?? "none")")
     }
 
     // MARK: - No primary lines
@@ -73,6 +75,7 @@ final class MappingHeaderCountWordsTests: XCTestCase {
         XCTAssertTrue(text.contains("12 / 13"), "flagstat's mapped and total lines give the numbers: \(text)")
         XCTAssertTrue(text.contains("alignments"), "the numbers are alignment records and the header says so: \(text)")
         XCTAssertFalse(text.contains("reads mapped"), "alignment records are no reads: \(text)")
+        XCTAssertTrue(viewport.summaryLabel.toolTip?.contains("more than one place") == true, "the tip says why: \(viewport.summaryLabel.toolTip ?? "none")")
     }
 
     // MARK: - Fixture
