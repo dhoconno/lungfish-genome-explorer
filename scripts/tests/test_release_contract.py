@@ -85,6 +85,18 @@ EXPECTED_GATES = {
         "docs/architecture/**",
         "docs/release/NEXT-RELEASE-HANDOFF.md",
     ],
+    # Nothing built into the app: the Preview's walk and smoke cover a Stable commit whose changes since the walked
+    # commit all fall here (VERIFICATION-ORDER.md, row "Stable on a clock", Phase 3.1 ruling QA-RELEASE-LOOP).
+    "appNeutralPaths": [
+        "docs/release-notes/**", "docs/plans/**", "docs/reports/**", "docs/contracts/**", "docs/architecture/**",
+        "docs/release/NEXT-RELEASE-HANDOFF.md",
+        *[f"Tests/Lungfish{name}Tests/**" for name in (
+            "Portable", "Executor", "Core", "IO", "Workflow", "Operations", "Kit", "TwelveSUI", "AlignmentUI",
+            "AssemblyUI", "NvdUI", "NaoMgsUI", "TaxTriageUI", "EsVirituUI", "GenotypeUI", "PhylogeneticsUI", "App",
+            "AppView", "AppWorkflow", "CLI", "Integration")],
+        "scripts/full-suite-gate.sh", "scripts/release/gate_evidence.py", "scripts/testing/**", "scripts/tests/**",
+        "scripts/ratchets/**",
+    ],
     "focusedReleaseTests": [
         "scripts.tests.test_test_catalog",
         "scripts.tests.test_release_contract",
@@ -464,6 +476,34 @@ class ReleaseContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "gates"):
             self.module.load_contract(self.write_contract(data))
+
+    def test_app_neutral_paths_refuse_sources_and_every_product_target_path_of_package_swift(self):
+        package = (CONTRACT_PATH.parents[1] / "Package.swift").read_text(encoding="utf-8")
+        products = [path for kind, _, path in self.module.swiftpm_targets(package) if kind != "testTarget"]
+        tests = [path for kind, _, path in self.module.swiftpm_targets(package) if kind == "testTarget"]
+        self.assertEqual(len(tests), 21)
+        self.assertIn("Tests/Support/LungfishTestSupport", products)
+        self.assertEqual(sorted(f"{path}/**" for path in tests),
+                         sorted(p for p in EXPECTED_GATES["appNeutralPaths"] if p.startswith("Tests/")),
+                         "the list holds the folder of every SwiftPM test target")
+        refused = ["Sources/LungfishApp/**", "Sources/LungfishCore/Model.swift", "Sources/**", "Package.swift",
+                   "Package.resolved", "Tests/**", "Tests/Support/**", "Tests/Support/LungfishTestSupport/X.swift",
+                   *[path + "/**" for path in products], "Tests/*/**", "../outside/**", "Tests//x"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "config").mkdir()
+            (root / "Package.swift").write_text(package, encoding="utf-8")
+            for entry in refused:
+                with self.subTest(entry=entry):
+                    data = copy.deepcopy(self.raw_contract)
+                    data["gates"]["appNeutralPaths"] = ["Tests/LungfishAppTests/**", entry]
+                    (root / "config/release-contract.json").write_text(json.dumps(data), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "app-neutral path"):
+                        self.module.load_contract(root / "config/release-contract.json")
+            data = copy.deepcopy(self.raw_contract)
+            (root / "config/release-contract.json").write_text(json.dumps(data), encoding="utf-8")
+            loaded = self.module.load_contract(root / "config/release-contract.json")
+            self.assertEqual(list(loaded.gates.appNeutralPaths), EXPECTED_GATES["appNeutralPaths"])
 
     def test_builder_describe_channel_matches_contract_without_credentials(self):
         for name, expected in EXPECTED_CHANNELS.items():

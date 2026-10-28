@@ -567,6 +567,10 @@ class FrontDoorTransactionTests(GateOperationsMixin, unittest.TestCase):
                 root = Path(temporary)
                 make_unit_gate_pointer(root, source)
                 with self.gate_operations(root, source, channel) as (operations, request, runner):
+                    # Stable also needs a full-tier record (scripts/tests/test_full_evidence.py pins the lookup).
+                    cited = root / ".build/gate-logs/fixture-unit/gate.result.json"
+                    operations._ensure_full_evidence = lambda: {"kind": "exact", "resultPath": str(cited),
+                                                                "resultSha256": hashlib.sha256(cited.read_bytes()).hexdigest()}
                     gate_python = Path(sys.executable)
                     evidence = operations.run_local_gates(request)
                     manifest = json.loads(evidence.manifest.read_text())

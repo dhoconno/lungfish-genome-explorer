@@ -11,6 +11,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -194,6 +195,70 @@ class FindFullEvidenceTests(FullEvidenceTestCase):
         rerun = self.full(b, "rerun-b", bundles=[APP], rerun_of=base, red=[APP])
         record = self.find_full(b)
         self.assertEqual((record["kind"], record["gatedCommit"], record["resultPath"]), ("red", b, str(rerun)))
+
+
+class Reached(Exception):
+    """Raised by a stand-in for _ensure_unit_evidence, the step of run_local_gates after the full-tier check."""
+
+
+class PackageFullEvidenceTests(FullEvidenceTestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("release_full_evidence", RELEASE)
+        cls.release = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = cls.release
+        spec.loader.exec_module(cls.release)
+
+    def operations(self, commit):
+        """LocalReleaseOperations over the throwaway repository and the shipped contract, pinned to commit."""
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.root, operations.contract = self.repo.root, self.release.load_contract(CONTRACT)
+        operations.runner = SimpleNamespace(environment={"PATH": "/usr/bin:/bin"}, run=mock.Mock())
+        operations._package_source = {"commit": commit, "clean": True}
+        operations._ensure_unit_evidence = mock.Mock(side_effect=Reached)
+        return operations
+
+    def package(self, operations, channel):
+        with mock.patch("sys.stdout"):
+            operations.run_local_gates(SimpleNamespace(channel=channel))
+
+    def test_package_stable_refuses_without_full_evidence(self):
+        make_unit_gate_pointer(self.repo.root, {"commit": self.a, "clean": True}, name="unit-a")
+        operations = self.operations(self.a)
+        with self.assertRaisesRegex(self.release.ReleaseError, f"no green full-tier record covers {self.a[:12]}") as refused:
+            self.package(operations, "stable")
+        self.assertIn("`python3 scripts/release/gate_evidence.py full-evidence --root . --commit HEAD`", str(refused.exception))
+        operations._ensure_unit_evidence.assert_not_called()
+        operations.runner.run.assert_not_called()
+        base = self.full(self.a, "full-a", red=[APP])
+        with self.assertRaisesRegex(self.release.ReleaseError, f"the full tier failed on {self.a[:12]}"):
+            self.package(operations, "stable")
+        operations._ensure_unit_evidence.assert_not_called()
+        b = self.change("Tests/LungfishAppTests/AppTests.swift")
+        self.full(b, "rerun-b", bundles=[APP], rerun_of=base)
+        with self.assertRaises(Reached):
+            self.package(self.operations(b), "stable")
+
+    def test_package_preview_ignores_full_evidence(self):
+        operations = self.operations(self.a)
+        with mock.patch.object(operations, "_ensure_full_evidence") as ensure, self.assertRaises(Reached):
+            self.package(operations, "preview")
+        ensure.assert_not_called()
+
+    def test_the_stable_gate_folder_keeps_the_record_and_every_result_it_cites(self):
+        base = self.full(self.a, "full-a", red=[APP])
+        b = self.change("Tests/LungfishAppTests/AppTests.swift")
+        rerun = self.full(b, "rerun-b", bundles=[APP], rerun_of=base)
+        record = self.find_full(b)
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            self.release.LocalReleaseOperations._retain_full_evidence(folder, record)
+            self.assertEqual(json.loads((folder / "full-precondition.json").read_text()), record)
+            self.assertEqual((folder / "full-precondition-0.result.json").read_bytes(), base.read_bytes())
+            self.assertEqual((folder / "full-precondition-1.result.json").read_bytes(), rerun.read_bytes())
+            rerun.write_text("{}\n")
+            with self.assertRaisesRegex(self.release.ReleaseError, "changed after it was checked"):
+                self.release.LocalReleaseOperations._retain_full_evidence(folder, record)
 
 
 class FullEvidenceCommandTests(FullEvidenceTestCase):

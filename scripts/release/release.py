@@ -47,7 +47,8 @@ from sparkle_yank import (  # noqa: E402
     plan_yank,
 )
 from gate_evidence import (EvidenceError, _descendant_pids, create_manifest,  # noqa: E402
-                           deciding_unit_gate, find_unit_evidence, live_gate_runs,
+                           deciding_unit_gate, find_full_evidence, find_unit_evidence,
+                           full_evidence_results, live_gate_runs, package_test_folders,
                            local_gate_run, process_command_lines, related_live_gates, source_identity,
                            verify_manifest)
 from release_cache_fingerprint import (  # noqa: E402
@@ -2110,7 +2111,52 @@ class LocalReleaseOperations:
         )
         return verify_unit_gate_precondition(self.root, source, neutral)
 
+    def _ensure_full_evidence(self) -> dict[str, Any]:
+        """A Stable package needs a green full-tier record that covers the pinned commit, exactly, through
+        release-neutral paths, or through green reruns of the bundles whose test folders changed or ran red
+        (docs/contracts/VERIFICATION-ORDER.md, row "Stable keeps the full tier"). Package never runs the full
+        tier itself, since it runs after each Preview, off the release path."""
+        source = self._pinned_source()
+        ask = "python3 scripts/release/gate_evidence.py full-evidence --root . --commit HEAD"
+        if source.get("clean") is not True or not source.get("commit"):
+            raise ReleaseError("full-tier evidence requires a clean candidate tree")
+        try:
+            record = find_full_evidence(self.root, source["commit"], self.contract.gates.releaseNeutralPaths,
+                                        package_test_folders(self.root))
+        except (EvidenceError, OSError, ValueError) as error:
+            raise ReleaseError(f"full-tier evidence could not be read ({error}); ask `{ask}`") from error
+        if record is None:
+            raise ReleaseError(
+                f"no green full-tier record covers {source['commit'][:12]}, so package stable refuses it. Run "
+                "`bash scripts/full-suite-gate.sh --tier full` on the published Preview's commit, or rerun the "
+                "bundles a test fix touched with --bundles and --rerun-of, then ask "
+                f"`{ask}` before packaging again")
+        if record["kind"] == "red":
+            raise ReleaseError(
+                f"the full tier failed on {record['gatedCommit'][:12]} ({record['resultPath']}), so package "
+                f"stable refuses this commit. Diagnose the failure, fix it in a new commit, and ask `{ask}`")
+        return record
+
+    @staticmethod
+    def _retain_full_evidence(directory: Path, record: dict[str, Any]) -> None:
+        """Keep the full-tier record and a copy of every result it cites in the gate folder, bound into the
+        manifest and so the receipt, as the unit-tier evidence is."""
+        (directory / "full-precondition.json").write_text(
+            json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        for index, (path, digest) in enumerate(full_evidence_results(record)):
+            try:
+                cited = Path(path).read_bytes()
+            except OSError as error:
+                raise ReleaseError(f"full-tier evidence could not be retained ({error})") from error
+            if hashlib.sha256(cited).hexdigest() != digest:
+                raise ReleaseError("full-tier evidence changed after it was checked")
+            (directory / f"full-precondition-{index}.result.json").write_bytes(cited)
+
     def run_local_gates(self, request: ReleaseRequest) -> GateEvidence:
+        # A Stable commit no green full tier covers is refused first, before any gate runs.
+        full_evidence = self._ensure_full_evidence() if request.channel == "stable" else None
+        if full_evidence is not None:
+            print(f"Full-tier evidence ({full_evidence['kind']}): {full_evidence_results(full_evidence)[0][0]}")
         if self.contract.gates.dependencyPolicy == "installed":
             verify_dependency_receipt_file(self.root, request.dependency_receipt)
             gate_python = self._managed_gate_python(request)
@@ -2143,6 +2189,8 @@ class LocalReleaseOperations:
             (directory / "unit-precondition.result.json").write_bytes(covering)
         except OSError as error:
             raise ReleaseError(f"unit-tier evidence could not be retained ({error})") from error
+        if full_evidence is not None:
+            self._retain_full_evidence(directory, full_evidence)
         source = pinned
         dependency_digest = hashlib.sha256(request.dependency_receipt.read_bytes()).hexdigest()
         result_paths = []

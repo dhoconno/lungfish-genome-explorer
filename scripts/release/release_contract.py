@@ -128,6 +128,7 @@ class GateContract:
     dependencyPolicy: str = "installed"
     appSmokeRequired: bool = True
     releaseNeutralPaths: tuple[str, ...] = ()
+    appNeutralPaths: tuple[str, ...] = ()
 
     def for_channel(self, name: str) -> tuple[GateStep, ...]:
         try:
@@ -143,6 +144,7 @@ class GateContract:
             "dependencyPolicy": self.dependencyPolicy,
             "appSmokeRequired": self.appSmokeRequired,
             "releaseNeutralPaths": list(self.releaseNeutralPaths),
+            "appNeutralPaths": list(self.appNeutralPaths),
             "channels": {
                 name: [step.to_dict() for step in steps]
                 for name, steps in self.channels.items()
@@ -306,9 +308,10 @@ def _parse_toolchain(raw: Any) -> ToolchainContract:
     return ToolchainContract(**value)
 
 
-def _parse_gates(raw: Any) -> GateContract:
+def _parse_gates(raw: Any, package_text: str | None = None) -> GateContract:
     value = _require_object(raw, "gates")
-    _require_fields(value, GATE_FIELDS | (set(value) & {"dependencyPolicy", "appSmokeRequired", "releaseNeutralPaths"}), "gates")
+    optional = {"dependencyPolicy", "appSmokeRequired", "releaseNeutralPaths", "appNeutralPaths"}
+    _require_fields(value, GATE_FIELDS | (set(value) & optional), "gates")
     modules = value["focusedReleaseTests"]
     if not isinstance(modules, list) or not modules:
         raise ValueError("gates.focusedReleaseTests must be a nonempty array")
@@ -362,8 +365,40 @@ def _parse_gates(raw: Any) -> GateContract:
     app_smoke_required = value.get("appSmokeRequired", True)
     _require_type(app_smoke_required, bool, "gates.appSmokeRequired")
     neutral = _parse_release_neutral_paths(value.get("releaseNeutralPaths", []))
+    app_neutral = _parse_app_neutral_paths(value.get("appNeutralPaths", []), package_text)
     return GateContract(tuple(focused), MappingProxyType(channels), tuple(app_smoke), account,
-                        dependency_policy, app_smoke_required, neutral)
+                        dependency_policy, app_smoke_required, neutral, app_neutral)
+
+
+def _parse_app_neutral_paths(raw: Any, package_text: str | None) -> tuple[str, ...]:
+    """Paths none of which is built into the app: the release-neutral paths, the folders of the SwiftPM test
+    targets and the scripts only the gates run. The Preview's walk and smoke cover a Stable commit whose changes
+    since the walked commit all fall under them (docs/contracts/VERIFICATION-ORDER.md, row "Stable on a clock").
+    Each entry is an exact file or a folder ending in /**, with no other wildcard and no '..'. No entry may be
+    Package.swift or Package.resolved, lie under Sources/, or lie under or hold the path of a target of the
+    Package.swift beside config/ that is not a test target."""
+    if not isinstance(raw, list):
+        raise ValueError("gates.appNeutralPaths must be an array")
+    products = ["Sources"]
+    if package_text is not None:
+        products += [path for kind, _, path in swiftpm_targets(package_text) if kind != "testTarget"]
+    paths: list[str] = []
+    for index, entry in enumerate(raw):
+        _require_type(entry, str, f"gates.appNeutralPaths[{index}]")
+        folder = entry.endswith("/**")
+        body = entry[:-3] if folder else entry
+        if (any(part in {"", ".", ".."} for part in body.split("/"))
+                or any(character in body for character in "*?[]\\")):
+            raise ValueError(f"app-neutral path must be a file or a folder ending in /**: {entry}")
+        if body in {"Package.swift", "Package.resolved"} or any(
+                body == product or body.startswith(product + "/") or (folder and product.startswith(body + "/"))
+                for product in products):
+            raise ValueError(f"app-neutral path is built into the app, under Sources/ or a product target "
+                             f"of Package.swift: {entry}")
+        paths.append(entry)
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate app-neutral path")
+    return tuple(paths)
 
 
 def _parse_release_neutral_paths(raw: Any) -> tuple[str, ...]:
@@ -453,12 +488,18 @@ def load_contract(path: Path) -> ReleaseContract:
         raise ValueError("duplicate build profile appBundleFilename")
     identity = PublicIdentity.parse(root["identity"]) if "identity" in root else legacy_identity()
     validate_runtime_contract(identity, channels, profiles)
+    # gates.appNeutralPaths is checked against the targets of the Package.swift of the contract's own checkout.
+    package = path.resolve().parent.parent / "Package.swift"
+    try:
+        package_text = package.read_text(encoding="utf-8") if package.is_file() else None
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"cannot read {package}: {error}") from error
     return ReleaseContract(
         schemaVersion=root["schemaVersion"],
         channels=MappingProxyType(channels),
         buildProfiles=MappingProxyType(profiles),
         toolchain=_parse_toolchain(root["toolchain"]),
-        gates=_parse_gates(root["gates"]),
+        gates=_parse_gates(root["gates"], package_text),
         identity=identity,
         sourceRoot=path.resolve().parent.parent,
     )
