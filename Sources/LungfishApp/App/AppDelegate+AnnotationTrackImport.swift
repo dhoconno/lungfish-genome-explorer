@@ -136,7 +136,7 @@ extension AppDelegate {
                 }
             } catch {
                 guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
+                showFailure(AppFailureReports.importAnnotationTrack(error))
             }
         }
     }

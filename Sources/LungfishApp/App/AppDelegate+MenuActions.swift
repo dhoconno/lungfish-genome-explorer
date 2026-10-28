@@ -42,13 +42,8 @@ extension AppDelegate {
                 self.updateProjectWindowTitle(controller)
                 self.saveApplicationState()
             } catch {
-                let alert = NSAlert()
-                alert.messageText = "Failed to Create Project"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .critical
-                alert.addButton(withTitle: "OK")
                 if let window = NSApp.keyWindow {
-                    await alert.beginSheetModal(for: window)
+                    await FailurePresenter.alert(for: WelcomeFailureReports.createProject(error)).beginSheetModal(for: window)
                 }
             }
         }
@@ -307,7 +302,7 @@ extension AppDelegate {
             let manifest = try BundleManifest.load(from: bundleURL)
             existingTrack = VCFBundleVariantImport.existingTrack(forVCFURL: vcfURL, in: manifest)
         } catch {
-            showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+            showFailure(AppFailureReports.readBundleForVCFImport(error), presentingWindow: window)
             return
         }
         guard let existingTrack else {

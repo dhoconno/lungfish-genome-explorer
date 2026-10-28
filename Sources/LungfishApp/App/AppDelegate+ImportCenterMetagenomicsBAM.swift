@@ -90,7 +90,7 @@ extension AppDelegate {
             outputDir = try ClassifierResultImportCLIRoute.destination(projectURL: projectURL)
         } catch {
             onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
-            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
+            showFailure(AppFailureReports.prepareAnalysesFolder(error), presentingWindow: targetController?.window)
             return
         }
 
@@ -174,7 +174,7 @@ extension AppDelegate {
                         debugLog("performBAMImport: Bundle reloaded with alignment track (\(run.message ?? ""))")
                     } catch {
                         debugLog("performBAMImport: Bundle reload failed: \(error)")
-                        self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
+                        self?.showFailure(AppFailureReports.showImportedAlignments(error))
                     }
                 } catch is CancellationError {
                     // The runner acknowledged the cancel on the row.
@@ -182,7 +182,7 @@ extension AppDelegate {
                 } catch {
                     guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                     debugLog("performBAMImport: Failed: \(error)")
-                    self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
+                    self?.showFailure(AppFailureReports.importBAMFile(error))
                 }
             }
         }

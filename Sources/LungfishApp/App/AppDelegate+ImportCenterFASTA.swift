@@ -55,7 +55,7 @@ extension AppDelegate {
         do {
             _ = try ReferenceSequenceFolder.ensureFolder(in: projectURL)
         } catch {
-            showAlert(title: "Import Failed", message: "Could not prepare Reference Sequences folder: \(error.localizedDescription)")
+            showFailure(AppFailureReports.prepareReferenceSequencesFolder(error))
             return
         }
 
@@ -91,7 +91,7 @@ extension AppDelegate {
                     try await CLIBundleBuildRunner.launch(arguments: arguments, operationID: id)
                 })
                 guard let error = outcome.error else { return }
-                self?.showAlert(title: "Reference Import Failed", message: error.localizedDescription)
+                self?.showFailure(AppFailureReports.importReferenceSequence(error))
             }
         }
     }
