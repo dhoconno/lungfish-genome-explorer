@@ -248,7 +248,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
     /// shows afterwards. The closure hops to the main queue, so each step waits for its log line.
     func testEachEventLandsOnTheRowTheWayTheLauncherHandlesIt() async throws {
         let id = beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
 
         handle(.start(message: "Starting LoFreq variant calling"))
@@ -311,7 +311,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
             let lines = try capturedRun(asVersion1: oldCLI)
             let completion = try completion(of: lines)
             let id = beginRow()
-            defer { OperationCenter.shared.clearItem(id: id) }
+            defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
             let result = try await CLIVariantCallingRunner(cliURLOverride: try standInCLI(printing: lines))
                 .run(arguments: [], onEvent: InspectorViewController.variantCallingEventHandler(operationID: id))
@@ -349,7 +349,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
     /// back to 0.10. A message that repeats is logged once, by the bridge alone (Phase 2.10 lane U32).
     func testTheBarHoldsAtTheTopOfItsRangeWhenTheImportRestartsAndARepeatedMessageIsLoggedOnce() async throws {
         let id = beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
 
         handle(.progress(fraction: 0.92, message: "Indexing compressed VCF"))
@@ -373,7 +373,7 @@ final class InspectorVariantWorkflowOperationTests: XCTestCase {
     /// A warning logged during the run reads Completed with Warnings, as it does for every runner.
     func testAWarningLoggedDuringTheRunReadsCompletedWithWarnings() async throws {
         let id = beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
         let handle = InspectorViewController.variantCallingEventHandler(operationID: id)
 
         handle(.start(message: "Starting LoFreq variant calling"))

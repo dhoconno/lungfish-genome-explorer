@@ -2,10 +2,20 @@ import AppKit
 import XCTest
 import LungfishCore
 @testable import LungfishApp
+import LungfishKit
 @testable import LungfishOperations
 
 @MainActor
 final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
+    /// The termination tests reach the project task path only when no operation is running, since
+    /// `applicationShouldTerminate` asks to confirm first otherwise and its sheet waits for a click. A process that
+    /// runs every class of the bundle (the full tier) carries a row an earlier test left Running. Fail at once and
+    /// name the rows.
+    override func setUp() async throws {
+        try await super.setUp()
+        try OperationCenter.shared.requireNoActiveOperationsForTest()
+    }
+
     func testClosingLastProjectWindowReleasesWriterLock() async throws {
         _ = NSApplication.shared
         DocumentManager.shared.closeActiveProject()

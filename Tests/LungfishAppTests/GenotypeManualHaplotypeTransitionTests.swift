@@ -12,12 +12,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
     /// that runs every class of the bundle (the full tier) once hung here that way. Fail at once and name the rows.
     override func setUp() async throws {
         try await super.setUp()
-        let running = OperationCenter.shared.activeItems.map { "\($0.title) (\($0.operationType), \($0.state.rawValue))" }
-        guard running.isEmpty else {
-            throw LeftoverOperationsError(description: "An earlier test left \(running.count) operation(s) running in "
-                + "OperationCenter.shared: \(running.joined(separator: ", ")). The quit and window-close warnings would wait "
-                + "for a click, so this class stops here. Finish the operation in the test that began it.")
-        }
+        try OperationCenter.shared.requireNoActiveOperationsForTest()
     }
 
     func testEveryAbandoningTransitionCanBeCancelledWithoutMutation() async {
@@ -929,10 +924,6 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         )
         XCTAssertEqual(replies, [true])
     }
-}
-
-private struct LeftoverOperationsError: Error, CustomStringConvertible {
-    let description: String
 }
 
 private actor AsyncManualHaplotypeDecisionGate {

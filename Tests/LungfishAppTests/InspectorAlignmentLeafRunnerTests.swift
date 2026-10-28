@@ -53,7 +53,7 @@ final class InspectorAlignmentLeafRunnerTests: XCTestCase {
             StandInAlignmentCLI.line(#"{"event":"complete","output":"/tmp/out.lungfishref","outputs":["/tmp/out.lungfishref"],"message":"Created out.lungfishref."}"#),
         ].joined(separator: "\n"))
         let id = try beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
         let outcome = await withCheckedContinuation { continuation in
             InspectorViewController.runAlignmentLeafThroughCLI(
@@ -83,7 +83,7 @@ final class InspectorAlignmentLeafRunnerTests: XCTestCase {
             "exit 3",
         ].joined(separator: "\n"))
         let id = try beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
         let outcome = await withCheckedContinuation { continuation in
             InspectorViewController.runAlignmentLeafThroughCLI(
@@ -102,7 +102,7 @@ final class InspectorAlignmentLeafRunnerTests: XCTestCase {
     func testTheRowsCancelEndsTheRowCancelledAndResetsTheCaller() async throws {
         let stand = try StandInAlignmentCLI.make(in: root, body: "exec sleep 120")
         let id = try beginRow()
-        defer { OperationCenter.shared.clearItem(id: id) }
+        defer { OperationCenter.shared.finishAndClearForTest(id: id) }
 
         InspectorViewController.runAlignmentLeafThroughCLI(
             arguments: arguments,
