@@ -312,7 +312,7 @@ public final class BAMImportService: @unchecked Sendable {
 
         progressHandler?(1.0, "Import complete.")
         let sortedNote = wasSorted ? " (sorted)" : ""
-        importLogger.info("BAM import complete\(sortedNote): \(mappedReads) mapped reads, \(sampleNames.count) samples, \(String(format: "%.1f", duration))s")
+        importLogger.info("BAM import complete\(sortedNote): \(mappedReads) mapped \(readCounts.areReads ? "reads" : "alignments"), \(sampleNames.count) samples, \(String(format: "%.1f", duration))s")
 
         return ImportResult(
             trackInfo: trackInfo,
@@ -324,15 +324,19 @@ public final class BAMImportService: @unchecked Sendable {
         )
     }
 
-    /// The counts a track publishes in its manifest entry and its stats database: reads, from flagstat's primary lines. A
-    /// database without them (flagstat before samtools 1.9) publishes the idxstats sums, which count supplementary records
-    /// too. Call it after the database holds the flagstat.
+    /// The counts a track publishes in its manifest entry and its stats database: reads, from flagstat's primary lines, and
+    /// then `areReads` is true. A database without them (flagstat before samtools 1.9) publishes the idxstats sums, which
+    /// count supplementary records too, and then `areReads` is false and a reader that shows them calls them alignments.
+    /// Call it after the database holds the flagstat.
     static func publishedReadCounts(
         from metadataDB: AlignmentMetadataDatabase
     ) -> (mapped: Int64, unmapped: Int64, total: Int64, areReads: Bool) {
-        let reads = metadataDB.primaryReadCounts()
-            ?? (mapped: metadataDB.totalMappedReads(), unmapped: metadataDB.totalUnmappedReads())
-        return (reads.mapped, reads.unmapped, reads.mapped + reads.unmapped, true)
+        if let reads = metadataDB.primaryReadCounts() {
+            return (reads.mapped, reads.unmapped, reads.mapped + reads.unmapped, true)
+        }
+        let mapped = metadataDB.totalMappedReads()
+        let unmapped = metadataDB.totalUnmappedReads()
+        return (mapped, unmapped, mapped + unmapped, false)
     }
 
     // MARK: - Helpers

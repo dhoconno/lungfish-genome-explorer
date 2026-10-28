@@ -493,15 +493,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.toolTip = nil
         MappingReferenceCountText.apply(to: referenceCountLabel, result: currentInput?.kind == .mappingResult ? currentResult : nil)
-        if let visibleAlignmentSummaryOverride {
-            let pct = visibleAlignmentSummaryOverride.totalReads > 0
-                ? String(
-                    format: "%.1f%%",
-                    Double(visibleAlignmentSummaryOverride.mappedReads)
-                        / Double(visibleAlignmentSummaryOverride.totalReads) * 100
-                )
-                : "—"
-            summaryLabel.stringValue = withSummaryWarning("\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))")
+        if let summary = visibleAlignmentSummaryOverride {
+            summaryLabel.stringValue = withSummaryWarning(Self.alignmentSummaryText(
+                track: summary.trackName, mapped: summary.mappedReads, total: summary.totalReads, areReads: summary.countsAreReads
+            ))
             return
         }
 
@@ -1316,7 +1311,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                     self.applyOriginalMappingRows(preferredSelectionName: preferred)
                 } else if track.metadataDBPath != nil {
                     self.alignmentTrackSummaryProgress = track.name
-                    self.applyVisibleAlignmentRows([], track: track, mappedReads: stats.mappedReads, totalReads: stats.totalReads, preferredSelectionName: preferred)
+                    self.applyVisibleAlignmentRows([], track: track, mappedReads: stats.mappedReads, totalReads: stats.totalReads, countsAreReads: stats.countsAreReads, preferredSelectionName: preferred)
                 }
             }
             do {
@@ -1340,7 +1335,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 self.alignmentTrackSummaryProgress = nil
                 self.applyVisibleAlignmentRows(
                     sampleSummaries, track: track, mappedReads: stats.mappedReads,
-                    totalReads: stats.totalReads, preferredSelectionName: preferredSelectionName
+                    totalReads: stats.totalReads, countsAreReads: stats.countsAreReads, preferredSelectionName: preferredSelectionName
                 )
                 self.finishMappingRowsRefresh()
             } catch {
@@ -1357,6 +1352,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         track: AlignmentTrackInfo,
         mappedReads: Int,
         totalReads: Int,
+        countsAreReads: Bool,
         preferredSelectionName: String?
     ) {
         let filteredSummaries = sampleSummaries.flatMap { sample in
@@ -1377,12 +1373,12 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             }
         }
         let computedMappedReads = filteredSummaries.reduce(0) { $0 + $1.mappedReads }
-        let displayMappedReads = mappedReads > 0 ? mappedReads : computedMappedReads
-        let displayTotalReads = totalReads > 0 ? totalReads : displayMappedReads
+        // A total of 0 is none measured and stays 0, since showing the mapped count as the total printed 100%.
         visibleAlignmentSummaryOverride = VisibleAlignmentSummary(
             trackName: track.name,
-            mappedReads: displayMappedReads,
-            totalReads: displayTotalReads
+            mappedReads: mappedReads > 0 ? mappedReads : computedMappedReads,
+            totalReads: totalReads,
+            countsAreReads: countsAreReads || totalReads <= 0
         )
         updateSummaryBar()
         configureMappingContigRows(filteredSummaries)
@@ -1607,6 +1603,7 @@ private struct VisibleAlignmentSummary: Equatable {
     let trackName: String
     let mappedReads: Int
     let totalReads: Int
+    let countsAreReads: Bool
 }
 
 extension ReferenceBundleViewportController {

@@ -16,8 +16,12 @@ struct AlignmentTrackStatsSnapshot: Sendable {
     /// Primary reads that mapped and all primary reads, which flagstat's
     /// `primary mapped` and `primary` lines count. The `mapped` and `total`
     /// lines and idxstats count supplementary records too, so they read high.
+    /// `countsAreReads` is false for those alignment records and for the manifest's
+    /// counts, which a bundle from before the primary lines wrote from idxstats.
+    /// A total of 0 means that none was measured.
     let mappedReads: Int
     let totalReads: Int
+    let countsAreReads: Bool
     /// Each canonical sample with its read groups, then any unmatched read
     /// groups as a sample with no identity.
     let sampleReadGroups: [(sampleID: String?, readGroupIDs: Set<String>)]
@@ -59,12 +63,13 @@ struct AlignmentTrackStatsSnapshot: Sendable {
             return AlignmentTrackStatsSnapshot(
                 mappedReads: manifestMapped,
                 totalReads: manifestTotal,
+                countsAreReads: false,
                 sampleReadGroups: [(nil, [])],
                 sampleCoversWholeBAM: false,
                 importedFromPath: nil
             )
         }
-        let counts = readCounts(in: database) ?? (manifestMapped, manifestTotal)
+        let counts = readCounts(in: database) ?? (manifestMapped, manifestTotal, false)
         let explicitSampleID = track.sampleNames.count == 1 ? track.sampleNames[0] : nil
         let resolution = try? BAMSampleIdentityResolver.resolve(
             readGroups: database.readGroups(),
@@ -86,6 +91,7 @@ struct AlignmentTrackStatsSnapshot: Sendable {
         return AlignmentTrackStatsSnapshot(
             mappedReads: counts.mapped,
             totalReads: counts.total,
+            countsAreReads: counts.areReads,
             sampleReadGroups: samples,
             sampleCoversWholeBAM: samples.count == 1 && samples[0].sampleID != nil
                 && resolution?.unmatchedReadGroupIDs.isEmpty == true,
@@ -93,17 +99,17 @@ struct AlignmentTrackStatsSnapshot: Sendable {
         )
     }
 
-    /// The reads of the database, from `primaryReadCounts()`. A flagstat that predates the
-    /// primary lines (samtools before 1.9) gives its `mapped` and `total` record
+    /// The counts of the database, reads from `primaryReadCounts()` and then `areReads` is true. A flagstat
+    /// that predates the primary lines (samtools before 1.9) gives its `mapped` and `total` record
     /// counts, as the mapping record's own parse does, and a database without
-    /// flagstat gives its per-sequence totals, which are record counts too. `nil` sends
-    /// the caller to the counts the manifest declares.
-    private static func readCounts(in database: AlignmentMetadataDatabase) -> (mapped: Int, total: Int)? {
+    /// flagstat gives its per-sequence totals, which are record counts too, and then `areReads` is
+    /// false. `nil` sends the caller to the counts the manifest declares.
+    private static func readCounts(in database: AlignmentMetadataDatabase) -> (mapped: Int, total: Int, areReads: Bool)? {
         if let reads = database.primaryReadCounts() {
-            return (Int(clamping: reads.mapped), Int(clamping: reads.mapped + reads.unmapped))
+            return (Int(clamping: reads.mapped), Int(clamping: reads.mapped + reads.unmapped), true)
         }
         if let counts = flagStatCounts(database.flagStats(), mapped: "mapped", total: "total") {
-            return counts
+            return (counts.mapped, counts.total, false)
         }
         let databaseMapped = database.totalMappedReads()
         let databaseUnmapped = database.totalUnmappedReads()
@@ -114,7 +120,7 @@ struct AlignmentTrackStatsSnapshot: Sendable {
               databaseTotal.partialValue > 0 else {
             return nil
         }
-        return (Int(clamping: databaseMapped), Int(clamping: databaseTotal.partialValue))
+        return (Int(clamping: databaseMapped), Int(clamping: databaseTotal.partialValue), false)
     }
 
     private static func flagStatCounts(
@@ -154,6 +160,18 @@ extension ReferenceBundleViewportController {
         var seen = Set<String>()
         let tracks = failures.map(\.track).filter { seen.insert($0).inserted }
         return "Could not measure the alignment statistics for \(tracks.joined(separator: ", ")). Open the mapping again to try once more, or run the mapping again if it keeps failing. Reason: \(first.reason)"
+    }
+
+    /// The summary bar line for the alignment track on show. The counts are reads or alignment records, and the line
+    /// says which. Without a total a percentage would be one nobody measured, so the line gives none, says that the
+    /// total is unknown and says what to try.
+    static func alignmentSummaryText(track: String, mapped: Int, total: Int, areReads: Bool) -> String {
+        let unit = areReads ? "reads" : "alignments"
+        guard total > 0 else {
+            return "\(track) — \(mapped.formatted()) \(unit) mapped, total unknown so no percentage. Run the mapping or import the alignment again to count its reads."
+        }
+        let percent = String(format: "%.1f%%", Double(mapped) / Double(total) * 100)
+        return "\(track) — \(mapped.formatted()) / \(total.formatted()) \(unit) mapped (\(percent))"
     }
 
     /// The summary line with the words of an alignment summary build after it. The words of a build that

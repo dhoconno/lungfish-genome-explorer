@@ -72,7 +72,7 @@ final class MappingViewportLegacyReadCountTests: XCTestCase {
 
         await fulfillment(of: [builderCalled], timeout: 5)
         await waitUntil {
-            controller.testSummaryText == "Legacy minimap2 — 25 / 5,633,919 reads mapped (0.0%)"
+            controller.testSummaryText == "Legacy minimap2 — 25 / 5,633,919 alignments mapped (0.0%)"
         }
         let firstSegment = try XCTUnwrap(
             controller.testContigTableView.displayedRows.first { $0.contigName == "segment-1" }

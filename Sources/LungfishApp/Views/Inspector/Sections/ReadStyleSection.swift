@@ -168,6 +168,8 @@ public final class ReadStyleSectionViewModel {
 
     /// Total unmapped reads.
     public var totalUnmappedReads: Int64 = 0
+    /// The totals by kind of count, reads or alignment records (`ReadTotalsByKind`).
+    var totalsByKind = ReadTotalsByKind()
 
     /// Per-chromosome read statistics.
     public var chromosomeStats: [ChromosomeReadStat] = []
@@ -393,8 +395,7 @@ public final class ReadStyleSectionViewModel {
         coverageScaleMode = .default
         hasAlignmentTracks = false
         hasVariantCallableAlignmentTracks = false
-        totalMappedReads = 0
-        totalUnmappedReads = 0
+        (totalMappedReads, totalUnmappedReads, totalsByKind) = (0, 0, ReadTotalsByKind())
         chromosomeStats = []
         flagStats = []
         readGroups = []
@@ -492,8 +493,7 @@ public final class ReadStyleSectionViewModel {
             }
         )
 
-        var aggMapped: Int64 = 0
-        var aggUnmapped: Int64 = 0
+        var kinds = ReadTotalsByKind()
         var chromStatsList: [ChromosomeReadStat] = []
         var flagStatsList: [FlagStatEntry] = []
         var readGroupList: [ReadGroupEntry] = []
@@ -533,13 +533,12 @@ public final class ReadStyleSectionViewModel {
         for (trackId, db) in databases {
             let countsTowardTotals = countedTrackIDs.contains(trackId)
 
-            // Chromosome stats. The totals count reads, so a track whose flagstat has the primary lines adds those. Its per-sequence
-            // rows count each supplementary alignment again and give the totals of a database without the lines.
+            // Chromosome stats. A track whose flagstat has the primary lines adds reads to the totals. Its per-sequence rows
+            // count each supplementary alignment again, so a database without the lines adds them as alignments, apart.
             let reads = countsTowardTotals ? db.primaryReadCounts() : nil
-            aggMapped += reads?.mapped ?? 0
-            aggUnmapped += reads?.unmapped ?? 0
-            for stat in db.chromosomeStats() where countsTowardTotals {
-                if reads == nil { aggMapped += stat.mappedReads; aggUnmapped += stat.unmappedReads }
+            let chromosomes = countsTowardTotals ? db.chromosomeStats() : []
+            kinds.add(reads: reads, alignments: chromosomes.map { (mapped: $0.mappedReads, unmapped: $0.unmappedReads) })
+            for stat in chromosomes {
                 chromStatsList.append(ChromosomeReadStat(
                     chromosome: stat.chromosome, length: stat.length, mappedReads: stat.mappedReads, unmappedReads: stat.unmappedReads
                 ))
@@ -593,8 +592,7 @@ public final class ReadStyleSectionViewModel {
             }
         }
 
-        totalMappedReads = aggMapped
-        totalUnmappedReads = aggUnmapped
+        (totalMappedReads, totalUnmappedReads, totalsByKind) = (kinds.shownMapped, kinds.shownUnmapped, kinds)
         chromosomeStats = chromStatsList
         flagStats = flagStatsList
         readGroups = readGroupList
@@ -1259,13 +1257,15 @@ public struct AlignmentBundleSection: View {
 
             Divider()
 
-            statRow("Total Mapped", value: formatCount(viewModel.totalMappedReads))
-            statRow("Total Unmapped", value: formatCount(viewModel.totalUnmappedReads))
+            statRow(viewModel.totalMappedLabel, value: formatCount(viewModel.totalMappedReads))
+            statRow(viewModel.totalUnmappedLabel, value: formatCount(viewModel.totalUnmappedReads))
+            ForEach(viewModel.alignmentOnlyRows) { statRow($0.label, value: formatCount($0.value)) }
+            if let note = viewModel.alignmentCountsNote {
+                Text(note).font(LungfishInspectorStyle.controlFont).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
 
-            if viewModel.totalMappedReads + viewModel.totalUnmappedReads > 0 {
-                let total = viewModel.totalMappedReads + viewModel.totalUnmappedReads
-                let pct = Double(viewModel.totalMappedReads) / Double(total) * 100
-                statRow("Mapped %", value: String(format: "%.1f%%", pct))
+            if let pct = viewModel.mappedPercent {
+                statRow(viewModel.mappedPercentLabel, value: String(format: "%.1f%%", pct))
 
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {

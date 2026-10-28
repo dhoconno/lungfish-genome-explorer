@@ -688,7 +688,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         }
         XCTAssertEqual(vc.testContigTableView.record(at: 0)?.mappedReads, 4)
         XCTAssertEqual(vc.testContigTableView.record(at: 0)?.meanDepth, 7.5)
-        XCTAssertEqual(vc.testSummaryText, "Exact matches — 4 / 4 reads mapped (100.0%)")
+        XCTAssertEqual(vc.testSummaryText, "Exact matches — 4 / 4 alignments mapped (100.0%)")
 
         vc.applyEmbeddedReadDisplaySettings([
             NotificationUserInfoKey.visibleAlignmentTrackID: ""
@@ -830,7 +830,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         vc.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"])
         try await waitUntil(timeout: 30) {
-            vc.testSummaryText == "Exact matches — 4 / 4 reads mapped (100.0%)"
+            vc.testSummaryText == "Exact matches — 4 / 4 alignments mapped (100.0%)"
         }
 
         let expected = try XCTUnwrap(
