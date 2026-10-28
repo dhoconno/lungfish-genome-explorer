@@ -302,7 +302,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             .bcftools,
             arguments: reheaderArguments,
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let reheaderCompletedAt = reheaderClock.now
         provenanceSteps.append(
@@ -340,7 +340,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             .bcftools,
             arguments: sortArguments,
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let sortCompletedAt = sortClock.now
         provenanceSteps.append(
@@ -441,7 +441,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             .tabix,
             arguments: tabixArguments,
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let tabixCompletedAt = tabixClock.now
         provenanceSteps.append(
@@ -618,7 +618,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             .bcftools,
             arguments: arguments,
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let completedAt = filterClock.now
         guard result.isSuccess else {
@@ -774,7 +774,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     .lofreq,
                     arguments: indelqualArguments,
                     workingDirectory: plan.workingDirectory,
-                    timeout: 3600
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 let indelqualCompletedAt = indelqualClock.now
                 guard indelqualResult.isSuccess else {
@@ -804,7 +804,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     .lofreq,
                     arguments: indexArguments,
                     workingDirectory: plan.workingDirectory,
-                    timeout: 600
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 let indexCompletedAt = indexClock.now
                 guard indexResult.isSuccess else {
@@ -830,7 +830,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     .lofreq,
                     arguments: callArguments,
                     workingDirectory: plan.workingDirectory,
-                    timeout: 3600
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 let callCompletedAt = callClock.now
                 guard callResult.isSuccess else {
@@ -869,7 +869,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 .lofreq,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let completedAt = lofreqClock.now
             guard result.isSuccess else {
@@ -910,7 +910,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     NativePipelineStage(.ivar, arguments: variantArguments),
                 ],
                 workingDirectory: plan.workingDirectory,
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let completedAt = ivarClock.now
             guard result.isSuccess else {
@@ -1022,7 +1022,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     NativePipelineStage(.bcftools, arguments: callArguments),
                 ],
                 workingDirectory: plan.workingDirectory,
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let completedAt = bcftoolsClock.now
             let mpileupStep = VariantCallingProvenanceStep(
@@ -1075,7 +1075,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let completedAt = medakaClock.now
             let step = VariantCallingProvenanceStep(
@@ -1107,7 +1107,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 tool,
                 arguments: arguments,
                 workingDirectory: plan.workingDirectory,
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let completedAt = clair3Clock.now
             let step = VariantCallingProvenanceStep(
@@ -1191,7 +1191,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             arguments: ["reheader", rewrittenHeaderURL.path, preflight.alignmentURL.path],
             outputFile: plan.alignmentURL,
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let reheaderCompletedAt = headerRewriteClock.now
         guard reheaderResult.isSuccess else {
@@ -1203,7 +1203,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             .samtools,
             arguments: ["index", plan.alignmentURL.path],
             workingDirectory: plan.workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let indexCompletedAt = headerRewriteClock.now
         guard indexResult.isSuccess else {

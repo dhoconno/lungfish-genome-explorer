@@ -48,6 +48,49 @@ final class ToolTimeLimitTests: XCTestCase {
         XCTAssertEqual(limits, [.seconds(42)], "a caller that sets a limit keeps it")
     }
 
+    // MARK: - The limit a person sets
+
+    func testTheLimitOfARunReachesItsTasksAndEndsWithIt() async {
+        XCTAssertNil(AnalysisTimeLimit.current)
+        XCTAssertEqual(AnalysisTimeLimit.launchTimeout, .infinity, "a run no command scoped has no limit")
+        await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 90)) {
+            XCTAssertEqual(AnalysisTimeLimit.launchTimeout, 5_400)
+            let child = await Task { AnalysisTimeLimit.launchTimeout }.value
+            XCTAssertEqual(child, 5_400, "a task the run starts reads the limit of the run")
+            await AnalysisTimeLimit.withLimit(nil) {
+                XCTAssertEqual(AnalysisTimeLimit.launchTimeout, .infinity, "a run scoped to no limit has none")
+            }
+        }
+        XCTAssertEqual(AnalysisTimeLimit.launchTimeout, .infinity, "the limit ends with the run")
+    }
+
+    func testOnlyAWholeNumberOfMinutesIsALimit() {
+        XCTAssertNil(AnalysisTimeLimit(minutes: 0))
+        XCTAssertNil(AnalysisTimeLimit(minutes: -5))
+        XCTAssertNil(AnalysisTimeLimit(minutes: AnalysisTimeLimit.maximumMinutes + 1))
+        XCTAssertEqual(AnalysisTimeLimit(minutes: 1)?.seconds, 60)
+        XCTAssertEqual(AnalysisTimeLimit(minutes: AnalysisTimeLimit.maximumMinutes)?.minutes, AnalysisTimeLimit.maximumMinutes)
+    }
+
+    func testALaunchOfALimitedRunCarriesTheLimitAndAnUnlimitedRunCarriesNone() async throws {
+        let (manager, sandbox) = try await makeScriptedManager()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let limited = try await limitsOfLaunches {
+            try await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 90)) {
+                _ = try await manager.runTool(name: "analysis-tool", environment: "analysis-env",
+                                              timeout: AnalysisTimeLimit.launchTimeout)
+            }
+        }
+        let unlimited = try await limitsOfLaunches {
+            _ = try await manager.runTool(name: "analysis-tool", environment: "analysis-env",
+                                          timeout: AnalysisTimeLimit.launchTimeout)
+        }
+
+        XCTAssertEqual(limited, [.seconds(5_400)], "a run under --time-limit 90 stops its launches after 90 minutes")
+        XCTAssertEqual(unlimited, [nil], "a run with no --time-limit carries no wall-clock limit")
+    }
+
     // MARK: - Other analysis defaults
 
     func testGATKRunnersHaveNoWallClockLimitByDefault() {
@@ -133,6 +176,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift", helper: 1, fixed: 2, "header read, reheader and index"),
         entry("LungfishWorkflow/Alignment/BundleAlignmentFilterService.swift", fixed: 4, "samtools view, sort, index, count"),
         entry("LungfishWorkflow/Alignment/Minimap2Pipeline.swift", fixed: 3, "minimap2 scaled limit, samtools index and stats"),
+        entry("LungfishWorkflow/AnalysisRun/AnalysisTimeLimit.swift", helper: 1, "the carrier reads the limit of the run and sets none"),
         entry("LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift", helper: 1, "install step"),
         entry("LungfishWorkflow/Conda/ManagedToolLock.swift", helper: 11, "smoke probes"),
         entry("LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift", helper: 2, "runtime probe and install step"),
@@ -254,7 +298,7 @@ final class ToolTimeLimitTests: XCTestCase {
                                     file: StaticString = #filePath, line: UInt = #line) {
         guard let words else { return XCTFail("the error has no words", file: file, line: line) }
         XCTAssertTrue(words.hasPrefix("\(subject) was stopped after \(duration) by its time limit."), words, file: file, line: line)
-        XCTAssertTrue(words.hasSuffix("No setting changes this limit yet. Try a smaller input, or report it so the limit can be lifted."), words, file: file, line: line)
+        XCTAssertTrue(words.hasSuffix("If you started the run with --time-limit, run it again without that option or with a longer time. Otherwise report this so the limit can be lifted."), words, file: file, line: line)
     }
 
     /// The wall-clock limit of each launch that `call` makes, in launch order, nil for none.

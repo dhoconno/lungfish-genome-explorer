@@ -41,6 +41,7 @@ extension ClassifyCommand {
         if recursive { arguments.append("--recursive") }
         if memoryMapping { arguments.append("--memory-mapping") }
         if quickMode { arguments.append("--quick") }
+        arguments += timeLimit.argumentWords
         if !extraArgs.isEmpty { arguments += ["--extra-args", extraArgs] }
         if profile { arguments.append("--profile") }
         if profile || brackenReadLength != bracken.readLength { arguments += ["--bracken-read-length", String(brackenReadLength)] }

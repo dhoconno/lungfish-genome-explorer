@@ -109,7 +109,7 @@ final class NativeToolTimeLimitTests: XCTestCase {
             return XCTFail("the error has no words")
         }
         XCTAssertTrue(words.hasPrefix("Tool 'clumpify' was stopped after 5 minutes by its time limit."), words)
-        XCTAssertTrue(words.hasSuffix("No setting changes this limit yet. Try a smaller input, or report it so the limit can be lifted."), words)
+        XCTAssertTrue(words.hasSuffix("If you started the run with --time-limit, run it again without that option or with a longer time. Otherwise report this so the limit can be lifted."), words)
     }
 
     // MARK: - Helpers

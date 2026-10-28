@@ -576,7 +576,7 @@ public actor ClassificationPipeline {
                 name: "kraken2",
                 arguments: kraken2Args,
                 environment: Self.kraken2Environment,
-                timeout: 7200, // 2 hour timeout for large datasets
+                timeout: AnalysisTimeLimit.launchTimeout,
                 stderrHandler: kraken2StderrHandler,
                 observer: kraken2Launch.observer
             )
@@ -1749,7 +1749,7 @@ public actor ClassificationPipeline {
                 arguments: brackenArgs,
                 environment: Self.brackenEnvironment,
                 workingDirectory: staging.scratchDirectory,
-                timeout: 3600,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 observer: brackenLaunch.observer
             )
         } catch is CancellationError {

@@ -11,7 +11,7 @@ extension MappingProvenance {
     /// writes it to the resolved defaults, its one home (E13). A copy here would be found a second
     /// time, at the nested run's parameters.
     func canonicalParameters() -> [String: ParameterValue] {
-        [
+        var parameters: [String: ParameterValue] = [
             "mapper": .string(mapper.rawValue),
             "modeID": .string(modeID),
             "sampleName": .string(sampleName),
@@ -25,5 +25,9 @@ extension MappingProvenance {
             "mapperRuntime": .string(runtimeIdentity["mapper"] ?? ""),
             "samtoolsRuntime": .string(runtimeIdentity["samtools"] ?? "")
         ]
+        if let limit = AnalysisTimeLimit.current {
+            parameters[AnalysisTimeLimit.recordKey] = .integer(limit.minutes)
+        }
+        return parameters
     }
 }

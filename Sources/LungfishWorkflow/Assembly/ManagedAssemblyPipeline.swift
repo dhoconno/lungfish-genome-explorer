@@ -158,7 +158,7 @@ public struct ManagedAssemblyPipeline: Sendable {
                 arguments: command.arguments,
                 environment: command.environment,
                 workingDirectory: command.workingDirectory,
-                timeout: 24 * 3600,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 stdoutHandler: receiveOutput,
                 stderrHandler: receiveOutput
             )

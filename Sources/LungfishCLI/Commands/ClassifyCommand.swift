@@ -115,6 +115,8 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Flag(name: .customLong("quick"), help: "Use Kraken2 quick mode")
     var quickMode: Bool = false
 
+    @OptionGroup var timeLimit: TimeLimitOptions
+
     @Option(name: .customLong("bracken-read-length"), help: "Read length for Bracken -r flag")
     var brackenReadLength: Int = 150
 
@@ -165,6 +167,10 @@ struct ClassifyCommand: AsyncParsableCommand {
     /// runs in the test's process with a stand-in kraken2, as `esviritu detect` does through
     /// `execute(pipeline:materializer:installedDatabase:)`.
     func execute(adjustServices: (inout Kraken2RunServices) -> Void = { _ in }) async throws {
+        try await timeLimit.scope { try await executeRun(adjustServices: adjustServices) }
+    }
+
+    private func executeRun(adjustServices: (inout Kraken2RunServices) -> Void) async throws {
         let eventsOn = globalOptions.outputFormat == .json
         let useColors = globalOptions.useColors
         let quiet = globalOptions.quiet

@@ -208,7 +208,7 @@ public final class MAFFTAlignmentPipeline: @unchecked Sendable {
                 "TMPDIR": mafftTempDirectory.path,
                 "MAFFT_TMPDIR": mafftTempDirectory.path,
             ],
-            timeout: 24 * 3600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             stderrHandler: { line in
                 progress?(0.50, line)
             }

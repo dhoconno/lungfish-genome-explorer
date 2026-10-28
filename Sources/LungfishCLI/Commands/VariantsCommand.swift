@@ -88,7 +88,7 @@ struct VariantsCommand: AsyncParsableCommand {
                     arguments: command.arguments,
                     environment: command.environment,
                     workingDirectory: nil,
-                    timeout: 24 * 60 * 60
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 return PhaseToolResult(
                     stdout: result.stdout,

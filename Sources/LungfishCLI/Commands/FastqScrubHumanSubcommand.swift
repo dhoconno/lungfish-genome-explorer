@@ -384,7 +384,7 @@ private extension FastqScrubHumanSubcommand {
             .reformat,
             arguments: arguments,
             environment: env,
-            timeout: 1800
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let record = invocationRecord(
             tool: .reformat,
@@ -416,7 +416,7 @@ private extension FastqScrubHumanSubcommand {
             .reformat,
             arguments: arguments,
             environment: env,
-            timeout: 1800
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let record = invocationRecord(
             tool: .reformat,
@@ -452,7 +452,7 @@ private extension FastqScrubHumanSubcommand {
         let result = try await runner.run(
             .deacon,
             arguments: arguments,
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let record = invocationRecord(
             tool: .deacon,
@@ -492,7 +492,7 @@ private extension FastqScrubHumanSubcommand {
         let result = try await runner.run(
             .deacon,
             arguments: arguments,
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let record = invocationRecord(
             tool: .deacon,

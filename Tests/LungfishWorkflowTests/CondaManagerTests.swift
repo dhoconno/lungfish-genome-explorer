@@ -658,7 +658,7 @@ final class CondaManagerTests: XCTestCase {
         let error = CondaError.timeout(tool: "kraken2", seconds: 60)
         XCTAssertEqual(
             error.errorDescription,
-            "Tool 'kraken2' was stopped after 60 seconds by its time limit. No setting changes this limit yet. Try a smaller input, or report it so the limit can be lifted."
+            "Tool 'kraken2' was stopped after 60 seconds by its time limit. If you started the run with --time-limit, run it again without that option or with a longer time. Otherwise report this so the limit can be lifted."
         )
     }
 

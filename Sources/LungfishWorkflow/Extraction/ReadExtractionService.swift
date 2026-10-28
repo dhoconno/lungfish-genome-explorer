@@ -116,7 +116,7 @@ public actor ReadExtractionService {
             // headers like "@SRR123.456 description/1". The keepReadPairs logic is
             // handled upstream in buildReadIdSet by stripping /1 /2 suffixes.
 
-            let result = try await toolRunner.run(.seqkit, arguments: args, timeout: 7200)
+            let result = try await toolRunner.run(.seqkit, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
 
             guard result.isSuccess else {
                 throw ExtractionError.seqkitFailed(result.stderr)
@@ -214,7 +214,7 @@ public actor ReadExtractionService {
         }
         viewArgs += ["-o", filteredBAM.path, config.bamURL.path]
 
-        let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: 7200)
+        let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: AnalysisTimeLimit.launchTimeout)
         guard viewResult.isSuccess else {
             throw ExtractionError.samtoolsFailed(viewResult.stderr)
         }
@@ -259,7 +259,7 @@ public actor ReadExtractionService {
         let collateResult = try await toolRunner.run(
             .samtools,
             arguments: ["collate", "-o", collatedBAM.path, conversionInputBAM.path],
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard collateResult.isSuccess else {
             throw ExtractionError.samtoolsFailed(collateResult.stderr)
@@ -292,7 +292,7 @@ public actor ReadExtractionService {
                 "-o", outputURL.path,
                 collatedBAM.path,
             ],
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard convertResult.isSuccess else {
             throw ExtractionError.samtoolsFailed(convertResult.stderr)
@@ -356,7 +356,7 @@ public actor ReadExtractionService {
     /// unchanged; subsequent occurrences are suffixed `/sup` (supplementary,
     /// flag 0x800) or `/sec` (secondary, flag 0x100).
     private func disambiguateSecondaryRecordNames(inputBAM: URL, tempDir: URL) async throws -> URL {
-        let headerResult = try await toolRunner.run(.samtools, arguments: ["view", "-h", inputBAM.path], timeout: 7200)
+        let headerResult = try await toolRunner.run(.samtools, arguments: ["view", "-h", inputBAM.path], timeout: AnalysisTimeLimit.launchTimeout)
         guard headerResult.isSuccess else {
             throw ExtractionError.samtoolsFailed(headerResult.stderr)
         }
@@ -395,7 +395,7 @@ public actor ReadExtractionService {
         let convertResult = try await toolRunner.run(
             .samtools,
             arguments: ["view", "-b", "-o", renamedBAM.path, renamedSAM.path],
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard convertResult.isSuccess else {
             throw ExtractionError.samtoolsFailed(convertResult.stderr)
@@ -406,7 +406,7 @@ public actor ReadExtractionService {
 
     /// Counts alignment records in a BAM via `samtools view -c`.
     private func countBAMRecords(_ bamURL: URL) async throws -> Int {
-        let result = try await toolRunner.run(.samtools, arguments: ["view", "-c", bamURL.path], timeout: 600)
+        let result = try await toolRunner.run(.samtools, arguments: ["view", "-c", bamURL.path], timeout: AnalysisTimeLimit.launchTimeout)
         guard result.isSuccess else { return 0 }
         return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     }
@@ -515,7 +515,7 @@ public actor ReadExtractionService {
                 let dedupViewResult = try await toolRunner.run(
                     .samtools,
                     arguments: ["view", "-b", "-F", String(flagFilter), "-o", dedupBAM.path, config.bamURL.path],
-                    timeout: 7200
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 guard dedupViewResult.isSuccess else {
                     throw ExtractionError.samtoolsFailed(dedupViewResult.stderr)
@@ -553,7 +553,7 @@ public actor ReadExtractionService {
             let viewResult = try await toolRunner.run(
                 .samtools,
                 arguments: viewArgs,
-                timeout: 7200
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             guard viewResult.isSuccess else {
                 throw ExtractionError.samtoolsFailed(viewResult.stderr)
@@ -1066,7 +1066,7 @@ public actor ReadExtractionService {
                 // `samtools view -b -F <flagFilter>` already applied the caller's
                 // duplicate/QC filter, so this `-F` only controls the fastq step.
                 flagFilter: 0x900,
-                timeout: 7200,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 toolRunner: toolRunner
             )
         } catch BAMToFASTQConversionError.samtoolsFailed(let stderr) {
@@ -1084,7 +1084,7 @@ public actor ReadExtractionService {
         let result = try await toolRunner.run(
             .seqkit,
             arguments: ["stats", "-T", url.path],
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
 
         guard result.isSuccess else {

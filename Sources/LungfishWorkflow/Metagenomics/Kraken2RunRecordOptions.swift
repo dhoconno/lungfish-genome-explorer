@@ -113,6 +113,9 @@ public enum Kraken2RunRecordOptions {
             options["brackenThreshold"] = .integer(threshold)
         }
         if given(["--extra-args"]) { options["extraArguments"] = .array(config.extraArguments.map(ParameterValue.string)) }
+        if let minutes = argvOptionValue(argv, names: [AnalysisTimeLimit.optionName]).flatMap(Int.init) {
+            options[AnalysisTimeLimit.recordKey] = .integer(minutes)
+        }
         return options
     }
 
@@ -173,6 +176,9 @@ public enum Kraken2RunRecordOptions {
         }
         if let bracken, case .explicit(let rank) = bracken.rank {
             options["brackenExplicitRank"] = .string(rank.code)
+        }
+        if let minutes = argvOptionValue(argv, names: [AnalysisTimeLimit.optionName]).flatMap(Int.init) {
+            options[AnalysisTimeLimit.recordKey] = .integer(minutes)
         }
         return options
     }

@@ -81,7 +81,7 @@ extension FASTQDerivativeService {
                     "-O", outputR2.path,
                     "-t", "\(threads)",
                 ],
-                timeout: 7200,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 provenanceCollector: provenanceCollector
             )
             guard deaconResult.isSuccess else {
@@ -104,7 +104,7 @@ extension FASTQDerivativeService {
                     "-o", outputFASTQ.path,
                     "-t", "\(threads)",
                 ],
-                timeout: 7200,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 provenanceCollector: provenanceCollector
             )
             guard deaconResult.isSuccess else {

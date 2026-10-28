@@ -525,7 +525,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 arguments: ["index", "-p", locator.indexPrefixURL.path, locator.referenceURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
-                timeout: 24 * 3_600,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 toolVersion: mapperVersion,
                 inputs: [(locator.referenceURL, .fasta, .reference)],
                 outputs: { self.indexOutputFiles(prefixURL: locator.indexPrefixURL) }
@@ -550,7 +550,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 arguments: [locator.referenceURL.path, locator.indexPrefixURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
-                timeout: 24 * 3_600,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 toolVersion: mapperVersion,
                 inputs: [(locator.referenceURL, .fasta, .reference)],
                 outputs: { self.indexOutputFiles(prefixURL: locator.indexPrefixURL) }
@@ -581,7 +581,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 tool: nativeTool,
                 arguments: command.arguments,
                 workingDirectory: command.workingDirectory,
-                timeout: 24 * 3_600,
+                timeout: AnalysisTimeLimit.launchTimeout,
                 toolVersion: mapperVersion,
                 inputs: inputRecords.map { (URL(fileURLWithPath: $0.path), $0.format, $0.role) },
                 outputs: [(outputURL, fileFormat(for: outputURL), .output)]
@@ -610,7 +610,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 environment: environment,
                 workingDirectory: command.workingDirectory,
                 stdoutURL: outputURL,
-                timeout: 24 * 3_600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             let stepEnd = stepClock.now
             let step = StepExecution(
@@ -644,7 +644,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             arguments: command.arguments,
             environment: environment,
             workingDirectory: command.workingDirectory,
-            timeout: 24 * 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: mapperVersion,
             inputs: inputRecords.map { (URL(fileURLWithPath: $0.path), $0.format, $0.role) },
             outputs: { [(outputURL, self.fileFormat(for: outputURL), .output)] }
@@ -792,7 +792,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             tool: .samtools,
             arguments: arguments,
             workingDirectory: outputBAMURL.deletingLastPathComponent(),
-            timeout: 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: samtoolsVersion,
             inputs: [(inputURL, fileFormat(for: inputURL), .input)],
             outputs: [(outputBAMURL, .bam, .output)]
@@ -814,7 +814,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             tool: .samtools,
             arguments: ["sort", "-@", String(max(1, threads)), "-o", outputBAMURL.path, inputURL.path],
             workingDirectory: outputBAMURL.deletingLastPathComponent(),
-            timeout: 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: samtoolsVersion,
             inputs: [(inputURL, fileFormat(for: inputURL), .input)],
             outputs: [(outputBAMURL, .bam, .output)]
@@ -864,7 +864,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             tool: .samtools,
             arguments: ["index", bamURL.path],
             workingDirectory: bamURL.deletingLastPathComponent(),
-            timeout: 600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: samtoolsVersion,
             inputs: [(bamURL, .bam, .input)],
             outputs: [(indexURL, nil, .index)]
@@ -884,7 +884,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             tool: .samtools,
             arguments: ["flagstat", bamURL.path],
             workingDirectory: bamURL.deletingLastPathComponent(),
-            timeout: 300,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: samtoolsVersion,
             inputs: [(bamURL, .bam, .input)],
             outputs: []

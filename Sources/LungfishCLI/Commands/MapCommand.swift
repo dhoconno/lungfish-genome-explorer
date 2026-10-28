@@ -145,6 +145,8 @@ struct MapCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    @OptionGroup var timeLimit: TimeLimitOptions
+
     /// Maps so that SIGTERM cancels the run instead of ending this command (Phase 2.10, decision
     /// P2). The Map Reads route stops `lungfish-cli map` with SIGTERM and gives it
     /// `operationGrace`. Cancelling the task stops the mapper's tree through ToolProcess, the run
@@ -153,6 +155,10 @@ struct MapCommand: AsyncParsableCommand {
     /// second SIGTERM ends the command at once. With `--format json` a failed or cancelled run
     /// ends with one `failed` line (``MapRunReporter``).
     func run() async throws {
+        try await timeLimit.scope { try await runUnderLimit() }
+    }
+
+    private func runUnderLimit() async throws {
         let reporter = MapRunReporter(globalOptions: globalOptions)
         let pendingCancel = PendingTaskCancel<(any Error)?>()
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)

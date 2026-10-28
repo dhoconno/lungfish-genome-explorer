@@ -137,7 +137,7 @@ extension ManagedMappingPipeline {
             tool: .samtools,
             arguments: ["merge", "-c", "-p", "-f", "-@", String(max(1, threads)), "-o", outputURL.path] + inputURLs.map(\.path),
             workingDirectory: outputURL.deletingLastPathComponent(),
-            timeout: 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolVersion: samtoolsVersion,
             inputs: inputURLs.map { ($0, .bam, .input) },
             outputs: [(outputURL, .bam, .output)]
