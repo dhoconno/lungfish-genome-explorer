@@ -22,8 +22,8 @@ private let logger = Logger(
 /// (EsViritu / TaxTriage / NAO-MGS hand-rolled `extractByBAMRegion` callers,
 /// Kraken2 `TaxonomyExtractionSheet` wizard) so that:
 ///
-/// 1. A single samtools flag filter (`-F 0x404` by default) matches the
-///    `MarkdupService.countReads` "Unique Reads" figure shown in the UI.
+/// 1. A single samtools flag filter (`-F 0xD04` by default, mapped primary non-duplicate records) matches the
+///    Unique Reads that the import stores for each row, so a read is written once and the two numbers agree.
 /// 2. Changes to the extraction pipeline have exactly one place to land.
 /// 3. The CLI `--by-classifier` strategy and the GUI extraction dialog share
 ///    the same backend byte-for-byte (see `ClassifierCLIRoundTripTests`).
@@ -536,9 +536,9 @@ public actor ClassifierReadResolver {
             // stdout fallback, shared with ReadExtractionService. The flag
             // filter passed here MUST match the one used for both
             // `samtools view -c` (estimate) and `samtools view -b` (above), or
-            // the per-BAM read count will diverge from `MarkdupService.countReads`
-            // on any alignment containing secondary/supplementary records.
-            // This is spec invariant I4.
+            // the written count diverges from the table's Unique Reads on any
+            // alignment with secondary or supplementary records. A `-F` given to
+            // `fastq` replaces its 0x900 default, so 0xD04 does that work here. I4.
             let perSampleFASTQ = tempDir.appendingPathComponent("\(stem).fastq")
             do {
                 try await convertBAMToSingleFASTQ(

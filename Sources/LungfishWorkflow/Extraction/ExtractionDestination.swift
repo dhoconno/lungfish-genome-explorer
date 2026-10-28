@@ -126,10 +126,11 @@ public enum ExtractionOutcome: Sendable {
     /// `NSSharingServicePicker`.
     case share(URL, readCount: Int)
 
-    /// The number of reads the extraction produced.
+    /// The number of reads the extraction produced, each read once at its primary alignment.
     ///
-    /// Matches the `MarkdupService.countReads` "Unique Reads" figure whenever
-    /// the resolver was called with `includeUnmappedMates: false`.
+    /// Equals the "Unique Reads" figure of the table row (`samtools view -c -F 0xD04`, mapped primary records that
+    /// are not duplicates) and the estimate shown before the write, whenever the resolver was called with
+    /// `includeUnmappedMates: false`.
     public var readCount: Int {
         switch self {
         case .file(_, let n),
@@ -196,17 +197,19 @@ public struct ExtractionOptions: Sendable, Hashable {
         )
     }
 
-    /// The samtools `-F` exclude-flag mask.
+    /// The samtools `-F` exclude-flag mask, the one mask that the estimate (`view -c`), the subset (`view -b`) and
+    /// the FASTQ writer (`fastq`) all carry. A `-F` given to `samtools fastq` replaces its own `0x900` default, so
+    /// the mask names the secondary and supplementary records itself, and a read is written once, at its primary
+    /// alignment.
     ///
-    /// - `0x404` (default, `includeUnmappedMates == false`): excludes
-    ///   PCR/optical duplicates (`0x400`) AND unmapped reads (`0x004`).
-    ///   Matches the `MarkdupService.countReads` filter used to populate the
-    ///   "Unique Reads" column in classifier tables. This is the semantic the
-    ///   user expects: extracted count == displayed count.
-    /// - `0x400` (when `includeUnmappedMates == true`): excludes duplicates
-    ///   only, keeping unmapped mates of mapped pairs. Useful when the user
-    ///   wants both reads from a pair even if one didn't align.
+    /// - `0xD04` (default, `includeUnmappedMates == false`): excludes unmapped reads (`0x004`), secondary
+    ///   alignments (`0x100`), PCR/optical duplicates (`0x400`) and supplementary alignments (`0x800`). This is
+    ///   the mask that counts the "Unique Reads" column of the classifier tables at import, so the extracted
+    ///   count equals the displayed count.
+    /// - `0xD00` (when `includeUnmappedMates == true`): excludes secondary alignments, duplicates and
+    ///   supplementary alignments, keeping unmapped mates of mapped pairs. Useful when the user wants both
+    ///   reads from a pair even if one didn't align.
     public var samtoolsExcludeFlags: Int {
-        includeUnmappedMates ? 0x400 : 0x404
+        includeUnmappedMates ? 0xD00 : 0xD04
     }
 }

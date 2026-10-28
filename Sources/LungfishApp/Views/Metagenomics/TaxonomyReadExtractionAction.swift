@@ -695,7 +695,7 @@ public final class TaxonomyReadExtractionAction {
             defaults: [
                 "format": .string(CopyFormat.fastq.rawValue),
                 "includeUnmappedMates": .boolean(false),
-                "samtoolsExcludeFlags": .integer(0x404),
+                "samtoolsExcludeFlags": .integer(ExtractionOptions().samtoolsExcludeFlags),
                 "kraken2IncludeChildren": .boolean(true),
             ],
             resolved: resolvedOptions
