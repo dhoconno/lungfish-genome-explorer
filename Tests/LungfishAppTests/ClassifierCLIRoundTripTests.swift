@@ -256,7 +256,7 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
 
     /// Exercises the `--include-unmapped-mates` flag on a BAM-backed classifier
     /// (NVD) against the markers BAM. The markers fixture has three unmapped
-    /// records on top of the 199 strict-filtered reads, so the loose-mask
+    /// records on top of the 197 strict-filtered reads, so the loose-mask
     /// output must be STRICTLY larger than the strict-mask output. Without
     /// this test, a regression that drops the flag in the CLI path would only
     /// be caught by the I5 resolver-level invariant — this pins the CLI
@@ -269,7 +269,7 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: projectRoot) }
         let ref = try await ClassifierExtractionFixtures.sarscov2FirstReference()
 
-        // Strict: no --include-unmapped-mates, -F 0x404 dispatch
+        // Strict: no --include-unmapped-mates, -F 0xD04 dispatch
         let strictOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-ium-strict-\(UUID().uuidString).fastq")
         defer { try? FileManager.default.removeItem(at: strictOut) }
@@ -287,7 +287,7 @@ final class ClassifierCLIRoundTripTests: XCTestCase {
         try await strictCmd.run()
         let strictCount = try Self.countFASTQRecords(at: strictOut)
 
-        // Loose: --include-unmapped-mates, -F 0x400 dispatch
+        // Loose: --include-unmapped-mates, -F 0xD00 dispatch
         let looseOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-ium-loose-\(UUID().uuidString).fastq")
         defer { try? FileManager.default.removeItem(at: looseOut) }

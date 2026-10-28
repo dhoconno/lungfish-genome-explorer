@@ -204,7 +204,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         let unique = try MarkdupService.countReads(
             bamURL: bamURL,
             accession: region.isEmpty ? nil : region,
-            flagFilter: 0x404,
+            flagFilter: 0xD04,
             samtoolsPath: samtoolsPath
         )
 
@@ -219,7 +219,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         )
 
         // NOTE: This count-equality check is a weak oracle on its own because
-        // MarkdupService.countReads uses the same `samtools view -c -F 0x404`
+        // MarkdupService.countReads uses the same `samtools view -c -F 0xD04`
         // dispatch path as the resolver — a refactor that swapped both sides
         // to a different (but still shared) oracle would pass trivially.
         // The load-bearing regression teeth is the `< rawTotal` assertion
@@ -233,8 +233,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             line: line
         )
 
-        // Markers-fixture teeth: the 0x404-filtered count must be strictly
-        // less than the raw total (203 on the markers BAM, 199 with the
+        // Markers-fixture teeth: the 0xD04-filtered count must be strictly
+        // less than the raw total (203 on the markers BAM, 197 with the
         // mask), so any regression that drops the flag mask between the
         // resolver and MarkdupService will fail this assertion too. The
         // original sarscov2 BAM had 0 secondary/duplicate/supplementary
@@ -313,8 +313,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
     /// The per-tool loop uses `<=` defensively because a fixture with zero
     /// duplicates or unmapped reads would still be correct, but the test also
     /// asserts a strict `<` delta using NVD against the markers BAM directly.
-    /// On that fixture, 0x404 should produce 199 reads and 0x400 should
-    /// produce 202, so a regression that collapses the two flag paths to
+    /// On that fixture, 0xD04 should produce 197 reads and 0xD00 should
+    /// produce 200, so a regression that collapses the two flag paths to
     /// the same mask is caught by the strict assertion below.
     func testI5_allBAMBackedTools_dispatchCorrectFlag() async throws {
         var toolsIterated = 0
@@ -328,14 +328,14 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             )
 
             let resolver = ClassifierReadResolver()
-            // Strict: 0x404 → excludes unmapped + duplicates → lowest count.
+            // Strict: 0xD04 excludes unmapped, secondary, duplicate and supplementary records, so the lowest count.
             let countStrict = try await resolver.estimateReadCount(
                 tool: tool,
                 resultPath: resultPath,
                 selections: selections,
                 options: ExtractionOptions(format: .fastq, includeUnmappedMates: false)
             )
-            // Loose: 0x400 → keeps unmapped mates, still excludes duplicates.
+            // Loose: 0xD00 keeps unmapped mates, still excludes secondary, duplicate and supplementary records.
             let countLoose = try await resolver.estimateReadCount(
                 tool: tool,
                 resultPath: resultPath,
@@ -345,7 +345,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             XCTAssertLessThanOrEqual(
                 countStrict,
                 countLoose,
-                "I5 violation for \(tool.displayName): 0x404 count (\(countStrict)) must be <= 0x400 count (\(countLoose))"
+                "I5 violation for \(tool.displayName): 0xD04 count (\(countStrict)) must be <= 0xD00 count (\(countLoose))"
             )
         }
         // Guard against a refactor that accidentally flips all 4 BAM-backed
@@ -357,8 +357,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         )
 
         // Strict-teeth assertion on the markers BAM via NVD (which points at
-        // the augmented BAM directly). 199 (strict, 0x404) must be < 202
-        // (loose, 0x400) because the markers BAM has 3 unmapped records that
+        // the augmented BAM directly). 197 (strict, 0xD04) must be < 200
+        // (loose, 0xD00) because the markers BAM has 3 unmapped records that
         // the strict mask excludes and the loose mask keeps. This catches a
         // regression that folds both flag paths to the same mask — something
         // the `<=` loop check would let slip through.
@@ -387,7 +387,7 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         XCTAssertLessThan(
             nvdStrict,
             nvdLoose,
-            "I5 strict-teeth violation on markers BAM: 0x404 count (\(nvdStrict)) must be strictly less than 0x400 count (\(nvdLoose)). The markers BAM has 3 unmapped records that distinguish the two flag masks; if they're equal, the resolver is dispatching the same flag for both include-unmapped-mates values."
+            "I5 strict-teeth violation on markers BAM: 0xD04 count (\(nvdStrict)) must be strictly less than 0xD00 count (\(nvdLoose)). The markers BAM has 3 unmapped records that distinguish the two flag masks; if they're equal, the resolver is dispatching the same flag for both include-unmapped-mates values."
         )
     }
 

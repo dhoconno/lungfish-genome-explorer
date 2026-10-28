@@ -20,8 +20,8 @@ import XCTest
 /// The per-tool BAM is the "markers" variant that adds three synthetic records
 /// carrying 0x100 / 0x400 / 0x800 flag bits on top of the original 200-read
 /// sarscov2 BAM. This gives the I4 count-sequence invariant real teeth: the
-/// `samtools view -c -F 0x404` filtered count (199) differs from the raw
-/// count (203) by 4, so any regression that removes the flag mask fails the
+/// `samtools view -c -F 0xD04` filtered count (197) differs from the raw
+/// count (203) by 6, so any regression that removes the flag mask fails the
 /// resolver/MarkdupService equality assertion.
 ///
 /// ## Thread safety
@@ -66,7 +66,7 @@ enum ClassifierExtractionFixtures {
     /// The sarscov2 markers BAM path — the flag-augmented variant (adds
     /// synthetic 0x100/0x400/0x800 records) of the original sarscov2 test BAM.
     /// Used for all 4 BAM-backed classifier fixtures so the I4 invariant test
-    /// exercises the 0x404 flag mask non-trivially (199 filtered vs 203 raw).
+    /// exercises the 0xD04 flag mask non-trivially (197 filtered vs 203 raw).
     static var sarscov2BAM: URL {
         repositoryRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.markers.bam")
     }
