@@ -91,12 +91,12 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: nvd=100",
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
+        // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: twelveSAmpliconResultBundle ../k07-twelves/12S/primate-12s.lungfish12s",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: naoMgs, seeTheViewer, panelLayout",
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -146,12 +146,12 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
+        // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("NAO-MGS", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: naoMgsResult ../k04-naomgs/Imports/naomgs-wastewater",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: naoMgs, seeTheViewer, panelLayout",
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
