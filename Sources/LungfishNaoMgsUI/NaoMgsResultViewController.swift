@@ -320,6 +320,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// can order/delay completions deterministically without real samtools/BAM I/O.
     var testMaterializationHook: (@Sendable (Int) async -> Void)?
 
+    /// Test-only seam for the strand-fix check (lane NAO-BAM-STALE): the BAM's orientation for a load generation, nil if unreadable.
+    var testStrandFixOrientationHook: (@Sendable (Int) async -> NaoMgsBamOrientation?)?
+    /// `(generation, applied)` for each strand-fix check that ended, `applied` when it changed the note.
+    var testStrandFixOutcomes: [(generation: Int, applied: Bool)] = []
+
     /// Records `(generation, contig)` for every fallback materialization write
     /// that passed the `miniBAMLoadGeneration` guard and was applied to a
     /// miniBAM card (F41 regression coverage).

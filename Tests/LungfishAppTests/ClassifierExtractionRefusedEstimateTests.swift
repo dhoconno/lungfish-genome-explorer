@@ -160,8 +160,26 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         XCTAssertEqual(model.errorLineLimit, 3)
     }
 
-    /// The test that a refusal blocks the run is true for exactly the two BAM refusals.
-    func testOnlyTheTwoBAMRefusalsBlockTheExtraction() {
+    /// Phase 3.1 lane NAO-BAM-STALE (UX ruling UX-NAO-BAM-STALE 4a, test T7). A NAO-MGS BAM made before the strand fix is
+    /// refused by the resolver, so the sheet shows the refusal's words in full, with no prefix, no count, Extract off
+    /// and no line limit, like the other BAM refusals. The words are spelled out here, so a change of wording fails.
+    func testStaleNaoMgsRefusalShowsItsWordsAndTurnsOffExtract() {
+        let model = ClassifierExtractionDialogViewModel(tool: .naomgs, selectionCount: 1, suggestedName: "reads")
+        model.applyEstimateFailure(ClassifierExtractionError.naoMgsBAMBeforeStrandFix(sampleId: "S1"))
+        XCTAssertEqual(
+            model.errorMessage,
+            "The alignment file of sample 'S1' comes from an earlier NAO-MGS import, which stored reads that map to the "
+                + "reverse strand the wrong way round, so Lungfish does not extract reads from it. Import the same NAO-MGS "
+                + "results file again in the Import Center (NAO-MGS Results), then extract from the new result. "
+                + "The counts and read IDs shown for this result are right."
+        )
+        XCTAssertFalse(model.isPrimaryEnabled, "the run would only show the same refusal")
+        XCTAssertFalse(model.showsReadEstimate, "LGE measured no count, and 0 is a claim")
+        XCTAssertNil(model.errorLineLimit, "the refusal shows in full")
+    }
+
+    /// The test that a refusal blocks the run is true for exactly the three BAM refusals.
+    func testOnlyTheThreeBAMRefusalsBlockTheExtraction() {
         let url = URL(fileURLWithPath: "/work/x")
         let others: [ClassifierExtractionError] = [
             .unsupportedBAMTool(.kraken2), .kraken2OutputMissing(url), .kraken2TreeMissing(url), .kraken2SourceMissing,
@@ -171,6 +189,7 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         ]
         XCTAssertTrue(ClassifierExtractionError.bamNotFound(sampleId: "S1").blocksExtraction)
         XCTAssertTrue(ClassifierExtractionError.bamOutsideResult(sampleId: "S1").blocksExtraction)
+        XCTAssertTrue(ClassifierExtractionError.naoMgsBAMBeforeStrandFix(sampleId: "S1").blocksExtraction)
         XCTAssertTrue(others.filter(\.blocksExtraction).isEmpty)
     }
 }

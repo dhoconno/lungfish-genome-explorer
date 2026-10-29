@@ -26,6 +26,12 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// it, so the user is told the true cause in place of "not found" (decision W4 of 2.9).
     case bamOutsideResult(sampleId: String)
 
+    /// The NAO-MGS BAM of the given sample was made before the strand fix, so it stores the reads that map to the
+    /// reverse strand the wrong way round, or it holds no marker that says otherwise. The resolver never reads it,
+    /// and the words say to import the same NAO-MGS results file again (Phase 3.1 lane NAO-BAM-STALE, ruling
+    /// UX-NAO-BAM-STALE 4a). The Extract sheet, the Extract alert and both CLI commands show them.
+    case naoMgsBAMBeforeStrandFix(sampleId: String)
+
     /// The Kraken2 per-read classified output file was missing or unreadable.
     case kraken2OutputMissing(URL)
 
@@ -100,6 +106,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
             return "No BAM file found for sample '\(sampleId)'. The classifier result may be corrupted or imported without the underlying alignment data."
         case .bamOutsideResult(let sampleId):
             return "The BAM file of sample '\(sampleId)' is a link to a file outside this result folder, and LGE extracts reads only from BAM files inside it. Replace the link with a copy of the file and try again."
+        case .naoMgsBAMBeforeStrandFix(let sampleId):
+            return "The alignment file of sample '\(sampleId)' comes from an earlier NAO-MGS import, which stored reads that map to the reverse strand the wrong way round, so Lungfish does not extract reads from it. "
+                + "Import the same NAO-MGS results file again in the Import Center (NAO-MGS Results), then extract from the new result. "
+                + "The counts and read IDs shown for this result are right."
         case .kraken2OutputMissing(let url):
             return "Kraken2 per-read classification output not found: \(url.lastPathComponent)"
         case .kraken2TreeMissing(let url):

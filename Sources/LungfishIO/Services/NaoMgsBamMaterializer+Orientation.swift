@@ -2,6 +2,16 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Foundation
+
+/// Which side of the strand fix a NAO-MGS BAM is on (Phase 3.1 lane NAO-BAM-STALE).
+public enum NaoMgsBamOrientation: Sendable, Equatable {
+    /// Every 0x10 record is stored on the reference strand, as the materializer has written them since `VN:1.1`.
+    case referenceStrand
+    /// The BAM was made before the strand fix, or nothing in its header says it was not.
+    case beforeStrandFix
+}
+
 extension NaoMgsBamMaterializer {
     /// SAM stores a 0x10 record on the reference strand, SEQ reverse-complemented and QUAL reversed. NAO-MGS
     /// `query_seq` and `query_seq_rev` hold each mate as sequenced, and `prim_align_query_rc` names its strand.
@@ -19,4 +29,18 @@ extension NaoMgsBamMaterializer {
         "a": "t", "t": "a", "c": "g", "g": "c", "n": "n", "r": "y", "y": "r", "k": "m", "m": "k",
         "b": "v", "v": "b", "d": "h", "h": "d", "s": "s", "w": "w",
     ]
+
+    /// The `VN:` the materializer writes on its `@PG` line, and the first one that stores reverse-strand records on the
+    /// reference strand. The writer and the check share it.
+    public static let headerVersion = "1.1"
+
+    /// Red commit stub. The check follows in the next commit.
+    public static func orientation(ofHeader header: String) -> NaoMgsBamOrientation {
+        .referenceStrand
+    }
+
+    /// Red commit stub. The check follows in the next commit.
+    public static func orientation(ofBAM bamURL: URL, samtoolsPath: String) throws -> NaoMgsBamOrientation {
+        throw NSError(domain: "NaoMgsBamMaterializer", code: 8, userInfo: [NSLocalizedDescriptionKey: "not implemented"])
+    }
 }

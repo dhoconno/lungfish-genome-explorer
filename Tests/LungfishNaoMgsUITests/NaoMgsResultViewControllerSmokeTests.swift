@@ -1020,7 +1020,7 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         )
     }
 
-    private static func makeNaoMgsHit(
+    static func makeNaoMgsHit(
         sample: String,
         seqId: String,
         taxId: Int,
