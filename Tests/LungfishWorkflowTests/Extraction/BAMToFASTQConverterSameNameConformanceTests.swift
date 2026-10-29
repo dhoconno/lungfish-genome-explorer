@@ -121,6 +121,39 @@ final class BAMToFASTQConverterSameNameConformanceTests: XCTestCase {
         XCTAssertEqual(qualityText, "@noqual\nACGTACGTAC\n+\nBBBBBBBBBB\n", "J a record with no qualities gets B")
     }
 
+    /// An output that was right stays byte for byte. The old route, `samtools fastq` over the whole BAM into the four
+    /// sidecars joined as READ_OTHER, singletons, READ1 and READ2, is run here directly. The converter must write the
+    /// same bytes for proper pairs, for the markers BAM (secondary, supplementary and duplicate records), for single
+    /// reads with no repeated name (one on the reverse strand with IUPAC letters, one with no qualities) and for a pair
+    /// among single reads.
+    func testOutputsThatWereRightStayByteForByte() async throws {
+        try await Self.requireSamtools()
+        let proper = ClassifierReadIDListSupport.fixture("sarscov2/test.paired_end.sorted.bam")
+        let markers = ClassifierReadIDListSupport.fixture("sarscov2/test.paired_end.sorted.markers.bam")
+        let singles = try await makeBAM("singles", records: [
+            Self.record("u1", 0, pos: 100, seq: "AAAACCCCGG", qual: "ABCDEFGHIJ"),
+            Self.record("u2", 16, pos: 200, seq: "TTCCCCAAAA", qual: "9876543210"),
+            Self.record("u3", 0, pos: 300, seq: "GGGGTTTTAA", qual: "JIHGFEDCBA"),
+            Self.record("u4", 16, pos: 400, seq: "ACGTRYKMBVDHSWN", qual: "0123456789ABCDE"),
+            Self.record("u5", 0, pos: 500, seq: "ACGTACGTAC", qual: "*"),
+        ])
+        let interleaved = try await makeBAM("interleaved", records: [
+            Self.record("a", 0, pos: 100, seq: "AAAACCCCGG", qual: "ABCDEFGHIJ"),
+            Self.record("p1", 99, pos: 150, seq: "CCCCGGGGTT", qual: "0000011111", mate: ("=", 300)),
+            Self.record("p1", 147, pos: 300, seq: "GGGGAAAACC", qual: "1111122222", mate: ("=", 150)),
+            Self.record("b", 16, pos: 400, seq: "ACGTACGTAC", qual: "IIIIIIIIII"),
+        ])
+        let cases = [("proper pairs", proper), ("markers", markers), ("single reads", singles), ("a pair among single reads", interleaved)]
+        for (label, bam) in cases {
+            for mask in [0xD04, 0x900] {
+                let before = try await legacyConvert(bam, flagFilter: mask)
+                XCTAssertFalse(before.isEmpty, "\(label), samtools -F \(mask) gives reads")
+                let written = try await convert(bam, flagFilter: mask)
+                XCTAssertEqual(written, before, "\(label), samtools -F \(mask) is not byte for byte the old route")
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private static func requireSamtools() async throws {
@@ -166,5 +199,30 @@ final class BAMToFASTQConverterSameNameConformanceTests: XCTestCase {
             toolRunner: NativeToolRunner.shared
         )
         return try String(contentsOf: output, encoding: .utf8)
+    }
+
+    /// What the converter wrote before this lane: `samtools fastq` over the whole BAM into the four sidecars, joined in
+    /// the order READ_OTHER, singletons, READ1, READ2.
+    private func legacyConvert(_ bam: URL, flagFilter: Int) async throws -> String {
+        let temp = root.appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        let other = temp.appendingPathComponent("other.fastq")
+        let singletons = temp.appendingPathComponent("singletons.fastq")
+        let first = temp.appendingPathComponent("r1.fastq")
+        let second = temp.appendingPathComponent("r2.fastq")
+        let result = try await NativeToolRunner.shared.run(
+            .samtools,
+            arguments: [
+                "fastq", "-F", String(flagFilter), "-0", other.path, "-1", first.path, "-2", second.path,
+                "-s", singletons.path, bam.path,
+            ],
+            timeout: 60
+        )
+        XCTAssertTrue(result.isSuccess, "samtools fastq failed: \(result.stderr)")
+        var text = ""
+        for part in [other, singletons, first, second] where FileManager.default.fileExists(atPath: part.path) {
+            text += try String(contentsOf: part, encoding: .utf8)
+        }
+        return text
     }
 }
