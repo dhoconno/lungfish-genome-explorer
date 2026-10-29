@@ -4,6 +4,7 @@
 
 import AppKit
 import XCTest
+import LungfishIO
 import LungfishKit
 @testable import LungfishApp
 
@@ -59,5 +60,36 @@ final class ViewFailureReportsTests: XCTestCase {
         let report = OperationsPanelFailureReports.writeOperationLog(rawFailureError())
         assertFailureAlert(report, title: "Could not write the operation log", rawErrorText: raw)
         XCTAssertTrue(report.nextStep.contains(OperationRowAction.copyLog.title))
+    }
+
+    func testExportTableKeepsTheRowNotStoredSentenceInTheBody() {
+        let sentence = "This row is not stored in an annotation database, so it cannot be exported."
+        let report = ViewerFailureReports.exportTable(AnnotationTableExportRowNotStored())
+        XCTAssertEqual(report.whatHappened, sentence)
+        XCTAssertTrue(report.body.contains(sentence))
+        XCTAssertEqual(report.details?.contains(sentence), true)
+    }
+
+    func testExportTableLeafFailurePointsToTheOperationsLog() {
+        let report = ViewerFailureReports.exportTable(AnnotationTableExportLeafFailure(message: "output exists"))
+        XCTAssertEqual(report.title, "Could not export the table")
+        XCTAssertTrue(report.nextStep.contains("Operations panel"))
+        XCTAssertEqual(report.details?.contains("output exists"), true)
+        XCTAssertFalse(report.body.contains("output exists"))
+    }
+
+    func testAddAlignmentAnnotationWithoutASelectionTellsWhatToSelect() {
+        let sentence = "Select one row and one or more alignment columns."
+        let report = ViewerFailureReports.addAlignmentAnnotation(MultipleSequenceAlignmentBundle.ImportError.malformedInput(sentence))
+        XCTAssertEqual(report.whatHappened, "The annotation needs one selected row and at least one selected column.")
+        XCTAssertEqual(report.nextStep, "Select one row and the columns the annotation covers, then add it again.")
+        XCTAssertEqual(report.details?.contains(sentence), true)
+    }
+
+    func testPrepareSelectedSequenceWithAnEmptyRangeTellsWhatToSelect() {
+        let report = ViewerFailureReports.prepareSelectedSequence(SequenceViewerView.FASTAOperationInputError.emptyRange)
+        XCTAssertEqual(report.title, "Could not prepare the selected sequence")
+        XCTAssertEqual(report.nextStep, "Select a range that holds at least one base, then choose the operation again.")
+        XCTAssertEqual(report.details?.contains("Select a non-empty sequence range"), true)
     }
 }

@@ -24,6 +24,11 @@ func assertFailureAlert(
     XCTAssertEqual(paragraphs.count, 2, "what happened, then the next step", file: file, line: line)
     XCTAssertTrue(paragraphs.allSatisfy { !$0.isEmpty }, file: file, line: line)
     XCTAssertFalse(alert.informativeText.contains(rawErrorText), "raw error text stays out of the body", file: file, line: line)
+    for text in [report.title, report.whatHappened, report.nextStep] {
+        XCTAssertFalse(text.contains("\u{2014}"), "no em dash in \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains(";"), "no semicolon in \(text)", file: file, line: line)
+        XCTAssertFalse(text.contains(":"), "no colon inside a sentence in \(text)", file: file, line: line)
+    }
     let details = alert.accessoryView as? FailureDetailsView
     XCTAssertNotNil(details, "the error goes to the details area", file: file, line: line)
     XCTAssertEqual(details?.isExpanded, false, file: file, line: line)
@@ -103,5 +108,14 @@ final class MainWindowFailureReportsTests: XCTestCase {
             title: "Could not open reads.gb",
             rawErrorText: "posix_spawn ENOENT /tmp/x.lock"
         )
+    }
+
+    func testOpenFileGivesABAMRefusalItsImportStepAsTheNextStep() {
+        let reason = "BAM/CRAM files are imported as alignment tracks. Use File \u{203A} Import Center\u{2026} with a bundle open."
+        let report = MainWindowFailureReports.openFile(named: "reads.bam", DocumentLoadError.unsupportedFormat(reason))
+        XCTAssertEqual(report.title, "Could not open reads.bam")
+        XCTAssertEqual(report.whatHappened, "Lungfish does not open this kind of file as a document.")
+        XCTAssertEqual(report.nextStep, reason)
+        XCTAssertEqual(report.details?.contains("Unsupported file format"), true)
     }
 }

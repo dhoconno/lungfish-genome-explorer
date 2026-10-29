@@ -66,6 +66,18 @@ final class FailurePresenterTests: XCTestCase {
         XCTAssertEqual(details.frame.height, collapsedHeight)
     }
 
+    func testShowDetailsGrowsTheAlertWindowAndHideDetailsShrinksIt() throws {
+        let report = FailureReport(failedStep: "Save the file", whatHappened: "A.", nextStep: "B.", underlying: diskFullError())
+        let alert = FailurePresenter.alert(for: report)
+        alert.layout()
+        let details = try XCTUnwrap(alert.accessoryView as? FailureDetailsView)
+        let collapsed = alert.window.frame.height
+        details.setExpanded(true)
+        XCTAssertGreaterThanOrEqual(alert.window.frame.height, collapsed + FailureDetailsView.textHeight, "the sheet grows by the details area")
+        details.setExpanded(false)
+        XCTAssertEqual(alert.window.frame.height, collapsed, accuracy: 1, "Hide Details gives the height back")
+    }
+
     func testItemErrorsListEachItemWithItsError() {
         let report = FailureReport(
             failedStep: "Move the selected items",
