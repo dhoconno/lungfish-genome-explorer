@@ -126,10 +126,8 @@ final class ToolTimeLimitTests: XCTestCase {
     private static let entries: [Entry] = [
         entry("LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+SRAWindowDownload.swift", helper: 1, "network request"),
         entry("LungfishApp/Views/Viewer/ProgressOverlayView.swift", helper: 1, "overlay delay, no tool"),
-        entry("LungfishCLI/Commands/BuildDbCommand+SamtoolsProvenance.swift", fixed: 1, "samtools step of build-db"),
         entry("LungfishCLI/Commands/DebugCommand.swift", helper: 2, "debug probes"),
-        entry("LungfishCLI/Commands/FreyjaCommand.swift", fixed: 1, "freyja, 24 h"),
-        entry("LungfishCLI/Commands/ImportCommand+BAM.swift", helper: 1, fixed: 2, "idxstats lookup, samtools index, samtools flagstat of the plain import"),
+        entry("LungfishCLI/Commands/ImportCommand+BAM.swift", helper: 1, "idxstats lookup"),
         entry("LungfishCLI/Commands/ImportCommand.swift", helper: 1, "version probe"),
         entry("LungfishCLI/Commands/MarkdupCommand.swift", helper: 1, "version probe"),
         entry("LungfishCLI/LungfishCLI.swift", helper: 1, "exit code 124, no limit"),
@@ -151,10 +149,8 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishNaoMgsUI/NaoMgsResultViewController.swift", helper: 1, "viewer query"),
         entry("LungfishOperations/AI/AIAssistantService.swift", helper: 1, "network request"),
         entry("LungfishPortable/FASTQ/PortableStorageStep+WriterProbe.swift", helper: 1, "bgzip probe"),
-        entry("LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift", helper: 1, fixed: 2, "version probe, samtools index, markdup scaled limit"),
-        entry("LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift", helper: 1, fixed: 2, "header read, reheader and index"),
-        entry("LungfishWorkflow/Alignment/BundleAlignmentFilterService.swift", fixed: 4, "samtools view, sort, index, count"),
-        entry("LungfishWorkflow/Alignment/Minimap2Pipeline.swift", fixed: 3, "minimap2 scaled limit, samtools index and stats"),
+        entry("LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Alignment/BAMHeaderPathSanitizer.swift", helper: 1, "header read"),
         entry("LungfishWorkflow/AnalysisRun/AnalysisTimeLimit.swift", helper: 1, "the carrier reads the limit of the run and sets none"),
         entry("LungfishWorkflow/Conda/ManagedPythonRuntimeInstaller.swift", helper: 1, "install step"),
         entry("LungfishWorkflow/Conda/ManagedToolLock.swift", helper: 11, "smoke probes"),
@@ -168,42 +164,33 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift", helper: 1, "preview head of 1000 reads"),
         entry("LungfishWorkflow/Dependencies/ReconcilerServices.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/Engines/ContainerRuntimeProbe.swift", helper: 2, "probe"),
-        entry("LungfishWorkflow/Engines/DockerRuntime.swift", helper: 4, fixed: 1, "docker control commands, container run to completion"),
+        entry("LungfishWorkflow/Engines/DockerRuntime.swift", helper: 4, "docker control commands"),
         entry("LungfishWorkflow/Extraction/BAMRegionMatcher.swift", helper: 1, "header read"),
-        entry("LungfishWorkflow/Extraction/ClassifierReadResolver.swift", fixed: 3, "samtools view"),
         entry("LungfishWorkflow/Ingestion/FASTQBatchImporter.swift", helper: 1, "stats sample of the first reads"),
         entry("LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift", helper: 1, "the plan reads the limit of the run and sets none"),
-        entry("LungfishWorkflow/Ingestion/ONTBAMImportMaterializer.swift", fixed: 3, "samtools, pigz, collate scaled limit"),
-        entry("LungfishWorkflow/Mapping/BAMImportService.swift", fixed: 2, "samtools index, sort scaled limit"),
         entry("LungfishWorkflow/Mapping/MappingToolVersionProbe.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/Metagenomics/ClassificationPipeline.swift", helper: 1, "bracken --help probe"),
-        entry("LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift", fixed: 2, "kraken2-build, bracken-build"),
         entry("LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift", helper: 1, "faidx lookup"),
         entry("LungfishWorkflow/MSA/MAFFTAlignmentPipeline.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/Native/NativeToolRunner.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/Native/ShellUtilities.swift", helper: 1, "version check"),
         entry("LungfishWorkflow/Nextflow/NextflowEngineProcess+DockerWait.swift", helper: 1, "wait for the engine"),
         entry("LungfishWorkflow/Nextflow/NextflowVersionProbe.swift", helper: 1, "version probe"),
-        entry("LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline+SampleExecution.swift", fixed: 2, "samtools, blastn"),
-        entry("LungfishWorkflow/ONTGenotyping/FullLengthONTMHCGenotypingPipeline+Savont.swift", fixed: 1, "savont"),
-        entry("LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift", fixed: 2, "mapping and pysam, 24 h"),
-        entry("LungfishWorkflow/Orient/OrientPipeline.swift", fixed: 1, "vsearch"),
         entry("LungfishWorkflow/PrimerAnalysis/PrimerOrderSheetWriter.swift", helper: 2, "order sheet tool and its version"),
         entry("LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift", helper: 3, "probes"),
         entry("LungfishWorkflow/PrimerDesign/Primer3DesignRunner.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/PrimerDesign/PrimerAnalysisNativeInspectionService.swift", helper: 1, "probe"),
-        entry("LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift", helper: 1, fixed: 1, "version probe, database build"),
-        entry("LungfishWorkflow/Primers/BAMPrimerTrimPipeline.swift", fixed: 3, "ivar, samtools sort and index"),
-        entry("LungfishWorkflow/Savont/SavontClusteringPipeline.swift", fixed: 1, "savont, 2 h"),
+        entry("LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/Variants/BAMVariantCallingPreflight.swift", helper: 1, "header read"),
         entry("LungfishWorkflow/Variants/GATKInstalledToolVersion.swift", helper: 1, "version check"),
-        entry("LungfishWorkflow/Variants/VCFHeaderPathSanitizer.swift", helper: 1, fixed: 3, "header read, reheader and index"),
+        entry("LungfishWorkflow/Variants/VCFHeaderPathSanitizer.swift", helper: 1, "header read"),
         entry("LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift", helper: 1, "samtools view -H header read"),
     ]
 
     /// The forms a fixed limit takes in source. A literal after a `timeout` label at a call site (`timeout: 7200`,
     /// `timeout: 24 * 3_600`, `timeoutSeconds: 10`), a default of any numeric type, a constant named for a timeout,
-    /// a limit built from `.seconds`, a limit scaled from the input size, a product of 24 and 3,600 and a computed limit.
+    /// a limit built from `.seconds`, a limit scaled from the input size (with a type, a label or a `??` fallback, and a
+    /// `??` line is read as one with the line before it), a product of 24 and 3,600 and a computed limit.
     private static let forms: [NSRegularExpression] = [
         #"[Tt]imeout\w*\s*:\s*[0-9]"#,
         #"[Tt]imeout\w*\s*:\s*(TimeInterval|Double|Int|Duration)\??\s*=\s*(\.seconds\()?[0-9]"#,
@@ -212,7 +199,9 @@ final class ToolTimeLimitTests: XCTestCase {
         #"ImportToolTimeout\.seconds\("#,
         #"24\s*\*\s*3_?600"#,
         #"\bvar\s+\w*[Tt]imeout\w*\s*:\s*TimeInterval\s*\{"#,
-        #"[Tt]imeout\w*\s*=\s*(max|min)\("#,
+        #"[Tt]imeout\w*\s*(:\s*\w+\??\s*)?=\s*(max|min)\("#,
+        #"[Tt]imeout\w*\s*:\s*(max|min)\("#,
+        #"[Tt]imeout\w*\s*[:=]\s*[\w.]+\s*\?\?\s*(max|min)\("#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
     func testNoAnalysisToolFixesAWallClockLimitAtACallSite() throws {
@@ -223,13 +212,20 @@ final class ToolTimeLimitTests: XCTestCase {
             let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
             let source = try readRepositorySource(url)
             guard ["imeout", "24 *", "24*"].contains(where: { source.contains($0) }) else { continue }
-            let lines = source.components(separatedBy: "\n")
-            for (index, raw) in lines.enumerated() {
+            var statements: [(line: Int, text: String)] = []
+            for (index, raw) in source.components(separatedBy: "\n").enumerated() {
                 let text = raw.trimmingCharacters(in: .whitespaces)
+                if text.hasPrefix("??"), let previous = statements.popLast() {
+                    statements.append((previous.line, previous.text + " " + text))
+                } else {
+                    statements.append((index + 1, text))
+                }
+            }
+            for (line, text) in statements {
                 guard !text.hasPrefix("//"), ["imeout", "24 *", "24*"].contains(where: { text.contains($0) }) else { continue }
                 let range = NSRange(text.startIndex..., in: text)
                 if Self.forms.contains(where: { $0.firstMatch(in: text, range: range) != nil }) {
-                    found[rel, default: []].append(index + 1)
+                    found[rel, default: []].append(line)
                 }
             }
         }
