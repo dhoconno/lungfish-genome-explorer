@@ -97,7 +97,7 @@ struct ViewSwitchReading: Equatable {
     var frame: String
 
     var lines: [String] {
-        observation.description.components(separatedBy: "\n") + ["frame: \(frame)"]
+        observation.fullDescription.components(separatedBy: "\n") + ["frame: \(frame)"]
     }
 
     /// The lines a kind shows when it is selected alone: its routing row's

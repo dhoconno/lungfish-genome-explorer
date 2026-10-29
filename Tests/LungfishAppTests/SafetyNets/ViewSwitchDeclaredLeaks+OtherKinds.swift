@@ -33,7 +33,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("Reference", to: ["FASTQ"], "NET-OTHER", [
+        leak("Reference", to: ["FASTQ"], "NET-ALIGNMENT-SECTION-STAYS", [
             "+ inspectorBlocks: document, alignmentBundle, fastqMetadata, fastqPBAAArtifacts",
             "- inspectorBlocks: document, fastqMetadata, fastqPBAAArtifacts",
         ]),
@@ -42,7 +42,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: PhylogeneticTreeViewController",
         ]),
-        leak("Status only", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Status only", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -76,13 +76,13 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("Quick Look", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Quick Look", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: phylogeneticTree",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("Genotype", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("Genotype", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
@@ -126,7 +126,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
         ]),
-        leak("FASTQ", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("FASTQ", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: nvd=100",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
@@ -145,11 +145,11 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("FASTQ", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("FASTQ", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
-        leak("Assembly", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("Assembly", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
@@ -181,7 +181,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("Tree", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Tree", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: phylogeneticTree",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -193,7 +193,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("Status only", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
         ]),
-        leak("Reference", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("Reference", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
@@ -227,7 +227,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("MSA", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("MSA", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: multipleSequenceAlignment",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -245,7 +245,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("MHC reference", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("MHC reference", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxTriageResultViewController",
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
@@ -263,7 +263,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: NvdResultViewController",
         ]),
-        leak("Reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
+        leak("Reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: mapping",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
@@ -305,7 +305,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("Primer order", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
         ]),
-        leak("Genotype", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Genotype", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -340,7 +340,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: NvdResultViewController",
         ]),
-        leak("FASTA document", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("FASTA document", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: nvd=100",
             "+ provenance: sequence ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -358,7 +358,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: mapping document of [document, selection, view, derive, provenance]",
             "- inspectorBlocks: document, alignmentBundle",
         ]),
-        leak("Assembly", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Assembly", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: assembly",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -378,7 +378,7 @@ extension ViewSwitchDeclaredLeaks {
             "- viewports: CzIdResultViewController",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("Reference", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Reference", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -396,7 +396,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("Reference", to: ["NAO-MGS"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Reference", to: ["NAO-MGS"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
             "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
@@ -418,7 +418,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("Tree", to: ["Genotype"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Reference", to: ["NVD"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Reference", to: ["NVD"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, nvd, seeTheViewer, panelLayout, sampleFilter=3",
@@ -437,11 +437,11 @@ extension ViewSwitchDeclaredLeaks {
             "- viewports: CzIdResultViewController",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("Status only", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("Status only", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
-        leak("MSA", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
+        leak("MSA", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
             "+ inspector: multipleSequenceAlignment",
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: multipleSequenceAlignmentBundle ../k13-msa/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",

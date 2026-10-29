@@ -7,18 +7,18 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromResultKinds: [DeclaredViewSwitchLeak] = [
-        leak("fresh window", to: ["NAO-MGS"], "NET-OTHER", [
+        leak("fresh window", to: ["NAO-MGS"], "NET-NAOMGS-FIRST-LOAD", [
             "+ inspectorBlocks: selectAResult, panelLayout",
             "- classifierContext: Imports/naomgs-wastewater samples=[MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304,MU-CASPER-2026-03-31-a-IL_CHI_StickneyWS_20260308,MU-CASPER-2026-03-31-a-MA_Boston_DITPN_20260311,MU-CASPER-2026-03-31-a-NY_PLC_009_20260318,MU-CASPER-2026-03-31-a-Water_20260323]",
             "- inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
         ]),
-        leak("fresh window", to: ["Primer analysis"], "NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
+        leak("fresh window", to: ["Primer analysis"], "NET-PRIMER-PROVENANCE-IN-WINDOW, NET-TOOLBAR-MODE", [
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("fresh window", to: ["Primer order"], "NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
+        leak("fresh window", to: ["Primer order"], "NET-PRIMER-PROVENANCE-IN-WINDOW, NET-TOOLBAR-MODE", [
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
@@ -27,7 +27,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("Kraken2", to: ["TaxTriage"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Kraken2", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -56,7 +56,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("EsViritu", to: ["CZ ID"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("CZ ID", to: ["FASTQ"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("CZ ID", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ provenance: czIdResult ../k06-czid/Imports/cornea-czid.lungfishtax",
             "- inspector: fastqStatistics",
@@ -73,7 +73,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("NAO-MGS", to: ["Assembly"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("NAO-MGS", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("NAO-MGS", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: naoMgsResult ../k04-naomgs/Imports/naomgs-wastewater",
@@ -86,7 +86,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("CZ ID", to: ["Tree"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("EsViritu", to: ["FASTQ"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
+        leak("EsViritu", to: ["FASTQ"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
             "+ inspector: multipleSequenceAlignment",
             "+ provenance: esvirituResult ../k02-esviritu/Analyses/esviritu-2026-01-15T10-00-00",
             "- inspector: fastqStatistics",
@@ -103,11 +103,11 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: PhylogeneticTreeViewController",
         ]),
-        leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: nvd=100",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
-        leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
@@ -124,7 +124,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("NVD", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("NVD", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: nvd=100",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
@@ -142,7 +142,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("NAO-MGS", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("NAO-MGS", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
@@ -152,15 +152,15 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: nvd=100",
             "- viewports: none",
         ]),
-        leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
-        leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS", [
+        leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
-        leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
+        leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspector: nvd=100",
@@ -181,7 +181,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("NAO-MGS", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
+        leak("NAO-MGS", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: naoMgsResult ../k04-naomgs/Imports/naomgs-wastewater",
@@ -251,7 +251,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("CZ ID", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("CZ ID", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxTriageResultViewController",
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "+ inspector: assembly",
@@ -285,7 +285,7 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("CZ ID", to: ["NAO-MGS"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("CZ ID", to: ["NAO-MGS"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
             "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",

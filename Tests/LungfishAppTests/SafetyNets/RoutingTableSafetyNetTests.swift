@@ -170,9 +170,9 @@ final class RoutingTableSafetyNetTests: XCTestCase {
             }
         }
         XCTAssertEqual(
-            observed.description,
-            fixture.expected.description,
-            "\(label) routed differently after \(ContinuousClock.now - waitStarted) at load average \(Self.loadAverage).\n--- observed\n\(observed)\n--- expected\n\(fixture.expected)"
+            observed.fullDescription,
+            fixture.expected.fullDescription,
+            "\(label) routed differently after \(ContinuousClock.now - waitStarted) at load average \(Self.loadAverage).\n--- observed\n\(observed.fullDescription)\n--- expected\n\(fixture.expected.fullDescription)"
         )
 
         tearDownRow(split)

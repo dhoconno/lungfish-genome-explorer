@@ -149,9 +149,19 @@ struct RoutingObservation: Equatable, Sendable, CustomStringConvertible {
         for entry in native { lines.append("native: \(entry)") }
         for entry in inspector { lines.append("inspector: \(entry)") }
         if let provenance { lines.append("provenance: \(provenance)") }
-        lines.append("drawer: \(drawer)")
-        lines.append("inspectorTab: \(inspectorTab)")
-        lines.append("inspectorBlocks: \(inspectorBlocks.joined(separator: ", "))")
+        return lines.joined(separator: "\n")
+    }
+
+    /// The description and the drawer, Inspector and toolbar lines added in
+    /// 3.1. `description` keeps only the older lines, because
+    /// BundleKindParityTests freezes it in Tests/Fixtures/bundle-kinds.
+    var fullDescription: String {
+        var lines = [
+            description,
+            "drawer: \(drawer)",
+            "inspectorTab: \(inspectorTab)",
+            "inspectorBlocks: \(inspectorBlocks.joined(separator: ", "))",
+        ]
         if !toolbar.isEmpty { lines.append("toolbar: \(toolbar.joined(separator: ", "))") }
         return lines.joined(separator: "\n")
     }
