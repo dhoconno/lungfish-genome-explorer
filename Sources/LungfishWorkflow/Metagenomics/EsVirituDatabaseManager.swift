@@ -476,10 +476,10 @@ public actor EsVirituDatabaseManager {
         // tar refuses `..` and absolute names and a write through a link, but it extracts
         // a symbolic link that leaves the folder, as SafeZipExtractor refuses.
         do {
-            try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+            try SafeZipExtractor.verifySymbolicLinksStayInside(destination, folder: "database folder")
         } catch DemoProjectError.unsafeArchive(let reason) {
             try? FileManager.default.removeItem(at: destination)
-            throw EsVirituDatabaseError.extractionFailed("The archive was refused because it is unsafe: \(reason)")
+            throw EsVirituDatabaseError.extractionFailed(SafeZipExtractor.databaseArchiveRefusal(reason: reason))
         }
     }
 

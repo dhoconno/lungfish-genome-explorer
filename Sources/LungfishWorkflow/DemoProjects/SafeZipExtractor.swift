@@ -98,8 +98,18 @@ public struct SafeZipExtractor: Sendable {
         }
     }
 
-    /// Refuses any symbolic link under `root` whose target is absolute or resolves outside `root`.
-    public static func verifySymbolicLinksStayInside(_ root: URL) throws {
+    /// The words for a database archive refused because of a link. `reason` names the link and why, and the rest says that
+    /// nothing was installed and what to try next. tar itself refuses `..` and absolute names, so a link is the only
+    /// reason a database archive reaches this with.
+    static func databaseArchiveRefusal(reason: String) -> String {
+        "The archive was refused because it is unsafe: \(reason). Nothing was installed. "
+            + "Download the archive again from its official source. If you made it or were sent it, "
+            + "repack it with each link replaced by a copy of the file it points to, then install it again."
+    }
+
+    /// Refuses any symbolic link under `root` whose target is absolute or resolves outside `root`. `folder` is what the
+    /// words call `root`, such as "project" for a project archive and "database folder" for a database archive.
+    public static func verifySymbolicLinksStayInside(_ root: URL, folder: String = "project") throws {
         let fileManager = FileManager.default
         let canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
         guard let enumerator = fileManager.enumerator(
@@ -112,15 +122,18 @@ public struct SafeZipExtractor: Sendable {
             let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
             guard values.isSymbolicLink == true else { continue }
             let target = try fileManager.destinationOfSymbolicLink(atPath: url.path)
-            let relative = CanonicalFilePath.relativePath(of: url, within: root)
-                ?? String(url.path.dropFirst(root.path.count).drop { $0 == "/" })
+            // The link's own name below the folder, taken from its resolved parent. The enumerator can spell the folder
+            // through /private, which cut the first letters off the name of a link whose target exists.
+            let parent = url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+            let entry = parent.appendingPathComponent(url.lastPathComponent).path
+            let relative = entry.hasPrefix(canonicalRoot + "/")
+                ? String(entry.dropFirst(canonicalRoot.count + 1)) : url.lastPathComponent
             if target.hasPrefix("/") || target.hasPrefix("~") {
                 throw DemoProjectError.unsafeArchive("the symbolic link “\(relative)” points to the absolute path \(target)")
             }
-            let parent = url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
             let resolved = parent.appendingPathComponent(target).standardizedFileURL.path
             guard resolved == canonicalRoot || resolved.hasPrefix(canonicalRoot + "/") else {
-                throw DemoProjectError.unsafeArchive("the symbolic link “\(relative)” points outside the project (\(target))")
+                throw DemoProjectError.unsafeArchive("the symbolic link “\(relative)” points outside the \(folder) (\(target))")
             }
         }
     }

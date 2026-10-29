@@ -310,10 +310,10 @@ public struct URLSessionTarDatabaseArchiveTransfer: MetagenomicsDatabaseArchiveT
             // tar refuses `..` and absolute names and a write through a link, but it extracts
             // a symbolic link that leaves the folder, as SafeZipExtractor refuses.
             do {
-                try SafeZipExtractor.verifySymbolicLinksStayInside(destination)
+                try SafeZipExtractor.verifySymbolicLinksStayInside(destination, folder: "database folder")
             } catch DemoProjectError.unsafeArchive(let reason) {
                 exitStatus = 1
-                stderr += (stderr.isEmpty ? "" : "\n") + "The archive was refused because it is unsafe: \(reason)"
+                stderr += (stderr.isEmpty ? "" : "\n") + SafeZipExtractor.databaseArchiveRefusal(reason: reason)
             }
         }
         return MetagenomicsDatabaseToolResult(
