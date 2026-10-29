@@ -136,6 +136,29 @@ final class TimeLimitOptionTests: XCTestCase {
         XCTAssertEqual(timeouts(), [.infinity, .infinity, .infinity], "a run no command scoped has no limit")
     }
 
+    /// TTL2-BIO SF2. The resolved options of an assembly record hold the limit of the run, and none outside one.
+    func testAssembleResolvedOptionsHoldTheLimitOnlyInsideALimitedRun() async {
+        let inputs = [URL(fileURLWithPath: "/data/reads.fastq")]
+        let request = AssemblyRunRequest(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            inputURLs: inputs,
+            projectName: "fixture",
+            outputDirectory: URL(fileURLWithPath: "/data/out", isDirectory: true),
+            pairedEnd: false,
+            threads: 2,
+            inputLayout: nil
+        )
+        let options = {
+            AssembleCommand.assemblyResolvedOptions(
+                for: request, originalInputURLs: inputs, executionInputURLs: inputs, layoutResolution: nil)
+        }
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 120)) { options() }
+        XCTAssertEqual(limited[AnalysisTimeLimit.recordKey], .integer(120))
+        XCTAssertEqual(limited["threads"], .integer(2), "the entries of the run stay")
+        XCTAssertNil(options()[AnalysisTimeLimit.recordKey], "a run with no limit records none")
+    }
+
     func testTheRunRecordHoldsTheLimitOnlyInsideARunThatSetOne() async {
         let parameters: [String: ParameterValue] = ["threads": .integer(4)]
         XCTAssertEqual(AnalysisTimeLimit.recording(parameters), parameters, "no run scoped a limit")

@@ -707,7 +707,7 @@ struct AssembleCommand: AsyncParsableCommand {
     /// `pairedEnd` says whether MATES REACHED THE ASSEMBLER AS PAIRS, for
     /// R1/R2 files and for one interleaved file alike; `readPairing` says
     /// which form they took and `readLayout*` how the layout was decided.
-    private static func assemblyResolvedOptions(
+    static func assemblyResolvedOptions(
         for request: AssemblyRunRequest,
         originalInputURLs: [URL],
         executionInputURLs: [URL],

@@ -121,6 +121,49 @@ final class VariantsCallGATKTests: XCTestCase {
         XCTAssertEqual(attach.parameters["shellCommand"]?.stringValue, command.shellCommand)
     }
 
+    /// TTL2-BIO SF2. The track record of a GATK call holds the limit of the run that made it, and none from a run with no limit.
+    func testTheTrackRecordOfAGATKCallHoldsTheTimeLimitOnlyInsideALimitedRun() async throws {
+        let bundle = try makeBundle()
+        let limited = try await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 180)) {
+            try await runGATK(["--name", "Limited GATK", "--time-limit", "180"], bundle: bundle)
+        }
+        let limitedRecord = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: limited.attachment.provenanceURL)).legacyWorkflowRun()
+        XCTAssertEqual(limitedRecord.parameters[AnalysisTimeLimit.recordKey], .integer(180))
+        XCTAssertTrue(limited.argv.contains("--time-limit"), "the recorded command line spells the option")
+
+        let plain = try await runGATK(["--name", "Plain GATK"], bundle: bundle)
+        let plainRecord = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: plain.attachment.provenanceURL)).legacyWorkflowRun()
+        XCTAssertNil(plainRecord.parameters[AnalysisTimeLimit.recordKey], "a run with no limit records none")
+    }
+
+    /// TTL2-BIO SF2. The record of `variants phase` (`writeCommandPlanProvenance`) holds the limit of its run, and none outside one.
+    func testThePhaseRecordHoldsTheTimeLimitOnlyInsideALimitedRun() async throws {
+        func record(limit: AnalysisTimeLimit?, folder: String) async throws -> WorkflowRun {
+            let directory = root.appendingPathComponent(folder, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try await AnalysisTimeLimit.withLimit(limit) {
+                try VariantsCommand.writeCommandPlanProvenance(
+                    workflowName: "lungfish variants phase",
+                    workflowVersion: "test",
+                    command: ["lungfish-cli", "variants", "phase"],
+                    inputs: [],
+                    outputs: [],
+                    parameters: ["threads": .integer(1)],
+                    outputDirectory: directory,
+                    startedAt: Date(timeIntervalSince1970: 1_713_549_590),
+                    completedAt: Date(timeIntervalSince1970: 1_713_549_595)
+                )
+            }
+            let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            return try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: sidecar)).legacyWorkflowRun()
+        }
+        let limited = try await record(limit: AnalysisTimeLimit(minutes: 90), folder: "phase-limited")
+        XCTAssertEqual(limited.parameters[AnalysisTimeLimit.recordKey], .integer(90))
+        XCTAssertEqual(limited.parameters["threads"], .integer(1), "the entries of the run stay")
+        let plain = try await record(limit: nil, folder: "phase-plain")
+        XCTAssertNil(plain.parameters[AnalysisTimeLimit.recordKey], "a run with no limit records none")
+    }
+
     func testEveryGATKOptionIsAFlagOfItsOwnAndOnlyTheFreeTextRidesInExtraArgs() async throws {
         let bundle = try makeBundle()
         let ran = try await runGATK(

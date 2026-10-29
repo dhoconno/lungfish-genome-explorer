@@ -140,6 +140,12 @@ final class MappingProvenanceTests: XCTestCase {
             exitStatus: 0
         )
 
+        // TTL2-BIO SF2. The run parameters hold the limit when the record is built inside a limited run, and none outside one.
+        XCTAssertNil(provenance.canonicalParameters()[AnalysisTimeLimit.recordKey], "a record built outside a limited run holds no limit")
+        let limitedParameters = AnalysisTimeLimit.$current.withValue(AnalysisTimeLimit(minutes: 20)) { provenance.canonicalParameters() }
+        XCTAssertEqual(limitedParameters[AnalysisTimeLimit.recordKey], .integer(20))
+        XCTAssertEqual(limitedParameters["threads"], .integer(provenance.threads), "the entries of the run stay")
+
         try provenance.save(to: tempDir)
         let loaded = try XCTUnwrap(MappingProvenance.load(from: tempDir))
 

@@ -53,6 +53,31 @@ final class ExtractReadsEventsTests: XCTestCase {
         XCTAssertTrue(output.standardError.contains { $0.contains("Extraction complete") }, "the text goes to standard error")
     }
 
+    /// TTL2-BIO SF2. The record a run writes holds the limit it was given with `--time-limit`, and none without it.
+    func testTheRecordOfARunHoldsTheTimeLimitOnlyWhenOneWasSet() async throws {
+        guard SamtoolsLocator.locate() != nil else { throw XCTSkip("The managed samtools is not installed.") }
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+
+        func recordedLimit(_ extra: [String], folder: String) async throws -> ParameterValue? {
+            let directory = scratch.root.appendingPathComponent(folder, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let (_, output) = try await run([
+                "--by-region", "--bam", Self.bam.path, "--region", "MT192765.1:1-3000",
+                "-o", directory.appendingPathComponent("orf1a.fastq").path, "--format", "json",
+            ] + extra, in: scratch)
+            XCTAssertNil(output.thrown)
+            let sidecar = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            let envelope = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar))
+            return try envelope.legacyWorkflowRun().parameters[AnalysisTimeLimit.recordKey]
+        }
+
+        let limited = try await recordedLimit(["--time-limit", "20"], folder: "limited")
+        XCTAssertEqual(limited, .integer(20), "the written record names the limit the run was given")
+        let plain = try await recordedLimit([], folder: "plain")
+        XCTAssertNil(plain, "a run with no limit records none")
+    }
+
     func testARefusalEndsInAFailedEventThatNamesTheFixAndExits3() async throws {
         let scratch = try ImportStreamCapture.Scratch()
         defer { scratch.remove() }
