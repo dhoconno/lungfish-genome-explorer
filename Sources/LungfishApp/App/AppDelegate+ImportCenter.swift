@@ -193,7 +193,7 @@ extension AppDelegate {
             }
             mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
         } catch {
-            showAlert(title: "Invalid FASTQ Sample Sheet", message: error.localizedDescription)
+            showFailure(AppFailureReports.readFASTQSampleSheet(error))
         }
     }
 
@@ -301,10 +301,11 @@ extension AppDelegate {
                         }
                     }
                 } catch {
+                    let report = AppFailureReports.importApplicationExport(named: kind.displayName, error)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
+                            self?.showFailure(report)
                         }
                     }
                 }
@@ -371,10 +372,11 @@ extension AppDelegate {
                         }
                     }
                 } catch {
+                    let report = AppFailureReports.importNativeBundle(kind, error)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
+                            self?.showFailure(report)
                         }
                     }
                 }
@@ -802,11 +804,11 @@ extension AppDelegate {
                 } catch is CancellationError {
                     // A closed/switched source has no export destination to publish.
                 } catch {
-                    if let window { self?.showAnnotationExportMessage("Export unavailable", detail: error.localizedDescription, window: window) }
+                    if let window { self?.showFailure(AppFailureReports.startSequenceExport(error), presentingWindow: window) }
                 }
             }
         } catch {
-            showAnnotationExportMessage("Export unavailable", detail: error.localizedDescription, window: window)
+            showFailure(AppFailureReports.startSequenceExport(error), presentingWindow: window)
         }
     }
 
@@ -1104,7 +1106,7 @@ extension AppDelegate {
                     suggestedName: bundleURL.deletingPathExtension().lastPathComponent + ".gff3", window: window)
             } catch {
                 guard let window else { return }
-                self.showAnnotationExportMessage("Annotation export failed", detail: error.localizedDescription, window: window)
+                self.showFailure(AppFailureReports.readAnnotationsForExport(error), presentingWindow: window)
             }
         }
     }

@@ -74,7 +74,7 @@ extension AppDelegate {
                     format: format
                 )
             } catch {
-                self.showExportError(message: "Could not prepare provenance for export: \(error.localizedDescription)")
+                self.showFailure(AppFailureReports.prepareProvenanceForExport(error))
             }
         }
     }

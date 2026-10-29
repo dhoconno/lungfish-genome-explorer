@@ -555,7 +555,7 @@ extension AppDelegate {
                 }
             } catch {
                 guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
+                showFailure(AppFailureReports.addReferenceBundleAnnotation(error))
             }
         }
     }
@@ -802,7 +802,7 @@ extension AppDelegate {
                 try targetViewerController.displayBundle(at: bundleURL)
             }
         } catch {
-            showAlert(title: "Reload Failed", message: error.localizedDescription, presentingWindow: targetController?.window)
+            showFailure(AppFailureReports.reloadBundleAfterSequenceAnnotation(error), presentingWindow: targetController?.window)
         }
     }
 
