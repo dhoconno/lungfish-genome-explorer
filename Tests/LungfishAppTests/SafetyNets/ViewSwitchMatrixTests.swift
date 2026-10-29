@@ -171,7 +171,7 @@ final class ViewSwitchMatrixTests: XCTestCase {
             let built = try await row.build(RoutingRowContext(root: kindRoot, paths: SafetyNetPathRenderer(root: kindRoot)))
             XCTAssertEqual(ViewSwitchKinds.outcome(of: built.expected), kind.outcome, "\(kind.name): its row \(kind.row) opens another kind")
             XCTAssertLessThanOrEqual(built.expected.viewports.count, 1, "\(kind.name) alone installs more than one viewer")
-            fixtures.append(Fixture(kind: kind, root: kindRoot, item: built.item, alone: .alone(built.expected)))
+            fixtures.append(Fixture(kind: kind, root: kindRoot, item: built.item, alone: .alone(built.expected, kind: kind)))
         }
         return fixtures
     }

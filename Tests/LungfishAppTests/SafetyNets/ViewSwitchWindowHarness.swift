@@ -101,11 +101,13 @@ struct ViewSwitchReading: Equatable {
     }
 
     /// The lines a kind shows when it is selected alone: its routing row's
-    /// outcome with no loader list, the toolbar its mode shows and a frame
-    /// inside the screen.
-    static func alone(_ expected: RoutingObservation) -> ViewSwitchReading {
+    /// outcome with no loader list, the Provenance target the kind records
+    /// only in a window, the toolbar its mode shows and a frame inside the
+    /// screen.
+    static func alone(_ expected: RoutingObservation, kind: ViewSwitchKind) -> ViewSwitchReading {
         var observation = expected
         observation.loaded = []
+        if let provenance = kind.windowProvenance { observation.provenance = provenance }
         observation.toolbar = ViewSwitchToolbar.items(for: expected.mode)
         return ViewSwitchReading(observation: observation, frame: "inside the screen")
     }

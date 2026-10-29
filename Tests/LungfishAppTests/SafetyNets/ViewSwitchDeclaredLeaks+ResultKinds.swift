@@ -7,13 +7,11 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromResultKinds: [DeclaredViewSwitchLeak] = [
-        leak("fresh window", to: ["Primer analysis"], "NET-PRIMER-PROVENANCE-IN-WINDOW, NET-TOOLBAR-MODE", [
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
+        leak("fresh window", to: ["Primer analysis"], "NET-TOOLBAR-MODE", [
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("fresh window", to: ["Primer order"], "NET-PRIMER-PROVENANCE-IN-WINDOW, NET-TOOLBAR-MODE", [
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
+        leak("fresh window", to: ["Primer order"], "NET-TOOLBAR-MODE", [
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
@@ -97,13 +95,11 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: PhylogeneticTreeViewController",
         ]),
-        leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
-        leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
@@ -118,9 +114,8 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("NVD", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("NVD", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
         leak("CZ ID", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
@@ -136,9 +131,8 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("NAO-MGS", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("NAO-MGS", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
         leak("NVD", to: ["FASTA document"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>",
@@ -146,13 +140,11 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: nvd=100",
             "- viewports: none",
         ]),
-        leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
-        leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",

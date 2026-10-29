@@ -82,9 +82,8 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("Genotype", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("Genotype", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
         leak("Primer analysis", to: ["Status only", "Reference"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
@@ -126,9 +125,8 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
         ]),
-        leak("FASTQ", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("FASTQ", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
         leak("Status only", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
@@ -145,13 +143,11 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("FASTQ", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("FASTQ", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
-        leak("Assembly", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("Assembly", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
         ]),
         leak("Tree", to: ["Kraken2", "EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: phylogeneticTree",
@@ -193,9 +189,8 @@ extension ViewSwitchDeclaredLeaks {
         leak("Status only", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
         ]),
-        leak("Reference", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("Reference", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
         leak("FASTQ", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: fastq",
@@ -437,9 +432,8 @@ extension ViewSwitchDeclaredLeaks {
             "- viewports: CzIdResultViewController",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("Status only", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER, NET-PRIMER-PROVENANCE-IN-WINDOW", [
+        leak("Status only", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
-            "+ provenance: primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00",
         ]),
         leak("MSA", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
             "+ inspector: multipleSequenceAlignment",

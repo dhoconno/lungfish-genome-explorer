@@ -27,6 +27,11 @@ struct ViewSwitchKind: Hashable, Sendable, CustomStringConvertible {
     let row: String
     /// The folder the fixture is built in under the matrix's scratch root.
     let folder: String
+    /// The Provenance target a window records for this kind and its window-less
+    /// routing row does not, which ``ViewSwitchReading/alone(_:kind:)`` copies.
+    /// The primer routes set their own target in a window
+    /// (`InspectorViewController+PrimerAnalysis.swift:30`, `:63`, `:96`).
+    var windowProvenance: String?
 
     var description: String { name }
 }
@@ -58,8 +63,14 @@ enum ViewSwitchKinds {
             "bundles/multiple sequence alignment bundle", "k13-msa"
         ),
         kind("Tree", "PhylogeneticTreeViewController in genomics", "bundles/phylogenetic tree bundle", "k14-tree"),
-        kind("Primer analysis", "PrimerAnalysisHostingController in empty", "bundles/saved primer analysis", "k15-primer"),
-        kind("Primer order", "PrimerOrderHostingController in empty", "analyses/reviewed primer order", "k16-order"),
+        kind(
+            "Primer analysis", "PrimerAnalysisHostingController in empty", "bundles/saved primer analysis", "k15-primer",
+            windowProvenance: "primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis"
+        ),
+        kind(
+            "Primer order", "PrimerOrderHostingController in empty", "analyses/reviewed primer order", "k16-order",
+            windowProvenance: "primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00"
+        ),
         kind("FASTA document", "document in genomics", "files/FASTA file", "k17-fasta"),
         // A recorded preview draws no view, so the next route never clears its
         // URL. The text preview is drawn for real and removed as in the app.
@@ -67,8 +78,10 @@ enum ViewSwitchKinds {
         kind("Status only", "status in empty", "bundles/primer scheme, metadata only", "k19-status"),
     ]
 
-    private static func kind(_ name: String, _ outcome: String, _ row: String, _ folder: String) -> ViewSwitchKind {
-        ViewSwitchKind(name: name, outcome: outcome, row: row, folder: folder)
+    private static func kind(
+        _ name: String, _ outcome: String, _ row: String, _ folder: String, windowProvenance: String? = nil
+    ) -> ViewSwitchKind {
+        ViewSwitchKind(name: name, outcome: outcome, row: row, folder: folder, windowProvenance: windowProvenance)
     }
 
     /// The kind of a routed outcome: the installed child classes, or how a
