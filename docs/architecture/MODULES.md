@@ -22,7 +22,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 152 | LungfishCore, LungfishIO, LungfishWorkflow |
-| LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1757,6 +1757,7 @@ None.
 - `NaoMgsAccessionSummary` struct, `Sources/LungfishNaoMgsUI/NaoMgsDataConverter.swift`
 - `NaoMgsDataConverter` enum, `Sources/LungfishNaoMgsUI/NaoMgsDataConverter.swift`
 - `NaoMgsResultViewController` class, `Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift`
+- `NaoMgsSurface` class, `Sources/LungfishNaoMgsUI/NaoMgsSurface.swift`
 
 ## LungfishNvdUI
 
