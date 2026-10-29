@@ -30,8 +30,9 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
-| LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
+| LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
+| LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 79 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -3559,6 +3560,7 @@ None.
 
 ### Public types
 
+- `KitTestStateChecks` class, `Tests/Support/LungfishKitTestSupport/KitTestStateChecks.swift`
 - `RecordingOperationReporter` class, `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift`
 - `RouteParityCancel` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness+Cancel.swift`
 - `RouteParityCancelObservation` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness+Cancel.swift`
@@ -3574,11 +3576,25 @@ None.
 - `RouteParitySideRun` struct, `Tests/Support/LungfishKitTestSupport/RouteParityHarness.swift`
 - `ScopeOwningWindowController` class, `Tests/Support/LungfishKitTestSupport/ScopeOwningWindowController.swift`
 
+## LungfishTestObserverBootstrap
+
+- Kind. library
+- Path. Tests/Support/LungfishTestObserverBootstrap
+- C files. Tests/Support/LungfishTestObserverBootstrap/bootstrap.c, Tests/Support/LungfishTestObserverBootstrap/include/LungfishTestObserverBootstrap.h
+- Depends on. none
+- External products. none
+- Used by. LungfishTestSupport
+- Test target. none
+
+### Public types
+
+None.
+
 ## LungfishTestSupport
 
 - Kind. library
 - Path. Tests/Support/LungfishTestSupport
-- Depends on. LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow
+- Depends on. LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
 - Test target. none named LungfishTestSupportTests, tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAppWorkflowTests, LungfishAssemblyUITests, LungfishCLITests, LungfishCoreTests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishIOTests, LungfishIntegrationTests, LungfishKitTests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests, LungfishWorkflowTests
@@ -3605,6 +3621,7 @@ None.
 - `FrozenCLIEventV1` enum, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift`
 - `FrozenCLIEventV1LineDecoder` struct, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift`
 - `GenotypeTestFixtures` enum, `Tests/Support/LungfishTestSupport/GenotypeTestFixtures.swift`
+- `HostDefaultsRestorer` class, `Tests/Support/LungfishTestSupport/HostDefaultsRestorer.swift`
 - `ImportLogEventKind` enum, `Tests/Support/LungfishTestSupport/ImportLogEventRecorder.swift`
 - `ImportLogEventRecorder` class, `Tests/Support/LungfishTestSupport/ImportLogEventRecorder.swift`
 - `InterleavedFASTQFixture` enum, `Tests/Support/LungfishTestSupport/InterleavedFASTQFixture.swift`
@@ -3654,6 +3671,9 @@ None.
 - `TaxTriageStandInEngine` struct, `Tests/Support/LungfishTestSupport/TaxTriageStandInEngine.swift`
 - `TestDefaultsSuite` class, `Tests/Support/LungfishTestSupport/TestDefaultsSuite.swift`
 - `TestDefaultsSuiteSweeper` class, `Tests/Support/LungfishTestSupport/TestDefaultsSuite.swift`
+- `TestStateCheck` struct, `Tests/Support/LungfishTestSupport/TestStateObserver.swift`
+- `TestStateLeak` struct, `Tests/Support/LungfishTestSupport/TestStateObserver.swift`
+- `TestStateObserver` class, `Tests/Support/LungfishTestSupport/TestStateObserver.swift`
 - `TestTempDirectory` enum, `Tests/Support/LungfishTestSupport/TestTempDirectory.swift`
 - `ToolAvailability` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift`
 - `ToolAvailabilityError` enum, `Tests/Support/LungfishTestSupport/ToolAvailability.swift`
