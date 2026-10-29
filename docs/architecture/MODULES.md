@@ -1588,6 +1588,7 @@ None.
 | Subdirectory |
 |---|
 | Accessibility |
+| Surfaces |
 
 ### Public types
 
@@ -1606,7 +1607,7 @@ None.
 - `BatchTableView` class, `Sources/LungfishKit/BatchTableView.swift`
 - `BlastConfigPopoverView` struct, `Sources/LungfishKit/BlastConfigPopoverView.swift`
 - `BlastJobPhase` enum, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
-- `BlastRequest` struct, `Sources/LungfishKit/ResultViewportController.swift`
+- `BlastRequest` struct, `Sources/LungfishKit/Surfaces/BlastRequest.swift`
 - `BlastResultsDrawerContainerView` class, `Sources/LungfishKit/BlastResultsDrawerContainerView.swift`
 - `BlastResultsDrawerTab` class, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
 - `ClassifierActionBar` class, `Sources/LungfishKit/ClassifierActionBar.swift`

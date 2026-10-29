@@ -37,7 +37,7 @@ LungfishIO holds parsers under `Sources/LungfishIO/Formats` (BED, FASTA, FASTQ, 
 
 LungfishWorkflow is the largest target. Tool execution sits in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` and `Sources/LungfishWorkflow/Conda/CondaManager.swift`. Tool versions are pinned in `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift` holds how to ask each locked tool for its version. Provenance lives under `Sources/LungfishWorkflow/Provenance`, and the CLI event protocol lives in `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift`. Domain subtrees include Mapping, Metagenomics, Variants, ONTGenotyping, PrimerDesign, MSA, TwelveS and ViralRecon.
 
-LungfishKit is the shared kernel for every UI target. It owns `Sources/LungfishKit/OperationCenter.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and `Sources/LungfishKit/ResultViewportController.swift`, plus drawers, pickers and split-pane helpers.
+LungfishKit is the shared kernel for every UI target. It owns `Sources/LungfishKit/OperationCenter.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and the result viewport types in `Sources/LungfishKit/Surfaces/`, plus drawers, pickers and split-pane helpers.
 
 The nine leaves each hold one result viewer, its display state and its export service. LungfishGenotypeUI is by far the largest. LungfishAlignmentUI is a single file.
 
