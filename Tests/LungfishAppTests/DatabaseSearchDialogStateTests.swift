@@ -6,6 +6,12 @@ import LungfishTestSupport
 
 @MainActor
 final class DatabaseSearchDialogStateTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // The search models keep their history in `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["DatabaseBrowserSearchHistory"])
+    }
+
     func testCancelledGenBankImportCannotCommitLateResults() async throws {
         let backend = DelayedDatabaseSearchBackend()
         let state = DatabaseSearchDialogState(automationBackend: DatabaseSearchAutomationBackend { request in

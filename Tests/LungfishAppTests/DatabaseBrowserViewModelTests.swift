@@ -23,8 +23,8 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        restoreHostDefaultsAfterTest(keys: ["DatabaseBrowserSearchHistory"])
         viewModel = DatabaseBrowserViewModel(source: .ncbi)
-        // Clear any residual search history from UserDefaults to isolate tests
         viewModel.clearSearchHistory()
     }
 

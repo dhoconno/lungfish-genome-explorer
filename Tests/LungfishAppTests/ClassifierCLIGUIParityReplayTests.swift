@@ -49,6 +49,8 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
     var cliBinary: URL!
     private var savedCLIPath: String?
     private var registryDigestBefore: String?
+    /// The GUI side's result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
 
     enum ParityError: Error {
         case missingCLI
@@ -57,6 +59,7 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         scratch = try TestTempDirectory.make(prefix: "classifier-parity")
+        hostDefaults = HostDefaultsRestorer(keysContaining: scratch.lastPathComponent)
         let productsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         guard let cli = CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: productsDirectory) else {
             XCTFail(
@@ -81,6 +84,7 @@ final class ClassifierCLIGUIParityReplayTests: XCTestCase {
             XCTAssertEqual(Self.registryDigest(), registryDigestBefore, "a parity case wrote \(ClassifierParityFixtures.stableRegistryURL.path)")
         }
         OperationCenter.shared.clearCompleted()
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(scratch)
         try await super.tearDown()
     }

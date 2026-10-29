@@ -39,6 +39,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
     }
 
     func testReadOnlyProjectSessionRemainsProtectedWithoutHeaderBanner() throws {
+        // Opening the project starts project work that the quit path would wait on. End it before the case ends.
+        addTeardownBlock { @MainActor in await ProjectTaskTerminationRegistry.cancelAndWait() }
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("ReadOnlyBanner-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -666,7 +668,7 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertEqual(controller.inspectorWidthConstraint?.constant ?? 0, 420, accuracy: 0.5)
     }
 
-    func testProjectSessionStateRestoreAppliesSavedDocumentContent() throws {
+    func testProjectSessionStateRestoreAppliesSavedDocumentContent() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("RestoreSavedDocument-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -709,6 +711,8 @@ final class MainWindowSessionRoutingTests: XCTestCase {
 
         XCTAssertEqual(session.activeDocument?.url.standardizedFileURL, savedDocument.url.standardizedFileURL)
         XCTAssertEqual(session.activeDocument?.name, "second")
+        // The restore starts project work that the quit path would wait on. End it, so no task outlives the case.
+        await ProjectTaskTerminationRegistry.cancelAndWait()
     }
 }
 

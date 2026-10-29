@@ -17,6 +17,11 @@ import LungfishTestSupport
 /// mock HTTP clients, so no test reaches the network.
 @MainActor
 final class SRARunsSearchArchiveOutageTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // The search model keeps its history in `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["DatabaseBrowserSearchHistory"])
+    }
 
     func testSingleRunSearchShowsNCBIRecordWhenENAFails() async throws {
         let client = ArchiveOutageHTTPClient()
