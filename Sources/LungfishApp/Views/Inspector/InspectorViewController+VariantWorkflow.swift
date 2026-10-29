@@ -159,10 +159,8 @@ extension InspectorViewController {
                                         try split.viewerController.displayBundle(at: bundleURL)
                                     }
                                 } catch {
-                                    self.presentSimpleAlert(
-                                        title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
-                                        message: "\(reloadFailurePrefix), but the bundle could not be reloaded: \(error.localizedDescription)"
-                                    )
+                                    self.presentFailure(InspectorFailureReports.reloadBundleAfterVariantCalling(
+                                        finished: reloadFailurePrefix, inMappingViewer: shouldReloadMappingViewer, error))
                                 }
                             }
                         }

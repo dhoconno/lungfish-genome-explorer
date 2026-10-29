@@ -185,10 +185,7 @@ extension InspectorViewController {
                                 do {
                                     try split.displayReferenceBundleAfterWorkflow(at: bundleURL)
                                 } catch {
-                                    self.presentSimpleAlert(
-                                        title: "Bundle Reload Failed",
-                                        message: "Primer trim completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                                    )
+                                    self.presentFailure(InspectorFailureReports.reloadBundleAfterPrimerTrim(error))
                                 }
                             }
                         }
@@ -268,10 +265,7 @@ extension InspectorViewController {
                 let scheme = try PrimerSchemeBundle.load(from: url)
                 state?.addProjectSchemeAndSelect(scheme)
             } catch {
-                self?.presentSimpleAlert(
-                    title: "Could Not Load Primer Scheme",
-                    message: error.localizedDescription
-                )
+                self?.presentFailure(InspectorFailureReports.loadPrimerScheme(error))
             }
         }
     }
@@ -533,10 +527,7 @@ extension InspectorViewController {
                     message: "Processed \(trackCount). Duplicate-marked tracks were added; the original tracks are kept with an [unmarked] suffix."
                 )
             } catch {
-                presentSimpleAlert(
-                    title: "Reload Failed",
-                    message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                )
+                presentFailure(InspectorFailureReports.reloadBundleAfterDuplicateMarking(error))
             }
         case .createDeduplicatedBundle:
             guard Self.completeDuplicateWorkflowRow(kind: kind, operationID: operationID, result: result) else { return }
@@ -547,10 +538,7 @@ extension InspectorViewController {
                     message: "Processed \(trackCount). New bundle: \(result.bundleURL.lastPathComponent)"
                 )
             } catch {
-                presentSimpleAlert(
-                    title: "Open New Bundle Failed",
-                    message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
-                )
+                presentFailure(InspectorFailureReports.openDeduplicatedBundle(at: result.bundleURL.path, error))
             }
         }
     }

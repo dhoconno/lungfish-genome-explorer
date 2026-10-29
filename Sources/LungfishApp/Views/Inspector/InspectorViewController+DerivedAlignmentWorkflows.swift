@@ -111,10 +111,11 @@ extension InspectorViewController {
                 message: "Created annotation track \"\(createdTrackName)\" from \"\(sourceTrackName)\". Open the annotation table to sort and filter mapped-read fields."
             )
         } catch {
-            presentSimpleAlert(
-                title: launchContext.reloadFailureAlertTitle,
-                message: "Annotation track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-            )
+            presentFailure(InspectorFailureReports.reloadBundleAfterMappedReadsAnnotation(
+                trackName: createdTrackName,
+                inMappingViewer: launchContext.reloadTarget == .mappingViewer,
+                error
+            ))
         }
     }
 
@@ -235,10 +236,11 @@ extension InspectorViewController {
                 message: "Created a new filtered alignment from \"\(sourceTrackName)\". The source alignment was not changed. Now viewing \"\(createdTrackName)\". Use Bundle > Alignment Tracks or View > Alignment to switch between them."
             )
         } catch {
-            presentSimpleAlert(
-                title: launchContext.reloadFailureAlertTitle,
-                message: "Filtered alignment track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-            )
+            presentFailure(InspectorFailureReports.reloadBundleAfterFilteredAlignment(
+                trackName: createdTrackName,
+                inMappingViewer: launchContext.reloadTarget == .mappingViewer,
+                error
+            ))
         }
     }
 

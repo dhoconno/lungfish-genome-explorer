@@ -256,10 +256,7 @@ extension InspectorViewController {
                 context: context
             )
         } catch {
-            showMetadataImportAlert(
-                title: "Metadata Import Failed",
-                message: error.localizedDescription
-            )
+            presentFailure(InspectorFailureReports.importSampleMetadata(error), in: view.window)
         }
     }
 
@@ -523,12 +520,7 @@ extension InspectorViewController {
                 // write access being granted).
                 if let window = self?.view.window {
                     NSSound.beep()
-                    let alert = NSAlert()
-                    alert.messageText = "Could Not Save Sample Metadata"
-                    alert.informativeText = "Failed to save metadata for \"\(sampleName)\": \(error.localizedDescription)"
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.beginSheetModal(for: window)
+                    self?.presentFailure(InspectorFailureReports.saveSampleMetadata(sampleName: sampleName, error), in: window)
                 }
                 return false
             }
@@ -803,10 +795,8 @@ extension InspectorViewController {
                     _ = OperationCenter.shared.complete(id: operationID, detail: detail)
                 } catch {
                     _ = OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
-                    self.presentSimpleAlert(
-                        title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
-                        message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
-                    )
+                    self.presentFailure(InspectorFailureReports.reloadBundleAfterDerivedAlignmentRemoval(
+                        inMappingViewer: shouldReloadMappingViewer, error))
                 }
             }
         }
