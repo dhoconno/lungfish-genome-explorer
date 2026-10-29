@@ -81,4 +81,53 @@ enum AppFailureReports {
             underlying: error
         )
     }
+
+    /// The staging of a sequence export failed before any row began. A cause the app words for the person, such as
+    /// "No sequences found in selected files.", stays in the body (2.13 decision MD59, ALERT review R1).
+    static func stageSequenceExport(_ error: any Error) -> FailureReport {
+        let cause = error.localizedDescription
+        if cause.hasPrefix("No sequences found in "), !cause.contains("\n") {
+            return FailureReport(
+                failedStep: "Export the sequences",
+                whatHappened: cause,
+                nextStep: "Choose files that hold sequences, then export again.",
+                underlying: error
+            )
+        }
+        return FailureReport(
+            failedStep: "Export the sequences",
+            whatHappened: "Lungfish could not prepare the chosen sequences for export, so no file was written.",
+            nextStep: "Check that each chosen file is still there and can be read and that the disk has free space, then export again.",
+            underlying: error
+        )
+    }
+
+    /// The export command failed behind an Operations row. Its two causes that name the person's own file stay
+    /// in the body, and any other text of the command stays behind Show Details.
+    static func exportSequences(_ error: any Error) -> FailureReport {
+        let cause = error.localizedDescription
+        let missingFile = "Input file not found: "
+        if cause.hasPrefix("No sequences found in "), !cause.contains("\n") {
+            return FailureReport(
+                failedStep: "Export the sequences",
+                whatHappened: cause,
+                nextStep: "Choose files that hold sequences, then export again.",
+                underlying: error
+            )
+        }
+        if cause.hasPrefix(missingFile), !cause.contains("\n") {
+            return FailureReport(
+                failedStep: "Export the sequences",
+                whatHappened: "Lungfish could not find the file \(cause.dropFirst(missingFile.count)).",
+                nextStep: "Check that the file is still where it was, then export again.",
+                underlying: error
+            )
+        }
+        return FailureReport(
+            failedStep: "Export the sequences",
+            whatHappened: "The export stopped before it wrote the file.",
+            nextStep: "Open the Operations panel to read the log of this export, check that the chosen files are complete sequence files and that the folder you save to can be written to and has free space, then export again.",
+            underlying: error
+        )
+    }
 }

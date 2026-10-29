@@ -31,15 +31,8 @@ extension AppDelegate {
             do {
                 staged = try SequenceExportStaging.stage(sources, format: format, outputURL: outputURL)
             } catch {
-                let detail = error.localizedDescription
-                await MainActor.run {
-                    let alert = NSAlert()
-                    alert.messageText = "Export Failed"
-                    alert.informativeText = detail
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
-                    alert.beginSheetModal(for: window)
-                }
+                let report = AppFailureReports.stageSequenceExport(error)
+                await MainActor.run { FailurePresenter.present(report, in: window) }
                 return
             }
             guard let self else { return staged.discard() }
@@ -103,6 +96,7 @@ extension AppDelegate {
                 } catch {
                     debugLog("exportSequences: Failed - \(error)")
                     let detail = error.localizedDescription
+                    let report = AppFailureReports.exportSequences(error)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.fail(
@@ -111,12 +105,7 @@ extension AppDelegate {
                                 errorMessage: "Sequence export failed",
                                 errorDetail: detail
                             ) else { return }
-                            let alert = NSAlert()
-                            alert.messageText = "Export Failed"
-                            alert.informativeText = detail
-                            alert.alertStyle = .critical
-                            alert.addButton(withTitle: "OK")
-                            alert.beginSheetModal(for: window)
+                            FailurePresenter.present(report, in: window)
                         }
                     }
                 }

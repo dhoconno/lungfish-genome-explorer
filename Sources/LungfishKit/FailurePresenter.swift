@@ -14,7 +14,9 @@ import AppKit
 /// outcomes).
 public struct FailureReport: Sendable, Equatable {
     public let failedStep: String     // the step, e.g. "Import the Kraken2 database"
-    public let whatHappened: String   // plain words, never raw error text
+    public let whatHappened: String   // plain words, never raw error text. A sentence an app-owned error already
+                                      // words for the person may stand here, by a typed case or an exact prefix
+                                      // (ALERT review R1, SF1)
     public let nextStep: String       // the next thing to try
     public let details: String?       // the underlying error, kept for the details area
 
