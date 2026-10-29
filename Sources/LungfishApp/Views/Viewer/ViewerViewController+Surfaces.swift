@@ -18,6 +18,12 @@ extension ViewerViewController {
         return registry
     }
 
+    /// The surface the host has installed. It never makes the host, since a viewer
+    /// whose view has not loaded shows no surface.
+    var installedSurface: (any ResultViewport)? {
+        isViewLoaded ? surfaceHost.activeViewport : nil
+    }
+
     /// Shows a surface whose load does not suspend and returns it installed, with
     /// the genomics chrome hidden under it. When it is not installed, the chrome
     /// comes back and the error says why in words the caller shows.

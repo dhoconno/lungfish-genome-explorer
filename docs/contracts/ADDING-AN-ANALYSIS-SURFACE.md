@@ -4,23 +4,26 @@ This contract binds all new result surfaces in Lungfish Genome Explorer (LGE). P
 
 An analysis surface is everything a user sees for one kind of result. It has a result type on disk, a viewport that shows it, Inspector sections, a sidebar entry, row commands, and the operations that produce it. Each operation follows `docs/contracts/ADDING-AN-OPERATION.md`. This document covers the rest.
 
-New surface code lives in a leaf UI module. Today a leaf still needs hand edits in LungfishApp, the composition root. The second section lists every one of those edits with its file, so an agent adding a surface before Phase 3 has the complete list. The last section walks the whole recipe for RNA-seq. The copyable per-surface checklist is `docs/contracts/analysis-surface-checklist.md`.
+New surface code lives in a leaf UI module that exports a surface factory, and the App registers it with one line. The hand edits that remain in LungfishApp until Phase 3.2 are listed with their files under "Touch points that exist today". The last section walks the whole recipe for RNA-seq. The copyable per-surface checklist is `docs/contracts/analysis-surface-checklist.md`.
 
 ## The leaf-module recipe
 
-The model to copy is the 12S amplicon leaf. Its target is `Sources/LungfishTwelveSUI`, its tests are `Tests/LungfishTwelveSUITests`, and its App glue is `Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift`.
+The model to copy is the 12S amplicon leaf. Its target is `Sources/LungfishTwelveSUI`, its tests are `Tests/LungfishTwelveSUITests`, its surface is `Sources/LungfishTwelveSUI/TwelveSSurface.swift`, and its App glue is `Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift`. The saved primer analysis has no leaf, so its surface stays in the App (`Sources/LungfishApp/Views/Viewer/PrimerAnalysisSurface.swift`) and registers the same way.
 
 ### 1. Leaf target and test target
 
-Declare the leaf in `Package.swift` next to `LungfishTwelveSUI`. A leaf depends on LungfishCore, LungfishIO, LungfishWorkflow and LungfishKit, and never on LungfishApp or another leaf. Add a library product, a `Lungfish<Name>UITests` test target that depends on the leaf, LungfishKit and LungfishTestSupport, and the leaf to LungfishApp's dependency list. Run only the new tests with `swift test --filter Lungfish<Name>UITests` while iterating, and run the unit tier of `scripts/full-suite-gate.sh` before merge.
-
+Declare the leaf in `Package.swift` next to `LungfishTwelveSUI`. A leaf depends on LungfishCore, LungfishIO, LungfishWorkflow and LungfishKit, and never on LungfishApp or another leaf. Add a library product, a `Lungfish<Name>UITests` test target that depends on the leaf, LungfishKit and LungfishTestSupport, and the leaf to LungfishApp's dependency list.
 ### 2. Domain code and result type
 
 Scientific logic and the on-disk result type do not belong in the leaf. Put the computation in a domain folder under `Sources/LungfishWorkflow/` and the result reader in LungfishIO or the domain, so the CLI can produce and read the same result. Phase 4d turns domains into separate targets, and code moves when its target exists. A leaf reads results and presents them. It never runs a tool.
 
-### 3. Viewport class
+### 3. Viewport class, surface and registration
 
 The viewport is an `NSViewController` subclass in the leaf, like `TwelveSAmpliconResultViewController` in `Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift`. Keep its state in a `@MainActor @Observable` model type named `<Name>SurfaceModel`, injected into the controller, so tests can drive the state without building a window. Keep every new file at or under 800 lines. Export, eligibility and selection logic go in their own types, never in the controller (finding R6 records what happens otherwise).
+
+Wrap the controller in a `ResultViewport` (`Sources/LungfishKit/Surfaces/ResultViewport.swift`) and export a factory, as `TwelveSSurface` does. Its kind is `.bundle(BundleKindID)` for a saved bundle or `.analysis(AnalysisToolID)` for a result under `Analyses/`. `load(input:token:)` reads the input with `expectInput(_:as:)` and configures the controller, and `ViewportHost` installs it as the viewer's one child only while the token is current. A surface with its own drawer reports it in `isDrawerOpen` and `toggleDrawer()`, which View > Show Drawer reaches first. `willDeactivate()` runs before the host removes the controller, so stop the surface's work there and take its parts out of the Inspector.
+
+Register the factory with one line in `makeSurfaceRegistry()` in `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift`. The display method ends in `showSurface(_:input:as:)`, which installs the surface, hides the genomics viewer and throws words for the caller to show. Showing a registered kind removes the one before it. A test registers a stand-in with `viewer.surfaceHost.registry.register`, as `SurfaceRegistrationStubTests` does.
 
 ### 4. Inspector sections, sidebar entry and row commands
 
@@ -63,7 +66,7 @@ Not every table reads the registry yet. `AnalysesFolder.knownTools`, `displayNam
 
 ## Touch points that exist today
 
-Until Phase 3 lands the `ResultViewport` protocol and the surface registry in LungfishKit, a new surface edits the files below. A missed row does not fail the build. It shows up as a stale viewport, a gearshape icon, a generic Inspector tab or a hidden result. The phase column names the program task that retires each row.
+Phase 3.1 put the viewer slot and the drawer arms behind `ViewportHost`, so a new surface adds no slot and no drawer arm. Until Phase 3.2 deletes the hide lists, it still edits the files below. A missed row does not fail the build. It shows up as a stale viewport, a gearshape icon, a generic Inspector tab or a hidden result. The phase column names the program task that retires each row.
 
 | Touch point | File | What to add | Retired by |
 |---|---|---|---|
@@ -71,22 +74,18 @@ Until Phase 3 lands the `ResultViewport` protocol and the surface registry in Lu
 | Content routing | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift` | a branch in `displayContent(for:)` that calls your display method | Phase 3b |
 | Classifier routing, if the result is a classifier | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift` and `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift` | a `routeClassifierDisplay(url:)` arm and a `toolDefinitions` row naming the analysis id and its database file. The router reads the display name and `buildDatabaseToken` from the descriptor | Phase 3b |
 | Universal search, if the result is indexed | `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift` | a `ProjectUniversalSearchResultKind` case with its stored kind, analysis id, CLI group and sidecar file, so `type:` queries and folder recognition find it | Phase 3b |
-| Viewport slot | `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift` | an optional controller property beside the others, and the property in `isNativeBundleViewportInstalled` when the viewport fills the viewer | Phase 3a, one `activeViewport` slot |
-| Display and hide methods | a new `ViewerViewController+<Name>.swift` in `Sources/LungfishApp/Views/Viewer/` | a display method that hides every other viewport, a hide method, and a call to your hide method in every other display method | Phase 3a |
-| Drawer and toolbar state | `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift` | an arm in `toggleAnnotationDrawer` if the viewport has its own drawer | Phase 3a |
+| Surface registration | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift` | one `register` line in `makeSurfaceRegistry()` | stays |
+| Display and hide methods | a new `ViewerViewController+<Name>.swift` in `Sources/LungfishApp/Views/Viewer/` | a display method that ends in `showSurface(_:input:as:)`, and a one-line hide method that calls `clearSurface(ifShowing:)` and that the `contentMode` observer in `ViewerViewController.swift` calls, as it calls `hidePrimerAnalysisView` | Phase 3.2, the hide lists go |
 | Inspector document | `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift` | an update method like `updateTwelveSAmpliconResultDocument` | Phase 3a, sections come from the viewport |
-| Tools menu and FASTQ dialog, if the operation reads FASTQ | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift`, `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | a `FASTQOperationToolID` case with its arms and a `toolIDs(for:)` entry. The menu is generated from these, so never add a menu item by hand. A new category also needs a `displayName` arm and an entry in `ToolsMenuLayout.groups` in `Sources/LungfishApp/App/ToolsMenuLayout.swift`, which `Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift` enforces. The full list is in "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md` | Phase 3d `OperationLauncher` |
+| Tools menu and FASTQ dialog, if the operation reads FASTQ | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift`, `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | a `FASTQOperationToolID` case with its arms and a `toolIDs(for:)` entry, never a menu item by hand. The full list is in "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md` | Phase 3d `OperationLauncher` |
 | Provenance policy | `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` | the CLI command and every new `NativeTool` case, or the coverage test fails and the tool refuses to run | stays |
 | Launch glue | an `AppDelegate+<Area>.swift` file in `Sources/LungfishApp/App/` or an `InspectorViewController+<Area>.swift` file in `Sources/LungfishApp/Views/Inspector/` | the dialog presentation and the operation launcher | Phase 2d executor and Phase 3d `OperationLauncher` |
 | Inspector tab by filename prefix | `Sources/LungfishApp/App/AppDelegate.swift`, lines 301 to 305 | a `hasPrefix` arm if the result should keep its own Inspector tab after download | Phase 3b |
 | Analyses folder recognition | `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` and `Sources/LungfishIO/Bundles/AnalysesFolder.swift` | the descriptor, as "Adding an analysis kind" says. `knownTools` and `displayName(for:)` derive from it. A `probeToolType(in:)` signature is still a hand edit | A later sub-phase |
 | Sidebar scan | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` | arms in `buildAnalysisNode`, `analysisItemType(for:)` and for batches `classifierBatchSubtitle(for:)`, or a `directoryExtension` arm for a bundle. `analysisIcon(for:)` and `classifierBatchBadge(for:)` read the descriptor and need no arm | Phase 3b |
-| Analyses list icon | `Sources/LungfishApp/Views/Inspector/Sections/AnalysesSection.swift` | no arm. Until 2.9 a new kind draws the gear and its row in `InspectorAnalysesIconPinTests` records that | 2.9, one icon per analysis |
-| Tool availability | `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, `Sources/LungfishWorkflow/Conda/PluginPack.swift`, `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift`, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Native/NativeTool+ManagedTool.swift` | the lock entry, the plugin pack package list, one probe table entry, and a `NativeTool` case with its `managedToolID` arm if the tool runs natively. `docs/contracts/RUNNING-A-TOOL.md` lists the steps and the tests that fail until each exists | stays |
+| Tool availability | `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, `Sources/LungfishWorkflow/Conda/PluginPack.swift`, `Sources/LungfishWorkflow/Dependencies/ManagedToolVersionProbe.swift`, `Sources/LungfishWorkflow/Native/NativeToolRunner.swift`, `Sources/LungfishWorkflow/Native/NativeTool+ManagedTool.swift` | the steps of "Adding a managed tool" in `docs/contracts/RUNNING-A-TOOL.md`, which also names the tests that fail until each exists | stays |
 | Notifications | `Sources/LungfishCore/Models/Notifications.swift` and `Sources/LungfishKit/ScopedEventFilter.swift` | avoid new names. If one is unavoidable, classify it and scope it as step 6 of the recipe says | Phase 3c typed events |
 | Module wiring | `Package.swift` | the leaf, its product, its test target, and the LungfishApp dependency | stays |
-
-An agent that cannot find where a branch goes should search for an existing surface's identifier (for example `twelveSAmpliconResultBundle` or `esvirituResult`) across `Sources/LungfishApp` and add the new surface beside every hit.
 
 ## RNA-seq, the reference surface
 

@@ -55,13 +55,13 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         annotationDrawerView?.setAllowedChromosomes(chromosomes)
     }
 
-    /// Toggles the annotation drawer open/closed with animation.
+    /// Toggles the drawer of what is shown, a host surface's own drawer first, with animation.
     public func toggleAnnotationDrawer() {
+        if let viewport = installedSurface { return viewport.toggleDrawer() }
         if isDisplayingFASTQDataset {
             toggleFASTQMetadataDrawer()
             return
         }
-
         // When the taxonomy classification view is active, toggle its
         // collections/BLAST drawer instead of the annotation drawer.
         if taxonomyViewController != nil {
