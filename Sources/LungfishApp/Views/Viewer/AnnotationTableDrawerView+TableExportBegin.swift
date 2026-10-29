@@ -16,7 +16,7 @@ struct AnnotationTableExportRowNotStored: LocalizedError, Equatable {
     }
 }
 
-/// The leaf's failure, which the drawer shows under "Export Failed" with the leaf's words.
+/// The leaf's failure, which the drawer shows under "Could not export the table", with the leaf's words behind Show Details.
 struct AnnotationTableExportLeafFailure: LocalizedError {
     let message: String
     var errorDescription: String? { message }

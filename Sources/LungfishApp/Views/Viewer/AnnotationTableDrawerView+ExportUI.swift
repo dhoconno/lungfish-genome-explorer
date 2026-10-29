@@ -182,7 +182,7 @@ extension AnnotationTableDrawerView {
     }
 
     /// Begins the export's row. Its end shows the base's words, "Exported N rows to <file>" on the drawer's label,
-    /// or "Export Failed" with the leaf's message.
+    /// or "Could not export the table", with the leaf's message behind Show Details.
     private func startAnnotationTableExport(invocation: ViewerExportInvocation, rowCount: Int) {
         let fileName = URL(fileURLWithPath: invocation.output).lastPathComponent
         guard let begun = Self.beginAnnotationTableExportOperation(

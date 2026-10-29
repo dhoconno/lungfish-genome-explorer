@@ -81,7 +81,19 @@ enum MainWindowFailureReports {
     }
 
     static func openFile(named fileName: String, _ error: any Error) -> FailureReport {
-        FailureReport(
+        // A BAM or CRAM file is refused with a sentence the app wrote, which names the import step to use instead.
+        // That sentence is the next step, and the details keep the whole error (ALERT review SF1a).
+        if let loadError = error as? DocumentLoadError,
+           case .unsupportedFormat(let reason) = loadError,
+           reason.hasPrefix("BAM/CRAM files are imported") {
+            return FailureReport(
+                failedStep: "Open \(fileName)",
+                whatHappened: "Lungfish does not open this kind of file as a document.",
+                nextStep: reason,
+                underlying: error
+            )
+        }
+        return FailureReport(
             failedStep: "Open \(fileName)",
             whatHappened: "Lungfish could not read the file as a document it can show.",
             nextStep: "Check that the file is complete and in a format Lungfish opens, then open it again.",
