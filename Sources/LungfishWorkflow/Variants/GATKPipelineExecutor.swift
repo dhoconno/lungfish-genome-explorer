@@ -13,7 +13,8 @@ private struct GATKExecutedCommand {
 public struct GATKPipelineExecutor<Runner: GATKCommandRunning> {
     public typealias DateProvider = @Sendable () -> Date
 
-    private let runner: Runner
+    /// The runner every command of a request goes through. A test reads the time limit it carries.
+    let runner: Runner
     private let dateProvider: DateProvider
     private let fileManager: FileManager
 

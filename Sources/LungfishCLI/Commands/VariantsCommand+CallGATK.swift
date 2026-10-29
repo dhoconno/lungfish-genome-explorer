@@ -34,13 +34,18 @@ struct VariantsCallGATKOptions: ParsableArguments {
 }
 
 extension VariantsCommand.CallSubcommand {
+    /// The runner of a live GATK call, on the managed gatk-core environment.
+    static func liveRunner() -> ManagedGATKCommandRunner {
+        ManagedGATKCommandRunner()
+    }
+
     /// The GATK call on the managed gatk-core environment. The tool version is the one the installed GATK
     /// answers, as `gatk haplotype-caller --execute` records it.
     func executeGATKLive(
         emitEvent: @escaping (VariantsCommand.VariantCallingEvent) -> Void
     ) async throws -> GATKBundleVariantAttachmentResult {
         try await executeGATK(
-            runner: ManagedGATKCommandRunner(),
+            runner: Self.liveRunner(),
             toolVersion: await GATKCLICommand.resolvedToolVersion(execute: true),
             runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity(),
             recordedArguments: recordedCommandLine(),

@@ -121,6 +121,21 @@ final class TimeLimitOptionTests: XCTestCase {
         XCTAssertNil(try VariantsCommand.PhaseSubcommand.parse(phase).timeLimit.limit)
     }
 
+    /// TTL2-BIO B1. `variants call --caller gatk` records the limit of its run, so the runners of that call carry it.
+    func testTheGATKRunnersOfARunCarryItsTimeLimit() async {
+        let timeouts = {
+            [
+                GATKPipelineExecutor<ProcessGATKCommandRunner>().runner.timeout,
+                GATKPipelineExecutor<ManagedGATKCommandRunner>().runner.timeout,
+                VariantsCommand.CallSubcommand.liveRunner().timeout,
+            ]
+        }
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 7)) { timeouts() }
+        XCTAssertEqual(limited, [420, 420, 420],
+                       "the local and the managed runner of the executor and the live runner of a call read the limit of the run")
+        XCTAssertEqual(timeouts(), [.infinity, .infinity, .infinity], "a run no command scoped has no limit")
+    }
+
     func testTheRunRecordHoldsTheLimitOnlyInsideARunThatSetOne() async {
         let parameters: [String: ParameterValue] = ["threads": .integer(4)]
         XCTAssertEqual(AnalysisTimeLimit.recording(parameters), parameters, "no run scoped a limit")
