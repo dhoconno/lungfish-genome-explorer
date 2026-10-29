@@ -243,8 +243,9 @@ public extension GATKPipelineExecutor where Runner == ProcessGATKCommandRunner {
         fileManager: FileManager = .default,
         dateProvider: @escaping DateProvider = Date.init
     ) {
+        // The runner carries the time limit of the run this task belongs to, and `.infinity` (no limit) with none.
         self.init(
-            runner: ProcessGATKCommandRunner(),
+            runner: ProcessGATKCommandRunner(timeout: AnalysisTimeLimit.launchTimeout),
             fileManager: fileManager,
             dateProvider: dateProvider
         )
@@ -256,8 +257,9 @@ public extension GATKPipelineExecutor where Runner == ManagedGATKCommandRunner {
         fileManager: FileManager = .default,
         dateProvider: @escaping DateProvider = Date.init
     ) {
+        // The runner carries the time limit of the run this task belongs to, and `.infinity` (no limit) with none.
         self.init(
-            runner: ManagedGATKCommandRunner(),
+            runner: ManagedGATKCommandRunner(timeout: AnalysisTimeLimit.launchTimeout),
             fileManager: fileManager,
             dateProvider: dateProvider
         )

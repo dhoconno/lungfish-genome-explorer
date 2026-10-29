@@ -34,9 +34,10 @@ struct VariantsCallGATKOptions: ParsableArguments {
 }
 
 extension VariantsCommand.CallSubcommand {
-    /// The runner of a live GATK call, on the managed gatk-core environment.
+    /// The runner of a live GATK call, on the managed gatk-core environment. It carries the time limit of the run
+    /// (`--time-limit`), so the limit the track's record names is the one the launch had. `.infinity` is no limit.
     static func liveRunner() -> ManagedGATKCommandRunner {
-        ManagedGATKCommandRunner()
+        ManagedGATKCommandRunner(timeout: AnalysisTimeLimit.launchTimeout)
     }
 
     /// The GATK call on the managed gatk-core environment. The tool version is the one the installed GATK
