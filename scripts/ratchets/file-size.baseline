@@ -146,7 +146,7 @@ Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
-Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2502
+Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2499
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
@@ -154,7 +154,7 @@ Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2648
-Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 864
+Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 863
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1208
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 910
