@@ -381,4 +381,25 @@ enum AppFailureReports {
             underlying: error
         )
     }
+
+    /// The GFF3 export could not start. A document's annotations are written to a selection file beside the chosen
+    /// output before any row begins, so a failure here is a folder that cannot be written to.
+    static func prepareAnnotationExport(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Prepare the annotations for export",
+            whatHappened: "Lungfish could not write the selected annotations next to the file you chose, so the export did not start.",
+            nextStep: "Check that the folder you chose can be written to and has free space, then export the annotations again.",
+            underlying: error
+        )
+    }
+
+    /// The export command failed behind an Operations row.
+    static func exportAnnotations(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Export the annotations",
+            whatHappened: "The export command stopped before it wrote the file.",
+            nextStep: "Open the Operations panel to read the log of this export, check that the folder you chose can be written to and has free space, then export the annotations again.",
+            underlying: error
+        )
+    }
 }

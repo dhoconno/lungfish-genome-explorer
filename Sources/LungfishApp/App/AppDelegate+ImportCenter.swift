@@ -1137,10 +1137,10 @@ extension AppDelegate {
         panel.beginSheetModal(for: window) { [weak self, weak window] response in
             guard response == .OK, let url = panel.url else { return }
             // `bundle export-gff3` writes the file and its record behind an Operations row (lane 12.39).
-            self?.startAnnotationGFF3Export(annotations: annotations, source: source, outputURL: url) { [weak self, weak window] title, detail in
+            self?.startAnnotationGFF3Export(annotations: annotations, source: source, outputURL: url, report: { [weak self, weak window] title, detail in
                 debugLog("exportGFF3: \(title) - \(detail)")
                 if let window { self?.showAnnotationExportMessage(title, detail: detail, window: window) }
-            }
+            }, reportFailure: { [weak self, weak window] failure in if let window { self?.showFailure(failure, presentingWindow: window) } })
         }
     }
 

@@ -86,25 +86,27 @@ extension AppDelegate {
         return AnnotationGFF3Export.invocation(selectionURL: selectionURL, outputURL: outputURL, force: true)
     }
 
-    /// The panel's OK. Begins the row and reports the end with the base's words, "Export complete" and
-    /// "Annotation export failed", through `report`.
+    /// The panel's OK. Begins the row and reports the end. The completion words, "Export complete", go through
+    /// `report`. A failure goes through `reportFailure` as a `FailureReport` that names the step and the next
+    /// thing to try, with the error only in its details (ALERT-PRESENTER, Phase 3.1).
     func startAnnotationGFF3Export(
         annotations: [SequenceAnnotation],
         source: AnnotationExportService.Source,
         outputURL: URL,
-        report: @escaping @MainActor @Sendable (String, String) -> Void
+        report: @escaping @MainActor @Sendable (String, String) -> Void,
+        reportFailure: @escaping @MainActor @Sendable (FailureReport) -> Void
     ) {
         let invocation: AnnotationGFF3Export.Invocation
         do {
             invocation = try Self.annotationGFF3ExportInvocation(annotations: annotations, source: source, outputURL: outputURL)
         } catch {
-            report("Annotation export failed", error.localizedDescription)
+            reportFailure(AppFailureReports.prepareAnnotationExport(error))
             return
         }
         guard let begun = Self.beginAnnotationGFF3ExportOperation(
             invocation: invocation,
             sourceName: source.name,
-            onFailure: { failure in report("Annotation export failed", failure.message) }
+            onFailure: { failure in reportFailure(AppFailureReports.exportAnnotations(failure)) }
         ) else { return }
         let count = annotations.count
         Task { @MainActor in
