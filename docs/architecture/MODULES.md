@@ -29,7 +29,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1576 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
@@ -2638,7 +2638,7 @@ None.
 - `IVarTSVRow` struct, `Sources/LungfishWorkflow/Variants/IVarTSVRow.swift`
 - `IVarTSVToVCFConverter` struct, `Sources/LungfishWorkflow/Variants/IVarTSVToVCFConverter.swift`
 - `Kraken2AnalysisRunTool` struct, `Sources/LungfishWorkflow/Metagenomics/Kraken2AnalysisRunTool.swift`
-- `Kraken2DatabaseReceipt` enum, `Sources/LungfishWorkflow/Metagenomics/Kraken2RunRequest+Planning.swift`
+- `Kraken2DatabaseReceipt` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseReceiptReference.swift`
 - `Kraken2ImportResult` struct, `Sources/LungfishWorkflow/Metagenomics/Kraken2ImportResult.swift`
 - `Kraken2InputFormatError` enum, `Sources/LungfishWorkflow/Metagenomics/Kraken2RunRequest+Planning.swift`
 - `Kraken2PlannedReadSet` struct, `Sources/LungfishWorkflow/Metagenomics/Kraken2RunRequest.swift`
@@ -2780,6 +2780,7 @@ None.
 - `MetagenomicsDatabasePayloadDigester` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift`
 - `MetagenomicsDatabasePayloadDigestError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift`
 - `MetagenomicsDatabasePayloadSnapshot` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstallProvenance.swift`
+- `MetagenomicsDatabaseReceiptReference` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseReceiptReference.swift`
 - `MetagenomicsDatabaseRegistry` actor, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift`
 - `MetagenomicsDatabaseRegistryError` enum, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift`
 - `MetagenomicsDatabaseToolResult` struct, `Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseInstaller.swift`
