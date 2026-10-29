@@ -234,7 +234,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
 
         let parameters = pipeline.provenanceParameters(for: c, pin: try NextflowWorkflowDescriptor.taxTriage.resolveBundledPin())
 
-        let databaseKeys: Set<String> = ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"]
+        let databaseKeys: Set<String> = ["databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"]
         XCTAssertEqual(Set(parameters.keys), Self.settingKeys.union(["github_release_version"]).union(databaseKeys))
         XCTAssertEqual(parameters["workflow"], .string("taxtriage"))
         XCTAssertEqual(parameters["sample_count"], .integer(1))
@@ -348,8 +348,9 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         let single = try await savedRecord(parameters: oneSample, as: "single-record")
         XCTAssertNil(single.options.explicit["read_set_plans"], "flipped by B2 (T7), a record of one sample keeps no keyed plan")
         XCTAssertEqual(single.readSetPlansBySample, [:])
+        XCTAssertNotNil(single.options.resolvedDefaults["fetchedReferences"], "DB-IDENTITY (3.1), the record names its fetched references")
         XCTAssertEqual(
-            single.options.resolvedDefaults,
+            single.options.resolvedDefaults.filter { $0.key != "fetchedReferences" },
             ["readSetPlan": plans["mixed"]!, "classifiers": .array([.string("kraken2")]), "sample_count": .integer(1)],
             "flipped by B2 (T7), the plan is a resolved default, moved by B11 M2 (R5) the classifiers are one, and moved by A2 M3 (B12 ruling H1) sample_count"
         )

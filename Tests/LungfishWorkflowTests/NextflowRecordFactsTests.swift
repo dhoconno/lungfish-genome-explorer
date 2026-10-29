@@ -268,7 +268,7 @@ final class NextflowRecordFactsTests: XCTestCase {
         let esViritu = try recordedStatusWords(in: goldens.appendingPathComponent("esviritu/lungfish-provenance.json"))
         let kraken2 = try recordedStatusWords(in: goldens.appendingPathComponent("kraken2/lungfish-provenance.json"))
 
-        XCTAssertEqual(DatabaseIdentityStatus.allCases.map(\.rawValue), ["pinned", "unpinned", "liveSnapshot"])
+        XCTAssertEqual(DatabaseIdentityStatus.allCases.map(\.rawValue), ["pinned", "unpinned", "liveSnapshot", "namedBySource", "notNamedBySource"])
         for status in DatabaseIdentityStatus.allCases {
             XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: status.rawValue), status)
         }

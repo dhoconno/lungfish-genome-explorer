@@ -123,9 +123,9 @@ final class DatabaseIdentityStatusReaderTests: XCTestCase {
         XCTAssertTrue(try kraken2WriterWords().contains("provided-aggregate-digest"), "Kraken 2 keeps its word")
     }
 
-    /// The words of the statuses themselves, `pinned`, `unpinned` and `liveSnapshot`, which no writer records yet.
+    /// The words of the statuses themselves, `pinned`, `unpinned`, `liveSnapshot`, `namedBySource` and `notNamedBySource`, each read as itself.
     func testTheStatusesOwnWordsReadAsThemselves() {
-        XCTAssertEqual(DatabaseIdentityStatus.allCases.map(\.rawValue), ["pinned", "unpinned", "liveSnapshot"])
+        XCTAssertEqual(DatabaseIdentityStatus.allCases.map(\.rawValue), ["pinned", "unpinned", "liveSnapshot", "namedBySource", "notNamedBySource"])
         for status in DatabaseIdentityStatus.allCases {
             XCTAssertEqual(DatabaseIdentityStatus(recordedWord: status.rawValue), status)
             XCTAssertEqual(DatabaseIdentityStatus.status(ofRecordedWord: status.rawValue), status, "the function form")

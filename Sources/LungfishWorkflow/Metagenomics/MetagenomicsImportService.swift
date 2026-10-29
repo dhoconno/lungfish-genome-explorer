@@ -136,13 +136,13 @@ public enum MetagenomicsImportService {
                     "preferredName": preferredName.map(ParameterValue.string) ?? .null,
                     "outputRoot": .file(outputDirectory),
                 ],
-                resolvedDefaults: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.notNamedBySource(tool: "Kraken2", adding: [
                     "classificationReport": .file(canonicalReportURL),
                     "classificationOutput": .file(retainedOutputURL),
                     "outputDirectory": .file(resultDirectory),
                     "totalReads": .integer(tree.totalReads),
                     "speciesCount": .integer(tree.speciesCount),
-                ],
+                ]),
                 runClock: runClock
             )
         } catch {
@@ -272,13 +272,13 @@ public enum MetagenomicsImportService {
                     "preferredName": preferredName.map(ParameterValue.string) ?? .null,
                     "outputRoot": .file(outputDirectory),
                 ],
-                resolvedDefaults: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.notNamedBySource(tool: "EsViritu", adding: [
                     "detectionFile": .file(detectionURL),
                     "outputDirectory": .file(resultDirectory),
                     "importedFileCount": .integer(copiedRegularFiles.count),
                     "virusCount": .integer(virusCount),
                     "sampleName": .string(sampleName),
-                ],
+                ]),
                 runClock: runClock
             )
         } catch {
@@ -398,12 +398,12 @@ public enum MetagenomicsImportService {
                     "preferredName": preferredName.map(ParameterValue.string) ?? .null,
                     "outputRoot": .file(outputDirectory),
                 ],
-                resolvedDefaults: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.notNamedBySource(tool: "TaxTriage", adding: [
                     "outputDirectory": .file(resultDirectory),
                     "importedFileCount": .integer(allOutputFiles.count),
                     "reportEntryCount": .integer(reportEntries),
                     "ignoredFailureCount": .integer(ignoredFailures.count),
-                ],
+                ]),
                 runClock: runClock
             )
         } catch {
@@ -922,7 +922,7 @@ public enum MetagenomicsImportService {
                 resultDirectory: resultDirectory,
                 command: provenanceCommand,
                 explicitOptions: explicitProvenanceOptions,
-                resolvedDefaults: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.notNamedBySource(tool: "NAO-MGS", adding: [
                     "outputDirectory": .file(resultDirectory),
                     "sampleName": .string(normalizedSampleName), "sampleNames": .array(sortedSamples.map(ParameterValue.string)),
                     "sourceFileCount": .integer(virusHitsFiles.count),
@@ -931,7 +931,7 @@ public enum MetagenomicsImportService {
                     "fetchedReferenceCount": .integer(fetchedAccessions.count),
                     "createdBAM": .boolean(copiedBAMCount > 0),
                     "copiedBAMCount": .integer(copiedBAMCount),
-                ],
+                ]),
                 runClock: runClock,
                 additionalSteps: try naoMgsMaterializationProvenanceSteps(
                     from: materializationSteps,

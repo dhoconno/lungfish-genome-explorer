@@ -34,6 +34,13 @@ extension TaxTriageAnalysisRunTool {
             ))
         }
 
+        // The database as its install receipt vouches for it is a reference input of the run, with the receipt as its
+        // source provenance (DB-IDENTITY, 3.1). A database with no receipt that adds up records none.
+        if let databasePath = config.kraken2DatabasePath,
+           let reference = MetagenomicsDatabaseReceiptReference.resolve(databasePath: databasePath)?.reference {
+            context.recordInput(reference)
+        }
+
         // A samplesheet names the files TaxTriage reads, and --input names files or bundles that
         // the command has always resolved first (TaxTriageReadSetPlanner, READ-PAIRING.md).
         if request.samplesheet == nil {

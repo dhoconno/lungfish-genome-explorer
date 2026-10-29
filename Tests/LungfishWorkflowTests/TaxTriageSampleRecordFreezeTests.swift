@@ -207,7 +207,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let resolved = record.options.resolvedDefaults
         XCTAssertEqual(
             Set(resolved.keys),
-            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"],
+            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
             "moved by A2 M3 (B12 ruling H1), sample_count is a resolved default"
         )
         XCTAssertEqual(resolved["classifiers"], .array([.string("kraken2")]))
@@ -338,7 +338,7 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(plans, ["mixed": try XCTUnwrap(mixed.readSetPlan?.provenanceParameters["readSetPlan"])])
         XCTAssertEqual(
             Set(record.options.resolvedDefaults.keys),
-            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes"],
+            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
             "moved by B11 M2 (R5), classifiers is a resolved default, and by A2 M3 (B12 ruling H1), sample_count"
         )
         XCTAssertNil(record.options.explicit["readSetPlan"])
@@ -441,7 +441,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let identity = TaxTriageRecordFacts.databaseIdentity(at: database)
         XCTAssertEqual(identity["databaseCatalogID"], .string("kraken2-viral"))
         XCTAssertNotNil(identity["databaseCatalogVersion"]?.stringValue)
-        XCTAssertEqual(identity["databaseIdentityStatus"], .string("unpinned"), "a receipt does not pin the folder on this route")
+        XCTAssertEqual(identity["databaseIdentityStatus"], .string("pinned"), "a receipt that adds up pins the folder (DB-IDENTITY, 3.1)")
+        XCTAssertNotNil(identity["databaseDigest"], "the digest the receipt states")
 
         try receipt.write(to: sidecar, atomically: true, encoding: .utf8)
         let elsewhere = TaxTriageRecordFacts.databaseIdentity(at: database)
@@ -482,12 +483,12 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(identity["databaseCatalogVersion"], .string("20260626"), "the first version that is not a placeholder")
         XCTAssertEqual(Set(identity.keys), [
             "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
-            "databaseSourceURL", "databaseSourcePolicy", "databaseCatalogVersion",
+            "databaseSourceURL", "databaseSourcePolicy", "databaseCatalogVersion", "databaseIdentityNote",
         ])
         XCTAssertEqual(
             TaxTriageRecordFacts.recordOptions(fromRunParameters: identity).resolvedDefaults,
             identity,
-            "the save files all six keys among the resolved defaults"
+            "the save files all seven keys among the resolved defaults"
         )
     }
 

@@ -99,4 +99,22 @@ final class TaxTriageDatabaseIdentityRecordTests: XCTestCase {
             "the save files the entry among the resolved defaults"
         )
     }
+
+    /// A step records the database as a reference input, with the receipt's aggregate as its checksum. A receipt that
+    /// does not add up, and a run that names no database, add none.
+    func testTaxTriageStepInputsCiteTheDatabaseReference() throws {
+        let database = try makeDatabase()
+        let receipt = try Kraken2DatabaseReceiptTests.writeReceipt(in: database)
+
+        let records = TaxTriageRecordFacts.databaseReferenceRecords(at: database)
+
+        XCTAssertEqual(records.count, 1)
+        let reference = try XCTUnwrap(records.first)
+        XCTAssertEqual(reference.role, .reference)
+        XCTAssertEqual(reference.sha256, receipt.digest)
+        XCTAssertEqual(reference.path, database.standardizedFileURL.path)
+        try Kraken2DatabaseReceiptTests.writeReceipt(in: database) { $0.aggregate = String(repeating: "0", count: 64) }
+        XCTAssertTrue(TaxTriageRecordFacts.databaseReferenceRecords(at: database).isEmpty, "a receipt that does not add up")
+        XCTAssertTrue(TaxTriageRecordFacts.databaseReferenceRecords(at: nil).isEmpty)
+    }
 }

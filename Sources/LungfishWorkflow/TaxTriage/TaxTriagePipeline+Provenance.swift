@@ -178,12 +178,13 @@ extension TaxTriagePipeline {
     }
 
     func inputRecords(for config: TaxTriageConfig) -> [FileRecord] {
-        config.samples.flatMap { sample in
+        let reads = config.samples.flatMap { sample in
             ([sample.fastq1] + (sample.fastq2.map { [$0] } ?? []))
                 .map { url in
                     ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
                 }
         }
+        return reads + TaxTriageRecordFacts.databaseReferenceRecords(at: config.kraken2DatabasePath)
     }
 
     func outputRecords(for urls: [URL]) -> [FileRecord] {
@@ -216,7 +217,10 @@ extension TaxTriagePipeline {
 ///   options, the home released builds wrote, because one plan cannot hold several samples' plans.
 /// - The Kraken 2 database is recorded as decision E9 of Phase 2.7 records EsViritu's, as resolved defaults, with the
 ///   source URL and source policy its install receipt names, and no placeholder of the receipt as a catalog entry or
-///   version (``DatabaseReceiptPlaceholder``). Its status is the word `unpinned`, which ``DatabaseIdentityStatus`` reads.
+///   version (``DatabaseReceiptPlaceholder``). Its status is `pinned` with the receipt's payload digest when the receipt
+///   adds up to its own digest, and `unpinned` otherwise (DB-IDENTITY, 3.1), words ``DatabaseIdentityStatus`` reads. The
+///   references the run fetches from NCBI are `fetchedReferences`, a live snapshot with the run's start and the kept
+///   gcfmap listings.
 /// - Each task failure TaxTriage ignored is one warning line (T8), and the run still ends `completed`.
 /// - The negative controls a user named are the explicit option `negative_controls`, present only when one was named
 ///   (2.10 T4). A mark a bundle's sample role makes is no option of the record.
@@ -226,7 +230,9 @@ extension TaxTriagePipeline {
 struct TaxTriageRecordFacts: Sendable, Equatable {
     /// The one tool name of a TaxTriage step, the name the batch record of a serial run already gives each sample.
     static let toolName = "taxtriage"
-    /// The status of a TaxTriage database's identity. No digest pins it, and no database folder is hashed per run.
+    /// The status of a TaxTriage database's identity when no install receipt pins it, the word its record has always
+    /// had. A receipt that adds up to its own digest gives `pinned` and the digest instead. No database folder is hashed
+    /// per run.
     static let databaseIdentityStatus = DatabaseIdentityStatus.unpinned.rawValue
     /// The workflow name of a database install receipt, the record an install writes into the database folder.
     static let databaseInstallWorkflowName = "metagenomics.database.install"
@@ -235,6 +241,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         RecordedReadSetPlan.key, "classifiers", "sample_count", "interleaved_samples_split_to_r1_r2",
         "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
         "databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy",
+        "databaseDigest", "databaseIdentityNote", "fetchedReferences",
     ]
     /// The settings the run was asked for.
     let explicitOptions: [String: ParameterValue]
@@ -244,7 +251,8 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     init(
         config: TaxTriageConfig,
         interleavedSplits: [TaxTriagePipeline.InterleavedSampleSplit] = [],
-        pin: NextflowPipelinePin? = nil
+        pin: NextflowPipelinePin? = nil,
+        runStart: Date = Date()
     ) {
         var explicit: [String: ParameterValue] = [
             "workflow": .string("taxtriage"),
@@ -274,6 +282,8 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             explicit["negative_controls"] = .array(namedControls.map { .string($0) })
         }
         var resolved = Self.databaseIdentity(at: config.kraken2DatabasePath)
+        // DB-IDENTITY. The references TaxTriage fetches from NCBI during the run are a live snapshot that began with it.
+        resolved.merge(Self.fetchedReferences(of: config, fetchedAt: runStart).resolvedDefaults) { current, _ in current }
         // R5. The launch passes no `--classifiers`, so the classifiers TaxTriage ran are its default, not a choice.
         resolved["classifiers"] = .array(config.classifiers.map { .string($0) })
         // B12 rulings H1 and H2. LGE counts the samplesheet rows it built and decides on a split itself.
@@ -352,7 +362,9 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     /// each core file and a status that says no digest pins it. When the folder's install receipt names the folder and
     /// its install ended 0, also the source URL and source policy the receipt names, the catalog entry unless the
     /// receipt holds a placeholder for it, and as the version the first of the requested catalog version and the
-    /// receipt's workflow version that is no placeholder. Nothing is hashed. Empty when the run names no database.
+    /// receipt's workflow version that is no placeholder. When the receipt adds up to its own digest the status is `pinned`
+    /// and `databaseDigest` is that digest, and a receipt that does not add up gives `databaseIdentityNote`
+    /// (DB-IDENTITY, 3.1). Nothing is hashed. Empty when the run names no database.
     static func databaseIdentity(at databaseURL: URL?) -> [String: ParameterValue] {
         guard let databaseURL else { return [:] }
         let database = databaseURL.standardizedFileURL
@@ -365,9 +377,11 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         }
         var identity: [String: ParameterValue] = [
             "databasePath": .string(database.path),
-            "databaseIdentityStatus": .string(databaseIdentityStatus),
             "databaseCoreFileSizes": .dictionary(sizes),
         ]
+        identity.merge(MetagenomicsDatabaseReceiptReference.identityFacts(
+            of: MetagenomicsDatabaseReceiptReference.resolve(databasePath: database)
+        )) { current, _ in current }
         if let receipt = ProvenanceRecorder.loadEnvelope(from: database),
            receipt.workflowName == databaseInstallWorkflowName,
            receipt.exitStatus == 0,
@@ -389,6 +403,39 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
             }
         }
         return identity
+    }
+
+    /// The references TaxTriage fetched from NCBI during the run, a live snapshot (decision R4 of Phase 2.9, DB-IDENTITY of
+    /// 3.1). The entry names the run's start as the date of the fetch and the kept
+    /// `combine/<sample>.combined.gcfmap.tsv` of each sample as the files that list what it fetched.
+    static func fetchedReferences(of config: TaxTriageConfig, fetchedAt: Date) -> NextflowDatabaseEntry {
+        NextflowDatabaseEntry(
+            role: "fetchedReferences",
+            status: .liveSnapshot,
+            fetchedAt: fetchedAt,
+            listingFiles: config.samples.map {
+                config.outputDirectory.appendingPathComponent("combine/\($0.sampleId).combined.gcfmap.tsv")
+            }
+        )
+    }
+
+    /// The Kraken 2 database as a reference input of a step, when its install receipt adds up to its own digest. The
+    /// record holds the aggregate SHA-256 the receipt states and the payload size, and nothing is hashed. A database
+    /// with no receipt that adds up adds nothing.
+    static func databaseReferenceRecords(at databaseURL: URL?) -> [FileRecord] {
+        guard let databaseURL,
+              let reference = MetagenomicsDatabaseReceiptReference.resolve(databasePath: databaseURL)?.reference else {
+            return []
+        }
+        return [
+            FileRecord(
+                path: reference.path,
+                sha256: reference.checksumSHA256,
+                sizeBytes: reference.fileSize,
+                format: .unknown,
+                role: .reference
+            ),
+        ]
     }
 
     /// One warning line for each task failure TaxTriage ignored, naming the process, the sample, the exit status, the
