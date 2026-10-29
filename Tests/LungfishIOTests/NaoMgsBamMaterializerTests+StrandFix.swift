@@ -60,12 +60,13 @@ extension NaoMgsBamMaterializerTests {
         XCTAssertGreaterThan(countBefore, 0, "the first materialize wrote the sample's reads")
 
         try NaoMgsDatabase.openReadWrite(at: dbURL).deleteVirusHitsAndVacuum()
-        _ = try NaoMgsBamMaterializer.materializeAll(
+        let forced = try NaoMgsBamMaterializer.materializeAll(
             dbPath: dbURL.path, resultURL: tmp, samtoolsPath: samtools, force: true, markDuplicates: false
         )
 
         XCTAssertEqual(try strandFixReadCount(samtools, bam), countBefore, "a forced run over a purged database keeps every read")
         XCTAssertEqual(try strandFixSHA256(of: bam), digestBefore, "and leaves the BAM byte for byte as it was")
+        XCTAssertEqual(forced, [], "a sample the guard skipped is not reported as materialized")
     }
 
     private func strandFixSHA256(of url: URL) throws -> String {

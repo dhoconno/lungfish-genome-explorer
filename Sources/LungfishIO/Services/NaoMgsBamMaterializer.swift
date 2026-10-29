@@ -103,7 +103,7 @@ public enum NaoMgsBamMaterializer {
             }
 
             do {
-                if let generateStep = try generateBam(
+                guard let generateStep = try generateBam(
                     db: db,
                     sample: sample,
                     refLengths: allRefLengths,
@@ -113,9 +113,8 @@ public enum NaoMgsBamMaterializer {
                     lungfishVersion: lungfishVersion,
                     databaseURL: databaseURL,
                     createIndex: markDuplicates
-                ) {
-                    steps.append(generateStep)
-                }
+                ) else { continue }  // no BAM was written (no accessions, or no virus_hits rows left): keep the file on disk, count nothing
+                steps.append(generateStep)
                 if markDuplicates {
                     steps.append(contentsOf: markdupWithTelemetry(
                         sample: sample,
