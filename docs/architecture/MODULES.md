@@ -29,7 +29,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1575 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1576 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
 
@@ -2087,6 +2087,7 @@ None.
 - `AnalysisRunUnitContext` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunContexts.swift`
 - `AnalysisSourceRecord` protocol, `Sources/LungfishWorkflow/AnalysisRun/AnalysisSourceRecord.swift`
 - `AnalysisSourceRecordContext` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisSourceRecord.swift`
+- `AnalysisTimeLimit` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisTimeLimit.swift`
 - `AnalysisUnitOutcome` enum, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunOutcome.swift`
 - `AnalysisUnitReport` struct, `Sources/LungfishWorkflow/AnalysisRun/AnalysisRunOutcome.swift`
 - `AnnotationDatabaseGFFExporter` enum, `Sources/LungfishWorkflow/Annotation/AnnotationDatabaseGFFExporter.swift`
