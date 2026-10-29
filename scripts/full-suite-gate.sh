@@ -385,6 +385,12 @@ if [ "$TIER" = "full" ]; then
         echo "The full tier refuses to run while the xctest tool's defaults domain holds DatabaseStorageLocation, because every test would then read that storage root. Remove it with 'defaults delete com.apple.dt.xctest.tool DatabaseStorageLocation' and run the tier again." >&2
         exit 78
     fi
+    # Review LOOP-QA SF-2: the test-state observer checks a defaults domain that every xctest process shares.
+    XCTEST_PIDS="$(pgrep -x xctest 2>/dev/null | paste -sd ' ' - || true)"
+    if [ -n "$XCTEST_PIDS" ]; then
+        echo "The full tier refuses to run while another xctest process is running (pids: ${XCTEST_PIDS}), because every xctest process of the user shares one defaults domain and the test-state observer would read the other process's keys as leaks of this run. Wait for it to end, or stop it, and run the tier again." >&2
+        exit 78
+    fi
 fi
 mkdir -p "$LOG_DIR"
 

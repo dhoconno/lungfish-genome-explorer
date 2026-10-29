@@ -240,6 +240,10 @@ def _make_gate_project(root, full_tier_bundles=None):
         "exec /usr/bin/defaults \"$@\"\n"
     )
     defaults.chmod(0o755)
+    # The fake pgrep finds the xctest processes in STUB_XCTEST_PIDS and no other, so a busy Mac moves no result.
+    pgrep = bin_dir / "pgrep"
+    pgrep.write_text("#!/bin/sh\nif [ -n \"${STUB_XCTEST_PIDS:-}\" ]; then printf '%s\\n' $STUB_XCTEST_PIDS; exit 0; fi\nexit 1\n")
+    pgrep.chmod(0o755)
     sleep = bin_dir / "sleep"
     sleep.write_text("#!/bin/sh\nexit 0\n")
     sleep.chmod(0o755)
@@ -973,6 +977,22 @@ class FullTierScriptTests(unittest.TestCase):
         self.assertIn("defaults domain holds DatabaseStorageLocation", result.stderr)
         self.assertIn("defaults delete com.apple.dt.xctest.tool DatabaseStorageLocation", result.stderr)
         self.assertIsNone(evidence)
+
+    def test_the_full_tier_refuses_to_start_while_another_xctest_process_runs(self):
+        # Review LOOP-QA SF-2: every xctest process of the user shares one defaults domain, so the observer of a full
+        # tier beside another xctest process would read that process's keys as leaks of this run.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LUNGFISH_STORAGE_ROOT", None)
+            result, evidence = self.run_gate("bundles", "--tier", "full", full_tier_bundles=TWO_BUNDLES,
+                                             env={"STUB_XCTEST_PIDS": "4242 4343"})
+            self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+            self.assertIn("refuses to run while another xctest process is running (pids: 4242 4343)", result.stderr)
+            self.assertIn("Wait for it to end, or stop it, and run the tier again.", result.stderr)
+            self.assertIsNone(evidence)
+            result, evidence = self.run_gate("bundles", "--tier", "full", "--quiet", full_tier_bundles=TWO_BUNDLES,
+                                             env={"STUB_XCTEST_PIDS": ""})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("GATE PASS", result.stdout)
 
     def test_a_class_bound_is_refused_for_the_full_tier(self):
         result, evidence = self.run_gate("bundles", "--tier", "full", "--class-timeout-seconds", "5",
