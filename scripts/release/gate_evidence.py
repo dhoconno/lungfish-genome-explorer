@@ -772,6 +772,9 @@ def run_class_attempts(attempt, bound, selection, discovered, args, directory):
 
 TEST_STATE_LEDGER_VARIABLE = "LUNGFISH_TEST_LEAK_LEDGER"
 TEST_STATE_LEDGER_NAME = "test-state-leaks.jsonl"
+# Set to "off" in a parallel attempt, whose xctest workers share one defaults domain, so the observer's defaults check
+# reads nothing there (TestStateObserver.domainCheckVariable, review LOOP-QA B1).
+TEST_STATE_DOMAIN_VARIABLE = "LUNGFISH_TEST_STATE_DOMAIN"
 
 
 def read_test_state_ledger(path):
@@ -984,6 +987,9 @@ def run_swift_gate(args):
             # for each test that left state behind (TestStateObserver.swift, ruling QA-RELEASE-LOOP section 4).
             ledger = target / TEST_STATE_LEDGER_NAME
             env = {**(os.environ if environment is None else environment), TEST_STATE_LEDGER_VARIABLE: str(ledger)}
+            if parallel:
+                # Parallel xctest workers share one defaults domain.
+                env[TEST_STATE_DOMAIN_VARIABLE] = "off"
             result = analyze_attempt(
                 target,
                 command_record(command, root, target, "runner", timeout_seconds=timeout, env=env),

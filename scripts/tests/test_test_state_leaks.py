@@ -16,16 +16,19 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.tests.test_full_suite_gate_tiers import GATE, TWO_BUNDLES, _make_gate_project
+from scripts.tests.test_full_suite_gate_tiers import (
+    BUNDLED_TESTS, GATE, TWO_BUNDLES, _make_gate_project, run_gate_in_process)
 
+DOMAIN_VARIABLE = "LUNGFISH_TEST_STATE_DOMAIN"
 LEAK = {"test": "LungfishAppTests.LeakyTests/testLeavesARow", "phase": "case", "check": "operation rows",
         "keys": ["0E6A"], "message": "left 1 active operation row \"MAFFT\" (Alignment, running)"}
 LEAK_ERROR = ("test state leak: LungfishAppTests.LeakyTests/testLeavesARow "
               "left 1 active operation row \"MAFFT\" (Alignment, running)")
 
 
-def run_full_tier(ledger_lines):
-    """Run the full tier of TWO_BUNDLES in this process. `ledger_lines` maps a bundle to the lines its observer writes.
+def run_full_tier(ledger_lines, scenario="bundles", **options):
+    """Run the full tier of TWO_BUNDLES in this process. `ledger_lines` maps a bundle to the lines its observer writes,
+    `scenario` picks the fake swift's behaviour and `options` override the parsed arguments.
     Returns the runner calls (argv and environment), the exit status, the evidence and the text of leaks.txt or None."""
     calls, real = [], GATE.command_record
 
@@ -46,7 +49,9 @@ def run_full_tier(ledger_lines):
         args = argparse.Namespace(
             root=str(root), output=str(output), tier="full", filter="", skip="", parallel=False, require_tools=False,
             timeout_seconds=None, profile=None, workers=None, gate_argv=[], full_tier_bundle=TWO_BUNDLES)
-        environment = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "GATE_SCENARIO": "bundles"}
+        for name, value in options.items():
+            setattr(args, name, value)
+        environment = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "GATE_SCENARIO": scenario}
         with mock.patch.object(GATE, "command_record", observed), \
                 mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
             status = GATE.run_swift_gate(args)
@@ -91,6 +96,19 @@ class TestStateLedgerGateTests(unittest.TestCase):
                 "test state leak: line 2 of test-state-leaks.jsonl is not a leak record",
                 "test state leak: line 3 of test-state-leaks.jsonl is not a leak record"])
             self.assertEqual(GATE.read_test_state_ledger(Path(temp) / "absent.jsonl"), [])
+
+    def test_a_parallel_attempt_switches_the_defaults_check_off(self):
+        # Review LOOP-QA B1: parallel xctest workers share one defaults domain, so a parallel attempt switches the
+        # observer's defaults check off. A serial attempt and every attempt of the full tier keep it.
+        for parallel, expected in ((True, "off"), (False, None)):
+            with self.subTest(parallel=parallel), mock.patch.dict(os.environ):
+                os.environ.pop(DOMAIN_VARIABLE, None)
+                calls, _, _ = run_gate_in_process("pass", "unit", "", parallel=parallel)
+                runners = [call for call in calls if call["name"] == "runner"]
+                self.assertTrue(runners, "the unit tier started its runner")
+                self.assertEqual({call["env"].get(DOMAIN_VARIABLE) for call in runners}, {expected})
+        calls, _, _, _ = run_full_tier({})
+        self.assertEqual({call["env"].get(DOMAIN_VARIABLE) for call in calls}, {None})
 
 
 if __name__ == "__main__":

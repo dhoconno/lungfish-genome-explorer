@@ -121,4 +121,20 @@ final class TestStateObserverDiffTests: XCTestCase {
                        [], "two reads of an unchanged domain are equal")
         XCTAssertNil(value["DatabaseStorageLocation"], "no exported storage root left its key in the domain")
     }
+
+    /// Review LOOP-QA B1. Every xctest process of the user shares the xctest tool's domain, so the unit tier's
+    /// parallel workers run with LUNGFISH_TEST_STATE_DOMAIN=off, and the check then reads nothing and puts nothing back.
+    @MainActor
+    func testTheDefaultsCheckReadsNothingWhenTheVariableSaysOff() {
+        let variable = "LUNGFISH_TEST_STATE_DOMAIN"
+        let old = ProcessInfo.processInfo.environment[variable]
+        setenv(variable, "off", 1)
+        defer { if let old { setenv(variable, old, 1) } else { unsetenv(variable) } }
+        XCTAssertTrue(TestStateObserver.defaultsDomainCheck().snapshot().isEmpty,
+                      "with the variable off the check read the domain that every xctest process shares")
+        XCTAssertTrue(TestStateObserver.defaultsDomainCheck(on: false).snapshot().isEmpty)
+        XCTAssertFalse(TestStateObserver.domainCheckIsOn([TestStateObserver.domainCheckVariable: "off"]))
+        XCTAssertTrue(TestStateObserver.domainCheckIsOn([:]))
+        XCTAssertTrue(TestStateObserver.domainCheckIsOn([TestStateObserver.domainCheckVariable: "on"]))
+    }
 }

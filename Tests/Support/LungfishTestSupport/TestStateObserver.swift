@@ -111,6 +111,14 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
     public static let ledgerVariable = "LUNGFISH_TEST_LEAK_LEDGER"
     /// The persistent defaults domain of the xctest tool, where an exported storage root once left its key.
     public static let xctestDomain = "com.apple.dt.xctest.tool"
+    /// The variable that switches the defaults check off. Every xctest process of the user shares the xctest tool's
+    /// domain, so the gate sets it to `off` in a parallel attempt, whose workers would read each other's keys.
+    public static let domainCheckVariable = "LUNGFISH_TEST_STATE_DOMAIN"
+
+    /// Whether the defaults check reads the domain, true unless `environment` sets the variable to `off`.
+    public static func domainCheckIsOn(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        environment[domainCheckVariable] != "off"
+    }
 
     private let lock = NSLock()
     private var checks: [TestStateCheck] = TestStateObserver.processChecks()
@@ -234,6 +242,8 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
     public func testBundleWillStart(_ testBundle: Bundle) {
         let bundle = testBundle.bundleURL.deletingPathExtension().lastPathComponent
         guard onMain(bundle) else { return }
+        // A DatabaseStorageLocation that another parallel worker is writing would read as present here.
+        guard Self.domainCheckIsOn() else { return }
         let domain = UserDefaults.standard.persistentDomain(forName: Self.xctestDomain) ?? [:]
         guard let value = domain["DatabaseStorageLocation"] else { return }
         Self.report(test: bundle, phase: "bundle start", leak: TestStateLeak(
@@ -363,13 +373,16 @@ extension TestStateObserver {
     }
 
     /// Every key of the xctest tool's persistent domain, `DatabaseStorageLocation` among them, read as one
-    /// dictionary. The restore puts back each changed key's value and removes each new key.
-    public static func defaultsDomainCheck() -> TestStateCheck {
+    /// dictionary. The restore puts back each changed key's value and removes each new key. With `on` false (the
+    /// variable `domainCheckVariable` set to `off`) the check still registers under its name, reads an empty domain
+    /// and puts nothing back.
+    public static func defaultsDomainCheck(on: Bool = domainCheckIsOn()) -> TestStateCheck {
         TestStateCheck(
             name: "xctest defaults", noun: "xctest defaults key",
             domain: TestStateCheck.Domain(
-                read: { readDomain(xctestDomain) },
+                read: { on ? readDomain(xctestDomain) : NSDictionary() },
                 restore: { keys, before in
+                    guard on else { return }
                     for key in keys {
                         CFPreferencesSetValue(key as CFString, before[key] as CFPropertyList?, xctestDomain as CFString,
                                               kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
