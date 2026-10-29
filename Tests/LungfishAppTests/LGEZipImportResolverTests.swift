@@ -247,7 +247,12 @@ final class LGEZipImportResolverTests: XCTestCase {
         let link = LGEZipImportFailure.reason(
             forExtractionError: GeneiousArchiveToolError.unsafeArchive("the symbolic link \u{201C}x\u{201D} points to the absolute path /etc/hosts")
         )
-        XCTAssertEqual(link, "It holds a link to a file outside the archive, so Lungfish did not import it.")
+        XCTAssertEqual(
+            link,
+            "It holds a link to a file outside the archive, so Lungfish did not import it. "
+                + "The symbolic link \u{201C}x\u{201D} points to the absolute path /etc/hosts. "
+                + "Pack the ZIP again with each link replaced by the file it points to, or ask whoever made it to, then drop it again."
+        )
 
         let path = LGEZipImportFailure.reason(forExtractionError: GeneiousArchiveToolError.unsafeMemberPath("../evil"))
         XCTAssertTrue(path.contains("path leaves"), path)

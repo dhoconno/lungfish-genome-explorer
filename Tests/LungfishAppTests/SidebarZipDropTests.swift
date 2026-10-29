@@ -79,12 +79,16 @@ final class SidebarZipDropTests: XCTestCase {
         await waitUntil(budget: budget) { !log.entries.isEmpty }
 
         XCTAssertEqual(log.entries.map(\.success), [false], "the drop ends once, as a failure: \(log.entries)")
-        XCTAssertEqual(presenter.messages, [
-            RecordingZipFailurePresenter.Message(
-                title: "Could not import SRR12486983-abslink.zip",
-                text: "It holds a link to a file outside the archive, so Lungfish did not import it."
-            ),
-        ])
+        let message = try XCTUnwrap(presenter.messages.first, "no sheet was shown")
+        XCTAssertEqual(presenter.messages.count, 1, "one sheet for the drop: \(presenter.messages)")
+        XCTAssertEqual(message.title, "Could not import SRR12486983-abslink.zip")
+        XCTAssertTrue(
+            message.text.hasPrefix("It holds a link to a file outside the archive, so Lungfish did not import it. "), message.text
+        )
+        XCTAssertTrue(message.text.contains("points to the absolute path /etc/hosts"), message.text)
+        XCTAssertTrue(
+            message.text.contains("Pack the ZIP again with each link replaced by the file it points to"), message.text
+        )
         XCTAssertEqual(try projectListing(), before, "the drop leaves the project as it was, with no bundle and no .tmp folder")
         XCTAssertTrue(fm.fileExists(atPath: zip.archive.path), "the user's ZIP stays where it was")
     }

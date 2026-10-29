@@ -248,12 +248,16 @@ final class ImportFilesCancelAlertTests: XCTestCase {
         }
         _ = await waitUntil(timeout: .seconds(30)) { !outcome.presentations.isEmpty }
 
-        XCTAssertEqual(sheets.messages, [
-            RecordingZipFailurePresenter.Message(
-                title: "Could not import SRR12486983-abslink.zip",
-                text: "It holds a link to a file outside the archive, so Lungfish did not import it."
-            ),
-        ])
+        let message = try XCTUnwrap(sheets.messages.first, "no sheet was shown")
+        XCTAssertEqual(sheets.messages.count, 1, "one sheet for the drop: \(sheets.messages)")
+        XCTAssertEqual(message.title, "Could not import SRR12486983-abslink.zip")
+        XCTAssertTrue(
+            message.text.hasPrefix("It holds a link to a file outside the archive, so Lungfish did not import it. "), message.text
+        )
+        XCTAssertTrue(message.text.contains("points to the absolute path /etc/hosts"), message.text)
+        XCTAssertTrue(
+            message.text.contains("Pack the ZIP again with each link replaced by the file it points to"), message.text
+        )
         XCTAssertEqual(outcome.presentations.map(\.outcome.failed), [1], "the request still ends in its counts alert")
         XCTAssertEqual(try projectListing(), before, "the import leaves the project as it was, with no bundle and no .tmp folder")
     }

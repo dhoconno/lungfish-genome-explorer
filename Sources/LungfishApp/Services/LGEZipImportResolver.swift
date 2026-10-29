@@ -27,10 +27,12 @@ extension LGEZipImportFailure {
     /// Why an extraction failed, in words about the archive and not about the tool.
     static func reason(forExtractionError error: Error) -> String {
         switch error {
-        case GeneiousArchiveToolError.unsafeArchive:
+        case GeneiousArchiveToolError.unsafeArchive(let reason):
             // `GeneiousArchiveTool.extract` reports only links here, the ones that
-            // `SafeZipExtractor.verifySymbolicLinksStayInside` refuses.
-            return "It holds a link to a file outside the archive, so Lungfish did not import it."
+            // `SafeZipExtractor.verifySymbolicLinksStayInside` refuses. `reason` names the link and starts in lower case.
+            let detail = reason.prefix(1).uppercased() + reason.dropFirst()
+            return "It holds a link to a file outside the archive, so Lungfish did not import it. \(detail). "
+                + "Pack the ZIP again with each link replaced by the file it points to, or ask whoever made it to, then drop it again."
         case GeneiousArchiveToolError.unsafeMemberPath:
             return "It holds a file whose path leaves the archive's own folder, so Lungfish did not import it."
         case GeneiousArchiveToolError.unzipFailed(_, _, let stderr):
