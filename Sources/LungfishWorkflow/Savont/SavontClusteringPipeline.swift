@@ -645,7 +645,7 @@ public struct SavontClusteringPipeline: Sendable {
             "maximumReadLength": .null,
             "singleStrand": .boolean(false),
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
-            "timeoutSeconds": AnalysisTimeLimit.current.map { ParameterValue.integer($0.minutes * 60) } ?? .null,
+            "timeoutSeconds": .null,
         ]
     }
 
