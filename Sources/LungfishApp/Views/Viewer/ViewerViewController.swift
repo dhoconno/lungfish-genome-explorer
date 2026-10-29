@@ -244,7 +244,7 @@ public class ViewerViewController: NSViewController {
         multipleSequenceAlignmentViewController != nil
             || phylogeneticTreeViewController != nil
             || genotypeResultViewController != nil
-            || surfaceHost.activeViewport != nil
+            || installedSurface != nil
     }
 
     /// Reveals the parent annotation drawer unless a native bundle viewport
