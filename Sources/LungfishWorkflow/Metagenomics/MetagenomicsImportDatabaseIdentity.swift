@@ -27,4 +27,60 @@ enum MetagenomicsImportDatabaseIdentity {
     static func notNamedBySource(tool: String, adding resolved: [String: ParameterValue]) -> [String: ParameterValue] {
         resolved.merging(notNamedBySource(tool: tool)) { current, _ in current }
     }
+
+    /// `resolved`, an NVD import's resolved defaults, with the BLAST and STAT database versions its rows state. A version
+    /// is one string when every row agrees and the sorted array of the distinct values when rows differ, so a mixed import
+    /// never reads as one release, and a key is left out when no row states one. The status is `namedBySource` with a note
+    /// that no checksum is stated. A result whose rows state neither version names no database.
+    static func nvd(
+        blastVersions: [String],
+        statVersions: [String],
+        adding resolved: [String: ParameterValue]
+    ) -> [String: ParameterValue] {
+        var stated: [String: ParameterValue] = [:]
+        if let blast = versionValue(of: blastVersions) {
+            stated["blastDatabaseVersion"] = blast
+        }
+        if let stat = versionValue(of: statVersions) {
+            stated["statDatabaseVersion"] = stat
+        }
+        guard !stated.isEmpty else {
+            return notNamedBySource(tool: "NVD", adding: resolved)
+        }
+        stated["databaseIdentityStatus"] = .string(DatabaseIdentityStatus.namedBySource.rawValue)
+        stated["databaseIdentityNote"] = .string("The NVD result states its BLAST and STAT database versions and no checksum.")
+        return resolved.merging(stated) { current, _ in current }
+    }
+
+    /// `resolved`, a CZ-ID import's resolved defaults, with the status and the note. The versions stay under the three
+    /// keys CZ-ID released. The status is `namedBySource` when the report names an NT or an NR version, and a report that
+    /// names neither names no database. `unknown`, which the import records for a version it does not find, names nothing
+    /// (``DatabaseReceiptPlaceholder``).
+    static func czId(
+        ntVersion: String?,
+        nrVersion: String?,
+        adding resolved: [String: ParameterValue]
+    ) -> [String: ParameterValue] {
+        guard DatabaseReceiptPlaceholder.firstNamed(among: [ntVersion, nrVersion]) != nil else {
+            return notNamedBySource(tool: "CZ-ID", adding: resolved)
+        }
+        return resolved.merging([
+            "databaseIdentityStatus": .string(DatabaseIdentityStatus.namedBySource.rawValue),
+            "databaseIdentityNote": .string("The CZ-ID result states its NT and NR database versions and no checksum."),
+        ]) { current, _ in current }
+    }
+
+    /// The version the values state, one string when every non-empty value agrees, the sorted distinct values as an array
+    /// when they differ, and nil when none names a version.
+    private static func versionValue(of versions: [String]) -> ParameterValue? {
+        let distinct = Set(versions.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+        switch distinct.count {
+        case 0:
+            return nil
+        case 1:
+            return distinct.first.map(ParameterValue.string)
+        default:
+            return .array(distinct.sorted().map(ParameterValue.string))
+        }
+    }
 }

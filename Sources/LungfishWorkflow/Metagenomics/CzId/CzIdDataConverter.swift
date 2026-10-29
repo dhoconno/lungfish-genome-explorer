@@ -375,7 +375,10 @@ public enum CzIdDataConverter {
         reportURL: URL,
         reportPayloadURL: URL
     ) -> [String: ParameterValue] {
-        [
+        MetagenomicsImportDatabaseIdentity.czId(
+            ntVersion: parsed.metadata.ntDatabaseVersion,
+            nrVersion: parsed.metadata.nrDatabaseVersion,
+            adding: [
             "sampleName": .string(sampleName),
             "czIdSchemaVersion": .string(schemaVersion),
             "pipelineVersion": parsed.metadata.pipelineVersion.map(ParameterValue.string) ?? .string("unknown"),
@@ -386,7 +389,7 @@ public enum CzIdDataConverter {
             "sourcePath": sourceInputURL.map(ParameterValue.file) ?? .file(reportURL),
             "outputDirectory": .file(outputDirectory),
             "outputDefaults": .string("classification.kreport, classification.czid.tsv, cz-id-manifest.json, classification-result.json"),
-        ]
+        ])
     }
 
     private static func defaultOptionValues() -> [String: ParameterValue] {

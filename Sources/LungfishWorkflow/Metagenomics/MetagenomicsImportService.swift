@@ -588,7 +588,10 @@ public enum MetagenomicsImportService {
                     "outputRoot": .file(outputDirectory),
                     "samtoolsPath": samtoolsPath.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
                 ],
-                resolvedDefaults: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.nvd(
+                    blastVersions: parseResult.hits.map(\.blastDbVersion),
+                    statVersions: parseResult.hits.map(\.statDbVersion),
+                    adding: [
                     "inputPath": .string(inputURL.path),
                     "csvPath": .string(csvURL.path),
                     "outputDir": .string(outputDirectory.path),
@@ -603,7 +606,7 @@ public enum MetagenomicsImportService {
                     "copiedFASTACount": .integer(copiedFASTACount),
                     "markdupBAMCount": .integer(markdupBAMCount),
                     "uniqueReadRowsUpdated": .integer(uniqueReadRowsUpdated),
-                ],
+                ]),
                 runClock: runClock,
                 workflowName: provenanceWorkflowName,
                 toolName: provenanceToolName,

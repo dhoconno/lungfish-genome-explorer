@@ -94,4 +94,39 @@ final class NvdCzIdImportDatabaseIdentityTests: XCTestCase {
         )
         XCTAssertNil(resolved["databaseDigest"], "an import has no checksum to cite")
     }
+
+    /// A mixed NVD import never reads as one release. Rows that agree read as one string, rows that differ as the sorted
+    /// distinct values, and rows that state no version name no database.
+    func testNvdVersionsAgreeAsOneStringAndDifferAsASortedArray() {
+        let mixed = MetagenomicsImportDatabaseIdentity.nvd(
+            blastVersions: ["nt-2026", "nt-2025", "nt-2026"], statVersions: ["stat-1", "stat-1"], adding: [:]
+        )
+        XCTAssertEqual(mixed["blastDatabaseVersion"], .array([.string("nt-2025"), .string("nt-2026")]))
+        XCTAssertEqual(mixed["statDatabaseVersion"], .string("stat-1"))
+        XCTAssertEqual(mixed["databaseIdentityStatus"], .string("namedBySource"))
+
+        let silent = MetagenomicsImportDatabaseIdentity.nvd(blastVersions: ["", " "], statVersions: [], adding: ["hitCount": .integer(2)])
+        XCTAssertNil(silent["blastDatabaseVersion"], "a version the source does not state is left out, never unknown")
+        XCTAssertNil(silent["statDatabaseVersion"])
+        XCTAssertEqual(silent["hitCount"], .integer(2), "the import's own keys stay")
+        XCTAssertEqual(silent["databaseIdentityStatus"], .string("notNamedBySource"))
+        XCTAssertEqual(
+            silent["databaseIdentityNote"],
+            .string(
+                "The NVD result names no database, so this record cannot name the release that made its calls. "
+                    + "Cite it from the run that made the result."
+            )
+        )
+    }
+
+    /// A CZ-ID report that names neither version names no database, and the released `unknown` stays as it was.
+    func testCzIdReportThatNamesNoVersionIsNotNamedBySource() {
+        let silent = MetagenomicsImportDatabaseIdentity.czId(
+            ntVersion: nil, nrVersion: "unknown", adding: ["ntDatabaseVersion": .string("unknown")]
+        )
+        XCTAssertEqual(silent["databaseIdentityStatus"], .string("notNamedBySource"))
+        XCTAssertEqual(silent["ntDatabaseVersion"], .string("unknown"), "the released key keeps its value")
+        let named = MetagenomicsImportDatabaseIdentity.czId(ntVersion: "nt_2025_12_01", nrVersion: nil, adding: [:])
+        XCTAssertEqual(named["databaseIdentityStatus"], .string("namedBySource"))
+    }
 }
