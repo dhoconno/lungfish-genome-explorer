@@ -166,11 +166,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             URL,
             @escaping @Sendable () throws -> Void
         ) throws -> GenotypeReviewableRowCatalogPublication
-    /// The limit of one mapping launch, nil when the run has none. A person's `--time-limit` sets it.
-    private static var mappingProcessLimit: Duration? {
-        let seconds = AnalysisTimeLimit.launchTimeout
-        return seconds.isFinite ? .seconds(seconds) : nil
-    }
 
     public init(
         condaManager: CondaManager = .shared,
@@ -2689,7 +2684,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         do {
             run = .success(try await ToolProcess.runPipeline(
                 [minimap2Spec, sortSpec],
-                timeout: Self.mappingProcessLimit,
+                timeout: CondaFamilyProcess.limit(seconds: AnalysisTimeLimit.launchTimeout),
                 failurePolicy: .stopAllOnFailure,
                 onLaunch: { stage, _ in
                     // minimap2 holds its own copy of the read end now. Closing
@@ -2802,7 +2797,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             environment: ToolProcessSpec.inheritedEnvironment(),
             stdout: .discard,
             stderr: .file(stderrURL),
-            timeout: Self.mappingProcessLimit,
+            timeout: CondaFamilyProcess.limit(seconds: AnalysisTimeLimit.launchTimeout),
             label: tool
         )
         let run: Result<ToolProcessResult, ToolProcessError>
