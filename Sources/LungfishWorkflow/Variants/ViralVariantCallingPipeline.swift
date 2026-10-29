@@ -252,7 +252,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     throw ViralVariantCallingPipelineError.fastqReconstructionFailed(stderr)
                 case .emptySidecarOutputs:
                     throw ViralVariantCallingPipelineError.fastqReconstructionFailed(
-                        "samtools fastq produced no sidecar output and stdout fallback is disabled for Medaka."
+                        "No primary read of the alignment could be written to FASTQ, so Medaka has no reads to polish. Check that the BAM holds mapped primary reads and run it again."
                     )
                 }
             } catch {
