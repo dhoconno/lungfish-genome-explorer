@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 655 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1273,6 +1273,7 @@ None.
 - `NaoMgsBamMaterializationResult` struct, `Sources/LungfishIO/Services/NaoMgsBamMaterializationStep.swift`
 - `NaoMgsBamMaterializationStep` struct, `Sources/LungfishIO/Services/NaoMgsBamMaterializationStep.swift`
 - `NaoMgsBamMaterializer` enum, `Sources/LungfishIO/Services/NaoMgsBamMaterializer.swift`
+- `NaoMgsBamOrientation` enum, `Sources/LungfishIO/Services/NaoMgsBamMaterializer+Orientation.swift`
 - `NaoMgsDatabase` class, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift`
 - `NaoMgsDatabaseError` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase.swift`
 - `NaoMgsError` enum, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsError.swift`
