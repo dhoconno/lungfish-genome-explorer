@@ -172,12 +172,8 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                     MainActor.assumeIsolated {
                         guard self != nil else { return }
                         fastqDrawerLogger.error("Barcode scout failed: \(error)")
-                        let alert = NSAlert()
-                        alert.messageText = "Barcode Detection Failed"
-                        alert.informativeText = error.localizedDescription
-                        alert.alertStyle = .warning
                         if let window = self?.view.window {
-                            alert.beginSheetModal(for: window, completionHandler: nil)
+                            FailurePresenter.present(ViewerFailureReports.detectBarcodes(error), in: window)
                         }
                     }
                 }

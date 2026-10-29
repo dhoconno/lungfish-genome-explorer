@@ -543,7 +543,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         do {
                             try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
                         } catch {
-                            self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                            self?.presentAnnotationTrackDeletionFailure(ViewerFailureReports.reloadAfterAnnotationDeletion(error))
                         }
                     }}
                 } catch LungfishCLIRunner.RunError.cancelled {
@@ -558,7 +558,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                             detail: "Delete Annotations failed",
                             errorMessage: error.localizedDescription
                         ) else { return }
-                        self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
+                        self?.presentAnnotationTrackDeletionFailure(ViewerFailureReports.deleteAnnotations(error))
                     }}
                 }
             }
@@ -638,7 +638,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                         do {
                             try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
                         } catch {
-                            self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                            self?.presentAnnotationTrackDeletionFailure(ViewerFailureReports.reloadAfterAnnotationTrackDeletion(trackName, error))
                         }
                     }}
                 } catch LungfishCLIRunner.RunError.cancelled {
@@ -653,7 +653,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                             detail: "Delete Annotation Track failed",
                             errorMessage: error.localizedDescription
                         ) else { return }
-                        self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
+                        self?.presentAnnotationTrackDeletionFailure(ViewerFailureReports.deleteAnnotationTrack(trackName, error))
                     }}
                 }
             }
@@ -664,12 +664,8 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         }
     }
 
-    private func presentAnnotationTrackDeletionFailure(_ error: Error, title: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = error.localizedDescription
-        alert.alertStyle = .critical
-        presentAnnotationDrawerAlert(alert)
+    private func presentAnnotationTrackDeletionFailure(_ report: FailureReport) {
+        FailurePresenter.present(report, in: view.window)
     }
 
     private func presentAnnotationDrawerAlert(_ alert: NSAlert) {

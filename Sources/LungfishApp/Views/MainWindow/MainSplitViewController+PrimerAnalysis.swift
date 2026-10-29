@@ -96,10 +96,9 @@ extension MainSplitViewController {
             }
             (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Couldn’t Export Primer Order"
-            alert.informativeText = error.localizedDescription
-            if let window = view.window { alert.beginSheetModal(for: window) }
+            if let window = view.window {
+                FailurePresenter.present(MainWindowFailureReports.exportPrimerOrder(error), in: window)
+            }
         }
     }
 
@@ -164,10 +163,11 @@ extension MainSplitViewController {
             }
             (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Couldn’t Export Primer Selection"
-            alert.informativeText = error.localizedDescription
-            if let window = view.window { alert.beginSheetModal(for: window) }
+            if let window = view.window {
+                FailurePresenter.present(
+                    MainWindowFailureReports.exportPrimerAnalysisSelection(isPrimerFASTA: kind == .primerFASTA, error),
+                    in: window)
+            }
         }
     }
 

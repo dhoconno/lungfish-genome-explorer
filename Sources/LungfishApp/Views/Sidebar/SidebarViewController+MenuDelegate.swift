@@ -273,7 +273,7 @@ extension SidebarViewController: NSMenuDelegate {
                 } catch is CancellationError {
                     // The row shows the cancel and the command published nothing.
                 } catch {
-                    self.presentError(error)
+                    FailurePresenter.present(SidebarFailureReports.mergeIntoNewBundle(kind: mergeKind, error), in: self.view.window)
                 }
             }
         }
