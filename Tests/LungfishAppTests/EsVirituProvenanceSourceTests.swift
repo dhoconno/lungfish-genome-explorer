@@ -10,12 +10,24 @@ final class EsVirituProvenanceSourceTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline.swift")
     }
 
+    /// The inputs of an EsViritu step come from `EsVirituPipeline.stepInputRecords(for:)` since DB-IDENTITY (3.1,
+    /// `0373e8cc5`), which also adds the database as a reference input. The helper sits in this file.
+    private var stepInputRecordsSourceURL: URL {
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/LungfishWorkflow/Metagenomics/EsVirituPipeline+DatabaseReference.swift")
+    }
+
     func testEsVirituPipelineRecordsChecksummedFilesAtFinalOutputPaths() throws {
         let source = try readRepositorySource(pipelineSourceURL)
+        let inputSource = try readRepositorySource(stepInputRecordsSourceURL)
 
-        XCTAssertTrue(source.contains("ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)"))
-        XCTAssertTrue(source.contains("ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output)"))
+        // The reads. The helper that builds the inputs of the failed and the finished step hashes each read
+        // through the recorder at the path the config names, and the unhashed form stays out of the pipeline.
+        XCTAssertTrue(inputSource.contains("ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)"))
         XCTAssertFalse(source.contains("FileRecord(path: url.path, format: .fastq, role: .input)"))
+
+        // The output record stays in the pipeline file, at the final path the config names.
+        XCTAssertTrue(source.contains("ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output)"))
         XCTAssertFalse(source.contains("FileRecord(path: config.detectionOutputURL.path, format: .text, role: .output)"))
     }
 
