@@ -211,7 +211,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// `miniBAMControllers`, so a slow older request can't clobber a newer
     /// selection's results. Mirrors the generation-counter idiom used by
     /// `SequenceViewerView.fetchAnnotationsAsync`.
-    private var miniBAMLoadGeneration = 0
+    var miniBAMLoadGeneration = 0
+    weak var miniBAMNoteLabel: NSTextField?
 
     /// Per-card loading spinners for miniBAM skeleton views.
     private var miniBAMCardSpinners: [NSProgressIndicator] = []
@@ -1051,15 +1052,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerLabel)
 
-        let noteLabel = NSTextField(
-            labelWithString: "Top references by unique read count. Drag a panel handle downward to make it taller."
-        )
-        noteLabel.font = .systemFont(ofSize: 10)
-        noteLabel.textColor = .secondaryLabelColor
-        noteLabel.lineBreakMode = .byWordWrapping
-        noteLabel.maximumNumberOfLines = 0
-        noteLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(noteLabel)
+        let noteLabel = makeMiniBAMNoteLabel(in: container)
 
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -1316,7 +1309,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// `nonisolated` so it can be called from detached task contexts — the
     /// function only performs filesystem probes, so it's safe to run off the
     /// main actor.
-    nonisolated fileprivate static func naomgsLocateSamtools() -> String? {
+    nonisolated static func naomgsLocateSamtools() -> String? {
         ManagedToolLocator.managedToolExecutablePath(.samtools)
     }
 
@@ -1342,6 +1335,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         miniBAMLoadGeneration += 1
         let thisGeneration = miniBAMLoadGeneration
         let displayed = Array(accessionSummaries.prefix(miniBAMDisplayLimit))
+        startStrandFixCheck(sample: sample, bamRelativePath: bamRelativePath, generation: thisGeneration)
 
         miniBAMLoadingTask = Task { [weak self] in
             guard let self else { return }

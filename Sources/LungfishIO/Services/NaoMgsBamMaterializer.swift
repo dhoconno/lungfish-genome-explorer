@@ -295,7 +295,7 @@ public enum NaoMgsBamMaterializer {
             sqlite3_finalize(fallbackStmt)
         }
 
-        guard !usedAccessions.isEmpty else {
+        guard !usedAccessions.isEmpty, sampleHasVirusHits(db: db, sample: sample) else {
             logger.warning("No virus_hits for sample \(sample, privacy: .public); skipping BAM generation")
             return nil
         }
@@ -306,7 +306,7 @@ public enum NaoMgsBamMaterializer {
             let length = refLengths[accession] ?? 100000
             header += "@SQ\tSN:\(accession)\tLN:\(length)\n"
         }
-        header += "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:1.1\n"
+        header += "@PG\tID:\(headerProgramID)\tPN:lungfish\tVN:\(headerVersion)\n"
         let headerText = header
 
         // 3. Start the samtools pipeline BEFORE reading rows -- stream directly into it. Each stage's argv is the one

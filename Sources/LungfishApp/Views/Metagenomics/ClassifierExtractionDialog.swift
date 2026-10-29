@@ -82,13 +82,13 @@ final class ClassifierExtractionDialogViewModel {
     /// Set when the pre-flight estimate failed, so the count above is not a measurement (U-W2).
     var estimateFailed: Bool = false
 
-    /// Set when the estimate ended in a refusal that the run would hit too (a missing BAM, or a BAM linked out of
-    /// the result), so the sheet shows the refusal's own words in full and turns off Extract (U-W1 to U-W3).
+    /// Set when the estimate ended in a refusal that the run would hit too (a missing BAM, a BAM linked out of
+    /// the result, or a NAO-MGS BAM made before the strand fix), so the sheet shows the refusal's own words in full and turns off Extract (U-W1 to U-W3).
     var estimateRefusalBlocksExtraction: Bool = false
 
     // MARK: - Estimate failure
 
-    /// Records a failed pre-flight estimate. The two BAM refusals show their words as they are, and every other
+    /// Records a failed pre-flight estimate. The three BAM refusals show their words as they are, and every other
     /// failure keeps the `Could not estimate read count` prefix and leaves Extract on, since the run may still work.
     func applyEstimateFailure(_ error: Error) {
         estimatedReadCount = 0

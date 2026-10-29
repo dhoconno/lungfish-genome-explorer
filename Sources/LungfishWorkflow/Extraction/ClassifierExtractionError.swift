@@ -187,10 +187,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     }
 
     /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that
-    /// ends in it leaves nothing to run. True for exactly the two BAM refusals (Phase 2.12 lane 12.26, U-W2).
+    /// ends in it leaves nothing to run. True for exactly the three BAM refusals (Phase 2.12 lane 12.26, U-W2, and
+    /// Phase 3.1 lane NAO-BAM-STALE).
     public var blocksExtraction: Bool {
         switch self {
-        case .bamNotFound, .bamOutsideResult:
+        case .bamNotFound, .bamOutsideResult, .naoMgsBAMBeforeStrandFix:
             return true
         default:
             return false

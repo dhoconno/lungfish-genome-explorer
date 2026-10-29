@@ -46,7 +46,7 @@ public actor ClassifierReadResolver {
 
     // MARK: - Properties
 
-    private let toolRunner: NativeToolRunner
+    let toolRunner: NativeToolRunner
 
     // MARK: - Initialization
 
@@ -333,7 +333,7 @@ public actor ClassifierReadResolver {
     /// Each tool stores its BAM differently; this function centralizes the
     /// knowledge. When `sampleId` is `nil` (single-sample result views) we
     /// look for a single BAM file using the tool's default naming convention.
-    private func resolveBAMURL(
+    func locateBAMURL(
         tool: ClassifierTool,
         sampleId: String?,
         resultPath: URL
@@ -812,20 +812,20 @@ public actor ClassifierReadResolver {
 
     // MARK: - Test hooks
 
-    // `resolveBAMURL` is private because it is an internal dispatch helper, not
+    // `locateBAMURL`, the layout lookup behind `resolveBAMURL`, is internal because it is a dispatch helper, not
     // part of the resolver's public contract. Unit tests under
     // `ClassifierReadResolverTests.testResolveBAMURL_*` still need to exercise
     // each tool's BAM layout without going through the full extract pipeline,
     // so we expose a debug-only `testingResolveBAMURL` wrapper that is compiled
     // out of release builds.
     #if DEBUG
-    /// Test-only wrapper exposing `resolveBAMURL` for unit testing.
+    /// Test-only wrapper exposing the layout lookup `locateBAMURL`, without the strand-fix check, for unit testing.
     public func testingResolveBAMURL(
         tool: ClassifierTool,
         sampleId: String?,
         resultPath: URL
     ) async throws -> URL {
-        try await resolveBAMURL(tool: tool, sampleId: sampleId, resultPath: resultPath)
+        try await locateBAMURL(tool: tool, sampleId: sampleId, resultPath: resultPath)
     }
 
     /// Test-only wrapper exposing `countFASTQRecords` for unit testing (R3-R3ML-10).
