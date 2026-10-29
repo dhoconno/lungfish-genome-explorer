@@ -145,7 +145,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishCLI/Commands/FastqSequenceFilterSubcommand.swift", fixed: 1, "bbduk"),
         entry("LungfishCLI/Commands/FastqSubsampleSubcommand.swift", fixed: 1, "reformat"),
         entry("LungfishCLI/Commands/FreyjaCommand.swift", fixed: 1, "freyja, 24 h"),
-        entry("LungfishCLI/Commands/ImportCommand+BAM.swift", helper: 1, fixed: 1, "idxstats lookup, samtools index"),
+        entry("LungfishCLI/Commands/ImportCommand+BAM.swift", helper: 1, fixed: 2, "idxstats lookup, samtools index, samtools flagstat of the plain import"),
         entry("LungfishCLI/Commands/ImportCommand.swift", helper: 1, "version probe"),
         entry("LungfishCLI/Commands/MarkdupCommand.swift", helper: 1, "version probe"),
         entry("LungfishCLI/LungfishCLI.swift", helper: 1, "exit code 124, no limit"),
