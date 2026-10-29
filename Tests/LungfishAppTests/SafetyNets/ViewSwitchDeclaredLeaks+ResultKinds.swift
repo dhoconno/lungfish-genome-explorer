@@ -7,12 +7,6 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromResultKinds: [DeclaredViewSwitchLeak] = [
-        leak("fresh window", to: ["NAO-MGS"], "NET-NAOMGS-FIRST-LOAD", [
-            "+ inspectorBlocks: selectAResult, panelLayout",
-            "- classifierContext: Imports/naomgs-wastewater samples=[MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304,MU-CASPER-2026-03-31-a-IL_CHI_StickneyWS_20260308,MU-CASPER-2026-03-31-a-MA_Boston_DITPN_20260311,MU-CASPER-2026-03-31-a-NY_PLC_009_20260318,MU-CASPER-2026-03-31-a-Water_20260323]",
-            "- inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
-        ]),
         leak("fresh window", to: ["Primer analysis"], "NET-PRIMER-PROVENANCE-IN-WINDOW, NET-TOOLBAR-MODE", [
             "+ provenance: primerAnalysisBundle Primer Designs/Mamu-A1 assay.lungfishprimeranalysis",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
