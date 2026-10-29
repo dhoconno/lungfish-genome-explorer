@@ -48,8 +48,13 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
     var compatibilityRemoveReads: Bool = false
 
     @OptionGroup var pairing: FASTQPairingOptions
+    @OptionGroup var timeLimit: TimeLimitOptions
 
     func run() async throws {
+        try await timeLimit.scope { try await runUnderLimit() }
+    }
+
+    private func runUnderLimit() async throws {
         let resolvedInput = try await FASTQSubcommandInput.resolve(input, operationName: "scrub-human", output: output)
         defer { resolvedInput.cleanup() }
         let inputURL = resolvedInput.executionURL
@@ -183,6 +188,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             cliArguments.append("--remove-reads")
         }
         cliArguments += pairing.cliArguments
+        cliArguments += timeLimit.argumentWords
         if output.force {
             cliArguments.append("--force")
         }
@@ -203,7 +209,8 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             force: output.force,
             compress: output.compress,
             resolvedCompressOutput: shouldCompressOutput,
-            threads: threads
+            threads: threads,
+            timeLimitMinutes: timeLimit.minutes
         )
         try await recordProvenance(
             explicitOptions: options.explicit,
@@ -314,7 +321,8 @@ extension FastqScrubHumanSubcommand {
         force: Bool,
         compress: Bool,
         resolvedCompressOutput: Bool,
-        threads: Int
+        threads: Int,
+        timeLimitMinutes: Int? = nil
     ) -> ProvenanceOptionMaps {
         var explicit: [String: ParameterValue] = [
             "input": .file(inputURL),
@@ -333,6 +341,9 @@ extension FastqScrubHumanSubcommand {
         if compress {
             explicit["compress"] = .boolean(true)
         }
+        if let timeLimitMinutes {
+            explicit[AnalysisTimeLimit.recordKey] = .integer(timeLimitMinutes)
+        }
 
         let defaults: [String: ParameterValue] = [
             "removeReadsCompatibilityFlag": .boolean(false),
@@ -340,7 +351,7 @@ extension FastqScrubHumanSubcommand {
             "force": .boolean(false),
             "compress": .boolean(false)
         ]
-        let effective: [String: ParameterValue] = [
+        var effective: [String: ParameterValue] = [
             "input": .file(inputURL),
             "output": .file(outputURL),
             "databaseID": .string(databaseID),
@@ -356,6 +367,9 @@ extension FastqScrubHumanSubcommand {
             "resolvedCompressOutput": .boolean(resolvedCompressOutput),
             "threads": .integer(threads)
         ]
+        if let timeLimitMinutes {
+            effective[AnalysisTimeLimit.recordKey] = .integer(timeLimitMinutes)
+        }
 
         return ProvenanceOptionMaps(
             explicit: explicit,

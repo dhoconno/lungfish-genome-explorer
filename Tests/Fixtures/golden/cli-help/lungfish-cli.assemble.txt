@@ -56,6 +56,8 @@ OPTIONS:
   --extra-arg <extra-arg> Additional assembler argument (repeatable)
   --reference-bundle      Also publish a .lungfishref bundle of the contigs
                           beside --output, named after the project
+  --time-limit <minutes>  Stop the run after this many minutes. Without it the
+                          run has no time limit.
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

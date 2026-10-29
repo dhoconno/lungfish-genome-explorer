@@ -290,6 +290,7 @@ public actor BundleVariantTrackAttachmentService {
         parameters["variantCallerVersion"] = .string(request.variantCallerVersion)
         parameters["referenceStagedFASTASHA256"] = .string(request.referenceStagedFASTASHA256)
         parameters["containerRuntime"] = parameters["containerRuntime"] ?? .string("none")
+        parameters = AnalysisTimeLimit.recording(parameters)
 
         let run = WorkflowRun(
             name: provenance.workflowName,

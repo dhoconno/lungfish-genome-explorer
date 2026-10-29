@@ -89,6 +89,7 @@ extension AlignCommand {
         )
         var extraArgs: String = ""
 
+        @OptionGroup var timeLimit: TimeLimitOptions
         @OptionGroup var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
@@ -122,6 +123,10 @@ extension AlignCommand {
         /// path, the stream ends with one `failed` line, and the command exits 125. A second SIGTERM
         /// ends the command at once.
         func run() async throws {
+            try await timeLimit.scope { try await runUnderLimit() }
+        }
+
+        private func runUnderLimit() async throws {
             let quiet = globalOptions.quiet
             let outputFormat = globalOptions.outputFormat
             let emit: @Sendable (String) -> Void = { line in
@@ -156,7 +161,7 @@ extension AlignCommand {
             return CancelledAlignmentWorkflowRecord(
                 workflow: "lungfish align mafft",
                 argv: request.wrapperArgv,
-                explicit: ["name": .string(request.name)],
+                explicit: AnalysisTimeLimit.recording(["name": .string(request.name)]),
                 note: "Cancelled before the alignment bundle was written. No bundle remains.",
                 startedAt: startedAt,
                 url: URL(fileURLWithPath: request.resolvedOutputBundleURL.path + ".cancelled" + ProvenanceRecorder.provenanceFilename)
@@ -323,6 +328,7 @@ extension AlignCommand {
             if let threads = globalOptions.threads {
                 argv += ["--threads", "\(threads)"]
             }
+            argv += timeLimit.argumentWords
             let trimmedExtraArgs = extraArgs.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedExtraOptions = extraMAFFTOptions.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedExtraArgs.isEmpty {

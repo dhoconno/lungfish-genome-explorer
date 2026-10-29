@@ -219,8 +219,8 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("bundle-name"), help: "Custom bundle display name (implies --bundle)")
     var bundleName: String?
 
+    @OptionGroup var timeLimit: TimeLimitOptions
     @OptionGroup var globalOptions: GlobalOptions
-
     // MARK: - Test hooks
 
     #if DEBUG
@@ -487,7 +487,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         runClock: ProvenanceRunClock,
         alignmentIndexURL: URL?
     ) async throws {
-        var parameters = strategyParameterValues(alignmentIndexURL: alignmentIndexURL)
+        var parameters = AnalysisTimeLimit.recording(strategyParameterValues(alignmentIndexURL: alignmentIndexURL))
         parameters["output"] = .file(outputURL)
         parameters["createBundle"] = .boolean(createBundle || bundleName != nil)
         parameters["bundleName"] = bundleName.map(ParameterValue.string) ?? .null

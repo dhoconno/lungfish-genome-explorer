@@ -43,6 +43,16 @@ public struct AnalysisTimeLimit: Sendable, Hashable {
     /// The `timeout:` of an analysis launch in the current task, in seconds. `.infinity` means no limit.
     public static var launchTimeout: TimeInterval { current?.seconds ?? .infinity }
 
+    /// `parameters` with the limit of the current run under ``recordKey`` when a person set one. A command that
+    /// offers the option builds the parameters of its run record through this, so the record holds the limit
+    /// the launches of the run carried and nothing when there was none.
+    public static func recording(_ parameters: [String: ParameterValue]) -> [String: ParameterValue] {
+        guard let limit = current else { return parameters }
+        var recorded = parameters
+        recorded[recordKey] = .integer(limit.minutes)
+        return recorded
+    }
+
     /// Runs `body` as one run under `limit`. A nil limit runs it with no limit, and so does a run no command scoped.
     public static func withLimit<Result>(
         _ limit: AnalysisTimeLimit?,

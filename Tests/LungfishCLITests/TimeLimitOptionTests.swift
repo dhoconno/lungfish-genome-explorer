@@ -45,4 +45,93 @@ final class TimeLimitOptionTests: XCTestCase {
             }
         }
     }
+
+    // MARK: The commands that gained the option with TTL2
+
+    func testAssembleTakesATimeLimitAndSpellsItInItsRecordedCommand() throws {
+        let limited = try AssembleCommand.parse(["reads.fastq", "--time-limit", "120"])
+        let plain = try AssembleCommand.parse(["reads.fastq"])
+
+        XCTAssertEqual(limited.timeLimit.limit?.minutes, 120)
+        XCTAssertNil(plain.timeLimit.limit)
+        XCTAssertEqual(Self.value(after: "--time-limit", in: limited.canonicalArguments()), "120")
+        XCTAssertNil(Self.value(after: "--time-limit", in: plain.canonicalArguments()))
+    }
+
+    func testAlignMafftTakesATimeLimitAndSpellsItInItsRecordedCommand() throws {
+        let arguments = ["mafft", "/workspace/Project.lungfish/input.fasta", "--project", "/workspace/Project.lungfish"]
+        let limited = try AlignCommand.MAFFTSubcommand.parse(arguments + ["--time-limit", "60"])
+        let plain = try AlignCommand.MAFFTSubcommand.parse(arguments)
+
+        XCTAssertEqual(limited.timeLimit.limit?.minutes, 60)
+        XCTAssertNil(plain.timeLimit.limit)
+        XCTAssertEqual(Self.value(after: "--time-limit", in: try limited.makeRequestForTesting().wrapperArgv), "60")
+        XCTAssertNil(Self.value(after: "--time-limit", in: try plain.makeRequestForTesting().wrapperArgv))
+    }
+
+    func testExtractReadsTakesATimeLimitAndSpellsItInItsRecordedCommand() throws {
+        let arguments = ["--by-id", "--ids", "ids.txt", "--source", "reads.fastq", "-o", "out.fastq"]
+        let output = URL(fileURLWithPath: "out.fastq")
+        let limited = try ExtractReadsSubcommand.parse(arguments + ["--time-limit", "20"])
+        let plain = try ExtractReadsSubcommand.parse(arguments)
+
+        XCTAssertEqual(limited.timeLimit.limit?.minutes, 20)
+        XCTAssertNil(plain.timeLimit.limit)
+        XCTAssertEqual(Self.value(after: "--time-limit", in: limited.provenanceCommand(outputURL: output)), "20")
+        XCTAssertNil(Self.value(after: "--time-limit", in: plain.provenanceCommand(outputURL: output)))
+    }
+
+    func testFastqScrubHumanTakesATimeLimitAndRecordsItInBothOptionMaps() throws {
+        let limited = try FastqScrubHumanSubcommand.parse(["in.fastq.gz", "--database-id", "human-scrubber", "--output", "out.fastq.gz", "--time-limit", "15"])
+        XCTAssertEqual(limited.timeLimit.limit?.minutes, 15)
+        XCTAssertNil(try FastqScrubHumanSubcommand.parse(["in.fastq.gz", "--database-id", "human-scrubber", "--output", "out.fastq.gz"]).timeLimit.limit)
+
+        let maps = { (minutes: Int?) in
+            FastqScrubHumanSubcommand.provenanceOptionMaps(
+                inputURL: URL(fileURLWithPath: "/data/in.fastq.gz"),
+                outputURL: URL(fileURLWithPath: "/data/out.fastq.gz"),
+                databaseID: "human-scrubber",
+                resolvedDatabaseID: "human-scrubber",
+                databasePath: URL(fileURLWithPath: "/db/human"),
+                removeReadsCompatibilityFlag: false,
+                force: false,
+                compress: false,
+                resolvedCompressOutput: false,
+                threads: 4,
+                timeLimitMinutes: minutes
+            )
+        }
+        XCTAssertEqual(maps(15).explicit[AnalysisTimeLimit.recordKey], .integer(15))
+        XCTAssertEqual(maps(15).resolved[AnalysisTimeLimit.recordKey], .integer(15))
+        XCTAssertNil(maps(nil).explicit[AnalysisTimeLimit.recordKey], "a run with no limit records none")
+        XCTAssertNil(maps(nil).resolved[AnalysisTimeLimit.recordKey])
+    }
+
+    func testVariantsCallAndPhaseTakeATimeLimit() throws {
+        let call = ["--bundle", "/tmp/Sample.lungfishref", "--alignment-track", "aln-1", "--caller", "gatk"]
+        let limitedCall = try VariantsCommand.CallSubcommand.parse(call + ["--time-limit", "180"])
+        let plainCall = try VariantsCommand.CallSubcommand.parse(call)
+        XCTAssertEqual(limitedCall.callOptions.timeLimit.limit?.minutes, 180)
+        XCTAssertNil(plainCall.callOptions.timeLimit.limit)
+        XCTAssertEqual(Self.value(after: "--time-limit", in: limitedCall.recordedCommandLine(arguments: [])), "180")
+        XCTAssertNil(Self.value(after: "--time-limit", in: plainCall.recordedCommandLine(arguments: [])))
+
+        let phase = ["phase", "--reference", "/tmp/ref.fa", "--bam", "/tmp/in.bam", "--output-vcf", "/tmp/out.vcf", "--output-dir", "/tmp/out"]
+        XCTAssertEqual(try VariantsCommand.PhaseSubcommand.parse(phase + ["--time-limit", "90"]).timeLimit.limit?.minutes, 90)
+        XCTAssertNil(try VariantsCommand.PhaseSubcommand.parse(phase).timeLimit.limit)
+    }
+
+    func testTheRunRecordHoldsTheLimitOnlyInsideARunThatSetOne() async {
+        let parameters: [String: ParameterValue] = ["threads": .integer(4)]
+        XCTAssertEqual(AnalysisTimeLimit.recording(parameters), parameters, "no run scoped a limit")
+        let recorded = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 30)) { AnalysisTimeLimit.recording(parameters) }
+        XCTAssertEqual(recorded[AnalysisTimeLimit.recordKey], .integer(30))
+        XCTAssertEqual(recorded["threads"], .integer(4), "the entries of the run stay")
+        let unlimited = await AnalysisTimeLimit.withLimit(nil) { AnalysisTimeLimit.recording(parameters) }
+        XCTAssertNil(unlimited[AnalysisTimeLimit.recordKey])
+    }
+
+    private static func value(after option: String, in words: [String]) -> String? {
+        words.firstIndex(of: option).flatMap { words.indices.contains($0 + 1) ? words[$0 + 1] : nil }
+    }
 }

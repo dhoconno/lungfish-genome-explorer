@@ -322,7 +322,7 @@ extension VariantsCommand {
             appVersion: workflowVersion,
             hostOS: WorkflowRun.currentHostOS,
             steps: additionalSteps + [step],
-            parameters: parameters
+            parameters: AnalysisTimeLimit.recording(parameters)
         )
         try ProvenanceWriter().write(run.canonicalEnvelope(), toSidecar: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
     }
@@ -354,9 +354,9 @@ extension VariantsCommand {
         @Option(name: .customLong("sample"), help: "Optional sample name passed to WhatsHap")
         var sampleName: String?
 
+        @OptionGroup var timeLimit: TimeLimitOptions
         @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
         var threads: Int { globalOptions.threads ?? 1 }
-
         @Option(name: .customLong("extra-gatk-args"), parsing: .unconditional, help: "Additional GATK HaplotypeCaller arguments")
         var extraGATKArgs: String = ""
 
@@ -374,7 +374,7 @@ extension VariantsCommand {
         }
 
         func run() async throws {
-            try await executeForTesting(runtime: .live()) { print($0) }
+            try await timeLimit.scope { try await executeForTesting(runtime: .live()) { print($0) } }
         }
 
         func executeForTesting(
@@ -860,7 +860,7 @@ extension VariantsCommand {
                 }
             }
 
-            try await runCall(emitEvent: emitter)
+            try await callOptions.timeLimit.scope { try await runCall(emitEvent: emitter) }
         }
 
         /// Resolves `--alignment-track` against the bundle manifest.

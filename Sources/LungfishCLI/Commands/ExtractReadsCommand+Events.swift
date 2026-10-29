@@ -32,6 +32,10 @@ extension ExtractReadsSubcommand {
     /// `CLIEvent` lines and the human text goes to standard error. SIGTERM, the app's Cancel, stops
     /// the run, which is recorded as cancelled, and the command exits 125. A refusal exits 3.
     func run() async throws {
+        try await timeLimit.scope { try await runUnderLimit() }
+    }
+
+    private func runUnderLimit() async throws {
         let eventsOn = globalOptions.outputFormat == .json
         let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
         events.emitStart(Self.startMessage)

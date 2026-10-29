@@ -391,6 +391,7 @@ public actor GATKBundleVariantAttachmentService {
         if let executionProvenanceURL = request.executionProvenanceURL {
             parameters["sourceExecutionProvenance"] = .string(executionProvenanceURL.path)
         }
+        parameters = AnalysisTimeLimit.recording(parameters)
         for (key, value) in request.executionRequest.options {
             parameters["option.\(key)"] = .string(value)
         }

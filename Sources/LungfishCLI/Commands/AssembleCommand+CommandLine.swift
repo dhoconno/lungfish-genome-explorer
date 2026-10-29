@@ -33,6 +33,7 @@ extension AssembleCommand {
         for argument in extraArg { arguments += ["--extra-arg", argument] }
         if !advancedOptions.isEmpty { arguments += ["--advanced-options", advancedOptions] }
         if referenceBundle { arguments.append("--reference-bundle") }
+        arguments += timeLimit.argumentWords
         if globalOptions.outputFormat == .json { arguments += ["--format", "json"] }
         return arguments
     }

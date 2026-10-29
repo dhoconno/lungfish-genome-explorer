@@ -65,6 +65,8 @@ OPTIONS:
                           GATK: maximum alternate alleles (default: 6)
   --pair-hmm-threads <pair-hmm-threads>
                           GATK: native PairHMM threads (default: 4)
+  --time-limit <minutes>  Stop the run after this many minutes. Without it the
+                          run has no time limit.
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

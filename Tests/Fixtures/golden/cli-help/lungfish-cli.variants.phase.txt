@@ -3,7 +3,7 @@ plan
 
 The GATK PairHMM thread count comes from --threads. The default is 1.
 
-USAGE: lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
+USAGE: lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--time-limit <minutes>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
 
 OPTIONS:
   --execute               Run GATK and WhatsHap through managed tool packs.
@@ -16,6 +16,8 @@ OPTIONS:
   --output-dir <output-dir>
                           Command-plan/provenance output directory
   --sample <sample>       Optional sample name passed to WhatsHap
+  --time-limit <minutes>  Stop the run after this many minutes. Without it the
+                          run has no time limit.
   --extra-gatk-args <extra-gatk-args>
                           Additional GATK HaplotypeCaller arguments
   --extra-whatshap-args <extra-whatshap-args>

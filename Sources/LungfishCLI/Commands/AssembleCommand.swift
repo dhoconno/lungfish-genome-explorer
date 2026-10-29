@@ -111,11 +111,12 @@ struct AssembleCommand: AsyncParsableCommand {
     @Flag(name: .customLong("reference-bundle"), help: "Also publish a .lungfishref bundle of the contigs beside --output, named after the project")
     var referenceBundle = false
 
+    @OptionGroup var timeLimit: TimeLimitOptions
     @OptionGroup var globalOptions: GlobalOptions
 
     /// Assembles so that SIGTERM cancels the run (decision P2, ``runCancellingOnSIGTERM(pipeline:)``).
     func run() async throws {
-        try await runCancellingOnSIGTERM(pipeline: ManagedAssemblyPipeline())
+        try await timeLimit.scope { try await runCancellingOnSIGTERM(pipeline: ManagedAssemblyPipeline()) }
     }
 
     /// The body of ``run()`` with the pipeline passed in, so a test can run a stand-in assembler.
@@ -712,7 +713,7 @@ struct AssembleCommand: AsyncParsableCommand {
         executionInputURLs: [URL],
         layoutResolution: FASTQInputLayoutResolution?
     ) -> [String: ParameterValue] {
-        [
+        AnalysisTimeLimit.recording([
             "assembler": .string(request.tool.rawValue),
             "readType": .string(request.readType.cliArgument),
             "projectName": .string(request.projectName),
@@ -731,7 +732,7 @@ struct AssembleCommand: AsyncParsableCommand {
             "extraArguments": .array(request.extraArguments.map(ParameterValue.string)),
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
-        ]
+        ])
     }
 
     private static func provenanceOutputDescriptors(

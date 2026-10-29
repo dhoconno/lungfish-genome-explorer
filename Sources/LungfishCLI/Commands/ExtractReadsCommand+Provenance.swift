@@ -84,6 +84,7 @@ extension ExtractReadsSubcommand {
         if let bundleName {
             command += ["--bundle-name", bundleName]
         }
+        command += timeLimit.argumentWords
         return command
     }
 }

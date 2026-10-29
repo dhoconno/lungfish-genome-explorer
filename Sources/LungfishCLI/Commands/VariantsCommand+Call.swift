@@ -11,6 +11,7 @@ import LungfishWorkflow
 /// baseline. The GATK options come first and the global options last, so `--help` lists them as before.
 struct VariantsCallOptions: ParsableArguments {
     @OptionGroup var gatk: VariantsCallGATKOptions
+    @OptionGroup var timeLimit: TimeLimitOptions
     @OptionGroup var global: GlobalOptions
 }
 
@@ -60,7 +61,7 @@ extension VariantsCommand.CallSubcommand {
         return [
             CLICommandIdentity.executableName, "variants", "call",
             "--bundle", bundlePath, "--alignment-track", alignmentTrackID, "--caller", caller,
-        ]
+        ] + callOptions.timeLimit.argumentWords
     }
 
     /// The record of a run that SIGTERM cancelled, in the bundle's `provenance/cancelled` folder where the
@@ -73,11 +74,11 @@ extension VariantsCommand.CallSubcommand {
         let record = CancelledAlignmentWorkflowRecord(
             workflow: workflow,
             argv: recordedCommandLine(),
-            explicit: [
+            explicit: AnalysisTimeLimit.recording([
                 "bundlePath": .string(bundleURL.path),
                 "alignmentTrackID": .string(alignmentTrackID),
                 "caller": .string(caller.lowercased()),
-            ],
+            ]),
             note: "SIGTERM cancelled variant calling. No variant track was attached, and the bundle's tracks are as they were.",
             startedAt: startedAt,
             url: CancelledAlignmentWorkflowRecord.newURL(

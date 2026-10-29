@@ -245,11 +245,11 @@ final class ToolTimeLimitTests: XCTestCase {
         for url in try repositoryFiles(under: root.appendingPathComponent("Sources")) where url.pathExtension == "swift" {
             let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
             let source = try readRepositorySource(url)
-            guard source.contains("imeout") || source.contains("24 *") || source.contains("24*") else { continue }
+            guard ["imeout", "24 *", "24*"].contains(where: { source.contains($0) }) else { continue }
             let lines = source.components(separatedBy: "\n")
             for (index, raw) in lines.enumerated() {
                 let text = raw.trimmingCharacters(in: .whitespaces)
-                guard !text.hasPrefix("//"), text.contains("imeout") || text.contains("24 *") || text.contains("24*") else { continue }
+                guard !text.hasPrefix("//"), ["imeout", "24 *", "24*"].contains(where: { text.contains($0) }) else { continue }
                 let range = NSRange(text.startIndex..., in: text)
                 if Self.forms.contains(where: { $0.firstMatch(in: text, range: range) != nil }) {
                     found[rel, default: []].append(index + 1)

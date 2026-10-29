@@ -1,6 +1,6 @@
 OVERVIEW: Remove human reads from FASTQ
 
-USAGE: lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads] [--pairing <pairing>]
+USAGE: lungfish-cli fastq scrub-human <input> --output <output> [--force] [--compress] --database-id <database-id> [--remove-reads] [--pairing <pairing>] [--time-limit <minutes>]
 
 ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
@@ -20,6 +20,8 @@ OPTIONS:
         auto reads the pairingMode recorded by the enclosing .lungfishfastq
         bundle, then inspects read names. Mates with identical names, /1 /2
         suffixes, or Casava descriptions are all recognised.
+  --time-limit <minutes>  Stop the run after this many minutes. Without it the
+                          run has no time limit.
   --version               Show the version.
   -h, --help              Show help information.
 
