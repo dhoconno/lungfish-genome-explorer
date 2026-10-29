@@ -177,15 +177,15 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         let sidecars = [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ]
         // `samtools fastq` writes one record for consecutive records of one name when neither carries READ1 or READ2, so
         // it reads the records with a mate flag only and the others are written one FASTQ record each (MateFlagSplit).
-        try await runSplitStep(
+        try await runStep(
             MateFlagSplit.flaggedArguments(of: filteredBAM, flagFilter: 0, to: pairedBAM),
             inputs: [filteredBAM], outputs: [pairedBAM], records: &records
         )
-        try await runSplitStep(
+        try await runStep(
             ["fastq", "-F", "0", "-0", otherFASTQ.path, "-1", r1FASTQ.path, "-2", r2FASTQ.path, "-s", singletonFASTQ.path, pairedBAM.path],
             inputs: [pairedBAM], outputs: [otherFASTQ, r1FASTQ, r2FASTQ, singletonFASTQ], records: &records
         )
-        try await runSplitStep(
+        try await runStep(
             MateFlagSplit.unflaggedArguments(of: filteredBAM, flagFilter: 0, to: unflaggedSAM),
             inputs: [filteredBAM], outputs: [unflaggedSAM], records: &records
         )
@@ -422,7 +422,9 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         ]
         let resolvedDefaults: [String: ParameterValue] = [
             "flagFilter": .integer(config.flagFilter),
-            "matePolicy": .string("samtools-qname-matches-both-mates; unmatched-mates-to-singletons"),
+            "matePolicy": .string(
+                "samtools-qname-matches-both-mates; unmatched-mates-to-singletons; each-record-with-no-mate-flag-written-once"
+            ),
             "conversionExcludedFlags": .integer(0),
         ]
 
@@ -462,50 +464,38 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             throw failure(.emptyExtraction, "No selected read names matched the requested record policies.", records: records)
         }
 
+        // Records with neither mate flag are written one FASTQ or FASTA record each (MateFlagSplit). `samtools fastq` and
+        // `fasta` write one record for consecutive records of one name in that class, and collate makes them consecutive.
+        let pairedBAM = transactionDirectory.appendingPathComponent("paired.bam")
+        let unflaggedSAM = transactionDirectory.appendingPathComponent("unflagged.sam")
         let collatedBAM = transactionDirectory.appendingPathComponent("collated.bam")
-        let collateExecution = try await runCollectingFailures(
-            tool: .samtools,
-            arguments: ["collate", "-o", collatedBAM.path, filteredBAM.path],
-            inputURLs: [filteredBAM],
-            outputURLs: [collatedBAM],
-            visibleOptions: visibleOptions,
-            resolvedDefaults: resolvedDefaults,
-            accumulatedRecords: records
-        )
-        records.append(collateExecution.record)
-        guard collateExecution.result.isSuccess else {
-            throw failure(.subprocessFailed, "samtools collate failed: \(collateExecution.result.stderr)", records: records)
-        }
-
         let outputExtension = config.format.rawValue
         let outputURL = transactionDirectory.appendingPathComponent("\(baseName).\(outputExtension)")
         let singletonURL = transactionDirectory.appendingPathComponent("\(baseName)_singletons.\(outputExtension)")
         let otherURL = transactionDirectory.appendingPathComponent("\(baseName)_other.\(outputExtension)")
-        let conversionExecution = try await runCollectingFailures(
-            tool: .samtools,
-            arguments: [
-                config.format.rawValue, "-F", "0",
-                "-0", otherURL.path,
-                "-s", singletonURL.path,
-                "-o", outputURL.path,
-                collatedBAM.path,
-            ],
-            inputURLs: [collatedBAM],
-            outputURLs: [outputURL, singletonURL, otherURL],
-            visibleOptions: visibleOptions,
-            resolvedDefaults: resolvedDefaults,
-            accumulatedRecords: records
+        try await runStep(
+            MateFlagSplit.flaggedArguments(of: filteredBAM, flagFilter: 0, to: pairedBAM),
+            inputs: [filteredBAM], outputs: [pairedBAM], options: visibleOptions, defaults: resolvedDefaults, records: &records
         )
-        records.append(conversionExecution.record)
-        guard conversionExecution.result.isSuccess else {
-            throw failure(.subprocessFailed, "samtools \(config.format.rawValue) failed: \(conversionExecution.result.stderr)", records: records)
-        }
+        try await runStep(
+            MateFlagSplit.unflaggedArguments(of: filteredBAM, flagFilter: 0, to: unflaggedSAM),
+            inputs: [filteredBAM], outputs: [unflaggedSAM], options: visibleOptions, defaults: resolvedDefaults, records: &records
+        )
+        try await runStep(
+            ["collate", "-o", collatedBAM.path, pairedBAM.path],
+            inputs: [pairedBAM], outputs: [collatedBAM], options: visibleOptions, defaults: resolvedDefaults, records: &records
+        )
+        try await runStep(
+            [config.format.rawValue, "-F", "0", "-0", otherURL.path, "-s", singletonURL.path, "-o", outputURL.path, collatedBAM.path],
+            inputs: [collatedBAM], outputs: [outputURL, singletonURL, otherURL],
+            options: visibleOptions, defaults: resolvedDefaults, records: &records
+        )
 
-        if fileSize(of: otherURL) > 0 {
-            do { try appendFile(otherURL, to: outputURL) }
-            catch {
-                throw failure(.subprocessFailed, "Could not merge unpaired records: \(error.localizedDescription)", records: records)
-            }
+        do {
+            try appendFileContents(of: otherURL, to: outputURL)
+            try appendUnflaggedRecords(fromSAMText: unflaggedSAM, to: outputURL, format: config.format == .fasta ? .fasta : .fastq)
+        } catch {
+            throw failure(.subprocessFailed, "Could not merge unpaired records: \(error.localizedDescription)", records: records)
         }
         var stagedFiles: [AlignmentReadExtractionStagedFile] = []
         let format: FileFormat = config.format == .fasta ? .fasta : .fastq
@@ -525,7 +515,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
             stage: .payloadStaging,
             toolName: "lungfish alignment extraction payload finalizer",
             argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "finalize-qname-payloads"],
-            inputs: descriptors(forExisting: [outputURL, singletonURL, readNameURL], role: .input),
+            inputs: descriptors(forExisting: [outputURL, singletonURL, readNameURL, unflaggedSAM], role: .input),
             outputs: descriptors(forExisting: stagedFiles.map(\.stagedURL), role: .output),
             exitStatus: 0,
             startedAt: completedAt,
@@ -656,43 +646,25 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         }
     }
 
-    /// One samtools step of the region extraction's split by mate flag (``MateFlagSplit``), recorded as the stager records
-    /// its own steps. A failure throws with the records so far.
-    private func runSplitStep(
-        _ arguments: [String], inputs: [URL], outputs: [URL], records: inout [AlignmentReadExtractionExecutionRecord]
+    /// One samtools step of an extraction that splits its records by mate flag (``MateFlagSplit``), recorded as the stager
+    /// records its own steps, with the policy words `options` and `defaults` (the region extraction's when not given). A
+    /// failure throws with the records so far.
+    private func runStep(
+        _ arguments: [String], inputs: [URL], outputs: [URL],
+        options: [String: ParameterValue] = [
+            "recordClassPolicy": .string("preserve primary records selected by samtools view"),
+            "matePolicy": .string("retain mates emitted by filtered alignment records, each record with no mate flag written once"),
+        ],
+        defaults: [String: ParameterValue] = ["samtoolsFastqExcludedFlags": .integer(0)],
+        records: inout [AlignmentReadExtractionExecutionRecord]
     ) async throws {
         let step = try await runCollectingFailures(
-            tool: .samtools,
-            arguments: arguments,
-            inputURLs: inputs,
-            outputURLs: outputs,
-            visibleOptions: [
-                "recordClassPolicy": .string("preserve primary records selected by samtools view"),
-                "matePolicy": .string("retain mates emitted by filtered alignment records, each record with no mate flag written once"),
-            ],
-            resolvedDefaults: ["samtoolsFastqExcludedFlags": .integer(0)],
-            accumulatedRecords: records
+            tool: .samtools, arguments: arguments, inputURLs: inputs, outputURLs: outputs,
+            visibleOptions: options, resolvedDefaults: defaults, accumulatedRecords: records
         )
         records.append(step.record)
         guard step.result.isSuccess else {
             throw failure(.subprocessFailed, "samtools \(arguments[0]) failed: \(step.result.stderr)", records: records)
-        }
-    }
-
-    private func appendFile(_ inputURL: URL, to outputURL: URL) throws {
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: outputURL.path) {
-            fileManager.createFile(atPath: outputURL.path, contents: nil)
-        }
-        let output = try FileHandle(forWritingTo: outputURL)
-        defer { try? output.close() }
-        try output.seekToEnd()
-        let input = try FileHandle(forReadingFrom: inputURL)
-        defer { try? input.close() }
-        while true {
-            let data = try input.read(upToCount: 1 << 20) ?? Data()
-            guard !data.isEmpty else { break }
-            try output.write(contentsOf: data)
         }
     }
 

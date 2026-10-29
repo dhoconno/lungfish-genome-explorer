@@ -393,6 +393,11 @@ final class BAMRegionExtractionTests: XCTestCase {
                     try Data(repeating: 0x56, count: 128).write(to: output)
                 } else if arguments.starts(with: ["view", "-c"]) {
                     return .init(exitCode: 0, stdout: "2\n", stderr: "", arguments: ["/fixture/samtools"] + arguments)
+                } else if arguments.starts(with: ["view", "-O", "SAM"]) {
+                    // The records with neither mate flag, as headerless SAM text.
+                    let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-o")! + 1])
+                    try "unflagged\t0\tchrSynthetic\t5\t60\t4M\t*\t0\t0\tACGT\t!!!!\n"
+                        .write(to: output, atomically: true, encoding: .utf8)
                 } else if arguments.first == "collate" {
                     let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-o")! + 1])
                     try Data(repeating: 0x43, count: 128).write(to: output)
@@ -425,11 +430,20 @@ final class BAMRegionExtractionTests: XCTestCase {
             transaction.stagedFiles.map(\.relativeFinalPath),
             ["selected.fasta", "selected_singletons.fasta", "selected_read_names.txt"]
         )
-        XCTAssertEqual(transaction.executionRecords.count, 5)
+        // The filter, the count, the records with a mate flag, the records with none, collate, fasta and the payload step.
+        XCTAssertEqual(transaction.executionRecords.count, 7)
         XCTAssertEqual(transaction.executionRecords[0].visibleOptions["includeSecondary"], .boolean(true))
         XCTAssertEqual(transaction.executionRecords[0].visibleOptions["excludeDuplicates"], .boolean(true))
-        XCTAssertEqual(transaction.executionRecords[0].resolvedDefaults["matePolicy"], .string("samtools-qname-matches-both-mates; unmatched-mates-to-singletons"))
-        XCTAssertTrue(transaction.executionRecords[3].argv.dropFirst().starts(with: ["fasta", "-F", "0"]))
+        XCTAssertEqual(
+            transaction.executionRecords[0].resolvedDefaults["matePolicy"],
+            .string("samtools-qname-matches-both-mates; unmatched-mates-to-singletons; each-record-with-no-mate-flag-written-once")
+        )
+        XCTAssertTrue(transaction.executionRecords[5].argv.dropFirst().starts(with: ["fasta", "-F", "0"]))
+        XCTAssertEqual(
+            try String(contentsOf: transaction.stagedFiles[0].stagedURL, encoding: .utf8),
+            ">selected\nACGT\n>unflagged\nACGT\n",
+            "the unflagged record is written after the converted records"
+        )
         transaction.cleanup()
     }
 
