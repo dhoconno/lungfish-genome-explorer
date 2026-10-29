@@ -1,4 +1,4 @@
-// ResultViewportController.swift - Base protocol for result viewport controllers
+// BlastRequest.swift - The request a result viewport sends to BLAST-verify sequences
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
