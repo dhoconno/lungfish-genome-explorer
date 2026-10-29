@@ -191,7 +191,8 @@ final class ToolTimeLimitTests: XCTestCase {
     /// The forms a fixed limit takes in source. A literal after a `timeout` label at a call site (`timeout: 7200`,
     /// `timeout: 24 * 3_600`, `timeoutSeconds: 10`), a default of any numeric type, a constant named for a timeout,
     /// a limit built from `.seconds`, a limit scaled from the input size (with a type, a label or a `??` fallback, and a
-    /// `??` line is read as one with the line before it), a product of 24 and 3,600 and a computed limit.
+    /// `??` line is read as one with the line before it), a product of 24 and 3,600, a computed limit and a function
+    /// that returns a computed limit.
     private static let forms: [NSRegularExpression] = [
         #"[Tt]imeout\w*\s*:\s*[0-9]"#,
         #"[Tt]imeout\w*\s*:\s*(TimeInterval|Double|Int|Duration)\??\s*=\s*(\.seconds\()?[0-9]"#,
@@ -203,6 +204,7 @@ final class ToolTimeLimitTests: XCTestCase {
         #"[Tt]imeout\w*\s*(:\s*\w+\??\s*)?=\s*(max|min)\("#,
         #"[Tt]imeout\w*\s*:\s*(max|min)\("#,
         #"[Tt]imeout\w*\s*[:=]\s*[\w.]+\s*\?\?\s*(max|min)\("#,
+        #"\bfunc\s+\w*[Tt]imeout\w*\([^)]*\)\s*->\s*TimeInterval"#,
     ].map { try! NSRegularExpression(pattern: $0) }
 
     func testNoAnalysisToolFixesAWallClockLimitAtACallSite() throws {
