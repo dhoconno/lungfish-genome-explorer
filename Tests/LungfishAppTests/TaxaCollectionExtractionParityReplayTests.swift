@@ -46,9 +46,12 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
     private var scratch: URL!
     private var cli: URL!
     private var harness: RouteParityHarness!
+    /// The GUI side's result view saves its column layout to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func setUpWithError() throws {
         scratch = try TestTempDirectory.make(prefix: "taxa-collection-parity")
+        hostDefaults = HostDefaultsRestorer(keysContaining: scratch.lastPathComponent)
         let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
         cli = try XCTUnwrap(
             CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
@@ -58,6 +61,7 @@ final class TaxaCollectionExtractionParityReplayTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        hostDefaults?.restore()
         if let scratch { TestTempDirectory.cleanup(scratch) }
     }
 

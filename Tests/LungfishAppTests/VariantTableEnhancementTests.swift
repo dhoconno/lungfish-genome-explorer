@@ -840,7 +840,7 @@ final class VariantTableEnhancementTests: XCTestCase {
         let bundleB = "bundleB.test"
         let profileA = FilterProfile(name: "A", activeTokens: ["passOnly"], filterText: "qual>=30")
         let profileB = FilterProfile(name: "B", activeTokens: ["snv"], filterText: "type=SNV")
-
+        restoreHostDefaultsAfterTest(keys: ["com.lungfish.filterProfiles.\(bundleA)", "com.lungfish.filterProfiles.\(bundleB)"])
         FilterProfileStore.saveCustomProfiles([profileA], bundleIdentifier: bundleA)
         FilterProfileStore.saveCustomProfiles([profileB], bundleIdentifier: bundleB)
 

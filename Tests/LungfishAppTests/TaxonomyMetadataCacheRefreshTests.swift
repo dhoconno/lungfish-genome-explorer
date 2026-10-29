@@ -17,12 +17,16 @@ import LungfishTestSupport
 @MainActor
 final class TaxonomyMetadataCacheRefreshTests: XCTestCase {
     private var scratch: URL!
+    /// The result view saves its column layout to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func setUp() async throws {
         scratch = try TestTempDirectory.make(prefix: "TaxonomyMetadataCache")
+        hostDefaults = HostDefaultsRestorer(keysContaining: scratch.lastPathComponent)
     }
 
     override func tearDown() async throws {
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(scratch)
     }
 

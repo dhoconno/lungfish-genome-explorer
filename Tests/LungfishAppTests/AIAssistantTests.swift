@@ -686,6 +686,7 @@ final class AISettingsIntegrationTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        restoreHostDefaultsAfterTest(keys: ["com.lungfish.appSettings"])
         UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
         AppSettings.shared.resetToDefaults()
     }

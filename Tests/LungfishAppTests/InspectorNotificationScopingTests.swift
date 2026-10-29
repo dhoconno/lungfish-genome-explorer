@@ -122,6 +122,8 @@ final class InspectorNotificationScopingTests: XCTestCase {
     }
 
     func testInspectorOriginatedAnnotationSettingsNotificationIncludesWindowScope() {
+        // Changing an annotation setting saves `AppSettings` to `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["com.lungfish.appSettings"])
         let inspector = InspectorViewController()
         _ = inspector.view
         let scope = WindowStateScope()

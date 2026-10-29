@@ -30,10 +30,13 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
     private let w4Text = "Its database is missing from the result folder. Import the result again, then export."
     private var folders: [URL] = []
     private var windows: [NSWindow] = []
+    /// The result views save their column layouts to `UserDefaults.standard` under the path of this class's folders.
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func setUp() async throws {
         try await super.setUp()
         _ = NSApplication.shared
+        hostDefaults = HostDefaultsRestorer(owns: { $0.contains("/naomgs-gone") || $0.contains("/esviritu-gone") })
     }
 
     override func tearDown() async throws {
@@ -44,6 +47,7 @@ final class ExportMissingDatabaseAlertTests: XCTestCase {
         windows = []
         for folder in folders { try? FileManager.default.removeItem(at: folder) }
         folders = []
+        hostDefaults?.restore()
         try await super.tearDown()
     }
 

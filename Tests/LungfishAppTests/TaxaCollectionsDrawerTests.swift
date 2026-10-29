@@ -242,6 +242,8 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
     // MARK: - Drawer Toggle (via TaxonomyViewController)
 
     func testDrawerToggle() throws {
+        // The view saves the drawer's open state to `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["taxaCollectionsDrawerOpen"])
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
         _ = vc.view  // trigger loadView

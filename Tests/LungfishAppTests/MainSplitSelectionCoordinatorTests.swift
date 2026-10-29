@@ -261,10 +261,10 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
     }
 
     func testShowInspectorRequestIgnoresScopedNotificationFromDifferentWindow() {
+        restoreHostDefaultsAfterTest(keys: ["InspectorCollapsed"])
         let controller = MainSplitViewController()
         _ = controller.view
         controller.setInspectorVisible(false, animated: false, source: "test.hide")
-
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: nil,
@@ -293,10 +293,10 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
     }
 
     func testBundleDidLoadIgnoresScopedNotificationFromDifferentWindow() {
+        restoreHostDefaultsAfterTest(keys: ["InspectorCollapsed"])
         let controller = MainSplitViewController()
         _ = controller.view
         controller.setInspectorVisible(false, animated: false, source: "test.hide")
-
         NotificationCenter.default.post(
             name: .bundleDidLoad,
             object: nil,
@@ -307,10 +307,10 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
     }
 
     func testChromosomeInspectorRequestIgnoresScopedNotificationFromDifferentWindow() {
+        restoreHostDefaultsAfterTest(keys: ["InspectorCollapsed"])
         let controller = MainSplitViewController()
         _ = controller.view
         controller.setInspectorVisible(false, animated: false, source: "test.hide")
-
         NotificationCenter.default.post(
             name: .chromosomeInspectorRequested,
             object: nil,

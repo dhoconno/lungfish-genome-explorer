@@ -186,6 +186,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
     }
 
     func testAdvancedSettingsSourceAppliesStableXCUIIdentifiersAndExperimentalToggle() throws {
+        restoreHostDefaultsAfterTest(keys: ["com.lungfish.appSettings"])
         // Behavioral replacement: AdvancedSettingsTab's toggle actually renders with
         // the stable accessibility identifier and is genuinely bound to
         // AppSettings.shared.experimentalFeaturesEnabled -- proven by toggling it
@@ -291,6 +292,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
     }
 
     func testAnalystIdentitySettingsAndInspectorUseStableIdentifiersAndResolvedAuthors() throws {
+        restoreHostDefaultsAfterTest(keys: ["com.lungfish.appSettings"])
         // Behavioral replacement: GeneralSettingsTab's analyst-identity field
         // actually renders with the stable identifier and is genuinely bound
         // (both ways) to AppSettings.shared.analystIdentityOverride, proven by

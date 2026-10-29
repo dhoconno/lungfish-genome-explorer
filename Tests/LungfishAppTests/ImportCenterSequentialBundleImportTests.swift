@@ -28,6 +28,12 @@ import LungfishKitTestSupport
 
 @MainActor
 final class ImportCenterSequentialBundleImportTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // `ImportCenterViewModel` keeps its history in `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["importHistory"])
+    }
+
     func testThreeFilesAreStartedOneAtATimeNotAllAtOnce() async throws {
         let center = OperationCenter()
         let bundleURL = URL(fileURLWithPath: "/tmp/three-bam-fixture.lungfishref", isDirectory: true)

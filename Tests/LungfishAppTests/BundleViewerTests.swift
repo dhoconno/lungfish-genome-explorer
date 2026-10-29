@@ -980,12 +980,12 @@ final class ViewerBundleRoutingTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("bundle_viewer_routing_tests_\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        // The MSA view saves its gutter width and bottom pane state to `UserDefaults.standard`.
+        restoreHostDefaultsAfterTest(keys: ["msaRowGutterWidth", "msaBottomPane.isOpen"])
     }
 
     override func tearDownWithError() throws {
-        if let tempDir {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
+        if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
         tempDir = nil
         try super.tearDownWithError()
     }

@@ -9,15 +9,24 @@ import AppKit
 import XCTest
 import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishNaoMgsUI
 
 @MainActor
 final class NaoMgsExportItemStateTests: XCTestCase {
     private var root: URL?
+    /// The result view saves its column layout to `UserDefaults.standard` under the path of this class's folders.
+    private var hostDefaults: HostDefaultsRestorer?
+
+    override func setUp() async throws {
+        try await super.setUp()
+        hostDefaults = HostDefaultsRestorer(owns: { $0.contains("/naomgs-export-item") || $0.contains("/naomgs-export-opening") })
+    }
 
     override func tearDown() async throws {
         if let root { try? FileManager.default.removeItem(at: root) }
         root = nil
+        hostDefaults?.restore()
         try await super.tearDown()
     }
 

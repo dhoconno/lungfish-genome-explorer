@@ -707,10 +707,10 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
     }
 
     func testVisibleKrakenSelectionSurvivesTreeReplacementWithDuplicateTaxonAcrossSamples() {
+        restoreHostDefaultsAfterTest(keys: ["org.lungfish.metadata-column-layout.taxonomy.outline:/project/Analyses/kraken-visible-run-a"])
         let table = TaxonomyTableView(frame: .zero)
         table.resultIdentity = "/project/Analyses/kraken-visible-run-a"
         table.tree = Self.krakenTree(sampleOrder: ["sample-A", "sample-B"])
-
         let sampleBRow = Self.row(in: table.outlineView) { item in
             guard let node = item as? TaxonNode else { return false }
             return node.taxId == 562 && Self.sampleID(for: node) == "sample-B"
