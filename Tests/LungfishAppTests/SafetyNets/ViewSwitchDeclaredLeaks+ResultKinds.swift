@@ -100,11 +100,13 @@ extension ViewSwitchDeclaredLeaks {
         leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
         ]),
+        // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: twelveSAmpliconResultBundle ../k07-twelves/12S/primate-12s.lungfish12s",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
+            "+ inspectorBlocks: naoMgs, seeTheViewer, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -177,11 +179,13 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
+        // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("TaxTriage", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: batchOperation=TaxTriage",
             "+ provenance: taxTriageResult ../k03-taxtriage/Analyses/taxtriage-2026-01-15T12-30-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
+            "+ inspectorBlocks: panelLayout, operationDetails=TaxTriage",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -221,10 +225,12 @@ extension ViewSwitchDeclaredLeaks {
             "- viewports: TaxTriageResultViewController",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
+        // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("Kraken2", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ provenance: classificationResult ../k01-kraken2/Analyses/kraken2-2026-01-15T11-00-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",

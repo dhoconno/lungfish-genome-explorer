@@ -288,8 +288,10 @@ extension ViewSwitchDeclaredLeaks {
         leak("Quick Look", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
         ]),
+        // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: fastqStatistics",
+            "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("Primer order", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
