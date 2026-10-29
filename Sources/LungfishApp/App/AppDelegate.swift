@@ -596,11 +596,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         return
                     } catch {
                         guard session.documentGeneration == generation else { return }
-                        let alert = NSAlert()
-                        alert.messageText = "Could Not Resolve Project Lock"
-                        alert.informativeText = error.localizedDescription
-                        alert.addButton(withTitle: "OK")
-                        if let window = controller.window { alert.beginSheetModal(for: window, completionHandler: nil) }
+                        if let window = controller.window {
+                            FailurePresenter.present(AppFailureReports.resolveProjectLock(error), in: window)
+                        }
                         return
                     }
                 } else {
@@ -713,11 +711,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             case .success:
                 self.openProject(url, in: controller)
             case .failure(let error):
-                let failure = NSAlert()
-                failure.messageText = "Project Migration Did Not Finish"
-                failure.informativeText = error.localizedDescription
-                failure.addButton(withTitle: "OK")
-                if let window = controller.window { failure.beginSheetModal(for: window, completionHandler: nil) }
+                if let window = controller.window {
+                    FailurePresenter.present(AppFailureReports.migrateProject(error), in: window)
+                }
             }
         }
     }
@@ -1624,9 +1620,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             OperationCenter.shared.complete(id: opID, detail: "Updated \(annotation.name)")
         } catch {
             OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-            showAlert(
-                title: "Update Annotation Failed",
-                message: error.localizedDescription,
+            showFailure(
+                AppFailureReports.updateReferenceBundleAnnotation(error),
                 presentingWindow: viewerController.view.window
             )
         }
@@ -1663,9 +1658,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             OperationCenter.shared.complete(id: opID, detail: "Deleted annotation")
         } catch {
             OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-            showAlert(
-                title: "Delete Annotation Failed",
-                message: error.localizedDescription,
+            showFailure(
+                AppFailureReports.deleteReferenceBundleAnnotation(error),
                 presentingWindow: viewerController.view.window
             )
         }

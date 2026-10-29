@@ -4,6 +4,7 @@
 
 import AppKit
 import XCTest
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 @testable import LungfishApp
@@ -205,5 +206,62 @@ final class AppFailureReportsTests: XCTestCase {
         let report = AppFailureReports.prepareProvenanceForExport(rawFailureError())
         assertFailureAlert(report, title: "Could not prepare the provenance for export", rawErrorText: raw)
         XCTAssertFalse(report.nextStep.contains("Operations panel"))
+    }
+
+    func testResolveProjectLockKeepsTheTwoRefusalsTheLockResolverWords() {
+        let acquiredText = "Another session acquired the project lock. Try opening the project again."
+        let acquired = AppFailureReports.resolveProjectLock(
+            CocoaError(.fileLocking, userInfo: [NSLocalizedDescriptionKey: acquiredText])
+        )
+        assertFailureAlert(acquired, title: "Could not resolve the project lock", rawErrorText: acquiredText)
+        XCTAssertEqual(acquired.whatHappened, "Another session acquired the project lock.")
+        XCTAssertEqual(acquired.nextStep, "Open the project again.")
+        let movedText = "The project folder changed while resolving its lock. Locate the original folder and try again."
+        let moved = AppFailureReports.resolveProjectLock(
+            CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: movedText])
+        )
+        assertFailureAlert(moved, title: "Could not resolve the project lock", rawErrorText: movedText)
+        XCTAssertEqual(moved.whatHappened, "The project folder changed while Lungfish was resolving its lock.")
+        XCTAssertTrue(moved.nextStep.contains("Locate the original folder"))
+    }
+
+    func testResolveProjectLockWordsAnyOtherErrorInGeneralTerms() {
+        let report = AppFailureReports.resolveProjectLock(rawFailureError())
+        assertFailureAlert(report, title: "Could not resolve the project lock", rawErrorText: raw)
+        XCTAssertTrue(report.whatHappened.contains("project did not open"))
+        XCTAssertFalse(report.nextStep.contains("Operations panel"))
+    }
+
+    func testMigrateProjectKeepsTheVersionRefusalAndTheChangedMetadataRefusal() {
+        let version = AppFailureReports.migrateProject(ProjectFileError.incompatibleVersion(found: "1.0", required: "2.0"))
+        assertFailureAlert(version, title: "Could not migrate the project", rawErrorText: "Incompatible project version")
+        XCTAssertTrue(version.whatHappened.contains("1.0"))
+        XCTAssertTrue(version.whatHappened.contains("2.0"))
+        XCTAssertTrue(version.nextStep.contains("version of Lungfish that made it"))
+        let changed = AppFailureReports.migrateProject(
+            ProjectFileError.loadError(message: "Project metadata changed before migration. Reopen the project.")
+        )
+        assertFailureAlert(changed, title: "Could not migrate the project", rawErrorText: "Project metadata changed before migration")
+        XCTAssertEqual(changed.nextStep, "Reopen the project, then migrate it again.")
+    }
+
+    func testMigrateProjectWordsAnyOtherErrorInGeneralTerms() {
+        let report = AppFailureReports.migrateProject(rawFailureError())
+        assertFailureAlert(report, title: "Could not migrate the project", rawErrorText: raw)
+        XCTAssertEqual(report.whatHappened, "The project was not migrated.")
+        let saveFailure = AppFailureReports.migrateProject(ProjectFileError.saveError(message: raw))
+        assertFailureAlert(saveFailure, title: "Could not migrate the project", rawErrorText: raw)
+        XCTAssertEqual(saveFailure.whatHappened, "The project was not migrated.")
+    }
+
+    func testUpdateAndDeleteReferenceBundleAnnotationPointToTheOperationsLog() {
+        let update = AppFailureReports.updateReferenceBundleAnnotation(rawFailureError())
+        assertFailureAlert(update, title: "Could not update the annotation", rawErrorText: raw)
+        let delete = AppFailureReports.deleteReferenceBundleAnnotation(rawFailureError())
+        assertFailureAlert(delete, title: "Could not delete the annotation", rawErrorText: raw)
+        for report in [update, delete] {
+            XCTAssertTrue(report.whatHappened.contains("did not finish"))
+            XCTAssertTrue(report.nextStep.contains("Operations panel"))
+        }
     }
 }

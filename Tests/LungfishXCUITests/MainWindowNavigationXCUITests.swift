@@ -124,7 +124,7 @@ extension MainWindowNavigationXCUITests {
         XCTAssertTrue(button.waitForExistence(timeout: 5))
         button.click()
         robot.chooseNativePath(invalid)
-        XCTAssertTrue(robot.app.staticTexts["Invalid FASTQ Sample Sheet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(robot.app.staticTexts["Could not read the FASTQ sample sheet"].waitForExistence(timeout: 10))
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("invalid.csv").path))
         robot.app.buttons["OK"].firstMatch.click()
         XCTAssertTrue(robot.window(project).exists)

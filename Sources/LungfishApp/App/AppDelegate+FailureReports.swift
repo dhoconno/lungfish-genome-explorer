@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 
@@ -299,6 +300,84 @@ enum AppFailureReports {
             failedStep: "Prepare the provenance for export",
             whatHappened: "Lungfish could not write the provenance record to its temporary folder, so the export did not start.",
             nextStep: "Check that the disk has free space, then export the provenance again.",
+            underlying: error
+        )
+    }
+
+    /// The project lock could not be resolved while a project opened. The two refusals the lock resolver words
+    /// about the person's project keep their facts in the body, and any other error is worded in general terms.
+    static func resolveProjectLock(_ error: any Error) -> FailureReport {
+        let cause = error.localizedDescription
+        if cause.hasPrefix("Another session acquired the project lock."), !cause.contains("\n") {
+            return FailureReport(
+                failedStep: "Resolve the project lock",
+                whatHappened: "Another session acquired the project lock.",
+                nextStep: "Open the project again.",
+                underlying: error
+            )
+        }
+        if cause.hasPrefix("The project folder changed while resolving its lock."), !cause.contains("\n") {
+            return FailureReport(
+                failedStep: "Resolve the project lock",
+                whatHappened: "The project folder changed while Lungfish was resolving its lock.",
+                nextStep: "Locate the original folder, then open the project again.",
+                underlying: error
+            )
+        }
+        return FailureReport(
+            failedStep: "Resolve the project lock",
+            whatHappened: "Lungfish could not resolve the lock on the project, so the project did not open.",
+            nextStep: "Check that the project folder is still there and can be written to, then open the project again.",
+            underlying: error
+        )
+    }
+
+    /// A project migration did not finish. A format version the project was made with and a project that
+    /// changed before the migration started are facts the migration words about the person's project, so they
+    /// stay in the body.
+    static func migrateProject(_ error: any Error) -> FailureReport {
+        if let projectError = error as? ProjectFileError {
+            switch projectError {
+            case .incompatibleVersion(let found, let required):
+                return FailureReport(
+                    failedStep: "Migrate the project",
+                    whatHappened: "The project's format version is \(found), but this version of Lungfish needs version \(required).",
+                    nextStep: "Open the project with the version of Lungfish that made it.",
+                    underlying: error
+                )
+            case .loadError(let message) where message.hasPrefix("Project metadata changed before migration"):
+                return FailureReport(
+                    failedStep: "Migrate the project",
+                    whatHappened: "The project's metadata changed before the migration could start, so the project was not migrated.",
+                    nextStep: "Reopen the project, then migrate it again.",
+                    underlying: error
+                )
+            default:
+                break
+            }
+        }
+        return FailureReport(
+            failedStep: "Migrate the project",
+            whatHappened: "The project was not migrated.",
+            nextStep: "Check that the project folder can be written to and that the disk has free space, then open the project and migrate it again.",
+            underlying: error
+        )
+    }
+
+    static func updateReferenceBundleAnnotation(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Update the annotation",
+            whatHappened: "The annotation update did not finish, so the bundle may not show the change.",
+            nextStep: "Open the Operations panel to read the log of this edit, select the bundle in the sidebar again to see whether the change is there, then make it again if it is not.",
+            underlying: error
+        )
+    }
+
+    static func deleteReferenceBundleAnnotation(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Delete the annotation",
+            whatHappened: "The annotation delete did not finish, so the bundle may still show the annotation.",
+            nextStep: "Open the Operations panel to read the log of this edit, select the bundle in the sidebar again to see whether the annotation is still there, then delete it again if it is.",
             underlying: error
         )
     }
