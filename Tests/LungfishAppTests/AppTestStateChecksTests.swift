@@ -6,18 +6,20 @@ import AppKit
 import XCTest
 import LungfishKit
 import LungfishTestSupport
+import LungfishKitTestSupport
 @testable import LungfishApp
 
 /// Phase 3.1 ruling QA-RELEASE-LOOP, section 4, item 5. Each test restores what it made through the check itself, so
-/// the observer finds nothing at its end.
+/// the observer finds nothing at its end. The row and window checks live in LungfishKitTestSupport (the manager's
+/// ruling on deviation 3 of LOOP M2), and this bundle adds the pending-tasks check.
 @MainActor
 final class AppTestStateChecksTests: XCTestCase {
     func testTheBootstrapRegistersTheAppChecksInThisBundle() {
-        XCTAssertEqual(Array(TestStateObserver.checkNames.suffix(3)), AppTestStateChecks.names)
+        XCTAssertEqual(Array(TestStateObserver.checkNames.suffix(3)), KitTestStateChecks.names + AppTestStateChecks.names)
     }
 
     func testTheRowCheckNamesARowBegunInTheTestAndTheRestoreEndsIt() {
-        let check = AppTestStateChecks.operationRowsCheck()
+        let check = KitTestStateChecks.operationRowsCheck()
         let before = check.snapshot()
         let id = OperationCenter.shared.begin(
             title: "Observer probe", detail: "running", operationType: .download, cliCommand: nil
@@ -33,7 +35,7 @@ final class AppTestStateChecksTests: XCTestCase {
 
     func testTheWindowCheckNamesAVisibleKeyWindowAndTheRestoreOrdersItOut() {
         _ = NSApplication.shared
-        let check = AppTestStateChecks.visibleWindowsCheck()
+        let check = KitTestStateChecks.visibleWindowsCheck()
         let before = check.snapshot()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 80), styleMask: [.titled],
                               backing: .buffered, defer: false)

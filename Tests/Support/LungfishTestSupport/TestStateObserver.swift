@@ -10,8 +10,10 @@ import XCTest
 ///
 /// `snapshot` reads the state as a map from a key to a value string. `restore` puts back the keys that leaked as the
 /// before map had them, and removes a key the before map lacks. `describe` turns a value string into the words of a
-/// leak. All three run on the main thread. A check that needs LungfishKit or AppKit lives in the bundle that links
-/// them (`Tests/LungfishAppTests/AppTestStateChecks.swift`), since this target imports no Kit module.
+/// leak. All three run on the main thread. A check that needs LungfishKit or AppKit lives in a target that links
+/// them (`Tests/Support/LungfishKitTestSupport/KitTestStateChecks.swift` for the rows and windows,
+/// `Tests/LungfishAppTests/AppTestStateChecks.swift` for the pending project tasks), since this target imports no
+/// Kit module.
 public struct TestStateCheck: Sendable {
     /// Which difference between two snapshots is a leak.
     public enum Comparison: Sendable {
@@ -178,16 +180,27 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
         }.sorted()
     }
 
-    /// The words of one leak, as in `left 1 active operation row "MAFFT" (Alignment, running)`.
+    /// The words of one leak on one line, as in `left 1 active operation row "MAFFT" (Alignment, running)`. A value
+    /// that prints over several lines (a dictionary) is joined with spaces, so one leak is one line of `leaks.txt`.
     public static func message(noun: String, entries: [String]) -> String {
-        "left \(entries.count) \(noun)\(entries.count == 1 ? "" : "s") " + entries.joined(separator: ", ")
+        let lines = entries.map { entry in
+            entry.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+                .joined(separator: " ")
+        }
+        return "left \(entries.count) \(noun)\(entries.count == 1 ? "" : "s") " + lines.joined(separator: ", ")
     }
 
-    /// The full name the gate uses for a case, `Module.Class/testMethod`, from Darwin's `-[Module.Class testMethod]`.
-    public static func canonicalName(_ name: String) -> String {
+    /// The full name the gate uses for a case, `Module.Class/testMethod`, from Darwin's `-[Class testMethod]`.
+    /// `className` replaces the class part, since Darwin names a Swift case without its module.
+    public static func canonicalName(_ name: String, className: String? = nil) -> String {
         guard name.hasPrefix("-["), name.hasSuffix("]") else { return name }
         let parts = name.dropFirst(2).dropLast().split(separator: " ", maxSplits: 1)
-        return parts.count == 2 ? "\(parts[0])/\(parts[1])" : name
+        return parts.count == 2 ? "\(className ?? String(parts[0]))/\(parts[1])" : name
+    }
+
+    /// The gate's name of a case, with the module its class reflects (`String(reflecting:)`).
+    public static func caseName(of testCase: XCTestCase) -> String {
+        canonicalName(testCase.name, className: String(reflecting: type(of: testCase)))
     }
 
     /// One ledger line, a JSON object with the test, the phase, the check, the keys and the words.
@@ -249,14 +262,14 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
     }
 
     public func testCaseWillStart(_ testCase: XCTestCase) {
-        let name = Self.canonicalName(testCase.name)
+        let name = Self.caseName(of: testCase)
         guard onMain(name) else { return }
         let snapshot = timed { MainActor.assumeIsolated { self.snapshotAll() } }
         locked { $0.caseSnapshots[ObjectIdentifier(testCase)] = snapshot }
     }
 
     public func testCaseDidFinish(_ testCase: XCTestCase) {
-        let name = Self.canonicalName(testCase.name)
+        let name = Self.caseName(of: testCase)
         guard onMain(name) else { return }
         guard let before = locked({ $0.caseSnapshots.removeValue(forKey: ObjectIdentifier(testCase)) }) else { return }
         timed { MainActor.assumeIsolated { self.compare(before, test: name, phase: "case") } }
@@ -304,27 +317,30 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
         return snapshot
     }
 
+    /// Reports each leak, then restores its state, in the ruling's order, so a restore that fails still leaves the
+    /// leak in the ledger.
     @MainActor
     private func compare(_ before: [String: TestStateSnapshot], test: String, phase: String) {
         for check in locked({ $0.checks }) {
             guard let old = before[check.name] else { continue }
-            let keys: [String], entries: [String]
+            let keys: [String], entries: [String], restore: () -> Void
             if let domain = check.domain, let oldDomain = old.domain {
                 let newDomain = domain.read()
                 guard !oldDomain.isEqual(newDomain) else { continue }
                 keys = Self.changedKeys(before: oldDomain, after: newDomain)
                 guard !keys.isEmpty else { continue }
                 entries = keys.map { check.describe($0, newDomain[$0].map { "\($0)" } ?? "") }
-                domain.restore(keys, oldDomain)
+                restore = { domain.restore(keys, oldDomain) }
             } else {
                 let new = check.snapshot()
                 keys = Self.leakedKeys(before: old.words, after: new, comparison: check.comparison)
                 guard !keys.isEmpty else { continue }
                 entries = keys.map { check.describe($0, new[$0] ?? "") }
-                check.restore(keys, old.words)
+                restore = { check.restore(keys, old.words) }
             }
             Self.report(test: test, phase: phase, leak: TestStateLeak(
                 check: check.name, keys: keys, message: Self.message(noun: check.noun, entries: entries)))
+            restore()
         }
     }
 
