@@ -194,6 +194,26 @@ final class AlignmentReadExtractionStagerSameNameConformanceTests: XCTestCase {
         )
     }
 
+    /// The common SRA case: no record of the names asked for carries a mate flag, so the BAM of the records with a mate flag
+    /// is empty and every record is written by the unflagged route, in the BAM's order, the reverse one restored.
+    func testByIDStageOfRecordsWithNoMateFlagWritesEachOfThem() async throws {
+        try await Self.requireSamtools()
+        let (bam, _) = try await makeIndexedBAM("by-id-unflagged", records: Self.mixedRecords)
+        let ids: Set<String> = ["s1", "s2"]
+        let transaction = try await stageByID(bam: bam, ids: ids, format: .fastq)
+        defer { transaction.cleanup() }
+
+        let counted = try await samtoolsCountByName(bam: bam, ids: ids)
+        XCTAssertEqual(counted, 3, "samtools view -c -N counts three records for the two names")
+        XCTAssertEqual(transaction.readCount, counted, "the count the row shows")
+        let text = try String(contentsOf: transaction.stagedFiles[0].stagedURL, encoding: .utf8)
+        XCTAssertEqual(
+            text,
+            "@s1\nAAAACCCCGG\n+\nABCDEFGHIJ\n@s1\nTTTTGGGGAA\n+\n0123456789\n@s2\nACGTACGTAC\n+\nIIIIIIIIII\n",
+            "each of the three records is written"
+        )
+    }
+
     private func assertByIDStageKeepsEveryRecord(format: ReadIDBAMExtractionFormat) async throws {
         try await Self.requireSamtools()
         let (bam, _) = try await makeIndexedBAM("by-id-\(format.rawValue)", records: Self.mixedRecords)
