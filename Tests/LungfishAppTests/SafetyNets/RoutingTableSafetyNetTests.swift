@@ -55,6 +55,21 @@ final class RoutingTableSafetyNetTests: XCTestCase {
 
     private var settleTimeout: Duration = RoutingTableSafetyNetTests.settleCeiling
 
+    /// The machine's saved MSA pane flag, written closed for each test. The
+    /// alignment row must settle whatever a machine holds (MSAPaneFlagFixture).
+    private var paneFlag: MSAPaneFlagFixture?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        paneFlag = MSAPaneFlagFixture(machineFlag: false)
+    }
+
+    override func tearDownWithError() throws {
+        paneFlag?.restore()
+        paneFlag = nil
+        try super.tearDownWithError()
+    }
+
     // MARK: - Coverage
 
     func testCatalogNamesEveryDeclaredSidebarItemType() throws {

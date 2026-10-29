@@ -40,6 +40,22 @@ final class ViewSwitchMatrixTests: XCTestCase {
 
     private var settleBudget = ViewSwitchMatrixTests.settleBudget
 
+    /// The machine's saved MSA pane flag, written closed for each test. A
+    /// switch to an alignment must read the pane open whatever a machine holds
+    /// (MSAPaneFlagFixture).
+    private var paneFlag: MSAPaneFlagFixture?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        paneFlag = MSAPaneFlagFixture(machineFlag: false)
+    }
+
+    override func tearDownWithError() throws {
+        paneFlag?.restore()
+        paneFlag = nil
+        try super.tearDownWithError()
+    }
+
     private struct Fixture {
         let kind: ViewSwitchKind
         let root: URL
