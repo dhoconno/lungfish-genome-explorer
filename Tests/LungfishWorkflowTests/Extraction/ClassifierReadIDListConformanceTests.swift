@@ -164,6 +164,179 @@ final class ClassifierReadIDListConformanceTests: XCTestCase {
         try writable.deleteVirusHitsAndVacuum()
     }
 
+    // MARK: - NAO-MGS orientation (lane NAO-BAM-ORIENT, BIO ruling BIO-NAO-BAM-ORIENT)
+
+    /// NAO-MGS holds each mate as the instrument sequenced it and names the strand it aligned to (`prim_align_query_rc`).
+    /// SAM wants a record flagged 0x10 to hold the reverse complement, so the BAM of the import must, and `samtools fastq`
+    /// then gives each read back as sequenced. The read ending `:2423:14340:5078` of the Los Angeles sample is a pair
+    /// whose two mates read the whole 106-base insert, R1 on the reverse strand and `query_seq` the reverse complement of
+    /// `query_seq_rev`, so on the reference strand both records hold one string.
+    func testNaoMgsBamStoresReverseFlaggedRecordsInReferenceOrientation() async throws {
+        let samtools = try await Support.requireTool(.samtools)
+        let folder = try Support.makeResultFolder(in: root, named: "naomgs")
+        let hits = folder.appendingPathComponent("hits.sqlite")
+        try await Self.importNaoMgsFixture(into: folder, hits: hits, samtools: samtools)
+
+        let name = "LH00642:161:23KFJ7LT4:1:2423:14340:5078"
+        let rows = try Self.fixtureRows().filter { $0.name == name }
+        XCTAssertEqual(rows.count, 1, "one row of the fixture holds the read \(name)")
+        let mates = try XCTUnwrap(rows.first?.mates)
+        XCTAssertEqual(mates.count, 2, "the read is a pair")
+        guard mates.count == 2 else { return }
+
+        let bam = folder.appendingPathComponent("bams/MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304.bam")
+        let records = try Self.samtoolsText(samtools, ["view", bam.path]).split(separator: "\n").compactMap { line -> BAMRecord? in
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields[0] == name else { return nil }
+            return BAMRecord(flag: Int(fields[1]) ?? -1, position: fields[3], cigar: fields[5], sequence: fields[9])
+        }
+        XCTAssertEqual(records.map(\.flag).sorted(), [83, 163], "the read is one pair with R1 on the reverse strand")
+        let reverse = try XCTUnwrap(records.first { $0.flag == 83 })
+        let forward = try XCTUnwrap(records.first { $0.flag == 163 })
+        XCTAssertEqual([reverse.position, forward.position], ["1495", "1495"], "both mates start at 1495")
+        XCTAssertEqual([reverse.cigar, forward.cigar], ["106M", "106M"], "both mates are 106M")
+        XCTAssertEqual(
+            reverse.sequence, forward.sequence,
+            "mates that read one insert hold one string on the reference strand (flag 83 against flag 163)"
+        )
+        XCTAssertEqual(
+            reverse.sequence, Self.reverseComplement(mates[0].sequence),
+            "the flag-83 record holds the reverse complement of query_seq"
+        )
+        XCTAssertEqual(forward.sequence, mates[1].sequence, "the flag-163 record is query_seq_rev as sequenced")
+
+        let byName = root.appendingPathComponent("by-name.bam")
+        _ = try Self.samtoolsText(samtools, ["sort", "-n", "-o", byName.path, bam.path])
+        let fastq = Self.fastqRecords(try Self.samtoolsText(samtools, ["fastq", byName.path]))
+        XCTAssertEqual(fastq.first { $0.name == "\(name)/1" }?.sequence, mates[0].sequence, "samtools fastq /1 is query_seq")
+        XCTAssertEqual(fastq.first { $0.name == "\(name)/2" }?.sequence, mates[1].sequence, "samtools fastq /2 is query_seq_rev")
+    }
+
+    /// Every record the extraction writes for the three NAO-MGS selections is a mate as the instrument sequenced it. The
+    /// sorted (name, SEQ, QUAL) of the written FASTQ equal those of the fixture's `query_seq` and `query_qual` (R1) and
+    /// `query_seq_rev` and `query_qual_rev` (R2), for the reads the frozen list holds.
+    func testNaoMgsExtractionWritesEveryMateAsSequenced() async throws {
+        let samtools = try await Support.requireTool(.samtools)
+        let folder = try Support.makeResultFolder(in: root, named: "naomgs")
+        let hits = folder.appendingPathComponent("hits.sqlite")
+        try await Self.importNaoMgsFixture(into: folder, hits: hits, samtools: samtools)
+        let rows = try Self.fixtureRows()
+
+        let cases: [(list: String, sample: String, taxId: Int)] = [
+            ("naomgs-IL_CHI_StickneyWS-28875", "MU-CASPER-2026-03-31-a-IL_CHI_StickneyWS_20260308", 28875),
+            ("naomgs-Water-2748378", "MU-CASPER-2026-03-31-a-Water_20260323", 2748378),
+            ("naomgs-NY_PLC_009-1187973", "MU-CASPER-2026-03-31-a-NY_PLC_009_20260318", 1187973),
+        ]
+        let database = try NaoMgsDatabase(at: hits)
+        for testCase in cases {
+            var seen = Set<String>()
+            let accessions = try database.fetchAccessionSummaries(sample: testCase.sample, taxId: testCase.taxId)
+                .map(\.accession).filter { seen.insert($0).inserted }
+            let readNames = try database.fetchReadNames(sample: testCase.sample, taxId: testCase.taxId)
+            let output = root.appendingPathComponent("out/\(testCase.list).fastq")
+            _ = try await Support.extract(
+                .naomgs,
+                result: hits,
+                [ClassifierRowSelector(
+                    sampleId: testCase.sample, accessions: accessions, taxIds: [testCase.taxId], readNameAllowlist: readNames
+                )],
+                to: output
+            )
+            let written = Self.fastqRecords(try String(contentsOf: output, encoding: .utf8))
+                .map { "\($0.name)\t\($0.sequence)\t\($0.quality)" }.sorted()
+
+            var expected: [String] = []
+            for id in try Support.list(named: testCase.list).ids {
+                let held = rows.filter { $0.name == id && $0.sample.hasPrefix(testCase.sample + "_") }
+                XCTAssertEqual(held.count, 1, "\(testCase.list) read \(id) is one row of the fixture")
+                expected += held.flatMap(\.mates).map { "\(id)\t\($0.sequence)\t\($0.quality)" }
+            }
+            XCTAssertFalse(expected.isEmpty, "\(testCase.list) holds no mate")
+            XCTAssertEqual(written, expected.sorted(), "NAO-MGS \(testCase.list) writes each mate as the instrument sequenced it")
+        }
+    }
+
+    /// One row of `Tests/Fixtures/naomgs/virus_hits_final.tsv.gz`, read from the file with `gzip` and not through the
+    /// parser. `mates` holds R1 then R2 as sequenced, for each mate the row has both a sequence and a start for.
+    private struct FixtureRow {
+        let name: String
+        let sample: String
+        let mates: [(sequence: String, quality: String)]
+    }
+
+    /// A BAM record of the one read the orientation test follows.
+    private struct BAMRecord {
+        let flag: Int
+        let position: String
+        let cigar: String
+        let sequence: String
+    }
+
+    private static func fixtureRows() throws -> [FixtureRow] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", Support.fixture("naomgs/virus_hits_final.tsv.gz").path]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw Support.SupportError(description: "gzip could not read the NAO-MGS fixture") }
+        let table = text.split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        guard let header = table.first else { throw Support.SupportError(description: "the NAO-MGS fixture is empty") }
+        func column(_ title: String) throws -> Int {
+            guard let index = header.firstIndex(of: title) else { throw Support.SupportError(description: "the fixture has no \(title) column") }
+            return index
+        }
+        let (name, sample) = (try column("seq_id"), try column("sample"))
+        let (seq1, qual1, start1) = (try column("query_seq"), try column("query_qual"), try column("prim_align_ref_start"))
+        let (seq2, qual2, start2) = (try column("query_seq_rev"), try column("query_qual_rev"), try column("prim_align_ref_start_rev"))
+        func present(_ field: String) -> Bool { !field.isEmpty && field != "NA" }
+        return table.dropFirst().map { fields in
+            var mates: [(sequence: String, quality: String)] = []
+            if present(fields[seq1]), present(fields[start1]) { mates.append((fields[seq1], fields[qual1])) }
+            if present(fields[seq2]), present(fields[start2]) { mates.append((fields[seq2], fields[qual2])) }
+            return FixtureRow(name: fields[name], sample: fields[sample], mates: mates)
+        }
+    }
+
+    /// The standard output of `samtools <arguments>`.
+    private static func samtoolsText(_ samtools: URL, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = samtools
+        process.arguments = arguments
+        let output = Pipe()
+        let errors = Pipe()
+        process.standardOutput = output
+        process.standardError = errors
+        try process.run()
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let stderr = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw Support.SupportError(description: "samtools \(arguments.joined(separator: " ")) exited \(process.terminationStatus): \(stderr)")
+        }
+        return text
+    }
+
+    /// The records of a plain FASTQ text as (name up to the first space or tab, SEQ, QUAL), in file order.
+    private static func fastqRecords(_ text: String) -> [(name: String, sequence: String, quality: String)] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var records: [(name: String, sequence: String, quality: String)] = []
+        var index = 0
+        while index + 3 < lines.count {
+            let name = lines[index].dropFirst().split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
+            records.append((name, lines[index + 1], lines[index + 3]))
+            index += 4
+        }
+        return records
+    }
+
+    private static func reverseComplement(_ sequence: String) -> String {
+        let complement: [Character: Character] = ["A": "T", "C": "G", "G": "C", "T": "A", "N": "N"]
+        return String(sequence.reversed().map { complement[$0] ?? "N" })
+    }
+
     // MARK: - NVD
 
     /// The viewer's selector for one contig of one sample. The BAM is the paired-end sarscov2 fixture, whose reference
