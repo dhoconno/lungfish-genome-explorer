@@ -74,6 +74,24 @@ final class EsVirituDatabaseIdentityRecordTests: XCTestCase {
 
         XCTAssertEqual(record.options.resolvedDefaults["databaseCatalogVersion"], .string("v3.2.3"))
         XCTAssertEqual(record.options.resolvedDefaults["databaseIdentityStatus"], .string("pinned"))
+        // BIO-DBID SF1. The bundled catalog's URL and policy name the release this build would install, which is not
+        // the release the receipt names, so the record leaves both out and cites no other release.
+        XCTAssertNil(record.options.resolvedDefaults["databaseSourceURL"], "the bundled catalog's URL names another release")
+        XCTAssertNil(record.options.resolvedDefaults["databaseSourcePolicy"])
+    }
+
+    /// BIO-DBID SF1, the equal-version case. A receipt that names the version this build bundles keeps the bundled
+    /// catalog's source URL and policy, since they describe that same release. The version is read from the lock, so
+    /// the test survives a catalog bump.
+    func testEsVirituRecordKeepsCatalogSourceWhenReceiptNamesTheBundledVersion() async throws {
+        let install = try makeInstall()
+        let bundledVersion = ManagedToolLock.bundled.database(id: EsVirituDatabaseManager.catalogID)?.version ?? "v3.2.4"
+        try install.writeReceipt(catalogVersion: bundledVersion)
+        let record = try await runRecord(on: install)
+
+        XCTAssertEqual(record.options.resolvedDefaults["databaseCatalogVersion"], .string(bundledVersion))
+        XCTAssertNotNil(record.options.resolvedDefaults["databaseSourceURL"])
+        XCTAssertNotNil(record.options.resolvedDefaults["databaseSourcePolicy"])
     }
 
     /// A database with no receipt keeps the record it had. It says `unpinned`, holds no digest and no reference

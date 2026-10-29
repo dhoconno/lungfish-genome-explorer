@@ -299,7 +299,8 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     /// catalog names only for a database with no receipt. Nothing is hashed. Only the database the
     /// app installed also records the catalog entry it came from. Another folder `--db` names, such
     /// as an older release or a custom build, records no catalog entry, which would not describe it,
-    /// and takes its version from its own receipt when it has one.
+    /// and takes its version from its own receipt when it has one. The catalog's source URL and policy
+    /// are recorded only when the receipt names the catalog's own release, or when there is no receipt.
     private func runOptions(
         settings: EsVirituRunSettings,
         databaseIsInstalled: Bool,
@@ -316,10 +317,15 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         ]
         resolved.merge(MetagenomicsDatabaseReceiptReference.identityFacts(of: receipt)) { current, _ in current }
         if databaseIsInstalled, let catalog = ManagedToolLock.bundled.database(id: EsVirituDatabaseManager.catalogID) {
+            let version = receipt?.catalogVersion ?? catalog.version
             resolved["databaseCatalogID"] = .string(catalog.id)
-            resolved["databaseCatalogVersion"] = .string(receipt?.catalogVersion ?? catalog.version)
-            resolved["databaseSourceURL"] = catalog.url.map(ParameterValue.string) ?? .null
-            resolved["databaseSourcePolicy"] = .string(catalog.effectiveSourcePolicy.rawValue)
+            resolved["databaseCatalogVersion"] = .string(version)
+            // The bundled catalog's URL and policy name the release this build would install. They describe the
+            // database only when the receipt names that same release, or there is no receipt to say otherwise.
+            if version == catalog.version {
+                resolved["databaseSourceURL"] = catalog.url.map(ParameterValue.string) ?? .null
+                resolved["databaseSourcePolicy"] = .string(catalog.effectiveSourcePolicy.rawValue)
+            }
         } else if let version = receipt?.catalogVersion {
             resolved["databaseCatalogVersion"] = .string(version)
         }
