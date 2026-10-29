@@ -687,6 +687,16 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testRunCancelsSubprocessAndThrowsCancellationError() async throws {
+        try await assertCancelStopsRun(timeout: { 60 })
+    }
+
+    /// Every analysis launch that lane TTL2 lifted passes `AnalysisTimeLimit.launchTimeout`, which is `.infinity` when
+    /// the person set no limit. Cancel still stops that run.
+    func testRunWithNoTimeLimitStillCancelsSubprocessAndThrowsCancellationError() async throws {
+        try await assertCancelStopsRun(timeout: { AnalysisTimeLimit.launchTimeout })
+    }
+
+    private func assertCancelStopsRun(timeout: @escaping @Sendable () -> TimeInterval) async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("NativeToolRunner Cancel Run \(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -696,11 +706,13 @@ final class NativeToolRunnerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: managedRoot) }
 
         let task = Task {
-            try await runner.run(
-                .seqkit,
-                arguments: ["sleep-run", completedURL.path],
-                timeout: 60
-            )
+            try await AnalysisTimeLimit.withLimit(nil) {
+                try await runner.run(
+                    .seqkit,
+                    arguments: ["sleep-run", completedURL.path],
+                    timeout: timeout()
+                )
+            }
         }
 
         try await Task.sleep(nanoseconds: 150_000_000)
