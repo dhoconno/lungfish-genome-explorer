@@ -48,7 +48,7 @@ extension MainSplitViewController {
                 self?.inspectorController.clearPrimerAnalysisDocument(matching: url)
             }, onExportRequested: exportAction)
         } catch {
-            viewerController.clearViewport(statusMessage: "Unable to open the primer analysis. \(error.localizedDescription)")
+            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the primer analysis.", error))
             return
         }
         // clearViewport() during installation tears down the previous inspector before
@@ -71,7 +71,7 @@ extension MainSplitViewController {
                 self.inspectorController.failPrimerAnalysisDocument(at: url, message: message)
             }, onDismiss: { [weak self] in self?.inspectorController.clearPrimerAnalysisDocument(matching: url) })
         } catch {
-            viewerController.clearViewport(statusMessage: "Unable to open the primer order. \(error.localizedDescription)")
+            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the primer order.", error))
             return
         }
         inspectorController.beginPrimerOrderDocument(at: url)

@@ -624,7 +624,7 @@ extension MainSplitViewController {
             // a status-bar message naming the failure, not the generic "No
             // sequence selected" empty state, which read as if nothing had
             // been clicked at all.
-            viewerController.clearViewport(statusMessage: "Unable to load 12S result.")
+            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to load 12S result.", error))
         }
     }
 

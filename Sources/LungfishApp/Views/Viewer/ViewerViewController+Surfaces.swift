@@ -70,4 +70,14 @@ extension ViewerViewController {
         revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
     }
+
+    /// The words a person reads when a surface did not open. They say what happened and
+    /// then what to try, which `localizedDescription` alone leaves out. An error with no
+    /// next step of its own gets the one every `SurfaceError` carries.
+    func surfaceFailureWords(_ headline: String, _ error: any Error) -> String {
+        let localized = error as? any LocalizedError
+        let what = localized?.errorDescription ?? error.localizedDescription
+        let next = localized?.recoverySuggestion ?? "Select the item again."
+        return [headline, what, next].joined(separator: " ")
+    }
 }

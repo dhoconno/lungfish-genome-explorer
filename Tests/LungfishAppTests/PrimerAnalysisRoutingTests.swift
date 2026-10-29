@@ -1,8 +1,27 @@
 import AppKit
 import XCTest
 import LungfishIO
+import LungfishKit
 @testable import LungfishApp
 @testable import LungfishOperations
+
+/// A surface that never opens, so the route's catch has a `SurfaceError` to put into words.
+@MainActor
+private final class RefusingSurface: ResultViewport {
+    let controller = NSViewController()
+    let kind: SurfaceKind
+
+    init(kind: SurfaceKind) {
+        self.kind = kind
+    }
+
+    var viewController: NSViewController { controller }
+    var surfaceKind: SurfaceKind { kind }
+
+    func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
+        throw SurfaceError.notInstalled(kind)
+    }
+}
 
 @MainActor
 final class PrimerAnalysisRoutingTests: XCTestCase {
@@ -87,6 +106,38 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         split.viewerController.clearViewport()
         XCTAssertNil(split.inspectorController.viewModel.primerAnalysisDocument)
         XCTAssertFalse(split.inspectorController.viewModel.availableTabs.contains(.files))
+    }
+
+    /// HOST-UX SF2. A primer analysis that does not open says what happened and what to
+    /// try. `localizedDescription` alone dropped the error's own next step.
+    func testAPrimerAnalysisThatDoesNotOpenSaysWhatToTry() {
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        let kind = SurfaceKind.bundle(.primerAnalysis)
+        split.viewerController.surfaceHost.registry.register(kind) { RefusingSurface(kind: kind) }
+        split.displayContent(for: SidebarItem(title: "Example", type: .primerAnalysisBundle,
+                                             url: URL(fileURLWithPath: "/absent.lungfishprimeranalysis")))
+        let words = split.viewerController.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.contains("Unable to open the primer analysis."), words)
+        XCTAssertTrue(words.contains("did not open"), words)
+        XCTAssertTrue(words.contains("Select the item again."), words)
+    }
+
+    /// HOST-UX SF2, the primer order catch.
+    func testAPrimerOrderThatDoesNotOpenSaysWhatToTry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try AnalysesFolder.writeAnalysisMetadata(.init(tool: "primer-order", isBatch: false), to: root)
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded()
+        let kind = SurfaceKind.analysis(.primerOrder)
+        split.viewerController.surfaceHost.registry.register(kind) { RefusingSurface(kind: kind) }
+        split.displayContent(for: .init(title: "Reviewed primer order", type: .analysisResult, url: root))
+        let words = split.viewerController.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.contains("Unable to open the primer order."), words)
+        XCTAssertTrue(words.contains("did not open"), words)
+        XCTAssertTrue(words.contains("Select the item again."), words)
     }
 
     func testGenericInspectorDoesNotDiscoverOrRepairAnalysisProvenance() {

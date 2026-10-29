@@ -29,7 +29,9 @@ final class TwelveSResultLoadFailureTests: XCTestCase {
         split.displayTwelveSAmpliconResultBundleFromSidebar(at: malformedBundleURL)
 
         let statusText = split.viewerController.statusBar.positionLabel.stringValue
-        XCTAssertEqual(statusText, "Unable to load 12S result.")
+        // The words keep the headline, then say why and what to try (HOST-UX SF2).
+        XCTAssertTrue(statusText.hasPrefix("Unable to load 12S result."), statusText)
+        XCTAssertTrue(statusText.contains("Select the item again."), statusText)
         XCTAssertNotEqual(statusText, "No sequence selected")
     }
 }
