@@ -34,6 +34,10 @@ public enum SurfaceShowOutcome: Sendable {
 /// The host installs the new surface only while its token is still current, as the
 /// one child of the parent controller with its view pinned to the container's edges.
 /// ``clear()`` cancels the load and removes the child.
+///
+/// The load starts at once on the main actor, so a surface whose load does not
+/// suspend, such as one given a result its caller has already read, is installed
+/// before ``show(kind:input:)`` returns, and ``lastOutcome`` says how it ended.
 @MainActor
 public final class ViewportHost {
     /// The installed surface, or nil while nothing is installed or a load is in flight.
@@ -45,8 +49,14 @@ public final class ViewportHost {
     /// The task of the latest show. Its value is that show's outcome.
     public private(set) var loadTask: Task<SurfaceShowOutcome, Never>?
 
+    /// The outcome of the latest show once its load has ended, or nil while it
+    /// loads and after a clear.
+    public private(set) var lastOutcome: SurfaceShowOutcome?
+
+    /// The factories this host makes surfaces from. A test registers a stand-in here.
+    public let registry: SurfaceRegistry
+
     private var gate = AsyncRequestGate<SurfaceRequest>()
-    private let registry: SurfaceRegistry
     private weak var containerView: NSView?
     private weak var parentController: NSViewController?
 
@@ -67,16 +77,20 @@ public final class ViewportHost {
         loadTask?.cancel()
         let token = gate.begin(identity: SurfaceRequest(kind: kind))
         requestedKind = kind
+        lastOutcome = nil
         removeActiveViewport()
 
         let task: Task<SurfaceShowOutcome, Never>
         do {
             let viewport = try registry.make(kind)
-            task = Task { @MainActor [weak self] in
+            task = Task.immediate { @MainActor [weak self] in
                 guard let self else { return .refused }
-                return await self.load(viewport, input: input, token: token)
+                let outcome = await self.load(viewport, input: input, token: token)
+                if self.gate.isCurrent(token) { self.lastOutcome = outcome }
+                return outcome
             }
         } catch {
+            lastOutcome = .failed(error)
             task = Task { .failed(error) }
         }
         loadTask = task
@@ -89,6 +103,7 @@ public final class ViewportHost {
         loadTask = nil
         gate.invalidate()
         requestedKind = nil
+        lastOutcome = nil
         removeActiveViewport()
     }
 

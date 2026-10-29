@@ -10,6 +10,9 @@ public enum SurfaceError: Error, LocalizedError, Equatable {
     case notRegistered(SurfaceKind)
     /// The surface was given data of another type than the one it reads.
     case unexpectedInput(kind: SurfaceKind, expected: String)
+    /// A caller that needs the surface installed at once found it still loading or
+    /// overtaken by a newer show.
+    case notInstalled(SurfaceKind)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +20,8 @@ public enum SurfaceError: Error, LocalizedError, Equatable {
             "Lungfish has no viewer for this kind of item (\(kind))."
         case .unexpectedInput(let kind, _):
             "The viewer for this item (\(kind)) was given data it cannot read."
+        case .notInstalled(let kind):
+            "The viewer for this item (\(kind)) did not open."
         }
     }
 
@@ -26,6 +31,8 @@ public enum SurfaceError: Error, LocalizedError, Equatable {
             "Check for a newer version of Lungfish. If this version should open the item, report the kind named above."
         case .unexpectedInput:
             "Select the item again. If the viewer stays empty, report the kind named above."
+        case .notInstalled:
+            "Select the item again."
         }
     }
 }

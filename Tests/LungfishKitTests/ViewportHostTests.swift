@@ -101,6 +101,28 @@ final class ViewportHostTests: XCTestCase {
         XCTAssertEqual(stubs.made.map(\.deactivationCount), [1, 1, 1])
     }
 
+    /// The App shows a result it has already read and wires the Inspector to the
+    /// installed controller in the same turn, so a load that does not suspend is
+    /// installed before show returns.
+    func testALoadThatDoesNotSuspendIsInstalledBeforeShowReturns() {
+        host.show(kind: twelveS, input: "read already")
+
+        XCTAssertTrue(host.activeViewport === stubs.made[0])
+        XCTAssertEqual(parent.children, [stubs.made[0].viewController])
+        guard case .committed = host.lastOutcome else {
+            return XCTFail("expected committed, got \(String(describing: host.lastOutcome))")
+        }
+
+        stubs.holdsLoad = true
+        host.show(kind: kraken2, input: "held")
+
+        XCTAssertNil(host.activeViewport)
+        XCTAssertNil(host.lastOutcome, "a held load has no outcome yet")
+        stubs.made[1].releaseLoad()
+        host.clear()
+        XCTAssertNil(host.lastOutcome)
+    }
+
     // MARK: - Failures leave no child and carry words
 
     func testAShowOfAnUnregisteredKindFailsWithWordsAndRemovesTheOldChild() async {
