@@ -130,4 +130,58 @@ enum AppFailureReports {
             underlying: error
         )
     }
+
+    static func showImportedVariants(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Show the imported variants",
+            whatHappened: "The variants were imported into the bundle, but the bundle could not be reloaded to show them.",
+            nextStep: "Select the bundle in the sidebar again to reload it.",
+            underlying: error
+        )
+    }
+
+    static func importVCFFile(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Import the VCF file",
+            whatHappened: "The variants were not added to the bundle.",
+            nextStep: "Open the Operations panel to read the log of this import, check that the file is a complete VCF file, then import it again.",
+            underlying: error
+        )
+    }
+
+    static func importGeneiousExport(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Import the Geneious export",
+            whatHappened: "The Geneious export was not added to the project.",
+            nextStep: "Open the Operations panel to read the log of this import, check that the file is a complete Geneious export, then import it again.",
+            underlying: error
+        )
+    }
+
+    static func runSequenceOperation(named name: String, _ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Run \(name)",
+            whatHappened: "The operation stopped before it finished.",
+            nextStep: "Open the Operations panel to read the log of this run, check the selected sequence, then run it again.",
+            underlying: error
+        )
+    }
+
+    static func readCzIdResult(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Read the CZ-ID result",
+            whatHappened: "Lungfish could not read the file as a CZ-ID result, so the import did not start.",
+            nextStep: "Check that the file is a complete CZ-ID result, then import it again.",
+            underlying: error
+        )
+    }
+
+    static func importCzIdResult(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Import the CZ-ID result",
+            whatHappened: "The CZ-ID result was not added to the project.",
+            nextStep: "Open the Operations panel to read the log of this import, check that the file is a complete CZ-ID result, then import it again.",
+            underlying: error
+        )
+    }
 }

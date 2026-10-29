@@ -581,7 +581,7 @@ extension AppDelegate {
                 )
             }
         } catch {
-            showAlert(title: "Apply Annotation Failed", message: error.localizedDescription, presentingWindow: controller?.window)
+            showFailure(ViewerFailureReports.applyAlignmentAnnotations(error), presentingWindow: controller?.window)
         }
     }
 
@@ -746,15 +746,15 @@ extension AppDelegate {
                         OperationCenter.shared.acknowledgeCancellation(id: opID)
                     }}
                 } catch {
+                    let report = AppFailureReports.runSequenceOperation(named: request.operation.displayName, error)
                     DispatchQueue.main.async { MainActor.assumeIsolated {
                         guard OperationCenter.shared.fail(
                             id: opID,
                             detail: "\(request.operation.displayName) failed",
                             errorMessage: error.localizedDescription
                         ) else { return }
-                        self?.showAlert(
-                            title: "\(request.operation.displayName) Failed",
-                            message: error.localizedDescription,
+                        self?.showFailure(
+                            report,
                             presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
                                 ?? viewerController.view.window
                         )

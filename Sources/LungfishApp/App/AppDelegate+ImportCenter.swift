@@ -242,10 +242,11 @@ extension AppDelegate {
                         }
                     }
                 } catch {
+                    let report = AppFailureReports.importGeneiousExport(error)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                            self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
+                            self?.showFailure(report)
                         }
                     }
                 }
@@ -553,11 +554,11 @@ extension AppDelegate {
                     )
                 }
             } catch {
+                let report = InspectorFailureReports.importSampleMetadata(error)
                 scheduleOnMainRunLoop { [weak self] in
                     debugLog("performSampleMetadataImport: Failed: \(error.localizedDescription)")
-                    self?.showAlert(
-                        title: "Metadata Import Failed",
-                        message: error.localizedDescription,
+                    self?.showFailure(
+                        report,
                         presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window ?? presentingWindow
                     )
                 }
@@ -638,8 +639,8 @@ extension AppDelegate {
             trackID = try VCFBundleVariantImport.resolveTrackID(
                 forVCFURL: vcfURL, in: manifest, bundleURL: bundleURL, replacing: replaceTrackID)
         } catch {
-            showAlert(title: "VCF Import Failed", message: error.localizedDescription,
-                      presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
+            showFailure(AppFailureReports.readBundleForVCFImport(error),
+                        presentingWindow: targetMainWindowController(routeContext: routeContext)?.window)
             return nil
         }
         // A replaced track whose import or materialization stopped is finished from
@@ -675,7 +676,7 @@ extension AppDelegate {
                     } catch {
                         debugLog("performVCFImport: Bundle reload failed: \(error.localizedDescription)")
                         if let window = originController.window {
-                            self?.showAlert(title: "Import Error", message: "VCF imported but bundle reload failed: \(error.localizedDescription)", presentingWindow: window)
+                            self?.showFailure(AppFailureReports.showImportedVariants(error), presentingWindow: window)
                         }
                     }
                 } catch is CancellationError {
@@ -685,7 +686,7 @@ extension AppDelegate {
                     guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
                     debugLog("performVCFImport: Failed: \(error.localizedDescription)")
                     if let window = self?.targetMainWindowController(routeContext: routeContext)?.window {
-                        self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription, presentingWindow: window)
+                        self?.showFailure(AppFailureReports.importVCFFile(error), presentingWindow: window)
                     }
                 }
             }
@@ -925,6 +926,7 @@ extension AppDelegate {
                         }
                     } catch {
                         debugLog("presentBatchSequenceExport: Failed - \(error)")
+                        let report = AppFailureReports.exportSequences(error)
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 guard OperationCenter.shared.fail(
@@ -933,12 +935,7 @@ extension AppDelegate {
                                     errorMessage: "Batch sequence export failed",
                                     errorDetail: error.localizedDescription
                                 ) else { return }
-                                let alert = NSAlert()
-                                alert.messageText = "Export Failed"
-                                alert.informativeText = error.localizedDescription
-                                alert.alertStyle = .critical
-                                alert.addButton(withTitle: "OK")
-                                alert.beginSheetModal(for: window)
+                                FailurePresenter.present(report, in: window)
                             }
                         }
                     }

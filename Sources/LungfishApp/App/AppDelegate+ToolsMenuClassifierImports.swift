@@ -40,7 +40,7 @@ extension AppDelegate {
             outputDir = try ClassifierResultImportCLIRoute.destination(projectURL: projectURL)
         } catch {
             onDispatch?(.rejected("Could not prepare the import destination: \(error.localizedDescription)"))
-            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: controller.window)
+            showFailure(AppFailureReports.prepareAnalysesFolder(error), presentingWindow: controller.window)
             return
         }
 
@@ -112,9 +112,8 @@ extension AppDelegate {
                 }.value
             } catch {
                 onDispatch?(.rejected(error.localizedDescription))
-                self?.showAlert(
-                    title: "CZ-ID Import Failed",
-                    message: error.localizedDescription,
+                self?.showFailure(
+                    AppFailureReports.readCzIdResult(error),
                     presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
                 )
                 return
@@ -156,9 +155,8 @@ extension AppDelegate {
                 // The runner acknowledged the cancel on the row.
             } catch {
                 guard OperationCenter.shared.fail(id: opID, detail: error.localizedDescription) else { return }
-                self?.showAlert(
-                    title: "CZ-ID Import Failed",
-                    message: error.localizedDescription,
+                self?.showFailure(
+                    AppFailureReports.importCzIdResult(error),
                     presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
                 )
             }

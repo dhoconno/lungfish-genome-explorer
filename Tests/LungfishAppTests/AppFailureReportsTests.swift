@@ -95,4 +95,40 @@ final class AppFailureReportsTests: XCTestCase {
         assertFailureAlert(report, title: "Could not export the sequences", rawErrorText: raw)
         XCTAssertFalse(report.nextStep.contains("Operations panel"))
     }
+
+    func testShowImportedVariantsSaysTheImportItselfWorked() {
+        let report = AppFailureReports.showImportedVariants(rawFailureError())
+        assertFailureAlert(report, title: "Could not show the imported variants", rawErrorText: raw)
+        XCTAssertTrue(report.whatHappened.contains("were imported"))
+    }
+
+    func testImportVCFFilePointsToTheOperationsLog() {
+        let report = AppFailureReports.importVCFFile(rawFailureError())
+        assertFailureAlert(report, title: "Could not import the VCF file", rawErrorText: raw)
+        XCTAssertTrue(report.nextStep.contains("Operations panel"))
+    }
+
+    func testImportGeneiousExportPointsToTheOperationsLog() {
+        let report = AppFailureReports.importGeneiousExport(rawFailureError())
+        assertFailureAlert(report, title: "Could not import the Geneious export", rawErrorText: raw)
+        XCTAssertTrue(report.nextStep.contains("Operations panel"))
+    }
+
+    func testRunSequenceOperationNamesTheOperation() {
+        let report = AppFailureReports.runSequenceOperation(named: "Find ORFs", rawFailureError())
+        assertFailureAlert(report, title: "Could not run Find ORFs", rawErrorText: raw)
+        XCTAssertTrue(report.nextStep.contains("Operations panel"))
+    }
+
+    func testReadCzIdResultPointsToNoOperationsRow() {
+        let report = AppFailureReports.readCzIdResult(rawFailureError())
+        assertFailureAlert(report, title: "Could not read the CZ-ID result", rawErrorText: raw)
+        XCTAssertFalse(report.nextStep.contains("Operations panel"))
+    }
+
+    func testImportCzIdResultPointsToTheOperationsLog() {
+        let report = AppFailureReports.importCzIdResult(rawFailureError())
+        assertFailureAlert(report, title: "Could not import the CZ-ID result", rawErrorText: raw)
+        XCTAssertTrue(report.nextStep.contains("Operations panel"))
+    }
 }
