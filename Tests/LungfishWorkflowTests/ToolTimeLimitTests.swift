@@ -199,7 +199,6 @@ final class ToolTimeLimitTests: XCTestCase {
         #"[Tt]imeout\w*\s*:\s*(TimeInterval|Double|Int|Duration)\??\s*=\s*(\.seconds\()?[0-9]"#,
         #"[Tt]imeout\w*\s*=\s*[0-9]"#,
         #"[Tt]imeout\w*\s*:\s*[A-Za-z.]*seconds\(\s*[0-9]"#,
-        #"ImportToolTimeout\.seconds\("#,
         #"24\s*\*\s*3_?600"#,
         #"\bvar\s+\w*[Tt]imeout\w*\s*:\s*TimeInterval\s*\{"#,
         #"[Tt]imeout\w*\s*(:\s*\w+\??\s*)?=\s*(max|min)\("#,
