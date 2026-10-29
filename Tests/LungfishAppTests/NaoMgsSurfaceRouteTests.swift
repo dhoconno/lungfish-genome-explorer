@@ -40,9 +40,13 @@ final class NaoMgsSurfaceRouteTests: XCTestCase {
     private var secondNaoMgs: URL!
     private var fastqBundle: URL!
 
+    /// The NAO-MGS result view saves its column layout to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
+
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "naomgs-surface-route")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         naoMgs = try await RoutingSafetyNetFixtures.naoMgsResult(named: "naomgs-result", in: root).bundle
         secondNaoMgs = try await RoutingSafetyNetFixtures.naoMgsResult(named: "naomgs-second", in: root).bundle
         fastqBundle = try await RoutingSafetyNetFixtures.fastqBundle(in: root).bundle
@@ -64,6 +68,7 @@ final class NaoMgsSurfaceRouteTests: XCTestCase {
         window.contentViewController = nil
         window = nil
         controller = nil
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

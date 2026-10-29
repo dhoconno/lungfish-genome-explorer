@@ -120,6 +120,10 @@ final class ViewSwitchMatrixTests: XCTestCase {
     func testEveryKindSelectedAloneInARealWindow() async throws {
         let root = try TestTempDirectory.make(prefix: "ViewSwitchAlone")
         defer { TestTempDirectory.cleanup(root) }
+        // The result views save their column layouts to `UserDefaults.standard` under each kind's folder. The restore
+        // runs when the test ends, after the windows close and before the folder goes.
+        let hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
+        defer { hostDefaults.restore() }
         let fixtures = try await buildFixtures(in: root)
         var differing: [String] = []
         let started = ContinuousClock.now
@@ -143,6 +147,9 @@ final class ViewSwitchMatrixTests: XCTestCase {
     func testSwitchMatrixOverEveryOrderedPairInOneWindow() async throws {
         let root = try TestTempDirectory.make(prefix: "ViewSwitchMatrix")
         defer { TestTempDirectory.cleanup(root) }
+        // The restore is declared before the harness, so its `defer` runs after the harness closes the window.
+        let hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
+        defer { hostDefaults.restore() }
         let fixtures = try await buildFixtures(in: root)
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
