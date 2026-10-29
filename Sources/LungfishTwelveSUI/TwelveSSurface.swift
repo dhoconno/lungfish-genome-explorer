@@ -18,6 +18,10 @@ public final class TwelveSSurface: ResultViewport {
 
     private let configure: @MainActor (TwelveSAmpliconResultViewController) -> Void
 
+    /// Called when the host removes this viewer, so the App can take the 12S
+    /// Detail tab out of the Inspector.
+    public var onWillDeactivate: (@MainActor () -> Void)?
+
     /// A surface whose `configure` wires what the App owns, such as the BLAST
     /// submission of unresolved sequences, before the result is shown.
     public init(configure: @escaping @MainActor (TwelveSAmpliconResultViewController) -> Void = { _ in }) {
@@ -35,6 +39,10 @@ public final class TwelveSSurface: ResultViewport {
     public var viewController: NSViewController { controller }
 
     public var surfaceKind: SurfaceKind { .bundle(.twelveSResult) }
+
+    public func willDeactivate() {
+        onWillDeactivate?()
+    }
 
     /// Shows the result and wires the multi-sample picker (the NAO-MGS and NVD
     /// idiom). Each entry's metric is the sample's exact-match read count.

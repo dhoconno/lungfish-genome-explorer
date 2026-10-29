@@ -292,9 +292,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: fastqStatistics",
             "+ inspector: twelveS",
-            "+ inspectorTab: metagenomics resultSummary of [resultSummary, twelveSDetail, provenance]",
             "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("Primer order", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [

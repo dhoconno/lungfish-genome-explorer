@@ -12,9 +12,16 @@ extension ViewerViewController {
     }
 
     /// Shows `result` through the surface host and returns its installed viewer,
-    /// or throws the reason it is not installed.
+    /// or throws the reason it is not installed. `onWillDeactivate` runs when the
+    /// host later removes this viewer for another kind.
     @discardableResult
-    func displayTwelveSAmpliconResult(_ result: TwelveSAmpliconResultBundleData) throws -> TwelveSAmpliconResultViewController {
+    func displayTwelveSAmpliconResult(
+        _ result: TwelveSAmpliconResultBundleData,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws -> TwelveSAmpliconResultViewController {
+        // The route has already given the Inspector this result, so the 12S viewer
+        // it replaces must not take the 12S Detail tab away.
+        (surfaceHost.activeViewport as? TwelveSSurface)?.onWillDeactivate = nil
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -38,7 +45,9 @@ extension ViewerViewController {
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
 
-        return try showSurface(.bundle(.twelveSResult), input: result, as: TwelveSSurface.self).controller
+        let surface = try showSurface(.bundle(.twelveSResult), input: result, as: TwelveSSurface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        return surface.controller
     }
 
     /// Hides the 12S result viewer, a shim that other display routes call until the
