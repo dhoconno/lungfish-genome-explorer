@@ -501,9 +501,7 @@ public actor EsVirituPipeline {
         let esVirituWallTime = esVirituClock.elapsed
 
         if esVirituResult.exitCode != 0 {
-            let inputRecords = Self.inputLineageRecords(for: config) ?? config.inputFiles.map { url in
-                ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
-            }
+            let inputRecords = Self.stepInputRecords(for: config)
             let failureOutputs = fm.fileExists(atPath: effectiveConfig.detectionOutputURL.path)
                 ? [ProvenanceRecorder.fileRecord(url: effectiveConfig.detectionOutputURL, format: .text, role: .output)]
                 : []
@@ -596,9 +594,7 @@ public actor EsVirituPipeline {
         // Record tool provenance after any temp output copy so file descriptors
         // point at final stored payloads. This happens before wrapper sidecar
         // persistence so failed sidecar writes still leave external tool provenance.
-        let inputRecords = Self.inputLineageRecords(for: config) ?? config.inputFiles.map { url in
-            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
-        }
+        let inputRecords = Self.stepInputRecords(for: config)
         let outputRecords = [
             ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output),
         ] + [assemblyURL, taxProfileURL, coverageURL].compactMap { url in

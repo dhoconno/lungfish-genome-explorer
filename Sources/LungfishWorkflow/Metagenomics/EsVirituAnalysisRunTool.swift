@@ -30,8 +30,10 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     /// row has always written before it (UX D6). A run of one sample sends the tail as the detail
     /// of its `failed` line instead, without a heading.
     public static let logTailHeading = "EsViritu log (last lines):\n"
-    /// The database identity status of every EsViritu run. The catalog pins no digest and nothing
-    /// hashes the database folder per run (E9, SWIFT X4).
+    /// The database identity status of an EsViritu run whose database no install receipt pins, the
+    /// word its record has always had. The catalog pins no digest and nothing hashes the database
+    /// folder per run (E9, SWIFT X4). A run whose database has an install receipt that adds up
+    /// records `pinned` and the receipt's digest instead (DB-IDENTITY, 3.1).
     public static let databaseIdentityStatus = "unpinned"
     /// Where the database of a run came from, recorded as `databaseOrigin` (E9).
     enum DatabaseOrigin {
@@ -288,28 +290,38 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
     // MARK: - Root record options
 
     /// The run-level options of the root record. Each sample's own facts stay in its unit record,
-    /// and a one-folder run adds them in its unit. The database identity follows E9. Every run
-    /// records where its database came from (`databaseOrigin`), the sizes of the database's core
-    /// files and a status that says no digest pins it. Only the database the app installed also
-    /// records the catalog entry it came from. Another folder `--db` names, such as an older
-    /// release or a custom build, records no catalog entry, which would not describe it.
+    /// and a one-folder run adds them in its unit. The database identity follows E9 and DB-IDENTITY
+    /// (3.1). Every run records where its database came from (`databaseOrigin`), the sizes of the
+    /// database's core files and a status. A database whose install receipt adds up to its own digest
+    /// also records that digest as `databaseDigest` and says `pinned`, a receipt that does not add up
+    /// is named in `databaseIdentityNote`, and a database with no receipt says `unpinned`. The receipt
+    /// sits in the database folder or in its parent, and it names the version, which the bundled
+    /// catalog names only for a database with no receipt. Nothing is hashed. Only the database the
+    /// app installed also records the catalog entry it came from. Another folder `--db` names, such
+    /// as an older release or a custom build, records no catalog entry, which would not describe it,
+    /// and takes its version from its own receipt when it has one.
     private func runOptions(
         settings: EsVirituRunSettings,
         databaseIsInstalled: Bool,
         sampleCount: Int
     ) -> AnalysisRootRecordOptions {
+        let receipt = MetagenomicsDatabaseReceiptReference.resolve(
+            databasePath: settings.databasePath, allowingParentReceipt: true
+        )
         var resolved: [String: ParameterValue] = [
             "databasePath": .string(settings.databasePath.path),
             "databaseOrigin": .string(databaseIsInstalled ? Self.DatabaseOrigin.installed : Self.DatabaseOrigin.given),
-            "databaseIdentityStatus": .string(Self.databaseIdentityStatus),
             "databaseCoreFileSizes": .dictionary(Self.databaseCoreFileSizes(at: settings.databasePath).mapValues { .integer($0) }),
             "sampleCount": .integer(sampleCount),
         ]
+        resolved.merge(MetagenomicsDatabaseReceiptReference.identityFacts(of: receipt)) { current, _ in current }
         if databaseIsInstalled, let catalog = ManagedToolLock.bundled.database(id: EsVirituDatabaseManager.catalogID) {
             resolved["databaseCatalogID"] = .string(catalog.id)
-            resolved["databaseCatalogVersion"] = .string(catalog.version)
+            resolved["databaseCatalogVersion"] = .string(receipt?.catalogVersion ?? catalog.version)
             resolved["databaseSourceURL"] = catalog.url.map(ParameterValue.string) ?? .null
             resolved["databaseSourcePolicy"] = .string(catalog.effectiveSourcePolicy.rawValue)
+        } else if let version = receipt?.catalogVersion {
+            resolved["databaseCatalogVersion"] = .string(version)
         }
         var explicit: [String: ParameterValue] = [
             "batch": .boolean(groupsSamples),

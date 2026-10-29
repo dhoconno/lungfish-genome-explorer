@@ -75,6 +75,13 @@ extension EsVirituAnalysisRunTool {
         for descriptor in Self.inputDescriptors(of: config) {
             context.recordInput(descriptor)
         }
+        // The database as its install receipt vouches for it is a reference input of the run, with the receipt
+        // as its source provenance (DB-IDENTITY, 3.1). A database with no receipt that adds up records none.
+        if let reference = MetagenomicsDatabaseReceiptReference.resolve(
+            databasePath: sample.settings.databasePath, allowingParentReceipt: true
+        )?.reference {
+            context.recordInput(reference)
+        }
         if let reason = config.readSetPlan?.singleReadReason {
             context.log(.info, reason)
         }
