@@ -65,6 +65,45 @@ final class ReadExtractionServiceSameNameConformanceTests: XCTestCase {
         )
     }
 
+    /// An output that was right stays byte for byte. The old by-ID steps run here directly (name filter, collate,
+    /// `samtools fastq` or `fasta` with `-0`, `-s` and `-o`, READ_OTHER appended) over proper pairs and single reads
+    /// with no repeated name, and the extraction must write the same bytes, as FASTQ and as FASTA.
+    func testOutputsThatWereRightStayByteForByte() async throws {
+        try await ClassifierReadIDListSupport.requireTool(.samtools)
+        let bam = try await makeBAM("right", records: [
+            Self.record("a", 0, pos: 100, seq: "AAAACCCCGG", qual: "ABCDEFGHIJ"),
+            Self.record("p1", 99, pos: 150, seq: "CCCCGGGGTT", qual: "0000011111", mate: ("=", 300)),
+            Self.record("p2", 83, pos: 200, seq: "TTCCCCAAAA", qual: "9876543210", mate: ("=", 350)),
+            Self.record("p1", 147, pos: 300, seq: "GGGGAAAACC", qual: "1111122222", mate: ("=", 150)),
+            Self.record("p2", 163, pos: 350, seq: "ACGTRYKMBV", qual: "0123456789", mate: ("=", 200)),
+            Self.record("b", 16, pos: 400, seq: "ACGTRYKMBVDHSWN", qual: "0123456789ABCDE"),
+        ])
+        let ids: Set<String> = ["a", "p1", "p2", "b"]
+        let names = root.appendingPathComponent("names.txt")
+        try ids.sorted().joined(separator: "\n").write(to: names, atomically: true, encoding: .utf8)
+        let filtered = root.appendingPathComponent("filtered.bam")
+        let collated = root.appendingPathComponent("collated.bam")
+        for (format, tool) in [(ReadIDBAMExtractionFormat.fastq, "fastq"), (.fasta, "fasta")] {
+            let main = root.appendingPathComponent("old.\(tool)")
+            let other = root.appendingPathComponent("old-other.\(tool)")
+            let single = root.appendingPathComponent("old-singletons.\(tool)")
+            for arguments in [
+                ["view", "-b", "-N", names.path, "-F", "2304", "-o", filtered.path, bam.path],
+                ["collate", "-o", collated.path, filtered.path],
+                [tool, "-F", "0", "-0", other.path, "-s", single.path, "-o", main.path, collated.path],
+            ] {
+                let step = try await NativeToolRunner.shared.run(.samtools, arguments: arguments, timeout: 60)
+                XCTAssertTrue(step.isSuccess, "samtools \(arguments[0]) failed: \(step.stderr)")
+            }
+            var old = try String(contentsOf: main, encoding: .utf8)
+            if FileManager.default.fileExists(atPath: other.path) { old += try String(contentsOf: other, encoding: .utf8) }
+            let result = try await extract(bam, ids: ids, format: format)
+            let written = try String(contentsOf: XCTUnwrap(result.outputURLs.first), encoding: .utf8)
+            XCTAssertFalse(old.isEmpty, "the old steps write reads as \(tool)")
+            XCTAssertEqual(written, old, "\(tool) is not byte for byte what the old steps wrote")
+        }
+    }
+
     // MARK: - Helpers
 
     private var singleReadRecords: [String] {

@@ -265,13 +265,20 @@ public actor ReadExtractionService {
             throw ExtractionError.samtoolsFailed(collateResult.stderr)
         }
 
+        // `samtools fastq`/`fasta` write one record for two records of one name that carry neither READ1 nor READ2 (an
+        // SRA-named read mapped as two single reads). Those records are cut out of the collated BAM as SAM text for the
+        // converter's writer below, and the BAM keeps the records with a mate flag.
+        let unflaggedSAM: URL
+        do {
+            unflaggedSAM = try await separateUnflaggedRecords(of: collatedBAM, flagFilter: 0, timeout: nil, toolRunner: toolRunner)
+        } catch BAMToFASTQConversionError.samtoolsFailed(let stderr) {
+            throw ExtractionError.samtoolsFailed(stderr)
+        }
+
         let outputExtension = config.format == .fasta ? "fasta" : "fastq"
         let outputURL = config.outputDirectory.appendingPathComponent("\(sanitizedBaseName).\(outputExtension)")
         let singletonsURL = config.outputDirectory.appendingPathComponent("\(sanitizedBaseName)_singletons.\(outputExtension)")
-        // READ_OTHER (neither READ1 nor READ2 flag set — e.g. an unpaired
-        // read, or a paired-flag-unset alignment) is NOT covered by `-o`;
-        // route it to its own sidecar and merge into the main output below,
-        // mirroring `convertBAMToSingleFASTQ`'s proven 4-way split.
+        // READ_OTHER (both mate flags set) is NOT covered by `-o`; route it to its own sidecar and merge it below.
         let readOtherURL = tempDir.appendingPathComponent("read_other.\(outputExtension)")
 
         progress?(0.6, "Converting to \(outputExtension.uppercased())...")
@@ -298,25 +305,9 @@ public actor ReadExtractionService {
             throw ExtractionError.samtoolsFailed(convertResult.stderr)
         }
 
-        // Merge READ_OTHER records into the main output file.
-        if fm.fileExists(atPath: readOtherURL.path) {
-            let readOtherSize = (try? fm.attributesOfItem(atPath: readOtherURL.path)[.size] as? UInt64) ?? 0
-            if readOtherSize > 0 {
-                if !fm.fileExists(atPath: outputURL.path) {
-                    fm.createFile(atPath: outputURL.path, contents: nil)
-                }
-                let outHandle = try FileHandle(forWritingTo: outputURL)
-                defer { try? outHandle.close() }
-                outHandle.seekToEndOfFile()
-                let inHandle = try FileHandle(forReadingFrom: readOtherURL)
-                defer { try? inHandle.close() }
-                while true {
-                    let chunk = inHandle.readData(ofLength: 1 << 20)
-                    if chunk.isEmpty { break }
-                    outHandle.write(chunk)
-                }
-            }
-        }
+        // Merge READ_OTHER records, then the records with neither mate flag, into the main output file.
+        try appendFileContents(of: readOtherURL, to: outputURL)
+        try appendUnflaggedRecords(fromSAMText: unflaggedSAM, to: outputURL, format: config.format == .fasta ? .fasta : .fastq)
 
         let outputExists = fm.fileExists(atPath: outputURL.path)
         let outputSize = outputExists ? ((try? fm.attributesOfItem(atPath: outputURL.path)[.size] as? UInt64) ?? 0) : 0

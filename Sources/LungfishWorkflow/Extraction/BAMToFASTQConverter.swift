@@ -106,17 +106,9 @@ public func convertBAMToSingleFASTQ(
     }
 
     // Records with READ1 or READ2 set go through `samtools fastq` as before.
-    let pairedResult = try await toolRunner.run(
-        .samtools,
-        arguments: [
-            "view", "-b", "-F", String(flagFilter), "--rf", String(mateFlagBits),
-            "-o", pairedURL.path, inputBAM.path,
-        ],
-        timeout: timeout
+    try await MateFlagSplit.writeFlagged(
+        of: inputBAM, flagFilter: flagFilter, to: pairedURL, timeout: timeout, toolRunner: toolRunner
     )
-    guard pairedResult.isSuccess else {
-        throw BAMToFASTQConversionError.samtoolsFailed(stderr: pairedResult.stderr)
-    }
     let fastqResult = try await toolRunner.run(
         .samtools,
         arguments: [
@@ -135,17 +127,9 @@ public func convertBAMToSingleFASTQ(
     }
 
     // Records with neither flag come out as SAM text, one FASTQ record for each.
-    let unflaggedResult = try await toolRunner.run(
-        .samtools,
-        arguments: [
-            "view", "-O", "SAM", "-F", String(flagFilter | mateFlagBits),
-            "-o", unflaggedURL.path, inputBAM.path,
-        ],
-        timeout: timeout
+    try await MateFlagSplit.writeUnflaggedSAM(
+        of: inputBAM, flagFilter: flagFilter, to: unflaggedURL, timeout: timeout, toolRunner: toolRunner
     )
-    guard unflaggedResult.isSuccess else {
-        throw BAMToFASTQConversionError.samtoolsFailed(stderr: unflaggedResult.stderr)
-    }
 
     if fm.fileExists(atPath: outputFASTQ.path) {
         try fm.removeItem(at: outputFASTQ)
@@ -220,10 +204,13 @@ enum UnflaggedRecordFASTQWriter {
         return table
     }()
 
-    /// Reads the SAM text at `source` a megabyte at a time and writes its FASTQ records to `output`.
-    /// - Returns: The number of FASTQ records written.
+    /// What the writer writes. FASTA is for the by-ID extraction to a FASTA file, which has no qualities.
+    enum Format { case fastq, fasta }
+
+    /// Reads the SAM text at `source` a megabyte at a time and writes its records to `output`.
+    /// - Returns: The number of records written.
     @discardableResult
-    static func writeRecords(fromSAMText source: URL, to output: FileHandle) throws -> Int {
+    static func writeRecords(fromSAMText source: URL, to output: FileHandle, format: Format = .fastq) throws -> Int {
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
 
@@ -233,7 +220,7 @@ enum UnflaggedRecordFASTQWriter {
         var written = 0
 
         func consume(_ line: ArraySlice<UInt8>) throws {
-            if try appendRecord(of: line, to: &buffer) { written += 1 }
+            if try appendRecord(of: line, to: &buffer, format: format) { written += 1 }
             if buffer.count >= flushThreshold {
                 try output.write(contentsOf: Data(buffer))
                 buffer.removeAll(keepingCapacity: true)
@@ -255,8 +242,8 @@ enum UnflaggedRecordFASTQWriter {
         return written
     }
 
-    /// Appends the FASTQ record of one SAM line to `buffer`. Returns false for a blank line or a record with no sequence.
-    private static func appendRecord(of line: ArraySlice<UInt8>, to buffer: inout [UInt8]) throws -> Bool {
+    /// Appends the record of one SAM line to `buffer`. Returns false for a blank line or a record with no sequence.
+    private static func appendRecord(of line: ArraySlice<UInt8>, to buffer: inout [UInt8], format: Format) throws -> Bool {
         if line.isEmpty { return false }
         let fields = line.split(separator: tab, maxSplits: 11, omittingEmptySubsequences: false)
         guard fields.count >= 11 else {
@@ -275,14 +262,14 @@ enum UnflaggedRecordFASTQWriter {
         let quality = fields[10]
         if sequence.count == 1, sequence.first == star { return false }
         let missingQualities = quality.count == 1 && quality.first == star
-        guard missingQualities || quality.count == sequence.count else {
+        guard format == .fasta || missingQualities || quality.count == sequence.count else {
             throw BAMToFASTQConversionError.samtoolsFailed(
                 stderr: "samtools view wrote the record \(readName) with \(sequence.count) bases and \(quality.count) quality values."
             )
         }
 
         let reverse = flag & reverseStrandFlag != 0
-        buffer.append(UInt8(ascii: "@"))
+        buffer.append(format == .fasta ? UInt8(ascii: ">") : UInt8(ascii: "@"))
         buffer.append(contentsOf: name)
         buffer.append(newline)
         if reverse {
@@ -291,6 +278,7 @@ enum UnflaggedRecordFASTQWriter {
             buffer.append(contentsOf: sequence)
         }
         buffer.append(newline)
+        if format == .fasta { return true }
         buffer.append(UInt8(ascii: "+"))
         buffer.append(newline)
         if missingQualities {
@@ -302,5 +290,97 @@ enum UnflaggedRecordFASTQWriter {
         }
         buffer.append(newline)
         return true
+    }
+}
+
+// MARK: - The split by mate flag
+
+/// The two `samtools view` selections that split a BAM's records by the mate flags, kept in one place so the converter
+/// above and the by-ID extraction of ``ReadExtractionService`` cut the records the same way.
+enum MateFlagSplit {
+    /// Writes the records of `input` that carry READ1 or READ2 and none of the `flagFilter` bits to `output` as BAM.
+    static func writeFlagged(
+        of input: URL, flagFilter: Int, to output: URL, timeout: TimeInterval?, toolRunner: NativeToolRunner
+    ) async throws {
+        try await view(
+            ["-b", "-F", String(flagFilter), "--rf", String(mateFlagBits), "-o", output.path, input.path],
+            timeout: timeout, toolRunner: toolRunner
+        )
+    }
+
+    /// Writes the records of `input` that carry neither READ1 nor READ2 and none of the `flagFilter` bits to `output` as
+    /// SAM text with no header.
+    static func writeUnflaggedSAM(
+        of input: URL, flagFilter: Int, to output: URL, timeout: TimeInterval?, toolRunner: NativeToolRunner
+    ) async throws {
+        try await view(
+            ["-O", "SAM", "-F", String(flagFilter | mateFlagBits), "-o", output.path, input.path],
+            timeout: timeout, toolRunner: toolRunner
+        )
+    }
+
+    private static func view(_ arguments: [String], timeout: TimeInterval?, toolRunner: NativeToolRunner) async throws {
+        let result = try await toolRunner.run(.samtools, arguments: ["view"] + arguments, timeout: timeout)
+        guard result.isSuccess else {
+            throw BAMToFASTQConversionError.samtoolsFailed(stderr: result.stderr)
+        }
+    }
+}
+
+/// Splits the records of `bam` by the mate flags in place, for a caller that hands the mated records to `samtools fastq`
+/// or `fasta` and needs the others kept whole (the by-ID extraction). `bam` is replaced by the records that carry READ1
+/// or READ2.
+/// - Returns: The headerless SAM text, next to `bam`, of the records that carry neither flag, for
+///   ``appendUnflaggedRecords(fromSAMText:to:format:)``.
+func separateUnflaggedRecords(
+    of bam: URL, flagFilter: Int, timeout: TimeInterval?, toolRunner: NativeToolRunner
+) async throws -> URL {
+    let unflagged = bam.deletingPathExtension().appendingPathExtension("unflagged.sam")
+    let flagged = bam.deletingPathExtension().appendingPathExtension("flagged.bam")
+    try await MateFlagSplit.writeUnflaggedSAM(
+        of: bam, flagFilter: flagFilter, to: unflagged, timeout: timeout, toolRunner: toolRunner
+    )
+    try await MateFlagSplit.writeFlagged(
+        of: bam, flagFilter: flagFilter, to: flagged, timeout: timeout, toolRunner: toolRunner
+    )
+    let fm = FileManager.default
+    try fm.removeItem(at: bam)
+    try fm.moveItem(at: flagged, to: bam)
+    return unflagged
+}
+
+/// Appends the records of the SAM text at `source` to the end of `destination`, which is created when absent, with
+/// ``UnflaggedRecordFASTQWriter``.
+/// - Returns: The number of records written.
+@discardableResult
+func appendUnflaggedRecords(
+    fromSAMText source: URL, to destination: URL, format: UnflaggedRecordFASTQWriter.Format
+) throws -> Int {
+    let fm = FileManager.default
+    if !fm.fileExists(atPath: destination.path) {
+        fm.createFile(atPath: destination.path, contents: nil)
+    }
+    let handle = try FileHandle(forWritingTo: destination)
+    defer { try? handle.close() }
+    try handle.seekToEnd()
+    return try UnflaggedRecordFASTQWriter.writeRecords(fromSAMText: source, to: handle, format: format)
+}
+
+/// Appends the whole of `source` to the end of `destination`, created when absent, a megabyte at a time. A missing or
+/// empty `source` adds nothing.
+func appendFileContents(of source: URL, to destination: URL) throws {
+    let fm = FileManager.default
+    let size = (try? fm.attributesOfItem(atPath: source.path)[.size] as? UInt64) ?? 0
+    guard size > 0 else { return }
+    if !fm.fileExists(atPath: destination.path) {
+        fm.createFile(atPath: destination.path, contents: nil)
+    }
+    let output = try FileHandle(forWritingTo: destination)
+    defer { try? output.close() }
+    try output.seekToEnd()
+    let input = try FileHandle(forReadingFrom: source)
+    defer { try? input.close() }
+    while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+        try output.write(contentsOf: chunk)
     }
 }
