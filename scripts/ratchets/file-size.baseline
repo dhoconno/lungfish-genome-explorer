@@ -132,7 +132,7 @@ Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1008
 Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
-Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3120
+Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3119
 Sources/LungfishNvdUI/NvdResultViewController.swift 3122
 Sources/LungfishOperations/AI/AIAssistantService.swift 901
 Sources/LungfishOperations/AI/AIToolRegistry.swift 951
