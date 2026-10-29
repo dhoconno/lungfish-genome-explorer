@@ -28,20 +28,20 @@ enum MetagenomicsImportDatabaseIdentity {
         resolved.merging(notNamedBySource(tool: tool)) { current, _ in current }
     }
 
-    /// `resolved`, an NVD import's resolved defaults, with the BLAST and STAT database versions its rows state. A version
+    /// `resolved`, an NVD import's resolved defaults, with the BLAST and STAT database versions its rows state, `versions`
+    /// holding the (BLAST, STAT) pair of each row. A version
     /// is one string when every row agrees and the sorted array of the distinct values when rows differ, so a mixed import
     /// never reads as one release, and a key is left out when no row states one. The status is `namedBySource` with a note
     /// that no checksum is stated. A result whose rows state neither version names no database.
     static func nvd(
-        blastVersions: [String],
-        statVersions: [String],
+        versions: [(String, String)],
         adding resolved: [String: ParameterValue]
     ) -> [String: ParameterValue] {
         var stated: [String: ParameterValue] = [:]
-        if let blast = versionValue(of: blastVersions) {
+        if let blast = versionValue(of: versions.map { $0.0 }) {
             stated["blastDatabaseVersion"] = blast
         }
-        if let stat = versionValue(of: statVersions) {
+        if let stat = versionValue(of: versions.map { $0.1 }) {
             stated["statDatabaseVersion"] = stat
         }
         guard !stated.isEmpty else {

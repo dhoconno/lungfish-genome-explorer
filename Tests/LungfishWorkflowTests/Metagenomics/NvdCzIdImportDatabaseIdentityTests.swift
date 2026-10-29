@@ -99,13 +99,13 @@ final class NvdCzIdImportDatabaseIdentityTests: XCTestCase {
     /// distinct values, and rows that state no version name no database.
     func testNvdVersionsAgreeAsOneStringAndDifferAsASortedArray() {
         let mixed = MetagenomicsImportDatabaseIdentity.nvd(
-            blastVersions: ["nt-2026", "nt-2025", "nt-2026"], statVersions: ["stat-1", "stat-1"], adding: [:]
+            versions: [("nt-2026", "stat-1"), ("nt-2025", "stat-1"), ("nt-2026", "stat-1")], adding: [:]
         )
         XCTAssertEqual(mixed["blastDatabaseVersion"], .array([.string("nt-2025"), .string("nt-2026")]))
         XCTAssertEqual(mixed["statDatabaseVersion"], .string("stat-1"))
         XCTAssertEqual(mixed["databaseIdentityStatus"], .string("namedBySource"))
 
-        let silent = MetagenomicsImportDatabaseIdentity.nvd(blastVersions: ["", " "], statVersions: [], adding: ["hitCount": .integer(2)])
+        let silent = MetagenomicsImportDatabaseIdentity.nvd(versions: [("", ""), (" ", "")], adding: ["hitCount": .integer(2)])
         XCTAssertNil(silent["blastDatabaseVersion"], "a version the source does not state is left out, never unknown")
         XCTAssertNil(silent["statDatabaseVersion"])
         XCTAssertEqual(silent["hitCount"], .integer(2), "the import's own keys stay")

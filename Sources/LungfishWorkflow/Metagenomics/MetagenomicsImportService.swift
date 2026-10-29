@@ -588,10 +588,7 @@ public enum MetagenomicsImportService {
                     "outputRoot": .file(outputDirectory),
                     "samtoolsPath": samtoolsPath.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
                 ],
-                resolvedDefaults: MetagenomicsImportDatabaseIdentity.nvd(
-                    blastVersions: parseResult.hits.map(\.blastDbVersion),
-                    statVersions: parseResult.hits.map(\.statDbVersion),
-                    adding: [
+                resolvedDefaults: MetagenomicsImportDatabaseIdentity.nvd(versions: parseResult.hits.map { ($0.blastDbVersion, $0.statDbVersion) }, adding: [
                     "inputPath": .string(inputURL.path),
                     "csvPath": .string(csvURL.path),
                     "outputDir": .string(outputDirectory.path),
