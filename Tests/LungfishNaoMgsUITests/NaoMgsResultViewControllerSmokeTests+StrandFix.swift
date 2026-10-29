@@ -156,6 +156,28 @@ extension NaoMgsResultViewControllerSmokeTests {
         XCTAssertTrue(rig.controller.testAppliedFallbackWrites.isEmpty, "no card was drawn from a written file")
     }
 
+    /// The BAM is missing at load, which the check reports at once, but the fallback then makes it and the card draws.
+    /// Words that say the panels are empty must not show while they fill, so the note keeps today's words, and no check
+    /// of the load changes it. The real file check runs here, with no strand hook, so the load-time answer is `.missing`.
+    @MainActor func testBAMTheFallbackMakesKeepsTheReferenceNote() throws {
+        let rig = try openStrandFixResult(withBAM: false)
+        defer { closeStrandFixResult(rig) }
+        let bamURL = rig.folder.appendingPathComponent("bams/sample-A.bam")
+        rig.controller.testMaterializationHook = { _ in _ = FileManager.default.createFile(atPath: bamURL.path, contents: Data()) }
+
+        try selectStrandFixTaxon("sample-A:111", in: rig.controller)
+
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: Self.checkBudget) {
+                rig.controller.testAppliedFallbackWrites.contains { $0.generation == 1 }
+                    && rig.controller.testStrandFixOutcomes.contains { $0.generation == 1 }
+            },
+            "the fallback made the file, the card was drawn from it and the load-time check ended"
+        )
+        XCTAssertEqual(Self.miniBAMNote(in: rig.controller.view)?.stringValue, Self.referenceNote)
+        XCTAssertFalse(rig.controller.testStrandFixOutcomes.contains { $0.applied }, "no check changed the note")
+    }
+
     // MARK: - Fixture
 
     private struct StrandFixRig {

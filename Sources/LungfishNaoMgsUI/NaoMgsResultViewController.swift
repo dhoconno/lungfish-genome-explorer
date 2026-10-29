@@ -1379,24 +1379,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                     let capturedDbPath = database.databaseURL.path
                     let capturedGeneration = thisGeneration
                     Task.detached { [weak self] in
-#if DEBUG
-                        if let hook = await self?.testMaterializationHook {
-                            await hook(capturedGeneration)
-                        } else {
+                        // Without samtools nothing runs, and the completion below then finds the file missing.
+                        let materialize = {
                             guard let samtoolsPath = Self.naomgsLocateSamtools() else { return }
                             _ = try? NaoMgsBamMaterializer.materializeAll(
-                                dbPath: capturedDbPath,
-                                resultURL: capturedResultURL,
-                                samtoolsPath: samtoolsPath
+                                dbPath: capturedDbPath, resultURL: capturedResultURL, samtoolsPath: samtoolsPath
                             )
                         }
+#if DEBUG
+                        if let hook = await self?.testMaterializationHook { await hook(capturedGeneration) } else { materialize() }
 #else
-                        guard let samtoolsPath = Self.naomgsLocateSamtools() else { return }
-                        _ = try? NaoMgsBamMaterializer.materializeAll(
-                            dbPath: capturedDbPath,
-                            resultURL: capturedResultURL,
-                            samtoolsPath: samtoolsPath
-                        )
+                        materialize()
 #endif
                         DispatchQueue.main.async { [weak self] in
                             MainActor.assumeIsolated {
@@ -1415,6 +1408,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                                         (generation: capturedGeneration, contig: capturedSummary.accession)
                                     )
 #endif
+                                } else if !FileManager.default.fileExists(atPath: bamURL.path) {
+                                    // The fallback could not make the file, so the note says it is missing (NAO-BAM-MISSING).
+                                    self.startStrandFixCheck(
+                                        sample: sample, bamRelativePath: bamRelativePath,
+                                        generation: capturedGeneration, afterFallback: true
+                                    )
                                 }
                             }
                         }
