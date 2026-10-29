@@ -32,6 +32,13 @@ final class TestStateObserverDiffTests: XCTestCase {
         XCTAssertEqual(TestStateObserver.leakedKeys(before: after, after: after, comparison: .newOrChangedValues), [])
     }
 
+    func testADomainDiffNamesEachNewOrChangedKeyAndNoRemovedOne() {
+        let before: NSDictionary = ["kept": "1", "changed": ["a": 1], "removed": true]
+        let after: NSDictionary = ["kept": "1", "changed": ["a": 2], "DatabaseStorageLocation": "/Volumes/x"]
+        XCTAssertEqual(TestStateObserver.changedKeys(before: before, after: after), ["DatabaseStorageLocation", "changed"])
+        XCTAssertEqual(TestStateObserver.changedKeys(before: after, after: after.copy() as! NSDictionary), [])
+    }
+
     func testTheWordsGiveTheCountTheNounAndEachValue() {
         XCTAssertEqual(TestStateObserver.message(noun: "active operation row", entries: ["\"MAFFT\" (Alignment, running)"]),
                        "left 1 active operation row \"MAFFT\" (Alignment, running)")

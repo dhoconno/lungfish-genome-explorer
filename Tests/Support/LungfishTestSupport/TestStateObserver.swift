@@ -41,7 +41,37 @@ public struct TestStateCheck: Sendable {
         self.snapshot = snapshot
         self.restore = restore
         self.describe = describe
+        self.domain = nil
     }
+
+    /// A property-list domain read and compared as one dictionary, for a domain too large to turn into words each
+    /// case. The xctest tool's domain on galah held 7,405 keys (2.8 MB) on 2026-10-28, which cost 25 ms a read as
+    /// words. One dictionary compare costs far less, and only a changed domain is diffed key by key.
+    struct Domain: Sendable {
+        let read: @MainActor @Sendable () -> NSDictionary
+        let restore: @MainActor @Sendable (_ keys: [String], _ before: NSDictionary) -> Void
+    }
+
+    let domain: Domain?
+
+    init(name: String, noun: String, domain: Domain,
+         describe: @escaping @MainActor @Sendable (_ key: String, _ value: String) -> String) {
+        self.name = name
+        self.noun = noun
+        self.comparison = .newOrChangedValues
+        self.snapshot = {
+            domain.read().reduce(into: [String: String]()) { words, entry in words["\(entry.key)"] = "\(entry.value)" }
+        }
+        self.restore = { _, _ in }
+        self.describe = describe
+        self.domain = domain
+    }
+}
+
+/// One check's state at one moment: words, or the raw dictionary of a domain check.
+struct TestStateSnapshot: @unchecked Sendable {
+    let words: [String: String]
+    let domain: NSDictionary?
 }
 
 /// What one check found between two snapshots: the keys that leaked and the words after the test's name.
@@ -82,8 +112,8 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
 
     private let lock = NSLock()
     private var checks: [TestStateCheck] = TestStateObserver.processChecks()
-    private var caseSnapshots: [ObjectIdentifier: [String: [String: String]]] = [:]
-    private var suiteSnapshots: [ObjectIdentifier: [String: [String: String]]] = [:]
+    private var caseSnapshots: [ObjectIdentifier: [String: TestStateSnapshot]] = [:]
+    private var suiteSnapshots: [ObjectIdentifier: [String: TestStateSnapshot]] = [:]
     private var installed: Date?
     private var queued = false
     private var casesChecked = 0
@@ -262,24 +292,48 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
     }
 
     @MainActor
-    private func snapshotAll() -> [String: [String: String]] {
-        var snapshot: [String: [String: String]] = [:]
-        for check in locked({ $0.checks }) { snapshot[check.name] = check.snapshot() }
+    private func snapshotAll() -> [String: TestStateSnapshot] {
+        var snapshot: [String: TestStateSnapshot] = [:]
+        for check in locked({ $0.checks }) {
+            if let domain = check.domain {
+                snapshot[check.name] = TestStateSnapshot(words: [:], domain: domain.read())
+            } else {
+                snapshot[check.name] = TestStateSnapshot(words: check.snapshot(), domain: nil)
+            }
+        }
         return snapshot
     }
 
     @MainActor
-    private func compare(_ before: [String: [String: String]], test: String, phase: String) {
+    private func compare(_ before: [String: TestStateSnapshot], test: String, phase: String) {
         for check in locked({ $0.checks }) {
             guard let old = before[check.name] else { continue }
-            let new = check.snapshot()
-            let keys = Self.leakedKeys(before: old, after: new, comparison: check.comparison)
-            guard !keys.isEmpty else { continue }
-            let entries = keys.map { check.describe($0, new[$0] ?? "") }
+            let keys: [String], entries: [String]
+            if let domain = check.domain, let oldDomain = old.domain {
+                let newDomain = domain.read()
+                guard !oldDomain.isEqual(newDomain) else { continue }
+                keys = Self.changedKeys(before: oldDomain, after: newDomain)
+                guard !keys.isEmpty else { continue }
+                entries = keys.map { check.describe($0, newDomain[$0].map { "\($0)" } ?? "") }
+                domain.restore(keys, oldDomain)
+            } else {
+                let new = check.snapshot()
+                keys = Self.leakedKeys(before: old.words, after: new, comparison: check.comparison)
+                guard !keys.isEmpty else { continue }
+                entries = keys.map { check.describe($0, new[$0] ?? "") }
+                check.restore(keys, old.words)
+            }
             Self.report(test: test, phase: phase, leak: TestStateLeak(
                 check: check.name, keys: keys, message: Self.message(noun: check.noun, entries: entries)))
-            check.restore(keys, old)
         }
+    }
+
+    /// The keys of `after` that are new or hold another value than in `before`, sorted. A removed key is no leak.
+    public static func changedKeys(before: NSDictionary, after: NSDictionary) -> [String] {
+        after.allKeys.compactMap { $0 as? String }.filter { key in
+            guard let old = before[key] as AnyObject?, let new = after[key] as AnyObject? else { return true }
+            return !old.isEqual(new)
+        }.sorted()
     }
 }
 
@@ -292,25 +346,27 @@ extension TestStateObserver {
         [defaultsDomainCheck(), environmentCheck(), currentDirectoryCheck()]
     }
 
-    /// Every key of the xctest tool's persistent domain, `DatabaseStorageLocation` among them. A value is kept as
-    /// its XML property list, which compares exactly and restores the value it was.
+    /// Every key of the xctest tool's persistent domain, `DatabaseStorageLocation` among them, read as one
+    /// dictionary. The restore puts back each changed key's value and removes each new key.
     public static func defaultsDomainCheck() -> TestStateCheck {
         TestStateCheck(
-            name: "xctest defaults", noun: "xctest defaults key", comparison: .newOrChangedValues,
-            snapshot: {
-                let domain = UserDefaults.standard.persistentDomain(forName: xctestDomain) ?? [:]
-                return domain.reduce(into: [:]) { values, entry in values[entry.key] = propertyListText(entry.value) }
-            },
-            restore: { keys, before in
-                var domain = UserDefaults.standard.persistentDomain(forName: xctestDomain) ?? [:]
-                for key in keys { domain[key] = before[key].flatMap(propertyListValue) }
-                if domain.isEmpty {
-                    UserDefaults.standard.removePersistentDomain(forName: xctestDomain)
-                } else {
-                    UserDefaults.standard.setPersistentDomain(domain, forName: xctestDomain)
-                }
-            },
-            describe: { key, value in "\(key)=" + (propertyListValue(value).map { "\($0)" } ?? value) })
+            name: "xctest defaults", noun: "xctest defaults key",
+            domain: TestStateCheck.Domain(
+                read: { readDomain(xctestDomain) },
+                restore: { keys, before in
+                    for key in keys {
+                        CFPreferencesSetValue(key as CFString, before[key] as CFPropertyList?, xctestDomain as CFString,
+                                              kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+                    }
+                    CFPreferencesSynchronize(xctestDomain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+                }),
+            describe: { key, value in "\(key)=\(value)" })
+    }
+
+    /// The persistent domain of the current user on any host, as UserDefaults writes it, or an empty dictionary.
+    static func readDomain(_ name: String) -> NSDictionary {
+        let all = CFPreferencesCopyMultiple(nil, name as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        return all as NSDictionary
     }
 
     /// The environment variables whose names start with `LUNGFISH_`.
@@ -335,16 +391,5 @@ extension TestStateObserver {
                 if let path = before["cwd"] { _ = FileManager.default.changeCurrentDirectoryPath(path) }
             },
             describe: { _, value in value })
-    }
-
-    static func propertyListText(_ value: Any) -> String {
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .xml, options: 0) else {
-            return "\(value)"
-        }
-        return String(data: data, encoding: .utf8) ?? "\(value)"
-    }
-
-    static func propertyListValue(_ text: String) -> Any? {
-        try? PropertyListSerialization.propertyList(from: Data(text.utf8), options: [], format: nil)
     }
 }

@@ -770,6 +770,33 @@ def run_class_attempts(attempt, bound, selection, discovered, args, directory):
     return errors
 
 
+TEST_STATE_LEDGER_VARIABLE = "LUNGFISH_TEST_LEAK_LEDGER"
+TEST_STATE_LEDGER_NAME = "test-state-leaks.jsonl"
+
+
+def read_test_state_ledger(path):
+    """The errors of one attempt's test-state ledger, one for each JSON line the observer wrote, each naming the test
+    that left state behind and what it left, as in `test state leak: LungfishAppTests.X/testY left 1 active operation
+    row "MAFFT" (Alignment, running)`. A line that is not a leak record is an error too, so a broken ledger never
+    reads as clean. No ledger file means no leak."""
+    if not path.is_file():
+        return []
+    errors = []
+    for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if (not isinstance(record, dict) or not isinstance(record.get("test"), str) or not record["test"]
+                or not isinstance(record.get("message"), str) or not record["message"]):
+            errors.append(f"test state leak: line {number} of {path.name} is not a leak record")
+            continue
+        errors.append(f"test state leak: {record['test']} {record['message']}")
+    return errors
+
+
 def run_bundle_attempts(attempt, bound, selection, directory):
     """Run each step of a full-tier plan (plan_full_tier) as its own authoritative attempt under its own bound
     (FULL_TIER_BUNDLE_TIMEOUT_SECONDS) within the run's budget, recording each bundle that ran out or never started in
@@ -953,10 +980,23 @@ def run_swift_gate(args):
                 command += ["--parallel", "--verbose"]
                 if getattr(args, "workers", None):
                     command += ["--num-workers", str(args.workers)]
+            # Each attempt names its own test-state ledger, where the observer of every bundle it loads writes a line
+            # for each test that left state behind (TestStateObserver.swift, ruling QA-RELEASE-LOOP section 4).
+            ledger = target / TEST_STATE_LEDGER_NAME
+            env = {**(os.environ if environment is None else environment), TEST_STATE_LEDGER_VARIABLE: str(ledger)}
             result = analyze_attempt(
                 target,
-                command_record(command, root, target, "runner", timeout_seconds=timeout, env=environment),
+                command_record(command, root, target, "runner", timeout_seconds=timeout, env=env),
                 chosen, parallel, args.require_tools)
+            if ledger.is_file():
+                result["files"].append(file_record(ledger, target))
+            leaks = read_test_state_ledger(ledger)
+            if leaks:
+                # The leak belongs to the attempt that ran the leaking test, so its bundle is red and a bundle
+                # rerun can answer it (full_result_status).
+                result["testStateLeaks"] = leaks
+                result["errors"] = [*result.get("errors", []), *leaks]
+                result["passed"] = False
             result["role"] = role
             for record in result["files"]:
                 record["path"] = name + "/" + record["path"]
@@ -1033,6 +1073,10 @@ def run_swift_gate(args):
         (directory / "load-flakes.txt").write_text("".join(note + "\n" for note in notes))
         for note in notes:
             print(note, flush=True)
+    leak_lines = [leak for a in attempts for leak in a.get("testStateLeaks", [])]
+    if leak_lines:
+        (directory / "leaks.txt").write_text("".join(line + "\n" for line in leak_lines))
+        print(f"GATE TEST STATE LEAKS: {len(leak_lines)}, listed in {directory / 'leaks.txt'}", flush=True)
     result["authorized"] = (bool(authoritative) and (all(a["passed"] for a in authoritative) or cleared)
                             and not errors)
     if profile:
