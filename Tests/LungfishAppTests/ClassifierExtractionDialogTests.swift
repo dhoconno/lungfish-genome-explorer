@@ -575,6 +575,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         XCTAssertEqual(provenance?.explicitOptions["destination"]?.stringValue, "file")
         XCTAssertEqual(provenance?.explicitOptions["outputPath"]?.fileValue?.path, outputURL.path)
         XCTAssertEqual(provenance?.resolved["samtoolsExcludeFlags"]?.integerValue, 0xD00)
+        XCTAssertEqual(provenance?.defaults["samtoolsExcludeFlags"]?.integerValue, 0xD04, "the recorded default is the mask of ExtractionOptions(), TaxonomyReadExtractionAction.swift:698")
     }
 
     func testFileProvenanceOptionsPreserveStructuredKrakenSelectionsThroughResolver() async throws {
