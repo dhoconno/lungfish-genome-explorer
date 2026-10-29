@@ -172,7 +172,7 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
 }
 
 /// What `bundle info --format json` prints. The `manifest` and `path` keys are `BundleInfoOutput`'s, unchanged. The
-/// `alignment_count_bases` key sits beside them, keyed by track id, and says what each track's `mapped_read_count` counts.
+/// `mapped_read_count_basis` key sits beside them, keyed by track id, and says what each track's `mapped_read_count` counts.
 /// `reads` is flagstat's primary lines, `alignments` is a database without them, and `manifest` is the manifest's own copy,
 /// whose unit the manifest does not record. A bundle with no alignment track prints no such key.
 struct BundleInfoJSON: Encodable {
@@ -182,7 +182,7 @@ struct BundleInfoJSON: Encodable {
     private enum CodingKeys: String, CodingKey {
         case manifest
         case path
-        case alignmentCountBases = "alignment_count_bases"
+        case alignmentCountBases = "mapped_read_count_basis"
     }
 
     func encode(to encoder: Encoder) throws {

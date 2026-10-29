@@ -101,7 +101,7 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         XCTAssertEqual(track["mapped_read_count"] as? Int, 10, "10 mapped reads, not the manifest's 12 alignment records")
         XCTAssertEqual(track["unmapped_read_count"] as? Int, 1)
         XCTAssertEqual(track["source_path"] as? String, "alignments/fixture-track.sorted.bam")
-        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], "each count says what it counts: \(output)")
+        let bases = try XCTUnwrap(object["mapped_read_count_basis"] as? [String: String], "each count says what it counts: \(output)")
         XCTAssertEqual(bases["fixture-track"], "reads")
     }
 
@@ -161,7 +161,7 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any], output)
         let track = try XCTUnwrap(((object["manifest"] as? [String: Any])?["alignments"] as? [[String: Any]])?.first, output)
         XCTAssertEqual(track["mapped_read_count"] as? Int, 12, "the key keeps its meaning and the manifest's number")
-        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], output)
+        let bases = try XCTUnwrap(object["mapped_read_count_basis"] as? [String: String], output)
         XCTAssertEqual(bases["fixture-track"], "manifest", "a script can tell the manifest's copy from reads")
     }
 
@@ -179,7 +179,7 @@ final class BundleTrackListingAndProgressTests: XCTestCase {
         let output = try await captureStandardOutput { try await command.run() }
 
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any], output)
-        let bases = try XCTUnwrap(object["alignment_count_bases"] as? [String: String], output)
+        let bases = try XCTUnwrap(object["mapped_read_count_basis"] as? [String: String], output)
         XCTAssertEqual(bases["fixture-track"], "alignments", "alignment records are no reads, and a script can see it")
     }
 

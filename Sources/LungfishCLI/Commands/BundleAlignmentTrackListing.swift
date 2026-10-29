@@ -106,7 +106,7 @@ enum BundleAlignmentTrackListing {
         return (reads.mapped, reads.unmapped, .reads)
     }
 
-    /// What each track's printed count counts, by track id, for the `alignment_count_bases` key of `bundle info --format json`.
+    /// What each track's printed count counts, by track id, for the `mapped_read_count_basis` key of `bundle info --format json`.
     static func countBases(_ tracks: [AlignmentTrackInfo], in bundleURL: URL) -> [String: String] {
         Dictionary(
             tracks.map { ($0.id, readCounts(of: $0, in: bundleURL).basis.jsonWord) },
