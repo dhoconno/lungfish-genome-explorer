@@ -6,10 +6,18 @@ import Foundation
 import LungfishKit
 
 /// The failure alerts the genotype result view shows for its exports, each as a `FailureReport` whose error text
-/// goes only to the details area (ALERT-PRESENTER, Phase 3.1). A failure of the export command runs behind an
-/// Operations row, so its next step points to that row's log. Any other error stopped before a row ran.
+/// goes only to the details area (ALERT-PRESENTER, Phase 3.1). A failure of the export command that ran behind an
+/// Operations row points to that row's log. An error before a row, or a start that began no row, does not.
 enum GenotypeFailureReports {
     static func exportGenotypeView(_ error: any Error) -> FailureReport {
+        if let failure = error as? CLIViewerExportRunner.Failure, failure.message == "The workbook export did not start." {
+            return FailureReport(
+                failedStep: "Export the genotype view",
+                whatHappened: "The export did not start, so no file was written.",
+                nextStep: "Wait for any export that is still running to finish, then export the view again.",
+                underlying: error
+            )
+        }
         if error is CLIViewerExportRunner.Failure {
             return FailureReport(
                 failedStep: "Export the genotype view",

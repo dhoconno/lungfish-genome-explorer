@@ -39,6 +39,20 @@ final class GenotypeFailureReportsTests: XCTestCase {
         XCTAssertTrue(report.nextStep.contains("Operations panel"))
     }
 
+    func testAWorkbookExportThatDidNotStartPointsToNoOperationsLog() {
+        let sentence = "The workbook export did not start."
+        let report = GenotypeFailureReports.exportGenotypeView(CLIViewerExportRunner.Failure(message: sentence))
+        XCTAssertEqual(report.title, "Could not export the genotype view")
+        XCTAssertEqual(report.whatHappened, "The export did not start, so no file was written.")
+        XCTAssertEqual(report.nextStep, "Wait for any export that is still running to finish, then export the view again.")
+        XCTAssertFalse(report.nextStep.contains("Operations panel"))
+        XCTAssertFalse(FailurePresenter.alert(for: report).informativeText.contains(sentence))
+        XCTAssertEqual(report.details?.contains(sentence), true)
+        for text in [report.title, report.whatHappened, report.nextStep] {
+            XCTAssertFalse(text.contains("\u{2014}") || text.contains(";") || text.contains(":"), "prose rule in \(text)")
+        }
+    }
+
     func testExportManualHaplotypeDefinitions() {
         let report = GenotypeFailureReports.exportManualHaplotypeDefinitions(rawError())
         assertPlainWords(report, title: "Could not export the manual haplotype definitions")
