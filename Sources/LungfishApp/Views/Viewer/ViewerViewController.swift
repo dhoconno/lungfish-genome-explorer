@@ -219,9 +219,6 @@ public class ViewerViewController: NSViewController {
     /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
-    /// Read-only saved primer analysis viewport.
-    var primerAnalysisViewController: NSViewController?
-
     /// Native MHC amplicon reference bundle viewport.
     var mhcReferenceBundleViewController: NSHostingController<MHCReferenceBundleViewport>?
 

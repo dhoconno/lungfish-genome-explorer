@@ -13,6 +13,8 @@ extension ViewerViewController {
     func makeSurfaceRegistry() -> SurfaceRegistry {
         let registry = SurfaceRegistry()
         registry.register(.bundle(.twelveSResult), factory: TwelveSSurface.factory { [weak self] in self?.wireTwelveSUnresolvedBlast($0) })
+        registry.register(.bundle(.primerAnalysis)) { PrimerAnalysisSurface() }
+        registry.register(.analysis(.primerOrder)) { PrimerOrderSurface() }
         return registry
     }
 
@@ -43,11 +45,12 @@ extension ViewerViewController {
         throw error
     }
 
-    /// Removes the surface of `kind`, when it is the one the host shows or loads, and
-    /// brings back the genomics chrome and drawers that a surface hides. The
-    /// `hideX()` shim of each migrated kind calls this.
-    func clearSurface(ifShowing kind: SurfaceKind) {
-        guard surfaceHost.requestedKind == kind else { return }
+    /// Removes the surface of one of `kinds`, when it is the one the host shows or
+    /// loads, and brings back the genomics chrome and drawers that a surface hides.
+    /// The `hideX()` shim of each migrated kind calls this. It never makes the host,
+    /// since a viewer whose view has not loaded shows no surface.
+    func clearSurface(ifShowing kinds: SurfaceKind...) {
+        guard isViewLoaded, let kind = surfaceHost.requestedKind, kinds.contains(kind) else { return }
         surfaceHost.clear()
 
         enhancedRulerView?.isHidden = false

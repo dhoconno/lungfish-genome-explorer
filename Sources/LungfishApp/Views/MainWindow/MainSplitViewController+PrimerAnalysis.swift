@@ -36,16 +36,21 @@ extension MainSplitViewController {
                 self.savePrimerScheme(from: url, candidate: candidate, name: name, projectURL: projectURL)
             }
         }
-        viewerController.displayPrimerAnalysisBundle(at: url, displaySession: displaySession, onLoadStateChanged: { [weak self] state in
-            guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-            switch state {
-            case .loading: break
-            case .loaded(let snapshot): self.inspectorController.updatePrimerAnalysisDocument(snapshot)
-            case .failed(let message): self.inspectorController.failPrimerAnalysisDocument(at: url, message: message)
-            }
-        }, onDismiss: { [weak self] in
-            self?.inspectorController.clearPrimerAnalysisDocument(matching: url)
-        }, onExportRequested: exportAction)
+        do {
+            try viewerController.displayPrimerAnalysisBundle(at: url, displaySession: displaySession, onLoadStateChanged: { [weak self] state in
+                guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                switch state {
+                case .loading: break
+                case .loaded(let snapshot): self.inspectorController.updatePrimerAnalysisDocument(snapshot)
+                case .failed(let message): self.inspectorController.failPrimerAnalysisDocument(at: url, message: message)
+                }
+            }, onDismiss: { [weak self] in
+                self?.inspectorController.clearPrimerAnalysisDocument(matching: url)
+            }, onExportRequested: exportAction)
+        } catch {
+            viewerController.clearViewport(statusMessage: "Unable to open the primer analysis. \(error.localizedDescription)")
+            return
+        }
         // clearViewport() during installation tears down the previous inspector before
         // establishing the new scope. The verified load callback commits only to this scope.
         inspectorController.beginPrimerAnalysisDocument(at: url, displaySession: displaySession)
@@ -57,13 +62,18 @@ extension MainSplitViewController {
         let token = token ?? beginDisplayRequest(identity: identity)
         guard canCommitDisplayRequest(token, identity: identity) else { return }
         inspectorController.clearSelection()
-        viewerController.displayPrimerOrder(at: url, onLoaded: { [weak self] order in
-            guard let self, self.canCommitDisplayRequest(token, identity: identity) else { return }
-            self.inspectorController.updatePrimerOrderDocument(order, at: url)
-        }, onLoadFailed: { [weak self] message in
-            guard let self, self.canCommitDisplayRequest(token, identity: identity) else { return }
-            self.inspectorController.failPrimerAnalysisDocument(at: url, message: message)
-        }, onDismiss: { [weak self] in self?.inspectorController.clearPrimerAnalysisDocument(matching: url) })
+        do {
+            try viewerController.displayPrimerOrder(at: url, onLoaded: { [weak self] order in
+                guard let self, self.canCommitDisplayRequest(token, identity: identity) else { return }
+                self.inspectorController.updatePrimerOrderDocument(order, at: url)
+            }, onLoadFailed: { [weak self] message in
+                guard let self, self.canCommitDisplayRequest(token, identity: identity) else { return }
+                self.inspectorController.failPrimerAnalysisDocument(at: url, message: message)
+            }, onDismiss: { [weak self] in self?.inspectorController.clearPrimerAnalysisDocument(matching: url) })
+        } catch {
+            viewerController.clearViewport(statusMessage: "Unable to open the primer order. \(error.localizedDescription)")
+            return
+        }
         inspectorController.beginPrimerOrderDocument(at: url)
     }
 

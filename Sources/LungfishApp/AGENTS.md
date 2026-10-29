@@ -61,7 +61,7 @@ Targets LungfishAppTests (597 files), LungfishAppViewTests and LungfishAppWorkfl
 | Trap | Evidence |
 |---|---|
 | SidebarItemType has 71 cases and routing is a chain of type checks | Views/Sidebar/SidebarItem.swift line 40, Views/MainWindow/MainSplitViewController+ContentDisplay.swift lines 16 to 222 (R1) |
-| 13 optional child viewports and hand-written hide lists that drift | Views/Viewer/ViewerViewController.swift lines 207 to 253, ViewerViewController+TwelveS.swift lines 8 to 32 omit `hidePrimerAnalysisView` (R1) |
+| 11 optional child viewports beside the one `surfaceHost` slot, and hand-written hide lists that drift. 12S and primer analysis show through the host, and the other routes reach them only through one-line `hideX()` shims until 3.2 | Views/Viewer/ViewerViewController.swift lines 205 to 240, Views/Viewer/ViewerViewController+Surfaces.swift (R1) |
 | Inspector tab chosen by folder-name prefix | App/AppDelegate.swift lines 301 to 305 (R1) |
 | A new analysis tool needs `AnalysesFolder.knownTools`, `displayName`, `SidebarProjectScanner.analysisIcon` and `analysisItemType` plus a route case, or its node never opens | Views/Sidebar/SidebarProjectScanner.swift lines 914 and 939, Views/MainWindow/AnalysisResultDisplayRoute.swift line 4 (memory file project_viral_recon_results_integration.md) |
 | EsViritu GUI and CLI write different result trees | App/AppDelegate+Classification.swift lines 911 to 1159 against Sources/LungfishCLI/Commands/EsVirituCommand.swift (R3) |

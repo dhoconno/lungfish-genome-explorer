@@ -39,7 +39,6 @@ Target LungfishTwelveSUITests in Tests/LungfishTwelveSUITests. Run only it with 
 
 | Trap | Evidence |
 |---|---|
-| The App glue's hide list has 18 calls and omits `hidePrimerAnalysisView`, so a primer view can stay installed | `displayTwelveSAmpliconResult` in Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift (R1) |
 | The hand-written native-bundle check counts any installed host surface, 12S among them, so the parent annotation drawer stays hidden under each | `isNativeBundleViewportInstalled` in Sources/LungfishApp/Views/Viewer/ViewerViewController.swift (R1) |
 | BLAST result display is copied in each classifier leaf | `showBlastResults`, TwelveSAmpliconResultViewController.swift line 969 (R14) |
 | Abundance reassignment must be decided per sample, never from global totals | memory file project_twelve_s_abundance_reassignment.md |

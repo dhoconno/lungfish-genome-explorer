@@ -55,22 +55,22 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
     func testPrimerViewportsDoNotSizeTheWindow() throws {
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
-        viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        try viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
         let analysis = try XCTUnwrap(viewer.primerAnalysisViewController as? PrimerAnalysisHostingController)
         XCTAssertTrue(analysis.sizingOptions.isEmpty)
-        viewer.displayPrimerOrder(at: URL(fileURLWithPath: "/absent.lungfishprimerorder"))
+        try viewer.displayPrimerOrder(at: URL(fileURLWithPath: "/absent.lungfishprimerorder"))
         let order = try XCTUnwrap(viewer.primerAnalysisViewController as? PrimerOrderHostingController)
         XCTAssertTrue(order.sizingOptions.isEmpty)
     }
 
-    func testNativeViewerIsRemovedWhenClearingOrSwitchingContentMode() {
+    func testNativeViewerIsRemovedWhenClearingOrSwitchingContentMode() throws {
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
-        viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        try viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
         XCTAssertNotNil(viewer.primerAnalysisViewController)
         viewer.clearViewport()
         XCTAssertNil(viewer.primerAnalysisViewController)
-        viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        try viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
         viewer.contentMode = .empty
         XCTAssertNil(viewer.primerAnalysisViewController)
     }
@@ -104,7 +104,7 @@ final class PrimerAnalysisRoutingTests: XCTestCase {
         let viewer = ViewerViewController()
         viewer.loadViewIfNeeded()
         let previews = RecordingFilePreviewRenderer.install(on: viewer)
-        viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
+        try viewer.displayPrimerAnalysisBundle(at: URL(fileURLWithPath: "/absent.lungfishprimeranalysis"))
         viewer.displayQuickLookPreview(url: file)
         XCTAssertNil(viewer.primerAnalysisViewController)
         XCTAssertEqual(previews.renderedURLs, [file])
