@@ -190,6 +190,13 @@ final class BAMRegionExtractionTests: XCTestCase {
                 if arguments.starts(with: ["view", "-c"]) {
                     return .init(exitCode: 0, stdout: "1\n", stderr: "", arguments: ["/fixture/samtools"] + arguments)
                 }
+                if arguments.starts(with: ["view", "-O", "SAM"]) {
+                    // The records with neither mate flag, as headerless SAM text.
+                    let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-o")! + 1])
+                    try "unflagged\t0\tchrSynthetic\t5\t60\t4M\t*\t0\t0\tACGT\t!!!!\n"
+                        .write(to: output, atomically: true, encoding: .utf8)
+                    return .init(exitCode: 0, stdout: "", stderr: "", arguments: ["/fixture/samtools"] + arguments)
+                }
                 if arguments.starts(with: ["fastq"]) {
                     let output = URL(fileURLWithPath: arguments[arguments.firstIndex(of: "-0")! + 1])
                     try "@selected\nACGT\n+\n!!!!\n".write(to: output, atomically: true, encoding: .utf8)
@@ -210,7 +217,13 @@ final class BAMRegionExtractionTests: XCTestCase {
         XCTAssertEqual(transaction.readCount, 1)
         XCTAssertEqual(transaction.stagedFiles.count, 1)
         XCTAssertFalse(try ProvenanceFileHasher.sha256(of: transaction.stagedFiles[0].stagedURL).isEmpty)
-        XCTAssertEqual(transaction.executionRecords.count, 4)
+        // The filter, the count, the records with a mate flag, samtools fastq over them, the records with none, the write.
+        XCTAssertEqual(transaction.executionRecords.count, 6)
+        XCTAssertEqual(
+            try String(contentsOf: transaction.stagedFiles[0].stagedURL, encoding: .utf8),
+            "@unflagged\nACGT\n+\n!!!!\n@selected\nACGT\n+\n!!!!\n",
+            "the unflagged record is written, then the sidecars"
+        )
         XCTAssertEqual(
             Array(transaction.executionRecords[0].argv.dropFirst()),
             config.explicitViewArguments(
@@ -226,7 +239,7 @@ final class BAMRegionExtractionTests: XCTestCase {
             .boolean(true)
         )
         let outputRecords = transaction.executionRecords.filter { !$0.outputs.isEmpty }
-        XCTAssertEqual(outputRecords.count, 3)
+        XCTAssertEqual(outputRecords.count, 5)
         XCTAssertTrue(outputRecords.allSatisfy { record in
             record.exitStatus == 0 && record.outputs.allSatisfy { descriptor in
                 descriptor.checksumSHA256 != nil && descriptor.fileSize != nil

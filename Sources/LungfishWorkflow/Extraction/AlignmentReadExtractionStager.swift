@@ -168,58 +168,48 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         }
 
         let outputFASTQ = transactionDirectory.appendingPathComponent("\(baseName).fastq")
+        let pairedBAM = transactionDirectory.appendingPathComponent("\(baseName).paired.bam")
+        let unflaggedSAM = transactionDirectory.appendingPathComponent("\(baseName).unflagged.sam")
         let otherFASTQ = transactionDirectory.appendingPathComponent("\(baseName).other.fastq")
         let r1FASTQ = transactionDirectory.appendingPathComponent("\(baseName).r1.fastq")
         let r2FASTQ = transactionDirectory.appendingPathComponent("\(baseName).r2.fastq")
         let singletonFASTQ = transactionDirectory.appendingPathComponent("\(baseName).singletons.fastq")
-        let fastqRecord = try await runCollectingFailures(
-            tool: .samtools,
-            arguments: [
-                "fastq", "-F", "0",
-                "-0", otherFASTQ.path,
-                "-1", r1FASTQ.path,
-                "-2", r2FASTQ.path,
-                "-s", singletonFASTQ.path,
-                filteredBAM.path,
-            ],
-            inputURLs: [filteredBAM],
-            outputURLs: [otherFASTQ, r1FASTQ, r2FASTQ, singletonFASTQ],
-            visibleOptions: [
-                "recordClassPolicy": .string("preserve primary records selected by samtools view"),
-                "matePolicy": .string("retain mates emitted by filtered alignment records"),
-            ],
-            resolvedDefaults: ["samtoolsFastqExcludedFlags": .integer(0)],
-            accumulatedRecords: records
+        let sidecars = [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ]
+        // `samtools fastq` writes one record for consecutive records of one name when neither carries READ1 or READ2, so
+        // it reads the records with a mate flag only and the others are written one FASTQ record each (MateFlagSplit).
+        try await runSplitStep(
+            MateFlagSplit.flaggedArguments(of: filteredBAM, flagFilter: 0, to: pairedBAM),
+            inputs: [filteredBAM], outputs: [pairedBAM], records: &records
         )
-        records.append(fastqRecord.record)
-        guard fastqRecord.result.isSuccess else {
-            throw failure(
-                .subprocessFailed,
-                "samtools fastq failed: \(fastqRecord.result.stderr)",
-                records: records
+        try await runSplitStep(
+            ["fastq", "-F", "0", "-0", otherFASTQ.path, "-1", r1FASTQ.path, "-2", r2FASTQ.path, "-s", singletonFASTQ.path, pairedBAM.path],
+            inputs: [pairedBAM], outputs: [otherFASTQ, r1FASTQ, r2FASTQ, singletonFASTQ], records: &records
+        )
+        try await runSplitStep(
+            MateFlagSplit.unflaggedArguments(of: filteredBAM, flagFilter: 0, to: unflaggedSAM),
+            inputs: [filteredBAM], outputs: [unflaggedSAM], records: &records
+        )
+
+        func mergeRecord(
+            outputs: [ProvenanceFileDescriptor], exitStatus: Int, stderr: String? = nil
+        ) -> AlignmentReadExtractionExecutionRecord {
+            let completedAt = runClock.now
+            return internalRecord(
+                stage: .payloadStaging,
+                toolName: "lungfish alignment FASTQ merge",
+                argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "merge-fastq", outputFASTQ.path],
+                inputs: descriptors(forExisting: [unflaggedSAM] + sidecars, role: .input),
+                outputs: outputs,
+                exitStatus: exitStatus,
+                startedAt: completedAt,
+                completedAt: completedAt,
+                stderr: stderr
             )
         }
-
         do {
-            try mergeFASTQParts(
-                [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ],
-                to: outputFASTQ
-            )
+            try writeSplitFASTQ(unflaggedSAM: unflaggedSAM, sidecars: sidecars, to: outputFASTQ)
         } catch {
-            let completedAt = runClock.now
-            records.append(
-                internalRecord(
-                    stage: .payloadStaging,
-                    toolName: "lungfish alignment FASTQ merge",
-                    argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "merge-fastq", outputFASTQ.path],
-                    inputs: descriptors(forExisting: [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ], role: .input),
-                    outputs: [],
-                    exitStatus: 1,
-                    startedAt: completedAt,
-                    completedAt: completedAt,
-                    stderr: error.localizedDescription
-                )
-            )
+            records.append(mergeRecord(outputs: [], exitStatus: 1, stderr: error.localizedDescription))
             throw failure(
                 .subprocessFailed,
                 "Could not materialize staged FASTQ payload: \(error.localizedDescription)",
@@ -233,19 +223,7 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
                 records: records
             )
         }
-        let completedAt = runClock.now
-        records.append(
-            internalRecord(
-                stage: .payloadStaging,
-                toolName: "lungfish alignment FASTQ merge",
-                argv: [LungfishAppIdentity.recordedToolName, "alignment", "extract", "merge-fastq", outputFASTQ.path],
-                inputs: descriptors(forExisting: [otherFASTQ, singletonFASTQ, r1FASTQ, r2FASTQ], role: .input),
-                outputs: descriptors(forExisting: [outputFASTQ], role: .output, format: .fastq),
-                exitStatus: 0,
-                startedAt: completedAt,
-                completedAt: completedAt
-            )
-        )
+        records.append(mergeRecord(outputs: descriptors(forExisting: [outputFASTQ], role: .output, format: .fastq), exitStatus: 0))
 
         do {
             let transaction = try AlignmentReadExtractionTransaction(
@@ -678,22 +656,26 @@ public final class AlignmentReadExtractionStager: @unchecked Sendable {
         }
     }
 
-    private func mergeFASTQParts(_ parts: [URL], to outputURL: URL) throws {
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: outputURL.path) {
-            try fileManager.removeItem(at: outputURL)
-        }
-        fileManager.createFile(atPath: outputURL.path, contents: nil)
-        let output = try FileHandle(forWritingTo: outputURL)
-        defer { try? output.close() }
-        for part in parts where fileSize(of: part) > 0 {
-            let input = try FileHandle(forReadingFrom: part)
-            defer { try? input.close() }
-            while true {
-                let data = input.readData(ofLength: 1 << 20)
-                guard !data.isEmpty else { break }
-                output.write(data)
-            }
+    /// One samtools step of the region extraction's split by mate flag (``MateFlagSplit``), recorded as the stager records
+    /// its own steps. A failure throws with the records so far.
+    private func runSplitStep(
+        _ arguments: [String], inputs: [URL], outputs: [URL], records: inout [AlignmentReadExtractionExecutionRecord]
+    ) async throws {
+        let step = try await runCollectingFailures(
+            tool: .samtools,
+            arguments: arguments,
+            inputURLs: inputs,
+            outputURLs: outputs,
+            visibleOptions: [
+                "recordClassPolicy": .string("preserve primary records selected by samtools view"),
+                "matePolicy": .string("retain mates emitted by filtered alignment records, each record with no mate flag written once"),
+            ],
+            resolvedDefaults: ["samtoolsFastqExcludedFlags": .integer(0)],
+            accumulatedRecords: records
+        )
+        records.append(step.record)
+        guard step.result.isSuccess else {
+            throw failure(.subprocessFailed, "samtools \(arguments[0]) failed: \(step.result.stderr)", records: records)
         }
     }
 

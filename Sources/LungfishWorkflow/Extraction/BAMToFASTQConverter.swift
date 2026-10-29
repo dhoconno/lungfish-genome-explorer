@@ -131,35 +131,9 @@ public func convertBAMToSingleFASTQ(
         of: inputBAM, flagFilter: flagFilter, to: unflaggedURL, timeout: timeout, toolRunner: toolRunner
     )
 
-    if fm.fileExists(atPath: outputFASTQ.path) {
-        try fm.removeItem(at: outputFASTQ)
-    }
-    fm.createFile(atPath: outputFASTQ.path, contents: nil)
-
-    let outHandle = try FileHandle(forWritingTo: outputFASTQ)
-    defer { try? outHandle.close() }
-
-    try UnflaggedRecordFASTQWriter.writeRecords(fromSAMText: unflaggedURL, to: outHandle)
-
-    // Order matches the historical ReadExtractionService implementation:
-    // singletons + READ_OTHER first, then the paired R1/R2 stream. The unflagged records
-    // were READ_OTHER records before, so they stand where READ_OTHER stood.
-    let orderedParts = [otherURL, singletonURL, r1URL, r2URL]
-    for partURL in orderedParts {
-        guard fm.fileExists(atPath: partURL.path) else { continue }
-        let attrs = try fm.attributesOfItem(atPath: partURL.path)
-        let size = attrs[.size] as? UInt64 ?? 0
-        guard size > 0 else { continue }
-
-        let inHandle = try FileHandle(forReadingFrom: partURL)
-        defer { try? inHandle.close() }
-
-        while true {
-            let chunk = inHandle.readData(ofLength: 1 << 20)
-            if chunk.isEmpty { break }
-            outHandle.write(chunk)
-        }
-    }
+    // Order matches the historical ReadExtractionService implementation: the unflagged records where READ_OTHER stood,
+    // singletons, then the paired R1/R2 stream.
+    try writeSplitFASTQ(unflaggedSAM: unflaggedURL, sidecars: [otherURL, singletonURL, r1URL, r2URL], to: outputFASTQ)
 
     let mergedSize = (try? fm.attributesOfItem(atPath: outputFASTQ.path)[.size] as? UInt64) ?? 0
     if mergedSize == 0 {
@@ -296,15 +270,28 @@ enum UnflaggedRecordFASTQWriter {
 // MARK: - The split by mate flag
 
 /// The two `samtools view` selections that split a BAM's records by the mate flags, kept in one place so the converter
-/// above and the by-ID extraction of ``ReadExtractionService`` cut the records the same way.
+/// above, the by-ID extraction of ``ReadExtractionService`` and the alignment viewer's region extraction
+/// (``AlignmentReadExtractionStager``, which runs the arguments through its own recording runner) cut the records the
+/// same way.
 enum MateFlagSplit {
+    /// The `samtools view` arguments that write the records of `input` that carry READ1 or READ2 and none of the
+    /// `flagFilter` bits to `output` as BAM.
+    static func flaggedArguments(of input: URL, flagFilter: Int, to output: URL) -> [String] {
+        ["view", "-b", "-F", String(flagFilter), "--rf", String(mateFlagBits), "-o", output.path, input.path]
+    }
+
+    /// The `samtools view` arguments that write the records of `input` that carry neither READ1 nor READ2 and none of the
+    /// `flagFilter` bits to `output` as SAM text with no header.
+    static func unflaggedArguments(of input: URL, flagFilter: Int, to output: URL) -> [String] {
+        ["view", "-O", "SAM", "-F", String(flagFilter | mateFlagBits), "-o", output.path, input.path]
+    }
+
     /// Writes the records of `input` that carry READ1 or READ2 and none of the `flagFilter` bits to `output` as BAM.
     static func writeFlagged(
         of input: URL, flagFilter: Int, to output: URL, timeout: TimeInterval?, toolRunner: NativeToolRunner
     ) async throws {
         try await view(
-            ["-b", "-F", String(flagFilter), "--rf", String(mateFlagBits), "-o", output.path, input.path],
-            timeout: timeout, toolRunner: toolRunner
+            flaggedArguments(of: input, flagFilter: flagFilter, to: output), timeout: timeout, toolRunner: toolRunner
         )
     }
 
@@ -314,15 +301,48 @@ enum MateFlagSplit {
         of input: URL, flagFilter: Int, to output: URL, timeout: TimeInterval?, toolRunner: NativeToolRunner
     ) async throws {
         try await view(
-            ["-O", "SAM", "-F", String(flagFilter | mateFlagBits), "-o", output.path, input.path],
-            timeout: timeout, toolRunner: toolRunner
+            unflaggedArguments(of: input, flagFilter: flagFilter, to: output), timeout: timeout, toolRunner: toolRunner
         )
     }
 
     private static func view(_ arguments: [String], timeout: TimeInterval?, toolRunner: NativeToolRunner) async throws {
-        let result = try await toolRunner.run(.samtools, arguments: ["view"] + arguments, timeout: timeout)
+        let result = try await toolRunner.run(.samtools, arguments: arguments, timeout: timeout)
         guard result.isSuccess else {
             throw BAMToFASTQConversionError.samtoolsFailed(stderr: result.stderr)
+        }
+    }
+}
+
+/// Writes `outputFASTQ` from the two halves of the split: one FASTQ record for each record of the headerless SAM text at
+/// `unflaggedSAM` in the BAM's order, then the files of `sidecars` as `samtools fastq` wrote them, in the order given
+/// (READ_OTHER, singletons, READ1, READ2, the order of the historical implementation). The unflagged records were
+/// READ_OTHER records before, so they stand where READ_OTHER stood. A missing or empty sidecar adds nothing.
+/// ``convertBAMToSingleFASTQ`` and the alignment viewer's region extraction both join their parts here.
+func writeSplitFASTQ(unflaggedSAM: URL, sidecars: [URL], to outputFASTQ: URL) throws {
+    let fm = FileManager.default
+    if fm.fileExists(atPath: outputFASTQ.path) {
+        try fm.removeItem(at: outputFASTQ)
+    }
+    fm.createFile(atPath: outputFASTQ.path, contents: nil)
+
+    let outHandle = try FileHandle(forWritingTo: outputFASTQ)
+    defer { try? outHandle.close() }
+
+    try UnflaggedRecordFASTQWriter.writeRecords(fromSAMText: unflaggedSAM, to: outHandle)
+
+    for partURL in sidecars {
+        guard fm.fileExists(atPath: partURL.path) else { continue }
+        let attrs = try fm.attributesOfItem(atPath: partURL.path)
+        let size = attrs[.size] as? UInt64 ?? 0
+        guard size > 0 else { continue }
+
+        let inHandle = try FileHandle(forReadingFrom: partURL)
+        defer { try? inHandle.close() }
+
+        while true {
+            let chunk = inHandle.readData(ofLength: 1 << 20)
+            if chunk.isEmpty { break }
+            outHandle.write(chunk)
         }
     }
 }
