@@ -28,7 +28,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 14 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1576 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 14 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 75 | LungfishCore, LungfishIO, LungfishPortable, LungfishWorkflow |
@@ -1895,6 +1895,7 @@ None.
 - `TwelveSResultDisplaySummary` struct, `Sources/LungfishTwelveSUI/TwelveSResultDisplayState.swift`
 - `TwelveSResultMenuActions` protocol, `Sources/LungfishTwelveSUI/TwelveSResultMenuActions.swift`
 - `TwelveSSampleEntry` struct, `Sources/LungfishTwelveSUI/TwelveSRowAggregator.swift`
+- `TwelveSSurface` class, `Sources/LungfishTwelveSUI/TwelveSSurface.swift`
 - `TwelveSUnresolvedBlastRequest` struct, `Sources/LungfishTwelveSUI/TwelveSResultDisplayState.swift`
 
 ## LungfishWorkflow

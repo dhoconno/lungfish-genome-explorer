@@ -16,7 +16,7 @@
 //
 // A switch settles as soon as its reading matches, so an idle machine walks
 // the matrix in a few minutes. The old-token refusal of the acceptance row is
-// a declared gap (ViewSwitchDeclaredLeaks.gaps) that lane HOST closes.
+// held by ViewportHostTests in Tests/LungfishKitTests.
 
 import AppKit
 import XCTest
@@ -95,7 +95,6 @@ final class ViewSwitchMatrixTests: XCTestCase {
             ViewSwitchDeclaredLeaks.all.flatMap(\.to).count, 179,
             "The declared leaks only shrink. Lower this number in the change that fixes a leak."
         )
-        XCTAssertFalse(ViewSwitchDeclaredLeaks.gaps.isEmpty)
     }
 
     // MARK: - In a real window

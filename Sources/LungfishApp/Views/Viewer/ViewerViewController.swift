@@ -237,8 +237,8 @@ public class ViewerViewController: NSViewController {
         GenotypeManualHaplotypeBandDisclosureStore()
     var onGenotypeResultViewWillHide: ((GenotypeResultViewController) -> Void)?
 
-    /// Native 12S amplicon result bundle viewport.
-    var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController?
+    /// The one result surface slot, with factories from ViewerViewController+Surfaces.swift.
+    lazy var surfaceHost = ViewportHost(registry: makeSurfaceRegistry(), containerView: view, parentController: self)
 
     /// True while a native bundle viewport owns the viewer area. Those
     /// viewports fill the whole view and carry their own drawers, so the
@@ -247,7 +247,7 @@ public class ViewerViewController: NSViewController {
         multipleSequenceAlignmentViewController != nil
             || phylogeneticTreeViewController != nil
             || genotypeResultViewController != nil
-            || twelveSAmpliconResultViewController != nil
+            || surfaceHost.activeViewport != nil
     }
 
     /// Reveals the parent annotation drawer unless a native bundle viewport

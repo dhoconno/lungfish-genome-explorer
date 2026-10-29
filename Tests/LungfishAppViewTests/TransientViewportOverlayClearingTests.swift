@@ -18,6 +18,7 @@ import AppKit
 @testable import LungfishIO
 @testable import LungfishGenotypeUI
 @testable import LungfishTwelveSUI
+import LungfishKit
 
 @MainActor
 final class TransientViewportOverlayClearingTests: XCTestCase {
@@ -183,10 +184,8 @@ final class TransientViewportOverlayClearingTests: XCTestCase {
         defer { window.contentViewController = nil }
 
         let viewer: ViewerViewController = controller.viewerController
-        let child = TwelveSAmpliconResultViewController()
-        viewer.addChild(child)
-        viewer.view.addSubview(child.view)
-        viewer.twelveSAmpliconResultViewController = child
+        let child = installTwelveSStandIn(in: viewer)
+        XCTAssertTrue(viewer.twelveSAmpliconResultViewController === child)
 
         viewer.clearViewport(statusMessage: "No sequence selected")
 
@@ -221,12 +220,7 @@ final class TransientViewportOverlayClearingTests: XCTestCase {
         defer { window.contentViewController = nil }
 
         let viewer: ViewerViewController = controller.viewerController
-        viewer.twelveSAmpliconResultViewController = {
-            let child = TwelveSAmpliconResultViewController()
-            viewer.addChild(child)
-            viewer.view.addSubview(child.view)
-            return child
-        }()
+        _ = installTwelveSStandIn(in: viewer)
         viewer.genotypeResultViewController = {
             let child = GenotypeResultViewController()
             viewer.addChild(child)
@@ -242,7 +236,32 @@ final class TransientViewportOverlayClearingTests: XCTestCase {
         XCTAssertNil(viewer.assemblyResultController)
         XCTAssertNil(viewer.activeMappingViewportController)
         XCTAssertNil(viewer.twelveSAmpliconResultViewController)
+        XCTAssertNil(viewer.surfaceHost.activeViewport)
         XCTAssertNil(viewer.genotypeResultViewController)
         XCTAssertNil(viewer.mhcReferenceBundleViewController)
     }
+
+    /// Installs a 12S viewer through the surface host as the display route does,
+    /// with a stand-in surface so no result bundle is read.
+    private func installTwelveSStandIn(in viewer: ViewerViewController) -> TwelveSAmpliconResultViewController {
+        let child = TwelveSAmpliconResultViewController()
+        viewer.surfaceHost.registry.register(.bundle(.twelveSResult)) { TwelveSStandInSurface(controller: child) }
+        viewer.surfaceHost.show(kind: .bundle(.twelveSResult), input: ())
+        return child
+    }
+}
+
+/// A 12S surface that shows a bare viewer and reads nothing.
+@MainActor
+private final class TwelveSStandInSurface: ResultViewport {
+    let controller: TwelveSAmpliconResultViewController
+
+    init(controller: TwelveSAmpliconResultViewController) {
+        self.controller = controller
+    }
+
+    var viewController: NSViewController { controller }
+    var surfaceKind: SurfaceKind { .bundle(.twelveSResult) }
+
+    func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {}
 }

@@ -569,7 +569,7 @@ extension MainSplitViewController {
             let result = try TwelveSAmpliconResultBundle.loadResult(from: url, loadUnresolvedSequences: false)
             inspectorController.clearSelection()
             inspectorController.updateTwelveSAmpliconResultDocument(result)
-            let controller = viewerController.displayTwelveSAmpliconResult(result)
+            let controller = try viewerController.displayTwelveSAmpliconResult(result)
             let knownSampleIDs = Set(result.samples.map(\.sampleID))
             let metadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
             if let metadataStore {

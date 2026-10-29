@@ -37,14 +37,6 @@ struct DeclaredViewSwitchLeak: Sendable {
 
 
 enum ViewSwitchDeclaredLeaks {
-    /// Parts of the 3a acceptance row this net cannot hold at its base.
-    ///
-    /// The old-token refusal needs the ViewportHost token, which lane HOST
-    /// adds and tests in Tests/LungfishKitTests against a stub viewport.
-    static let gaps = [
-        "A commit from an old display token is refused: no ViewportHost token exists at this base (lane HOST)",
-    ]
-
     /// Every declared leak of the matrix and of the fresh-window pass, in the
     /// two table files named after the kinds the switches start from.
     ///

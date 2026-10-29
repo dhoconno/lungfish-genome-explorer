@@ -20,7 +20,8 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Export | Sources/LungfishTwelveSUI/TwelveSAmpliconResultExportService.swift (format and snapshot), Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController+ExportOperationBegin.swift (the Operations row that runs `lungfish-cli fastq 12s-export`) |
 | Status line and provenance popover, with the pairs a run left out | Sources/LungfishTwelveSUI/TwelveSReadFateSummary.swift |
 | Reads or fragments wording of every count label | Sources/LungfishTwelveSUI/TwelveSCountUnit.swift |
-| App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift |
+| The result as a `ViewportHost` surface, with the factory the App registers | `TwelveSSurface`, Sources/LungfishTwelveSUI/TwelveSSurface.swift |
+| App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift, and the registration line in Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift |
 
 ## Contracts this module owns
 
@@ -38,9 +39,9 @@ Target LungfishTwelveSUITests in Tests/LungfishTwelveSUITests. Run only it with 
 
 | Trap | Evidence |
 |---|---|
-| The App glue's hide list has 18 calls and omits `hidePrimerAnalysisView`, so a primer view can stay installed | Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift lines 8 to 32 (R1) |
-| TwelveS is one of the four viewports in the hand-written native-bundle check | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift lines 248 to 253 (R1) |
+| The App glue's hide list has 18 calls and omits `hidePrimerAnalysisView`, so a primer view can stay installed | `displayTwelveSAmpliconResult` in Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift (R1) |
+| The hand-written native-bundle check counts any installed host surface, 12S among them, so the parent annotation drawer stays hidden under each | `isNativeBundleViewportInstalled` in Sources/LungfishApp/Views/Viewer/ViewerViewController.swift (R1) |
 | BLAST result display is copied in each classifier leaf | `showBlastResults`, TwelveSAmpliconResultViewController.swift line 969 (R14) |
 | Abundance reassignment must be decided per sample, never from global totals | memory file project_twelve_s_abundance_reassignment.md |
 
-TwelveS is the first viewport scheduled to move to the Phase 3 ResultViewport contract (plan Phase 3).
+TwelveS is the first viewport on the Phase 3 `ViewportHost` (task 3a). Its viewer is installed only through `TwelveSSurface`, and `hideTwelveSAmpliconResultView()` is a one-line shim over the host until Phase 3.2 deletes the hide list.

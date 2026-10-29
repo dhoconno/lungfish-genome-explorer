@@ -6,8 +6,15 @@ import LungfishTwelveSUI
 import LungfishWorkflow
 
 extension ViewerViewController {
+    /// The installed 12S result viewer, read from the surface host.
+    var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController? {
+        surfaceHost.activeViewport?.viewController as? TwelveSAmpliconResultViewController
+    }
+
+    /// Shows `result` through the surface host and returns its installed viewer,
+    /// or throws the reason it is not installed.
     @discardableResult
-    func displayTwelveSAmpliconResult(_ result: TwelveSAmpliconResultBundleData) -> TwelveSAmpliconResultViewController {
+    func displayTwelveSAmpliconResult(_ result: TwelveSAmpliconResultBundleData) throws -> TwelveSAmpliconResultViewController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -28,9 +35,22 @@ extension ViewerViewController {
         hideBundleBackNavigationButton()
         hideProgress()
         contentMode = .metagenomics
+        annotationDrawerView?.isHidden = true
+        fastqMetadataDrawerView?.isHidden = true
 
-        let controller = TwelveSAmpliconResultViewController()
-        addChild(controller)
+        return try showSurface(.bundle(.twelveSResult), input: result, as: TwelveSSurface.self).controller
+    }
+
+    /// Hides the 12S result viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
+    func hideTwelveSAmpliconResultView() {
+        clearSurface(ifShowing: .bundle(.twelveSResult))
+    }
+
+    /// Sends the unresolved sequences the 12S viewer asks to verify to BLAST. The
+    /// surface factory in ViewerViewController+Surfaces.swift calls it for each new
+    /// viewer.
+    func wireTwelveSUnresolvedBlast(_ controller: TwelveSAmpliconResultViewController) {
         controller.onUnresolvedBlastRequested = { [weak self, weak controller] request in
             guard let controller else { return }
             let minimumReads = max(0, request.minimumReads)
@@ -47,58 +67,6 @@ extension ViewerViewController {
                 bundleURL: request.bundleURL, exportURL: exportURL, arguments: arguments, controller: controller
             )
         }
-
-        annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-
-        let resultView = controller.view
-        resultView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(resultView)
-        NSLayoutConstraint.activate([
-            resultView.topAnchor.constraint(equalTo: view.topAnchor),
-            resultView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        controller.configure(result: result)
-
-        // Wire the multi-sample picker (reusing the NAO-MGS / NVD idiom). Each
-        // entry's metric is the sample's exact-match read count.
-        let sampleEntries = result.samples.map { sample in
-            TwelveSSampleEntry(
-                id: sample.sampleID,
-                displayName: sample.displayName,
-                exactReads: sample.exactMatchReads
-            )
-        }
-        let pickerState = ClassifierSamplePickerState(allSamples: Set(sampleEntries.map(\.id)))
-        controller.configureSamples(sampleEntries, state: pickerState)
-
-        twelveSAmpliconResultViewController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
-
-        return controller
-    }
-
-    func hideTwelveSAmpliconResultView() {
-        guard let controller = twelveSAmpliconResultViewController else { return }
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        twelveSAmpliconResultViewController = nil
-
-        enhancedRulerView?.isHidden = false
-        viewerView?.isHidden = false
-        headerView?.isHidden = false
-        statusBar?.isHidden = false
-        geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
     }
 
     /// The `lungfish-cli fastq 12s-export-unresolved` argv that the BLAST
