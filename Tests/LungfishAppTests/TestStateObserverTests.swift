@@ -16,6 +16,36 @@ final class TestStateObserverInstallTests: XCTestCase {
     }
 }
 
+/// The first whole-bundle run (LOOP M3) found a case named `Class/testMethod`, since Darwin names a Swift case
+/// `-[Class method]` without its module. This class feeds the observer a probe case that leaves a variable and reads
+/// the name the ledger gives it.
+final class TestStateObserverNamingTests: XCTestCase {
+    @MainActor @objc
+    func testALeakIsNamedWithTheModuleOfTheCaseThatLeftIt() throws {
+        let ledger = FileManager.default.temporaryDirectory
+            .appendingPathComponent("observer-naming-\(UUID().uuidString).jsonl")
+        let variable = TestStateObserver.ledgerVariable
+        let gateLedger = ProcessInfo.processInfo.environment[variable]
+        let probeVariable = "LUNGFISH_TEST_STATE_NAMING_PROBE"
+        setenv(variable, ledger.path, 1)
+        defer {
+            if let gateLedger { setenv(variable, gateLedger, 1) } else { unsetenv(variable) }
+            unsetenv(probeVariable)
+            try? FileManager.default.removeItem(at: ledger)
+        }
+        let probe = TestStateObserverNamingTests(selector: #selector(testALeakIsNamedWithTheModuleOfTheCaseThatLeftIt))
+        TestStateObserver.shared.testCaseWillStart(probe)
+        setenv(probeVariable, "left by the probe", 1)
+        TestStateObserver.shared.testCaseDidFinish(probe)
+        let line = try String(contentsOf: ledger, encoding: .utf8)
+        let record = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        XCTAssertEqual(record["test"] as? String,
+                       "LungfishAppTests.TestStateObserverNamingTests/testALeakIsNamedWithTheModuleOfTheCaseThatLeftIt")
+        XCTAssertEqual(record["keys"] as? [String], [probeVariable])
+        XCTAssertNil(ProcessInfo.processInfo.environment[probeVariable], "the observer put back the variable's absence")
+    }
+}
+
 /// The observer's pure diff fed with snapshots, and the restore of the environment check.
 final class TestStateObserverDiffTests: XCTestCase {
     func testOnlyANewRowOrWindowIsALeakAndOneThatEndedIsNot() {
@@ -75,6 +105,12 @@ final class TestStateObserverDiffTests: XCTestCase {
         XCTAssertEqual(keys, [name])
         XCTAssertEqual(check.describe(name, after[name] ?? ""), "\(name)=set by the test")
         XCTAssertNil(ProcessInfo.processInfo.environment[name], "the restore put back the variable's absence")
+    }
+
+    func testALeakOverSeveralLinesIsWordedOnOneLine() {
+        let words = TestStateObserver.message(noun: "xctest defaults key", entries: ["layout={\n    columns = 3;\n}", "b=2"])
+        XCTAssertFalse(words.contains("\n"), "one leak is one line of leaks.txt: \(words)")
+        XCTAssertEqual(words, "left 2 xctest defaults keys layout={ columns = 3; }, b=2")
     }
 
     @MainActor
