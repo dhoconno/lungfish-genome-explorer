@@ -44,6 +44,14 @@ extension NaoMgsResultViewControllerSmokeTests {
         + "wrong way round, so many reads show false mismatches. To see them correctly, import the same NAO-MGS "
         + "results file again in the Import Center (NAO-MGS Results). The counts and read IDs are right."
 
+    /// The note for a BAM that is missing and that the fallback could not rebuild (lane NAO-BAM-MISSING, ruling
+    /// UX-NAO-BAM-STALE R4). It names the file, says what follows for the panels and says what to try, and it is spelled
+    /// out so a change of wording fails.
+    private static let missingNote =
+        "The alignment file bams/sample-A.bam is missing from this result, so the read panels are empty. "
+        + "Lungfish could not rebuild it. To see the reads, import the same NAO-MGS results file again in the "
+        + "Import Center (NAO-MGS Results)."
+
     /// A check ends within milliseconds, and the wait returns as soon as it has. The budget leaves room for a loaded Mac.
     private static let checkBudget = WaitBudget.standard.raised(to: .seconds(15))
 
@@ -127,6 +135,27 @@ extension NaoMgsResultViewControllerSmokeTests {
         )
     }
 
+    /// The sample's BAM is gone (removed by hand, or never written) and the fallback cannot make it again, so the card is
+    /// blank. The note then says which file is missing and what to try, and the words write nothing into the result, a
+    /// header-only BAM included. The fallback is a seam that makes no file, like a database that holds no reads.
+    @MainActor func testMissingBAMShowsItsWordsAndWritesNothing() throws {
+        let rig = try openStrandFixResult(withBAM: false)
+        defer { closeStrandFixResult(rig) }
+        rig.controller.testMaterializationHook = { _ in }
+        let before = try resultFileDigests(rig.folder)
+        XCTAssertNil(before["bams/sample-A.bam"], "the fixture has no BAM for the sample")
+
+        try selectStrandFixTaxon("sample-A:111", in: rig.controller)
+
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: Self.checkBudget) { Self.miniBAMNote(in: rig.controller.view)?.stringValue == Self.missingNote },
+            "the note names the missing file and the next step, found: \(Self.miniBAMNote(in: rig.controller.view)?.stringValue ?? "no note")"
+        )
+        XCTAssertEqual(Self.miniBAMNote(in: rig.controller.view)?.textColor, .labelColor, "the note is drawn to be seen")
+        XCTAssertEqual(try resultFileDigests(rig.folder), before, "the words write no file into the result")
+        XCTAssertTrue(rig.controller.testAppliedFallbackWrites.isEmpty, "no card was drawn from a written file")
+    }
+
     // MARK: - Fixture
 
     private struct StrandFixRig {
@@ -136,9 +165,11 @@ extension NaoMgsResultViewControllerSmokeTests {
     }
 
     /// A one-sample result with two taxa, whose sample BAM exists (so the fallback never materializes) and holds no
-    /// bytes, since `hook` answers in place of samtools. The result is open in a window with the hook set.
+    /// bytes, since `hook` answers in place of samtools. With `withBAM` false the `bams` folder is empty, as after a
+    /// removal by hand, and with no `hook` the check reads the real file system. The result is open in a window.
     @MainActor private func openStrandFixResult(
-        hook: @escaping @Sendable (Int) async -> NaoMgsBamOrientation?
+        withBAM: Bool = true,
+        hook: (@Sendable (Int) async -> NaoMgsBamOrientation?)? = nil
     ) throws -> StrandFixRig {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("NaoMgsStrandFix-\(UUID().uuidString)", isDirectory: true)
@@ -148,7 +179,9 @@ extension NaoMgsResultViewControllerSmokeTests {
             Self.makeNaoMgsHit(sample: "sample-A", seqId: "read-two", taxId: 222, subjectSeqId: "NC_TWO00002.1", subjectTitle: "Second virus"),
         ]
         let database = try NaoMgsDatabase.create(at: folder.appendingPathComponent("hits.sqlite"), hits: hits)
-        FileManager.default.createFile(atPath: folder.appendingPathComponent("bams/sample-A.bam").path, contents: Data())
+        if withBAM {
+            FileManager.default.createFile(atPath: folder.appendingPathComponent("bams/sample-A.bam").path, contents: Data())
+        }
         let manifest = NaoMgsManifest(
             sampleName: "sample-A", sourceFilePath: "/tmp/naomgs.tsv", hitCount: 2, taxonCount: 2,
             topTaxon: "First virus", topTaxonId: 111
@@ -181,11 +214,12 @@ extension NaoMgsResultViewControllerSmokeTests {
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
-    /// The label under the miniBAM header, found by either of its two sentences.
+    /// The label under the miniBAM header, found by any of its three sentences.
     @MainActor private static func miniBAMNote(in root: NSView) -> NSTextField? {
         var found: NSTextField?
+        let sentences = [referenceNote, staleNote, missingNote]
         func visit(_ view: NSView) {
-            if let field = view as? NSTextField, field.stringValue == referenceNote || field.stringValue == staleNote {
+            if let field = view as? NSTextField, sentences.contains(field.stringValue) {
                 found = field
             }
             view.subviews.forEach(visit)
@@ -200,6 +234,19 @@ extension NaoMgsResultViewControllerSmokeTests {
         for name in ["hits.sqlite", "bams/sample-A.bam"] {
             let data = try Data(contentsOf: folder.appendingPathComponent(name))
             digests[name] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+        return digests
+    }
+
+    /// The SHA-256 of every file in the result, keyed by its path inside the result, so a new file is a new key.
+    private func resultFileDigests(_ folder: URL) throws -> [String: String] {
+        let root = folder.resolvingSymlinksInPath()
+        var digests: [String: String] = [:]
+        let walker = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]))
+        for case let url as URL in walker {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            let relative = url.resolvingSymlinksInPath().pathComponents.dropFirst(root.pathComponents.count)
+            digests[relative.joined(separator: "/")] = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
         }
         return digests
     }
