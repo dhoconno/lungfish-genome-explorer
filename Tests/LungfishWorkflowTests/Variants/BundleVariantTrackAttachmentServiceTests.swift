@@ -251,6 +251,32 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         }
     }
 
+    /// TTL2-BIO SF2. The record of a viral caller holds the limit of the run that made it, and none from a run with no limit.
+    func testTheRecordOfAViralCallerHoldsTheTimeLimitOnlyInsideALimitedRun() async throws {
+        let bundleURL = try createBundle()
+        let service = BundleVariantTrackAttachmentService()
+        func recordedLimit(trackID: String, caller: ViralVariantCaller, minutes: Int?) async throws -> ParameterValue? {
+            let staging = try createStagedArtifacts(vcfChromosome: "1")
+            let result = try await AnalysisTimeLimit.withLimit(minutes.flatMap { AnalysisTimeLimit(minutes: $0) }) {
+                try await service.attach(request: BundleVariantTrackAttachmentRequest(
+                    bundleURL: bundleURL, alignmentTrackID: "aln-1", caller: caller,
+                    outputTrackID: trackID, outputTrackName: "Sample BAM • \(caller.displayName)",
+                    stagedVCFGZURL: staging.vcfGZURL, stagedTabixURL: staging.tbiURL,
+                    stagedDatabaseURL: staging.dbURL, variantCount: 2,
+                    variantCallerVersion: "test", variantCallerParametersJSON: "{}",
+                    variantCallerCommandLine: "test", referenceStagedFASTASHA256: "test"
+                ))
+            }
+            let provenanceURL = try XCTUnwrap(result.provenanceURL)
+            let run = try ProvenanceEnvelopeReader.decodeCanonical(try Data(contentsOf: provenanceURL)).legacyWorkflowRun()
+            return run.parameters[AnalysisTimeLimit.recordKey]
+        }
+        let limited = try await recordedLimit(trackID: "limited", caller: .lofreq, minutes: 45)
+        XCTAssertEqual(limited, .integer(45), "the record of a run with a limit names it")
+        let plain = try await recordedLimit(trackID: "plain", caller: .ivar, minutes: nil)
+        XCTAssertNil(plain, "a run with no limit records none")
+    }
+
     private func createBundle() throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("test.lungfishref", isDirectory: true)
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
