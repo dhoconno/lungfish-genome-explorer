@@ -96,8 +96,11 @@ public final class InspectorViewModel {
         selectedTab = availableTabs.first ?? .bundle
     }
 
-    /// Takes the 12S Detail tab out of ``availableTabs`` and moves the selection off it.
+    /// Takes every 12S part out of the Inspector (the Detail tab, the result display
+    /// and its export action) and moves the selection off the Detail tab.
     func clearTwelveSDetail() {
+        twelveSResultDisplaySectionViewModel.clear()
+        twelveSResultDisplaySectionViewModel.onExportRequested = nil
         twelveSDetailSectionViewModel.reset()
         reconcileSelectedTab()
     }

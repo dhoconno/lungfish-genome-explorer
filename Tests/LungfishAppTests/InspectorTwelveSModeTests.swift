@@ -177,6 +177,27 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertEqual(inspector.testingSelectedTab, .resultSummary)
     }
 
+    /// HOST-UX SF1. Leaving 12S takes the whole 12S result display out of the Inspector,
+    /// not only the Detail tab, or the next classifier result opens beside the 12S
+    /// result and sample blocks and without its own Panel Layout and sample filter.
+    func testLeavingTwelveSTakesTheResultDisplayOutOfTheInspector() {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.viewModel.contentMode = .metagenomics
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        inspector.twelveSResultDisplaySectionViewModel.onExportRequested = { _ in }
+        XCTAssertTrue(inspector.twelveSResultDisplaySectionViewModel.isAvailable)
+        inspector.clearTwelveSDetail()
+        XCTAssertFalse(
+            inspector.twelveSResultDisplaySectionViewModel.isAvailable,
+            "the 12S result and sample blocks must leave the Inspector with the viewer"
+        )
+        XCTAssertNil(
+            inspector.twelveSResultDisplaySectionViewModel.onExportRequested,
+            "the export action of the viewer that left must not stay in the Inspector"
+        )
+    }
+
     /// HOST-ARCH SF2. The route enables the Detail tab for the new result before the
     /// viewer replaces the old one, so the replaced 12S viewer must not reset it.
     func testReplacingOneTwelveSResultByAnotherKeepsTheDetailTab() throws {

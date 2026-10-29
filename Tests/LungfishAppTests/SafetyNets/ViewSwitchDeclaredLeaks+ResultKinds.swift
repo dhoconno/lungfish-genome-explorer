@@ -32,7 +32,6 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("12S", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ inspector: twelveS",
         ]),
         leak("TaxTriage", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
@@ -104,10 +103,8 @@ extension ViewSwitchDeclaredLeaks {
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ inspector: twelveS",
             "+ provenance: twelveSAmpliconResultBundle ../k07-twelves/12S/primate-12s.lungfish12s",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -160,11 +157,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("12S", to: ["Kraken2"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
         leak("NAO-MGS", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
@@ -179,27 +171,17 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("12S", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("CZ ID", to: ["Kraken2"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("12S", to: ["TaxTriage"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-        ]),
         leak("TaxTriage", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ inspector: batchOperation=TaxTriage",
-            "+ inspector: twelveS",
             "+ provenance: taxTriageResult ../k03-taxtriage/Analyses/taxtriage-2026-01-15T12-30-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -239,22 +221,10 @@ extension ViewSwitchDeclaredLeaks {
             "- viewports: TaxTriageResultViewController",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("12S", to: ["NAO-MGS"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
-        ]),
-        leak("NAO-MGS", to: ["Kraken2"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
         leak("Kraken2", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ inspector: twelveS",
             "+ provenance: classificationResult ../k01-kraken2/Analyses/kraken2-2026-01-15T11-00-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
@@ -269,46 +239,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("NAO-MGS", to: ["EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, seeTheViewer, panelLayout, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
-        leak("12S", to: ["NVD"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: nvd, seeTheViewer, panelLayout, sampleFilter=3",
-        ]),
-        leak("NVD", to: ["TaxTriage"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-        ]),
-        leak("TaxTriage", to: ["Kraken2", "EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
-        leak("12S", to: ["CZ ID"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: selectAResult, panelLayout",
-        ]),
-        leak("CZ ID", to: ["NVD"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: nvd, seeTheViewer, panelLayout, sampleFilter=3",
-        ]),
-        leak("NVD", to: ["NAO-MGS"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: naoMgs, seeTheViewer, panelLayout, sampleFilter=5",
-        ]),
-        leak("NAO-MGS", to: ["TaxTriage"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-        ]),
-        leak("EsViritu", to: ["Kraken2"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
     ]

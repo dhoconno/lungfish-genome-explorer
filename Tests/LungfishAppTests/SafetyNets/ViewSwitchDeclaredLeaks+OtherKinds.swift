@@ -287,12 +287,9 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("Quick Look", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-            "+ inspector: twelveS",
         ]),
         leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: fastqStatistics",
-            "+ inspector: twelveS",
-            "+ inspectorBlocks: twelveSResult, twelveSSamples",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("Primer order", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
