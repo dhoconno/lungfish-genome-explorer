@@ -7,6 +7,8 @@ import LungfishCore
 @MainActor
 final class MSAViewerChromeRoutingTests: XCTestCase {
     func testParentDrawerVisibilityReturnsAfterLeavingAlignment() async throws {
+        // The test toggles the pane, which stores its flag. A suite keeps that off the machine.
+        isolateAlignmentPaneDefaults()
         let (directory, bundle) = try makeBundle()
         defer { try? FileManager.default.removeItem(at: directory) }
         for wasOpen in [false, true] {

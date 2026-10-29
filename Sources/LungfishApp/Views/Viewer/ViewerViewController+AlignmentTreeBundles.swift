@@ -10,6 +10,12 @@ import os.log
 private let alignmentTreeViewerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAlignmentTreeBundles")
 
 extension ViewerViewController {
+    /// The defaults a newly built alignment viewer keeps its bottom pane state
+    /// and name gutter width in. The app never changes it. The view-switch
+    /// tests give each display a suite of its own, so the open flag that an
+    /// earlier run saved on the machine cannot decide whether the pane opens.
+    static var multipleSequenceAlignmentDefaults: UserDefaults = .standard
+
     /// Displays a multiple-sequence-alignment bundle, reading the primary
     /// alignment FASTA off the main actor.
     ///
@@ -27,6 +33,7 @@ extension ViewerViewController {
         hideForNativeAlignmentTreeBundle()
         hideGenomicsStackForNativeBundle()
         let controller = MultipleSequenceAlignmentViewController()
+        controller.gutterWidthDefaults = Self.multipleSequenceAlignmentDefaults
 
         func tearDownFailedController() {
             controller.view.removeFromSuperview()

@@ -1188,6 +1188,8 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testTogglingTheAnnotationDrawerIsANoOpUnderAnMSA() async throws {
+        // The toggle closes the alignment's pane, which stores its flag. A suite keeps that off the machine.
+        isolateAlignmentPaneDefaults()
         let vc = ViewerViewController()
         _ = vc.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
