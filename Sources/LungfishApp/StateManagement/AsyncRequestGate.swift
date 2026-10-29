@@ -3,6 +3,13 @@ import Foundation
 public struct AsyncRequestToken<Identity: Hashable>: Equatable {
     public let generation: UInt64
     public let identity: Identity
+
+    /// Rebuilds a token from its two parts, as a completion that carried
+    /// them across threads does before it asks the gate whether it is current.
+    public init(generation: UInt64, identity: Identity) {
+        self.generation = generation
+        self.identity = identity
+    }
 }
 
 public struct AsyncRequestGate<Identity: Hashable> {
