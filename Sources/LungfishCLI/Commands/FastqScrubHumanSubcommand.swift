@@ -114,10 +114,11 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         let plainOutputURL = shouldCompressOutput
             ? workspace.appendingPathComponent("scrub-human-output-\(UUID().uuidString).fastq")
             : outputURL
+        var finished = false
         defer {
-            if shouldCompressOutput {
-                try? FileManager.default.removeItem(at: plainOutputURL)
-            }
+            if shouldCompressOutput { try? FileManager.default.removeItem(at: plainOutputURL) }
+            // A run that stopped, by the time limit, Cancel or a failure, leaves no partial FASTQ at the requested path.
+            if !finished { try? FileManager.default.removeItem(at: outputURL) }
         }
 
         if isInterleaved {
@@ -225,6 +226,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             endedAt: runClock.now,
             invocations: invocations
         )
+        finished = true
     }
 
     private func recordProvenance(
