@@ -36,11 +36,12 @@ public protocol SavontProcessRunning: Sendable {
 
 public struct ManagedSavontProcessRunner: SavontProcessRunning {
     /// Whether `value` is what a Savont run record holds for the limit of its launch. A run records null when it
-    /// had no limit and the seconds of a limit a person set. The records of earlier versions hold 7,200.
+    /// had no limit and the seconds of a limit a person set, which is a whole number of minutes. The records of
+    /// earlier versions hold 7,200.
     public static func isRecordedTimeout(_ value: ParameterValue?) -> Bool {
         switch value {
         case .some(.null): return true
-        case .some(.integer(let seconds)): return seconds > 0
+        case .some(.integer(let seconds)): return seconds > 0 && seconds % 60 == 0
         default: return false
         }
     }

@@ -647,6 +647,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
         ]
         guard expectedDefaults.allSatisfy({ options.defaults[$0.key] == $0.value }),
+              ManagedSavontProcessRunner.isRecordedTimeout(options.defaults["timeoutSeconds"]),
               options.resolvedDefaults["condaEnvironment"]
                 == .string(SavontClusteringRunRequest.condaEnvironment),
               ManagedSavontProcessRunner.isRecordedTimeout(options.resolvedDefaults["timeoutSeconds"]),
@@ -761,6 +762,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                   step.resolvedOptions["condaEnvironment"]
                     == .string(SavontClusteringRunRequest.condaEnvironment),
                   ManagedSavontProcessRunner.isRecordedTimeout(step.resolvedOptions["timeoutSeconds"]),
+                  step.resolvedOptions["timeoutSeconds"] == envelope.options.resolvedDefaults["timeoutSeconds"],
                   step.inputs.count == 1,
                   let input = step.inputs.first,
                   input.role == .input,
