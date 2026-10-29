@@ -684,6 +684,64 @@ final class SavontClusteringPipelineTests: XCTestCase {
         XCTAssertNotNil(try ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
     }
 
+    func testRecordedTimeoutAcceptsNoLimitAndWholeMinutesOnly() {
+        let accepted: [ParameterValue] = [.null, .integer(60), .integer(300), .integer(7_200)]
+        for value in accepted {
+            XCTAssertTrue(ManagedSavontProcessRunner.isRecordedTimeout(value), "\(value) is what a run records")
+        }
+        let refused: [ParameterValue?] = [
+            nil, .integer(0), .integer(-1), .integer(-60), .integer(90),
+            .string("7200"), .number(7_200), .boolean(true),
+        ]
+        for value in refused {
+            XCTAssertFalse(ManagedSavontProcessRunner.isRecordedTimeout(value), "\(String(describing: value)) is not")
+        }
+    }
+
+    func testRunRecordsTheLimitOfTheRunAsTimeoutSeconds() async throws {
+        let limited = try await savontEnvelope(minutes: 5)
+        XCTAssertEqual(limited.options.resolvedDefaults["timeoutSeconds"], .integer(300))
+        let attempts = limited.steps.filter { $0.toolName == "savont" }
+        XCTAssertFalse(attempts.isEmpty)
+        for step in attempts {
+            XCTAssertEqual(step.resolvedOptions["timeoutSeconds"], .integer(300))
+        }
+
+        let unlimited = try await savontEnvelope(minutes: nil)
+        XCTAssertEqual(unlimited.options.resolvedDefaults["timeoutSeconds"], .null)
+        for step in unlimited.steps.filter({ $0.toolName == "savont" }) {
+            XCTAssertEqual(step.resolvedOptions["timeoutSeconds"], .null)
+        }
+    }
+
+    func testTheDefaultsMapHoldsNoLimitInsideALimitedRun() async throws {
+        let limited = try await savontEnvelope(minutes: 7)
+        XCTAssertEqual(limited.options.defaults["timeoutSeconds"], .null,
+                       "a default is what applies when nobody chose a limit, which is none")
+        XCTAssertEqual(limited.options.resolvedDefaults["timeoutSeconds"], .integer(420))
+
+        let unlimited = try await savontEnvelope(minutes: nil)
+        XCTAssertEqual(unlimited.options.defaults["timeoutSeconds"], .null)
+        XCTAssertEqual(unlimited.options.resolvedDefaults["timeoutSeconds"], .null)
+    }
+
+    /// The record of one successful run, made inside a run limited to `minutes`, or with no limit for nil.
+    private func savontEnvelope(minutes: Int?) async throws -> ProvenanceEnvelope {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let runner = FakeSavontProcessRunner(actions: [.success(fasta: ">cluster_depth_4\nACGT\n")])
+        let request = try SavontClusteringRunRequest(
+            inputFASTQURL: fixture.input,
+            outputFASTAURL: fixture.output,
+            threads: 4
+        )
+        let limit = minutes.flatMap { AnalysisTimeLimit(minutes: $0) }
+        let result = try await AnalysisTimeLimit.withLimit(limit) {
+            try await SavontClusteringPipeline(processRunner: runner, scratchRootURL: fixture.root).run(request)
+        }
+        return try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+    }
+
     func testResultCodableRoundTripPreservesCleanupPendingURLsAndDecodesLegacyResults() throws {
         let result = SavontClusteringResult(
             outputFASTAURL: URL(fileURLWithPath: "/output/clusters.fasta"),

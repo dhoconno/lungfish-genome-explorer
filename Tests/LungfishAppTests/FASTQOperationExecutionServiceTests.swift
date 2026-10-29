@@ -961,6 +961,67 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testSavontImporterRefusesARecordWhoseAttemptDisagreesWithTheEnvelopeOnTheLimit() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptLimit") { envelope, _ in
+            copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
+                var options = step.resolvedOptions
+                options["timeoutSeconds"] = .integer(1_800)
+                return copiedSavontStep(step, resolvedOptions: options)
+            })
+        }
+    }
+
+    func testSavontImporterRefusesARecordWhoseDefaultsHoldNoRecordedLimit() async throws {
+        try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontDefaultsLimit") { envelope, _ in
+            var defaults = envelope.options.defaults
+            defaults["timeoutSeconds"] = .string("7200")
+            return copiedSavontEnvelope(
+                envelope,
+                options: ProvenanceOptions(
+                    explicit: envelope.options.explicit,
+                    defaults: defaults,
+                    resolvedDefaults: envelope.options.resolvedDefaults
+                )
+            )
+        }
+    }
+
+    /// A record of an earlier version holds the fixed 7,200 seconds in all three places and still imports.
+    func testSavontImporterAcceptsARecordThatHoldsTheOldFixedLimit() async throws {
+        let fixture = try await makePipelineSavontImportFixture(prefix: "FASTQExecSavontOldLimit")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let sidecar = ProvenanceRecorder.fileSidecarURL(for: fixture.output)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(fromSidecar: sidecar))
+        var defaults = envelope.options.defaults
+        defaults["timeoutSeconds"] = .integer(7_200)
+        var resolved = envelope.options.resolvedDefaults
+        resolved["timeoutSeconds"] = .integer(7_200)
+        let older = copiedSavontEnvelope(
+            envelope,
+            options: ProvenanceOptions(
+                explicit: envelope.options.explicit,
+                defaults: defaults,
+                resolvedDefaults: resolved
+            ),
+            steps: envelope.steps.map { step in
+                guard step.toolName == "savont" else { return step }
+                var options = step.resolvedOptions
+                options["timeoutSeconds"] = .integer(7_200)
+                return copiedSavontStep(step, resolvedOptions: options)
+            }
+        )
+        try ProvenanceWriter(signingProvider: nil).write(older, toSidecar: sidecar)
+
+        let imported = try await BundleFASTQOperationImporter(destinationDirectory: fixture.directory).importOutputs(
+            at: [fixture.output],
+            forResolvedRequest: fixture.request,
+            originalRequest: fixture.request,
+            outputDirectory: fixture.directory
+        )
+
+        XCTAssertEqual(imported, [fixture.output])
+    }
+
     func testSavontImporterRejectsMismatchedAttemptRuntime() async throws {
         try await assertMutatedPipelineSavontImportRejected(prefix: "FASTQExecSavontAttemptRuntime") { envelope, _ in
             copiedSavontEnvelope(envelope, steps: replacingFirstSavontStep(in: envelope) { step in
