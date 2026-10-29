@@ -169,6 +169,18 @@ final class TimeLimitOptionTests: XCTestCase {
         XCTAssertNil(unlimited[AnalysisTimeLimit.recordKey])
     }
 
+    /// TTL2-SWIFT SF2. Each cancel helper runs the body of a command in a `Task {}` of its own. The limit of the
+    /// run must reach that task, or every launch would run with no limit while the record, built in the scope,
+    /// still names the limit. `AssembleCommand.runCancellingOnSIGTERM(pipeline:)` makes its `Task {}` the same way.
+    func testTheLimitOfARunReachesTheTaskOfRunCancellingOnSIGTERM() async throws {
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 5)) {
+            await runCancellingOnSIGTERM { () async throws -> TimeInterval in AnalysisTimeLimit.launchTimeout }
+        }
+        XCTAssertEqual(try limited.get(), 300, "the Task the helper starts reads the limit of the run")
+        let plain = await runCancellingOnSIGTERM { () async throws -> TimeInterval in AnalysisTimeLimit.launchTimeout }
+        XCTAssertEqual(try plain.get(), .infinity, "a run no command scoped has no limit")
+    }
+
     private static func value(after option: String, in words: [String]) -> String? {
         words.firstIndex(of: option).flatMap { words.indices.contains($0 + 1) ? words[$0 + 1] : nil }
     }
