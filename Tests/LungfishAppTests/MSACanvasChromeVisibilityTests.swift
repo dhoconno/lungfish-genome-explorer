@@ -18,21 +18,13 @@ import LungfishTestSupport
 @MainActor
 final class MSACanvasChromeVisibilityTests: XCTestCase {
     private var temporaryDirectory: URL!
-    private var savedGutterWidth: Any?
 
     override func setUpWithError() throws {
-        savedGutterWidth = UserDefaults.standard.object(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
         temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        if let savedGutterWidth {
-            UserDefaults.standard.set(savedGutterWidth, forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: MultipleSequenceAlignmentViewController.gutterWidthDefaultsKey)
-        }
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
@@ -43,7 +35,7 @@ final class MSACanvasChromeVisibilityTests: XCTestCase {
         try fasta.write(to: source, atomically: true, encoding: .utf8)
         let bundle = temporaryDirectory.appendingPathComponent("test.lungfishmsa")
         _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundle)
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         try await controller.displayBundle(at: bundle)
         controller.view.layoutSubtreeIfNeeded()

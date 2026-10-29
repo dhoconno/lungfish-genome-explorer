@@ -1207,7 +1207,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportRendersAlignmentMatrix() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1227,7 +1227,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportCanFocusVariableSitesAndSelections() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1247,7 +1247,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentMatrixSupportsKeyboardNavigationAndRangeExtension() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1287,7 +1287,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentMatrixExposesKeyboardTestHook() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1303,7 +1303,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportShowsOverviewAndColorSchemeSelector() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1327,7 +1327,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportExposesZoomControls() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1357,7 +1357,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentToolbarUsesInspectorSizedTextControls() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1381,7 +1381,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentZoomToFitUsesDifferenceVisibleOverview() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
         let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
 
@@ -1404,7 +1404,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentDefaultsToFullyZoomedOutOverview() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
         let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
 
@@ -1416,7 +1416,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentZoomedOutDirtyRectsOutsideContentDoNotCrash() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
         let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
 
@@ -1439,7 +1439,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentZoomedOutShowsSparseOrientationNumbering() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
         let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
 
@@ -1455,7 +1455,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportShowsConfigurableNumbering() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1491,7 +1491,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportShowsConfigurableConsensusRow() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1536,7 +1536,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportCanDisplayDotsAgainstConsensusOrReference() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1608,7 +1608,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentSelectionContextMenuUsesFASTAExtractionActions() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1642,7 +1642,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentBlockSelectionExportsSelectedColumnsAndShowsAnnotations() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1663,7 +1663,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentCreateBundleUsesCLIReferenceExtractionRequest() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
         var capturedRequest: MultipleSequenceAlignmentSelectionExportRequest?
@@ -1684,7 +1684,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentContextMenuRequestsIQTreeInference() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
         var capturedRequest: MultipleSequenceAlignmentTreeInferenceRequest?
@@ -1705,7 +1705,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentDrawerShowsRetainedAnnotationsOutsideSelection() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1717,7 +1717,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentUsesReferenceAnnotationDrawerWithAlignmentMetadata() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1740,7 +1740,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentViewportExposesVisibleAnnotationTracks() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1754,7 +1754,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentAnnotationTracksExposeAccessibilityElements() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1774,7 +1774,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentSelectedCellExposesAccessibilityElement() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1798,7 +1798,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentAnnotationDrawerSelectionNavigatesAlignmentColumns() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1816,7 +1816,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentAnnotationTrackSelectionCentersAndZoomsToAnnotation() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
 
@@ -1836,7 +1836,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentCanAuthorAndProjectAnnotationFromSelectedColumns() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -1866,7 +1866,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentAnnotationAuthoringRequestsCLIWhenCallbackInstalled() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
         var capturedRequest: MultipleSequenceAlignmentAnnotationAddRequest?
@@ -1890,7 +1890,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentAnnotationProjectionRequestsCLIWhenCallbackInstalled() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
         var capturedRequests: [MultipleSequenceAlignmentAnnotationProjectionRequest] = []
@@ -1913,7 +1913,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testMultipleSequenceAlignmentExtractionCarriesProjectedAnnotations() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
@@ -2189,10 +2189,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     // MARK: - Resizable MSA name gutter
 
     func testGutterWidthClampsToTheReadableRange() async throws {
-        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
-        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
-
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
@@ -2207,33 +2204,30 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testGutterWidthPersistsAcrossControllers() async throws {
-        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
-        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
-
         let bundleURL = try makeMultipleSequenceAlignmentBundle()
 
-        let first = MultipleSequenceAlignmentViewController()
+        let first = makeIsolatedAlignmentController()
         _ = first.view
         try await first.displayBundle(at: bundleURL)
         first.testingSetGutterWidth(320)
 
-        let second = MultipleSequenceAlignmentViewController()
+        let second = makeIsolatedAlignmentController(sharingDefaultsWith: first)
         _ = second.view
         try await second.displayBundle(at: bundleURL)
         XCTAssertEqual(second.testingGutterWidth, 320)
     }
 
     func testVisibleMatrixWidthTracksTheLiveGutterWidth() async throws {
-        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
-        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
-
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
+        // Fit Columns reads the clip view's width, and only a layout pass moves it.
+        controller.view.layoutSubtreeIfNeeded()
         let before = controller.testingEffectiveVisibleMatrixWidth
         controller.testingSetGutterWidth(controller.testingGutterWidth + 100)
+        controller.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(
             controller.testingEffectiveVisibleMatrixWidth, before - 100, accuracy: 0.5,
             "Fit Columns would miscompute if this still read the old constant"
@@ -2364,7 +2358,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     // MARK: - Gutter resize handle affordances
 
     func testGutterHandleAdvertisesItselfAsASplitter() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
@@ -2375,7 +2369,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testGutterHandleCarriesACursorUpdateTrackingArea() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
@@ -2393,10 +2387,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testDraggingTheGutterHandleResizesAndClamps() async throws {
-        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
-        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
-
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
@@ -2413,10 +2404,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testDoubleClickingTheGutterHandleSizesToFitTheWidestName() async throws {
-        UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth")
-        defer { UserDefaults.standard.removeObject(forKey: "msaRowGutterWidth") }
-
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
@@ -2440,7 +2428,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     }
 
     func testEveryRowRegistersItsUntruncatedNameAsATooltip() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
 
@@ -2464,7 +2452,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     /// derived its visible-column window from the gutter's own `bounds.width` (160-640pt), so at
     /// a normal window width the reported range silently under-reported the true visible span.
     func testGutterSourceCoordinateRangeCoversFullCanvasWidthNotGutterWidth() async throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         // Wide enough that the canvas viewport (window width minus the gutter) shows far more
         // columns at the default 12pt column width than the 160pt-minimum gutter itself would.
         controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)

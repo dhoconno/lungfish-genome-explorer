@@ -17,7 +17,7 @@ final class MSABottomPaneEmbeddedTabControlTests: XCTestCase {
         try ">A1\nACGTACGTAC\n>B2\nACGTTCGAAC\n".write(to: source, atomically: true, encoding: .utf8)
         let bundleURL = directory.appendingPathComponent("f6.lungfishmsa")
         _ = try MultipleSequenceAlignmentBundle.importAlignment(from: source, to: bundleURL)
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 800, height: 700)
         try await controller.displayBundle(at: bundleURL)
         controller.view.layoutSubtreeIfNeeded()

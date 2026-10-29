@@ -90,7 +90,7 @@ final class PrimerBindingInspectionTests: XCTestCase {
     // right edge (Preview 2026.9.63, Binding inspection at 1468x900).
     @MainActor
     func testAlignmentViewerToolbarStaysInsideANarrowFrame() throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 320),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -160,7 +160,7 @@ final class PrimerBindingInspectionTests: XCTestCase {
 
     @MainActor
     func testReadOnlyCanvasHasNoMutableBundleIdentity() throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         try controller.displayReadOnlyAlignment(fasta: ">reference\nACGT\n>other\nATGT\n", annotations: [])
         XCTAssertNil(controller.bundleURL)
         XCTAssertNil(controller.onAddAnnotationRequested)

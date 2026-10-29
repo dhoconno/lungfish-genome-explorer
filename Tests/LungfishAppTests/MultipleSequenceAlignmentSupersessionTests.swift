@@ -140,7 +140,7 @@ final class MultipleSequenceAlignmentSupersessionTests: XCTestCase {
         let bundleURL = msaBundleURL()
         try XCTSkipUnless(FileManager.default.fileExists(atPath: bundleURL.path), "MSA fixture missing")
 
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         var selectionNotificationCount = 0
         controller.onSelectionStateChanged = { _ in
             selectionNotificationCount += 1

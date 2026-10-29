@@ -4,6 +4,7 @@ import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
 import LungfishPhylogeneticsUI
+import LungfishTestSupport
 
 @MainActor
 final class AppShellAccessibilityTests: XCTestCase {
@@ -209,6 +210,7 @@ final class AppShellAccessibilityTests: XCTestCase {
 
     func testAlignmentAndTreeViewersExposeStableAccessibilityIdentifiers() throws {
         let alignmentController = MultipleSequenceAlignmentViewController()
+        alignmentController.gutterWidthDefaults = makeTestDefaultsSuite(prefix: "AppShellAccessibilityTests").defaults
         let alignmentView = alignmentController.view
         XCTAssertEqual(alignmentView.accessibilityIdentifier(), "multiple-sequence-alignment-bundle-view")
         XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-text-view"))

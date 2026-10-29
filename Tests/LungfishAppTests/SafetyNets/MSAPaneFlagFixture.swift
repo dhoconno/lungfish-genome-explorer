@@ -61,4 +61,23 @@ extension XCTestCase {
             await MainActor.run { ViewerViewController.multipleSequenceAlignmentDefaults = .standard }
         }
     }
+
+    /// For a test that builds the alignment view controller itself. The controller reads its
+    /// gutter width (`msaRowGutterWidth`) and its bottom pane keys (`msaBottomPane.isOpen`, `.tab`,
+    /// `.height`) from `gutterWidthDefaults`, which is the standard defaults of the process, the
+    /// domain `com.apple.dt.xctest.tool` that every xctest process shares and that stays on disk
+    /// between runs. This builds the controller with a suite the test owns, set before the view
+    /// loads, and `makeTestDefaultsSuite` removes it and sweeps it when the test ends. The keys
+    /// start absent whatever the machine holds, and nothing the test persists reaches the machine.
+    /// A test that checks that a second controller reads what the first persisted passes the
+    /// first as `sharingDefaultsWith`, so that both read one suite.
+    @MainActor
+    func makeIsolatedAlignmentController(
+        sharingDefaultsWith other: MultipleSequenceAlignmentViewController? = nil
+    ) -> MultipleSequenceAlignmentViewController {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.gutterWidthDefaults = other?.gutterWidthDefaults
+            ?? makeTestDefaultsSuite(prefix: "AlignmentControllerDefaults").defaults
+        return controller
+    }
 }

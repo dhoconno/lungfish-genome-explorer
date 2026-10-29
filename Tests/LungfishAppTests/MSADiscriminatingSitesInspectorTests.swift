@@ -342,7 +342,7 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         GCGTGCGT
         """)
         let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         _ = try await controller.displayBundle(at: bundleURL)
         XCTAssertEqual(controller.testingDiscriminatingHighlightedColumns, [])
@@ -386,7 +386,7 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         viewer.loadViewIfNeeded()
         let scope = WindowStateScope()
         viewer.windowStateScope = scope
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         _ = controller.view
         _ = try await controller.displayBundle(at: bundleURL)
         viewer.multipleSequenceAlignmentViewController = controller
@@ -610,7 +610,7 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         GCGTGCGT
         """)
         let bundle = try MultipleSequenceAlignmentBundle.load(from: bundleURL)
-        let viewport = MultipleSequenceAlignmentViewController()
+        let viewport = makeIsolatedAlignmentController()
         _ = viewport.view
         _ = try await viewport.displayBundle(at: bundleURL)
         let inspector = InspectorViewController()

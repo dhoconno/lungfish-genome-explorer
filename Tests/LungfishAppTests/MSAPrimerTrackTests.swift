@@ -39,7 +39,7 @@ final class MSAPrimerTrackTests: XCTestCase {
 
     @MainActor
     func testPrimerTrackDoesNotAlterSourceRowsOrConsensus() throws {
-        let controller = MultipleSequenceAlignmentViewController()
+        let controller = makeIsolatedAlignmentController()
         try controller.displayReadOnlyAlignment(fasta: ">a\nACGT\n>b\nATNT\n", annotations: [])
         let summary = controller.testingOverviewSignalSummary
         let before = controller.testingVisibleAlignmentRowsPreview(rowCount: 1, columnCount: 4)
