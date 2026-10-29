@@ -165,6 +165,9 @@ final class InspectorTwelveSModeTests: XCTestCase {
     func testClearTwelveSDetailMovesTheSelectionOffTheDetailTab() {
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
+        // The viewer's mode change sets this when a 12S result opens. Without it the
+        // Inspector stays empty and lists only its bundle tabs.
+        inspector.viewModel.contentMode = .metagenomics
         inspector.updateTwelveSAmpliconResultDocument(makeResult())
         inspector.updateTwelveSDetail(TwelveSDetailPayload(kind: .target(.init(
             scientificName: "Homo sapiens", totalExactReads: 50, referenceTargetCount: 2,
@@ -172,6 +175,27 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertEqual(inspector.testingSelectedTab, .twelveSDetail)
         inspector.clearTwelveSDetail()
         XCTAssertEqual(inspector.testingSelectedTab, .resultSummary)
+    }
+
+    /// HOST-ARCH SF2. The route enables the Detail tab for the new result before the
+    /// viewer replaces the old one, so the replaced 12S viewer must not reset it.
+    func testReplacingOneTwelveSResultByAnotherKeepsTheDetailTab() throws {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        let viewer = ViewerViewController()
+        viewer.loadViewIfNeeded()
+        var closed = 0
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        _ = try viewer.displayTwelveSAmpliconResult(makeResult()) {
+            closed += 1
+            inspector.clearTwelveSDetail()
+        }
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        _ = try viewer.displayTwelveSAmpliconResult(makeResult()) { inspector.clearTwelveSDetail() }
+        XCTAssertEqual(closed, 0, "the replaced viewer must not reset the tab the route just enabled")
+        XCTAssertTrue(inspector.twelveSDetailSectionViewModel.isAvailable)
+        viewer.hideTwelveSAmpliconResultView()
+        XCTAssertFalse(inspector.twelveSDetailSectionViewModel.isAvailable)
     }
 
     /// Re-review 2, S1. A result that read unmerged pairs opens with its
