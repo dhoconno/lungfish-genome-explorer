@@ -148,7 +148,6 @@ Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
 Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2499
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
-Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
