@@ -43,6 +43,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
     var warningPresenter: ((String, String) -> Void)?
+    var failurePresenter: ((FailureReport) -> Void)?
 
     private let summaryStrip = AssemblySummaryStrip()
     private let splitView = TrackedDividerSplitView()
@@ -388,10 +389,7 @@ public final class AssemblyResultViewController: NSViewController {
                 try await self.materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
             } catch {
                 NSSound.beep()
-                self.presentWarning(
-                    title: "Copy FASTA Failed",
-                    message: "Could not copy the selected contig FASTA: \(error.localizedDescription)"
-                )
+                self.presentFailure(AssemblyFailureReports.copyContigFASTA(error))
             }
         }
     }
@@ -647,6 +645,15 @@ public final class AssemblyResultViewController: NSViewController {
         isBlastDrawerOpen = true
     }
 
+    /// Shows a failure report, or hands it to the test seam (ALERT-PRESENTER, Phase 3.1).
+    private func presentFailure(_ report: FailureReport) {
+        if let failurePresenter {
+            failurePresenter(report)
+            return
+        }
+        FailurePresenter.present(report, in: view.window)
+    }
+    
     private func presentWarning(title: String, message: String) {
         if let warningPresenter {
             warningPresenter(title, message)

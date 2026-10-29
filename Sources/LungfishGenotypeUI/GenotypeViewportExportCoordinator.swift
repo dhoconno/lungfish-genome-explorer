@@ -206,11 +206,7 @@ final class GenotypeViewportExportCoordinator {
                             return
                         }
                         self.publishExcelExportEvent(.failed(error.localizedDescription))
-                        if let window = self.view.window ?? NSApp.keyWindow {
-                            NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-                        } else {
-                            NSApp.presentError(error)
-                        }
+                        FailurePresenter.present(GenotypeFailureReports.exportGenotypeView(error), in: self.view.window)
                     }
                 }
             }

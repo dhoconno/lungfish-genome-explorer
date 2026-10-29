@@ -420,17 +420,16 @@ final class AssemblyResultViewControllerTests: XCTestCase {
             materializationRunner: { _ in throw FakeCLIError() }
         )
 
-        var warning: (title: String, message: String)?
-        vc.warningPresenter = { title, message in
-            warning = (title, message)
+        var failure: FailureReport?
+        vc.failurePresenter = { report in
+            failure = report
         }
-
         try await vc.testSelectContigs(named: ["contig_7"])
         vc.testActionBar.copyButton.performClick(nil)
-
-        await waitUntil(timeoutNanoseconds: 5_000_000_000) { warning != nil }
-        XCTAssertEqual(warning?.title, "Copy FASTA Failed")
-        XCTAssertTrue(warning?.message.contains("contig not found in assembly output") ?? false)
+        await waitUntil(timeoutNanoseconds: 5_000_000_000) { failure != nil }
+        XCTAssertEqual(failure?.title, "Could not copy the contig FASTA")
+        XCTAssertFalse(failure?.body.contains("contig not found in assembly output") ?? true, "raw error text stays out of the body")
+        XCTAssertTrue(failure?.details?.contains("contig not found in assembly output") ?? false)
     }
 
     func testConfigureLoadsContigsWhenResultIsMissingFASTAIndex() async throws {

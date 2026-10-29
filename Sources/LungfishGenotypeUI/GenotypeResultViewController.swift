@@ -6854,11 +6854,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { response in
             guard response == .OK, let url = panel.url else { return }
             let presentFailure: @MainActor @Sendable (any Error) -> Void = { error in
-                if let window = self.view.window ?? NSApp.keyWindow {
-                    NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-                } else {
-                    NSApp.presentError(error)
-                }
+                FailurePresenter.present(GenotypeFailureReports.exportManualHaplotypeDefinitions(error), in: self.view.window)
             }
             do {
                 try Self.runManualDefinitionsExport(
