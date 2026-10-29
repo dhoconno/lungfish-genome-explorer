@@ -648,7 +648,7 @@ extension InspectorViewController {
 
     /// Clears the 12S Detail tab and marks it unavailable (12S viewport closed).
     func clearTwelveSDetail() {
-        viewModel.twelveSDetailSectionViewModel.reset()
+        viewModel.clearTwelveSDetail()
     }
 
     func updateTwelveSResultDisplaySummary(_ summary: TwelveSResultDisplaySummary) {

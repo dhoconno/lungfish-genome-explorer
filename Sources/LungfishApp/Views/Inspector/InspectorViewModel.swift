@@ -96,6 +96,12 @@ public final class InspectorViewModel {
         selectedTab = availableTabs.first ?? .bundle
     }
 
+    /// Takes the 12S Detail tab out of ``availableTabs`` and moves the selection off it.
+    func clearTwelveSDetail() {
+        twelveSDetailSectionViewModel.reset()
+        reconcileSelectedTab()
+    }
+
     /// Currently selected read-style subsection inside the View tab.
     var selectedReadStyleViewSubsection: ReadStyleViewSubsection = .alignment
 
