@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishKit
+import LungfishNaoMgsUI
 import LungfishTwelveSUI
 
 extension ViewerViewController {
@@ -15,6 +16,7 @@ extension ViewerViewController {
         registry.register(.bundle(.twelveSResult), factory: TwelveSSurface.factory { [weak self] in self?.wireTwelveSUnresolvedBlast($0) })
         registry.register(.bundle(.primerAnalysis)) { PrimerAnalysisSurface() }
         registry.register(.analysis(.primerOrder)) { PrimerOrderSurface() }
+        registry.register(.analysis(.naomgs), factory: NaoMgsSurface.factory())
         return registry
     }
 

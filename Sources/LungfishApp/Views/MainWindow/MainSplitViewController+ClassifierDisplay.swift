@@ -982,13 +982,22 @@ extension MainSplitViewController {
             displayName: url.lastPathComponent
         )
 
-        // Show a placeholder immediately so the user gets feedback while we load.
+        // Show a placeholder at once. Its viewer takes only a NAO-MGS block out of the Summary when it leaves.
         let placeholderVC = NaoMgsResultViewController()
-        viewerController.displayNaoMgsResult(placeholderVC)
+        do {
+            try viewerController.displayNaoMgsResult(placeholderVC) { [weak self] in
+                guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
+                      summary.naoMgsManifest != nil else { return }
+                summary.showResultBlock(nil)
+            }
+        } catch {
+            mainSplitLogger.error("displayNaoMgsResult: Not shown - \(error.localizedDescription, privacy: .public)")
+            viewerController.clearViewport(statusMessage: "Unable to open the NAO-MGS result. Select it again.")
+            return
+        }
         inspectorController?.clearBatchOperationDetails()
 
-        // Two-phase load: manifest first (fast) for instant taxon list,
-        // then SQLite database (slow) for detail queries.
+        // Two-phase load: the manifest (fast, the taxon list), then SQLite (slow, the detail queries).
         let bundleURL = url
         Task {
             do {
@@ -1002,9 +1011,8 @@ extension MainSplitViewController {
                     throw NSError(domain: "NaoMgsDisplay", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: "manifest.json not found in NAO-MGS bundle"])
                 }
-                // Read the manifest off the main actor; the commit below is
-                // already gated by `canCommitDisplayRequest`, which dominates
-                // the (await-free) UI mutation so a stale read commits nothing.
+                // Read the manifest off the main actor. The commit below is gated by
+                // `canCommitDisplayRequest`, so a stale read commits nothing.
                 let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try decoder.decode(NaoMgsManifest.self, from: manifestData)
 
@@ -1024,24 +1032,16 @@ extension MainSplitViewController {
                                   userInfo: [NSLocalizedDescriptionKey: "hits.sqlite not found — bundle may need re-import"])
                 }
                 if try naomgsBundleNeedsUpgrade(dbURL: dbURL) {
-                    throw NSError(
-                        domain: "NaoMgsDisplay",
-                        code: 3,
-                        userInfo: [
-                            NSLocalizedDescriptionKey: "This NAO-MGS bundle uses an older derived database layout and needs explicit repair or re-import before viewing. Viewing no longer rewrites scientific bundle data automatically."
-                        ]
-                    )
+                    throw NSError(domain: "NaoMgsDisplay", code: 3, userInfo: [NSLocalizedDescriptionKey:
+                        "This NAO-MGS bundle uses an older derived database layout and needs explicit repair or re-import before viewing. Viewing no longer rewrites scientific bundle data automatically."])
                 }
                 let database = try NaoMgsDatabase(at: dbURL)
 
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                // Full configure with database — enables detail queries, filtering, BLAST.
                 placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
-
-                // Update inspector with NAO-MGS manifest info
                 inspectorController?.updateNaoMgsManifest(manifest)
 
-                // Wire sample picker state to Inspector for embedded sample selector
+                // The Inspector's sample filter reads the viewer's picker state.
                 installClassifierMetadataPresentation(
                     resultURL: bundleURL,
                     pickerState: placeholderVC.samplePickerState,

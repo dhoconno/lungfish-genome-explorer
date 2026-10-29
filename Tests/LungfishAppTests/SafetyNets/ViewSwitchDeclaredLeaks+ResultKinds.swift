@@ -27,12 +27,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("NVD", to: ["12S", "Reference", "FASTQ"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
         ]),
-        leak("NAO-MGS", to: ["12S", "Reference", "FASTA document"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-        ]),
-        leak("12S", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-        ]),
         leak("TaxTriage", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
             "+ inspectorBlocks: seeTheViewer, panelLayout",
@@ -64,9 +58,8 @@ extension ViewSwitchDeclaredLeaks {
         leak("NAO-MGS", to: ["Assembly"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("NAO-MGS", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("NAO-MGS", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
             "+ provenance: naoMgsResult ../k04-naomgs/Imports/naomgs-wastewater",
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
@@ -97,9 +90,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: nvd=100",
         ]),
-        leak("NAO-MGS", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-        ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
@@ -129,9 +119,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
-        ]),
-        leak("NAO-MGS", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
         ]),
         leak("NVD", to: ["FASTA document"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>",

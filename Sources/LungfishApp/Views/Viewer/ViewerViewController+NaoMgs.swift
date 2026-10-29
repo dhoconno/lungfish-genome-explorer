@@ -15,17 +15,14 @@ private let naoMgsDisplayLogger = Logger(subsystem: "com.lungfish", category: "N
 
 extension ViewerViewController {
 
-    /// Displays the NAO-MGS result viewer in place of the normal sequence viewer.
-    ///
-    /// Hides all other overlay views (FASTQ, VCF, FASTA, QuickLook, other
-    /// metagenomics viewers) and adds the pre-configured
-    /// `NaoMgsResultViewController` as a child view controller filling the
-    /// content area.
-    ///
-    /// Follows the exact same child-VC pattern as ``displayTaxonomyResult(_:)``.
-    ///
-    /// - Parameter controller: A pre-configured `NaoMgsResultViewController`.
-    public func displayNaoMgsResult(_ controller: NaoMgsResultViewController) {
+    /// Shows `controller` through the surface host in place of the normal sequence
+    /// viewer and returns once it is installed, or throws the reason it is not. The
+    /// caller fills the controller after the show. `onWillDeactivate` runs whenever
+    /// the host later removes this viewer, another NAO-MGS result's show included.
+    public func displayNaoMgsResult(
+        _ controller: NaoMgsResultViewController,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -40,8 +37,6 @@ extension ViewerViewController {
         hideMappingView()
         hideAlignmentTreeBundleViews()
         contentMode = .metagenomics
-
-        addChild(controller)
 
         // Wire BLAST verification callback.
         controller.onBlastVerification = { [weak self, weak controller] summary, readCount, reads in
@@ -71,25 +66,11 @@ extension ViewerViewController {
             controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
         }
 
-        // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage).
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        let surface = try showSurface(.analysis(.naomgs), input: controller, as: NaoMgsSurface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-
-        let resultView = controller.view
-        resultView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(resultView)
-
-        NSLayoutConstraint.activate([
-            resultView.topAnchor.constraint(equalTo: view.topAnchor),
-            resultView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
     }
 
     /// The NAO-MGS taxon's search on `blast submit` (2.11 A65 M2). It draws the
@@ -156,26 +137,9 @@ extension ViewerViewController {
         return result
     }
 
-    /// Hides the NAO-MGS result viewer if one is displayed and restores normal viewer components.
+    /// Hides the NAO-MGS result viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     public func hideNaoMgsView() {
-        for child in children where child is NaoMgsResultViewController {
-            child.view.removeFromSuperview()
-            child.removeFromParent()
-        }
-
-        // Restore normal viewer components (only if no other metagenomics viewer is active).
-        // hideTaxonomyView / hideEsVirituView / hideTaxTriageView each restore these too,
-        // so this guard prevents double-restore when switching between metagenomics results.
-        guard taxonomyViewController == nil,
-              esVirituViewController == nil,
-              taxTriageViewController == nil else { return }
-
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.naomgs))
     }
 }

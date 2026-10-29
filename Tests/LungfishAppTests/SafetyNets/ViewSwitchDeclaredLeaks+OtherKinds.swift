@@ -143,9 +143,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("FASTQ", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-        ]),
         leak("Assembly", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
         ]),
@@ -281,12 +278,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>, NaoMgsResultViewController",
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: NaoMgsResultViewController",
-        ]),
-        leak("Primer analysis", to: ["12S"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
-        ]),
-        leak("Quick Look", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: naoMgs=MU-CASPER-2026-03-31-a-CA_LosAngeles_County_20260304_S2_L001",
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [

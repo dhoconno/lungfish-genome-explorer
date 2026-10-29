@@ -1181,9 +1181,9 @@ final class ViewerBundleRoutingTests: XCTestCase {
         vc.hideAlignmentTreeBundleViews()
         XCTAssertFalse(vc.isNativeBundleViewportInstalled)
 
-        // hideNaoMgsView is the teardown that restores viewer chrome without
-        // first requiring its own controller, so it reaches the reveal call.
-        vc.hideNaoMgsView()
+        // Every teardown reveals the drawer through this call. hideNaoMgsView no
+        // longer reaches it without a NAO-MGS viewer to remove (lane NAOMGS).
+        vc.revealAnnotationDrawerUnlessNativeBundleInstalled()
         XCTAssertEqual(vc.annotationDrawerView?.isHidden, false)
     }
 

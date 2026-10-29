@@ -18,6 +18,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | `configure(database:manifest:bundleURL:)` and `configure(result:bundleURL:)` | NaoMgsResultViewController.swift lines 445 and 491 |
 | Row conversion | `NaoMgsDataConverter`, Sources/LungfishNaoMgsUI/NaoMgsDataConverter.swift line 57 |
 | Shared configure and TSV export helpers | Sources/LungfishNaoMgsUI/NaoMgsResultViewController+ResultViewport.swift |
+| The surface the viewer's host installs, which adopts the App's controller | Sources/LungfishNaoMgsUI/NaoMgsSurface.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+NaoMgs.swift |
 
 ## Contracts this module owns
