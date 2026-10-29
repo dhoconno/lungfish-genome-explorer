@@ -47,6 +47,8 @@ final class ViewSwitchMatrixTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // The alignments this test displays keep their pane state in a suite the test owns and sweeps.
+        isolateAlignmentPaneDefaults()
         paneFlag = MSAPaneFlagFixture(machineFlag: false)
     }
 

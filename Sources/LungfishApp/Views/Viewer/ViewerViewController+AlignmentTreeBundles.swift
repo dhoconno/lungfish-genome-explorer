@@ -12,7 +12,7 @@ private let alignmentTreeViewerLogger = Logger(subsystem: LogSubsystem.app, cate
 extension ViewerViewController {
     /// The defaults a newly built alignment viewer keeps its bottom pane state
     /// and name gutter width in. The app never changes it. The view-switch
-    /// tests give each display a suite of its own, so the open flag that an
+    /// tests give each test a suite of its own, so the open flag that an
     /// earlier run saved on the machine cannot decide whether the pane opens.
     static var multipleSequenceAlignmentDefaults: UserDefaults = .standard
 
