@@ -6,6 +6,13 @@ import LungfishTestSupport
 @MainActor
 final class ImportCenterMenuTests: XCTestCase {
 
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        // RecentProjectsManager writes these keys to UserDefaults.standard with no seam, so each test puts them back.
+        let hostDefaults = HostDefaultsRestorer(keys: ["com.lungfish.recentProjects", "com.lungfish.lastProject"])
+        addTeardownBlock { hostDefaults.restore() }
+    }
+
     func testFileMenuImportSubmenuContainsOnlyImportCenter() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()

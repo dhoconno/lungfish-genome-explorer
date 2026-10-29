@@ -13,9 +13,17 @@ import AppKit
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
+import LungfishTestSupport
 
 @MainActor
 final class EsVirituBatchInspectorStateTests: XCTestCase {
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        // The batch views save their column layouts to UserDefaults.standard under keys that hold the batch folder.
+        let hostDefaults = HostDefaultsRestorer(keysContaining: "EsVirituBatchInspectorStateTests-")
+        addTeardownBlock { hostDefaults.restore() }
+    }
 
     private func makeController() -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()

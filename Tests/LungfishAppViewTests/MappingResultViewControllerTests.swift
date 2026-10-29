@@ -10,9 +10,9 @@ import LungfishTestSupport
 @MainActor
 final class MappingResultViewControllerTests: XCTestCase {
     nonisolated(unsafe) private var tempDir: URL!
-
     override func setUpWithError() throws {
         try super.setUpWithError()
+        orderOutWindowsOpenedDuringTest()  // the host window under a low-depth warning sheet
         UserDefaults.standard.removeObject(forKey: "mappingPanelLayout")
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping_result_view_tests_\(UUID().uuidString)", isDirectory: true)

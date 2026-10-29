@@ -1226,10 +1226,10 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         let viewerVC = ViewerViewController()
         _ = viewerVC.view
 
-        // The taxonomy view controller should start as nil
-        XCTAssertNil(viewerVC.taxonomyViewController)
+        let hostDefaults = HostDefaultsRestorer(keysContaining: "taxonomy-vc-test-")  // the outline's layout key
+        XCTAssertNil(viewerVC.taxonomyViewController, "the taxonomy view controller starts as nil")
 
-        // After displaying, it should exist
+        defer { hostDefaults.restore() }
         let result = makeTestResult()
         viewerVC.displayTaxonomyResult(result)
         XCTAssertNotNil(viewerVC.taxonomyViewController)
