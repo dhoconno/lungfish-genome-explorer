@@ -166,7 +166,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             URL,
             @escaping @Sendable () throws -> Void
         ) throws -> GenotypeReviewableRowCatalogPublication
-    private static let mappingProcessTimeout: TimeInterval = 86_400
+    /// The limit of one mapping launch, nil when the run has none. A person's `--time-limit` sets it.
+    private static var mappingProcessLimit: Duration? {
+        let seconds = AnalysisTimeLimit.launchTimeout
+        return seconds.isFinite ? .seconds(seconds) : nil
+    }
 
     public init(
         condaManager: CondaManager = .shared,
@@ -2685,7 +2689,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         do {
             run = .success(try await ToolProcess.runPipeline(
                 [minimap2Spec, sortSpec],
-                timeout: .seconds(Self.mappingProcessTimeout),
+                timeout: Self.mappingProcessLimit,
                 failurePolicy: .stopAllOnFailure,
                 onLaunch: { stage, _ in
                     // minimap2 holds its own copy of the read end now. Closing
@@ -2715,7 +2719,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             let tool = results.first.map { $0.termination == .exited(code: 0) } == true ? "samtools sort" : "minimap2"
             throw failing(ONTBarcodeDemuxGenotypingError.processTimedOut(
                 tool: tool,
-                seconds: Self.mappingProcessTimeout,
+                seconds: AnalysisTimeLimit.launchTimeout,
                 stderr: stderrText(tool == "minimap2" ? minimap2StderrURL : sortStderrURL)
             ))
         case .failure(let error):
@@ -2798,7 +2802,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             environment: ToolProcessSpec.inheritedEnvironment(),
             stdout: .discard,
             stderr: .file(stderrURL),
-            timeout: .seconds(Self.mappingProcessTimeout),
+            timeout: Self.mappingProcessLimit,
             label: tool
         )
         let run: Result<ToolProcessResult, ToolProcessError>
@@ -2816,7 +2820,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         case .failure(.timedOut):
             throw ONTBarcodeDemuxGenotypingError.processTimedOut(
                 tool: tool,
-                seconds: Self.mappingProcessTimeout,
+                seconds: AnalysisTimeLimit.launchTimeout,
                 stderr: (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
             )
         case .failure(let error):
@@ -2890,7 +2894,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             arguments: arguments,
             environment: "pysam",
             workingDirectory: request.outputDirectory,
-            timeout: 86_400
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard result.exitCode == 0 else {
             throw ONTBarcodeDemuxGenotypingError.filterFailed(status: result.exitCode, stderr: result.stderr)

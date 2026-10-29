@@ -172,7 +172,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
             into: baseViewArguments,
             trailingArgumentCount: plan.trailingArguments.count
         )
-        let viewExecution = try await runSamtoolsOrThrow(arguments: viewArguments, timeout: 3600)
+        let viewExecution = try await runSamtoolsOrThrow(arguments: viewArguments, timeout: AnalysisTimeLimit.launchTimeout)
         commandHistory.append(
             try alignmentCommandExecutionRecord(
                 arguments: viewArguments,
@@ -189,7 +189,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
             sortArguments += ["--reference", referenceFastaPath]
         }
         sortArguments.append(unsortedOutputURL.path)
-        let sortExecution = try await runSamtoolsOrThrow(arguments: sortArguments, timeout: 3600)
+        let sortExecution = try await runSamtoolsOrThrow(arguments: sortArguments, timeout: AnalysisTimeLimit.launchTimeout)
         commandHistory.append(
             try alignmentCommandExecutionRecord(
                 arguments: sortArguments,
@@ -203,7 +203,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
 
         progressHandler?(0.84, "Indexing filtered BAM...")
         let indexArguments = ["index", sortedOutputURL.path]
-        let indexExecution = try await runSamtoolsOrThrow(arguments: indexArguments, timeout: 3600)
+        let indexExecution = try await runSamtoolsOrThrow(arguments: indexArguments, timeout: AnalysisTimeLimit.launchTimeout)
         commandHistory.append(
             try alignmentCommandExecutionRecord(
                 arguments: indexArguments,
@@ -339,7 +339,7 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
     }
 
     private func alignmentCount(arguments: [String]) async throws -> Int {
-        let execution = try await runSamtoolsOrThrow(arguments: arguments, timeout: 300)
+        let execution = try await runSamtoolsOrThrow(arguments: arguments, timeout: AnalysisTimeLimit.launchTimeout)
         let result = execution.result
         guard let count = Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw BundleAlignmentFilterServiceError.invalidCountOutput(result.stdout)

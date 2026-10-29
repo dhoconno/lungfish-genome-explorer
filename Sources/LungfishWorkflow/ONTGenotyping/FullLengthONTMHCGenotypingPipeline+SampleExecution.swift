@@ -291,7 +291,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             tool,
             arguments: arguments,
             workingDirectory: workingDirectory,
-            timeout: 3_600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let completedAt = runClock.now
         steps.append(FullLengthONTMHCProvenanceStep(
@@ -355,7 +355,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             .blastn,
             arguments: arguments,
             workingDirectory: rescueDirectory,
-            timeout: 3_600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         try result.stdout.write(to: tsvURL, atomically: true, encoding: .utf8)
         let completedAt = runClock.now

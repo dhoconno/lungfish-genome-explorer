@@ -62,7 +62,7 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
                 arguments: launch.arguments,
                 workingDirectory: launch.workingDirectory,
                 environment: launch.environment,
-                timeout: launch.timeout,
+                timeout: launch.timeout.isFinite ? launch.timeout : AnalysisTimeLimit.launchTimeout,
                 toolName: Self.recordName(launch.tool)
             )
         } else if let standardOutput = launch.standardOutput {
@@ -72,7 +72,7 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
                 outputFile: standardOutput,
                 workingDirectory: launch.workingDirectory,
                 environment: launch.environment,
-                timeout: launch.timeout
+                timeout: launch.timeout.isFinite ? launch.timeout : AnalysisTimeLimit.launchTimeout
             )
         } else {
             result = try await pipeline.runner.run(
@@ -80,7 +80,7 @@ struct NativeToolStorageLauncher: PortableToolLauncher {
                 arguments: launch.arguments,
                 workingDirectory: launch.workingDirectory,
                 environment: launch.environment,
-                timeout: launch.timeout
+                timeout: launch.timeout.isFinite ? launch.timeout : AnalysisTimeLimit.launchTimeout
             )
         }
         let completedAt = clock.now

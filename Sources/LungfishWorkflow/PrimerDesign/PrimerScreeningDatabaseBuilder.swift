@@ -149,7 +149,7 @@ public struct PrimerScreeningDatabaseBuilder: Sendable {
         self.run = run ?? { executable, arguments, workingDirectory in
             let result = try await NativeToolRunner.shared.runProcess(
                 executableURL: executable, arguments: arguments,
-                workingDirectory: workingDirectory, timeout: 3_600,
+                workingDirectory: workingDirectory, timeout: AnalysisTimeLimit.launchTimeout,
                 toolName: "makeblastdb (LGE off-target screening)")
             return (result.exitCode, result.stderr,
                     result.arguments.isEmpty ? [executable.path] + arguments : result.arguments)

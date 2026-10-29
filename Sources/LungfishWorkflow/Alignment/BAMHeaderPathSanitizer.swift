@@ -73,7 +73,7 @@ public enum BAMHeaderPathSanitizer {
             arguments: ["reheader", "--no-PG", headerURL.path, bamURL.path],
             outputFile: rewrittenURL,
             workingDirectory: directory,
-            timeout: 3_600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard reheaderResult.isSuccess else {
             throw BAMHeaderPathSanitizerError.reheaderFailed(bamURL, reheaderResult.stderr)
@@ -106,7 +106,7 @@ public enum BAMHeaderPathSanitizer {
                 .samtools,
                 arguments: ["index", isCSI ? "-c" : "-b", "-o", temporaryIndex.path, bamURL.path],
                 workingDirectory: bamURL.deletingLastPathComponent(),
-                timeout: 3_600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             guard indexResult.isSuccess else {
                 throw BAMHeaderPathSanitizerError.reindexFailed(bamURL, indexResult.stderr)

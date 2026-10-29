@@ -139,7 +139,7 @@ extension BAMPrimerTrimPipeline {
             .ivar,
             arguments: ivarArgs,
             workingDirectory: workDir,
-            timeout: 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             runner: runner
         )
         let ivarResult = ivarTimedResult.result
@@ -171,7 +171,7 @@ extension BAMPrimerTrimPipeline {
             .samtools,
             arguments: sortArgs,
             workingDirectory: workDir,
-            timeout: 3_600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             runner: runner
         )
         let sortResult = sortTimedResult.result
@@ -203,7 +203,7 @@ extension BAMPrimerTrimPipeline {
             .samtools,
             arguments: indexArgs,
             workingDirectory: workDir,
-            timeout: 600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             runner: runner
         )
         let indexResult = indexTimedResult.result

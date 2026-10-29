@@ -645,13 +645,11 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             "maximumReadLength": .null,
             "singleStrand": .boolean(false),
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
-            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
         ]
         guard expectedDefaults.allSatisfy({ options.defaults[$0.key] == $0.value }),
               options.resolvedDefaults["condaEnvironment"]
                 == .string(SavontClusteringRunRequest.condaEnvironment),
-              options.resolvedDefaults["timeoutSeconds"]
-                == .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+              ManagedSavontProcessRunner.isRecordedTimeout(options.resolvedDefaults["timeoutSeconds"]),
               isNonNegativeInteger(options.resolvedDefaults["clusterCount"]),
               isNonNegativeInteger(options.resolvedDefaults["totalSupportingReads"]),
               options.resolvedDefaults["usedSingleThreadFallback"]?.booleanValue != nil,
@@ -762,8 +760,7 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                     == (request.maximumReadLength.map(ParameterValue.integer) ?? .null),
                   step.resolvedOptions["condaEnvironment"]
                     == .string(SavontClusteringRunRequest.condaEnvironment),
-                  step.resolvedOptions["timeoutSeconds"]
-                    == .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+                  ManagedSavontProcessRunner.isRecordedTimeout(step.resolvedOptions["timeoutSeconds"]),
                   step.inputs.count == 1,
                   let input = step.inputs.first,
                   input.role == .input,

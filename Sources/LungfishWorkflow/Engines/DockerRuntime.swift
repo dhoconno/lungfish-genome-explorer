@@ -332,7 +332,7 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
 
         let (exitCode, _, stderr) = await runDockerCommand(
             ["start", "--attach", container.id],
-            timeout: 24 * 60 * 60
+            timeout: AnalysisTimeLimit.launchTimeout
         )
 
         if var updatedContainer = activeContainers[container.id] {
@@ -615,7 +615,7 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
             executableURL: URL(fileURLWithPath: path),
             arguments: arguments,
             environment: ToolProcessSpec.inheritedEnvironment(),
-            timeout: .seconds(timeout),
+            timeout: timeout.isFinite ? .seconds(timeout) : nil,
             label: "docker"
         )
         let command = (["docker"] + arguments.prefix(1)).joined(separator: " ")

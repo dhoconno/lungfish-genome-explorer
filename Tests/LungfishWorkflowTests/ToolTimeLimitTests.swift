@@ -166,6 +166,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/Engines/ContainerRuntimeProbe.swift", helper: 2, "probe"),
         entry("LungfishWorkflow/Engines/DockerRuntime.swift", helper: 4, "docker control commands"),
         entry("LungfishWorkflow/Extraction/BAMRegionMatcher.swift", helper: 1, "header read"),
+        entry("LungfishWorkflow/Extraction/ClassifierReadResolver+StrandFix.swift", helper: 1, "header read for the strand-fix marker"),
         entry("LungfishWorkflow/Ingestion/FASTQBatchImporter.swift", helper: 1, "stats sample of the first reads"),
         entry("LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift", helper: 1, "the plan reads the limit of the run and sets none"),
         entry("LungfishWorkflow/Mapping/MappingToolVersionProbe.swift", helper: 1, "version probe"),

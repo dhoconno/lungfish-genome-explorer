@@ -242,7 +242,7 @@ public actor ClassifierReadResolver {
 
             // Unified 3600s timeout matches extractViaBAM; a pre-flight estimate
             // should never impose a tighter bound than the operation it previews.
-            let result = try await toolRunner.run(.samtools, arguments: args, timeout: 3600)
+            let result = try await toolRunner.run(.samtools, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
             guard result.isSuccess else {
                 throw ClassifierExtractionError.samtoolsFailed(
                     sampleId: sampleId ?? "(single)",
@@ -523,7 +523,7 @@ public actor ClassifierReadResolver {
             viewArgs.append(contentsOf: ["-o", perSampleBAM.path, bamURL.path])
             viewArgs.append(contentsOf: regions)
 
-            let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: 3600)
+            let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: AnalysisTimeLimit.launchTimeout)
             guard viewResult.isSuccess else {
                 throw ClassifierExtractionError.samtoolsFailed(
                     sampleId: sampleLabel,
@@ -547,7 +547,7 @@ public actor ClassifierReadResolver {
                     tempDir: tempDir,
                     sidecarPrefix: stem,
                     flagFilter: options.samtoolsExcludeFlags,
-                    timeout: 3600,
+                    timeout: AnalysisTimeLimit.launchTimeout,
                     toolRunner: toolRunner
                 )
             } catch BAMToFASTQConversionError.samtoolsFailed(let stderr) {

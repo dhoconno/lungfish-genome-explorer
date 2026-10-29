@@ -35,7 +35,15 @@ public protocol SavontProcessRunning: Sendable {
 }
 
 public struct ManagedSavontProcessRunner: SavontProcessRunning {
-    public static let timeoutSeconds: TimeInterval = 7_200
+    /// Whether `value` is what a Savont run record holds for the limit of its launch. A run records null when it
+    /// had no limit and the seconds of a limit a person set. The records of earlier versions hold 7,200.
+    public static func isRecordedTimeout(_ value: ParameterValue?) -> Bool {
+        switch value {
+        case .some(.null): return true
+        case .some(.integer(let seconds)): return seconds > 0
+        default: return false
+        }
+    }
 
     private let condaManager: CondaManager
 
@@ -50,7 +58,7 @@ public struct ManagedSavontProcessRunner: SavontProcessRunning {
             arguments: arguments,
             environment: SavontClusteringRunRequest.condaEnvironment,
             workingDirectory: workingDirectory,
-            timeout: Self.timeoutSeconds
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let completedAt = processClock.now
         let rootPrefix = condaManager.rootPrefix
@@ -636,7 +644,7 @@ public struct SavontClusteringPipeline: Sendable {
             "maximumReadLength": .null,
             "singleStrand": .boolean(false),
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
-            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+            "timeoutSeconds": AnalysisTimeLimit.current.map { ParameterValue.integer($0.minutes * 60) } ?? .null,
         ]
     }
 
@@ -665,7 +673,7 @@ public struct SavontClusteringPipeline: Sendable {
             "clusterCount": .integer(summary.clusterCount),
             "totalSupportingReads": .integer(summary.totalSupportingReads),
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
-            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+            "timeoutSeconds": AnalysisTimeLimit.current.map { ParameterValue.integer($0.minutes * 60) } ?? .null,
             "publicationBackupCleanupRequired": .boolean(publicationBackupCleanupCandidateCount > 0),
             "publicationBackupCleanupCandidateCount": .integer(publicationBackupCleanupCandidateCount),
             "publicationBackupCleanupStatus": .string("evaluated-after-commit"),
@@ -689,7 +697,7 @@ public struct SavontClusteringPipeline: Sendable {
             "maximumReadLength": request.maximumReadLength.map(ParameterValue.integer) ?? .null,
             "singleStrand": .boolean(singleStrand),
             "condaEnvironment": .string(SavontClusteringRunRequest.condaEnvironment),
-            "timeoutSeconds": .integer(Int(ManagedSavontProcessRunner.timeoutSeconds)),
+            "timeoutSeconds": AnalysisTimeLimit.current.map { ParameterValue.integer($0.minutes * 60) } ?? .null,
         ]
     }
 

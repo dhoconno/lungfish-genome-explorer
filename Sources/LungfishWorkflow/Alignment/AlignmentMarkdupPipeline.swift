@@ -292,8 +292,7 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
             coordinateSortedBAM: tempDir.appendingPathComponent("coord.sorted.bam")
         )
 
-        let size = (try? FileManager.default.attributesOfItem(atPath: inputURL.path)[.size] as? Int64) ?? 0
-        let longTimeout = max(600.0, Double(size) / 10_000_000.0)
+        let longTimeout = AnalysisTimeLimit.launchTimeout
         var commandHistory: [AlignmentCommandExecutionRecord] = []
         let threadArguments = sortThreads.map { ["-@", String(max(1, $0))] } ?? []
         let samtoolsVersion = await samtoolsRunner.samtoolsVersion()
@@ -372,7 +371,7 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
 
         progressHandler?(0.93, "Indexing output BAM...")
         let indexArgs = ["index", outputURL.path]
-        let indexExecution = try await runSamtoolsOrThrow(indexArgs, timeout: 3600)
+        let indexExecution = try await runSamtoolsOrThrow(indexArgs, timeout: AnalysisTimeLimit.launchTimeout)
         commandHistory.append(
             try alignmentCommandExecutionRecord(
                 arguments: indexArgs,

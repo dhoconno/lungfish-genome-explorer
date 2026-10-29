@@ -202,8 +202,8 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
     ) async throws -> [Launcher.Record] {
         let inputFile = run.inputs[0]
         let inputFile2 = run.inputs.count > 1 ? run.inputs[1] : nil
-        let inputBytes = (try? FileManager.default.attributesOfItem(atPath: inputFile.path)[.size] as? Int64) ?? 0
-        let timeoutSeconds = run.deadlineSeconds ?? max(900, Double(inputBytes) / 2_500_000)
+        // A run with no deadline has no limit. The Mac launcher gives it the limit of the run when a person set one.
+        let timeoutSeconds = run.deadlineSeconds ?? .infinity
 
         // Override any JAVA_TOOL_OPTIONS that might constrain heap below our calculated value.
         // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.
@@ -348,7 +348,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
     }
 
     /// Compresses `input` into `output` with the named compressor at its default level and records the launch. A nil
-    /// `timeout` takes the Mac's rule of at least 600 seconds and one second for each 5 MB of input.
+    /// `timeout` nil is no limit, and the Mac launcher then gives the compressor the limit of the run when a person set one.
     package func compress(
         input: URL,
         output: URL,
@@ -359,8 +359,7 @@ package struct PortableStorageStep<Launcher: PortableToolLauncher>: Sendable {
     ) async throws -> Launcher.Record {
         guard let compressor else { throw PortableStorageError.compressorNotFound }
         let args = compressor.arguments(threads: threads, input: input)
-        let inputSize = (try? FileManager.default.attributesOfItem(atPath: input.path)[.size] as? Int64) ?? 0
-        let timeoutSeconds = timeout ?? max(600, Double(inputSize) / 5_000_000)
+        let timeoutSeconds = timeout ?? .infinity
 
         progress(0.1, "Compressing with \(compressor.rawValue)...")
 

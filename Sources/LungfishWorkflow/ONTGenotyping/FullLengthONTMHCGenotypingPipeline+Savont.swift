@@ -446,7 +446,7 @@ extension FullLengthONTMHCGenotypingPipeline {
             arguments: arguments,
             environment: FullLengthONTMHCGenotypingRunRequest.savontCondaEnvironment,
             workingDirectory: sampleOutputDirectory,
-            timeout: 7_200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         if result.exitCode == 0 {
             try FullLengthONTMHCSavontRunSupport.materializeCompletedRawOutput(

@@ -68,7 +68,7 @@ struct FreyjaCommand: AsyncParsableCommand {
                     arguments: Array(plan.command.dropFirst()),
                     environment: "freyja",
                     workingDirectory: outputDirURL,
-                    timeout: 24 * 60 * 60
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 guard result.exitCode == 0 else {
                     throw CLIError.workflowFailed(reason: result.stderr.isEmpty ? result.stdout : result.stderr)

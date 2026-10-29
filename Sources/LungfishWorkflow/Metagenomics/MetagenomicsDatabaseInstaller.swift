@@ -485,7 +485,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
                     name: "kraken2-build", arguments: specialArguments, environment: "kraken2",
                     executableDirectory: krakenBin, toolVersion: krakenVersion, options: resolved, startedAt: now()
                 ))
-                let special = try await toolRunner.run(name: "kraken2-build", arguments: specialArguments, environment: "kraken2", workingDirectory: staging, timeout: 86_400)
+                let special = try await toolRunner.run(name: "kraken2-build", arguments: specialArguments, environment: "kraken2", workingDirectory: staging, timeout: AnalysisTimeLimit.launchTimeout)
                 steps[steps.count - 1] = evidence(from: special, toolName: "kraken2-build", inputs: [], options: resolved)
                 try throwOnFailure(special, tool: "kraken2-build")
                 try Task.checkCancellation()
@@ -494,7 +494,7 @@ public struct MetagenomicsDatabaseInstaller: MetagenomicsDatabaseInstalling, Sen
                     name: "bracken-build", arguments: brackenArguments, environment: "bracken",
                     executableDirectory: brackenBin, toolVersion: brackenVersion, options: resolved, startedAt: now()
                 ))
-                let bracken = try await toolRunner.run(name: "bracken-build", arguments: brackenArguments, environment: "bracken", workingDirectory: staging, timeout: 86_400)
+                let bracken = try await toolRunner.run(name: "bracken-build", arguments: brackenArguments, environment: "bracken", workingDirectory: staging, timeout: AnalysisTimeLimit.launchTimeout)
                 steps[steps.count - 1] = evidence(from: bracken, toolName: "bracken-build", inputs: [], options: resolved)
                 try throwOnFailure(bracken, tool: "bracken-build")
             }

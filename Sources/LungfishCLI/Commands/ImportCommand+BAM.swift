@@ -209,7 +209,7 @@ extension ImportCommand {
                         let indexResult = try await runner.run(
                             .samtools,
                             arguments: ["index", destURL.path],
-                            timeout: 3600
+                            timeout: AnalysisTimeLimit.launchTimeout
                         )
                         let indexCompletedAt = indexClock.now
                         var indexStepOutputs: [ProvenanceFileDescriptor] = []
@@ -567,7 +567,7 @@ extension ImportCommand {
         ) async -> String? {
             let clock = ProvenanceRunClock()
             do {
-                let result = try await NativeToolRunner.shared.run(.samtools, arguments: ["flagstat", destURL.path], timeout: 3600)
+                let result = try await NativeToolRunner.shared.run(.samtools, arguments: ["flagstat", destURL.path], timeout: AnalysisTimeLimit.launchTimeout)
                 let completedAt = clock.now
                 steps.append(try nativeToolProvenanceStep(
                     toolName: "samtools",

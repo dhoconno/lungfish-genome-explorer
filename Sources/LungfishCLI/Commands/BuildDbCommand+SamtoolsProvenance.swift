@@ -327,7 +327,7 @@ final class BuildDbSamtoolsProvenanceTracker {
         let result = try await NativeToolRunner.shared.runProcess(
             executableURL: samtoolsURL,
             arguments: arguments,
-            timeout: 3600,
+            timeout: AnalysisTimeLimit.launchTimeout,
             toolName: "samtools"
         )
         return BuildDbSamtoolsInvocation(

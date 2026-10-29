@@ -310,15 +310,15 @@ extension VCFHeaderPathSanitizer {
             .bcftools,
             arguments: ["reheader", "-h", headerURL.path, "-o", rewrittenURL.path, vcfURL.path],
             workingDirectory: directory,
-            timeout: 3_600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard reheader.isSuccess else {
             throw VCFHeaderPathSanitizerError.reheaderFailed(vcfURL, reheader.stderr)
         }
         for kind in indexKinds {
             let result = kind == "tbi"
-                ? try await runner.run(.tabix, arguments: ["-f", "-p", "vcf", rewrittenURL.path], timeout: 3_600)
-                : try await runner.run(.bcftools, arguments: ["index", "-c", "-f", rewrittenURL.path], timeout: 3_600)
+                ? try await runner.run(.tabix, arguments: ["-f", "-p", "vcf", rewrittenURL.path], timeout: AnalysisTimeLimit.launchTimeout)
+                : try await runner.run(.bcftools, arguments: ["index", "-c", "-f", rewrittenURL.path], timeout: AnalysisTimeLimit.launchTimeout)
             guard result.isSuccess else {
                 throw VCFHeaderPathSanitizerError.reindexFailed(vcfURL, result.stderr)
             }

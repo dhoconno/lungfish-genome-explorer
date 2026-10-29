@@ -509,11 +509,8 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         progress(0.10, "Aligning reads with minimap2 (\(config.preset.displayName))...")
         logger.info("Running minimap2 with preset \(config.preset.rawValue, privacy: .public) on \(config.inputFiles.count, privacy: .public) input file(s)")
 
-        // Dynamic timeout: 2 hours base, scaled by total input size
-        let totalInputBytes = config.inputFiles.compactMap { url -> Int64? in
-            (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int64
-        }.reduce(0, +)
-        let alignTimeout = max(7200, TimeInterval(totalInputBytes / 10_000_000))
+        // No limit unless the person set one with --time-limit, however large the input
+        let alignTimeout = AnalysisTimeLimit.launchTimeout
 
         let mappingInputs = mappingInputRecords(for: config, replayInputRecords: replayInputs.fileRecords)
         let minimap2Clock = ProvenanceRunClock()
@@ -632,7 +629,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 .samtools,
                 arguments: sortArguments,
                 workingDirectory: config.outputDirectory,
-                timeout: max(3600, TimeInterval(totalInputBytes / 5_000_000))
+                timeout: AnalysisTimeLimit.launchTimeout
             )
         } catch {
             let sortEnd = sortClock.now
@@ -719,7 +716,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 .samtools,
                 arguments: indexArguments,
                 workingDirectory: config.outputDirectory,
-                timeout: 600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
         } catch {
             let indexEnd = indexClock.now
@@ -802,7 +799,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
                 .samtools,
                 arguments: statsArguments,
                 workingDirectory: config.outputDirectory,
-                timeout: 300
+                timeout: AnalysisTimeLimit.launchTimeout
             )
         } catch {
             let statsEnd = statsClock.now

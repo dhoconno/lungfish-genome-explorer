@@ -794,15 +794,13 @@ extension NativeToolRunner {
         }
         args.append(inputPath.path)
 
-        // bgzip on large genomes (3+ GB) can take 10+ minutes single-threaded
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: inputPath.path)[.size] as? Int64) ?? 0
-        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 10_000_000) // ~10 MB/s minimum
+        // bgzip on large genomes (3+ GB) can take 10+ minutes single-threaded, so it carries the limit of the run
 
         return try await run(
             .bgzip,
             arguments: args,
             workingDirectory: inputPath.deletingLastPathComponent(),
-            timeout: estimatedTimeout
+            timeout: AnalysisTimeLimit.launchTimeout
         )
     }
     
@@ -814,15 +812,13 @@ extension NativeToolRunner {
     /// - Parameter inputPath: Path to the `.gz` file to decompress.
     /// - Returns: The tool result.
     public func bgzipDecompress(inputPath: URL) async throws -> NativeToolResult {
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: inputPath.path)[.size] as? Int64) ?? 0
-        // Decompression is faster than compression, but still needs generous timeout for large files
-        let estimatedTimeout: TimeInterval = max(300, Double(fileSize) / 20_000_000)
+        // Decompression of a large file can take a long time, so it carries the limit of the run
 
         return try await run(
             .bgzip,
             arguments: ["-d", "-f", inputPath.path],
             workingDirectory: inputPath.deletingLastPathComponent(),
-            timeout: estimatedTimeout
+            timeout: AnalysisTimeLimit.launchTimeout
         )
     }
 
@@ -831,15 +827,13 @@ extension NativeToolRunner {
     /// - Parameter fastaPath: Path to the FASTA file (can be compressed).
     /// - Returns: Result of the indexing.
     public func indexFASTA(fastaPath: URL) async throws -> NativeToolResult {
-        // samtools faidx on large genomes can take several minutes
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: fastaPath.path)[.size] as? Int64) ?? 0
-        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 10_000_000)
+        // samtools faidx on large genomes can take several minutes, so it carries the limit of the run
 
         return try await run(
             .samtools,
             arguments: ["faidx", fastaPath.path],
             workingDirectory: fastaPath.deletingLastPathComponent(),
-            timeout: estimatedTimeout
+            timeout: AnalysisTimeLimit.launchTimeout
         )
     }
     

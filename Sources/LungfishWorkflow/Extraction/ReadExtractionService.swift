@@ -270,7 +270,7 @@ public actor ReadExtractionService {
         // converter's writer below, and the BAM keeps the records with a mate flag.
         let unflaggedSAM: URL
         do {
-            unflaggedSAM = try await separateUnflaggedRecords(of: collatedBAM, flagFilter: 0, timeout: nil, toolRunner: toolRunner)
+            unflaggedSAM = try await separateUnflaggedRecords(of: collatedBAM, flagFilter: 0, timeout: AnalysisTimeLimit.launchTimeout, toolRunner: toolRunner)
         } catch BAMToFASTQConversionError.samtoolsFailed(let stderr) {
             throw ExtractionError.samtoolsFailed(stderr)
         }

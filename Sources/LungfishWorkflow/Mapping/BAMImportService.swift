@@ -462,8 +462,7 @@ public final class BAMImportService: @unchecked Sendable {
         }
 
         progressHandler?(0.05, "Sorting alignment into bundle...")
-        let inputSize = (try? FileManager.default.attributesOfItem(atPath: sourceURL.path)[.size] as? Int64) ?? 0
-        let sortTimeout = max(600, Double(inputSize) / 10_000_000)
+        let sortTimeout = AnalysisTimeLimit.launchTimeout
 
         var sortArgs = ["sort"]
         if outputFormat == .cram {
@@ -491,7 +490,7 @@ public final class BAMImportService: @unchecked Sendable {
             indexArgs = ["index", "--reference", referenceFasta, outputURL.path]
         }
         let indexClock = ProvenanceRunClock()
-        let indexResult = try await runner.run(.samtools, arguments: indexArgs, timeout: 3600)
+        let indexResult = try await runner.run(.samtools, arguments: indexArgs, timeout: AnalysisTimeLimit.launchTimeout)
         let indexCompletedAt = indexClock.now
         guard indexResult.isSuccess else {
             throw BAMImportError.indexCreationFailed("Failed to index sorted alignment: \(indexResult.stderr)")

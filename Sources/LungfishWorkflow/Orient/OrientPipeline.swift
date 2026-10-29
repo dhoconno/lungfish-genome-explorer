@@ -217,7 +217,7 @@ public final class OrientPipeline: @unchecked Sendable {
                 .vsearch,
                 arguments: args,
                 workingDirectory: workDir,
-                timeout: 1800
+                timeout: AnalysisTimeLimit.launchTimeout
             )
         } catch {
             let vsearchEnd = vsearchClock.now

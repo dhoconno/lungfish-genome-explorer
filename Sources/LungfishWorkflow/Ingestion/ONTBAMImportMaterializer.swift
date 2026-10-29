@@ -102,7 +102,7 @@ public enum ONTBAMImportMaterializer {
             .samtools,
             arguments: bamToFASTQArguments,
             outputFile: fastqURL,
-            timeout: ImportToolTimeout.seconds(for: .samtools, atLeast: 300, inputs: [conversionInput])
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let conversionEndedAt = conversionClock.now
         guard conversion.isSuccess else {
@@ -142,7 +142,7 @@ public enum ONTBAMImportMaterializer {
             .pigz,
             arguments: compressionArguments,
             outputFile: compressedURL,
-            timeout: ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [fastqURL])
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let compressionEndedAt = compressionClock.now
         guard compression.isSuccess else {
@@ -275,7 +275,7 @@ public enum ONTBAMImportMaterializer {
         ]
         // Collation reads and writes the whole BAM twice, so a large file
         // needs longer than the runner's default.
-        let timeout = max(900, Double(fileSize(of: pair.r1)) / 2_500_000)
+        let timeout = AnalysisTimeLimit.launchTimeout
         let collationClock = ProvenanceRunClock()
         let result = try await runner.run(.samtools, arguments: arguments, timeout: timeout)
         let endedAt = collationClock.now

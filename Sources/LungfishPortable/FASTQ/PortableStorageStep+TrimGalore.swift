@@ -161,9 +161,7 @@ extension PortableStorageStep {
         try fm.createDirectory(at: trimOutputDirectory, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: trimOutputDirectory) }
 
-        let timeoutSeconds = run.deadlineSeconds ?? max(
-            900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: run.inputs)) / 2_500_000
-        )
+        let timeoutSeconds = run.deadlineSeconds ?? .infinity
         let childLauncher = self.childLauncher
         var trimInputs = run.inputs
         var paired = run.pairing == .pairs
@@ -285,8 +283,7 @@ extension PortableStorageStep {
         let (pairsRecord, pairsReport) = try await launchTrimGalore(
             arguments: pairsArguments, inputs: [r1, r2], outputDirectory: pairsOutput,
             workingDirectory: run.workingDirectory,
-            timeout: run.deadlineSeconds
-                ?? max(900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 2_500_000)
+            timeout: run.deadlineSeconds ?? .infinity
         )
         try? fm.removeItem(at: pairsInput)
 
@@ -311,9 +308,7 @@ extension PortableStorageStep {
         let (unpairedRecord, unpairedReport) = try await launchTrimGalore(
             arguments: unpairedArguments, inputs: [halves.unpaired], outputDirectory: unpairedOutput,
             workingDirectory: run.workingDirectory,
-            timeout: run.deadlineSeconds ?? max(
-                900, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [halves.unpaired])) / 2_500_000
-            )
+            timeout: run.deadlineSeconds ?? .infinity
         )
         try? fm.removeItem(at: halves.unpaired)
 
@@ -383,8 +378,7 @@ extension PortableStorageStep {
         let args = PortableStoragePlan.trimGaloreInterleaveArguments(
             r1: r1, r2: r2, output: output, compressionLevel: run.compressionLevel, threads: run.threads
         )
-        let timeoutSeconds = run.deadlineSeconds
-            ?? max(600, Double(PortableStoragePlan.estimatedUncompressedInputBytes(for: [r1, r2])) / 5_000_000)
+        let timeoutSeconds = run.deadlineSeconds ?? .infinity
         progress(0.1, "Interleaving paired Trim Galore outputs...")
         let launch = PortableToolLaunch(
             tool: .reformat, arguments: args, workingDirectory: run.workingDirectory, timeout: timeoutSeconds
