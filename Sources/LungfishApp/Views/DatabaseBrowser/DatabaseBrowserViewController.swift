@@ -1151,12 +1151,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         do {
             try importAccessionList(at: url)
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Import Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            presentDatabaseBrowserAlert(alert)
+            presentDatabaseBrowserAlert(FailurePresenter.alert(for: DatabaseBrowserFailureReports.importAccessionList(error)))
         }
     }
 

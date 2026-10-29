@@ -615,11 +615,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(sequences.joined(separator: "\n"), forType: .string)
             } catch {
-                guard let self else { return }
-                let alert = NSAlert()
-                alert.messageText = "Copy Sequences Failed"
-                alert.informativeText = error.localizedDescription
-                if let window = self.view.window { alert.beginSheetModal(for: window, completionHandler: nil) }
+                guard let self, let window = self.view.window else { return }
+                FailurePresenter.present(ReferenceBundleFailureReports.copySequences(error), in: window)
             }
         }
     }
