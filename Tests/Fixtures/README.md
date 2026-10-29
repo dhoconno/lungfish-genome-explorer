@@ -103,6 +103,16 @@ Regenerate it from the repository root with:
 python3 Tests/Fixtures/mapping/supplementary-one-contig/make_fixture.py Tests/Fixtures/mapping/supplementary-one-contig <empty scratch folder>
 ```
 
+## nvd/
+
+An NVD result shape for the Unique Reads count.
+
+| Path | Description |
+|------|-------------|
+| `secondary-supplementary/` | One accession (`SYN0001.1`, 1,000 bp) and its sorted BAM with `.bai` (`S1.filtered.bam`, built by the managed samtools 1.24 from the hand-written `source.sam`). The BAM holds eight records of six single-end reads: one read with a secondary record, one with a supplementary record, and two reads at one position so that `samtools markdup` marks one of them. It carries no duplicate marks, as an NVD run leaves it. `samtools view -c -F 0x404` counts 8 and `-F 0xD04` counts 6 as written, and 7 and 5 after the markdup that the import runs |
+
+The reads are wholly synthetic. `secondary-supplementary/README.md` lists every record. `NvdUniqueReadsFlagsLiveConformanceTests` imports the folder and expects 5 Unique Reads, and `ClassifierExtractionSecondarySupplementaryLiveConformanceTests` extracts from it and expects 5 reads, each once at its primary alignment.
+
 ## Usage in Tests
 
 ```swift
