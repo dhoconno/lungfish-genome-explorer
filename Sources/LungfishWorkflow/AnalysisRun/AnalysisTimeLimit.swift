@@ -4,7 +4,8 @@
 
 import Foundation
 
-/// The wall-clock limit a person sets on one analysis run with `--time-limit <minutes>`.
+/// The wall-clock limit a person sets with `--time-limit <minutes>`. Each analysis launch of the run gets the whole
+/// limit, so a run of several launches can last longer than the limit.
 ///
 /// An analysis tool has no wall-clock limit by default, and a limit is a named option that the run records
 /// (`docs/contracts/SCOPE-AND-DELIVERY.md`, Tool run time). A command that offers the option runs its body inside
