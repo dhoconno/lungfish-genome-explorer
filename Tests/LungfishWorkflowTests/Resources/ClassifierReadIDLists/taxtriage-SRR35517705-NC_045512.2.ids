@@ -1,0 +1,17 @@
+# Frozen read IDs, lane FASTQ-SAME-NAME of Phase 3.1. Taken from the tool run directly, never from the app's output.
+# fixture: Tests/Fixtures/taxtriage-mini/minimap2/SRR35517705.SRR35517705.dwnld.references.bam
+# command: samtools view -F 0xD04 SRR35517705.SRR35517705.dwnld.references.bam NC_045512.2 | cut -f1 | LC_ALL=C sort -u
+# tool: samtools 1.24
+# records: 16 (the number of records the same selection holds before the IDs are made unique)
+# unique: 11
+SRR35517705.120910
+SRR35517705.18216
+SRR35517705.204418
+SRR35517705.215488
+SRR35517705.243787
+SRR35517705.272181
+SRR35517705.2920
+SRR35517705.49
+SRR35517705.56170
+SRR35517705.754
+SRR35517705.8023
