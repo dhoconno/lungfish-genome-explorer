@@ -36,8 +36,8 @@ OPTIONS:
                           should be passed to MAFFT
   --extra-args <extra-args>
                           Additional MAFFT arguments passed verbatim
-  --time-limit <minutes>  Stop the run after this many minutes. Without it the
-                          run has no time limit.
+  --time-limit <minutes>  Stop any analysis step that runs longer than this
+                          many minutes. Without it the run has no time limit.
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

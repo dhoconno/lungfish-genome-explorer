@@ -16,7 +16,7 @@ struct TimeLimitOptions: ParsableArguments {
     @Option(
         name: .customLong("time-limit"),
         help: ArgumentHelp(
-            "Stop the run after this many minutes. Without it the run has no time limit.",
+            "Stop any analysis step that runs longer than this many minutes. Without it the run has no time limit.",
             valueName: "minutes"
         )
     )
