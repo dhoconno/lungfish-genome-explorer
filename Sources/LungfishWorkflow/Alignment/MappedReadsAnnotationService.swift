@@ -90,7 +90,7 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         progressHandler?(0.1, "Reading mapped alignments...")
         let viewArguments = ["view", "-h", sourceAlignmentPath]
         let samtoolsClock = ProvenanceRunClock()
-        let samtoolsResult = try await samtoolsRunner.runSamtools(arguments: viewArguments, timeout: samtoolsTimeout(for: sourceAlignmentPath))
+        let samtoolsResult = try await samtoolsRunner.runSamtools(arguments: viewArguments, timeout: AnalysisTimeLimit.launchTimeout)
         let samtoolsCompletedAt = samtoolsClock.now
         guard samtoolsResult.isSuccess else {
             throw MappedReadsAnnotationServiceError.samtoolsFailed(
@@ -267,11 +267,6 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
         guard fields.count >= 2 else { return nil }
         return UInt16(fields[1])
-    }
-
-    private func samtoolsTimeout(for path: String) -> TimeInterval {
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
-        return max(600.0, Double(fileSize) / 10_000_000.0)
     }
 
     private func removeAnnotationArtifacts(for track: AnnotationTrackInfo, bundleURL: URL) {

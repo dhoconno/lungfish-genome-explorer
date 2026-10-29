@@ -239,53 +239,18 @@ public struct StepContext: Sendable {
         }
     }
 
+    /// The limit of a recipe tool launch is the limit of the run, and none unless a person set one. It does not
+    /// scale with the size of the input, so a long step on a small sample is never stopped by a limit nobody chose.
     func recipeToolTimeout(for tool: NativeTool, input: StepInput) -> TimeInterval {
-        recipeToolTimeout(
-            for: tool,
-            inputURLs: [input.r1, input.r2, input.r3].compactMap { $0 }
-        )
+        Self.recipeToolTimeout(for: tool, inputBytes: 0)
     }
 
     func recipeToolTimeout(for tool: NativeTool, inputURLs: [URL]) -> TimeInterval {
-        let inputBytes = inputURLs.reduce(Int64(0)) { total, url in
-            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-            return total + (attrs?[.size] as? Int64 ?? 0)
-        }
-        return Self.recipeToolTimeout(for: tool, inputBytes: inputBytes)
+        Self.recipeToolTimeout(for: tool, inputBytes: 0)
     }
 
     static func recipeToolTimeout(for tool: NativeTool, inputBytes: Int64) -> TimeInterval {
-        if inputBytes >= 1_000_000_000 {
-            return .infinity
-        }
-
-        let minimum: TimeInterval
-        let bytesPerSecond: Double
-
-        switch tool {
-        case .fastp:
-            minimum = 3_600
-            bytesPerSecond = 5_000_000
-        case .ribodetector:
-            minimum = 7_200
-            bytesPerSecond = 500_000
-        case .deacon:
-            minimum = 7_200
-            bytesPerSecond = 3_000_000
-        case .seqkit:
-            minimum = 1_800
-            bytesPerSecond = 10_000_000
-        case .reformat, .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .bbmap, .mapPacBio:
-            minimum = 1_800
-            bytesPerSecond = 2_500_000
-        default:
-            minimum = 1_800
-            bytesPerSecond = 2_500_000
-        }
-
-        guard inputBytes > 0 else { return minimum }
-        let sizeScaledTimeout = Double(inputBytes) / bytesPerSecond
-        return max(minimum, sizeScaledTimeout)
+        AnalysisTimeLimit.launchTimeout
     }
 }
 

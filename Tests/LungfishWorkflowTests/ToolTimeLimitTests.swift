@@ -182,6 +182,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/PrimerDesign/Primer3DesignRunner.swift", helper: 1, "version probe"),
         entry("LungfishWorkflow/PrimerDesign/PrimerAnalysisNativeInspectionService.swift", helper: 1, "probe"),
         entry("LungfishWorkflow/PrimerDesign/PrimerScreeningDatabaseBuilder.swift", helper: 1, "version probe"),
+        entry("LungfishWorkflow/Recipes/RecipeStepExecutor.swift", helper: 3, "the recipe tool limit reads the limit of the run and sets none"),
         entry("LungfishWorkflow/Variants/BAMVariantCallingPreflight.swift", helper: 1, "header read"),
         entry("LungfishWorkflow/Variants/GATKInstalledToolVersion.swift", helper: 1, "version check"),
         entry("LungfishWorkflow/Variants/VCFHeaderPathSanitizer.swift", helper: 1, "header read"),

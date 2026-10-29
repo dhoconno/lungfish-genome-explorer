@@ -593,27 +593,50 @@ final class RecipeEngineTests: XCTestCase {
         }
     }
 
-    func testRecipeToolTimeoutDisablesTimeoutForFullSizeFastpInputs() {
+    func testRecipeToolTimeoutDisablesTimeoutForFullSizeFastpInputs() async {
         let timeout = StepContext.recipeToolTimeout(
             for: .fastp,
             inputBytes: 100_000_000_000
         )
 
         XCTAssertTrue(timeout.isInfinite, "Full-size FASTQ recipe steps should not time out")
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 5)) {
+            StepContext.recipeToolTimeout(for: .fastp, inputBytes: 100_000_000_000)
+        }
+        XCTAssertEqual(limited, 300, "a person's limit reaches the launch")
     }
 
-    func testRecipeToolTimeoutDisablesTimeoutForSlowRiboDetectorOnLargeInputs() {
+    func testRecipeToolTimeoutDisablesTimeoutForSlowRiboDetectorOnLargeInputs() async {
         let inputBytes: Int64 = 100_000_000_000
         let riboDetectorTimeout = StepContext.recipeToolTimeout(for: .ribodetector, inputBytes: inputBytes)
 
         XCTAssertTrue(riboDetectorTimeout.isInfinite, "Large paired RiboDetector jobs should not time out")
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 5)) {
+            StepContext.recipeToolTimeout(for: .ribodetector, inputBytes: inputBytes)
+        }
+        XCTAssertEqual(limited, 300, "a person's limit reaches the launch")
     }
 
-    func testRecipeToolTimeoutDisablesTimeoutForLargeSeqkitLengthFilterInputs() {
+    func testRecipeToolTimeoutDisablesTimeoutForLargeSeqkitLengthFilterInputs() async {
         let observedTimedOutInputBytes: Int64 = 27_360_000_000
         let timeout = StepContext.recipeToolTimeout(for: .seqkit, inputBytes: observedTimedOutInputBytes)
 
         XCTAssertTrue(timeout.isInfinite, "Large gzipped seqkit length filters should not time out")
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 5)) {
+            StepContext.recipeToolTimeout(for: .seqkit, inputBytes: observedTimedOutInputBytes)
+        }
+        XCTAssertEqual(limited, 300, "a person's limit reaches the launch")
+    }
+
+    func testRecipeToolTimeoutIsNotScaledFromTheInputSize() async {
+        let tools: [NativeTool] = [.fastp, .ribodetector, .deacon, .seqkit, .reformat, .pigz]
+        let sizes: [Int64] = [0, 1_000_000, 100_000_000, 27_360_000_000]
+        let unlimited = tools.flatMap { tool in sizes.map { StepContext.recipeToolTimeout(for: tool, inputBytes: $0) } }
+        XCTAssertTrue(unlimited.allSatisfy(\.isInfinite), "with no limit set no input size gets one: \(unlimited)")
+        let limited = await AnalysisTimeLimit.withLimit(AnalysisTimeLimit(minutes: 5)) {
+            tools.flatMap { tool in sizes.map { StepContext.recipeToolTimeout(for: tool, inputBytes: $0) } }
+        }
+        XCTAssertEqual(Set(limited), [300], "a limit of 5 minutes is the limit of every launch, whatever the input size")
     }
 
     func testRecipeStreamConcatenationPreservesSourceBytes() throws {
