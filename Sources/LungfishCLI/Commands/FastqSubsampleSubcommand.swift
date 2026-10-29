@@ -96,7 +96,7 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
             args = Self.reformatSampleArguments(
                 input: inputURL.path, output: output.output, proportion: proportion, count: count, seed: resolvedSeed)
             let env = await bbToolsEnvironment(runner: runner)
-            result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+            result = try await runner.run(.reformat, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
             guard result.isSuccess else {
                 throw CLIError.conversionFailed(reason: "reformat.sh sample failed: \(result.stderr)")
             }

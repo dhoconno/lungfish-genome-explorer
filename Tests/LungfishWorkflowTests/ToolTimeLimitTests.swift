@@ -172,6 +172,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/Extraction/BAMRegionMatcher.swift", helper: 1, "header read"),
         entry("LungfishWorkflow/Extraction/ClassifierReadResolver.swift", fixed: 3, "samtools view"),
         entry("LungfishWorkflow/Ingestion/FASTQBatchImporter.swift", helper: 1, "stats sample of the first reads"),
+        entry("LungfishWorkflow/Ingestion/FASTQLengthFilterPlan.swift", helper: 1, "the plan reads the limit of the run and sets none"),
         entry("LungfishWorkflow/Ingestion/ONTBAMImportMaterializer.swift", fixed: 3, "samtools, pigz, collate scaled limit"),
         entry("LungfishWorkflow/Mapping/BAMImportService.swift", fixed: 2, "samtools index, sort scaled limit"),
         entry("LungfishWorkflow/Mapping/MappingToolVersionProbe.swift", helper: 1, "version probe"),

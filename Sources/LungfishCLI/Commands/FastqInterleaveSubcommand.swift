@@ -44,7 +44,7 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
 
         let env = await bbToolsEnvironment(runner: runner)
         let runClock = ProvenanceRunClock()
-        let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+        let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "reformat.sh interleave failed: \(result.stderr)")
         }

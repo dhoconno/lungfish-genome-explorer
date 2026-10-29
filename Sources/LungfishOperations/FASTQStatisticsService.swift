@@ -202,7 +202,7 @@ public enum FASTQStatisticsService {
                 "head", "-n", String(distributionSampleReadCount),
                 "-o", sampleURL.path, fastqURL.path,
             ],
-            timeout: 300
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard headResult.isSuccess else {
             throw FASTQStatisticsServiceError.seqkitFailed(headResult.stderr)
@@ -255,7 +255,7 @@ public enum FASTQStatisticsService {
         let result = try await runner.run(
             .seqkit,
             arguments: ["stats", "-a", "-T"] + fastqURLs.map(\.path),
-            timeout: 900
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard result.isSuccess else {
             throw FASTQStatisticsServiceError.seqkitFailed(result.stderr)

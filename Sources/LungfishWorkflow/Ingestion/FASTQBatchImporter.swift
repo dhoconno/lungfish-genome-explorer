@@ -1984,7 +1984,7 @@ public enum FASTQBatchImporter {
                         optical: step.deduplicateOptical == true,
                         opticalDistance: step.deduplicateOpticalDistance ?? 2500,
                         threads: config.threads)
-                    let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentR1, r2]))
+                    let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
                     if let failure = BBToolsOutOfMemory.error(
                         exitCode: result.exitCode, tool: "clumpify.sh", arguments: args, optionPinsHeap: false) {
                         throw failure
@@ -2003,7 +2003,7 @@ public enum FASTQBatchImporter {
                     ]
                     if let seq = step.adapterSequence { args += ["--adapter_sequence", seq] }
                     if let seqR2 = step.adapterSequenceR2 { args += ["--adapter_sequence_r2", seqR2] }
-                    let result = try await runner.run(.fastp, arguments: args, timeout: ImportToolTimeout.seconds(for: .fastp, atLeast: 3600, inputs: [currentR1, currentR2!]))
+                    let result = try await runner.run(.fastp, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("paired adapter trim failed: \(String(result.stderr.suffix(500)))")
                     }
@@ -2025,7 +2025,7 @@ public enum FASTQBatchImporter {
                     case .cutTail: args.append("--cut_tail")
                     case .cutBoth: args += ["--cut_front", "--cut_right"]
                     }
-                    let result = try await runner.run(.fastp, arguments: args, timeout: ImportToolTimeout.seconds(for: .fastp, atLeast: 3600, inputs: [currentR1, currentR2!]))
+                    let result = try await runner.run(.fastp, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("paired quality trim failed: \(String(result.stderr.suffix(500)))")
                     }
@@ -2108,7 +2108,7 @@ public enum FASTQBatchImporter {
                 let dedupeArgs = FASTQBatchImporter.interleavedDedupeArguments(
                     input: currentURL, output: outputURL, optical: step.deduplicateOptical == true,
                     threads: config.threads, interleaved: currentIsInterleaved)
-                let result = try await runner.run(.clumpify, arguments: dedupeArgs, environment: env, timeout: ImportToolTimeout.seconds(for: .clumpify, atLeast: 3600, inputs: [currentURL]))
+                let result = try await runner.run(.clumpify, arguments: dedupeArgs, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
                 if let failure = BBToolsOutOfMemory.error(
                     exitCode: result.exitCode, tool: "clumpify.sh", arguments: dedupeArgs, optionPinsHeap: false) {
                     throw failure
@@ -2126,7 +2126,7 @@ public enum FASTQBatchImporter {
                     args += ["--interleaved_in"]
                     args += ["-O", r2OutputURL.path]
                 }
-                let result = try await runner.run(.fastp, arguments: args, timeout: ImportToolTimeout.seconds(for: .fastp, atLeast: 3600, inputs: [currentURL]))
+                let result = try await runner.run(.fastp, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
                 guard result.isSuccess else {
                     throw BatchImportError.unknownRecipe("fastp adapter trim failed: \(result.stderr.suffix(500))")
                 }
@@ -2159,7 +2159,7 @@ public enum FASTQBatchImporter {
                 case .cutTail: args.append("--cut_tail")
                 case .cutBoth: args += ["--cut_front", "--cut_right"]
                 }
-                let result = try await runner.run(.fastp, arguments: args, timeout: ImportToolTimeout.seconds(for: .fastp, atLeast: 3600, inputs: [currentURL]))
+                let result = try await runner.run(.fastp, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
                 guard result.isSuccess else {
                     throw BatchImportError.unknownRecipe("fastp quality trim failed: \(result.stderr.suffix(500))")
                 }
@@ -2185,7 +2185,7 @@ public enum FASTQBatchImporter {
                     let tmp = workspace.appendingPathComponent("scrub_in_\(UUID().uuidString).fastq")
                     let pigzResult = try await runner.runWithFileOutput(
                         .pigz, arguments: ["-d", "-c", currentURL.path], outputFile: tmp,
-                        timeout: ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [currentURL]))
+                        timeout: AnalysisTimeLimit.launchTimeout)
                     guard pigzResult.isSuccess else {
                         throw BatchImportError.unknownRecipe("Decompression before Deacon scrub failed: \(pigzResult.stderr.suffix(500))")
                     }
@@ -2227,7 +2227,7 @@ public enum FASTQBatchImporter {
                             "-O", outputR2.path,
                             "-t", String(config.threads),
                         ],
-                        timeout: ImportToolTimeout.seconds(for: .deacon, atLeast: 7200, inputs: [inputR1, inputR2])
+                        timeout: AnalysisTimeLimit.launchTimeout
                     )
                     guard deaconResult.isSuccess else {
                         throw BatchImportError.unknownRecipe("deacon filter failed: \(deaconResult.stderr.suffix(500))")
@@ -2244,7 +2244,7 @@ public enum FASTQBatchImporter {
                             "-o", scrubOutputURL.path,
                             "-t", String(config.threads),
                         ],
-                        timeout: ImportToolTimeout.seconds(for: .deacon, atLeast: 7200, inputs: [inputForScrub])
+                        timeout: AnalysisTimeLimit.launchTimeout
                     )
                     guard deaconResult.isSuccess else {
                         throw BatchImportError.unknownRecipe("deacon filter failed: \(deaconResult.stderr.suffix(500))")
@@ -2253,7 +2253,7 @@ public enum FASTQBatchImporter {
 
                 let compResult = try await runner.runWithFileOutput(
                     .pigz, arguments: ["-p", String(config.threads), "-c", scrubOutputURL.path], outputFile: outputURL,
-                    timeout: ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [scrubOutputURL])
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 try? FileManager.default.removeItem(at: scrubOutputURL)
                 guard compResult.isSuccess else {
@@ -2271,7 +2271,7 @@ public enum FASTQBatchImporter {
                     threads: config.threads, interleaved: currentIsInterleaved, strict: strictness == .strict)
 
                 let env = await bbToolsEnvironment()
-                let mergeResult = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .bbmerge, atLeast: 1800, inputs: [currentURL]))
+                let mergeResult = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
                 guard mergeResult.isSuccess else {
                     throw BatchImportError.unknownRecipe("bbmerge failed: \(mergeResult.stderr.suffix(500))")
                 }
@@ -2292,7 +2292,7 @@ public enum FASTQBatchImporter {
                 // Compress combined
                 let compResult = try await runner.runWithFileOutput(
                     .pigz, arguments: ["-p", String(config.threads), "-c", combinedURL.path], outputFile: outputURL,
-                    timeout: ImportToolTimeout.seconds(for: .pigz, atLeast: 300, inputs: [combinedURL])
+                    timeout: AnalysisTimeLimit.launchTimeout
                 )
                 try? FileManager.default.removeItem(at: combinedURL)
                 try? FileManager.default.removeItem(at: mergedURL)
@@ -2312,7 +2312,7 @@ public enum FASTQBatchImporter {
                     let args = FASTQBatchImporter.interleavedLengthFilterArguments(
                         input: currentURL, output: outputURL, minLength: minLen, maxLength: maxLen, threads: config.threads)
                     let env = await bbToolsEnvironment()
-                    let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: ImportToolTimeout.seconds(for: .bbduk, atLeast: 1800, inputs: [currentURL]))
+                    let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("bbduk length filter failed: \(result.stderr.suffix(500))")
                     }
@@ -2321,7 +2321,7 @@ public enum FASTQBatchImporter {
                     var seqkitArgs = ["seq", "-j", String(config.threads), currentURL.path, "-o", outputURL.path]
                     if let m = minLen { seqkitArgs += ["-m", String(m)] }
                     if let m = maxLen { seqkitArgs += ["-M", String(m)] }
-                    let result = try await runner.run(.seqkit, arguments: seqkitArgs, timeout: ImportToolTimeout.seconds(for: .seqkit, atLeast: 1800, inputs: [currentURL]))
+                    let result = try await runner.run(.seqkit, arguments: seqkitArgs, timeout: AnalysisTimeLimit.launchTimeout)
                     guard result.isSuccess else {
                         throw BatchImportError.unknownRecipe("seqkit length filter failed: \(result.stderr.suffix(500))")
                     }
@@ -2361,7 +2361,7 @@ public enum FASTQBatchImporter {
         let seqkitResult = try await runner.run(
             .seqkit,
             arguments: ["stats", "-a", "-T", fastqURL.path],
-            timeout: ImportToolTimeout.seconds(for: .seqkit, atLeast: 900, inputs: [fastqURL])
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard seqkitResult.isSuccess else {
             logger.warning("seqkit stats failed: \(seqkitResult.stderr)")
@@ -2559,7 +2559,7 @@ public enum FASTQBatchImporter {
             .reformat,
             arguments: BBToolsPairArguments.interleave(r1: r1.path, r2: r2.path, output: output.path),
             environment: env,
-            timeout: ImportToolTimeout.seconds(for: .reformat, atLeast: 1800, inputs: [r1, r2])
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard result.isSuccess else {
             throw BatchImportError.unknownRecipe("reformat.sh interleave failed: \(result.stderr.suffix(500))")
@@ -2574,7 +2574,7 @@ public enum FASTQBatchImporter {
             .reformat,
             arguments: BBToolsPairArguments.deinterleave(input: sourceFASTQ.path, out1: outputR1.path, out2: outputR2.path),
             environment: env,
-            timeout: ImportToolTimeout.seconds(for: .reformat, atLeast: 1800, inputs: [sourceFASTQ])
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard result.isSuccess else {
             throw BatchImportError.unknownRecipe("reformat.sh deinterleave failed: \(result.stderr.suffix(500))")

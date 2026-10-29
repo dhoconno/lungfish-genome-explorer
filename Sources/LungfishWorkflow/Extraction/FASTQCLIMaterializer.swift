@@ -525,8 +525,7 @@ public final class FASTQCLIMaterializer: Sendable {
         args.append(contentsOf: inputPaths)
         args.append(contentsOf: ["-o", outputFASTQ.path])
 
-        let timeout = max(600.0, Double(inputPaths.count) * 120.0)
-        let result = try await runner.run(.seqkit, arguments: args, timeout: timeout)
+        let result = try await runner.run(.seqkit, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
         guard result.isSuccess else {
             throw FASTQCLIMaterializerError.toolFailed("seqkit grep", result.stderr)
         }

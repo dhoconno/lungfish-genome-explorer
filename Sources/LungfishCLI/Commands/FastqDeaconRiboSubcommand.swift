@@ -293,7 +293,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             arguments: arguments,
             environment: "deacon",
             workingDirectory: URL(fileURLWithPath: outputDirectory, isDirectory: true),
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let wallTime = deaconClock.elapsed
         return DeaconRiboInvocationRecord(
@@ -315,7 +315,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)
         let reformatClock = ProvenanceRunClock()
-        let result = try await runner.run(.reformat, arguments: arguments, environment: env, timeout: 1800)
+        let result = try await runner.run(.reformat, arguments: arguments, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
         return DeaconRiboInvocationRecord(
             toolName: "reformat",
             arguments: arguments,

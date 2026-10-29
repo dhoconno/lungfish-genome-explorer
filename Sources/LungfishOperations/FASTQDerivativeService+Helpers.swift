@@ -47,7 +47,7 @@ extension FASTQDerivativeService {
             .reformat,
             arguments: BBToolsPairArguments.interleave(r1: r1.path, r2: r2.path, output: output.path),
             environment: env,
-            timeout: 1800,
+            timeout: AnalysisTimeLimit.launchTimeout,
             provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {
@@ -69,7 +69,7 @@ extension FASTQDerivativeService {
             .reformat,
             arguments: BBToolsPairArguments.deinterleave(input: source.path, out1: outputR1.path, out2: outputR2.path),
             environment: env,
-            timeout: 1800,
+            timeout: AnalysisTimeLimit.launchTimeout,
             provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {

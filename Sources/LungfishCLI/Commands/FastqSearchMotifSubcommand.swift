@@ -64,7 +64,7 @@ struct FastqSearchMotifSubcommand: AsyncParsableCommand {
             result = paired.result
         } else {
             args = searchArgs + [inputURL.path, "-o", output.output]
-            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
             if !result.isSuccess {
                 throw CLIError.conversionFailed(reason: result.stderr)
             }

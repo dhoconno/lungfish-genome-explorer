@@ -56,7 +56,7 @@ extension FASTQBundleMergeService {
             .reformat,
             arguments: BBToolsPairArguments.interleave(r1: r1.path, r2: r2.path, output: outputURL.path),
             environment: await bbToolsEnvironment(),
-            timeout: 1800
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard result.isSuccess else {
             throw FASTQBundleMergeServiceError.toolFailed(

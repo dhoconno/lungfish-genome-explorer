@@ -75,7 +75,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             let args = BBToolsPairArguments.deinterleave(input: inputURL.path, out1: out1, out2: out2)
             let env = await bbToolsEnvironment(runner: runner)
             let runClock = ProvenanceRunClock()
-            let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+            let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
             guard result.isSuccess else {
                 throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
             }

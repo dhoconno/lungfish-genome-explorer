@@ -26,7 +26,9 @@ public struct FASTQLengthFilterPlan: Equatable, Sendable {
     /// bbduk needs its BBTools environment and more time than seqkit.
     public var isPairAware: Bool { tool == .bbduk }
 
-    public var timeout: TimeInterval { isPairAware ? 1800 : 600 }
+    /// The wall-clock limit of the run, none unless the person set one with `--time-limit`. The bbduk and the
+    /// seqkit form read the one limit of the run (`AnalysisTimeLimit`).
+    public var timeout: TimeInterval { AnalysisTimeLimit.launchTimeout }
 
     /// The command as the operation log shows it.
     public var toolCommand: String {

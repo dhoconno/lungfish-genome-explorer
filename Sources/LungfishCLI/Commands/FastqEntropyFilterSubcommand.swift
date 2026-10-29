@@ -130,7 +130,7 @@ struct FastqEntropyFilterSubcommand: AsyncParsableCommand {
 
         let env = await bbToolsEnvironment(runner: runner)
         let runClock = ProvenanceRunClock()
-        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbduk entropy filter failed: \(result.stderr)")
         }

@@ -74,7 +74,7 @@ enum FastqPairedSearchSupport {
 
         let matchesURL = scratch.appendingPathComponent("matches.fastq")
         let searchArgs = searchArguments + [sourceURL.path, "-o", matchesURL.path]
-        let searchResult = try await runner.run(.seqkit, arguments: searchArgs, environment: [:], timeout: 1800)
+        let searchResult = try await runner.run(.seqkit, arguments: searchArgs, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
         guard searchResult.isSuccess else {
             throw CLIError.conversionFailed(reason: "seqkit grep failed: \(searchResult.stderr)")
         }
@@ -83,7 +83,7 @@ enum FastqPairedSearchSupport {
         let matchedFragments = try await writeFragmentKeys(fromMatches: matchesURL, to: keysURL)
 
         let extractArgs = extractFragmentsArguments(keysURL: keysURL, sourceURL: sourceURL, outputPath: outputPath)
-        let extractResult = try await runner.run(.seqkit, arguments: extractArgs, environment: [:], timeout: 1800)
+        let extractResult = try await runner.run(.seqkit, arguments: extractArgs, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
         guard extractResult.isSuccess else {
             throw CLIError.conversionFailed(reason: "seqkit grep (pair re-extraction) failed: \(extractResult.stderr)")
         }

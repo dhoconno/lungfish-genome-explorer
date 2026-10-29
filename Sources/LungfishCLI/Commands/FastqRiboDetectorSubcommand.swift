@@ -39,7 +39,7 @@ struct CondaRiboDetectorToolRunner: RiboDetectorToolRunning {
             arguments: arguments,
             environment: "ribodetector",
             workingDirectory: workingDirectory,
-            timeout: 7200
+            timeout: AnalysisTimeLimit.launchTimeout
         )
     }
 

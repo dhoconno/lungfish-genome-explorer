@@ -711,7 +711,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         args.append(inputFile2 != nil ? "interleaved=t" : "interleaved=f")
         args += PortableStoragePlan.qualityEncodingArguments + [quantize]
 
-        let timeoutSeconds = max(900, Double(Self.estimatedUncompressedInputBytes(for: config.inputFiles)) / 2_500_000)
         progress(0.05, "Launching bbtools reformat.sh...")
         let writerProbe = try await reformatWriterProbe(arguments: args, outputFile: outputFile, threads: config.threads)
         let stepClock = ProvenanceRunClock()
@@ -719,7 +718,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             .reformat,
             arguments: args,
             workingDirectory: config.outputDirectory,
-            timeout: timeoutSeconds
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         let stepCompletedAt = stepClock.now
 

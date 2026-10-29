@@ -62,7 +62,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
             // exact base name then finds both `NAME/1` and `NAME/2`, and a
             // query can never select one mate without the other.
             args = searchArgs + FastqPairedSearchSupport.fragmentKeyIDArguments + [inputURL.path, "-o", output.output]
-            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
             if !result.isSuccess {
                 throw CLIError.conversionFailed(reason: result.stderr)
             }
@@ -80,7 +80,7 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
             result = paired.result
         } else {
             args = searchArgs + [inputURL.path, "-o", output.output]
-            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
+            result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
             if !result.isSuccess {
                 throw CLIError.conversionFailed(reason: result.stderr)
             }

@@ -123,7 +123,10 @@ final class FASTQLengthFilterPlanTests: XCTestCase {
             plan.arguments,
             ["in=/in/reads.fastq", "out=/out/kept.fastq", "interleaved=t", "minlen=50", "qin=33", "qout=33", "maxcalledquality=93"])
         XCTAssertTrue(plan.isPairAware)
-        XCTAssertEqual(plan.timeout, 1800)
+        XCTAssertEqual(plan.timeout, .infinity, "a run with no time limit set has none")
+        XCTAssertEqual(
+            AnalysisTimeLimit.$current.withValue(AnalysisTimeLimit(minutes: 30)) { plan.timeout }, 1800,
+            "the limit a person gave with --time-limit is the limit of the plan")
         XCTAssertEqual(plan.toolCommand, "bbduk.sh in=/in/reads.fastq out=/out/kept.fastq interleaved=t minlen=50 qin=33 qout=33 maxcalledquality=93")
     }
 

@@ -70,7 +70,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)
         let runClock = ProvenanceRunClock()
-        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
 
         if !result.isSuccess {
             throw CLIError.conversionFailed(reason: result.stderr)

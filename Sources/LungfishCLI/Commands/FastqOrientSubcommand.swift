@@ -60,7 +60,7 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
 
         let runner = NativeToolRunner.shared
         let runClock = ProvenanceRunClock()
-        let result = try await runner.run(.vsearch, arguments: args, environment: [:], timeout: 1800)
+        let result = try await runner.run(.vsearch, arguments: args, environment: [:], timeout: AnalysisTimeLimit.launchTimeout)
         let wallTime = runClock.elapsed
 
         if !result.isSuccess {

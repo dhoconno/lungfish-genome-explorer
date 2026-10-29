@@ -122,7 +122,7 @@ extension FASTQDerivativeService {
                 let args = Self.dedupeArguments(
                     input: currentURL, output: outputURL, heapGB: heapGB, substitutions: subs,
                     interleaved: currentIsInterleaved, optical: optical, opticalDistance: opticalDist)
-                let dedupeResult = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
+                let dedupeResult = try await runner.run(.clumpify, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
                 guard dedupeResult.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("clumpify deduplication failed: \(dedupeResult.stderr)")
                 }

@@ -199,14 +199,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Step 3: Run cutadapt (70% progress)
         progress(0.10, "Running cutadapt demultiplexing...")
 
-        let inputSize = fileSize(inputFASTQ)
-        let timeout = max(600.0, Double(inputSize) / 5_000_000)
-
         let result = try await runner.run(
             .cutadapt,
             arguments: args,
             workingDirectory: workDir,
-            timeout: timeout
+            timeout: AnalysisTimeLimit.launchTimeout
         )
 
         guard result.isSuccess else {
@@ -357,7 +354,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 if config.useNoIndels { pass2aArgs.insert("--no-indels", at: 6) }
 
                 let p2aResult = try await runner.run(
-                    .cutadapt, arguments: pass2aArgs, workingDirectory: workDir, timeout: 300
+                    .cutadapt, arguments: pass2aArgs, workingDirectory: workDir, timeout: AnalysisTimeLimit.launchTimeout
                 )
                 guard p2aResult.isSuccess, fm.fileExists(atPath: trimmedFile.path) else { continue }
 
@@ -378,7 +375,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 if config.useNoIndels { pass2bArgs.insert("--no-indels", at: 6) }
 
                 let p2bResult = try await runner.run(
-                    .cutadapt, arguments: pass2bArgs, workingDirectory: workDir, timeout: 300
+                    .cutadapt, arguments: pass2bArgs, workingDirectory: workDir, timeout: AnalysisTimeLimit.launchTimeout
                 )
                 guard p2bResult.isSuccess else { continue }
 
@@ -572,7 +569,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     let readIDResult = try await capturedRunner.run(
                         .seqkit,
                         arguments: ["seq", "--name", "--only-id", file.url.path, "-o", readIDsURL.path],
-                        timeout: 300
+                        timeout: AnalysisTimeLimit.launchTimeout
                     )
                     guard readIDResult.isSuccess else {
                         logger.error("seqkit seq failed for \(file.baseName): \(readIDResult.stderr)")
@@ -1888,7 +1885,7 @@ extension DemultiplexingPipeline {
             .seqkit,
             arguments: ["seq", "--name", "--only-id", trimmedRejects.path, "-o", idListURL.path],
             workingDirectory: workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard idResult.isSuccess else {
             throw DemultiplexError.outputParsingFailed("seqkit seq (rejected read IDs) exited \(idResult.exitCode): \(idResult.stderr)")
@@ -1899,7 +1896,7 @@ extension DemultiplexingPipeline {
             .seqkit,
             arguments: ["grep", "-f", idListURL.path, source.path, "-o", destination.path],
             workingDirectory: workingDirectory,
-            timeout: 600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard grepResult.isSuccess else {
             throw DemultiplexError.outputParsingFailed("seqkit grep (rejected reads) exited \(grepResult.exitCode): \(grepResult.stderr)")
@@ -1929,7 +1926,7 @@ extension DemultiplexingPipeline {
             .seqkit,
             arguments: ["seq", "-o", mergedURL.path] + inputs.map(\.path),
             workingDirectory: workingDirectory,
-            timeout: 3600
+            timeout: AnalysisTimeLimit.launchTimeout
         )
         guard mergeResult.isSuccess else {
             throw DemultiplexError.outputParsingFailed("seqkit seq (unassigned merge) exited \(mergeResult.exitCode): \(mergeResult.stderr)")
@@ -2019,7 +2016,7 @@ extension DemultiplexingPipeline {
             let result = try await runner.run(
                 .seqkit,
                 arguments: ["stats", "-T", url.path],
-                timeout: 3600
+                timeout: AnalysisTimeLimit.launchTimeout
             )
             guard result.isSuccess else {
                 throw DemultiplexError.outputParsingFailed(

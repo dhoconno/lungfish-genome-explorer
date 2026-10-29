@@ -56,7 +56,7 @@ extension FASTQDerivativeService {
             .bbmerge,
             arguments: args,
             environment: env,
-            timeout: 1800,
+            timeout: AnalysisTimeLimit.launchTimeout,
             provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {
