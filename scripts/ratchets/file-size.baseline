@@ -150,7 +150,7 @@ Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2502
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionStager.swift 805
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
-Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1154
+Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2648
