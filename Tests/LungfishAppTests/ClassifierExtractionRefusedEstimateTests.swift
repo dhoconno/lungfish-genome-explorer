@@ -24,6 +24,8 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // Each case presents the sheet over a host window of its own, which no tearDown can reach.
+        orderOutWindowsOpenedDuringTest()
         captureOnly = TaxonomyReadExtractionAction.shared.testingCaptureOnly
         TaxonomyReadExtractionAction.shared.testingCaptureOnly = false
     }

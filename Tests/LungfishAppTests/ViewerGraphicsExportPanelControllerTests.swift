@@ -7,6 +7,12 @@ import XCTest
 
 @MainActor
 final class ViewerGraphicsExportPanelControllerTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // The controller's save panel accessory view lives in a window AppKit keeps on screen after the panel is gone.
+        orderOutWindowsOpenedDuringTest()
+    }
+
     func testDefaultsToTracksScopeAndRequestedInitialFormat() {
         let controller = ViewerGraphicsExportPanelController(
             formats: [.png, .pdf],

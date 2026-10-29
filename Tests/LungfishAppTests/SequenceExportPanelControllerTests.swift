@@ -7,6 +7,12 @@ import XCTest
 
 @MainActor
 final class SequenceExportPanelControllerTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // A save panel's accessory view lives in a window AppKit keeps on screen after the panel is gone.
+        orderOutWindowsOpenedDuringTest()
+    }
+
     func testSingleExportControllerConfiguresAccessoryAndSuggestedFilename() {
         let panel = AppFilePanelFactory.sequenceExportPanel()
         let controller = SequenceExportPanelController(
