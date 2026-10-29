@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 141 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 149 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1702,6 +1702,7 @@ None.
 - `ResultRowCommand` enum, `Sources/LungfishKit/Accessibility/ResultRowMenuActions.swift`
 - `ResultRowMenuActions` protocol, `Sources/LungfishKit/Accessibility/ResultRowMenuActions.swift`
 - `ResultRowMenuValidation` enum, `Sources/LungfishKit/Accessibility/ResultRowMenuValidation.swift`
+- `ResultViewport` protocol, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
 - `RowActivatingTableView` class, `Sources/LungfishKit/Accessibility/RowActivatingTableView.swift`
 - `RowCommand` protocol, `Sources/LungfishKit/Accessibility/RowCommand.swift`
 - `RowCommandKeyEquivalent` struct, `Sources/LungfishKit/Accessibility/RowCommand.swift`
@@ -1722,9 +1723,16 @@ None.
 - `SplitPaneFillContainerView` class, `Sources/LungfishKit/SplitPaneFillContainerView.swift`
 - `SplitPaneHeaderContainerView` class, `Sources/LungfishKit/SplitPaneHeaderContainerView.swift`
 - `SplitPaneSizing` enum, `Sources/LungfishKit/SplitPaneSizing.swift`
+- `SurfaceError` enum, `Sources/LungfishKit/Surfaces/SurfaceRegistry.swift`
+- `SurfaceInspectorBlock` struct, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
+- `SurfaceKind` enum, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
+- `SurfaceRegistry` class, `Sources/LungfishKit/Surfaces/SurfaceRegistry.swift`
+- `SurfaceRequest` struct, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
+- `SurfaceShowOutcome` enum, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
 - `TrackedDividerSplitView` class, `Sources/LungfishKit/TrackedDividerSplitView.swift`
 - `TwoPaneTrackedSplitCoordinator` class, `Sources/LungfishKit/TwoPaneTrackedSplitCoordinator.swift`
 - `UnavailableClassifierAlignmentViewer` class, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
+- `ViewportHost` class, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
 - `ViewportStatusView` class, `Sources/LungfishKit/ViewportStatusView.swift`
 - `WarningPresenter` enum, `Sources/LungfishKit/WarningPresenter.swift`
 - `WarningPresenterExportAdapter` struct, `Sources/LungfishKit/ResultExportCoordinator.swift`

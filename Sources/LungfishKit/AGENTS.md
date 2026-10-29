@@ -36,6 +36,10 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 | Row commands for menus and accessibility | `RowCommand`, Sources/LungfishKit/Accessibility/RowCommand.swift line 35 |
 | BLAST results drawer | `BlastResultsDrawerContainerView`, Sources/LungfishKit/BlastResultsDrawerContainerView.swift line 68 |
 | Brand colors | Sources/LungfishKit/LungfishColors.swift |
+| The one result viewer slot, which cancels the old load and installs a surface only while its token is current | `ViewportHost`, Sources/LungfishKit/Surfaces/ViewportHost.swift |
+| The protocol a result surface conforms to, and the kind that names it | `ResultViewport` and `SurfaceKind`, Sources/LungfishKit/Surfaces/ResultViewport.swift |
+| The factory of each surface kind, which the App fills at one composition point | `SurfaceRegistry`, Sources/LungfishKit/Surfaces/SurfaceRegistry.swift |
+| Request tokens that drop a stale result, shared by the host and the classifier display | `AsyncRequestGate`, Sources/LungfishKit/Surfaces/AsyncRequestGate.swift |
 
 ## Contracts this module owns
 
