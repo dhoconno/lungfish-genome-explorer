@@ -115,6 +115,9 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
     /// domain, so the gate sets it to `off` in a parallel attempt, whose workers would read each other's keys.
     public static let domainCheckVariable = "LUNGFISH_TEST_STATE_DOMAIN"
 
+    /// Whether this process runs inside a gate, which names a ledger. Only there does the defaults check restore.
+    static var insideAGate: Bool { !(ProcessInfo.processInfo.environment[ledgerVariable] ?? "").isEmpty }
+
     /// Whether the defaults check reads the domain, true unless `environment` sets the variable to `off`.
     public static func domainCheckIsOn(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         environment[domainCheckVariable] != "off"
@@ -375,14 +378,15 @@ extension TestStateObserver {
     /// Every key of the xctest tool's persistent domain, `DatabaseStorageLocation` among them, read as one
     /// dictionary. The restore puts back each changed key's value and removes each new key. With `on` false (the
     /// variable `domainCheckVariable` set to `off`) the check still registers under its name, reads an empty domain
-    /// and puts nothing back.
+    /// and puts nothing back. Outside a gate it puts nothing back either, since a changed key may be another
+    /// process's (review LOOP-QA SF-1), so a plain `swift test` names the leak on stderr and leaves the domain alone.
     public static func defaultsDomainCheck(on: Bool = domainCheckIsOn()) -> TestStateCheck {
         TestStateCheck(
             name: "xctest defaults", noun: "xctest defaults key",
             domain: TestStateCheck.Domain(
                 read: { on ? readDomain(xctestDomain) : NSDictionary() },
                 restore: { keys, before in
-                    guard on else { return }
+                    guard on, TestStateObserver.insideAGate else { return }
                     for key in keys {
                         CFPreferencesSetValue(key as CFString, before[key] as CFPropertyList?, xctestDomain as CFString,
                                               kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
