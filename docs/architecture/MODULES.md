@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 149 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 152 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1645,6 +1645,9 @@ None.
 - `DefaultSavePanelPresenter` struct, `Sources/LungfishKit/SavePanelPresenting.swift`
 - `DrawingFont` enum, `Sources/LungfishKit/DrawingFont.swift`
 - `ExportFailurePresenting` protocol, `Sources/LungfishKit/ResultExportCoordinator.swift`
+- `FailureDetailsView` class, `Sources/LungfishKit/FailurePresenter.swift`
+- `FailurePresenter` enum, `Sources/LungfishKit/FailurePresenter.swift`
+- `FailureReport` struct, `Sources/LungfishKit/FailurePresenter.swift`
 - `FASTAFileTypes` enum, `Sources/LungfishKit/FASTAFileTypes.swift`
 - `FASTASequenceActionHandlers` struct, `Sources/LungfishKit/FASTASequenceActionMenuBuilder.swift`
 - `FASTASequenceActionMenuBuilder` enum, `Sources/LungfishKit/FASTASequenceActionMenuBuilder.swift`
