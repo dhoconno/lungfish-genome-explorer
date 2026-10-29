@@ -147,9 +147,14 @@ let package = Package(
                 "LungfishIO",
                 "LungfishWorkflow",
                 "LungfishPortable",
+                "LungfishTestObserverBootstrap",
             ],
             path: "Tests/Support/LungfishTestSupport"
         ),
+        // One C constructor that installs TestStateObserver when a test bundle loads (Phase 3.1 ruling
+        // QA-RELEASE-LOOP, section 4). Every bundle that links LungfishTestSupport links it. It names the observer
+        // and the App checks by their Objective-C names only, so it depends on no target.
+        .target(name: "LungfishTestObserverBootstrap", path: "Tests/Support/LungfishTestObserverBootstrap"),
 
         // MARK: - LungfishPortable (portable layer, no internal dependency)
         .target(
