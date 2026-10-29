@@ -393,8 +393,8 @@ final class NaoMgsBamMaterializerTests: XCTestCase {
         let flag = Int(fields[1]) ?? 0
         XCTAssertEqual(flag, 16, "Flag should be 16 for reverse-complemented unpaired R2")
 
-        // Sequence should be the R2 sequence (75 Cs)
-        XCTAssertEqual(fields[9], String(repeating: "C", count: 75), "Sequence should be R2 data")
+        // Sequence should be the R2 read on the reference strand: the 75 Cs as sequenced, reverse-complemented for flag 16
+        XCTAssertEqual(fields[9], String(repeating: "G", count: 75), "Sequence should be the R2 read on the reference strand (flag 16)")
 
         // Quality should be the R2 quality (75 Hs)
         XCTAssertEqual(fields[10], String(repeating: "H", count: 75), "Quality should be R2 data")
@@ -508,13 +508,24 @@ extension NaoMgsBamMaterializerTests {
     }
 
     func testBAMTextOfEachRowShapeIsPinned() throws {
-        try assertPinnedBAMText("8a568ec43ac1bbe1d656da3d4642c5c19cba1300d677f35462c39ddd5119154d") {
+        // Lane NAO-BAM-ORIENT moved all three pins (BIO-NAO-BAM-ORIENT section 6). Each header now reads
+        // `@PG ID:lungfish-naomgs-materializer PN:lungfish VN:1.1` where it read VN:1.0, the mark that NAO-BAM-STALE looks for.
+        //
+        // Three unpaired forward rows, was 8a568ec4. BIO note: only the @PG line changed. The three records have 0x10 clear
+        // and stay byte for byte.
+        try assertPinnedBAMText("04ae56371888a0afb53fbbe188597f9307ec1fec9b9e89fa6a12d62ac2320728") {
             try self.makeTestDatabase(at: $0, sample: "S1", duplicateCount: 3)
         }
-        try assertPinnedBAMText("d888bb9655230cc69a402fc375fd265f7b789b1085e68f0728fa27f778587d57") {
+        // `paired_read`, R1 on strand 1, was d888bb96. BIO note: the @PG line and one SEQ changed. R1 was read as 50 A and
+        // mapped to the reverse strand, so the flag-83 record now holds 50 T, the reference strand. QUAL is 50 I either way.
+        // The flag-163 record (50 T, forward) is as before, so both mates read 50 T on the reference.
+        try assertPinnedBAMText("02c0a1dc8453776a398d3684eb48ee568eeeb814b5b1ba9b8da0ad2d1b726f6f") {
             try self.makePairedTestDatabase(at: $0, sample: "S1")
         }
-        try assertPinnedBAMText("5510ee6b01b2184d8bb660b2b317d6a404096b5015a5c42aa5d7eb2d76caa661") {
+        // `r2only_read`, R2 on strand 1, was 5510ee6b. BIO note: the @PG line and one SEQ changed. The R2 read, 75 C as
+        // sequenced and mapped to the reverse strand, now holds 75 G, the reference strand. QUAL stays 75 H, since a uniform
+        // string reads the same reversed.
+        try assertPinnedBAMText("fca59cf1830cbec1310a5dce636e7771882d91f685dceeafe591c56b9241733c") {
             try self.makeR2OnlyTestDatabase(at: $0, sample: "S1")
         }
     }

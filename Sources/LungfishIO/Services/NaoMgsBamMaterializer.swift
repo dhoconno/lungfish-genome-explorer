@@ -306,7 +306,7 @@ public enum NaoMgsBamMaterializer {
             let length = refLengths[accession] ?? 100000
             header += "@SQ\tSN:\(accession)\tLN:\(length)\n"
         }
-        header += "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:1.0\n"
+        header += "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:1.1\n"
         let headerText = header
 
         // 3. Start the samtools pipeline BEFORE reading rows -- stream directly into it. Each stage's argv is the one
@@ -498,15 +498,17 @@ public enum NaoMgsBamMaterializer {
                         let secondTLen = -firstTLen
                         let firstFlag = 0x1 | properPair | 0x40 | mateReverse1 | (isReverse ? 0x10 : 0)
                         let secondFlag = 0x1 | properPair | 0x80 | mateReverse2 | (isReverseRev ? 0x10 : 0)
+                        let (firstSeq, firstQual) = referenceOriented(sequence: seq, quality: qual, reverse: isReverse)
+                        let (secondSeq, secondQual) = referenceOriented(sequence: seqRev, quality: qualRev, reverse: isReverseRev)
 
-                        let firstLine = "\(qname)\t\(firstFlag)\t\(rname)\t\(firstPos)\t60\t\(cigar)\t=\t\(secondPos)\t\(firstTLen)\t\(seq)\t\(qual)\n"
+                        let firstLine = "\(qname)\t\(firstFlag)\t\(rname)\t\(firstPos)\t60\t\(cigar)\t=\t\(secondPos)\t\(firstTLen)\t\(firstSeq)\t\(firstQual)\n"
                         guard writeSAMLine(firstLine) else {
                             writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                        userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 1 SAM record for sample \(sample)"])
                             return
                         }
 
-                        let secondLine = "\(qname)\t\(secondFlag)\t\(rname)\t\(secondPos)\t60\t\(mate2Cigar)\t=\t\(firstPos)\t\(secondTLen)\t\(seqRev)\t\(qualRev)\n"
+                        let secondLine = "\(qname)\t\(secondFlag)\t\(rname)\t\(secondPos)\t60\t\(mate2Cigar)\t=\t\(firstPos)\t\(secondTLen)\t\(secondSeq)\t\(secondQual)\n"
                         guard writeSAMLine(secondLine) else {
                             writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                        userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing mate 2 SAM record for sample \(sample)"])
@@ -515,8 +517,9 @@ public enum NaoMgsBamMaterializer {
                     } else if validR1 {
                         // Case 2: R1 only -- emit single unpaired SAM record from R1
                         let flag = isReverse ? 16 : 0
+                        let (onlySeq, onlyQual) = referenceOriented(sequence: seq, quality: qual, reverse: isReverse)
                         let pos = refStart + 1
-                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(cigar)\t*\t0\t0\t\(seq)\t\(qual)\n"
+                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(cigar)\t*\t0\t0\t\(onlySeq)\t\(onlyQual)\n"
                         guard writeSAMLine(line) else {
                             writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                        userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM record for sample \(sample)"])
@@ -525,9 +528,10 @@ public enum NaoMgsBamMaterializer {
                     } else {
                         // Case 3: R2 only -- emit single unpaired SAM record from R2
                         let flag = isReverseRev ? 16 : 0
+                        let (onlySeq, onlyQual) = referenceOriented(sequence: seqRev, quality: qualRev, reverse: isReverseRev)
                         let pos = refStartRev + 1
                         let r2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
-                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(r2Cigar)\t*\t0\t0\t\(seqRev)\t\(qualRev)\n"
+                        let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(r2Cigar)\t*\t0\t0\t\(onlySeq)\t\(onlyQual)\n"
                         guard writeSAMLine(line) else {
                             writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                        userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing R2-only SAM record for sample \(sample)"])
