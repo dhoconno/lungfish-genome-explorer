@@ -75,6 +75,10 @@ extension XCTestCase {
     func makeIsolatedAlignmentController(
         sharingDefaultsWith other: MultipleSequenceAlignmentViewController? = nil
     ) -> MultipleSequenceAlignmentViewController {
+        precondition(
+            other == nil || other?.gutterWidthDefaults !== UserDefaults.standard,
+            "share a test suite, not the machine's defaults"
+        )
         let controller = MultipleSequenceAlignmentViewController()
         controller.gutterWidthDefaults = other?.gutterWidthDefaults
             ?? makeTestDefaultsSuite(prefix: "AlignmentControllerDefaults").defaults

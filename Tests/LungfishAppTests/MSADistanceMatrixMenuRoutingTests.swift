@@ -16,6 +16,7 @@ final class MSADistanceMatrixMenuRoutingTests: XCTestCase {
     private var defaults: UserDefaults { preferencesSuite.defaults }
 
     override func setUpWithError() throws {
+        isolateAlignmentPaneDefaults()
         preferencesSuite = makeTestDefaultsSuite(prefix: "MSADistanceMatrixMenuRoutingTests")
         // These tests start from a hidden pane. The default-open behaviour is in MSABottomPaneDefaultOpenTests.
         defaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)

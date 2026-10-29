@@ -976,6 +976,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
     nonisolated(unsafe) private var tempDir: URL!
 
     override func setUpWithError() throws {
+        isolateAlignmentPaneDefaults()
         try super.setUpWithError()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("bundle_viewer_routing_tests_\(UUID().uuidString)", isDirectory: true)
@@ -2230,9 +2231,28 @@ final class ViewerBundleRoutingTests: XCTestCase {
         controller.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(
             controller.testingEffectiveVisibleMatrixWidth, before - 100, accuracy: 0.5,
-            "Fit Columns would miscompute if this still read the old constant"
+            "Fit Columns would miscompute after a gutter change if the clip view did not follow the live gutter width"
         )
     }
+
+    /// Before any layout pass the width is the fallback `view.bounds.width - gutterWidth`
+    /// (`MultipleSequenceAlignmentViewController.swift:1563`). A stored hide keeps the pane from opening and
+    /// laying the view out, so none has run when this reads.
+    func testVisibleMatrixWidthBeforeTheFirstLayoutTracksTheLiveGutterWidth() async throws {
+        let controller = makeIsolatedAlignmentController()
+        controller.gutterWidthDefaults.set(false, forKey: MSABottomPaneView.DefaultsKey.isOpen)
+        _ = controller.view
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 600)
+        try await controller.displayBundle(at: makeMultipleSequenceAlignmentBundle())
+
+        let before = controller.testingEffectiveVisibleMatrixWidth
+        controller.testingSetGutterWidth(controller.testingGutterWidth + 100)
+        XCTAssertEqual(
+            controller.testingEffectiveVisibleMatrixWidth, before - 100, accuracy: 0.5,
+            "Fit Columns would miscompute before the first layout if this still read the old constant"
+        )
+    }
+
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(UUID().uuidString).lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)

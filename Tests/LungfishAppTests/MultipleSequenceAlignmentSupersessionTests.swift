@@ -16,6 +16,10 @@ import LungfishKit
 /// (`multipleSequenceAlignmentViewController` stays nil).
 @MainActor
 final class MultipleSequenceAlignmentSupersessionTests: XCTestCase {
+    override func setUpWithError() throws {
+        isolateAlignmentPaneDefaults()
+    }
+
     private func msaBundleURL() -> URL {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
