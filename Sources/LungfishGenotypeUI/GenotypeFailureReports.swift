@@ -46,8 +46,10 @@ enum GenotypeFailureReports {
     // MARK: Edits of the annotations a bundle keeps
 
     // The store writes a bundle's annotations into its folder, and a failed edit leaves the saved file as it was.
-    // A newer file from another window or process is the one refusal the store words itself, so its fact stays
-    // in the body by its typed case. The editor's own sentence about a missing store stays by its type.
+    // The store words some refusals itself. A newer file from another window or process, and the three families
+    // about the person's selection and entries, keep their fact in the body by their types, and a read-only bundle
+    // names a writable folder. The editor's own sentence about a missing store stays by its type. Any other
+    // error is a failed write.
 
     static func openAnnotationsForSampleStatus(_ error: any Error) -> FailureReport {
         FailureReport(
@@ -122,6 +124,28 @@ enum GenotypeFailureReports {
                 failedStep: step,
                 whatHappened: error.localizedDescription,
                 nextStep: "Reopen the bundle, then \(again) again.",
+                underlying: error
+            )
+        }
+        // The store words its own refusals about the person's selection and entries, so they stay in the body.
+        // A read-only bundle is the one refusal all three families share (ALERT UX review 2, SF1).
+        if (error as? GenotypeMatrixReviewMutationError) == .readOnly
+            || (error as? ManualHaplotypeReplacementError) == .readOnly
+            || (error as? CallOverrideMutationError) == .readOnly {
+            return FailureReport(
+                failedStep: step,
+                whatHappened: "This bundle is read-only, so the change was not saved.",
+                nextStep: "Open the bundle from a folder that can be written to, then \(again) again.",
+                underlying: error
+            )
+        }
+        if error is GenotypeMatrixReviewMutationError
+            || error is ManualHaplotypeReplacementError
+            || error is CallOverrideMutationError {
+            return FailureReport(
+                failedStep: step,
+                whatHappened: error.localizedDescription,
+                nextStep: "Correct the selection or the entry that the message describes, then \(again) again.",
                 underlying: error
             )
         }

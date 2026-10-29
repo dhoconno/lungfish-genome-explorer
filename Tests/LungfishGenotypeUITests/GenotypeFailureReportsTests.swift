@@ -142,4 +142,62 @@ final class GenotypeFailureReportsTests: XCTestCase {
         XCTAssertEqual(report.nextStep, "Reopen the bundle, then save the haplotype change again.")
         XCTAssertEqual(FailurePresenter.alert(for: report).informativeText, "\(report.whatHappened)\n\n\(report.nextStep)")
     }
+
+    // MARK: The store's own refusals (ALERT UX review 2, SF1)
+
+    /// What an alert shows above Show Details, read from the report and not through the App target's
+    /// `assertFailureAlert`, since the store's sentence is meant to be in it.
+    private func body(of report: FailureReport) -> String {
+        FailurePresenter.alert(for: report).informativeText
+    }
+
+    private func assertProseRules(_ report: FailureReport, file: StaticString = #filePath, line: UInt = #line) {
+        for text in [report.title, report.whatHappened, report.nextStep] {
+            XCTAssertFalse(text.contains("\u{2014}") || text.contains(";") || text.contains(":"), "prose rule in \(text)", file: file, line: line)
+        }
+    }
+
+    func testAnEditOnAReadOnlyBundleSaysSoAndNamesAWritableFolder() {
+        let readOnly = "This bundle is read-only, so the change was not saved."
+        let matrix = GenotypeFailureReports.saveMatrixAnnotation(GenotypeMatrixReviewMutationError.readOnly)
+        XCTAssertEqual(matrix.whatHappened, readOnly)
+        XCTAssertEqual(matrix.nextStep, "Open the bundle from a folder that can be written to, then save the annotation again.")
+        XCTAssertEqual(matrix.details?.contains("This bundle is read-only."), true)
+        assertProseRules(matrix)
+        let haplotypes = GenotypeFailureReports.saveManualHaplotypeAssignments(ManualHaplotypeReplacementError.readOnly)
+        XCTAssertEqual(haplotypes.whatHappened, readOnly)
+        XCTAssertEqual(haplotypes.nextStep, "Open the bundle from a folder that can be written to, then save the assignments again.")
+        assertProseRules(haplotypes)
+        let call = GenotypeFailureReports.confirmCall(CallOverrideMutationError.readOnly)
+        XCTAssertEqual(call.whatHappened, readOnly)
+        XCTAssertEqual(call.nextStep, "Open the bundle from a folder that can be written to, then confirm the call again.")
+        assertProseRules(call)
+    }
+
+    func testAMatrixSelectionRefusalKeepsItsSentenceInTheBody() {
+        let report = GenotypeFailureReports.saveMatrixAnnotation(GenotypeMatrixReviewMutationError.emptyTargets)
+        XCTAssertEqual(report.whatHappened, "Select one or more matrix targets.")
+        XCTAssertTrue(body(of: report).contains("Select one or more matrix targets."))
+        XCTAssertEqual(report.nextStep, "Correct the selection or the entry that the message describes, then save the annotation again.")
+        XCTAssertFalse(report.nextStep.contains("folder"))
+        assertProseRules(report)
+    }
+
+    func testAManualHaplotypeEntryRefusalKeepsItsSentenceInTheBody() {
+        let refusal = ManualHaplotypeReplacementError.invalidLocus("HLA-Z")
+        let report = GenotypeFailureReports.saveManualHaplotypeAssignments(refusal)
+        XCTAssertEqual(report.whatHappened, refusal.localizedDescription)
+        XCTAssertTrue(body(of: report).contains("HLA-Z"))
+        XCTAssertEqual(report.nextStep, "Correct the selection or the entry that the message describes, then save the assignments again.")
+        XCTAssertFalse(report.nextStep.contains("folder"))
+        assertProseRules(report)
+    }
+
+    func testACallOverrideRefusalKeepsItsSentenceInTheBody() {
+        let report = GenotypeFailureReports.confirmCall(CallOverrideMutationError.mixedSamples)
+        XCTAssertEqual(report.whatHappened, CallOverrideMutationError.mixedSamples.localizedDescription)
+        XCTAssertTrue(report.nextStep.hasSuffix("then confirm the call again."))
+        XCTAssertFalse(report.nextStep.contains("folder"))
+        assertProseRules(report)
+    }
 }
