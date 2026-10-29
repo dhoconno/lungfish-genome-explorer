@@ -229,3 +229,173 @@ final class EsVirituDatabaseIdentityRecordTests: XCTestCase {
         return try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: output))
     }
 }
+
+// MARK: - The methods minimum
+
+/// BIO-DB-IDENTITY section 5, `testEveryClassifierRecordStatesDatabaseIdentity`, the methods-minimum test of lane
+/// DBID. It sits in the CLI test target because the EsViritu record can only be made there, and the CLI target reaches
+/// every other writer through `LungfishWorkflow` and `LungfishTestSupport`. A run or import of each of the six
+/// classifier records is made here, and the facts its record files are read as the Provenance tab reads them.
+extension EsVirituDatabaseIdentityRecordTests {
+    /// What every record's facts must say. `databaseIdentityStatus` reads as one of the five statuses, and a `pinned`
+    /// record carries a 64-hex `databaseDigest`.
+    private func assertStatesDatabaseIdentity(
+        _ facts: [String: ParameterValue],
+        label: String,
+        expecting expected: DatabaseIdentityStatus? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let word = facts["databaseIdentityStatus"]?.stringValue else {
+            return XCTFail("the \(label) record names no databaseIdentityStatus", file: file, line: line)
+        }
+        guard let status = DatabaseIdentityStatus(recordedWord: word) else {
+            return XCTFail("the \(label) record says \(word), which reads as no status", file: file, line: line)
+        }
+        if let expected {
+            XCTAssertEqual(status, expected, "the \(label) record says \(word)", file: file, line: line)
+        }
+        if status == .pinned {
+            let digest = facts["databaseDigest"]?.stringValue ?? ""
+            XCTAssertTrue(
+                digest.count == 64 && digest.allSatisfy(\.isHexDigit),
+                "the \(label) record says \(word) with the digest \(digest)", file: file, line: line
+            )
+        }
+    }
+
+    /// The six records of 3.1. Kraken2, EsViritu and TaxTriage run over a database whose install receipt adds up, so
+    /// each says `pinned` and cites a digest. NVD and CZ-ID name the versions their results state, and NAO-MGS says
+    /// its result names none.
+    func testEveryClassifierRecordStatesDatabaseIdentity() async throws {
+        var records: [(label: String, facts: [String: ParameterValue], expected: DatabaseIdentityStatus)] = []
+
+        let kraken = try FakeClassificationCondaFixture()
+        defer { kraken.cleanup() }
+        let bare = try kraken.makeConfig(databaseDigest: nil)
+        let krakenReceipt = try Install(receiptRoot: bare.databasePath, database: bare.databasePath)
+            .writeReceipt(catalogVersion: "2026.1")
+        let krakenConfig = try kraken.makeConfig(databaseDigest: krakenReceipt.aggregateSHA256)
+        _ = try await ClassificationPipeline(condaManager: kraken.condaManager).classify(config: krakenConfig)
+        let krakenRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: krakenConfig.outputDirectory))
+        let krakenStep = try XCTUnwrap(krakenRecord.steps.first { $0.toolName == "kraken2" })
+        records.append(("Kraken2", krakenStep.resolvedOptions, .pinned))
+
+        let install = try makeInstall()
+        try install.writeReceipt(catalogVersion: "v3.2.4")
+        let esviritu = try await runRecord(on: install)
+        records.append(("EsViritu", esviritu.options.resolvedDefaults, .pinned))
+        records.append(("TaxTriage", TaxTriageRecordFacts.databaseIdentity(at: install.receiptRoot), .pinned))
+
+        let imports = root.appendingPathComponent("imports", isDirectory: true)
+        let nvd = try await MetagenomicsImportService.importNvd(
+            inputURL: try makeNvdRunDirectory(), outputDirectory: imports, samtoolsPath: nil
+        )
+        records.append(("NVD import", try importedFacts(nvd.resultDirectory), .namedBySource))
+        records.append(("NAO-MGS import", try importedFacts(try await importNaoMgsRun(into: imports)), .notNamedBySource))
+        let czid = root.appendingPathComponent("czid", isDirectory: true)
+        _ = try CzIdDataConverter.convertTaxonReport(
+            at: ProvenanceCompatCorpus.repositoryRoot.appendingPathComponent("Tests/Fixtures/czid/minimal_taxon_report.tsv"),
+            outputDirectory: czid
+        )
+        records.append(("CZ-ID import", try importedFacts(czid), .namedBySource))
+
+        XCTAssertEqual(
+            records.map(\.label),
+            ["Kraken2", "EsViritu", "TaxTriage", "NVD import", "NAO-MGS import", "CZ-ID import"]
+        )
+        for record in records {
+            assertStatesDatabaseIdentity(record.facts, label: record.label, expecting: record.expected)
+        }
+    }
+
+    /// The check can fail. A record that names no status, one with a word no reader knows (CZ-ID's released
+    /// `unknown`), and a `pinned` one with no 64-hex digest each trip it.
+    func testMethodsMinimumCheckTripsOnSilentAndUnbackedRecords() {
+        XCTExpectFailure("a record that names no status") {
+            assertStatesDatabaseIdentity([:], label: "silent")
+        }
+        XCTExpectFailure("a word no reader knows") {
+            assertStatesDatabaseIdentity(["databaseIdentityStatus": .string("unknown")], label: "placeholder")
+        }
+        XCTExpectFailure("pinned with no digest") {
+            assertStatesDatabaseIdentity(["databaseIdentityStatus": .string("pinned")], label: "pinned without digest")
+        }
+        XCTExpectFailure("pinned with a short digest") {
+            assertStatesDatabaseIdentity(
+                ["databaseIdentityStatus": .string("pinned"), "databaseDigest": .string("abc")], label: "short digest"
+            )
+        }
+    }
+
+    private func importedFacts(_ directory: URL) throws -> [String: ParameterValue] {
+        try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: directory), "the import wrote no record").options.resolvedDefaults
+    }
+
+    /// The NVD run directory `MetagenomicsImportServiceTests` imports, whose rows state `nt-2026` and `stat-1`.
+    private func makeNvdRunDirectory() throws -> URL {
+        let nvdDir = root.appendingPathComponent("nvd-run", isDirectory: true)
+        let labkeyDir = nvdDir.appendingPathComponent("05_labkey_bundling", isDirectory: true)
+        let humanVirusDir = nvdDir
+            .appendingPathComponent("02_human_viruses", isDirectory: true)
+            .appendingPathComponent("03_human_virus_results", isDirectory: true)
+        let mappedReadsDir = humanVirusDir.appendingPathComponent("mapped_reads", isDirectory: true)
+        try FileManager.default.createDirectory(at: labkeyDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: mappedReadsDir, withIntermediateDirectories: true)
+        let header = "experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,bitscore,"
+            + "sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,stat_db_version,"
+            + "adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank"
+        let row = "EXP001,blastn,S1,contig-1,120,gb|NC_001|,Example virus species,S,118,99.2,1e-20,250.5,Example virus,"
+            + "12345,nt-2026,run-001,42,100000,stat-1,12345,unchanged,Example virus,species"
+        try "\(header)\n\(row)\n".write(
+            to: labkeyDir.appendingPathComponent("sample_blast_concatenated.csv"), atomically: true, encoding: .utf8
+        )
+        try "synthetic bam payload\n".write(
+            to: mappedReadsDir.appendingPathComponent("S1.filtered.bam"), atomically: true, encoding: .utf8
+        )
+        try "synthetic bai payload\n".write(
+            to: mappedReadsDir.appendingPathComponent("S1.filtered.bam.bai"), atomically: true, encoding: .utf8
+        )
+        try ">contig-1\nACGTACGT\n".write(
+            to: humanVirusDir.appendingPathComponent("S1.human_virus.fasta"), atomically: true, encoding: .utf8
+        )
+        return nvdDir
+    }
+
+    /// A NAO-MGS import of the inline three-row table of `MetagenomicsImportServiceTests`, on a fixture taxdump, so the
+    /// taxonomy install stays off the network. Returns the result folder.
+    private func importNaoMgsRun(into imports: URL) async throws -> URL {
+        let source = root.appendingPathComponent("virus_hits_final.tsv")
+        try """
+        sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_cigar\tquery_len\tprim_align_edit_distance\tprim_align_query_rc
+        SAMPLE_A\tread1\t111\tACGTACGT\tFFFFFFFF\tACCN0001\t10\t8M\t8\t0\tFalse
+        SAMPLE_A\tread2\t111\tACGTACGA\tFFFFFFFF\tACCN0002\t20\t8M\t8\t1\tFalse
+        SAMPLE_A\tread3\t222\tACGTACGG\tFFFFFFFF\tACCN0003\t30\t8M\t8\t0\tTrue
+        """.write(to: source, atomically: true, encoding: .utf8)
+        let managed = root.appendingPathComponent("managed-databases", isDirectory: true)
+        let registry = MetagenomicsDatabaseRegistry(
+            baseDirectory: managed,
+            catalog: MetagenomicsDatabaseInfo.builtInCatalog.filter { $0.tool == MetagenomicsTool.ncbiTaxonomy.rawValue },
+            databaseInstaller: NCBITaxonomyFixture.installer(
+                archive: managed.appendingPathComponent("taxdump.tar.gz"),
+                scientificNames: [111: "Fixture virus alpha", 222: "Fixture virus beta"]
+            )
+        )
+        let lockURL = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-naomgs-import-tests.lock")
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { flock(descriptor, LOCK_UN) }
+        return try await MetagenomicsImportService.importNaoMgs(
+            inputURL: source,
+            outputDirectory: imports,
+            sampleName: "SAMPLE_A",
+            minIdentity: 90,
+            fetchReferences: false,
+            preferredName: nil,
+            taxonomyRegistry: registry,
+            progress: nil
+        ).resultDirectory
+    }
+}
