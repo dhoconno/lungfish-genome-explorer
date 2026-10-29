@@ -69,6 +69,50 @@ extension NaoMgsBamMaterializerTests {
         XCTAssertEqual(forced, [], "a sample the guard skipped is not reported as materialized")
     }
 
+    /// UX review of NAO-BAM-MISSING, SF1. The viewer's fallback calls `materializeAll` with no `force`, over a result
+    /// whose BAM is gone and whose database the import purged. The guard must stop that call, so no BAM with a header
+    /// and no reads lands in a displayed result (the card would then be blank and its note would say nothing). T3 runs
+    /// `force: true` over a BAM that exists, so it does not reach this call, and the viewer test replaces the writer
+    /// with a hook. This pins the fallback's own call. It passes at the head, as a pin does.
+    func testUnforcedMaterializeOfAPurgedDatabaseWithNoBAMWritesNoBAM() throws {
+        guard let samtools = BamFixtureBuilder.locateSamtools() else {
+            try ToolAvailability.skipOrFail("samtools is not installed")
+        }
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        // The real database the import makes from three reads of one sample, so the purge is the import's own.
+        let hits = (1...3).map { index in
+            NaoMgsVirusHit(
+                sample: "S1", seqId: "read-\(index)", taxId: 11, bestAlignmentScore: 100, cigar: "50M", queryStart: 0,
+                queryEnd: 50, refStart: index * 100, refEnd: index * 100 + 50,
+                readSequence: String(repeating: "ACGT", count: 12) + "AC", readQuality: String(repeating: "I", count: 50),
+                subjectSeqId: "NC_001", subjectTitle: "Test virus", bitScore: 100, eValue: 1e-20, percentIdentity: 99,
+                editDistance: 0, fragmentLength: 50, isReverseComplement: index == 2, pairStatus: "UP", queryLength: 50
+            )
+        }
+        let dbURL = tmp.appendingPathComponent("naomgs.sqlite")
+        _ = try NaoMgsDatabase.create(at: dbURL, hits: hits)
+
+        let result = try materializeForPin(dbURL: dbURL, tmp: tmp, samtools: samtools, markDuplicates: false)
+        let bam = try XCTUnwrap(result.bamURLs.first)
+        let bamsFolder = bam.deletingLastPathComponent()
+        try NaoMgsDatabase.openReadWrite(at: dbURL).deleteVirusHitsAndVacuum()
+        // The BAM is removed by hand, with its index.
+        for file in try FileManager.default.contentsOfDirectory(at: bamsFolder, includingPropertiesForKeys: nil)
+        where ["bam", "bai"].contains(file.pathExtension) {
+            try FileManager.default.removeItem(at: file)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bam.path), "the set-up removed the sample's BAM")
+
+        let unforced = try NaoMgsBamMaterializer.materializeAll(dbPath: dbURL.path, resultURL: tmp, samtoolsPath: samtools)
+
+        XCTAssertEqual(unforced, [], "a sample the guard skipped is not reported as materialized")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bam.path), "no BAM with a header and no reads is written")
+        let left = try FileManager.default.contentsOfDirectory(atPath: bamsFolder.path)
+            .filter { ["bam", "bai"].contains(($0 as NSString).pathExtension) }
+        XCTAssertEqual(left, [], "the bams folder holds no BAM and no index")
+    }
+
     private func strandFixSHA256(of url: URL) throws -> String {
         SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
     }

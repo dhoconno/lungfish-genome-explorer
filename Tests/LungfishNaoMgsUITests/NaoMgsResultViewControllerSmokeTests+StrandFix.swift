@@ -138,6 +138,8 @@ extension NaoMgsResultViewControllerSmokeTests {
     /// The sample's BAM is gone (removed by hand, or never written) and the fallback cannot make it again, so the card is
     /// blank. The note then says which file is missing and what to try, and the words write nothing into the result, a
     /// header-only BAM included. The fallback is a seam that makes no file, like a database that holds no reads.
+    /// The digest check covers the words path only, since the hook replaces the writer, and the guard that stops a
+    /// header-only BAM is pinned by `testUnforcedMaterializeOfAPurgedDatabaseWithNoBAMWritesNoBAM`.
     @MainActor func testMissingBAMShowsItsWordsAndWritesNothing() throws {
         let rig = try openStrandFixResult(withBAM: false)
         defer { closeStrandFixResult(rig) }
