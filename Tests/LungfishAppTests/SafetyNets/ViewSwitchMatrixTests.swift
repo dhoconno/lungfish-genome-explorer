@@ -87,6 +87,14 @@ final class ViewSwitchMatrixTests: XCTestCase {
                 XCTAssertTrue(pairs.insert(pair).inserted, "\(pair) is declared twice")
             }
         }
+        XCTAssertLessThanOrEqual(
+            ViewSwitchDeclaredLeaks.all.count, 136,
+            "The declared leaks only shrink. Lower this number in the change that fixes a leak."
+        )
+        XCTAssertLessThanOrEqual(
+            ViewSwitchDeclaredLeaks.all.flatMap(\.to).count, 179,
+            "The declared leaks only shrink. Lower this number in the change that fixes a leak."
+        )
         XCTAssertFalse(ViewSwitchDeclaredLeaks.gaps.isEmpty)
     }
 
