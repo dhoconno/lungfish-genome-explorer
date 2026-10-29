@@ -234,6 +234,7 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
 
     /// A result folder of `tool` in `root` whose BAM for each of `samples` is the sarscov2 fixture BAM,
     /// laid out where the resolver looks for that tool's BAM, and the result path the views pass.
+    /// The NAO-MGS BAM also has the header line of a fresh import, since Extract refuses one without it.
     private func makeBAMResult(tool: ClassifierTool, samples: [String]) throws -> URL {
         let fileManager = FileManager.default
         let repository = URL(fileURLWithPath: #filePath)
@@ -259,6 +260,7 @@ final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
             try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fileManager.copyItem(at: bam, to: destination)
             try fileManager.copyItem(at: index, to: URL(fileURLWithPath: destination.path + ".bai"))
+            if tool == .naomgs { try ClassifierExtractionFixtures.markAsMadeAfterTheStrandFix(bam: destination) }
         }
         return folder.appendingPathComponent("fake-result.sqlite")
     }

@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
+import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 
@@ -75,6 +77,41 @@ enum ClassifierExtractionFixtures {
         sarscov2BAM.appendingPathExtension("bai")
     }
 
+    // MARK: - NAO-MGS marker
+
+    /// Gives a copy of a fixture BAM the header line a NAO-MGS import writes, and indexes the copy again. Extract
+    /// refuses a NAO-MGS alignment file without the materializer's `@PG` line at the current version (Phase 3.1 lane
+    /// NAO-BAM-STALE), so a layout built from a third-party BAM needs the line to read as a fresh import's file. The
+    /// records stay as they are. Both sarscov2 BAMs store every 0x10 record the way SAM does, reverse-complemented,
+    /// and the fixed materializer stores it the same way (each of the 99 equals the reverse complement of its read in
+    /// `test_1` and `test_2`, checked with samtools view). The shared fixture file itself is not touched.
+    static func markAsMadeAfterTheStrandFix(bam: URL) throws {
+        guard let samtools = BamFixtureBuilder.locateSamtools() else {
+            try ToolAvailability.skipOrFail("samtools is not installed")
+        }
+        func run(_ arguments: [String]) throws -> Data {
+            let spec = ToolProcessSpec(
+                executableURL: URL(fileURLWithPath: samtools), arguments: arguments,
+                environment: ToolProcessSpec.inheritedEnvironment(), stderr: .discard, label: "samtools \(arguments[0])"
+            )
+            let result = try ToolProcess.runBlocking(spec)
+            guard result.isSuccess else {
+                throw NSError(domain: "ClassifierExtractionFixtures", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "samtools \(arguments[0]) failed on \(bam.lastPathComponent)",
+                ])
+            }
+            return result.stdout
+        }
+        let line = "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:\(NaoMgsBamMaterializer.headerVersion)\n"
+        let header = String(decoding: try run(["view", "-H", "--no-PG", bam.path]), as: UTF8.self) + line
+        let headerFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naomgs-header-\(UUID().uuidString).sam")
+        defer { try? FileManager.default.removeItem(at: headerFile) }
+        try header.write(to: headerFile, atomically: true, encoding: .utf8)
+        try run(["reheader", headerFile.path, bam.path]).write(to: bam, options: .atomic)
+        _ = try run(["index", bam.path])
+    }
+
     // MARK: - Per-tool fixture builders
 
     /// Builds a minimal classifier result layout that places the sarscov2
@@ -125,6 +162,7 @@ enum ClassifierExtractionFixtures {
             let bam = subdir.appendingPathComponent("\(sampleId).sorted.bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
             try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
+            try markAsMadeAfterTheStrandFix(bam: bam)
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .nvd:
@@ -199,6 +237,7 @@ enum ClassifierExtractionFixtures {
                 let bam = subdir.appendingPathComponent("\(sid).sorted.bam")
                 try fm.copyItem(at: sarscov2BAM, to: bam)
                 try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
+                try markAsMadeAfterTheStrandFix(bam: bam)
             case .nvd:
                 let subdir = resultDir.appendingPathComponent("bam")
                 try fm.createDirectory(at: subdir, withIntermediateDirectories: true)
