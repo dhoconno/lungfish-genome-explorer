@@ -325,7 +325,13 @@ public enum CzIdDataConverter {
         )
         .argv(command)
         .durableReplayArgv(command)
-        .options(explicit: parameters, defaults: defaults, resolved: resolved)
+        .options(
+            // The status and the note say what the report names, so they are resolved defaults only. A reader must not
+            // take them for options the person chose (DB-IDENTITY, the Provenance tab).
+            explicit: parameters.filter { $0.key != "databaseIdentityStatus" && $0.key != "databaseIdentityNote" },
+            defaults: defaults,
+            resolved: resolved
+        )
         .runtime(ProvenanceRuntimeIdentity())
         .step(provenanceStep)
 
