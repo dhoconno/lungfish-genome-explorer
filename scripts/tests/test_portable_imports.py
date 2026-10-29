@@ -219,3 +219,15 @@ def test_planted_condor_line_fails_and_its_removal_passes(tree: Path):
 def test_import_inside_if_passes(tree: Path):
     append(tree, "Sources/LungfishPortable/Digest.swift", "#if canImport(Darwin)\nimport Darwin\n#endif\n")
     assert run("--root", str(tree)).returncode == 0
+
+
+def test_a_test_support_c_target_outside_sources_is_not_counted(tree: Path):
+    # Phase 3.1 review LOOP-ARCH B1: the test-only C target of the test-state observer is in no product and no Linux
+    # build, so c_targets counts only targets under Sources/ and stays 1.
+    edit(tree, "Package.swift", "    targets: [\n",
+         '    targets: [\n        .target(name: "LungfishTestObserverBootstrap", path: "Tests/Support/LungfishTestObserverBootstrap"),\n')
+    write(tree, "Tests/Support/LungfishTestObserverBootstrap/bootstrap.c", "int observer(void) { return 1; }\n")
+    write(tree, "Tests/Support/LungfishTestObserverBootstrap/include/LungfishTestObserverBootstrap.h", "int observer(void);\n")
+    result = run("--root", str(tree))
+    assert result.returncode == 0, result.stderr
+    assert "1 c_targets" in result.stdout

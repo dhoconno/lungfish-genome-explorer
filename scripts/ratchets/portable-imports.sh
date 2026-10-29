@@ -15,7 +15,7 @@ plan file's folder, and HTCondor facts reach its run record only as --site-fact 
                           other than .executable(name: "lungfish-executor", targets: ["LungfishExecutor"]) whose
                           targets name it, and Swift files outside Sources/LungfishExecutor/ and
                           Tests/LungfishExecutorTests/ that import it
-    c_targets             targets whose folder holds a .c, .h, .m, .mm, .cc or .cpp file or a module.modulemap,
+    c_targets             targets under Sources/ whose folder holds a .c, .h, .m, .mm, .cc or .cpp file or a module.modulemap,
                           plus each .systemLibrary( or .binaryTarget( call in the manifest
     c_target_dependents   targets other than LungfishExecutor whose dependencies name CLungfishExecutor, and Swift
                           files under Sources/ or Tests/ other than Sources/LungfishExecutor/Process/ChildSubreaper.swift
@@ -167,10 +167,11 @@ def scan(root, manifest_path):
             counts["executor_dependents"] += 1
             sites.append(f"Package.swift: .{kind} product {name} names {EXECUTOR}")
 
-    # c_targets: folders with C-family files, plus system library and binary targets.
+    # c_targets: folders under Sources/ with C-family files, plus system library and binary targets. A test-only
+    # target under Tests/Support is in no product and no Linux build, so it is not the portable layer's business.
     for t in targets:
         base = root / t.path
-        if base.is_dir() and any(
+        if t.path.startswith("Sources/") and base.is_dir() and any(
             p.is_file() and (p.name.endswith(C_SUFFIXES) or p.name == "module.modulemap") for p in base.rglob("*")
         ):
             counts["c_targets"] += 1

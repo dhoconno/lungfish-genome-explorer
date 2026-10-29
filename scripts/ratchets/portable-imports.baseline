@@ -1,7 +1,6 @@
-# portable-imports baseline: counts over Sources/LungfishPortable, Sources/LungfishExecutor, Sources/CLungfishExecutor and the manifest. c_targets is 2, the executor's C wrapper and Tests/Support/LungfishTestObserverBootstrap. Counts may only fall.
+# portable-imports baseline: counts over Sources/LungfishPortable, Sources/LungfishExecutor, Sources/CLungfishExecutor and the manifest. c_targets is 1, the executor's C wrapper. Counts may only fall.
 forbidden_imports 0
 forbidden_tokens 0
 executor_dependents 0
-# c_targets 2: the executor's C wrapper, and Tests/Support/LungfishTestObserverBootstrap, the test-only C target of the RELEASE-LOOP observer (QA-RELEASE-LOOP)
-c_targets 2
+c_targets 1
 c_target_dependents 0
