@@ -331,10 +331,18 @@ enum TaxTriageParityRawBytes {
     /// and the deacon-panhuman source URL (9933447a6, 1ea8bd4d1, 8547171dc, 9a070a76f), the only change to 12 of the
     /// 18 pins. The `taxtriage.sqlite` records of X1 to X5 and X7 also hold `effectiveThreads`, the host's core count
     /// (910881b8a pinned raven's 14, galah has 20). `maskedNode` masks its value, so those six pins hold on any host.
+    /// Lane DB-IDENTITY (Phase 3.1, landing 7) moved the root record of X1, X2, X5, X6, X7 and X8 and the per-sample
+    /// records of X3 and X4 through one field alone: `fetchedReferences` in the resolved defaults, a live snapshot
+    /// (`status` `liveSnapshot`, `fetchedAt` the run's start, masked, and `listingFiles`, the
+    /// `combine/<sample>.combined.gcfmap.tsv` of each sample). The batch roots of X3 and X4, every `taxtriage.sqlite`
+    /// record and every manifest did not move. The stand-in's Kraken2 database is an empty folder with no install
+    /// receipt, so no `databaseDigest`, note or reference input enters these records. X4's `negative-control` record
+    /// and X6's root list a gcfmap their run never wrote (DBID-BIO backlog 1), so those two pins move again when that
+    /// is fixed. BIO check: reviews/TAXTRIAGE-PINS-BIO.md.
     static let pinnedRecords: [TaxTriageParityCase: [String: String]] = [
         .x1: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "d7b69499bf90c8bc7616ccb1817071aa266da473aa6ab995f95aa9cf6341fb52",
+                "f0b0e5b4df4cc065f4720c2bd98151b56be9b302651a0a9dcdfddbca5a39bdb8",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "0067a41eba0d14ee4a07f7299f96c29fdb971606a9cc34387e7ee6a0ff0fa99e",
             "Project.lungfish/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq/analyses-manifest.json":
@@ -342,7 +350,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x2: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "c2bc4aff330fee420c227df849ae346bb15654c3b494f17d394afd311e9ccc6e",
+                "379d54c62fa289079d118b0a011636401c7f30f9716460f7e16c8d582a5ad10a",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "88a3d9d39db4b149d25dd36aa06283df56c36e3602fc787cbab3eb69e1343327",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -352,9 +360,9 @@ enum TaxTriageParityRawBytes {
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
                 "068e9e25964e82d1c1ec616248400e1f56268e596ea802b9090f64f13292db5a",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "8a6bda47e721d0623706ea23a0f13ac229d445cdcba9a8b653bbf60dbd270a02",
+                "8f788cf1f27d044feb1aa0d4fd517e0f87a9e7c51fd91863729d61cb289a6fd6",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "ca1a9d04997ad980abc742eaf2158019aac0b2b61213062bc77ea6f755e90da1",
+                "e9ccc10f2a1b696acf9c4b0e908664ca0595c1b099f23fe5c564e254915c436c",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "bf84658b36bd928b60825bfb4297e5feceb228b2ae6e414ad4b54d5e80cf9892",
             "Project.lungfish/Imports/two-samples/negative-control.lungfishfastq/analyses-manifest.json":
@@ -366,9 +374,9 @@ enum TaxTriageParityRawBytes {
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
                 "25483f9f3f7e5c771d3ffdb2f4f2598ab0f06877c3886e50e8738ce4c92cf286",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "32cabf32be6e5bf06f36684b04bc3a6c396780af5dab2d7a951df462a477a92c",
+                "6ca39b29112992e35d81bc50f4abdfa8d434ae64573cc36f6ecc093891d30cc7",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "ca1a9d04997ad980abc742eaf2158019aac0b2b61213062bc77ea6f755e90da1",
+                "e9ccc10f2a1b696acf9c4b0e908664ca0595c1b099f23fe5c564e254915c436c",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "9558b0e542ae366825da2e9a399209b2078391246edf8df949af7370f59cdd9f",
             "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -376,7 +384,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x5: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "51288bbece84eefe86a0a846d142974f205d0866891fb2f8d944f486e2c7a707",
+                "f7edda03f5119897e970f87b4005cbf9e9b6e85f1dac18f823573bb99322da15",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "88a3d9d39db4b149d25dd36aa06283df56c36e3602fc787cbab3eb69e1343327",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -384,11 +392,11 @@ enum TaxTriageParityRawBytes {
         ],
         .x6: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "5eadb2f993f90b2a4faf227549aa22f9188ea38b7295c93c61fe0fc39b1303a8",
+                "757e5a46a796368e45e568e456fa0ad961e9c6322ba39aa373aa7c2f0f2443d1",
         ],
         .x7: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "5c80c4842c1e83c2db42533c3472fd38a2eb247ec6f23de8ce32b6f6e5dd01dd",
+                "ae81b68fdb4df01133f3e4ff5deeda3401046c776173bb4db05a4e29a06b1398",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "a7c688a92b250358d0f3dcbd5a05f71d4aa3b4ecdee9960b5860534bc0a70ccb",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -396,7 +404,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x8: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "1736e7560f1a7d22c828f5896c0289892a8d1b0920e4d152da725d347711d16a",
+                "8c70dc24a840a6f7a952c9c42fa0865c82207a28ab282060158919a7865a836c",
         ],
     ]
 
