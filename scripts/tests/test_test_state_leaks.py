@@ -110,6 +110,18 @@ class TestStateLedgerGateTests(unittest.TestCase):
         calls, _, _, _ = run_full_tier({})
         self.assertEqual({call["env"].get(DOMAIN_VARIABLE) for call in calls}, {None})
 
+    def test_a_leak_is_never_cleared_by_a_listed_load_flake(self):
+        # Review LOOP-QA SF-3: the App bundle fails exactly its one listed load flake, which alone would clear on a
+        # rerun, and its observer also wrote a leak. The leak keeps the tier red and no rerun runs.
+        _, status, evidence, leaks = run_full_tier({"LungfishAppTests": json.dumps(LEAK) + "\n"},
+                                                   scenario="bundle_fail", load_flake=[BUNDLED_TESTS[0]])
+        self.assertEqual(status, 1)
+        self.assertIs(evidence["authorized"], False)
+        self.assertNotIn("loadFlakes", evidence)
+        self.assertNotIn("load-flake-rerun", [attempt["role"] for attempt in evidence["attempts"]])
+        self.assertIn(LEAK_ERROR, evidence["attempts"][0]["errors"])
+        self.assertEqual(leaks, LEAK_ERROR + "\n")
+
 
 if __name__ == "__main__":
     unittest.main()
