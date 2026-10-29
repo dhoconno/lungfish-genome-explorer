@@ -1,4 +1,5 @@
 import Foundation
+import LungfishKit
 
 public struct AsyncValidationSession<Input: Hashable, Output> {
     private var gate = AsyncRequestGate<Input>()

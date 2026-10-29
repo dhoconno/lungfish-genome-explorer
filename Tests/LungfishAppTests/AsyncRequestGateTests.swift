@@ -1,4 +1,5 @@
 import XCTest
+import LungfishKit
 @testable import LungfishApp
 
 final class AsyncRequestGateTests: XCTestCase {

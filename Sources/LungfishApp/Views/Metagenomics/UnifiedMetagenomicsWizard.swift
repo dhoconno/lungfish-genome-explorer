@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishKit
 import LungfishWorkflow
 
 // MARK: - UnifiedMetagenomicsWizard

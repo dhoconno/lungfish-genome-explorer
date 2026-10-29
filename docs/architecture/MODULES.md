@@ -12,7 +12,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | CLungfishExecutor | library | Sources/CLungfishExecutor | 0 | none |
 | Lungfish | executable | Sources/Lungfish | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 171 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 169 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 139 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 141 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -198,8 +198,6 @@ None.
 - `AppIcon` enum, `Sources/LungfishApp/App/AppIcon.swift`
 - `AssemblyRunner` enum, `Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewModel.swift`
 - `AssemblySheetPresenter` struct, `Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewController.swift`
-- `AsyncRequestGate` struct, `Sources/LungfishApp/StateManagement/AsyncRequestGate.swift`
-- `AsyncRequestToken` struct, `Sources/LungfishApp/StateManagement/AsyncRequestGate.swift`
 - `AsyncValidationSession` struct, `Sources/LungfishApp/StateManagement/AsyncValidationSession.swift`
 - `BarcodeScoutSheet` class, `Sources/LungfishApp/Views/Viewer/BarcodeScoutSheet.swift`
 - `BarcodeScoutSheetCompletion` typealias, `Sources/LungfishApp/Views/Viewer/BarcodeScoutSheet.swift`
@@ -1602,6 +1600,8 @@ None.
 - `AppUITestBackendMode` enum, `Sources/LungfishKit/AppUITestConfiguration.swift`
 - `AppUITestConfiguration` struct, `Sources/LungfishKit/AppUITestConfiguration.swift`
 - `AsyncFileReader` enum, `Sources/LungfishKit/AsyncFileReader.swift`
+- `AsyncRequestGate` struct, `Sources/LungfishKit/Surfaces/AsyncRequestGate.swift`
+- `AsyncRequestToken` struct, `Sources/LungfishKit/Surfaces/AsyncRequestGate.swift`
 - `BatchColumnSpec` struct, `Sources/LungfishKit/BatchTableView.swift`
 - `BatchTableCellView` class, `Sources/LungfishKit/BatchTableView.swift`
 - `BatchTableView` class, `Sources/LungfishKit/BatchTableView.swift`

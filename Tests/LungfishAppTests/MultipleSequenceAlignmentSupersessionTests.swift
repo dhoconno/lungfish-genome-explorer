@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishKit
 @testable import LungfishApp
 
 /// Regression coverage for the stale-display race in the off-main MSA

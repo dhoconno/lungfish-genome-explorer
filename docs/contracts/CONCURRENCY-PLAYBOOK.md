@@ -54,7 +54,7 @@ guard thisGeneration == viewer.annotationFetchGeneration else { return }
 guard viewer.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else { return }
 ```
 
-The reference is `fetchAnnotationsAsync(bundle:region:)` in `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift`, with siblings `fetchVariantsAsync` and `fetchSequenceAsync` in `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift`. New code prefers the typed form, `AsyncRequestGate` in `Sources/LungfishApp/StateManagement/AsyncRequestGate.swift`, which pairs the generation with the request identity. `MainSplitViewController+SidebarSelection.swift` in `Sources/LungfishApp/Views/MainWindow/` uses it for sidebar display requests.
+The reference is `fetchAnnotationsAsync(bundle:region:)` in `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift`, with siblings `fetchVariantsAsync` and `fetchSequenceAsync` in `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift`. New code prefers the typed form, `AsyncRequestGate` in `Sources/LungfishKit/Surfaces/AsyncRequestGate.swift`, which pairs the generation with the request identity. `MainSplitViewController+SidebarSelection.swift` in `Sources/LungfishApp/Views/MainWindow/` uses it for sidebar display requests.
 
 ## Ratcheted escape hatches
 

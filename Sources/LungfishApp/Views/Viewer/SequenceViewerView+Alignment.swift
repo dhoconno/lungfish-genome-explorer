@@ -6,13 +6,13 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import UniformTypeIdentifiers
 import Quartz
 import LungfishWorkflow
 import os.log
 
 extension SequenceViewerView {
-
     /// Independent of the user-facing row preference: detached evidence must never
     /// stream an unbounded SAM payload into the App process.
     static let detachedEvidenceTransportReadCap = 250_000
