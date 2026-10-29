@@ -3,6 +3,7 @@ import AppKit
 @testable import LungfishGenotypeUI
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 
 /// Ruling U15. A status audit entry records the status it replaced, and the
@@ -99,8 +100,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
 
     // MARK: - A refused edit (2.11 S35 M2b, N3, UX 7, BIO 4)
 
-    /// The words a person reads when another window saved the bundle first. Sentence case, and no
-    /// colon or semicolon inside a sentence (UX 7).
+    /// The store's own sentence when another window saved the bundle first. The alert keeps it in its details
+    /// and its body states the same fact. Sentence case, and no colon or semicolon inside a sentence (UX 7).
     static let staleRefusalWords =
         "The genotype annotations changed in another process. Reload the bundle before saving this edit."
 
@@ -114,8 +115,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
     func testAStaleSampleStatusEditTakesBackItsUndoAndDropsNoEdit() async throws {
         let fixture = try await makeHostedController(priorStatus: .needsReview)
         defer { fixture.tearDown() }
-        var alerts: [String] = []
-        fixture.controller.testingSetSheetAlertHandler { alerts.append($0.localizedDescription) }
+        var alerts: [FailureReport] = []
+        fixture.controller.testingSetSheetAlertHandler { alerts.append($0) }
         defer { fixture.controller.testingSetSheetAlertHandler(nil) }
         let otherWindow = try GenotypeAnnotationStore(
             bundleURL: fixture.bundleURL,
@@ -132,7 +133,8 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         fixture.undoManager.endUndoGrouping()
         await waitForAnnotationEdits()
 
-        XCTAssertEqual(alerts, [Self.staleRefusalWords])
+        XCTAssertEqual(alerts.map(\.title), ["Could not change the sample status"])
+        XCTAssertEqual(alerts.first?.details?.hasPrefix(Self.staleRefusalWords), true, "The store's sentence goes to the details")
         XCTAssertFalse(fixture.undoManager.canUndo, "A refused edit takes its Undo back (N3)")
         XCTAssertEqual(try persistedSidecar(fixture.bundleURL), fileBefore)
         XCTAssertEqual(status(of: sample, in: fileBefore), .needsReview)
@@ -142,6 +144,47 @@ final class GenotypeSampleStatusUndoTests: GenotypeResultViewportTestCase {
         let words = Self.staleRefusalWords
         XCTAssertFalse(words.contains(":") || words.contains(";"))
         XCTAssertEqual(words.first.map { $0.isUppercase }, true)
+    }
+
+    /// The alert of that refusal names the failed step in its title, words what happened and the next step in its
+    /// body, and keeps the error's own sentence in the details (ALERT-PRESENTER, Phase 3.1). Red at the base, where
+    /// the seam handed over the raw error and its sentence was the whole alert.
+    func testAStaleSampleStatusEditAlertNamesTheStepAndKeepsTheRawErrorInTheDetails() async throws {
+        let fixture = try await makeHostedController(priorStatus: .needsReview)
+        defer { fixture.tearDown() }
+        var alerts: [NSAlert] = []
+        fixture.controller.testingSetSheetAlertHandler { alerts.append(Self.alertAPersonReads(for: $0)) }
+        defer { fixture.controller.testingSetSheetAlertHandler(nil) }
+        let otherWindow = try GenotypeAnnotationStore(
+            bundleURL: fixture.bundleURL,
+            author: "second analyst",
+            seedBuiltInSmartCohorts: false
+        )
+        try await otherWindow.setSampleStatus(.confirmed, sample: "AnimalB")
+
+        fixture.undoManager.beginUndoGrouping()
+        fixture.controller.markSelectedSampleReviewed(nil)
+        fixture.undoManager.endUndoGrouping()
+        await waitForAnnotationEdits()
+
+        XCTAssertEqual(alerts.map(\.messageText), ["Could not change the sample status"])
+        let alert = try XCTUnwrap(alerts.first)
+        XCTAssertEqual(
+            alert.informativeText,
+            "The genotype annotations changed in another process, so this edit was not applied.\n\n"
+                + "Reload the bundle, then change the sample status again."
+        )
+        let details = try XCTUnwrap(alert.accessoryView as? FailureDetailsView)
+        XCTAssertTrue(details.textView.string.hasPrefix(Self.staleRefusalWords))
+    }
+
+    /// The alert a person reads for what the seam hands over, a report at the head and the raw error before it.
+    @MainActor
+    private static func alertAPersonReads(for presented: Any) -> NSAlert {
+        if let report = presented as? FailureReport {
+            return FailurePresenter.alert(for: report)
+        }
+        return NSAlert(error: (presented as? Error) ?? NSError(domain: "unexpected", code: 0))
     }
 
     /// The review commands hold while an edit publishes, so a second command cannot start from a

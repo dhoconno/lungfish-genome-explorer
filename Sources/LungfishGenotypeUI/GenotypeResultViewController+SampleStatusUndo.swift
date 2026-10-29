@@ -45,7 +45,7 @@ extension GenotypeResultViewController {
                 seedBuiltInSmartCohorts: false
             )
         } catch {
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.openAnnotationsForSampleStatus(error))
             return
         }
         // The Undo registers in the command's own event, before the edit awaits, so Undo and Redo
@@ -71,7 +71,7 @@ extension GenotypeResultViewController {
             }
         } onFailure: { [self] error in
             undoManager?.removeAllActions(withTarget: undoToken)
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.changeSampleStatus(error))
             if shownStore != nil {
                 refreshAfterSampleStatusChange()
             }

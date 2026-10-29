@@ -44,7 +44,7 @@ extension GenotypeResultViewController {
             refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
             onAnnotationSidecarChanged?(store.sidecar)
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.restoreBuiltInCohorts(error))
         }
     }
 }

@@ -4846,7 +4846,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             animalId: "Sample-A",
             locus: "MHC-A"
         )
-        var presentedErrors: [Error] = []
+        var presentedErrors: [FailureReport] = []
         controller.testingSetSheetAlertHandler {
             presentedErrors.append($0)
         }
@@ -4860,7 +4860,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
 
         XCTAssertEqual(presentedErrors.count, 1)
         XCTAssertTrue(
-            presentedErrors[0].localizedDescription
+            presentedErrors[0].whatHappened
                 .localizedCaseInsensitiveContains("store")
         )
     }
@@ -4925,7 +4925,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             controller.testingInstallEffectiveHaplotypeAnnotationStore(
                 faultingStore
             )
-            var errors: [Error] = []
+            var errors: [FailureReport] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
             try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
@@ -4948,7 +4948,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
                 locus: "MHC-A"
             )
             controller.testingRemoveEffectiveHaplotypeAnnotationStore()
-            var errors: [Error] = []
+            var errors: [FailureReport] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
             try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
@@ -4988,7 +4988,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             controller.testingInstallEffectiveHaplotypeAnnotationStore(
                 readOnlyStore
             )
-            var errors: [Error] = []
+            var errors: [FailureReport] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
             try await assertRenderedEvidenceSubmissionRetainsPendingDraft(
@@ -5103,7 +5103,7 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
             controller.testingInstallEffectiveHaplotypeAnnotationStore(
                 faultingStore
             )
-            var errors: [Error] = []
+            var errors: [FailureReport] = []
             controller.testingSetSheetAlertHandler { errors.append($0) }
 
             XCTAssertTrue(staleRenderedView.allowedTargetsForLocus("MHC-A").contains("A3"))

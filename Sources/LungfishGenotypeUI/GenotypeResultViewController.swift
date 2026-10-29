@@ -148,7 +148,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         }
     }
 
-    private enum ManualHaplotypeEditorError: Error, LocalizedError {
+    enum ManualHaplotypeEditorError: Error, LocalizedError {
         case unavailable
 
         var errorDescription: String? {
@@ -286,7 +286,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
 #if DEBUG
     private var testingLayoutApplicationCount = 0
     private var testingSampleDetailSheetPresentationCounter = 0
-    private var testingSheetAlertHandler: ((Error) -> Void)?
+    private var testingSheetAlertHandler: ((FailureReport) -> Void)?
     private var testingCohortSummaryRebuildCount = 0
     private var testingSynchronizedMiSeqMatrixConfigureCount = 0
     private var testingSynchronizedMiSeqHaplotypeAnalysisRunCount = 0
@@ -726,7 +726,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         annotationStore?.beginEdit { [self] in
             try await saveCurrentFilterAsSmartCohort()
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.saveSmartCohort(error))
         }
     }
 
@@ -745,7 +745,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             refreshVisibleFilterDependentViews(rebuildCohortSummary: true)
             onAnnotationSidecarChanged?(store.sidecar)
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.deleteSmartCohort(error))
         }
     }
 
@@ -2065,7 +2065,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     ) {
         switch mutation {
         case .style:
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.saveAnnotationStyle(error))
         case .review, .comment:
             handleMatrixAnnotationCommandFailure(
                 error,
@@ -2236,7 +2236,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         if let onMatrixAnnotationCommandError {
             onMatrixAnnotationCommandError(error)
         } else {
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.saveMatrixAnnotation(error))
         }
     }
 
@@ -6822,7 +6822,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onAnnotationSidecarChanged?(store.sidecar)
             rebuildArtifactLens()
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.saveManualHaplotypeAssignments(error))
             rebuildArtifactLens()
         }
     }
@@ -6838,7 +6838,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             onAnnotationSidecarChanged?(store.sidecar)
             rebuildArtifactLens()
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.removeManualHaplotype(error))
             rebuildArtifactLens()
         }
     }
@@ -8029,7 +8029,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             }
             onAnnotationSidecarChanged?(store.sidecar)
         } onFailure: { [self] error in
-            presentSheetAlert(error: error)
+            presentSheetAlert(GenotypeFailureReports.confirmCall(error))
         }
     }
 
@@ -8313,7 +8313,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         guard let store = annotationStore else {
             let error = ManualHaplotypeEditorError.unavailable
             if presentErrors {
-                presentSheetAlert(error: error)
+                presentSheetAlert(GenotypeFailureReports.saveHaplotypeChange(error))
             }
             return .failure(error)
         }
@@ -8336,7 +8336,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             return .changed
         } catch {
             if presentErrors {
-                presentSheetAlert(error: error)
+                presentSheetAlert(GenotypeFailureReports.saveHaplotypeChange(error))
             }
             return .failure(error)
         }
@@ -8437,18 +8437,15 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    func presentSheetAlert(error: Error) {
+    /// Shows one failure alert on this view's window, or on the key window, or as a modal alert when none is open.
+    func presentSheetAlert(_ report: FailureReport) {
 #if DEBUG
         if let testingSheetAlertHandler {
-            testingSheetAlertHandler(error)
+            testingSheetAlertHandler(report)
             return
         }
 #endif
-        if let window = view.window ?? NSApp.keyWindow {
-            NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
-        } else {
-            NSApp.presentError(error)
-        }
+        FailurePresenter.present(report, in: view.window)
     }
 
     public var hasUnsavedManualHaplotypeDraft: Bool {
@@ -10938,7 +10935,7 @@ extension GenotypeResultViewController {
     }
 
     func testingSetSheetAlertHandler(
-        _ handler: ((Error) -> Void)?
+        _ handler: ((FailureReport) -> Void)?
     ) {
         testingSheetAlertHandler = handler
     }
