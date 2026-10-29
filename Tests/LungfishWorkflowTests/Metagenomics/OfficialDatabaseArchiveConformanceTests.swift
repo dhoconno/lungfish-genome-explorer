@@ -34,7 +34,15 @@ final class OfficialDatabaseArchiveConformanceTests: XCTestCase {
             FileManager.default.isReadableFile(atPath: path),
             "The official archive \(name) is not at \(path), so its install was not tried. This test never downloads it."
         )
-        return URL(fileURLWithPath: path)
+        return try ownedCopy(of: URL(fileURLWithPath: path))
+    }
+
+    /// A copy of an official archive inside the scratch root, so nothing the test runs can delete the original. The
+    /// scratch root is removed in `tearDownWithError`, and the copy is a clone on APFS.
+    private func ownedCopy(of archive: URL) throws -> URL {
+        let copy = scratch.appendingPathComponent(archive.lastPathComponent)
+        try FileManager.default.copyItem(at: archive, to: copy)
+        return copy
     }
 
     private func install(
