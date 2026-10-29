@@ -149,7 +149,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
             split.invalidateDisplayRequest()
         }
         await hydration.value
-        await app.testingWaitForManualHaplotypeTermination()
+        await waitForManualHaplotypeTermination(of: app)
 
         XCTAssertEqual(initialReply, .terminateLater)
         XCTAssertEqual(replies, [true])
@@ -199,7 +199,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         )
         await gate.finish(snapshot)
         await hydration.value
-        await app.testingWaitForManualHaplotypeTermination()
+        await waitForManualHaplotypeTermination(of: app)
 
         XCTAssertEqual(initialReply, .terminateLater)
         XCTAssertEqual(replies, [true])
@@ -253,7 +253,7 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
         )
         await gate.finish(snapshot)
         await hydration.value
-        await app.testingWaitForManualHaplotypeTermination()
+        await waitForManualHaplotypeTermination(of: app)
 
         XCTAssertEqual(initialReply, .terminateLater)
         XCTAssertEqual(replies, [true])

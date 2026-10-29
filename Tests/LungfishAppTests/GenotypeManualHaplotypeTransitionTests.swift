@@ -876,7 +876,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         XCTAssertTrue(replies.isEmpty)
 
         await secondGate.resume(with: .discard)
-        await delegate.testingWaitForManualHaplotypeTermination()
+        await waitForManualHaplotypeTermination(of: delegate)
 
         XCTAssertEqual(firstPromptCount, 1)
         XCTAssertEqual(secondPromptCount, 1)
@@ -913,7 +913,7 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
         )
         guard await gate.waitUntilPending() else { return }
         await gate.resume(with: .discard)
-        await delegate.testingWaitForManualHaplotypeTermination()
+        await waitForManualHaplotypeTermination(of: delegate)
 
         XCTAssertEqual(replies, [true])
         XCTAssertEqual(

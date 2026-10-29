@@ -2247,10 +2247,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         mainWindowControllers = controllers
     }
 
-    func testingWaitForManualHaplotypeTermination() async {
-        while manualHaplotypeTerminationTask != nil {
-            await Task.yield()
-        }
+    func testingWaitForManualHaplotypeTermination(timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)  // HAPLOTYPE-WAIT-UNBOUNDED, true when the run ended
+        while manualHaplotypeTerminationTask != nil, ContinuousClock.now < deadline { await Task.yield() }
+        return manualHaplotypeTerminationTask == nil
     }
 
     func testingApplicationShouldTerminate(
