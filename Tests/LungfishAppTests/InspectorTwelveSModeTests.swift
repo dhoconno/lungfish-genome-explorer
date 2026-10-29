@@ -160,6 +160,20 @@ final class InspectorTwelveSModeTests: XCTestCase {
         XCTAssertFalse(inspector.twelveSDetailSectionViewModel.hasDetail)
     }
 
+    /// HOST-ARCH SF1. Leaving 12S takes the Detail tab out, so the selection must
+    /// move off it, or the Inspector shows a pane with no segment.
+    func testClearTwelveSDetailMovesTheSelectionOffTheDetailTab() {
+        let inspector = InspectorViewController()
+        inspector.loadViewIfNeeded()
+        inspector.updateTwelveSAmpliconResultDocument(makeResult())
+        inspector.updateTwelveSDetail(TwelveSDetailPayload(kind: .target(.init(
+            scientificName: "Homo sapiens", totalExactReads: 50, referenceTargetCount: 2,
+            sampleEvidence: [], alternateTexts: []))))
+        XCTAssertEqual(inspector.testingSelectedTab, .twelveSDetail)
+        inspector.clearTwelveSDetail()
+        XCTAssertEqual(inspector.testingSelectedTab, .resultSummary)
+    }
+
     /// Re-review 2, S1. A result that read unmerged pairs opens with its
     /// Inspector filters in fragments, as its tables name its counts, before
     /// the viewport sends a summary of its own. The viewport's summaries are
