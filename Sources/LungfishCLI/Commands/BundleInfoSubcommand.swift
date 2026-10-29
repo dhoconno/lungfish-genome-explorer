@@ -55,11 +55,17 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
         case .json:
             let handler = JSONOutputHandler()
             // The manifest of a bundle made before the read counts were fixed holds the idxstats sums, so print the
-            // same reads the text form prints.
+            // same reads the text form prints, and say beside the manifest what each count counts.
             let shown = manifest.alignments.isEmpty
                 ? manifest
                 : manifest.displayingAlignments(BundleAlignmentTrackListing.withReads(manifest.alignments, in: bundleURL))
-            handler.writeData(BundleInfoOutput(manifest: shown, path: bundlePath), label: nil)
+            handler.writeData(
+                BundleInfoJSON(
+                    output: BundleInfoOutput(manifest: shown, path: bundlePath),
+                    alignmentCountBases: BundleAlignmentTrackListing.countBases(manifest.alignments, in: bundleURL)
+                ),
+                label: nil
+            )
 
         case .tsv:
             print("name\tidentifier\torganism\tassembly\ttotal_length\tchromosomes\tannotations\tvariants\ttracks")
@@ -161,6 +167,30 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
                 }
                 print(formatter.table(headers: sigHeaders, rows: sigRows))
             }
+        }
+    }
+}
+
+/// What `bundle info --format json` prints. The `manifest` and `path` keys are `BundleInfoOutput`'s, unchanged. The
+/// `alignment_count_bases` key sits beside them, keyed by track id, and says what each track's `mapped_read_count` counts.
+/// `reads` is flagstat's primary lines, `alignments` is a database without them, and `manifest` is the manifest's own copy,
+/// whose unit the manifest does not record. A bundle with no alignment track prints no such key.
+struct BundleInfoJSON: Encodable {
+    let output: BundleInfoOutput
+    let alignmentCountBases: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case manifest
+        case path
+        case alignmentCountBases = "alignment_count_bases"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(output.manifest, forKey: .manifest)
+        try container.encode(output.path, forKey: .path)
+        if !alignmentCountBases.isEmpty {
+            try container.encode(alignmentCountBases, forKey: .alignmentCountBases)
         }
     }
 }

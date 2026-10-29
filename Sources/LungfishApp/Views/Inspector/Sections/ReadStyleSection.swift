@@ -537,7 +537,7 @@ public final class ReadStyleSectionViewModel {
             // count each supplementary alignment again, so a database without them adds its alignment records, apart (`alignmentRecordCounts`).
             let reads = countsTowardTotals ? db.primaryReadCounts() : nil
             let chromosomes = countsTowardTotals ? db.chromosomeStats() : []
-            kinds.add(reads: reads, alignments: reads == nil && countsTowardTotals ? Self.alignmentRecordCounts(of: db) : [])
+            if countsTowardTotals { kinds.add(reads: reads, alignments: reads == nil ? Self.alignmentRecordCounts(of: db) : []) }
             for stat in chromosomes {
                 chromStatsList.append(ChromosomeReadStat(
                     chromosome: stat.chromosome, length: stat.length, mappedReads: stat.mappedReads, unmappedReads: stat.unmappedReads
@@ -1257,8 +1257,8 @@ public struct AlignmentBundleSection: View {
 
             Divider()
 
-            statRow(viewModel.totalMappedLabel, value: formatCount(viewModel.totalMappedReads))
-            statRow(viewModel.totalUnmappedLabel, value: formatCount(viewModel.totalUnmappedReads))
+            statRow(viewModel.totalMappedLabel, value: viewModel.totalsAreUnmeasured ? "Not recorded" : formatCount(viewModel.totalMappedReads))
+            statRow(viewModel.totalUnmappedLabel, value: viewModel.totalsAreUnmeasured ? "Not recorded" : formatCount(viewModel.totalUnmappedReads))
             ForEach(viewModel.alignmentOnlyRows) { statRow($0.label, value: formatCount($0.value)) }
             if let note = viewModel.alignmentCountsNote {
                 Text(note).font(LungfishInspectorStyle.controlFont).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -25,6 +25,16 @@ enum BundleAlignmentTrackListing {
         case manifest
         /// The manifest's copy, with no statistics database to ask.
         case stored
+
+        /// The word `bundle info --format json` prints for this basis. Both copies of the manifest read `manifest`, since the
+        /// manifest does not record what its count counts.
+        var jsonWord: String {
+            switch self {
+            case .reads: "reads"
+            case .alignments: "alignments"
+            case .manifest, .stored: "manifest"
+            }
+        }
     }
 
     static func tableRows(_ tracks: [AlignmentTrackInfo], bundleURL: URL? = nil, formatter: TerminalFormatter) -> [[String]] {
@@ -85,14 +95,23 @@ enum BundleAlignmentTrackListing {
     /// The reads a track lists as mapped and as unmapped. Its stats database holds flagstat's primary counts, which are
     /// reads. A bundle written before this release holds the idxstats sum in its manifest, which counts each supplementary
     /// alignment again, so the database comes first and the manifest's numbers stay for a track with no database or no
-    /// primary lines. The JSON form of `bundle info` prints these.
-    static func readCounts(of track: AlignmentTrackInfo, in bundleURL: URL?) -> (mapped: Int64?, unmapped: Int64?) {
-        if let bundleURL, let path = track.metadataDBPath,
-           let database = try? AlignmentMetadataDatabase(url: bundleURL.appendingPathComponent(path)),
-           let primary = database.primaryReadCounts() {
-            return (primary.mapped, primary.unmapped)
+    /// primary lines. The JSON form of `bundle info` prints these, with the `basis` that says what the mapped count counts.
+    /// The mapped count is the one `bundle list` shows, and the unmapped count stays the manifest's unless it is reads.
+    static func readCounts(of track: AlignmentTrackInfo, in bundleURL: URL?) -> (mapped: Int64?, unmapped: Int64?, basis: CountBasis) {
+        let listed = listedMapped(of: track, in: bundleURL)
+        guard listed.basis == .reads, let bundleURL, let path = track.metadataDBPath,
+              let reads = (try? AlignmentMetadataDatabase(url: bundleURL.appendingPathComponent(path)))?.primaryReadCounts() else {
+            return (listed.mapped, track.unmappedReadCount, listed.basis)
         }
-        return (track.mappedReadCount, track.unmappedReadCount)
+        return (reads.mapped, reads.unmapped, .reads)
+    }
+
+    /// What each track's printed count counts, by track id, for the `alignment_count_bases` key of `bundle info --format json`.
+    static func countBases(_ tracks: [AlignmentTrackInfo], in bundleURL: URL) -> [String: String] {
+        Dictionary(
+            tracks.map { ($0.id, readCounts(of: $0, in: bundleURL).basis.jsonWord) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     /// The tracks with their counts set to `readCounts(of:in:)`, for output that prints the manifest.

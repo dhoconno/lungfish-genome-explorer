@@ -16,6 +16,8 @@ struct ReadTotalsByKind: Equatable {
     private(set) var alignmentsMapped: Int64 = 0
     private(set) var alignmentsUnmapped: Int64 = 0
     private(set) var alignmentTracks = 0
+    /// Counted tracks that hold no count of either kind, so they add nothing and their totals are unknown.
+    private(set) var unmeasuredTracks = 0
 
     /// Adds one counted track, as reads when it has them and else as its per-sequence alignment records.
     mutating func add(reads: (mapped: Int64, unmapped: Int64)?, alignments: [(mapped: Int64, unmapped: Int64)]) {
@@ -27,6 +29,8 @@ struct ReadTotalsByKind: Equatable {
             alignmentsMapped += alignments.reduce(0) { $0 + $1.mapped }
             alignmentsUnmapped += alignments.reduce(0) { $0 + $1.unmapped }
             alignmentTracks += 1
+        } else {
+            unmeasuredTracks += 1
         }
     }
 
@@ -47,7 +51,9 @@ extension ReadStyleSectionViewModel {
     private var totalsAreAlignments: Bool { totalsByKind.readTracks == 0 && totalsByKind.alignmentTracks > 0 }
 
     /// True when counted tracks were offered and none of them holds a count of either kind, so the two totals are unknown.
-    var totalsAreUnmeasured: Bool { false }
+    var totalsAreUnmeasured: Bool {
+        totalsByKind.readTracks == 0 && totalsByKind.alignmentTracks == 0 && totalsByKind.unmeasuredTracks > 0
+    }
 
     var totalMappedLabel: String { totalsAreAlignments ? "Total Mapped (alignments)" : "Total Mapped" }
     var totalUnmappedLabel: String { totalsAreAlignments ? "Total Unmapped (alignments)" : "Total Unmapped" }
@@ -71,6 +77,9 @@ extension ReadStyleSectionViewModel {
     /// Words under the totals when a counted track has alignment records and no read counts. They say what the
     /// numbers count and what to try. `nil` when every total is a read count.
     var alignmentCountsNote: String? {
+        if totalsAreUnmeasured {
+            return "The statistics hold no read counts. Run the mapping or import the alignment again to count its reads."
+        }
         guard totalsByKind.alignmentTracks > 0 else { return nil }
         if totalsByKind.readTracks > 0 {
             return "Some tracks have no read counts. Their alignments are listed separately and not added to the reads. Run the mapping or import those alignments again to count their reads."
