@@ -32,6 +32,8 @@ import LungfishTestSupport
 @MainActor
 final class ClassifierCLIRouteSidebarTests: XCTestCase {
     private var root: URL!
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
     private var scans = SidebarScanCounter()
     private var rowsBefore: Set<UUID> = []
     private var savedBundleReady: (([URL], OperationRouteContext?) -> Void)?
@@ -39,6 +41,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "classifier-cli-route-sidebar")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         OperationCenter.useTemporaryFailureReportsForTesting()
         rowsBefore = Set(OperationCenter.shared.items.map(\.id))
         savedBundleReady = OperationCenter.shared.onBundleReadyWithContext
@@ -54,6 +57,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         for item in OperationCenter.shared.items where !rowsBefore.contains(item.id) {
             OperationCenter.shared.clearItem(id: item.id)
         }
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

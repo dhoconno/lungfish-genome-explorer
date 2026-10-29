@@ -41,10 +41,15 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
     override func setUp() async throws {
         harness.isolate(for: self)
         root = try TestTempDirectory.make(prefix: "taxonomy-collections-moved")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
     }
+
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func tearDown() async throws {
         viewer = nil
+        hostDefaults?.restore()
         if let root { TestTempDirectory.cleanup(root) }
     }
 

@@ -204,9 +204,14 @@ final class TaxonomyCollectionsExtractTests: XCTestCase {
     override func setUp() async throws {
         harness.isolate(for: self)
         root = try TestTempDirectory.make(prefix: "taxonomy-collections-extract")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
     }
 
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
+
     override func tearDown() async throws {
+        hostDefaults?.restore()
         if let root { TestTempDirectory.cleanup(root) }
     }
 
@@ -421,9 +426,14 @@ final class TaxonomyCollectionsExtractReadIDConformanceTests: XCTestCase {
     override func setUp() async throws {
         harness.isolate(for: self)
         root = try TestTempDirectory.make(prefix: "taxonomy-collections-readids")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
     }
 
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
+
     override func tearDown() async throws {
+        hostDefaults?.restore()
         if let root { TestTempDirectory.cleanup(root) }
     }
 

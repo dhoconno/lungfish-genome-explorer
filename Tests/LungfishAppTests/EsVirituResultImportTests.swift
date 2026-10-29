@@ -29,11 +29,16 @@ final class EsVirituResultImportTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "esviritu-result-import")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
     }
+
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func tearDown() async throws {
         split?.sidebarController.closeProject()
         split = nil
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

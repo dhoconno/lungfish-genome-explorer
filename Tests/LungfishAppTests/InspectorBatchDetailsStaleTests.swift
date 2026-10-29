@@ -35,9 +35,13 @@ final class InspectorBatchDetailsStaleTests: XCTestCase {
     private var controller: MainSplitViewController!
     private var window: NSWindow!
 
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
+
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "inspector-batch-details-stale")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         let split = MainSplitViewController()
         let host = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
@@ -56,6 +60,7 @@ final class InspectorBatchDetailsStaleTests: XCTestCase {
         window.contentViewController = nil
         window = nil
         controller = nil
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

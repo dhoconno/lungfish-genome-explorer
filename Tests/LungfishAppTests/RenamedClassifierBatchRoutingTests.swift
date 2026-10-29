@@ -22,6 +22,19 @@ import LungfishNvdUI
 
 @MainActor
 final class RenamedClassifierBatchRoutingTests: XCTestCase {
+    /// The classifier views save their column layouts to `UserDefaults.standard` under each batch's path, and every
+    /// batch of this class lies in a folder named for it.
+    private var hostDefaults: HostDefaultsRestorer?
+
+    override func setUp() async throws {
+        try await super.setUp()
+        hostDefaults = HostDefaultsRestorer(keysContaining: "/RenamedClassifierBatchRoutingTests-")
+    }
+
+    override func tearDown() async throws {
+        hostDefaults?.restore()
+        try await super.tearDown()
+    }
 
     private func makeController() -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()

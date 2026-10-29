@@ -24,6 +24,7 @@ import LungfishTestSupport
 @MainActor
 final class ClassifierCLIRouteRowTests: XCTestCase {
     private var root: URL!
+    private var hostDefaults: HostDefaultsRestorer?
     private var rowIDs: [UUID] = []
     private var savedBundleReady: (([URL], OperationRouteContext?) -> Void)?
     private var bundleImports: RouteBundleImports!
@@ -31,6 +32,8 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "classifier-cli-route")
+        // The result views save their column layouts to `UserDefaults.standard` under the result's path.
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         OperationCenter.useTemporaryFailureReportsForTesting()
         let imports = RouteBundleImports()
         bundleImports = imports
@@ -41,6 +44,7 @@ final class ClassifierCLIRouteRowTests: XCTestCase {
     override func tearDown() async throws {
         OperationCenter.shared.onBundleReadyWithContext = savedBundleReady
         rowIDs.forEach { OperationCenter.shared.clearItem(id: $0) }
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

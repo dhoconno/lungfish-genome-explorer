@@ -35,9 +35,13 @@ final class InspectorResultBlockTests: XCTestCase {
     private var naoMgs: URL!
     private var nvd: URL!
 
+    /// The result views save their column layouts to `UserDefaults.standard` under the result's path.
+    private var hostDefaults: HostDefaultsRestorer?
+
     override func setUp() async throws {
         try await super.setUp()
         root = try TestTempDirectory.make(prefix: "inspector-result-block")
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         naoMgs = try await RoutingSafetyNetFixtures.naoMgsResult(named: "naomgs-result", in: root).bundle
         nvd = try await RoutingSafetyNetFixtures.nvdResult(named: "nvd-result", in: root).bundle
         let split = MainSplitViewController()
@@ -60,6 +64,7 @@ final class InspectorResultBlockTests: XCTestCase {
         window.contentViewController = nil
         window = nil
         controller = nil
+        hostDefaults?.restore()
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

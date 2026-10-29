@@ -82,6 +82,8 @@ final class AlignmentConsensusRowReplayTests: XCTestCase {
     override func tearDown() async throws {
         if let sheet = window?.attachedSheet { window.endSheet(sheet) }
         window?.contentViewController = nil
+        // The window was shown so its sheets could attach. Ordered out, it leaves no visible key window behind.
+        window?.orderOut(nil)
         OperationCenter.shared.clearCompleted()
         TestTempDirectory.cleanup(scratch)
         if let priorCLIPath {
