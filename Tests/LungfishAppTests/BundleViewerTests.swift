@@ -1161,7 +1161,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         // A stale teardown from another viewport must not unhide the drawer
         // underneath the alignment. This is the actual reported defect.
         vc.hideTaxonomyView()
-        vc.hideNaoMgsView()
+        vc.revealAnnotationDrawerUnlessNativeBundleInstalled()
         vc.hideAssemblyView()
         vc.hideFASTACollectionView()
 
