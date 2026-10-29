@@ -69,8 +69,10 @@ public protocol ResultViewport: AnyObject {
     var inspectorBlocks: [SurfaceInspectorBlock] { get }
 
     /// Called once before the host removes the controller, so the surface can stop
-    /// work of its own.
-    func willDeactivate()
+    /// work of its own. `next` is the kind the host shows in its place, nil when the
+    /// host is cleared, so a surface replaced by its own kind can keep what the
+    /// caller has already given the new one.
+    func willDeactivate(replacedBy next: SurfaceKind?)
 }
 
 @MainActor
@@ -85,7 +87,7 @@ extension ResultViewport {
     public var inspectorBlocks: [SurfaceInspectorBlock] { [] }
 
     /// A surface with no work of its own has nothing to stop.
-    public func willDeactivate() {}
+    public func willDeactivate(replacedBy next: SurfaceKind?) {}
 
     /// `input` as a `T`, or ``SurfaceError/unexpectedInput(kind:expected:)`` when the
     /// caller passed another type.

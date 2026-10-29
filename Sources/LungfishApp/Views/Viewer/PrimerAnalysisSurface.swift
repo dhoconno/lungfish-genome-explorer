@@ -54,7 +54,7 @@ final class PrimerAnalysisSurface: ResultViewport {
         onDismiss = input.onDismiss
     }
 
-    func willDeactivate() {
+    func willDeactivate(replacedBy next: SurfaceKind?) {
         onDismiss?()
     }
 }
@@ -82,7 +82,7 @@ final class PrimerOrderSurface: ResultViewport {
         onDismiss = input.onDismiss
     }
 
-    func willDeactivate() {
+    func willDeactivate(replacedBy next: SurfaceKind?) {
         onDismiss?()
     }
 }

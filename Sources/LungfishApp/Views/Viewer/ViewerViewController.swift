@@ -240,6 +240,9 @@ public class ViewerViewController: NSViewController {
     /// True while a native bundle viewport owns the viewer area. Those
     /// viewports fill the whole view and carry their own drawers, so the
     /// parent annotation drawer must stay hidden underneath them.
+    /// The kind whose display method is running, so its own hide list leaves that kind to the host's show.
+    var surfaceKindBeingDisplayed: SurfaceKind?
+
     public var isNativeBundleViewportInstalled: Bool {
         multipleSequenceAlignmentViewController != nil
             || phylogeneticTreeViewController != nil

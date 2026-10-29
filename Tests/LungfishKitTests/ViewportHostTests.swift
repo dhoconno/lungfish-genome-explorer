@@ -101,6 +101,18 @@ final class ViewportHostTests: XCTestCase {
         XCTAssertEqual(stubs.made.map(\.deactivationCount), [1, 1, 1])
     }
 
+    /// R4. The host tells the surface it removes which kind replaces it, and nil on a
+    /// clear, so a surface replaced by its own kind can keep what the route just gave
+    /// the new one.
+    func testTheReplacedSurfaceIsToldWhichKindReplacesIt() async {
+        _ = await host.show(kind: twelveS, input: "first").value
+        _ = await host.show(kind: twelveS, input: "second").value
+        _ = await host.show(kind: kraken2, input: "third").value
+        host.clear()
+
+        XCTAssertEqual(stubs.made.map(\.replacedBy), [[twelveS], [kraken2], [nil]])
+    }
+
     /// The App shows a result it has already read and wires the Inspector to the
     /// installed controller in the same turn, so a load that does not suspend is
     /// installed before show returns.

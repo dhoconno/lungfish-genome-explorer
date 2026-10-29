@@ -78,7 +78,7 @@ public final class ViewportHost {
         let token = gate.begin(identity: SurfaceRequest(kind: kind))
         requestedKind = kind
         lastOutcome = nil
-        removeActiveViewport()
+        removeActiveViewport(replacedBy: kind)
 
         let task: Task<SurfaceShowOutcome, Never>
         do {
@@ -104,7 +104,7 @@ public final class ViewportHost {
         gate.invalidate()
         requestedKind = nil
         lastOutcome = nil
-        removeActiveViewport()
+        removeActiveViewport(replacedBy: nil)
     }
 
     /// Whether `token` belongs to the latest show that no clear has ended. An
@@ -130,7 +130,7 @@ public final class ViewportHost {
     /// Installs `viewport` as the one child. Refuses when the viewer has gone.
     private func commit(_ viewport: any ResultViewport) -> Bool {
         guard let containerView, let parentController else { return false }
-        removeActiveViewport()
+        removeActiveViewport(replacedBy: viewport.surfaceKind)
         let controller = viewport.viewController
         parentController.addChild(controller)
         let view = controller.view
@@ -146,10 +146,11 @@ public final class ViewportHost {
         return true
     }
 
-    private func removeActiveViewport() {
+    /// Removes the installed surface and tells it which kind takes its place.
+    private func removeActiveViewport(replacedBy next: SurfaceKind?) {
         guard let viewport = activeViewport else { return }
         activeViewport = nil
-        viewport.willDeactivate()
+        viewport.willDeactivate(replacedBy: next)
         viewport.viewController.view.removeFromSuperview()
         viewport.viewController.removeFromParent()
     }

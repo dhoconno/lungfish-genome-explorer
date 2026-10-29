@@ -40,7 +40,10 @@ public final class TwelveSSurface: ResultViewport {
 
     public var surfaceKind: SurfaceKind { .bundle(.twelveSResult) }
 
-    public func willDeactivate() {
+    /// Runs ``onWillDeactivate`` unless another 12S result takes this one's place,
+    /// since the caller has already given the Inspector the new result's tab.
+    public func willDeactivate(replacedBy next: SurfaceKind?) {
+        guard next != surfaceKind else { return }
         onWillDeactivate?()
     }
 

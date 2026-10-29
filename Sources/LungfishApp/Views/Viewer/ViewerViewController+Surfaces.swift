@@ -33,6 +33,8 @@ extension ViewerViewController {
         as type: Surface.Type
     ) throws -> Surface {
         surfaceHost.show(kind: kind, input: input)
+        // The show has replaced the old surface, so a failure below clears as usual.
+        surfaceKindBeingDisplayed = nil
         if let surface = surfaceHost.activeViewport as? Surface {
             enhancedRulerView.isHidden = true
             viewerView.isHidden = true
@@ -56,7 +58,8 @@ extension ViewerViewController {
     /// The `hideX()` shim of each migrated kind calls this. It never makes the host,
     /// since a viewer whose view has not loaded shows no surface.
     func clearSurface(ifShowing kinds: SurfaceKind...) {
-        guard isViewLoaded, let kind = surfaceHost.requestedKind, kinds.contains(kind) else { return }
+        guard isViewLoaded, let kind = surfaceHost.requestedKind, kinds.contains(kind),
+              kind != surfaceKindBeingDisplayed else { return }
         surfaceHost.clear()
 
         enhancedRulerView?.isHidden = false

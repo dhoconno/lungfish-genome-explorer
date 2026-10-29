@@ -25,6 +25,8 @@ final class StubResultViewport: ResultViewport {
     private(set) var receivedTokens: [AsyncRequestToken<SurfaceRequest>] = []
     /// How many times the host deactivated this surface.
     private(set) var deactivationCount = 0
+    /// The kind the host named at each deactivation, nil for a clear.
+    private(set) var replacedBy: [SurfaceKind?] = []
 
     private let holdsLoad: Bool
     private let loadError: (any Error)?
@@ -55,8 +57,9 @@ final class StubResultViewport: ResultViewport {
         heldLoad = nil
     }
 
-    func willDeactivate() {
+    func willDeactivate(replacedBy next: SurfaceKind?) {
         deactivationCount += 1
+        replacedBy.append(next)
     }
 }
 

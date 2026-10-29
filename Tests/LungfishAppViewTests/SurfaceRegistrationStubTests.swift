@@ -118,7 +118,7 @@ private final class StubSurface: ResultViewport {
         drawerOpen.toggle()
     }
 
-    func willDeactivate() {
+    func willDeactivate(replacedBy next: SurfaceKind?) {
         deactivations += 1
     }
 }

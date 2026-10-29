@@ -19,9 +19,10 @@ extension ViewerViewController {
         _ result: TwelveSAmpliconResultBundleData,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws -> TwelveSAmpliconResultViewController {
-        // The route has already given the Inspector this result, so the 12S viewer
-        // it replaces must not take the 12S Detail tab away.
-        (surfaceHost.activeViewport as? TwelveSSurface)?.onWillDeactivate = nil
+        // The hide list below reaches hideTwelveSAmpliconResultView, which must leave
+        // an installed 12S viewer for the host's show to replace (HOST-ARCH R4).
+        surfaceKindBeingDisplayed = .bundle(.twelveSResult)
+        defer { surfaceKindBeingDisplayed = nil }
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
