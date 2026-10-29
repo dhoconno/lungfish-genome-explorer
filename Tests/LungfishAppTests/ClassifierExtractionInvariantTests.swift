@@ -389,6 +389,9 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             nvdLoose,
             "I5 strict-teeth violation on markers BAM: 0xD04 count (\(nvdStrict)) must be strictly less than 0xD00 count (\(nvdLoose)). The markers BAM has 3 unmapped records that distinguish the two flag masks; if they're equal, the resolver is dispatching the same flag for both include-unmapped-mates values."
         )
+        // R1 of the Phase 3.1 NVD review: the markers BAM holds a secondary and a supplementary record beside a duplicate and three unmapped ones (203 records), so -F 0xD04 leaves 197 and -F 0xD00 leaves 200.
+        XCTAssertEqual(nvdStrict, 197, "samtools view -c -F 0xD04 on the markers BAM")
+        XCTAssertEqual(nvdLoose, 200, "samtools view -c -F 0xD00 on the markers BAM")
     }
 
     // MARK: - I6: Clipboard cap enforcement
