@@ -120,6 +120,155 @@ final class AlignmentReadExtractionStagerSameNameConformanceTests: XCTestCase {
         )
     }
 
+    // MARK: - By-ID staging (`stageReadIDsFromBAM`)
+
+    // The by-name staging from the alignment evidence, the fallback of the selected-reads extraction and the CLI's
+    // `extract reads` with names from a BAM, collated the selection and ran `samtools fastq` or `fasta` over all of it, so
+    // two records of one name with neither mate flag came out as one. The cases are those above with the names asked for.
+    // Pairs come first, as `samtools` wrote them, then the unflagged records in the BAM's order.
+
+    /// Names `s1`, `p1` and `s2` hold five records. Both records of `s1` are written, the count the row shows is the
+    /// number `samtools view -c -N` gives for the names, and the pair is the record text the old route wrote.
+    func testByIDStageWithTwoUnflaggedRecordsOfOneNameWritesBothAndTheCountMatchesTheNamesAsked() async throws {
+        try await assertByIDStageKeepsEveryRecord(format: .fastq)
+    }
+
+    func testByIDStageAsFASTAWithTwoUnflaggedRecordsOfOneNameWritesBoth() async throws {
+        try await assertByIDStageKeepsEveryRecord(format: .fasta)
+    }
+
+    /// Records with READ1 or READ2 keep their bytes: two pairs' worth of such records (a pair, a mate alone and a record
+    /// with both flags) come out of the stager as they came out of `samtools view -N`, `collate` and `fastq`, the output
+    /// file and the singletons file each.
+    func testByIDStageOfRecordsWithAMateFlagIsWrittenByteForByteAsSamtoolsWroteIt() async throws {
+        try await Self.requireSamtools()
+        let (bam, _) = try await makeIndexedBAM("by-id-flagged", records: [
+            Self.record("p1", 99, pos: 100, seq: "AAAACCCCGG", qual: "ABCDEFGHIJ", mate: 110),
+            Self.record("p1", 147, pos: 110, seq: "TTCCCCAAAA", qual: "9876543210", mate: 100),
+            Self.record("m1", 73, pos: 200, seq: "CCCCGGGGTT", qual: "0000011111", mate: 200),
+            Self.record("o1", 193, pos: 250, seq: "ACGTACGTAC", qual: "IIIIIIIIII"),
+        ])
+        let ids: Set<String> = ["p1", "m1", "o1"]
+        let before = try await legacyByID(bam: bam, ids: ids, format: .fastq)
+        XCTAssertEqual(
+            Self.records(before.output, lines: 4).count + Self.records(before.singletons, lines: 4).count, 4,
+            "the old route writes the four records"
+        )
+
+        let transaction = try await stageByID(bam: bam, ids: ids, format: .fastq)
+        defer { transaction.cleanup() }
+        let texts = try transaction.stagedFiles.filter { $0.stagedURL.pathExtension == "fastq" }
+            .map { try String(contentsOf: $0.stagedURL, encoding: .utf8) }
+        XCTAssertEqual(
+            texts, [before.output, before.singletons].filter { !$0.isEmpty },
+            "records with a mate flag are not byte for byte the old route"
+        )
+    }
+
+    /// The selection is split by mate flag in two recorded steps, `samtools collate` reads the BAM of the records with a
+    /// mate flag only, and the payload step lists the SAM text of the others among its inputs.
+    func testByIDStageRecordsTheSplitAndCollatesOnlyTheRecordsWithAMateFlag() async throws {
+        try await Self.requireSamtools()
+        let (bam, _) = try await makeIndexedBAM("by-id-steps", records: Self.mixedRecords)
+        let transaction = try await stageByID(bam: bam, ids: ["s1", "p1", "s2"], format: .fastq)
+        defer { transaction.cleanup() }
+
+        let steps = transaction.executionRecords
+        let flagged = try XCTUnwrap(steps.first { $0.argv.contains("--rf") }, "no record of the records with a mate flag")
+        let unflagged = try XCTUnwrap(steps.first { $0.argv.contains("SAM") }, "no record of the records with no mate flag")
+        let collate = try XCTUnwrap(steps.first { $0.argv.contains("collate") }, "no record of samtools collate")
+        let payload = try XCTUnwrap(
+            steps.last { $0.toolName == "lungfish alignment extraction payload finalizer" }, "no record of the payload step"
+        )
+        for step in [flagged, unflagged, collate] {
+            XCTAssertEqual(step.exitStatus, 0, "\(step.toolName) \(step.argv.joined(separator: " "))")
+            XCTAssertTrue(step.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+        }
+        XCTAssertEqual(
+            collate.inputs.map(\.path), flagged.outputs.map(\.path),
+            "samtools collate reads the BAM of the records with a mate flag, not the whole selection"
+        )
+        XCTAssertTrue(
+            payload.inputs.map(\.path).contains(unflagged.outputs[0].path),
+            "the payload step lists the SAM text of the records with no mate flag"
+        )
+    }
+
+    private func assertByIDStageKeepsEveryRecord(format: ReadIDBAMExtractionFormat) async throws {
+        try await Self.requireSamtools()
+        let (bam, _) = try await makeIndexedBAM("by-id-\(format.rawValue)", records: Self.mixedRecords)
+        let (pairOnly, _) = try await makeIndexedBAM("pair-\(format.rawValue)", records: Array(Self.mixedRecords[2...3]))
+        let ids: Set<String> = ["s1", "p1", "s2"]
+        let transaction = try await stageByID(bam: bam, ids: ids, format: format)
+        defer { transaction.cleanup() }
+
+        let lines = format == .fastq ? 4 : 2
+        let counted = try await samtoolsCountByName(bam: bam, ids: ids)
+        XCTAssertEqual(counted, 5, "samtools view -c -N counts five records for the three names")
+        XCTAssertEqual(transaction.readCount, counted, "the count the row shows")
+        let text = try String(contentsOf: transaction.stagedFiles[0].stagedURL, encoding: .utf8)
+        let written = Self.records(text, lines: lines)
+        XCTAssertEqual(written.count, counted, "the \(format.rawValue) holds a record for each of the \(counted) records samtools counts")
+        let pair = Self.records(try await legacyByID(bam: pairOnly, ids: ["p1"], format: format).output, lines: lines)
+        let unflagged = format == .fastq
+            ? ["@s1\nAAAACCCCGG\n+\nABCDEFGHIJ\n", "@s1\nTTTTGGGGAA\n+\n0123456789\n", "@s2\nACGTACGTAC\n+\nIIIIIIIIII\n"]
+            : [">s1\nAAAACCCCGG\n", ">s1\nTTTTGGGGAA\n", ">s2\nACGTACGTAC\n"]
+        XCTAssertEqual(
+            written.sorted(), (pair + unflagged).sorted(),
+            "both records of s1 are written, the reverse one restored, and the pair p1 as before"
+        )
+    }
+
+    private func stageByID(
+        bam: URL, ids: Set<String>, format: ReadIDBAMExtractionFormat
+    ) async throws -> AlignmentReadExtractionTransaction {
+        try await AlignmentReadExtractionStager().stageReadIDsFromBAM(config: ReadIDBAMExtractionConfig(
+            bamURL: bam,
+            readIDs: ids,
+            format: format,
+            outputDirectory: root.appendingPathComponent("caller-output", isDirectory: true),
+            outputBaseName: "selected"
+        ))
+    }
+
+    /// The records `samtools view -c -N` counts for the names under the by-ID default filter (no secondary or supplementary).
+    private func samtoolsCountByName(bam: URL, ids: Set<String>) async throws -> Int {
+        let names = root.appendingPathComponent("names-\(UUID().uuidString).txt")
+        try ids.sorted().joined(separator: "\n").write(to: names, atomically: true, encoding: .utf8)
+        let result = try await samtools(["view", "-c", "-F", "2304", "-N", names.path, bam.path])
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+    }
+
+    /// What the by-name stager wrote before this lane step: the named records into one BAM, `samtools collate`, then
+    /// `samtools fastq` or `fasta` with READ_OTHER and the singletons to sidecars and READ_OTHER appended to the output.
+    private func legacyByID(
+        bam: URL, ids: Set<String>, format: ReadIDBAMExtractionFormat
+    ) async throws -> (output: String, singletons: String) {
+        let stem = "legacy-\(UUID().uuidString)"
+        let names = root.appendingPathComponent("\(stem).names.txt")
+        try ids.sorted().joined(separator: "\n").write(to: names, atomically: true, encoding: .utf8)
+        let filtered = root.appendingPathComponent("\(stem).filtered.bam")
+        let collated = root.appendingPathComponent("\(stem).collated.bam")
+        let output = root.appendingPathComponent("\(stem).out.\(format.rawValue)")
+        let singletons = root.appendingPathComponent("\(stem).singletons.\(format.rawValue)")
+        let other = root.appendingPathComponent("\(stem).other.\(format.rawValue)")
+        try await samtools(["view", "-b", "-N", names.path, "-F", "2304", "-o", filtered.path, bam.path])
+        try await samtools(["collate", "-o", collated.path, filtered.path])
+        try await samtools([format.rawValue, "-F", "0", "-0", other.path, "-s", singletons.path, "-o", output.path, collated.path])
+        func text(_ url: URL) throws -> String {
+            FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
+        }
+        return (try text(output) + text(other), try text(singletons))
+    }
+
+    /// The records of FASTQ or FASTA text, `lines` lines each, as the strings they are written as.
+    private static func records(_ text: String, lines: Int) -> [String] {
+        let all = text.split(separator: "\n").map(String.init)
+        return stride(from: 0, to: all.count, by: lines).map {
+            all[$0..<min($0 + lines, all.count)].joined(separator: "\n") + "\n"
+        }
+    }
+
     // MARK: - Helpers
 
     private static func requireSamtools() async throws {
