@@ -9,7 +9,10 @@
 // service adds `-M`, the union of the regions, because samtools otherwise
 // writes a read that overlaps two regions once per region. A list of whole
 // reference names must keep the exact argv it had. Stand-in samtools and
-// seqkit in a scratch home record every argv.
+// seqkit in a scratch home record every argv. The converter that follows the
+// region call (`convertBAMToSingleFASTQ`) splits its records by mate flag, so
+// the stand-in also answers its `view -b --rf`, `fastq` and `view -O SAM`
+// calls, and the argv under test is the first `view -b` call.
 
 import Foundation
 import XCTest
@@ -51,6 +54,18 @@ final class ReadExtractionServiceRegionArgvTests: XCTestCase {
             previous="$argument"
           done
           head -c 256 /dev/zero > "$out"
+          exit 0
+        fi
+        # The converter after the region call splits the staged BAM by mate flag, so it also asks for the records
+        # that carry neither flag as SAM text. The stand-in has none, and the one read comes from the `fastq` call.
+        if [ "$1" = "view" ] && [ "$2" = "-O" ] && [ "$3" = "SAM" ]; then
+          out=""
+          previous=""
+          for argument in "$@"; do
+            if [ "$previous" = "-o" ]; then out="$argument"; fi
+            previous="$argument"
+          done
+          : > "$out"
           exit 0
         fi
         if [ "$1" = "fastq" ]; then
