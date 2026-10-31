@@ -145,11 +145,12 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
+        // smaller after TT's reset (manager ruling 16:45)
         leak("TaxTriage", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ provenance: taxTriageResult ../k03-taxtriage/Analyses/taxtriage-2026-01-15T12-30-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: panelLayout, operationDetails=TaxTriage",
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
