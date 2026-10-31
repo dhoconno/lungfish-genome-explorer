@@ -368,16 +368,22 @@ extension MainSplitViewController {
                     showDatabaseBuildPlaceholder(tool: .kraken2, resultURL: batchURL)
                     return
                 }
-                viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
+                // Its viewer takes only a Kraken2 block out of the Summary when it leaves.
+                do {
+                    try viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL) { [weak self] in
+                        guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
+                              summary.batchOperationTool == "Kraken2" else { return }
+                        summary.showResultBlock(nil)
+                    }
+                } catch {
+                    mainSplitLogger.error("displayBatchGroup: Kraken2 not shown - \(error.localizedDescription, privacy: .public)")
+                    viewerController.clearViewport(statusMessage: ViewerViewController.kraken2NotShownWords)
+                    return
+                }
                 if let taxonomyVC = viewerController.taxonomyViewController {
-                    // Load sample metadata from the bundle if available
                     self.installClassifierMetadataPresentation(
-                        resultURL: batchURL,
-                        pickerState: taxonomyVC.samplePickerState,
-                        entries: taxonomyVC.sampleEntries,
-                        strippedPrefix: taxonomyVC.strippedPrefix,
-                        workflowName: "Kraken2",
-                        consumer: taxonomyVC
+                        resultURL: batchURL, pickerState: taxonomyVC.samplePickerState, entries: taxonomyVC.sampleEntries,
+                        strippedPrefix: taxonomyVC.strippedPrefix, workflowName: "Kraken2", consumer: taxonomyVC
                     )
                 }
             } else {
@@ -410,19 +416,13 @@ extension MainSplitViewController {
                 }
                 let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
                 self.inspectorController?.updateBatchOperationDetails(
-                    tool: "Kraken2",
-                    parameters: params,
-                    timestamp: manifest.header.createdAt,
-                    sourceSamples: sourceSamples
+                    tool: "Kraken2", parameters: params, timestamp: manifest.header.createdAt, sourceSamples: sourceSamples
                 )
             } else if let details = Self.singleKraken2ResultInspectorDetails(resultURL: batchURL) {
                 // A single result has no batch manifest; its database and
                 // parameters live in classification-result.json.
                 self.inspectorController?.updateBatchOperationDetails(
-                    tool: "Kraken2",
-                    parameters: details.parameters,
-                    timestamp: details.timestamp,
-                    sourceSamples: details.sourceSamples
+                    tool: "Kraken2", parameters: details.parameters, timestamp: details.timestamp, sourceSamples: details.sourceSamples
                 )
             }
             // Kraken2 batch always reads from its own per-result sidecars; no separate

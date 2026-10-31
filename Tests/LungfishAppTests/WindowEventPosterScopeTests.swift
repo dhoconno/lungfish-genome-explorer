@@ -192,7 +192,9 @@ final class WindowEventPosterScopeTests: XCTestCase {
     func testBatchSampleFilterCarriesTheSplitViewScope() throws {
         let split = MainSplitViewController()
         _ = split.view
-        split.viewerController.taxonomyViewController = TaxonomyViewController()
+        _ = try split.viewerController.showSurface(
+            .analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self
+        )
         let recorder = PostedEventRecorder(.metagenomicsSampleSelectionChanged)
         defer { recorder.stop() }
 

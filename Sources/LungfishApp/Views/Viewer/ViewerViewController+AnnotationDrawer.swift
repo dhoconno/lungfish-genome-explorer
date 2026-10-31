@@ -62,12 +62,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             toggleFASTQMetadataDrawer()
             return
         }
-        // When the taxonomy classification view is active, toggle its
-        // collections/BLAST drawer instead of the annotation drawer.
-        if taxonomyViewController != nil {
-            taxonomyViewController?.toggleTaxaCollectionsDrawer()
-            return
-        }
 
         // A native bundle viewport has no annotations for the parent drawer to
         // show. The MSA toggles its own bottom pane instead (ruling U2).

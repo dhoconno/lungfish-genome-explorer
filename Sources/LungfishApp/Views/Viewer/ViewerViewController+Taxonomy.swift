@@ -20,18 +20,22 @@ private let taxonomyLogger = Logger(subsystem: LogSubsystem.app, category: "View
 
 extension ViewerViewController {
 
-    /// Displays the taxonomy classification browser in place of the normal sequence viewer.
-    ///
-    /// Hides all other overlay views (FASTQ, VCF, FASTA, QuickLook) and the
-    /// normal viewer components, then adds `TaxonomyViewController` as a child
-    /// view controller filling the content area.
-    ///
-    /// Follows the exact same child-VC pattern as ``displayFASTACollection(sequences:annotations:)``.
+    /// The installed Kraken2 taxonomy browser, read from the surface host.
+    var taxonomyViewController: TaxonomyViewController? {
+        (installedSurface as? Kraken2Surface)?.controller
+    }
+
+    /// Shows the taxonomy classification browser for `result` through the surface host, in
+    /// place of the normal sequence viewer. The browser is configured before the host adds it.
+    /// When the show does not install, the viewer says so in words that say what to try, since
+    /// the route that calls this (the CLI route's completion) has no catch of its own.
     /// Read extraction is driven by ``TaxonomyReadExtractionAction.shared.present(...)``,
     /// which the VC fires from its action bar or context menu.
     ///
-    /// - Parameter result: The classification result to display.
-    public func displayTaxonomyResult(_ result: ClassificationResult) {
+    /// - Parameters:
+    ///   - result: The classification result to display.
+    ///   - onWillDeactivate: Runs whenever the host later removes this viewer.
+    public func displayTaxonomyResult(_ result: ClassificationResult, onWillDeactivate: (@MainActor () -> Void)? = nil) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -48,31 +52,16 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         let controller = TaxonomyViewController()
-        addChild(controller)
         // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
         controller.onExtractionRequested = { [weak controller] request in
             controller?.presentClassifierExtractionDialog(request)
         }
 
-        // Hide annotation drawer so it doesn't overlap the taxonomy view.
-        // Also hide the FASTQ metadata drawer if present.
-        annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-
-        // Force loadView() so all subviews exist, then configure BEFORE adding
-        // to the view hierarchy to avoid a one-frame bounce.
-        let taxView = controller.view
+        // Load the view and configure it before the host adds it to the view
+        // hierarchy, which avoids a one-frame bounce.
+        _ = controller.view
         controller.configure(result: result)
         controller.applyProjectCopyRecord(ProjectItemCopyRecord.load(from: result.config.outputDirectory))
-        taxView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(taxView)
-
-        NSLayoutConstraint.activate([
-            taxView.topAnchor.constraint(equalTo: view.topAnchor),
-            taxView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            taxView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            taxView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
 
         // Wire batch extraction callback for the taxa collections drawer. Both display
         // routes share one wiring, so both run the same command (row 69).
@@ -103,29 +92,48 @@ extension ViewerViewController {
             )
         }
 
-        taxonomyViewController = controller
-
-        // Hide normal genomic viewer components
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        do {
+            try showKraken2Browser(controller, onWillDeactivate: onWillDeactivate)
+        } catch {
+            taxonomyLogger.error("displayTaxonomyResult: Kraken2 not shown - \(error.localizedDescription, privacy: .public)")
+            clearViewport(statusMessage: Self.kraken2NotShownWords)
+            return
+        }
 
         taxonomyLogger.info("displayTaxonomyResult: Showing browser with \(result.tree.totalReads) reads, \(result.tree.speciesCount) species")
     }
 
-    /// Displays the taxonomy classification browser backed by a pre-built SQLite database.
+    /// The words a person reads when a Kraken2 result does not open, with no kind id and no
+    /// internal error text. The sidebar route's catch shows the same sentence.
+    static let kraken2NotShownWords = "Unable to open the Kraken2 result. Select it again."
+
+    /// Hands the configured browser to the surface host, which installs it in place of the
+    /// genomics viewer, then hides the two drawers that are this kind's own lines.
+    private func showKraken2Browser(_ controller: TaxonomyViewController, onWillDeactivate: (@MainActor () -> Void)?) throws {
+        let surface = try showSurface(.analysis(.kraken2), input: controller, as: Kraken2Surface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        annotationDrawerView?.isHidden = true
+        fastqMetadataDrawerView?.isHidden = true
+    }
+
+    /// Shows the taxonomy classification browser backed by a pre-built SQLite database through
+    /// the surface host, and returns once it is installed, or throws the reason it is not.
     ///
-    /// Creates a ``TaxonomyViewController``, adds it as a child filling the content area,
-    /// and calls ``TaxonomyViewController/configureFromDatabase(_:)`` to populate it from the
-    /// database. It wires BLAST verification and the Collections drawer's Extract to the one
-    /// sample the table shows, which the drawer resolves when the user presses Extract (row 69).
+    /// Creates a ``TaxonomyViewController`` and calls
+    /// ``TaxonomyViewController/configureFromDatabase(_:)`` to populate it from the database
+    /// before the host adds it. It wires BLAST verification and the Collections drawer's Extract
+    /// to the one sample the table shows, which the drawer resolves when the user presses Extract
+    /// (row 69). `onWillDeactivate` runs whenever the host later removes this viewer, another
+    /// Kraken2 result's show included.
     ///
     /// - Parameters:
     ///   - db: The `Kraken2Database` to load rows from.
     ///   - resultURL: The batch result root directory (used for logging).
-    func displayTaxonomyFromDatabase(db: Kraken2Database, resultURL: URL) {
+    func displayTaxonomyFromDatabase(
+        db: Kraken2Database,
+        resultURL: URL,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -142,30 +150,17 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         let controller = TaxonomyViewController()
-        addChild(controller)
         // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
         controller.onExtractionRequested = { [weak controller] request in
             controller?.presentClassifierExtractionDialog(request)
         }
 
-        annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-
-        // Force loadView() so all subviews exist, then configure BEFORE adding
-        // to the view hierarchy to avoid a one-frame bounce.
-        let taxView = controller.view
+        // Load the view and configure it before the host adds it to the view
+        // hierarchy, which avoids a one-frame bounce.
+        _ = controller.view
         controller.batchURL = resultURL
         controller.configureFromDatabase(db)
         controller.applyProjectCopyRecord(ProjectItemCopyRecord.load(from: resultURL))
-        taxView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(taxView)
-
-        NSLayoutConstraint.activate([
-            taxView.topAnchor.constraint(equalTo: view.topAnchor),
-            taxView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            taxView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            taxView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
 
         // Wire the Collections drawer's Extract the way the single-result route does (row 69).
         wireTaxaCollectionExtraction(on: controller)
@@ -218,13 +213,7 @@ extension ViewerViewController {
             )
         }
 
-        taxonomyViewController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        try showKraken2Browser(controller, onWillDeactivate: onWillDeactivate)
 
         taxonomyLogger.info("displayTaxonomyFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }
@@ -348,21 +337,10 @@ extension ViewerViewController {
         return result
     }
 
-    /// Removes the taxonomy classification browser and restores normal viewer components.
+    /// Hides the Kraken2 taxonomy browser, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     public func hideTaxonomyView() {
-        guard let controller = taxonomyViewController else { return }
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        taxonomyViewController = nil
-
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.kraken2))
     }
 }
 

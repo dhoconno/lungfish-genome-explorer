@@ -19,6 +19,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Batch table | `BatchClassificationTableView`, Sources/LungfishTaxonomyUI/BatchClassificationTableView.swift line 30 |
 | Taxa Collections drawer | `TaxaCollectionsDrawerView`, Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift line 51 |
 | CZ-ID result view | `CzIdResultViewController`, Sources/LungfishTaxonomyUI/CzIdResultViewController.swift line 11 |
+| `Kraken2Surface`, the ViewportHost surface the App registers for `.analysis(.kraken2)`, whose drawer is the Collections and BLAST Results drawer | Sources/LungfishTaxonomyUI/Kraken2Surface.swift |
 | Sample folder of a Kraken2 sample | `kraken2SampleResultDirectory`, Sources/LungfishTaxonomyUI/Kraken2SampleResultDirectory.swift line 19 |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+Taxonomy.swift and ViewerViewController+CzId.swift |
 

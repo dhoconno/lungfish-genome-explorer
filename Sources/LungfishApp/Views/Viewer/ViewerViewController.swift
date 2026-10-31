@@ -202,9 +202,6 @@ public class ViewerViewController: NSViewController {
     var alignmentConsensusAllLowDepthConfirmation: AlignmentConsensusAllLowDepthConfirmation?
     var activeConsensusShareSessions: [UUID: AlignmentConsensusShareSession] = [:]
 
-    /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
-    var taxonomyViewController: TaxonomyViewController?
-
     /// Assembly result browser (shown in place of the sequence viewer for assembly analyses)
     var assemblyResultController: AssemblyResultViewController?
 

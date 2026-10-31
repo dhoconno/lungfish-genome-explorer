@@ -158,7 +158,7 @@ final class DrawerExtractHarness {
         let database = try Kraken2Database(at: batch.databaseURL)
         let viewer = ViewerViewController()
         _ = viewer.view
-        viewer.displayTaxonomyFromDatabase(db: database, resultURL: batch.batchURL)
+        try viewer.displayTaxonomyFromDatabase(db: database, resultURL: batch.batchURL)
         self.viewer = viewer
         let taxonomy = try XCTUnwrap(viewer.taxonomyViewController)
         if let samples {
