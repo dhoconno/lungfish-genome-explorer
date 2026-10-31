@@ -38,7 +38,7 @@ final class EsVirituActionBarSpacingTests: XCTestCase {
             bar.infoLabel.frame.minX - bar.extractButton.frame.maxX,
             186,
             accuracy: 0.5,
-            "the info text starts 186 pt after Extract FASTQ, the 10 pt gap plus the 176 pt of the deleted button"
+            "the info text starts 186 pt after Extract Reads…, the 10 pt gap plus the 176 pt of the deleted button"
         )
     }
 

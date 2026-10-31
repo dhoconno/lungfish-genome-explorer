@@ -591,7 +591,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
         emptyStateDetailLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyStateDetailLabel.stringValue =
-            "Right-click a taxon and choose \"BLAST Matching Reads...\" to verify its classification against the NCBI database."
+            "Select a row, then choose Verify with BLAST to check it against NCBI."
         emptyStateDetailLabel.font = .systemFont(ofSize: 12)
         emptyStateDetailLabel.textColor = .tertiaryLabelColor
         emptyStateDetailLabel.alignment = .center
@@ -631,7 +631,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             emptyStateIcon.contentTintColor = .tertiaryLabelColor
             emptyStateTitleLabel.stringValue = "No BLAST Verifications"
             emptyStateDetailLabel.stringValue =
-                "Right-click a taxon and choose \"BLAST Matching Reads...\" to verify its classification against the NCBI database."
+                "Select a row, then choose Verify with BLAST to check it against NCBI."
         case .contigBlast:
             emptyStateIcon.image = NSImage(
                 systemSymbolName: "magnifyingglass.circle",
@@ -640,7 +640,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             emptyStateIcon.contentTintColor = .tertiaryLabelColor
             emptyStateTitleLabel.stringValue = "No BLAST Results"
             emptyStateDetailLabel.stringValue =
-                "Select contigs and choose \"BLAST Contig…\" to compare them against the NCBI database."
+                "Select a contig, then choose Verify with BLAST to check it against NCBI."
         case .sequenceBlast:
             emptyStateIcon.image = NSImage(
                 systemSymbolName: "magnifyingglass.circle",
@@ -662,7 +662,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         )
         emptyStateIcon.contentTintColor = .systemOrange
         emptyStateTitleLabel.stringValue = presentationStyle == .verification ? "BLAST Verification Failed" : "BLAST Failed"
-        emptyStateDetailLabel.stringValue = trimmedMessage.isEmpty ? "Request failed. Please retry." : trimmedMessage
+        emptyStateDetailLabel.stringValue = trimmedMessage.isEmpty ? "NCBI BLAST did not return a result. Check the network connection, then choose Verify with BLAST again." : trimmedMessage
         emptyStateDetailLabel.textColor = .secondaryLabelColor
     }
 

@@ -758,7 +758,7 @@ public enum LungfishHelpContent {
 
     public static let classifierBlastVerify = HelpItem(
         id: "workflow.classifier.blastVerify",
-        summary: "Submit selected reads to NCBI BLAST for review.",
+        summary: "Send reads from the selected row to NCBI BLAST to check its classification.",
         detail: "Uses BLASTN without taxon restriction by default. The popover names the database searched, nt or core_nt. Reads leave the app for NCBI. This supports review, not diagnosis.",
         audience: .benchScientist
     )
@@ -772,8 +772,8 @@ public enum LungfishHelpContent {
 
     public static let classifierExtractFASTQ = HelpItem(
         id: "workflow.classifier.extractFASTQ",
-        summary: "Extract reads matching the current selection.",
-        detail: "The output keeps provenance for the command, inputs, checksums, and runtime.",
+        summary: "Extract the reads of the selected rows.",
+        detail: "Opens a dialog to save the reads as FASTQ or FASTA, as a bundle, a file or on the clipboard. The output keeps its provenance for the command, inputs, checksums, and runtime.",
         audience: .analyst,
         provenanceRelevant: true
     )

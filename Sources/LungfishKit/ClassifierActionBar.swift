@@ -6,13 +6,14 @@ import AppKit
 
 /// Shared bottom action bar for all classifier result views.
 ///
-/// Provides core buttons (BLAST Verify, Export, Provenance) present for all classifiers,
-/// plus a slot for classifier-specific custom buttons inserted between Export and the
-/// center info label.
+/// Provides core buttons (Verify with BLAST, Export, Extract Reads, Provenance) present for all classifiers,
+/// plus a slot for classifier-specific custom buttons inserted after Extract Reads and before the
+/// center info label. The Extract and BLAST titles are the shared row command titles, so the button and
+/// the menu item cannot drift (UX-3E-LABELS, approved as O86).
 ///
 /// Layout (36pt height):
 /// ```
-/// | 8pt | [BLAST Verify] 6pt [Export] 6pt [Custom...] | flex info text | [Provenance i] | 12pt |
+/// | 8pt | [Verify with BLAST…] 6pt [Export] 6pt [Extract Reads…] 6pt [Custom...] | flex info text | [Provenance i] | 12pt |
 /// ```
 @MainActor
 public final class ClassifierActionBar: NSView {
@@ -21,8 +22,9 @@ public final class ClassifierActionBar: NSView {
 
     public let blastButton: NSButton = {
         let btn = NSButton()
-        btn.title = "BLAST Verify"
-        btn.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "BLAST Verify")
+        btn.title = ResultRowCommand.blastVerify.title
+        // The title names the button, so VoiceOver reads it once.
+        btn.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
         btn.controlSize = .small
@@ -48,8 +50,8 @@ public final class ClassifierActionBar: NSView {
 
     public let extractButton: NSButton = {
         let btn = NSButton()
-        btn.title = "Extract FASTQ"
-        btn.image = NSImage(systemSymbolName: "arrow.down.doc", accessibilityDescription: "Extract FASTQ")
+        btn.title = ResultRowCommand.extractReads.title
+        btn.image = NSImage(systemSymbolName: "arrow.down.doc", accessibilityDescription: nil)
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
         btn.controlSize = .small
@@ -73,7 +75,9 @@ public final class ClassifierActionBar: NSView {
 
     public let provenanceButton: NSButton = {
         let btn = NSButton()
-        btn.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Pipeline Info")
+        // VoiceOver reads the name of the menu twin, Show Provenance….
+        btn.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Show Provenance")
+        btn.setAccessibilityLabel("Show Provenance")
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageOnly
         btn.controlSize = .small
@@ -121,32 +125,29 @@ public final class ClassifierActionBar: NSView {
         infoLabel.stringValue = text
     }
 
-    /// Enable/disable BLAST button, with an optional tooltip reason shown when disabled.
+    /// Enable/disable BLAST button, with an optional reason shown when disabled.
     public func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
         blastButton.isEnabled = enabled
-        if enabled {
-            blastButton.applyLungfishHelp(LungfishHelpContent.classifierBlastVerify)
-        } else if let reason, !reason.isEmpty {
-            blastButton.toolTip = "\(reason). \(LungfishHelpContent.classifierBlastVerify.summary)"
-            blastButton.setAccessibilityHelp(
-                "\(reason). \(LungfishHelpContent.classifierBlastVerify.detail ?? LungfishHelpContent.classifierBlastVerify.summary)"
-            )
-        } else {
-            blastButton.applyLungfishHelp(LungfishHelpContent.classifierBlastVerify)
-        }
+        Self.applyHelp(LungfishHelpContent.classifierBlastVerify, to: blastButton, reason: enabled ? nil : reason)
     }
 
-    /// Enable/disable Extract FASTQ button, with an optional tooltip reason shown when disabled.
+    /// Enable/disable the Extract Reads button, with an optional reason shown when disabled.
     public func setExtractEnabled(_ enabled: Bool, reason: String? = nil) {
         extractButton.isEnabled = enabled
-        if !enabled, let reason, !reason.isEmpty {
-            extractButton.toolTip = "\(reason). \(LungfishHelpContent.classifierExtractFASTQ.summary)"
-            extractButton.setAccessibilityHelp(
-                "\(reason). \(LungfishHelpContent.classifierExtractFASTQ.detail ?? LungfishHelpContent.classifierExtractFASTQ.summary)"
-            )
-        } else {
-            extractButton.applyLungfishHelp(LungfishHelpContent.classifierExtractFASTQ)
+        Self.applyHelp(LungfishHelpContent.classifierExtractFASTQ, to: extractButton, reason: enabled ? nil : reason)
+    }
+
+    /// A greyed button's reason leads its tooltip and its VoiceOver hint, then the button's own help. A ruled reason
+    /// is a sentence with its own period, so the join adds a space. A reason with no end mark gets a period first
+    /// (UX-3E-LABELS D11).
+    private static func applyHelp(_ help: LungfishHelpContent.HelpItem, to button: NSButton, reason: String?) {
+        guard let reason = reason?.trimmingCharacters(in: .whitespaces), !reason.isEmpty else {
+            button.applyLungfishHelp(help)
+            return
         }
+        let sentence = reason.last.map { ".!?".contains($0) } == true ? reason : reason + "."
+        button.toolTip = "\(sentence) \(help.summary)"
+        button.setAccessibilityHelp("\(sentence) \(help.detail ?? help.summary)")
     }
 
     /// Enable/disable the Export button. A disabled button carries `reason` as its help tag word for word, and
