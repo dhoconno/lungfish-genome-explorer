@@ -120,6 +120,61 @@ final class NaoMgsResultActionsTests: XCTestCase {
         XCTAssertTrue(words.contains("could not be found"), words)
     }
 
+    /// SF1 of the UX review of lane ADOPT. Verify with BLAST first reads the taxon's reads out of the result database.
+    /// When that lookup threw, the viewer only logged, so the button did nothing and said nothing. The results pane now
+    /// opens and says the lookup failed. The hits table is dropped after the viewer opened the database, since opening
+    /// a database checks that the table exists.
+    func testBlastWhoseReadLookupFailsSaysWhyInTheResultsPane() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("naomgs-result-actions-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("hits.sqlite")
+        do {
+            _ = try NaoMgsDatabase.create(at: url, hits: [Self.hit(read: 1), Self.hit(read: 2)])
+        }
+        let database = try NaoMgsDatabase(at: url)
+        let manifest = NaoMgsManifest(
+            sampleName: "sample-A", sourceFilePath: "/tmp/naomgs.tsv", hitCount: 2,
+            taxonCount: 1, topTaxon: "Taxon 0", topTaxonId: 1_000
+        )
+
+        let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
+        vc.testDisableMiniBAMLoading = true
+        var submitted = 0
+        vc.onBlastVerification = { _, _, _ in submitted += 1 }
+        vc.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 480)
+        let window = NSWindow(contentRect: vc.view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = vc.view
+        defer {
+            window.attachedSheet.map { window.endSheet($0) }
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        vc.configure(database: database, manifest: manifest, bundleURL: root)
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: .lookup) { vc.testDisplayedTaxonOrder.count == 1 },
+            "the taxon table did not load"
+        )
+        try Self.execute("DROP TABLE virus_hits", in: url)
+        // An open handle learns of a schema change made through another connection when it next runs a statement.
+        // Until then it prepares the lookup against the table it remembers, and the lookup reads as no rows.
+        _ = try database.fetchSamples()
+
+        vc.testingVerifyWithBlast(row: 0, readCount: 5)
+
+        XCTAssertEqual(submitted, 0, "nothing can be submitted without the reads")
+        XCTAssertNil(window.attachedSheet, "no alert, the results pane says why")
+        let drawer = try XCTUnwrap(
+            vc.testBlastDrawerContainer, "the BLAST results open to say why the reads could not be read"
+        )
+        XCTAssertFalse(drawer.isHidden)
+        let words = drawer.blastResultsTab.emptyStateDetailText
+        XCTAssertTrue(words.hasPrefix("Reading this taxon's reads from the result database failed"), words)
+    }
+
     // MARK: - Fixture
 
     private static func blastResultsButton(in bar: ClassifierActionBar) throws -> NSButton {
@@ -141,6 +196,8 @@ final class NaoMgsResultActionsTests: XCTestCase {
             throw CocoaError(.fileReadUnknown)
         }
         defer { sqlite3_close(db) }
+        // The viewer's read handle may still be open on this file, so a schema change waits for its reader to finish.
+        sqlite3_busy_timeout(db, 5_000)
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             throw CocoaError(.fileWriteUnknown)
         }
