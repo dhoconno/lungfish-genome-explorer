@@ -1,4 +1,5 @@
 """Local invented evidence validates the gate, never app usability."""
+import copy
 import hashlib
 import json
 import plistlib
@@ -16,6 +17,54 @@ from app_smoke_gate import configure_xctestrun, verify_result, profile_paths, va
 from gate_evidence import EvidenceError, file_record
 from release_contract import load_contract
 from scripts.tests.gate_fixtures import make_app_smoke_fixture, write_json
+
+
+class FakeAccount:
+    """Stands in for `defaults` and `lsappinfo` over a dict of preference domains, so no pin reads
+    or writes a real domain. `lossy_import` drops one key on import, as a restore that went wrong."""
+
+    def __init__(self, domains=None, running=(), lossy_import=False):
+        self.domains = copy.deepcopy(domains or {})
+        self.running = list(running)
+        self.lossy_import = lossy_import
+        self.calls = []
+
+    def __call__(self, argv):
+        self.calls.append(list(argv))
+        if argv[:2] == ["lsappinfo", "list"]:
+            return 0, "".join('1) "Lungfish" ASN:0x0-0x1:\n    bundleID="%s"\n' % b for b in self.running)
+        if argv[0] != "defaults":
+            raise AssertionError("the guard ran an unexpected command %r" % (argv,))
+        verb, domain = argv[1], argv[2]
+        if verb == "export":
+            Path(argv[3]).write_bytes(plistlib.dumps(self.domains.get(domain, {}), fmt=plistlib.FMT_BINARY))
+        elif verb == "import":
+            value = plistlib.loads(Path(argv[3]).read_bytes())
+            if self.lossy_import and value:
+                value.pop(sorted(value)[0])
+            self.domains[domain] = value
+        elif verb == "delete":
+            if self.domains.pop(domain, None) is None:
+                return 1, "Domain (%s) not found.\nDefaults have not been changed.\n" % domain
+        else:
+            raise AssertionError("the guard ran an unexpected defaults verb %r" % (argv,))
+        return 0, ""
+
+
+OWNER_DOMAINS = {"com.lungfish.browser": {"NSNavLastRootDirectory": "~/Documents", "LaunchCount": 3},
+                 "com.lungfish.browser.preview": {"SUEnableAutomaticChecks": True, "Frame": b"\x00\x01"}}
+GUARDED = ["com.lungfish.browser.preview", "com.lungfish.browser"]
+SAVED_STATE = "Library/Saved Application State/com.lungfish.browser.savedState/windows.plist"
+BYHOST = "Library/Preferences/ByHost/com.lungfish.browser.0000.plist"
+
+
+def make_account_home(folder):
+    """A home holding the owner's saved state and ByHost preferences."""
+    home = Path(folder) / "home"
+    for relative, data in ((SAVED_STATE, b"owner saved state"), (BYHOST, b"owner byhost")):
+        (home / relative).parent.mkdir(parents=True)
+        (home / relative).write_bytes(data)
+    return home
 
 
 class AppSmokeGateTests(unittest.TestCase):
@@ -249,3 +298,82 @@ class AppSmokeGateTests(unittest.TestCase):
             target = plistlib.loads((root / "candidate.xctestrun").read_bytes())["TestConfigurations"][0]["TestTargets"][0]
             self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_HOME"], str(homes))
             self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_FIXTURES"], str(fixtures))
+
+    # SMOKE-ISOLATION (ruling QA-RELEASE-LOOP section 6). The guard moves the account's Lungfish preference
+    # domains aside before the first launch and restores them exactly, or fails and keeps its journal.
+
+    def test_guard_restores_each_domain_and_the_saved_state_exactly(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS)
+            guard = app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account)
+            with guard:
+                self.assertEqual(account.domains, {}, "The candidate starts from empty domains")
+                account.domains["com.lungfish.browser"] = {"NSWindow Frame main": "0 0 10 10"}
+                (home / SAVED_STATE).write_bytes(b"written by the candidate")
+                (home / "Library/Preferences/ByHost/com.lungfish.browser.1111.plist").write_bytes(b"new")
+            self.assertEqual(account.domains, OWNER_DOMAINS)
+            self.assertEqual((home / SAVED_STATE).read_bytes(), b"owner saved state")
+            self.assertEqual((home / BYHOST).read_bytes(), b"owner byhost")
+            self.assertFalse((home / "Library/Preferences/ByHost/com.lungfish.browser.1111.plist").exists())
+            self.assertFalse((home / ".lungfish-smoke-journal").exists(), "A verified restore removes the journal")
+            self.assertEqual(guard.evidence["before"], guard.evidence["after"])
+            self.assertIn("NSWindow Frame main", guard.evidence["candidateWrites"]["com.lungfish.browser"]["added"])
+
+    def test_guard_leaves_a_domain_absent_that_was_absent_before(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount({"com.lungfish.browser": OWNER_DOMAINS["com.lungfish.browser"]})
+            with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                account.domains["com.lungfish.browser.preview"] = {"NSRecentDocuments": ["/x.lungfish"]}
+            self.assertNotIn("com.lungfish.browser.preview", account.domains)
+            self.assertEqual(account.domains["com.lungfish.browser"], OWNER_DOMAINS["com.lungfish.browser"])
+
+    def test_guard_restores_a_crashed_runs_journal_first_and_stops(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS)
+            app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account).__enter__()
+            # The run died here, before its restore, and its candidate had written the account's domain.
+            account.domains["com.lungfish.browser.preview"] = {"written": "by the crashed run"}
+            (home / SAVED_STATE).write_bytes(b"written by the crashed run")
+            journal = home / ".lungfish-smoke-journal"
+            self.assertTrue(journal.is_dir())
+            with self.assertRaises(EvidenceError) as raised:
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    self.fail("The next run stops after it restores the crashed run's journal")
+            self.assertIn(str(journal), str(raised.exception))
+            self.assertEqual(account.domains, OWNER_DOMAINS)
+            self.assertEqual((home / SAVED_STATE).read_bytes(), b"owner saved state")
+            self.assertFalse(journal.exists())
+
+    def test_guard_refuses_to_start_while_a_lungfish_app_runs(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS, running=["com.lungfish.browser.preview"])
+            with self.assertRaises(EvidenceError) as raised:
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    self.fail("The guard refuses before the first launch")
+            self.assertIn("com.lungfish.browser.preview", str(raised.exception))
+            self.assertEqual(account.domains, OWNER_DOMAINS)
+            self.assertEqual([c for c in account.calls if c[0] == "defaults"], [])
+            self.assertFalse((home / ".lungfish-smoke-journal").exists())
+
+    def test_guard_fails_on_a_mismatch_and_keeps_the_journal(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS, lossy_import=True)
+            with self.assertRaises(EvidenceError) as raised:
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    pass
+            journal = home / ".lungfish-smoke-journal"
+            self.assertEqual(plistlib.loads((journal / "com.lungfish.browser.plist").read_bytes()),
+                             OWNER_DOMAINS["com.lungfish.browser"], "The journal keeps the owner's copy")
+            self.assertTrue((journal / "files" / SAVED_STATE).is_file())
+            self.assertIn("defaults import com.lungfish.browser " + str(journal / "com.lungfish.browser.plist"),
+                          str(raised.exception), "The failure prints the restore command")
