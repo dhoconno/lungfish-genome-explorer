@@ -5,6 +5,7 @@
 import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
+import LungfishKit
 
 final class CzIdImportWorkflowTests: XCTestCase {
     func testProjectImportWorkflowWritesClassificationBundleWithFirstClassProvenance() async throws {
@@ -272,6 +273,47 @@ final class CzIdImportWorkflowTests: XCTestCase {
 
         XCTAssertFalse(tableView.validateMenuItem(extractItem))
         XCTAssertFalse(tableView.validateMenuItem(blastItem))
+    }
+
+    /// UX-3E-LABELS R8 (approved as O86). A CZ-ID import holds no read IDs, so the greyed Extract and BLAST buttons say
+    /// so in the ruled words, before a taxon is picked and after. Picking a taxon refreshed the bar with the Kraken2
+    /// fallback, which replaced the two tooltips the CZ-ID host had written.
+    @MainActor
+    func testCzIdReasonSurvivesSelection() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reportURL = tempDir.appendingPathComponent("taxon_report.tsv")
+        try czIdReportText().write(to: reportURL, atomically: true, encoding: .utf8)
+        let outputDirectory = tempDir.appendingPathComponent("cz-id-imported", isDirectory: true)
+        let converted = try CzIdDataConverter.convertTaxonReport(
+            at: reportURL,
+            outputDirectory: outputDirectory
+        )
+
+        let controller = CzIdResultViewController()
+        controller.configure(
+            result: converted.result,
+            manifest: try XCTUnwrap(converted.manifest),
+            bundleURL: outputDirectory
+        )
+        _ = controller.view
+
+        let taxonomyViewController = try XCTUnwrap(controller.taxonomyViewControllerForTesting)
+        let bar = taxonomyViewController.actionBar
+        let reason = ClassifierActionWords.czIdHasNoReadIDs + " "
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(reason), true, "Extract, before a taxon is picked")
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(reason), true, "BLAST, before a taxon is picked")
+
+        let species = try XCTUnwrap(converted.result.tree.node(taxId: 2_697_049))
+        taxonomyViewController.testSunburstView.onNodeSelected?(species)
+
+        XCTAssertFalse(bar.extractButton.isEnabled)
+        XCTAssertFalse(bar.blastButton.isEnabled)
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(reason), true, "Extract, after a taxon is picked")
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(reason), true, "BLAST, after a taxon is picked")
+        XCTAssertEqual(bar.extractButton.accessibilityHelp()?.hasPrefix(reason), true)
+        XCTAssertEqual(bar.blastButton.accessibilityHelp()?.hasPrefix(reason), true)
     }
 
     private func czIdReportText() -> String {

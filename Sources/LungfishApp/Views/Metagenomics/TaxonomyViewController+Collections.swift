@@ -218,8 +218,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
             case .chooseOneSample:
                 "Choose one sample, then choose Extract."
             case .noPerReadSourceIDs:
-                "CZ-ID imports do not include per-read source IDs, so reads cannot be extracted from this result. "
-                    + "To extract reads, classify the sample's FASTQ in Lungfish and extract from that result."
+                ClassifierActionWords.czIdHasNoReadIDs
             }
         }
     }

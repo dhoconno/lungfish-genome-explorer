@@ -342,8 +342,7 @@ final class TaxonomyCollectionsExtractTests: XCTestCase {
         try harness.pressExtract(TaxaCollectionFixtures.collection, on: taxonomy)
 
         XCTAssertEqual(shown.all, [
-            "Could not extract reads | CZ-ID imports do not include per-read source IDs, so reads cannot be extracted "
-                + "from this result. To extract reads, classify the sample's FASTQ in Lungfish and extract from that result.",
+            "Could not extract reads | " + ClassifierActionWords.czIdHasNoReadIDs,
         ])
         XCTAssertFalse(OperationCenter.shared.items.contains { !before.contains($0.id) }, "a refusal begins no row")
     }

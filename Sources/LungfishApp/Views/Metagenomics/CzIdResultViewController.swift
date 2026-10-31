@@ -5,6 +5,7 @@
 import AppKit
 import LungfishWorkflow
 import SwiftUI
+import LungfishKit
 
 @MainActor
 public final class CzIdResultViewController: NSViewController, NSPopoverDelegate {
@@ -43,6 +44,9 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         // flag, since CZ-ID imports have no per-read source IDs for either.
         // Set it before naming the import: changing it refreshes the action
         // bar, which would replace the name with the no-selection prompt.
+        // The reason goes first (UX-3E-LABELS R8). The refresh that follows the flag puts it on both greyed
+        // buttons, and every later refresh keeps it.
+        taxonomyViewController.readLevelActionsUnavailableReason = ClassifierActionWords.czIdHasNoReadIDs
         taxonomyViewController.readLevelActionsAvailable = false
         taxonomyViewController.actionBar.updateInfoText(
             "Imported CZ-ID result · \(manifest.sampleName) · \(manifest.rowCount) taxa"
@@ -50,10 +54,6 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         taxonomyViewController.actionBar.onProvenance = { [weak self] sender in
             self?.showProvenance(relativeTo: sender)
         }
-        taxonomyViewController.actionBar.extractButton.toolTip =
-            "CZ-ID imports do not include per-read source IDs for FASTQ extraction."
-        taxonomyViewController.actionBar.blastButton.toolTip =
-            "CZ-ID imports do not include per-read source IDs for BLAST verification."
     }
 
     private func embedTaxonomyIfNeeded() {
