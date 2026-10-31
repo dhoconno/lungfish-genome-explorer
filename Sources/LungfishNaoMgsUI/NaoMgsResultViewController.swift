@@ -96,7 +96,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     public var strippedPrefix: String = ""
 
     /// Currently displayed taxonomy rows (filtered + sorted).
-    private var displayedRows: [NaoMgsTaxonSummaryRow] = []
+    private(set) var displayedRows: [NaoMgsTaxonSummaryRow] = []
 
     /// Cached taxonomy rows used before, or instead of, a SQLite database.
     private var cachedTaxonRows: [NaoMgsTaxonSummaryRow] = []
@@ -2301,7 +2301,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Context Menu Actions
 
     /// Selection data passed through the BLAST context menu item's representedObject.
-    private struct BlastMenuSelection {
+    struct BlastMenuSelection {
         let row: NaoMgsTaxonSummaryRow
         let readCount: Int
     }
@@ -2312,7 +2312,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Tries `virus_hits` first (available in single-sample databases). When
     /// the table is empty (merged/batch databases), falls back to extracting
     /// reads from the sample's BAM file via `samtools view`.
-    private func executeBlastVerification(_ selection: BlastMenuSelection) {
+    func executeBlastVerification(_ selection: BlastMenuSelection) {
         guard let database else { return }
 
         let row = selection.row
