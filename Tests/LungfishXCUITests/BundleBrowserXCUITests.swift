@@ -32,6 +32,10 @@ extension BundleBrowserXCUITests {
         robot.openProject(project)
         let browser = BundleBrowserRobot(app: robot.app)
         browser.openBundle(named: "TestGenome.lungfishref")
+        guard browser.browserTable.waitForExistence(timeout: 15) else {
+            robot.failShowingScreen("The reference bundle shows no reference-bundle-sequence-table")
+            return
+        }
         browser.waitForBrowserRow(named: "chr1")
         browser.selectBrowserRow(named: "chr2")
         browser.waitForSelectedBrowserRow(named: "chr2")

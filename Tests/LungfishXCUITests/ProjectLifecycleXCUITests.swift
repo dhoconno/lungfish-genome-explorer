@@ -137,7 +137,57 @@ struct ReleaseAppSmokeRobot {
     func openProject(_ url: URL) {
         menu("File", item: "Open Project Folder\u{2026}")
         chooseNativePath(url)
-        XCTAssertTrue(window(url).waitForExistence(timeout: 15))
+        guard window(url).waitForExistence(timeout: 15) else {
+            failShowingScreen("No window for \(url.lastPathComponent) came within 15 s of Open")
+            return
+        }
+        closeSheetRecordingIt(on: window(url))
+    }
+
+    /// The first of `candidates` to exist (and be hittable when asked) within `timeout`, or nil.
+    func firstOf(_ candidates: [XCUIElement], timeout: TimeInterval = 10, hittable: Bool = false) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let found = candidates.first(where: { $0.exists && (!hittable || $0.isHittable) }) { return found }
+            _ = candidates[0].waitForExistence(timeout: 1)
+        } while Date() < deadline
+        return nil
+    }
+
+    /// Clicks `title` in the alert, sheet or dialog in front. An unscoped `buttons["OK"]` took a Touch Bar
+    /// button of the same title on the Release app (3.0 lane UIP, NativeOpenSaveCloseReopen).
+    func clickAlertButton(_ title: String, timeout: TimeInterval = 10) {
+        let candidates = [app.sheets.buttons[title].firstMatch, app.dialogs.buttons[title].firstMatch,
+                          app.windows.buttons[title].firstMatch]
+        guard let button = firstOf(candidates, timeout: timeout, hittable: true) else {
+            failShowingScreen("No \(title) button came in a sheet, dialog or window within \(Int(timeout)) s")
+            return
+        }
+        button.click()
+    }
+
+    /// A sheet that comes with a freshly opened project window takes every click in it. The run records its
+    /// words and the app's tree, then closes it with its default button so the task reaches its own check.
+    func closeSheetRecordingIt(on window: XCUIElement) {
+        let sheet = window.sheets.firstMatch
+        guard sheet.waitForExistence(timeout: 5) else { return }
+        let words = sheet.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " | ")
+        let record = XCTAttachment(string: sheet.debugDescription)
+        record.name = "Sheet on the opened project window: \(words)"
+        record.lifetime = .keepAlways
+        XCTContext.runActivity(named: "A sheet came with the project window: \(words)") { $0.add(record) }
+        sheet.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5), "The sheet on the project window closes: \(words)")
+    }
+
+    /// The open panel, found by the identifier AppKit gives an NSOpenPanel (`open-panel`) whether it runs as a
+    /// window, a sheet or a dialog, then by its title. 3.0 lane UIP saw `sheets.firstMatch` take an alert sheet
+    /// while the panel was the window `open-panel` titled "Open Project Folder".
+    func openPanel(timeout: TimeInterval = 10) -> XCUIElement? {
+        firstOf([app.windows["open-panel"].firstMatch, app.sheets["open-panel"].firstMatch,
+                 app.dialogs["open-panel"].firstMatch,
+                 app.windows.matching(NSPredicate(format: "title == %@", "Open Project Folder")).firstMatch],
+                timeout: timeout)
     }
 
     func window(_ url: URL) -> XCUIElement {
@@ -153,22 +203,17 @@ struct ReleaseAppSmokeRobot {
     }
 
     func chooseNativePath(_ url: URL) {
-        // The panel comes a moment after the menu click, as a sheet on the window, a dialog or a window of its own.
-        let candidates = [app.sheets.firstMatch, app.dialogs.firstMatch,
-                          app.windows.matching(NSPredicate(format: "title == %@", "Open Project Folder")).firstMatch]
-        let deadline = Date().addingTimeInterval(10)
-        var found: XCUIElement?
-        while found == nil, Date() < deadline {
-            found = candidates.first { $0.waitForExistence(timeout: 1) }
-        }
-        guard let panel = found else {
-            failShowingScreen("No open panel came within 10 s of Open Project Folder\u{2026}")
+        // The panel comes a moment after the menu or button click, as a window, a sheet or a dialog.
+        guard let panel = openPanel() else {
+            failShowingScreen("No open panel came within 10 s")
             return
         }
         panel.click()
-        app.typeKey("g", modifierFlags: [.command, .shift])
-        let goSheet = app.sheets.element(boundBy: panel.elementType == .sheet ? 1 : 0)
-        let input = goSheet.textFields.firstMatch
+        panel.typeKey("g", modifierFlags: [.command, .shift])
+        // Go to Folder opens as a sheet of the panel itself, so the field is looked for inside the panel only.
+        let editable = NSPredicate(format: "elementType == %d OR elementType == %d",
+                                   XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.comboBox.rawValue)
+        let input = panel.sheets.firstMatch.descendants(matching: .any).matching(editable).firstMatch
         guard input.waitForExistence(timeout: 5) else {
             failShowingScreen("The open panel (\(panel.elementType.rawValue)) shows no Go to Folder field")
             return
@@ -177,9 +222,12 @@ struct ReleaseAppSmokeRobot {
         input.typeKey("a", modifierFlags: .command)
         input.typeText(url.path)
         input.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
-        let open = panel.buttons["Open"].firstMatch
-        XCTAssertTrue(open.waitForExistence(timeout: 5))
-        XCTAssertTrue(open.isEnabled)
+        let open = panel.buttons.matching(NSPredicate(format: "label == %@ OR title == %@", "Open", "Open")).firstMatch
+        guard open.waitForExistence(timeout: 5) else {
+            failShowingScreen("The open panel shows no Open button after Go to Folder \(url.path)")
+            return
+        }
+        XCTAssertTrue(open.isEnabled, "The open panel's Open button takes \(url.path)")
         open.click()
     }
 
@@ -206,7 +254,7 @@ extension ProjectLifecycleXCUITests {
         robot.app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         robot.menu("File", item: "About Saving…")
         XCTAssertTrue(robot.app.staticTexts["Saving in Lungfish"].waitForExistence(timeout: 5))
-        robot.app.buttons["OK"].firstMatch.click()
+        robot.clickAlertButton("OK")
         robot.window(project).click()
         robot.menu("File", item: "Close")
         XCTAssertTrue(robot.window(project).waitForNonExistence(timeout: 10))

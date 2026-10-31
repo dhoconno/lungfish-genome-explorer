@@ -17,6 +17,10 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         robot.openProject(project)
         let browser = BundleBrowserRobot(app: robot.app)
         browser.openBundle(named: "MHC Tree.lungfishtree")
+        guard browser.treeNodeTable.waitForExistence(timeout: 15) else {
+            robot.failShowingScreen("The tree bundle shows no phylogenetic-tree-node-table")
+            return
+        }
         browser.waitForPhylogeneticTreeViewer()
         XCTAssertTrue(browser.treeFitButton.waitForExistence(timeout: 10))
         let frame = robot.window(project).frame
@@ -26,7 +30,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
 
     /// OBS-W6. The Inspector shows only the blocks of the result now on screen. A NAO-MGS result's block, titled
     /// "NAO-MGS Result", stayed at the top of the Inspector for the next Kraken2 and TaxTriage result, so the
-    /// task opens the NAO-MGS result first and wants that block gone at every later step.
+    /// task opens the NAO-MGS result first and wants that block gone at every later step. "Classification Result"
+    /// and "Comprehensive Triage Result" are the sidebar's type names (`InspectorView.swift:810-812`), not
+    /// Inspector blocks, so each later step waits for its own viewer and the Inspector's Summary instead.
     @MainActor
     func testReleaseCandidateInspectorShowsOnlyTheCurrentResult() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -34,26 +40,25 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
         try robot.launch()
         robot.openProject(project)
-        let naoMgsBlock = "NAO-MGS Result"
-        let steps = [("naomgs", naoMgsBlock), ("kraken2", "Classification Result"), ("taxtriage", "Comprehensive Triage Result")]
-        var previous: String?
-        for (folder, title) in steps {
+        let naoMgsBlock = robot.app.staticTexts["NAO-MGS Result"].firstMatch
+        ReleaseSmokeFixtures.openSidebarItem(containing: "naomgs", in: robot.app)
+        ReleaseSmokeFixtures.closeMissingDatabaseSheet(in: robot)
+        XCTAssertTrue(ReleaseSmokeFixtures.showInspectorSummary(robot), "The Inspector shows a Summary for the NAO-MGS result")
+        guard naoMgsBlock.waitForExistence(timeout: 10) else {
+            robot.failShowingScreen("The Inspector shows no NAO-MGS Result block for the NAO-MGS result")
+            return
+        }
+        let later = [("kraken2", ReleaseSmokeFixtures.kraken2Viewer(in: robot.app)),
+                     ("taxtriage", robot.app.descendants(matching: .any)["taxtriage-result-view"].firstMatch)]
+        for (folder, viewer) in later {
             ReleaseSmokeFixtures.openSidebarItem(containing: folder, in: robot.app)
-            if folder == "naomgs" { ReleaseSmokeFixtures.closeMissingDatabaseSheet(in: robot.app) }
-            let block = robot.app.staticTexts[title].firstMatch
-            if !block.waitForExistence(timeout: 10) {
-                robot.app.buttons["main-window-toggle-inspector"].firstMatch.click()
+            guard viewer.waitForExistence(timeout: 15) else {
+                robot.failShowingScreen("The \(folder) result shows no viewer")
+                return
             }
-            XCTAssertTrue(block.waitForExistence(timeout: 10), "The Inspector shows \(title) for the \(folder) result")
-            if let previous {
-                XCTAssertTrue(robot.app.staticTexts[naoMgsBlock].firstMatch.waitForNonExistence(timeout: 5),
-                              "The NAO-MGS block stays in the Inspector after the \(folder) result opened")
-                if previous != naoMgsBlock {
-                    XCTAssertTrue(robot.app.staticTexts[previous].firstMatch.waitForNonExistence(timeout: 5),
-                                  "The Inspector still shows \(previous) after the \(folder) result opened")
-                }
-            }
-            previous = title
+            XCTAssertTrue(ReleaseSmokeFixtures.showInspectorSummary(robot), "The Inspector shows a Summary for the \(folder) result")
+            XCTAssertTrue(naoMgsBlock.waitForNonExistence(timeout: 5),
+                          "The NAO-MGS block stays in the Inspector after the \(folder) result opened")
         }
     }
 
@@ -71,13 +76,12 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         try robot.launch()
         robot.openProject(project)
         ReleaseSmokeFixtures.renameSidebarItem(containing: ReleaseSmokeFixtures.kraken2Folder, to: renamed.lastPathComponent,
-                                               in: robot.app)
+                                               in: robot)
         let moved = NSPredicate { _, _ in FileManager.default.fileExists(atPath: renamed.path) }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: moved, object: nil)], timeout: 30), .completed,
                        "The sidebar renames the result's folder")
         ReleaseSmokeFixtures.openSidebarItem(containing: renamed.lastPathComponent, in: robot.app)
-        let drawer = robot.app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@",
-                                                            "Toggle Taxa Collections Drawer", "Collections")).firstMatch
+        let drawer = ReleaseSmokeFixtures.kraken2Viewer(in: robot.app)
         XCTAssertTrue(drawer.waitForExistence(timeout: 15), "The Kraken2 result shows its Collections button")
         drawer.click()
         let extract = robot.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Extract ticked taxa in")).firstMatch
@@ -132,8 +136,59 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         ReleaseSmokeFixtures.dragFromFinder(archive, onto: robot.window(project).outlines["sidebar-outline"])
         let words = robot.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", archive.lastPathComponent)).firstMatch
         XCTAssertTrue(words.waitForExistence(timeout: 15), "The refusal names \(archive.lastPathComponent)")
-        robot.app.buttons["OK"].firstMatch.click()
+        robot.clickAlertButton("OK")
         XCTAssertEqual(ReleaseSmokeFixtures.listing(of: project), before, "A refused archive changes nothing in the project")
+    }
+
+    /// Exit check 3 of Phase 3.1. One bundle of each kind the smoke can build opens in turn on the candidate, and
+    /// the viewer and the Inspector change with the kind: each kind's viewer shows and the one before it goes, and
+    /// the NAO-MGS Inspector block shows for the NAO-MGS result only. The kinds come from `ViewSwitchKinds.all`
+    /// (Tests/LungfishAppTests/SafetyNets). NVD, CZ ID, 12S, Assembly, FASTQ, Genotype, MHC reference, both primer
+    /// kinds, FASTA document, Quick Look and Status only have no fixture the smoke can open without managed tools.
+    @MainActor
+    func testReleaseCandidateViewSwitchPerKind() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let cli = robot.candidateURL.appendingPathComponent("Contents/MacOS/lungfish-cli")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli.path), "The candidate embeds lungfish-cli")
+        setenv("LUNGFISH_TEST_CLI", cli.path, 1)
+        let project = try ReleaseSmokeFixtures.makeViewSwitchProject(named: "ReleaseViewSwitch-\(UUID().uuidString)")
+        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        try robot.launch()
+        robot.openProject(project)
+        let any = robot.app.descendants(matching: .any)
+        let naoMgsBlock = robot.app.staticTexts["NAO-MGS Result"].firstMatch
+        let kinds: [(name: String, row: String, viewer: XCUIElement)] = [
+            ("Reference", "TestGenome", any["reference-bundle-view"].firstMatch),
+            ("Kraken2", "kraken2", ReleaseSmokeFixtures.kraken2Viewer(in: robot.app)),
+            ("EsViritu", "esviritu", any["esviritu-result-view"].firstMatch),
+            ("TaxTriage", "taxtriage", any["taxtriage-result-view"].firstMatch),
+            ("NAO-MGS", "naomgs", naoMgsBlock),
+            ("MSA", "MHC Alignment", any["multiple-sequence-alignment-row-gutter"].firstMatch),
+            ("Tree", "MHC Tree", any["phylogenetic-tree-node-table"].firstMatch),
+        ]
+        var previous: (name: String, row: String, viewer: XCUIElement)?
+        for kind in kinds + [kinds[0]] {
+            ReleaseSmokeFixtures.openSidebarItem(containing: kind.row, in: robot.app)
+            if kind.name == "NAO-MGS" {
+                ReleaseSmokeFixtures.closeMissingDatabaseSheet(in: robot)
+                XCTAssertTrue(ReleaseSmokeFixtures.showInspectorSummary(robot), "The Inspector shows the NAO-MGS Summary")
+            }
+            guard kind.viewer.waitForExistence(timeout: 15) else {
+                robot.failShowingScreen("The \(kind.name) bundle shows no viewer after \(previous?.name ?? "the project") ")
+                return
+            }
+            // Kraken2's Collections button and the NAO-MGS block stand in for viewers with no identifier of their
+            // own, and the NAO-MGS block has its own check below, so only an identified viewer root must go.
+            if let previous, !["Kraken2", "NAO-MGS"].contains(previous.name) {
+                XCTAssertTrue(previous.viewer.waitForNonExistence(timeout: 5),
+                              "The \(previous.name) viewer stays after the \(kind.name) bundle opened")
+            }
+            if kind.name != "NAO-MGS" {
+                XCTAssertTrue(naoMgsBlock.waitForNonExistence(timeout: 5),
+                              "The NAO-MGS Inspector block shows for the \(kind.name) bundle")
+            }
+            previous = kind
+        }
     }
 }
 
@@ -196,9 +251,41 @@ enum ReleaseSmokeFixtures {
     }
 
     /// Closes the sheet that says the NAO-MGS result has no `hits.sqlite`, so the sidebar takes clicks again.
-    static func closeMissingDatabaseSheet(in app: XCUIApplication) {
-        let ok = app.sheets.buttons["OK"].firstMatch
-        if ok.waitForExistence(timeout: 10) { ok.click() }
+    static func closeMissingDatabaseSheet(in robot: ReleaseAppSmokeRobot) {
+        let ok = robot.app.sheets.buttons["OK"].firstMatch
+        if ok.waitForExistence(timeout: 10) { robot.clickAlertButton("OK") }
+    }
+
+    /// The Kraken2 viewer's Collections button, which no other query of the Release app names.
+    static func kraken2Viewer(in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@",
+                                         "Toggle Taxa Collections Drawer", "Collections")).firstMatch
+    }
+
+    /// Shows the Inspector's Summary (the `resultSummary` tab, `InspectorView.swift`) and says whether it shows.
+    /// The Inspector toggle is pressed only when no Summary shows, so a visible Inspector is never hidden. One tab
+    /// shows as a header and several as buttons, so the label is looked for on any element.
+    static func showInspectorSummary(_ robot: ReleaseAppSmokeRobot) -> Bool {
+        let summary = robot.app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Summary")).firstMatch
+        if !summary.waitForExistence(timeout: 5) {
+            robot.app.buttons["main-window-toggle-inspector"].firstMatch.click()
+        }
+        guard summary.waitForExistence(timeout: 10) else { return false }
+        if summary.elementType == .button, summary.isHittable { summary.click() }
+        return true
+    }
+
+    /// The classifier results project plus the multiple sequence alignment and tree bundles the candidate's own
+    /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), for the view switch of exit check 3.
+    static func makeViewSwitchProject(named name: String) throws -> URL {
+        let project = try makeClassifierResultsProject(named: name)
+        let trees = try LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject(named: "ViewSwitchBundles")
+        defer { try? FileManager.default.removeItem(at: trees.deletingLastPathComponent()) }
+        for bundle in ["MHC Alignment.lungfishmsa", "MHC Tree.lungfishtree"] {
+            try FileManager.default.copyItem(at: trees.appendingPathComponent(bundle, isDirectory: true),
+                                             to: project.appendingPathComponent(bundle, isDirectory: true))
+        }
+        return project
     }
 
     /// A ZIP holding one reference bundle named `name`, in a folder of its own.
@@ -266,19 +353,30 @@ enum ReleaseSmokeFixtures {
     }
 
     /// Renames the first sidebar row whose words contain `text` to `name` through its Rename… menu item.
-    static func renameSidebarItem(containing text: String, to name: String, in app: XCUIApplication) {
+    /// The context menu's item comes first, since an unscoped `menuItems` query may take a menu bar item of the
+    /// same title, and the sheet's field is found by `sidebar-rename-field` (`SidebarViewController+MenuDelegate`).
+    static func renameSidebarItem(containing text: String, to name: String, in robot: ReleaseAppSmokeRobot) {
+        let app = robot.app
         let row = sidebarRow(containing: text, in: app)
         row.click()
         row.rightClick()
-        let rename = app.menuItems["Rename\u{2026}"].firstMatch
-        XCTAssertTrue(rename.waitForExistence(timeout: 5), "The sidebar row offers Rename\u{2026}")
+        let title = "Rename\u{2026}"
+        guard let rename = robot.firstOf([app.outlines["sidebar-outline"].menuItems[title].firstMatch,
+                                          app.menus.menuItems[title].firstMatch], timeout: 5, hittable: true) else {
+            robot.failShowingScreen("The sidebar row's menu offers no \(title)")
+            return
+        }
         rename.click()
-        let field = app.sheets.textFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 5), "The Rename sheet shows the name")
+        guard let field = robot.firstOf([app.descendants(matching: .any)["sidebar-rename-field"].firstMatch,
+                                         app.sheets.textFields.firstMatch, app.dialogs.textFields.firstMatch],
+                                        timeout: 10) else {
+            robot.failShowingScreen("The Rename sheet shows no name field")
+            return
+        }
         field.click()
         field.typeKey("a", modifierFlags: .command)
         field.typeText(name)
-        app.sheets.buttons["Rename"].firstMatch.click()
+        robot.clickAlertButton("Rename")
     }
 
     /// Shows `file` in a Finder window and drags it onto `target`, then closes that window.

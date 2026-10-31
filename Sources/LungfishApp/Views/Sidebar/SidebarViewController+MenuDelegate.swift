@@ -844,14 +844,14 @@ extension SidebarViewController: NSMenuDelegate {
 
         sidebarLogger.info("contextMenuRename: Renaming '\(item.title, privacy: .public)'")
 
-        // Show rename dialog
+        // Show rename dialog. The release smoke finds its field by the identifier.
         let alert = NSAlert()
         alert.messageText = "Rename"
         alert.informativeText = "Enter a new name:"
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
-
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        textField.setAccessibilityIdentifier("sidebar-rename-field")
         textField.stringValue = item.url?.deletingPathExtension().lastPathComponent ?? item.title
         alert.accessoryView = textField
 

@@ -151,8 +151,10 @@ struct BundleBrowserRobot {
         app.descendants(matching: .any)["reference-bundle-view"]
     }
 
+    /// Any element type, since the Release app showed no table by this identifier (3.0 lane UIP) and AppKit may
+    /// expose the record table as an outline or put the identifier on its scroll view.
     var browserTable: XCUIElement {
-        app.tables["reference-bundle-sequence-table"]
+        app.descendants(matching: .any)["reference-bundle-sequence-table"].firstMatch
     }
 
     var openButton: XCUIElement {

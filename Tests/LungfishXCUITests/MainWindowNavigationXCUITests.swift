@@ -120,13 +120,21 @@ extension MainWindowNavigationXCUITests {
         try robot.launch()
         robot.openProject(project)
         robot.menu("File", item: "Import Center…")
-        let button = robot.app.buttons["import-center-button-fastq-sample-sheet"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        // The card's Import… button carries the identifier (ImportCenterView.swift). The Release run found no
+        // button by it in 5 s (3.0 lane UIP), so the robot also takes the card's own button and waits 15 s.
+        let identifier = "import-center-button-fastq-sample-sheet"
+        guard let button = robot.firstOf([robot.app.buttons[identifier].firstMatch,
+                                          robot.app.descendants(matching: .any)[identifier].firstMatch,
+                                          robot.app.descendants(matching: .any)["import-center-card-fastq-sample-sheet"]
+                                              .buttons.firstMatch], timeout: 15) else {
+            robot.failShowingScreen("The Import Center shows no Import\u{2026} button for the FASTQ Sample Sheet")
+            return
+        }
         button.click()
         robot.chooseNativePath(invalid)
         XCTAssertTrue(robot.app.staticTexts["Could not read the FASTQ sample sheet"].waitForExistence(timeout: 10))
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("invalid.csv").path))
-        robot.app.buttons["OK"].firstMatch.click()
+        robot.clickAlertButton("OK")
         XCTAssertTrue(robot.window(project).exists)
     }
 }
