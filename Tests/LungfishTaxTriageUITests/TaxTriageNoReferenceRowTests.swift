@@ -84,7 +84,8 @@ final class TaxTriageNoReferenceRowTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = makeController(fixture)
         var captured: [ClassifierRowSelector]?
-        vc.resultActions.onExtractionRequested = { captured = $0.selectors }
+        var request: ClassifierExtractionRequest?
+        vc.resultActions.onExtractionRequested = { captured = $0.selectors; request = $0 }
 
         try select([Self.withReference, Self.withoutReference], in: vc) { vc.testActionBar.extractButton.isEnabled }
         let summary = vc.extractReadsSelectionSummary
@@ -95,6 +96,8 @@ final class TaxTriageNoReferenceRowTests: XCTestCase {
         )
         vc.testActionBar.extractButton.performClick(nil)
 
+        XCTAssertEqual(request?.selectedRowCount, 2, "the dialog counts the rows picked, not the selectors sent")
+        XCTAssertEqual(request?.leftOutNotice, summary.leftOutNotice)
         XCTAssertEqual(
             captured, [ClassifierRowSelector(sampleId: "sample-1", accessions: [Self.referenceAccession], taxIds: [])]
         )
