@@ -17,13 +17,13 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 336 | LungfishPortable |
-| LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 152 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 155 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishNvdUI | library | Sources/LungfishNvdUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
@@ -781,6 +781,7 @@ None.
 
 - `EsVirituDetailPane` class, `Sources/LungfishEsVirituUI/EsVirituDetailPane.swift`
 - `EsVirituResultViewController` class, `Sources/LungfishEsVirituUI/EsVirituResultViewController.swift`
+- `EsVirituSurface` class, `Sources/LungfishEsVirituUI/EsVirituSurface.swift`
 - `SegmentCompletenessView` class, `Sources/LungfishEsVirituUI/SegmentCompletenessView.swift`
 - `ViralCoverageSparklineView` class, `Sources/LungfishEsVirituUI/ViralCoverageSparklineView.swift`
 - `ViralDetectionTableView` class, `Sources/LungfishEsVirituUI/ViralDetectionTableView.swift`
@@ -1587,6 +1588,7 @@ None.
 | Subdirectory |
 |---|
 | Accessibility |
+| Classifiers |
 | Surfaces |
 
 ### Public types
@@ -1612,6 +1614,7 @@ None.
 - `BlastResultsDrawerContainerView` class, `Sources/LungfishKit/BlastResultsDrawerContainerView.swift`
 - `BlastResultsDrawerTab` class, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
 - `ClassifierActionBar` class, `Sources/LungfishKit/ClassifierActionBar.swift`
+- `ClassifierActionWords` enum, `Sources/LungfishKit/Classifiers/ClassifierResultActions.swift`
 - `ClassifierAlignmentContig` struct, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
 - `ClassifierAlignmentEvidenceFileSnapshot` struct, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
 - `ClassifierAlignmentEvidencePresentation` struct, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
@@ -1624,6 +1627,8 @@ None.
 - `ClassifierAlignmentViewerStatus` enum, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
 - `ClassifierAlignmentWorkflowKind` enum, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
 - `ClassifierExportWords` enum, `Sources/LungfishKit/ClassifierExportWords.swift`
+- `ClassifierExtractionRequest` struct, `Sources/LungfishKit/Classifiers/ClassifierResultActions.swift`
+- `ClassifierResultActions` class, `Sources/LungfishKit/Classifiers/ClassifierResultActions.swift`
 - `ClassifierSamplePickerView` struct, `Sources/LungfishKit/ClassifierSamplePickerView.swift`
 - `CLIBinaryLocator` enum, `Sources/LungfishKit/CLIBinaryLocator.swift`
 - `CLIProcessExit` struct, `Sources/LungfishKit/CLIProcessLauncher.swift`
@@ -1773,6 +1778,7 @@ None.
 
 - `NvdDataConverter` enum, `Sources/LungfishNvdUI/NvdDataConverter.swift`
 - `NvdResultViewController` class, `Sources/LungfishNvdUI/NvdResultViewController.swift`
+- `NvdSurface` class, `Sources/LungfishNvdUI/NvdSurface.swift`
 
 ## LungfishOperations
 
