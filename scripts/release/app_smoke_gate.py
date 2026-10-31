@@ -371,6 +371,20 @@ class AccountPreferencesGuard:
             raise EvidenceError("An earlier smoke run stopped before it restored the account's Lungfish preferences. "
                                 "The gate restored them from %s and checked them. Run the smoke again." % self.journal)
         self.journal.mkdir(mode=0o700)
+        try:
+            self.move_aside()
+        except BaseException:
+            # Before the manifest nothing moved, so the journal goes (a journal without a manifest stops the next
+            # run). After it the domains may be half deleted, so they come back before the failure leaves.
+            if (self.journal / "manifest.json").exists():
+                self.restore()
+            else:
+                shutil.rmtree(self.journal, ignore_errors=True)
+            raise
+        return self
+
+    def move_aside(self):
+        """(c) Exports each domain and copies the files into the journal, writes its manifest, deletes the domains."""
         manifest = {"schemaVersion": 1, "domains": {}, "files": guarded_files(self.home)}
         values = {}
         for domain in self.domains:
@@ -389,9 +403,17 @@ class AccountPreferencesGuard:
         os.replace(partial, self.journal / "manifest.json")
         for domain in self.domains:
             self.delete(domain)
-        return self
 
     def __exit__(self, kind, value, traceback):
+        try:
+            self.record_writes()
+        except (EvidenceError, OSError, subprocess.SubprocessError) as error:
+            self.raise_naming_journal(error)
+        self.restore()
+        return False
+
+    def record_writes(self):
+        """Waits for the last candidate to quit, then records what it wrote, before the restore removes the trace."""
         deadline = time.monotonic() + self.exit_wait
         while (running := self.running_lungfish()) and time.monotonic() < deadline:
             time.sleep(0.5)
@@ -413,8 +435,6 @@ class AccountPreferencesGuard:
         after = shared_file_list_state(self.home)
         self.evidence["sharedFileListChanged"] = sorted(
             name for name in set(after) | set(self.shared_before) if after.get(name) != self.shared_before.get(name))
-        self.restore()
-        return False
 
     def manifest(self):
         try:
@@ -425,6 +445,21 @@ class AccountPreferencesGuard:
                                 "folder and run the smoke again." % self.journal) from error
 
     def restore(self):
+        """(d) and (e). A failure of either says where the journal is and which commands restore it by hand."""
+        try:
+            self._restore()
+        except (EvidenceError, OSError, subprocess.SubprocessError) as error:
+            self.raise_naming_journal(error)
+
+    def raise_naming_journal(self, error):
+        """Raises `error` when its words already hold the journal's path, else an EvidenceError that adds where the
+        account's Lungfish preferences are and the commands that restore them."""
+        if isinstance(error, EvidenceError) and str(self.journal) in str(error):
+            raise error
+        raise EvidenceError("%s The account's Lungfish preferences are in %s. Quit Lungfish and restore them with:\n%s"
+                            % (error, self.journal, self.restore_commands())) from error
+
+    def _restore(self):
         """(d) and (e) from the journal's own manifest, which names what the run that wrote it moved."""
         manifest = self.manifest()
         for domain, present in manifest["domains"].items():
