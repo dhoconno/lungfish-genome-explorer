@@ -1,7 +1,6 @@
 // FASTQDatasetViewController.swift - FASTQ dataset statistics dashboard
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
-
 import AppKit
 import LungfishCore
 import LungfishIO

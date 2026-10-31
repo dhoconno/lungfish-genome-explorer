@@ -10,7 +10,6 @@ import LungfishWorkflow
 import UniformTypeIdentifiers
 import LungfishTaxonomyUI
 
-
 /// Callback invoked when the user clicks "Import" with configured settings.
 public typealias FASTQImportCompletion = @MainActor (
     _ configuration: FASTQImportConfiguration

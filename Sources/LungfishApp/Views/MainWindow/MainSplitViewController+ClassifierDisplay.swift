@@ -1,7 +1,6 @@
 // MainSplitViewController+ClassifierDisplay.swift - Classifier result display routing
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
-
 import AppKit
 import LungfishKit
 import LungfishCore

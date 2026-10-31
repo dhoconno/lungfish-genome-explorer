@@ -447,7 +447,6 @@ public class ViewerViewController: NSViewController {
     /// Last selected gene tab navigation state (name, chromosome, start, end).
     var lastSelectedGeneTabSelection: (name: String, chromosome: String, start: Int, end: Int)?
 
-
     // MARK: - Lifecycle
 
     public override func loadView() {
