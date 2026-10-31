@@ -21,6 +21,17 @@ private final class NvdRecordingEvidenceViewer: NSObject, ClassifierAlignmentVie
 
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
+    /// Every test gives the result view a defaults suite of its own for the column layout. The view saves the layout
+    /// under `org.lungfish.metadata-column-layout.nvd.contigs:<result path>`, and the two typography tests, which
+    /// change columns, left that key in the xctest host's defaults (FULL1-LEAKS). A test that sets a suite of its own
+    /// replaces this one.
+    override func setUp() async throws {
+        try await super.setUp()
+        NvdResultViewController.testMetadataUserDefaultsOverride =
+            makeTestDefaultsSuite(prefix: "NvdResultViewControllerTests").defaults
+        addTeardownBlock { NvdResultViewController.testMetadataUserDefaultsOverride = nil }
+    }
+
     func testImportedMetadataImmediatelyUpdatesActualResultTableChooserAndCells() throws {
         // Isolate the metadata-column persistence layer: the fixed
         // "/tmp/nvd-metadata" bundle path below is keyed straight into

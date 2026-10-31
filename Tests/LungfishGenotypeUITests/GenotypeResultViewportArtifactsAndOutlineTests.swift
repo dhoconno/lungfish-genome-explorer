@@ -1827,6 +1827,13 @@ final class GenotypeResultViewportArtifactsAndOutlineTests: GenotypeResultViewpo
 
 
     func testGenBankMatrixCanToggleAnyReferenceFieldAndFiltersHiddenFields() {
+        // The matrix saves its visible columns in `UserDefaults.standard` and takes no defaults of its own, so the
+        // test puts both keys back at its end (FULL1-LEAKS).
+        let hostDefaults = HostDefaultsRestorer(keys: [
+            "GenotypeMatrix.genbank.visibleReferenceFields",
+            "GenotypeMatrix.genbank.visibleStandardColumns",
+        ])
+        defer { hostDefaults.restore() }
         let matrix = GenotypeComparisonMatrixView()
         matrix.configure(result: makeResult(
             samples: [],

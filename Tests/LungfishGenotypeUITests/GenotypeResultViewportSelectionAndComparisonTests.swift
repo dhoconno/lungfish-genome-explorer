@@ -864,6 +864,10 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
 
 
     func testComparisonMatrixPinnedPaneCanResizeAndRemembersWidth() {
+        // The matrix remembers the pane width in `UserDefaults.standard` and takes no defaults of its own, so the test
+        // puts the key back at its end (FULL1-LEAKS).
+        let hostDefaults = HostDefaultsRestorer(keys: ["GenotypeMatrix.pinnedPaneWidth"])
+        defer { hostDefaults.restore() }
         let matrix = makeManySampleMatrix(sampleCount: 4)
         matrix.frame = NSRect(x: 0, y: 0, width: 1_000, height: 400)
         matrix.testingSetPinnedPaneWidth(430)

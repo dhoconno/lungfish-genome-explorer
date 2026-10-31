@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishOperations
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class ReferenceDiscoveryServiceTests: XCTestCase {
 
@@ -124,6 +125,10 @@ final class ReferenceDiscoveryServiceTests: XCTestCase {
 
     @MainActor
     func testLastUsedReference() async throws {
+        // The service saves the last-used reference in `UserDefaults.standard` and takes no defaults of its own, so
+        // the test puts the key back at its end and leaves the xctest host's defaults as it found them (FULL1-LEAKS).
+        let hostDefaults = HostDefaultsRestorer(keys: ["ReferenceDiscoveryLastUsed"])
+        defer { hostDefaults.restore() }
         let projectURL = try makeTempProject()
         defer { try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent()) }
 
