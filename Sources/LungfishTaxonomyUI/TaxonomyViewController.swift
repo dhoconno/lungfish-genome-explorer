@@ -103,7 +103,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var warningPresenter: ((String, String) -> Void)?
 
     /// Whether read-level actions
-    /// (Extract Reads…, BLAST Matching Reads…/Verify) are meaningful for the
+    /// (Extract Reads…, Verify with BLAST…) are meaningful for the
     /// classification result this controller is showing. CZ-ID imports have
     /// no per-read source IDs — it sets this to `false` so the action bar
     /// and the table's own context menu agree, instead of the action bar
@@ -200,9 +200,11 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private let tableContainer = SplitPaneFillContainerView()
     private let sunburstView = TaxonomySunburstView()
     private let taxonomyTableView = TaxonomyTableView()
-    let actionBar = ClassifierActionBar()
+    /// The shared classifier actions (lane K2): the bar, its BLAST Results button and the extraction hand-off.
+    public let resultActions = ClassifierResultActions()
+    var actionBar: ClassifierActionBar { resultActions.bar }
 
-    // MARK: - Collections / BLAST Toggle Buttons (custom, managed by this VC)
+    // MARK: - Collections Toggle Button (custom, managed by this VC)
 
     let collectionsToggleButton: NSButton = {
         let btn = NSButton(title: "Collections", target: nil, action: nil)
@@ -215,20 +217,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         btn.font = .systemFont(ofSize: 11)
         btn.setContentHuggingPriority(.required, for: .horizontal)
         btn.setAccessibilityLabel("Toggle Taxa Collections Drawer")
-        return btn
-    }()
-
-    let blastResultsToggleButton: NSButton = {
-        let btn = NSButton(title: "BLAST Results", target: nil, action: nil)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.bezelStyle = .accessoryBarAction
-        btn.setButtonType(.pushOnPushOff)
-        btn.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST Results")
-        btn.imagePosition = .imageLeading
-        btn.controlSize = .small
-        btn.font = .systemFont(ofSize: 11)
-        btn.setContentHuggingPriority(.required, for: .horizontal)
-        btn.setAccessibilityLabel(ClassifierActionWords.blastResultsTitle)
         return btn
     }()
 
@@ -309,7 +297,11 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     public var onBatchExtract: ((TaxaCollection, ClassificationResult) -> Void)?
 
     /// Hands the Extract Reads request to the host that shows the dialog, which the App wires (layering rule 1).
-    public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)?
+    /// The shared actions hold it, as they do for the other classifier viewers.
+    public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)? {
+        get { resultActions.onExtractionRequested }
+        set { resultActions.onExtractionRequested = newValue }
+    }
 
     /// Called when the user confirms BLAST verification for a taxon via the popover.
     ///
@@ -954,9 +946,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.suppressSelectionSync = true
             self.sunburstView.selectedNode = nil
             self.hideMultiSelectionPlaceholder()
-            self.actionBar.updateInfoText("\(count) items selected")
-            self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
-            self.actionBar.setExtractEnabled(self.readLevelActionsAvailable)
+            self.showBarSelection(count: count)
             self.suppressSelectionSync = false
         }
 
@@ -996,14 +986,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self?.showProvenancePopover(relativeTo: sender)
         }
 
-        // Wire custom buttons
+        // Wire custom buttons. The bar holds the shared BLAST Results button first, which shows or hides the
+        // drawer's BLAST tab.
+        resultActions.onBlastDrawerOpenChanged = { [weak self] open in self?.blastResultsOpenChanged(open) }
         collectionsToggleButton.target = self
         collectionsToggleButton.action = #selector(collectionsToggleTapped(_:))
         actionBar.addCustomButton(collectionsToggleButton)
-
-        blastResultsToggleButton.target = self
-        blastResultsToggleButton.action = #selector(blastResultsToggleTapped(_:))
-        actionBar.addCustomButton(blastResultsToggleButton)
 
         NotificationCenter.default.addObserver(
             self,
@@ -1154,44 +1142,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         didSetInitialSplitPosition = true
     }
 
-    /// Toggles the BLAST results tab in the taxa collections drawer.
-    ///
-    /// If the drawer is closed, opens it and switches to the BLAST tab.
-    /// If the drawer is open on the BLAST tab, closes it.
-    /// If the drawer is open on another tab, switches to the BLAST tab.
-    private func toggleBlastResultsTab() {
-        if taxaCollectionsDrawerView == nil {
-            // First open: create drawer, open it, switch to BLAST tab
-            toggleTaxaCollectionsDrawer()
-            taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            blastResultsToggleButton.state = .on
-            collectionsToggleButton.state = .off
-        } else if !isTaxaCollectionsDrawerOpen {
-            // Drawer exists but is closed: open and switch to BLAST tab
-            toggleTaxaCollectionsDrawer()
-            taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            blastResultsToggleButton.state = .on
-            collectionsToggleButton.state = .off
-        } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
-            // Already open on BLAST tab: close the drawer
-            toggleTaxaCollectionsDrawer()
-            blastResultsToggleButton.state = .off
-        } else {
-            // Drawer open on Collections tab: switch to BLAST tab
-            taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            blastResultsToggleButton.state = .on
-            collectionsToggleButton.state = .off
-        }
-    }
-
     // MARK: - Custom Toggle Button Actions
 
     @objc private func collectionsToggleTapped(_ sender: NSButton) {
         toggleTaxaCollectionsDrawer()
-    }
-
-    @objc private func blastResultsToggleTapped(_ sender: NSButton) {
-        toggleBlastResultsTab()
     }
 
     // MARK: - Multi-Selection Helpers
@@ -1227,26 +1181,29 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 : 0
             let pctStr = TaxonomyPercentFormat.string(fraction: fraction)
 
-            actionBar.updateInfoText("\(node.name) \u{2014} \(readStr) reads (\(pctStr) of all reads)")
-            if readLevelActionsAvailable {
-                actionBar.setBlastEnabled(true)
-                actionBar.setExtractEnabled(true)
-            } else {
-                actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
-                actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
-            }
-        } else if readLevelActionsAvailable {
-            actionBar.updateInfoText("Select a taxon to view details")
-            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+            showBarSelection(count: 1, info: "\(node.name) \u{2014} \(readStr) reads (\(pctStr) of all reads)")
         } else {
-            // Nothing is selected, but selecting a row would not help: say why.
-            actionBar.updateInfoText("Select a taxon to view details")
-            actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
-            actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
+            showBarSelection(count: 0)
         }
 
         scheduleSavedBlastVerificationRestore(for: selectedTaxonNode)
+    }
+
+    /// The bar for `count` picked rows, through the shared actions (R1, R2 and R4 of UX-3E-LABELS). While LGE cannot
+    /// reach this result's reads, both buttons grey with that reason whatever is picked, since picking would not help.
+    private func showBarSelection(count: Int, info: String? = nil) {
+        let prompt = "Select a taxon to view details"
+        guard readLevelActionsAvailable else {
+            actionBar.updateInfoText(info ?? (count == 0 ? prompt : ClassifierActionWords.rowsSelected(count)))
+            actionBar.setBlastEnabled(false, reason: readLevelActionsDisabledReason)
+            actionBar.setExtractEnabled(false, reason: readLevelActionsDisabledReason)
+            return
+        }
+        if count == 0 {
+            resultActions.showNoSelection(prompt: prompt)
+        } else {
+            resultActions.showSelection(count: count, info: info)
+        }
     }
 
     // MARK: - NSSplitViewDelegate
@@ -1274,7 +1231,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///
     /// Menu items:
     /// - Extract Reads...
-    /// - Copy Taxon Name
+    /// - Copy Name
     /// - Copy Taxonomy Path
     /// - (separator)
     /// - Zoom to [name]
@@ -1333,7 +1290,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         menu.addItem(.separator())
 
         let copyNameItem = NSMenuItem(
-            title: "Copy Taxon Name",
+            title: ResultRowCommand.copyName.title,
             action: #selector(contextCopyName(_:)),
             keyEquivalent: ""
         )
@@ -1376,55 +1333,24 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         menu.addItem(.separator())
 
         if includeNCBILinks {
-            let ncbiSubmenu = NSMenu()
-
-            let taxonomyItem = NSMenuItem(
-                title: "NCBI Taxonomy",
-                action: #selector(contextOpenNCBITaxonomy(_:)),
-                keyEquivalent: ""
-            )
-            taxonomyItem.target = self
-            taxonomyItem.representedObject = node
-            taxonomyItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")
-            ncbiSubmenu.addItem(taxonomyItem)
-
-            let genBankItem = NSMenuItem(
-                title: "GenBank Sequences",
-                action: #selector(contextOpenNCBIGenBank(_:)),
-                keyEquivalent: ""
-            )
-            genBankItem.target = self
-            genBankItem.representedObject = node
-            ncbiSubmenu.addItem(genBankItem)
-
-            let pubmedItem = NSMenuItem(
-                title: "PubMed Literature",
-                action: #selector(contextOpenNCBIPubMed(_:)),
-                keyEquivalent: ""
-            )
-            pubmedItem.target = self
-            pubmedItem.representedObject = node
-            ncbiSubmenu.addItem(pubmedItem)
-
-            let genomeItem = NSMenuItem(
-                title: "Genome Assemblies",
-                action: #selector(contextOpenNCBIGenome(_:)),
-                keyEquivalent: ""
-            )
-            genomeItem.target = self
-            genomeItem.representedObject = node
-            ncbiSubmenu.addItem(genomeItem)
-
-            let ncbiItem = NSMenuItem(title: "Look Up on NCBI", action: nil, keyEquivalent: "")
-            ncbiItem.submenu = ncbiSubmenu
-            ncbiItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "NCBI")
-            menu.addItem(ncbiItem)
-
+            // The shared NCBI items, flat (UX-3E-LABELS section 4). Genome assemblies have no shared item.
+            let links: [(String, Selector)] = [
+                (ResultRowCommand.openTaxonomyOnNCBI.title, #selector(contextOpenNCBITaxonomy(_:))),
+                (ResultRowCommand.openGenBank.title, #selector(contextOpenNCBIGenBank(_:))),
+                (ResultRowCommand.searchPubMed.title, #selector(contextOpenNCBIPubMed(_:))),
+                ("Open Genome Assemblies on NCBI", #selector(contextOpenNCBIGenome(_:))),
+            ]
+            for (title, action) in links {
+                let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                item.target = self
+                item.representedObject = node
+                menu.addItem(item)
+            }
             menu.addItem(.separator())
         }
 
         let blastItem = NSMenuItem(
-            title: "BLAST Matching Reads\u{2026}",
+            title: ResultRowCommand.blastVerify.title,
             action: #selector(contextBlastReads(_:)),
             keyEquivalent: ""
         )

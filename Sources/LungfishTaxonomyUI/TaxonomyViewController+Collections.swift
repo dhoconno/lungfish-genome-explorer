@@ -108,13 +108,9 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         isTaxaCollectionsDrawerOpen = !isOpen
         TaxaCollectionsDrawerSeams.defaults.set(isTaxaCollectionsDrawerOpen, forKey: Self.taxaDrawerOpenKey)
 
-        // Update the toggle button states
+        // Update the toggle button states. The bar's BLAST Results button reads on while the drawer shows its BLAST tab.
         collectionsToggleButton.state = isTaxaCollectionsDrawerOpen ? .on : .off
-        if !isTaxaCollectionsDrawerOpen {
-            blastResultsToggleButton.state = .off
-        } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
-            blastResultsToggleButton.state = .on
-        }
+        resultActions.setBlastDrawerOpen(isTaxaCollectionsDrawerOpen && taxaCollectionsDrawerView?.selectedTab == .blastResults)
 
         collectionsLogger.info("toggleTaxaCollectionsDrawer: Drawer now \(self.isTaxaCollectionsDrawerOpen ? "open" : "closed")")
 

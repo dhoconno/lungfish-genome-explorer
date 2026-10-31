@@ -54,7 +54,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     private lazy var columnHeaderFilterMenuController = ColumnHeaderFilterMenu(host: self)
 
     /// Whether read-level actions
-    /// (Extract Reads…, BLAST Matching Reads…) are meaningful for the
+    /// (Extract Reads…, Verify with BLAST…) are meaningful for the
     /// classification result currently shown. CZ-ID imports have no
     /// per-read source IDs, so `CzIdResultViewController` already disables
     /// Extract on the shared `ClassifierActionBar` — but the table's own
@@ -729,9 +729,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         let menu = NSMenu()
 
         // Extraction
-        menu.addItem(withTitle: "Extract Reads\u{2026}",
-                     action: #selector(contextExtractReads(_:)),
-                     keyEquivalent: "")
+        menu.addItem(ResultRowCommand.extractReads.makeContextMenuItem(target: nil, action: #selector(contextExtractReads(_:))))
 
         menu.addItem(.separator())
 
@@ -756,38 +754,21 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         menu.addItem(.separator())
 
         // BLAST
-        let blastItem = NSMenuItem(
-            title: "BLAST Matching Reads\u{2026}",
-            action: #selector(contextBlastReads(_:)),
-            keyEquivalent: ""
-        )
+        let blastItem = ResultRowCommand.blastVerify.makeContextMenuItem(target: nil, action: #selector(contextBlastReads(_:)))
         blastItem.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST")
         menu.addItem(blastItem)
 
         menu.addItem(.separator())
 
-        // NCBI links
-        let ncbiSubmenu = NSMenu()
-        ncbiSubmenu.addItem(withTitle: "NCBI Taxonomy",
-                           action: #selector(contextOpenNCBITaxonomy(_:)),
-                           keyEquivalent: "")
-        ncbiSubmenu.addItem(withTitle: "GenBank Sequences",
-                           action: #selector(contextOpenNCBIGenBank(_:)),
-                           keyEquivalent: "")
-        ncbiSubmenu.addItem(withTitle: "PubMed Literature",
-                           action: #selector(contextOpenNCBIPubMed(_:)),
-                           keyEquivalent: "")
-        let ncbiItem = NSMenuItem(title: "Look Up on NCBI", action: nil, keyEquivalent: "")
-        ncbiItem.submenu = ncbiSubmenu
-        ncbiItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "NCBI")
-        menu.addItem(ncbiItem)
+        // NCBI links, the shared flat items (UX-3E-LABELS section 4)
+        menu.addItem(ResultRowCommand.openTaxonomyOnNCBI.makeContextMenuItem(target: nil, action: #selector(contextOpenNCBITaxonomy(_:))))
+        menu.addItem(ResultRowCommand.openGenBank.makeContextMenuItem(target: nil, action: #selector(contextOpenNCBIGenBank(_:))))
+        menu.addItem(ResultRowCommand.searchPubMed.makeContextMenuItem(target: nil, action: #selector(contextOpenNCBIPubMed(_:))))
 
         menu.addItem(.separator())
 
         // Copy
-        menu.addItem(withTitle: "Copy Taxon Name",
-                     action: #selector(contextCopyName(_:)),
-                     keyEquivalent: "")
+        menu.addItem(ResultRowCommand.copyName.makeContextMenuItem(target: nil, action: #selector(contextCopyName(_:))))
 
         return menu
     }
@@ -988,7 +969,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // one only the Expand pair. Expanding or collapsing refreshes the list
         // (see ``refreshAccessibilityActions(forItem:)``).
         if readLevelActionsAvailable {
-            actions.append(action("Extract Reads\u{2026}") { table, row in table.extractReads(targeting: row) })
+            actions.append(action(ResultRowCommand.extractReads.title) { table, row in table.extractReads(targeting: row) })
         }
         if canExpand(item: node) {
             actions.append(action("Expand") { table, row in table.expand(row: row, children: false) })
@@ -998,22 +979,21 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             actions.append(action("Collapse") { table, row in table.collapse(row: row) })
         }
         if readLevelActionsAvailable {
-            actions.append(action("BLAST Matching Reads\u{2026}") { table, row in table.blastReads(ofRow: row) })
+            actions.append(action(ResultRowCommand.blastVerify.title) { table, row in table.blastReads(ofRow: row) })
         }
-        let lookUp = "Look Up on NCBI"
-        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "NCBI Taxonomy")) { table, row in
+        actions.append(action(ResultRowCommand.openTaxonomyOnNCBI.title) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBITaxonomyRequested?(node)
         })
-        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "GenBank Sequences")) { table, row in
+        actions.append(action(ResultRowCommand.openGenBank.title) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBIGenBankRequested?(node)
         })
-        actions.append(action(AccessibilityMenuMirror.actionName(submenu: lookUp, item: "PubMed Literature")) { table, row in
+        actions.append(action(ResultRowCommand.searchPubMed.title) { table, row in
             guard let node = table.actionableNode(at: row) else { return }
             table.onNCBIPubMedRequested?(node)
         })
-        actions.append(action("Copy Taxon Name") { table, row in table.copyName(ofRow: row) })
+        actions.append(action(ResultRowCommand.copyName.title) { table, row in table.copyName(ofRow: row) })
         return actions
     }
 

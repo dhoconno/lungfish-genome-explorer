@@ -21,9 +21,5 @@ public enum LungfishUIStrings {
         /// identifier. Previously drifted between "Copy TaxID" (TaxTriage)
         /// and "Copy Taxon ID" (NAO-MGS).
         public static let copyTaxonID = "Copy Taxon ID"
-
-        /// "Look Up on NCBI…" — canonical label for a menu item (flat, no
-        /// submenu) that opens NCBI for the row's organism or accession.
-        public static let lookUpOnNCBI = "Look Up on NCBI\u{2026}"
     }
 }

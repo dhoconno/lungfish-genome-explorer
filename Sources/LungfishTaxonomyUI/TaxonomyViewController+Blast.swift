@@ -290,9 +290,19 @@ extension TaxonomyViewController {
         // Switch to BLAST Results tab
         taxaCollectionsDrawerView?.switchToTab(.blastResults)
 
-        // Update toggle button states
-        blastResultsToggleButton.state = .on
+        // Update toggle button states. The bar's shared BLAST Results button reads on.
         collectionsToggleButton.state = .off
+        resultActions.setBlastDrawerOpen(true)
+    }
+
+    /// Opens the drawer on its BLAST tab, or closes the drawer while it shows that tab, as the bar's BLAST Results
+    /// button asks (lane K2). The drawer keeps its own BLAST pane, so `resultActions.blastDrawer` is not laid out.
+    func blastResultsOpenChanged(_ open: Bool) {
+        if open {
+            ensureDrawerOpenOnBlastTab()
+        } else if isTaxaCollectionsDrawerOpen, taxaCollectionsDrawerView?.selectedTab == .blastResults {
+            toggleTaxaCollectionsDrawer()
+        }
     }
 
     private func isCurrentBlastRun(_ runID: UUID?) -> Bool {

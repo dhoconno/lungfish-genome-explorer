@@ -500,7 +500,7 @@ final class TaxonomyViewControllerTests: XCTestCase {
         // Check specific titles. Indices: 0=Extract Reads, 1=sep, 2=Copy Name,
         // 3=Copy Path, 4=sep, 5=Zoom to, 6=Zoom Out, 7=sep, 8=BLAST
         XCTAssertEqual(items[0].title, "Extract Reads\u{2026}")
-        XCTAssertEqual(items[2].title, "Copy Taxon Name")
+        XCTAssertEqual(items[2].title, "Copy Name")
         XCTAssertEqual(items[3].title, "Copy Taxonomy Path")
         XCTAssertTrue(items[5].title.contains("Zoom to"))
         XCTAssertEqual(items[6].title, "Zoom Out to Root")
@@ -1317,8 +1317,8 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         let items = vc.contextMenuItems(for: ecoli)
 
         // Find the BLAST menu item
-        let blastItem = items.first(where: { $0.title.hasPrefix("BLAST Matching Reads") })
-        XCTAssertNotNil(blastItem, "Context menu should contain BLAST Matching Reads item")
+        let blastItem = items.first(where: { $0.title == "Verify with BLAST\u{2026}" })
+        XCTAssertNotNil(blastItem, "Context menu should contain the Verify with BLAST item")
         XCTAssertNotNil(blastItem?.image, "BLAST item should have an icon")
         XCTAssertTrue(blastItem?.representedObject is TaxonNode, "BLAST item should carry the taxon node")
 
@@ -1707,13 +1707,13 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         return (table, tree, window)
     }
 
-    private static let lookUp = ["Look Up on NCBI: NCBI Taxonomy", "Look Up on NCBI: GenBank Sequences", "Look Up on NCBI: PubMed Literature"]
+    private static let lookUp = ["Open Taxonomy on NCBI", "Open GenBank Record", "Search PubMed"]
 
     /// A leaf offers neither expand nor collapse, an expanded branch only
     /// Collapse and a collapsed branch only the two Expand commands.
-    private static let leafActions = ["Extract Reads\u{2026}", "BLAST Matching Reads\u{2026}"] + lookUp + ["Copy Taxon Name"]
-    private static let expandedActions = ["Extract Reads\u{2026}", "Collapse", "BLAST Matching Reads\u{2026}"] + lookUp + ["Copy Taxon Name"]
-    private static let collapsedActions = ["Extract Reads\u{2026}", "Expand", "Expand All Below", "BLAST Matching Reads\u{2026}"] + lookUp + ["Copy Taxon Name"]
+    private static let leafActions = ["Extract Reads\u{2026}", "Verify with BLAST\u{2026}"] + lookUp + ["Copy Name"]
+    private static let expandedActions = ["Extract Reads\u{2026}", "Collapse", "Verify with BLAST\u{2026}"] + lookUp + ["Copy Name"]
+    private static let collapsedActions = ["Extract Reads\u{2026}", "Expand", "Expand All Below", "Verify with BLAST\u{2026}"] + lookUp + ["Copy Name"]
 
     func testOutlineRowsPublishOnlyTheCommandsThatApplyOnceAndInParity() throws {
         let (table, tree, window) = makeHostedTable()
@@ -1748,11 +1748,10 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
             mainMenu: MainMenu.createMainMenu()
         )
 
-        // The NCBI submenu's commands are the cell actions of the same
-        // titles, named "Look Up on NCBI: <item>".
-        let ncbi = try XCTUnwrap(table.testingContextMenu?.items.first { $0.title == "Look Up on NCBI" }?.submenu)
-        for item in ncbi.items {
-            XCTAssertTrue(Self.leafActions.contains(AccessibilityMenuMirror.actionName(submenu: "Look Up on NCBI", item: item.title)), item.title)
+        // The NCBI commands are flat menu items, the cell actions of the same titles.
+        let menuTitles = try XCTUnwrap(table.testingContextMenu).items.map(\.title)
+        for title in Self.lookUp {
+            XCTAssertTrue(menuTitles.contains(title) && Self.leafActions.contains(title), title)
         }
 
         table.readLevelActionsAvailable = false
@@ -1760,7 +1759,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         table.outlineView.layoutSubtreeIfNeeded()
         let withoutReads = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
         XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(withoutReads[ecoliRow]).contains("Extract Reads\u{2026}"))
-        XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(withoutReads[ecoliRow]).contains("BLAST Matching Reads\u{2026}"))
+        XCTAssertFalse(AccessibilityRowProbe.firstCellActionNames(withoutReads[ecoliRow]).contains("Verify with BLAST\u{2026}"))
     }
 
     func testRowActionsReachAnOutOfProcessAXClient() throws {
@@ -1775,7 +1774,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
 
         XCTAssertEqual(AXProcessProbe.rowCellActionNames(row: bacteriaRow), Self.expandedActions)
         XCTAssertEqual(AXProcessProbe.rowCellActionNames(row: ecoliRow), Self.leafActions)
-        XCTAssertTrue(AXProcessProbe.performRowCellAction("Look Up on NCBI: NCBI Taxonomy", row: ecoliRow))
+        XCTAssertTrue(AXProcessProbe.performRowCellAction("Open Taxonomy on NCBI", row: ecoliRow))
         XCTAssertEqual(ncbi, ["Escherichia coli"])
         XCTAssertTrue(AXProcessProbe.performRowCellAction("Collapse", row: bacteriaRow))
         table.outlineView.layoutSubtreeIfNeeded()
@@ -1816,11 +1815,11 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         let ecoli = tree.node(taxId: 562)!
         var rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
         let ecoliRow = table.outlineView.row(forItem: ecoli)
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[ecoliRow]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[ecoliRow]))
         XCTAssertEqual(pasteboard.string(forType: .string), "Escherichia coli")
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Look Up on NCBI: NCBI Taxonomy", in: rows[ecoliRow]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Open Taxonomy on NCBI", in: rows[ecoliRow]))
         XCTAssertEqual(ncbi, ["Escherichia coli"])
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "BLAST Matching Reads\u{2026}", in: rows[ecoliRow]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Verify with BLAST\u{2026}", in: rows[ecoliRow]))
         XCTAssertEqual(blasted, ["Escherichia coli"])
         XCTAssertEqual(table.outlineView.selectedRow, ecoliRow, "BLAST selects the row it acts on")
 
@@ -1833,7 +1832,7 @@ final class TaxonomyTableAccessibilityTests: XCTestCase {
         rows = AccessibilityRowProbe.outlineRowProxies(of: table.outlineView)
         let archaeaRow = table.outlineView.row(forItem: tree.node(taxId: 2157)!)
         XCTAssertEqual(archaeaRow, bacteriaRow + 1)
-        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Taxon Name", in: rows[archaeaRow]))
+        XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Copy Name", in: rows[archaeaRow]))
         XCTAssertEqual(pasteboard.string(forType: .string), "Archaea")
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Expand All Below", in: rows[bacteriaRow]))
         XCTAssertGreaterThanOrEqual(table.outlineView.row(forItem: ecoli), 0, "Expand All Below reopens the clade")

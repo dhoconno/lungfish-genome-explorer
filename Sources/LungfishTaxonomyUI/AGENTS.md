@@ -25,7 +25,8 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 
 ## Contracts this module owns
 
-- The controller reaches app services only through its `on...` callbacks, wired by the App glue files. `onExtractionRequested` (TaxonomyViewController.swift line 312) hands the Extract Reads request to the App, which shows the dialog with `presentClassifierExtractionDialog(_:)`. `onBlastVerification` and `blastVerificationDirectoryResolver` serve BLAST verification, and `onBatchExtract` serves the Extract button of the Collections drawer.
+- The controller reaches app services only through its `on...` callbacks, wired by the App glue files. `onExtractionRequested` (TaxonomyViewController.swift, held by `resultActions`) hands the Extract Reads request to the App, which shows the dialog with `presentClassifierExtractionDialog(_:)`. `onBlastVerification` and `blastVerificationDirectoryResolver` serve BLAST verification, and `onBatchExtract` serves the Extract button of the Collections drawer.
+- The bar is `resultActions.bar`, the shared `ClassifierResultActions` of LungfishKit, so the selection words and the reasons of the greyed buttons are the other classifiers' words. Its BLAST Results button shows or hides the BLAST tab of the Collections drawer (`blastResultsOpenChanged`). The drawer keeps its own BLAST pane, so `resultActions.blastDrawer` is not laid out. The table's menus and row actions take the `ResultRowCommand` titles.
 - `BatchClassificationTableView` keeps the layout key `LungfishApp.BatchClassificationTableView` through `layoutKeyTypeName`, so the saved column layout of the Kraken2 batch table does not reset. Never rename it. MetadataLayoutKeyShapePinTests and BatchClassificationTableLayoutKeyTests pin it.
 - Read extraction selectors decide which reads are exported. Keep per-classifier tests that diff read IDs (REVIEW.md R14).
 
