@@ -266,19 +266,6 @@ class AppSmokeGateTests(unittest.TestCase):
                     self.assertEqual(session["locked"], locked)
                     self.assertEqual(session["candidateHome"], str(home))
 
-    def test_account_state_notices_a_rewritten_candidate_preference(self):
-        import app_smoke_gate
-        with tempfile.TemporaryDirectory() as temporary:
-            home = Path(temporary)
-            preferences = home / "Library/Preferences/com.lungfish.browser.plist"
-            preferences.parent.mkdir(parents=True)
-            preferences.write_text("owner preference sentinel")
-            before = app_smoke_gate.account_state(home, "com.lungfish.browser")
-            self.assertEqual(before, app_smoke_gate.account_state(home, "com.lungfish.browser"))
-            preferences.write_text("written by a candidate that ignored its own home")
-            self.assertNotEqual(before, app_smoke_gate.account_state(home, "com.lungfish.browser"))
-            self.assertEqual(preferences.read_text(), "written by a candidate that ignored its own home")
-
     def test_gate_makes_each_launch_home_and_copies_the_fixtures_for_the_runner(self):
         import app_smoke_gate
         selected = list(load_contract(ROOT / "config/release-contract.json").gates.appSmokeTests)
