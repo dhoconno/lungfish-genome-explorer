@@ -2315,6 +2315,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             )
         } catch {
             logger.error("Failed to fetch BLAST reads: \(error.localizedDescription, privacy: .public)")
+            resultActions.showBlastFailure(
+                "Reading this taxon's reads from the result database failed: \(error.localizedDescription)"
+            )
             return
         }
 
@@ -2360,9 +2363,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 let result = try await toolRunner.run(.samtools, arguments: args, timeout: 120)
 
                 guard result.isSuccess else {
-                    DispatchQueue.main.async {
+                    DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             logger.error("samtools view failed for BLAST: \(result.stderr, privacy: .public)")
+                            self?.resultActions.showBlastFailure(
+                                "Extracting reads from the BAM file failed: \(result.stderr)"
+                            )
                         }
                     }
                     return
