@@ -741,8 +741,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             subtitleLabel.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -16),
         ])
 
-        actionBar.updateInfoText("Select a contig to view details")
-        actionBar.setBlastEnabled(false)
+        updateActionBarForHit(nil)
         contentTypographyObservation?.refresh()
         resizeDetailContentToFit()
     }
@@ -2303,7 +2302,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         detailScrollView.isHidden = true
         multiSelectionPlaceholder.isHidden = false
         actionBar.updateInfoText("\(count) items selected")
-        actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
         actionBar.setExtractEnabled(database != nil)
     }
 
@@ -2324,8 +2323,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             actionBar.setExtractEnabled(database != nil)
         } else {
             actionBar.updateInfoText("Select a contig to view details")
-            actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-            actionBar.setExtractEnabled(false)
+            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
         }
     }
 

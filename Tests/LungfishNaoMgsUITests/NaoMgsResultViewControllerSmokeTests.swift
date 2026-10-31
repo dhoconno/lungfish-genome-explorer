@@ -1179,6 +1179,32 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(vc.testContextMenuExtractReadsEnabled(), false)
     }
 
+    /// UX-3E-LABELS R1, R2 and R4 (approved as O86). A greyed BLAST or Extract button leads its tooltip and its
+    /// VoiceOver hint with the ruled reason. With no row picked both say to select a row, and with several rows
+    /// picked BLAST says to select one.
+    @MainActor func testGreyedButtonsCarryTheRowReasonsWithNoRowPicked() {
+        let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
+        vc.loadViewIfNeeded()
+        vc.configureWithCachedRows(
+            [Self.makeCachedRow()],
+            manifest: Self.makeManifest(),
+            awaitingDatabase: false
+        )
+
+        let bar = vc.testActionBar
+        XCTAssertFalse(bar.extractButton.isEnabled)
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true)
+        XCTAssertEqual(
+            bar.extractButton.accessibilityHelp()?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true
+        )
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowToVerify + " "), true)
+
+        vc.testingShowMultiSelectionPlaceholder(count: 2)
+
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(ClassifierActionWords.selectOneRowToVerify + " "), true)
+    }
+
     @MainActor func testExtractButtonDisabledForMultiSelectionWithoutDatabase() {
         let vc = NaoMgsResultViewController()
         isolateLayouts(vc)

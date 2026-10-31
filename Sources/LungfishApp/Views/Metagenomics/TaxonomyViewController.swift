@@ -955,7 +955,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.sunburstView.selectedNode = nil
             self.hideMultiSelectionPlaceholder()
             self.actionBar.updateInfoText("\(count) items selected")
-            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+            self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
             self.actionBar.setExtractEnabled(self.readLevelActionsAvailable)
             self.suppressSelectionSync = false
         }
@@ -1237,8 +1237,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             }
         } else if readLevelActionsAvailable {
             actionBar.updateInfoText("Select a taxon to view details")
-            actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-            actionBar.setExtractEnabled(false)
+            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
         } else {
             // Nothing is selected, but selecting a row would not help: say why.
             actionBar.updateInfoText("Select a taxon to view details")

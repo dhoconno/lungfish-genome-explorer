@@ -778,8 +778,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         hideMultiSelectionPlaceholder()
         rebuildDetailContent()
         actionBar.updateInfoText("Select a taxon to view details")
-        actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-        actionBar.setExtractEnabled(false)
+        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+        actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
     }
 
     /// Shows the detail pane for the selected taxon row.
@@ -2689,7 +2689,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         detailScrollView.isHidden = true
         multiSelectionPlaceholder.isHidden = false
         actionBar.updateInfoText("\(count) items selected")
-        actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
         actionBar.setExtractEnabled(database != nil)
     }
 

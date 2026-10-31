@@ -165,6 +165,48 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertFalse(vc.testActionBar.extractButton.isEnabled)
     }
 
+    /// UX-3E-LABELS R1, R2 and R4 (approved as O86). With no contig picked, the overview shows and the greyed BLAST
+    /// and Extract buttons lead their tooltips and their VoiceOver hints with the ruled reasons. Several rows picked
+    /// make BLAST ask for one.
+    func testGreyedButtonsCarryTheRowReasonsWithNoRowPicked() throws {
+        let vc = NvdResultViewController()
+        _ = vc.view
+        let manifest = NvdManifest(
+            experiment: "exp-no-row",
+            sampleCount: 1,
+            contigCount: 1,
+            hitCount: 1,
+            blastDbVersion: "db",
+            snakemakeRunId: "run-a",
+            sourceDirectoryPath: "/project",
+            samples: [],
+            cachedTopContigs: nil
+        )
+        vc.configureWithCachedRows(
+            [Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1")],
+            manifest: manifest,
+            bundleURL: URL(fileURLWithPath: "/project/Analyses/nvd-run-a", isDirectory: true)
+        )
+        vc.testSelectOutlineRow(0)
+
+        vc.testOutlineView.deselectAll(nil)
+        vc.outlineViewSelectionDidChange(
+            Notification(name: NSOutlineView.selectionDidChangeNotification, object: vc.testOutlineView)
+        )
+
+        let bar = vc.testActionBar
+        XCTAssertFalse(bar.extractButton.isEnabled)
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true)
+        XCTAssertEqual(
+            bar.extractButton.accessibilityHelp()?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true
+        )
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowToVerify + " "), true)
+
+        vc.testingShowMultiSelectionPlaceholder(count: 2)
+
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(ClassifierActionWords.selectOneRowToVerify + " "), true)
+    }
+
     func testContextMenuValidationUsesIdentityBackedVisibleSelectionCount() throws {
         let fixture = try NvdMenuFixture(duplicateContigs: true)
         addTeardownBlock {

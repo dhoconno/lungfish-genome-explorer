@@ -716,8 +716,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             batchTableView.isHidden = true
             showOverview()
             actionBar.updateInfoText("Select a virus to view details")
-            actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-            actionBar.setExtractEnabled(false)
+            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
             return
         }
 
@@ -800,8 +800,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         batchTableView.isHidden = true
         showOverview()
         actionBar.updateInfoText("Select a virus to view details")
-        actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-        actionBar.setExtractEnabled(false)
+        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+        actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
     }
 
     struct BatchUniqueReadMaps {
@@ -988,8 +988,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 self.showAssemblyDetail(assembly)
             } else {
                 self.showOverview()
-                self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-                self.actionBar.setExtractEnabled(false)
+                self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+                self.actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
             }
         }
 
@@ -998,7 +998,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             guard let self else { return }
             self.showMultiSelectionPlaceholder(count: count)
             self.actionBar.updateInfoText("\(count) items selected")
-            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+            self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
             self.actionBar.setExtractEnabled(true)
         }
 

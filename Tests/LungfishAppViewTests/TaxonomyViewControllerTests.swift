@@ -442,6 +442,23 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("1,000"))
     }
 
+    /// UX-3E-LABELS R1 and R4 (approved as O86). With no taxon picked the greyed BLAST and Extract buttons lead their
+    /// tooltips and their VoiceOver hints with the ruled reasons.
+    func testGreyedButtonsCarryTheRowReasonsWithNoRowPicked() throws {
+        let vc = TaxonomyViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        vc.configure(result: makeTestResult())
+
+        let bar = vc.testActionBar
+        XCTAssertFalse(bar.extractButton.isEnabled)
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true)
+        XCTAssertEqual(
+            bar.extractButton.accessibilityHelp()?.hasPrefix(ClassifierActionWords.selectRowsToExtract + " "), true
+        )
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(ClassifierActionWords.selectRowToVerify + " "), true)
+    }
+
     func testActionBarCallbacks() throws {
         let bar = ClassifierActionBar(frame: NSRect(x: 0, y: 0, width: 600, height: 36))
 
