@@ -34,11 +34,7 @@ Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 988
 Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift 905
-Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 806
-Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift 874
-Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift 1602
-Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift 1818
 Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1054
 Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1059
@@ -140,6 +136,10 @@ Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
 Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4565
+Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift 806
+Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift 874
+Sources/LungfishTaxonomyUI/TaxonomyTableView.swift 1602
+Sources/LungfishTaxonomyUI/TaxonomyViewController.swift 1818
 Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift 1766
 Sources/LungfishWorkflow/Alignment/Minimap2Pipeline.swift 1253
 Sources/LungfishWorkflow/Conda/CondaManager.swift 1413

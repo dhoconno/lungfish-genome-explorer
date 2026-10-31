@@ -1388,7 +1388,7 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyViewController.swift
       - Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift
       - Sources/LungfishApp/App/AppDelegate+ClassifierLaunchRouting.swift
       - Sources/LungfishApp/Services/CLIClassifierRunner.swift
@@ -1699,7 +1699,7 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishApp/Views/Metagenomics/CzIdImportSheet.swift
-      - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
+      - Sources/LungfishTaxonomyUI/CzIdResultViewController.swift
       - Sources/LungfishApp/App/AppDelegate+ToolsMenuOperationBegin.swift
       - Sources/LungfishCLI/Commands/CzIdCommand.swift
       - Sources/LungfishCLI/Commands/ImportCzIdSubcommand.swift
@@ -1715,9 +1715,9 @@ features:
     outputs: [fastq, csv, tsv]
     viewport_class: taxonomy
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyBreadcrumbBar.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyViewController.swift
+      - Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyBreadcrumbBar.swift
     module: [LungfishApp]
     notes: >-
       Shared taxonomy viewport with a sortable hit table, sunburst chart,
@@ -1732,7 +1732,7 @@ features:
     outputs: [blast-results]
     viewport_class: none
     sources:
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController+Blast.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyViewController+Blast.swift
       - Sources/LungfishKit/BlastResultsDrawerContainerView.swift
       - Sources/LungfishCLI/Commands/BlastCommand.swift
       - Sources/LungfishWorkflow/Extraction/KrakenResultReadSources.swift
@@ -2601,10 +2601,10 @@ features:
     viewport_class: taxonomy
     sources:
       - Sources/LungfishKit/ClassifierActionBar.swift
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift
-      - Sources/LungfishApp/Views/Metagenomics/TaxonomyProvenanceView.swift
-      - Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift
-      - Sources/LungfishApp/Views/Metagenomics/CzIdProvenanceView.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyViewController.swift
+      - Sources/LungfishTaxonomyUI/TaxonomyProvenanceView.swift
+      - Sources/LungfishTaxonomyUI/CzIdResultViewController.swift
+      - Sources/LungfishTaxonomyUI/CzIdProvenanceView.swift
       - Sources/LungfishEsVirituUI/EsVirituResultViewController.swift
       - Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift
       - Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift
