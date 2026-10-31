@@ -116,12 +116,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     }
 
     /// Why read-level actions are unavailable, shown as the tooltip of the
-    /// disabled Extract and BLAST buttons. Nil uses the generic wording.
+    /// disabled Extract and BLAST buttons. Nil uses the R7 fallback of UX-3E-LABELS.
     public var readLevelActionsUnavailableReason: String?
 
     /// The reason to hand a disabled Extract or BLAST button.
     private var readLevelActionsDisabledReason: String {
-        readLevelActionsUnavailableReason ?? "Read-level actions are unavailable for this result"
+        readLevelActionsUnavailableReason ?? ClassifierActionWords.sourceReadsMissing
     }
 
     /// Strip above the result that names source data a copied result cannot
@@ -228,7 +228,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         btn.controlSize = .small
         btn.font = .systemFont(ofSize: 11)
         btn.setContentHuggingPriority(.required, for: .horizontal)
-        btn.setAccessibilityLabel("Toggle BLAST Results Drawer")
+        btn.setAccessibilityLabel(ClassifierActionWords.blastResultsTitle)
         return btn
     }()
 

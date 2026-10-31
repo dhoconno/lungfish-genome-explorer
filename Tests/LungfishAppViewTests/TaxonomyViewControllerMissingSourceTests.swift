@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
@@ -65,6 +66,35 @@ final class TaxonomyViewControllerMissingSourceTests: XCTestCase {
             toolVersion: "2.1.3",
             provenanceId: nil
         )
+    }
+
+    /// UX-3E-LABELS R7 (approved as O86). A result that cannot reach its reads, with no reason from the copy receipt,
+    /// gives both greyed buttons the ruled sentence and not "Read-level actions are unavailable for this result".
+    func testTheFallbackReasonIsTheRuledSentence() throws {
+        let controller = TaxonomyViewController()
+        isolateLayouts(controller)
+        _ = controller.view
+        controller.configure(result: try makeResult())
+
+        controller.readLevelActionsAvailable = false
+
+        let bar = controller.testActionBar
+        let reason = ClassifierActionWords.sourceReadsMissing + " "
+        XCTAssertEqual(bar.extractButton.toolTip?.hasPrefix(reason), true)
+        XCTAssertEqual(bar.blastButton.toolTip?.hasPrefix(reason), true)
+        XCTAssertEqual(bar.extractButton.accessibilityHelp()?.hasPrefix(reason), true)
+    }
+
+    /// UX-3E-LABELS line 19 (approved as O86). VoiceOver speaks the toggle as BLAST Results, the name the button shows,
+    /// and not as Toggle BLAST Results Drawer.
+    func testTheBlastResultsToggleIsSpokenAsBlastResults() throws {
+        let controller = TaxonomyViewController()
+        isolateLayouts(controller)
+        _ = controller.view
+
+        let buttons = controller.testActionBar.subviews.compactMap { $0 as? NSButton }
+        let toggle = try XCTUnwrap(buttons.first { $0.title == "BLAST Results" }, "the bar holds the toggle")
+        XCTAssertEqual(toggle.accessibilityLabel(), "BLAST Results")
     }
 
     func testMissingReadsShowNoticeAndDisableReadLevelActionsWithReason() throws {
