@@ -5,7 +5,6 @@
 import AppKit
 import LungfishCore
 import LungfishIO
-import LungfishNaoMgsUI
 import LungfishNvdUI
 import LungfishKit
 import os.log
@@ -27,17 +26,14 @@ extension ViewerViewController {
         return fallback
     }
 
-    /// Displays the NVD result viewer in place of the normal sequence viewer.
-    ///
-    /// Hides all other overlay views (FASTQ, VCF, FASTA, QuickLook, other
-    /// metagenomics viewers) and adds the pre-configured
-    /// `NvdResultViewController` as a child view controller filling the
-    /// content area.
-    ///
-    /// Follows the exact same child-VC pattern as ``displayNaoMgsResult(_:)``.
-    ///
-    /// - Parameter controller: A pre-configured `NvdResultViewController`.
-    public func displayNvdResult(_ controller: NvdResultViewController) {
+    /// Shows `controller` through the surface host in place of the normal sequence
+    /// viewer and returns once it is installed, or throws the reason it is not. The
+    /// caller fills the controller after the show. `onWillDeactivate` runs whenever
+    /// the host later removes this viewer, another NVD result's show included.
+    public func displayNvdResult(
+        _ controller: NvdResultViewController,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -59,8 +55,6 @@ extension ViewerViewController {
             }
             return split.makeClassifierAlignmentEvidenceViewport()
         }
-
-        addChild(controller)
 
         // Wire BLAST verification callback.
         // NVD submits a single contig sequence rather than multiple reads.
@@ -114,25 +108,11 @@ extension ViewerViewController {
             controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
         }
 
-        // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage/NAO-MGS).
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        let surface = try showSurface(.analysis(.nvd), input: controller, as: NvdSurface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-
-        let resultView = controller.view
-        resultView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(resultView)
-
-        NSLayoutConstraint.activate([
-            resultView.topAnchor.constraint(equalTo: view.topAnchor),
-            resultView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
     }
 
     /// The NVD contig's search on `blast submit` (2.12 lane 12.08). It sends the one contig, trimmed, and
@@ -187,28 +167,9 @@ extension ViewerViewController {
         return result
     }
 
-    /// Hides the NVD result viewer if one is displayed and restores normal viewer components.
+    /// Hides the NVD result viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     public func hideNvdView() {
-        for case let child as NvdResultViewController in children {
-            child.clearClassifierAlignmentEvidence()
-            child.view.removeFromSuperview()
-            child.removeFromParent()
-        }
-
-        // Restore normal viewer components (only if no other metagenomics viewer is active).
-        // hideTaxonomyView / hideEsVirituView / hideTaxTriageView / hideNaoMgsView each restore
-        // these too, so this guard prevents double-restore when switching between metagenomics results.
-        guard taxonomyViewController == nil,
-              esVirituViewController == nil,
-              taxTriageViewController == nil,
-              !children.contains(where: { $0 is NaoMgsResultViewController }) else { return }
-
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.nvd))
     }
 }

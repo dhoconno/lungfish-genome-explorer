@@ -24,9 +24,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("NVD", to: ["12S", "Reference", "FASTQ"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: nvd=100",
-        ]),
         leak("TaxTriage", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
             "+ inspectorBlocks: seeTheViewer, panelLayout",
@@ -87,9 +84,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: PhylogeneticTreeViewController",
         ]),
-        leak("NVD", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: nvd=100",
-        ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
@@ -102,9 +96,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
-        ]),
-        leak("NVD", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: nvd=100",
         ]),
         leak("CZ ID", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
@@ -120,10 +111,9 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("NVD", to: ["FASTA document"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER", [
+        leak("NVD", to: ["FASTA document"], "NET-MHC-HOST-STAYS", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>",
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "+ inspector: nvd=100",
             "- viewports: none",
         ]),
         leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
@@ -135,7 +125,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: nvd=100",
             "+ provenance: nvdResult ../k05-nvd/Imports/nvd-demo",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: nvd, seeTheViewer, panelLayout",

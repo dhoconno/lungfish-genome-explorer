@@ -125,9 +125,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
         ]),
-        leak("FASTQ", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: nvd=100",
-        ]),
         leak("Status only", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
             "+ inspectorBlocks: seeTheViewer, panelLayout",
@@ -285,9 +282,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("Primer order", to: ["Reference"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: nvd=100",
-        ]),
         leak("Genotype", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -323,9 +317,8 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: NvdResultViewController",
         ]),
-        leak("FASTA document", to: ["FASTQ"], "INSPECTOR-BLOCK-OWNER, INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("FASTA document", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: nvd=100",
             "+ provenance: sequence ../k17-fasta/Inputs/MT192765.1.fasta",
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",

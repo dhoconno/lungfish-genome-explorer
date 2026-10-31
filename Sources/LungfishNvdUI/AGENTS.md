@@ -18,6 +18,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | `configure(database:manifest:bundleURL:)` and the cached-rows variant | NvdResultViewController.swift lines 564 and 510 |
 | Row conversion | `NvdDataConverter`, Sources/LungfishNvdUI/NvdDataConverter.swift line 9 |
 | Provenance panel | Sources/LungfishNvdUI/NvdProvenanceView.swift |
+| The surface the viewer's host installs, which adopts the App's placeholder controller | Sources/LungfishNvdUI/NvdSurface.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+Nvd.swift |
 
 ## Contracts this module owns

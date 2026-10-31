@@ -1076,12 +1076,7 @@ extension MainSplitViewController {
         return readNames.isEmpty
     }
 
-    /// Displays an NVD result from its bundle directory.
-    ///
-    /// Two-phase loading: manifest first (fast) for instant contig list,
-    /// then SQLite database (slower) for full detail queries.
-    ///
-    /// - Parameter url: The `nvd-*` bundle directory.
+    /// Displays an NVD result from its `nvd-*` bundle directory, the manifest first and then the database.
     func displayNvdResultFromSidebar(
         at url: URL,
         identity: ContentSelectionIdentity? = nil,
@@ -1096,13 +1091,22 @@ extension MainSplitViewController {
             displayName: url.lastPathComponent
         )
 
-        // Show a placeholder immediately so the user gets feedback while we load.
+        // Show a placeholder at once. Its viewer takes only an NVD block out of the Summary when it leaves.
         let placeholderVC = NvdResultViewController()
-        viewerController.displayNvdResult(placeholderVC)
+        do {
+            try viewerController.displayNvdResult(placeholderVC) { [weak self] in
+                guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
+                      summary.nvdManifest != nil else { return }
+                summary.showResultBlock(nil)
+            }
+        } catch {
+            mainSplitLogger.error("displayNvdResult: Not shown - \(error.localizedDescription, privacy: .public)")
+            viewerController.clearViewport(statusMessage: "Unable to open the NVD result. Select it again.")
+            return
+        }
         inspectorController?.clearBatchOperationDetails()
 
-        // Two-phase load: manifest first (fast) for instant contig list,
-        // then SQLite database (slower) for detail queries.
+        // Two-phase load: the manifest (fast, the contig list), then SQLite (slow, the detail queries).
         let bundleURL = url
         Task {
             do {
@@ -1116,9 +1120,8 @@ extension MainSplitViewController {
                     throw NSError(domain: "NvdDisplay", code: 1,
                                   userInfo: [NSLocalizedDescriptionKey: "manifest.json not found in NVD bundle"])
                 }
-                // Read the manifest off the main actor; the commit below is
-                // already gated by `canCommitDisplayRequest`, which dominates
-                // the (await-free) UI mutation so a stale read commits nothing.
+                // Read the manifest off the main actor. The commit below is gated by
+                // `canCommitDisplayRequest`, so a stale read commits nothing.
                 let manifestData = try await AsyncFileReader.readData(manifestURL)
                 let manifest = try decoder.decode(NvdManifest.self, from: manifestData)
 
@@ -1139,10 +1142,7 @@ extension MainSplitViewController {
                 let database = try NvdDatabase(at: dbURL)
 
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                // Full configure with database — enables detail queries, filtering, BLAST.
                 placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
-
-                // Update inspector with NVD manifest info
                 inspectorController?.updateNvdManifest(manifest)
 
                 // Wire sample picker state to Inspector for embedded sample selector
