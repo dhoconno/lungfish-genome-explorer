@@ -21,12 +21,15 @@ from scripts.tests.gate_fixtures import make_app_smoke_fixture, write_json
 
 class FakeAccount:
     """Stands in for `defaults` and `lsappinfo` over a dict of preference domains, so no pin reads
-    or writes a real domain. `lossy_import` drops one key on import, as a restore that went wrong."""
+    or writes a real domain. `lossy_import` drops one key on import, as a restore that went wrong. `fail` is a set
+    of (verb, domain) pairs whose next call returns (1, "boom") and changes nothing. A pair leaves the set when it
+    fires, so one failed command does not stop the restore that follows it."""
 
-    def __init__(self, domains=None, running=(), lossy_import=False):
+    def __init__(self, domains=None, running=(), lossy_import=False, fail=()):
         self.domains = copy.deepcopy(domains or {})
         self.running = list(running)
         self.lossy_import = lossy_import
+        self.fail = set(fail)
         self.calls = []
 
     def __call__(self, argv):
@@ -36,6 +39,9 @@ class FakeAccount:
         if argv[0] != "defaults":
             raise AssertionError("the guard ran an unexpected command %r" % (argv,))
         verb, domain = argv[1], argv[2]
+        if (verb, domain) in self.fail:
+            self.fail.discard((verb, domain))
+            return 1, "boom"
         if verb == "export":
             Path(argv[3]).write_bytes(plistlib.dumps(self.domains.get(domain, {}), fmt=plistlib.FMT_BINARY))
         elif verb == "import":
@@ -364,3 +370,68 @@ class AppSmokeGateTests(unittest.TestCase):
             self.assertTrue((journal / "files" / SAVED_STATE).is_file())
             self.assertIn("defaults import com.lungfish.browser " + str(journal / "com.lungfish.browser.plist"),
                           str(raised.exception), "The failure prints the restore command")
+
+    # QA review of lane SMOKE, SF1 and SF2. A failure after the move names the journal and leaves the owner's
+    # domains back in place, and a `kill` of the gate unwinds the guard like Ctrl-C does.
+
+    def test_guard_enter_failure_before_the_move_leaves_no_journal(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS, fail={("export", "com.lungfish.browser.preview")})
+            with self.assertRaises(EvidenceError):
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    self.fail("The guard did not start")
+            self.assertEqual(account.domains, OWNER_DOMAINS)
+            self.assertFalse((home / ".lungfish-smoke-journal").exists(),
+                             "A journal without a manifest would stop the next run")
+
+    def test_guard_enter_failure_after_the_move_restores_at_once(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS, fail={("delete", "com.lungfish.browser.preview")})
+            with self.assertRaises(EvidenceError) as raised:
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    self.fail("The guard did not start")
+            self.assertIn("boom", str(raised.exception), "The failed delete is the reason the run stopped")
+            self.assertEqual(account.domains, OWNER_DOMAINS, "The first domain was deleted and came back at once")
+            self.assertEqual((home / SAVED_STATE).read_bytes(), b"owner saved state")
+            self.assertFalse((home / ".lungfish-smoke-journal").exists(), "A verified restore removes the journal")
+
+    def test_guard_failure_on_exit_names_the_journal(self):
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            home = make_account_home(temporary)
+            account = FakeAccount(OWNER_DOMAINS)
+            journal = home / ".lungfish-smoke-journal"
+            with self.assertRaises(EvidenceError) as raised:
+                with app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account):
+                    account.fail.add(("delete", "com.lungfish.browser"))
+            words = str(raised.exception)
+            self.assertIn(str(journal), words, "The failure says where the owner's preferences are")
+            self.assertIn("defaults import com.lungfish.browser " + str(journal / "com.lungfish.browser.plist"), words)
+            self.assertTrue((journal / "com.lungfish.browser.plist").is_file(), "The journal stays")
+
+    def test_termination_signal_unwinds_the_guard(self):
+        import os
+        import signal
+        import app_smoke_gate
+        saved = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                home = make_account_home(temporary)
+                account = FakeAccount(OWNER_DOMAINS)
+                guard = app_smoke_gate.account_preferences_guard(home, GUARDED, runner=account)
+                # The handler goes in first, so the post below never reaches the default action of SIGTERM.
+                app_smoke_gate.unwind_on_termination()
+                with self.assertRaises(KeyboardInterrupt):
+                    with guard:
+                        self.assertEqual(account.domains, {}, "The candidate starts from empty domains")
+                        os.kill(os.getpid(), signal.SIGTERM)
+                self.assertEqual(account.domains, OWNER_DOMAINS)
+                self.assertEqual((home / SAVED_STATE).read_bytes(), b"owner saved state")
+                self.assertFalse((home / ".lungfish-smoke-journal").exists(), "A verified restore removes the journal")
+        finally:
+            for number, handler in saved.items():
+                signal.signal(number, signal.SIG_DFL if handler is None else handler)
