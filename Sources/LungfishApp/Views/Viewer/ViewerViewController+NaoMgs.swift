@@ -61,9 +61,9 @@ extension ViewerViewController {
                 )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
             }
         }
-        controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
-            guard let controller else { return }
-            controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
+        // The shared actions hand the App one extraction request, which the App answers with its dialog.
+        controller.resultActions.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
         }
 
         let surface = try showSurface(.analysis(.naomgs), input: controller, as: NaoMgsSurface.self)

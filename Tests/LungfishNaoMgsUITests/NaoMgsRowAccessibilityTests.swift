@@ -130,7 +130,7 @@ final class NaoMgsRowAccessibilityTests: XCTestCase {
 
     func testExtractReadsActionOpensTheDialogForItsRow() throws {
         var captured: (ClassifierTool, [ClassifierRowSelector])?
-        vc.onExtractReadsRequested = { tool, _, selectors, _ in captured = (tool, selectors) }
+        vc.resultActions.onExtractionRequested = { request in captured = (request.tool, request.selectors) }
         let id = try taxId(atRow: 6)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Reads\u{2026}", in: try rowProxy(6)))
         XCTAssertEqual(captured?.0, .naomgs)

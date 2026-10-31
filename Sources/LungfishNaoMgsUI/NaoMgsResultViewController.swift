@@ -138,7 +138,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var originalColumnTitles: [String: String] = [:]
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNaoMgsContentView()
-    let actionBar = ClassifierActionBar()
+    /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
+    public private(set) lazy var resultActions = ClassifierResultActions(
+        blastDrawer: blastDrawerContainer.blastResultsTab
+    )
+    var actionBar: ClassifierActionBar { resultActions.bar }
 
     // MARK: - Multi-Selection Placeholder
 
@@ -237,10 +241,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Active bottom constraint for the split view. Re-pinned when BLAST drawer opens.
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
-    /// Bottom BLAST results drawer shown after in-app verification.
-    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    /// Bottom BLAST results drawer, added to the view the first time it opens.
+    private let blastDrawerContainer = BlastResultsDrawerContainerView()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
-    private var isBlastDrawerOpen = false
 
     /// Active sample picker popover.
     private var samplePopover: NSPopover?
@@ -352,14 +355,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// opening the URL in the browser; the App may override to log or intercept.
     public var onOpenURLRequested: ((URL) -> Void)?
 
-    /// Invoked when the user requests read extraction. The App host wires this to
-    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
-    /// dependency on the App-internal extraction/operation pipeline.
-    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
-
-    /// Overrides warning presentation for testing. When unset, warnings are
-    /// shown via a sheet-modal NSAlert (or NSApp.presentError with no window).
-    var warningPresenter: ((String, String) -> Void)?
 
     // MARK: - Lifecycle
 
@@ -777,9 +772,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         hideMultiSelectionPlaceholder()
         rebuildDetailContent()
-        actionBar.updateInfoText("Select a taxon to view details")
-        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-        actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+        resultActions.showNoSelection(prompt: "Select a taxon to view details")
     }
 
     /// Shows the detail pane for the selected taxon row.
@@ -792,7 +785,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         rebuildDetailContent()
         // Create a lightweight summary for the action bar
         updateActionBarForRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
-        actionBar.setExtractEnabled(database != nil)
     }
 
     // MARK: - Detail Content Rebuild
@@ -1840,6 +1832,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         actionBar.onProvenance = { [weak self] sender in
             self?.showProvenance(from: sender)
         }
+        resultActions.onBlastDrawerOpenChanged = { [weak self] open in self?.animateBlastDrawer(open: open) }
 
         NotificationCenter.default.addObserver(
             self,
@@ -1920,7 +1913,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let selectors = buildNaoMgsSelectors()
         let first = selectors.first
         let suggested = "naomgs_\(first?.sampleId ?? "sample")_\(first?.taxIds.first.map(String.init) ?? "extract")"
-        onExtractReadsRequested?(.naomgs, resultPath, selectors, suggested)
+        resultActions.requestExtraction(ClassifierExtractionRequest(
+            tool: .naomgs, resultPath: resultPath, selectors: selectors, suggestedName: suggested
+        ))
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
@@ -2013,29 +2008,37 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - BLAST Drawer
 
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastLoading(phase: phase, requestId: requestId)
     }
 
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showResults(result, recordURL: recordURL)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastResults(result, recordURL: recordURL)
     }
 
     public func showBlastFailure(_ message: String) {
-        let drawer = ensureBlastDrawer()
-        drawer.showFailure(message: message)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastFailure(message)
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
-        if let blastDrawerContainer {
-            return blastDrawerContainer.blastResultsTab
+    /// Opens or closes the drawer's space with animation, as the BLAST Results button and a BLAST run do. The shared
+    /// actions keep the open state.
+    private func animateBlastDrawer(open: Bool) {
+        installBlastDrawerIfNeeded()
+        guard let blastDrawerHeightConstraint else { return }
+        blastDrawerContainer.isHidden = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            blastDrawerHeightConstraint.animator().constant = open ? 220 : 0
+            view.layoutSubtreeIfNeeded()
         }
+        if !open { blastDrawerContainer.isHidden = true }
+    }
 
-        let container = BlastResultsDrawerContainerView()
+    /// Adds the drawer below the table the first time it opens. A person can drag it taller.
+    private func installBlastDrawerIfNeeded() {
+        guard blastDrawerContainer.superview == nil else { return }
+        let container = blastDrawerContainer
         container.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(container)
 
@@ -2053,7 +2056,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         newSplitBottom.isActive = true
         splitViewBottomConstraint = newSplitBottom
 
-        blastDrawerContainer = container
         blastDrawerHeightConstraint = heightConstraint
         container.onDrag = { [weak self] delta in
             guard let self, let heightConstraint = self.blastDrawerHeightConstraint else { return }
@@ -2071,21 +2073,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             self?.view.layoutSubtreeIfNeeded()
         }
         view.layoutSubtreeIfNeeded()
-
-        return container.blastResultsTab
-    }
-
-    private func openBlastDrawerIfNeeded() {
-        guard !isBlastDrawerOpen else { return }
-        guard let blastDrawerHeightConstraint else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            blastDrawerHeightConstraint.animator().constant = 220
-            view.layoutSubtreeIfNeeded()
-        }
-        isBlastDrawerOpen = true
     }
 
     // MARK: - Context Menu
@@ -2340,8 +2327,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let accessions = row.topAccessions
         guard !accessions.isEmpty else {
             logger.warning("No accessions for BLAST fallback: taxId=\(row.taxId), sample=\(sample)")
-            presentBlastVerifyUnavailableWarning(
-                message: "No reference accessions are recorded for this taxon, so BLAST Verify cannot fall back to extracting reads from the BAM file."
+            resultActions.showBlastFailure(
+                "No reference accessions are recorded for this taxon, so Verify with BLAST cannot fall back to extracting reads from the BAM file."
             )
             return
         }
@@ -2356,8 +2343,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         guard FileManager.default.fileExists(atPath: bamURL.path) else {
             logger.warning("BAM not found for BLAST fallback: \(bamURL.path, privacy: .public)")
-            presentBlastVerifyUnavailableWarning(
-                message: "The BAM file for this sample (\(bamURL.lastPathComponent)) could not be found. It may have moved or been renamed."
+            resultActions.showBlastFailure(
+                "The BAM file for this sample (\(bamURL.lastPathComponent)) could not be found. It may have moved or been renamed."
             )
             return
         }
@@ -2415,8 +2402,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                     MainActor.assumeIsolated {
                         guard !bamHits.isEmpty else {
                             logger.warning("No reads extracted from BAM for BLAST: taxId=\(row.taxId), sample=\(sample)")
-                            self?.presentBlastVerifyUnavailableWarning(
-                                message: "No aligned reads for the recorded accessions were found in the BAM file, so there is nothing to submit to BLAST."
+                            self?.resultActions.showBlastFailure(
+                                "No aligned reads for the recorded accessions were found in the BAM file, so there is nothing to submit to BLAST."
                             )
                             return
                         }
@@ -2428,28 +2415,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         logger.error("BLAST BAM extraction failed: \(error.localizedDescription, privacy: .public)")
-                        self?.presentBlastVerifyUnavailableWarning(
-                            message: "Extracting reads from the BAM file failed: \(error.localizedDescription)"
+                        self?.resultActions.showBlastFailure(
+                            "Extracting reads from the BAM file failed: \(error.localizedDescription)"
                         )
                     }
                 }
             }
         }
-    }
-
-    /// Beeps and shows an alert explaining why BLAST Verify could not run.
-    private func presentBlastVerifyUnavailableWarning(message: String) {
-        NSSound.beep()
-        presentWarning(title: "BLAST Verify Unavailable", message: message)
-    }
-
-    private func presentWarning(title: String, message: String) {
-        if let warningPresenter {
-            warningPresenter(title, message)
-            return
-        }
-
-        WarningPresenter.present(title: title, message: message, in: view.window)
     }
 
     /// Delivers BLAST hits to the verification callback.
@@ -2539,7 +2511,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var testDetailContainer: NSView? { detailContainer }
     var testTableContainer: NSView? { tableContainer }
     var testSplitView: NSSplitView { splitView }
-    var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+    var testBlastDrawerContainer: BlastResultsDrawerContainerView? {
+        blastDrawerContainer.superview == nil ? nil : blastDrawerContainer
+    }
     var testTaxonomyTableView: NSTableView { taxonomyTableView }
     var testTaxonomyScrollView: NSScrollView { taxonomyTableScrollView }
     /// NAO-MGS previously had no free-text search field at all.
@@ -2688,9 +2662,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
         detailScrollView.isHidden = true
         multiSelectionPlaceholder.isHidden = false
-        actionBar.updateInfoText("\(count) items selected")
-        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
-        actionBar.setExtractEnabled(database != nil)
+        resultActions.showSelection(count: count, extractable: database != nil)
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -2714,8 +2686,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let pctStr = String(format: "%.1f%%", pct)
 
         let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
-        actionBar.updateInfoText("\(displayName) \u{2014} \(readStr) hits (\(pctStr))")
-        actionBar.setBlastEnabled(true)
+        resultActions.showSelection(
+            count: 1, info: "\(displayName) \u{2014} \(readStr) hits (\(pctStr))", extractable: database != nil
+        )
     }
 
     // MARK: - Provenance Popover
