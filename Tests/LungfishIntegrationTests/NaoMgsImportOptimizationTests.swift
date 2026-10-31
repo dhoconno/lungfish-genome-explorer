@@ -235,6 +235,86 @@ struct NaoMgsImportOptimizationTests {
         #expect(accessions[0].uniqueReadCount == 2, "Per-accession unique counts should match the two BAM alignments")
     }
 
+    /// BIO-NAOMGS-UNIQUE-READS-UNIT, Q3. One NAO-MGS row is a read pair and the taxon table counts each mate, so a
+    /// sample's total has to count mates too, or every paired-end share doubles (Rotavirus A 28 of 20 = 140.0% on the
+    /// 2026-10-29 walk). The row is the walk's JN258371.1 pair, read name `LH00642:161:23KFJ7LT4:1:1207:14753:23027`,
+    /// R1 forward with 132 bases at POS 1995 (flag 99) and R2 reverse with 138 bases at POS 2058 (flag 147).
+    /// `prim_align_ref_start` is 0-based, so the TSV holds 1994 and 2057.
+    @Test
+    func testPairedRowSampleTotalMatchesTaxonHits() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-paired-share-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sample = "walk_sample"
+        let header = [
+            "sample", "seq_id", "aligner_taxid_lca", "query_seq", "query_seq_rev", "query_qual", "query_qual_rev",
+            "prim_align_genome_id_all", "prim_align_ref_start", "prim_align_ref_start_rev",
+            "prim_align_edit_distance", "prim_align_edit_distance_rev", "query_len", "query_len_rev",
+            "prim_align_query_rc", "prim_align_query_rc_rev", "prim_align_pair_status",
+            "prim_align_best_alignment_score", "prim_align_best_alignment_score_rev",
+            "prim_align_fragment_length", "prim_align_cigar", "prim_align_subject_title",
+        ].joined(separator: "\t")
+
+        // A concordant pair, R1 forward with `r1Length` bases and R2 reverse with `r2Length` bases.
+        func pairedRow(
+            readName: String, taxId: Int, accession: String, title: String,
+            r1Start: Int, r1Length: Int, r2Start: Int, r2Length: Int
+        ) -> String {
+            [
+                sample, readName, String(taxId),
+                String(repeating: "A", count: r1Length), String(repeating: "T", count: r2Length),
+                String(repeating: "I", count: r1Length), String(repeating: "J", count: r2Length),
+                accession, String(r1Start), String(r2Start), "0", "0", String(r1Length), String(r2Length),
+                "False", "True", "CP", "120", "125", String(r2Start + r2Length - r1Start), "\(r1Length)M", title,
+            ].joined(separator: "\t")
+        }
+        let rotavirusA = pairedRow(
+            readName: "LH00642:161:23KFJ7LT4:1:1207:14753:23027", taxId: 28875, accession: "JN258371.1",
+            title: "Rotavirus A", r1Start: 1994, r1Length: 132, r2Start: 2057, r2Length: 138
+        )
+        let humanRotavirusA = pairedRow(
+            readName: "LH00642:161:23KFJ7LT4:1:1310:16484:2681", taxId: 10941, accession: "KP198630.1",
+            title: "Human rotavirus A", r1Start: 1375, r1Length: 61, r2Start: 1490, r2Length: 146
+        )
+
+        // 1. One paired row in one sample and one taxon: the taxon holds two mates, so the sample holds two.
+        let oneRowInput = workspace.appendingPathComponent("one-row.tsv")
+        try (header + "\n" + rotavirusA + "\n").write(to: oneRowInput, atomically: true, encoding: .utf8)
+        let oneRowURL = workspace.appendingPathComponent("one-row.sqlite")
+        _ = try await NaoMgsDatabase.createStreaming(at: oneRowURL, from: [oneRowInput])
+        let oneRowDB = try NaoMgsDatabase(at: oneRowURL)
+
+        let taxon = try #require(try oneRowDB.fetchTaxonSummaryRows(samples: [sample]).first)
+        #expect(taxon.hitCount == 2, "One pair is two mates in the taxon table")
+        #expect(taxon.uniqueReadCount == 2)
+        #expect(taxon.pcrDuplicateCount == 0)
+        let sampleTotal = try oneRowDB.totalHitCount(samples: [sample])
+        #expect(try oneRowDB.totalHitCount() == 2, "The result total counts mates, as the taxon table does")
+        #expect(sampleTotal == 2, "The sample total counts mates, as the taxon table does")
+        let sampleList = try oneRowDB.fetchSamples()
+        #expect(sampleList.count == 1)
+        #expect(sampleList.first?.hitCount == 2, "The sample list counts mates, as the taxon table does")
+        #expect(
+            taxon.hitCount * 100 / max(sampleTotal, 1) == 100,
+            "The only taxon of a sample holds all of its hits, so its share is 100 percent"
+        )
+
+        // 2. A second taxon's paired row in the same sample: the two shares of one sample add to 100.
+        let twoRowInput = workspace.appendingPathComponent("two-rows.tsv")
+        try (header + "\n" + rotavirusA + "\n" + humanRotavirusA + "\n")
+            .write(to: twoRowInput, atomically: true, encoding: .utf8)
+        let twoRowURL = workspace.appendingPathComponent("two-rows.sqlite")
+        _ = try await NaoMgsDatabase.createStreaming(at: twoRowURL, from: [twoRowInput])
+        let twoRowDB = try NaoMgsDatabase(at: twoRowURL)
+
+        let taxa = try twoRowDB.fetchTaxonSummaryRows(samples: [sample])
+        #expect(taxa.count == 2)
+        let twoRowTotal = try twoRowDB.totalHitCount(samples: [sample])
+        #expect(twoRowTotal == 4, "Two pairs are four mates")
+        let shares = taxa.map { $0.hitCount * 100 / max(twoRowTotal, 1) }
+        #expect(shares == [50, 50], "Two taxa with one pair each split their sample evenly, got \(shares)")
+    }
+
     @Test
     func importNaoMgsWithIdentityFilterReducesHits() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-filter-test-")
