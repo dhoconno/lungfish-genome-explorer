@@ -379,6 +379,11 @@ final class NvdResultViewControllerTests: XCTestCase {
         let drawer = try XCTUnwrap(vc.testBlastDrawerContainer, "the BLAST drawer must open to explain the failure")
         XCTAssertTrue(drawer.blastResultsTab.emptyStateDetailText.contains("contig_1"),
             drawer.blastResultsTab.emptyStateDetailText)
+        // SF2 of the UX review of lane ADOPT. The failure names the button by its current name, as NAO-MGS's does.
+        XCTAssertTrue(
+            drawer.blastResultsTab.emptyStateDetailText.hasPrefix("Verify with BLAST needs the contig sequence"),
+            drawer.blastResultsTab.emptyStateDetailText
+        )
     }
 
     /// 12.31 M4. The view's Export runs `nvd export contigs` behind its row, and the leaf writes the file and its

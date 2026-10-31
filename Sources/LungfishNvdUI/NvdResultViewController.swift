@@ -1827,7 +1827,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         // Extract contig FASTA sequence. Every way this can fail is reported in
         // the BLAST drawer; logging alone made the button look inert.
-        let unavailable = "BLAST Verify needs the contig sequence for \(hit.qseqid) (sample \(hit.sampleId)), "
+        let unavailable = "Verify with BLAST needs the contig sequence for \(hit.qseqid) (sample \(hit.sampleId)), "
         do {
             guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else {
                 logger.warning("No FASTA path for sample \(hit.sampleId, privacy: .public)")
