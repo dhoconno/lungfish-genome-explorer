@@ -1,0 +1,83 @@
+// NvdResultActionsTests.swift - NVD's bar is the shared classifier action bar
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Phase 3.1 lane ADOPT (plan exit check 4, O86, UX-3E-LABELS). NVD adopts `ClassifierResultActions`. Its bar holds
+// Verify with BLAST…, Extract Reads… and BLAST Results in the ruling's titles, VoiceOver labels and hints, and BLAST
+// Results reopens the BLAST results a person closed. The view has no defaults seam and these tests touch none.
+
+import AppKit
+import LungfishKit
+import LungfishTestSupport
+import XCTest
+@testable import LungfishNvdUI
+
+@MainActor
+final class NvdResultActionsTests: XCTestCase {
+
+    /// The bar's three shared buttons read the ruling's words. At the base the bar had no BLAST Results button. NVD's
+    /// BLAST tooltip and hint name a contig in the ruling, which the shared bar does not carry yet (lane report,
+    /// Findings), so this test reads the BLAST button's title, label and reason only.
+    func testBarHoldsTheSharedButtonsInTheRulingsWords() throws {
+        let vc = NvdResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        let bar = vc.testActionBar
+
+        XCTAssertEqual(bar.blastButton.title, "Verify with BLAST\u{2026}")
+        XCTAssertEqual(bar.blastButton.accessibilityLabel(), "Verify with BLAST")
+        XCTAssertEqual(bar.blastButton.accessibilityHelp()?.hasPrefix("Select a row to verify it with BLAST. "), true)
+        XCTAssertEqual(bar.extractButton.title, "Extract Reads\u{2026}")
+        XCTAssertEqual(bar.extractButton.accessibilityLabel(), "Extract Reads")
+        XCTAssertEqual(
+            bar.extractButton.accessibilityHelp()?.hasPrefix("Select one or more rows to extract their reads. "), true
+        )
+        XCTAssertEqual(
+            bar.extractButton.accessibilityHelp()?.contains("Opens a dialog to save the reads as FASTQ or FASTA"), true
+        )
+
+        let results = try Self.blastResultsButton(in: bar)
+        XCTAssertEqual(results.title, "BLAST Results")
+        XCTAssertEqual(results.accessibilityLabel(), "BLAST Results")
+        XCTAssertEqual(results.toolTip, "Show or hide the BLAST results below the table.")
+        XCTAssertEqual(results.accessibilityHelp(), "Shows or hides the BLAST results below the table.")
+    }
+
+    /// BLAST Results closes the results and reopens them as they were (U-3E-1).
+    func testBlastResultsClosesAndReopensTheResults() throws {
+        let vc = NvdResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        let button = try Self.blastResultsButton(in: vc.testActionBar)
+        XCTAssertEqual(button.state, .off, "nothing is open when the viewer opens")
+
+        vc.showBlastFailure("NCBI BLAST did not return a result.")
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+        XCTAssertFalse(drawer.isHidden)
+        XCTAssertEqual(button.state, .on, "the button shows that the results are open")
+
+        button.performClick(nil)
+        XCTAssertTrue(drawer.isHidden, "the button closes the results")
+        XCTAssertEqual(button.state, .off)
+
+        button.performClick(nil)
+        XCTAssertFalse(drawer.isHidden, "the button reopens the results a person closed")
+        XCTAssertEqual(button.state, .on)
+        XCTAssertEqual(drawer.blastResultsTab.emptyStateDetailText, "NCBI BLAST did not return a result.")
+    }
+
+    // MARK: - Fixture
+
+    private static func blastResultsButton(in bar: ClassifierActionBar) throws -> NSButton {
+        try XCTUnwrap(
+            buttons(in: bar).first { $0.accessibilityIdentifier() == "classifier-result-blast-results" },
+            "NVD's bar has no BLAST Results button of the shared component"
+        )
+    }
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        view.subviews.flatMap { subview -> [NSButton] in
+            (subview as? NSButton).map { [$0] } ?? buttons(in: subview)
+        }
+    }
+}
