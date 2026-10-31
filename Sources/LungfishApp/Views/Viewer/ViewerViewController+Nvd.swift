@@ -103,9 +103,9 @@ extension ViewerViewController {
                 suggestedName: Self.suggestedName(from: fastaRecords, fallback: "nvd-contig")
             )
         }
-        controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
-            guard let controller else { return }
-            controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
+        // The shared actions hand the App one extraction request, which the App answers with its dialog.
+        controller.resultActions.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
         }
 
         let surface = try showSurface(.analysis(.nvd), input: controller, as: NvdSurface.self)

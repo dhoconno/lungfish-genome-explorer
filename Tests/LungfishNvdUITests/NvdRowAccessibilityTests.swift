@@ -163,7 +163,7 @@ final class NvdRowAccessibilityTests: XCTestCase {
 
     func testExtractReadsActionOpensTheDialogForItsRow() throws {
         var captured: [ClassifierRowSelector] = []
-        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+        vc.resultActions.onExtractionRequested = { request in captured = request.selectors }
         let name = try contigName(atRow: 6)
         XCTAssertTrue(AccessibilityRowProbe.performCellAction(named: "Extract Reads\u{2026}", in: try rowProxy(6)))
         XCTAssertEqual(captured.count, 1)

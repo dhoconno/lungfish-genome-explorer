@@ -322,10 +322,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Called when the user wants to export results.
     public var onExport: (() -> Void)?
 
-    /// Invoked when the user requests read extraction. The App host wires this to
-    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
-    /// dependency on the App-internal extraction/operation pipeline.
-    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
 
     /// Fired when the user chooses an NCBI/PubMed lookup action. Defaults to
     /// opening the URL in the browser; the App may override to log or intercept.
@@ -340,7 +336,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private let searchField = NSSearchField()
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNvdContentView()
-    let actionBar = ClassifierActionBar()
+    /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
+    public private(set) lazy var resultActions = ClassifierResultActions(
+        blastDrawer: blastDrawerContainer.blastResultsTab
+    )
+    var actionBar: ClassifierActionBar { resultActions.bar }
     private let groupingSegment = NSSegmentedControl(labels: ["By Sample", "By Taxon"], trackingMode: .selectOne, target: nil, action: nil)
 
     // MARK: - Multi-Selection Placeholder
@@ -424,9 +424,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - BLAST Drawer
 
-    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    /// Added to the view the first time it opens.
+    private let blastDrawerContainer = BlastResultsDrawerContainerView()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
-    private var isBlastDrawerOpen = false
 
     // MARK: - Lifecycle
 
@@ -1588,6 +1588,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         actionBar.onProvenance = { [weak self] sender in
             self?.showProvenance(from: sender)
         }
+        resultActions.onBlastDrawerOpenChanged = { [weak self] open in self?.animateBlastDrawer(open: open) }
 
         NotificationCenter.default.addObserver(
             self,
@@ -1634,7 +1635,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard let resultPath = database?.databaseURL else { return }
         guard !selectors.isEmpty else { return }
         let firstContig = selectors.first?.accessions.first ?? "extract"
-        onExtractReadsRequested?(.nvd, resultPath, selectors, "nvd_\(firstContig)")
+        resultActions.requestExtraction(ClassifierExtractionRequest(
+            tool: .nvd, resultPath: resultPath, selectors: selectors, suggestedName: "nvd_\(firstContig)"
+        ))
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
@@ -1847,27 +1850,37 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - BLAST Drawer
 
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastLoading(phase: phase, requestId: requestId)
     }
 
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showResults(result, recordURL: recordURL)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastResults(result, recordURL: recordURL)
     }
 
     public func showBlastFailure(_ message: String) {
-        let drawer = ensureBlastDrawer()
-        drawer.showFailure(message: message)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastFailure(message)
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
-        if let blastDrawerContainer { return blastDrawerContainer.blastResultsTab }
+    /// Opens or closes the drawer's space with animation, as the BLAST Results button and a BLAST run do. The shared
+    /// actions keep the open state.
+    private func animateBlastDrawer(open: Bool) {
+        installBlastDrawerIfNeeded()
+        guard let blastDrawerHeightConstraint else { return }
+        blastDrawerContainer.isHidden = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            blastDrawerHeightConstraint.animator().constant = open ? 220 : 0
+            view.layoutSubtreeIfNeeded()
+        }
+        if !open { blastDrawerContainer.isHidden = true }
+    }
 
-        let container = BlastResultsDrawerContainerView()
+    /// Adds the drawer below the table the first time it opens. A person can drag it taller.
+    private func installBlastDrawerIfNeeded() {
+        guard blastDrawerContainer.superview == nil else { return }
+        let container = blastDrawerContainer
         container.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(container)
 
@@ -1885,7 +1898,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         newSplitBottom.isActive = true
         splitViewBottomConstraint = newSplitBottom
 
-        blastDrawerContainer = container
         blastDrawerHeightConstraint = heightConstraint
         container.onDrag = { [weak self] delta in
             guard let self, let heightConstraint = self.blastDrawerHeightConstraint else { return }
@@ -1906,21 +1918,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             self?.blastVerifySelectedContig()
         }
         view.layoutSubtreeIfNeeded()
-
-        return container.blastResultsTab
-    }
-
-    private func openBlastDrawerIfNeeded() {
-        guard !isBlastDrawerOpen else { return }
-        guard let blastDrawerHeightConstraint else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            blastDrawerHeightConstraint.animator().constant = 220
-            view.layoutSubtreeIfNeeded()
-        }
-        isBlastDrawerOpen = true
     }
 
     // MARK: - Context Menu
@@ -2301,9 +2298,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
         detailScrollView.isHidden = true
         multiSelectionPlaceholder.isHidden = false
-        actionBar.updateInfoText("\(count) items selected")
-        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
-        actionBar.setExtractEnabled(database != nil)
+        resultActions.showSelection(count: count, extractable: database != nil)
     }
 
     private func hideMultiSelectionPlaceholder() {
@@ -2318,13 +2313,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         if let hit {
             let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
-            actionBar.updateInfoText("\(displayName) \u{2014} \(classification)")
-            actionBar.setBlastEnabled(true)
-            actionBar.setExtractEnabled(database != nil)
+            resultActions.showSelection(
+                count: 1, info: "\(displayName) \u{2014} \(classification)", extractable: database != nil
+            )
         } else {
-            actionBar.updateInfoText("Select a contig to view details")
-            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+            resultActions.showNoSelection(prompt: "Select a contig to view details")
         }
     }
 
@@ -2806,7 +2799,9 @@ extension NvdResultViewController {
     var testDetailContainer: NSView? { detailContainer }
     var testOutlineContainer: NSView? { outlineContainer }
     var testSplitView: NSSplitView { splitView }
-    var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+    var testBlastDrawerContainer: BlastResultsDrawerContainerView? {
+        blastDrawerContainer.superview == nil ? nil : blastDrawerContainer
+    }
     var testActionBar: ClassifierActionBar { actionBar }
     var testOutlineView: NSOutlineView { outlineView }
     var testSearchField: NSSearchField { searchField }
