@@ -490,7 +490,7 @@ final class ContentTypographyTests: XCTestCase {
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
             "Sources/LungfishNvdUI/NvdResultViewController.swift",
             "Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift",
-            "Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift",
+            "Sources/LungfishTaxonomyUI/TaxonomyViewController.swift",
             "Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift",
             "Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift",
         ]

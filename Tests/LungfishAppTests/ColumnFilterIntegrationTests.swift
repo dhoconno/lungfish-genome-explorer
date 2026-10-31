@@ -426,7 +426,7 @@ struct KrakenTaxonomyRegressionTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         for relativePath in [
-            "Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift",
+            "Sources/LungfishTaxonomyUI/TaxonomyTableView.swift",
             "Sources/LungfishEsVirituUI/ViralDetectionTableView.swift",
             "Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift",
         ] {
