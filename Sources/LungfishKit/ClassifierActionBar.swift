@@ -23,8 +23,9 @@ public final class ClassifierActionBar: NSView {
     public let blastButton: NSButton = {
         let btn = NSButton()
         btn.title = ResultRowCommand.blastVerify.title
-        // The title names the button, so VoiceOver reads it once.
+        // VoiceOver speaks the title without its ellipsis (UX-3E-LABELS lines 17 and 18).
         btn.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
+        btn.setAccessibilityLabel(ResultRowCommand.blastVerify.title.replacingOccurrences(of: "\u{2026}", with: ""))
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
         btn.controlSize = .small
@@ -52,6 +53,7 @@ public final class ClassifierActionBar: NSView {
         let btn = NSButton()
         btn.title = ResultRowCommand.extractReads.title
         btn.image = NSImage(systemSymbolName: "arrow.down.doc", accessibilityDescription: nil)
+        btn.setAccessibilityLabel(ResultRowCommand.extractReads.title.replacingOccurrences(of: "\u{2026}", with: ""))
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
         btn.controlSize = .small

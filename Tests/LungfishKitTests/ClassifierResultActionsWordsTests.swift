@@ -19,6 +19,9 @@ final class ClassifierResultActionsWordsTests: XCTestCase {
         XCTAssertEqual(actions.bar.extractButton.title, ResultRowCommand.extractReads.title)
         XCTAssertEqual(actions.bar.blastButton.title, ResultRowCommand.blastVerify.title)
         XCTAssertEqual(actions.bar.provenanceButton.accessibilityLabel(), "Show Provenance")
+        // The titles end in an ellipsis, which VoiceOver does not speak (UX-3E-LABELS lines 17 and 18).
+        XCTAssertEqual(actions.bar.blastButton.accessibilityLabel(), "Verify with BLAST")
+        XCTAssertEqual(actions.bar.extractButton.accessibilityLabel(), "Extract Reads")
         XCTAssertEqual(actions.blastResultsButton.title, "BLAST Results")
         XCTAssertEqual(actions.blastResultsButton.accessibilityLabel(), "BLAST Results")
         XCTAssertTrue(actions.blastResultsButton.isDescendant(of: actions.bar), "the bar holds BLAST Results")
