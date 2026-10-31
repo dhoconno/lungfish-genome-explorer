@@ -206,7 +206,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private let rightPaneContainer = SplitPaneFillContainerView()
     private let detailPane = EsVirituDetailPane()
     private let detectionTableView = ViralDetectionTableView()
-    let actionBar = ClassifierActionBar()
+    /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
+    public private(set) lazy var resultActions = ClassifierResultActions(
+        blastDrawer: blastDrawerContainer.blastResultsTab
+    )
+    var actionBar: ClassifierActionBar { resultActions.bar }
     private var splitViewBottomConstraint: NSLayoutConstraint?
     private let contentTypographyApplicator = ContentTypographyViewApplicator()
     private var contentTypographyObservation: ContentTypographyViewObservation?
@@ -315,15 +319,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Called when the user wants to re-run EsViritu with the same or different settings.
     public var onReRun: (() -> Void)?
 
-    /// Invoked when the user requests read extraction. The App host wires this to
-    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
-    /// dependency on the App-internal extraction/operation pipeline.
-    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
-
-    /// The BLAST results drawer embedded at the bottom of the view.
-    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    /// The BLAST results drawer embedded at the bottom of the view, added the first time it opens.
+    private let blastDrawerContainer = BlastResultsDrawerContainerView()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
-    private var isBlastDrawerOpen = false
 
     // MARK: - Batch Mode
 
@@ -715,9 +713,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             detectionTableView.isHidden = false
             batchTableView.isHidden = true
             showOverview()
-            actionBar.updateInfoText("Select a virus to view details")
-            actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-            actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+            resultActions.showNoSelection(prompt: "Select a virus to view details")
             return
         }
 
@@ -799,9 +795,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detectionTableView.isHidden = false
         batchTableView.isHidden = true
         showOverview()
-        actionBar.updateInfoText("Select a virus to view details")
-        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-        actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+        resultActions.showNoSelection(prompt: "Select a virus to view details")
     }
 
     struct BatchUniqueReadMaps {
@@ -983,13 +977,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 self.setBatchBAMContext(forSample: assembly.contigs.first?.sampleId)
                 // Update action bar with selection info
                 self.updateActionBarForAssembly(name: assembly.name, readCount: assembly.totalReads)
-                self.actionBar.setBlastEnabled(true)
-                self.actionBar.setExtractEnabled(true)
                 self.showAssemblyDetail(assembly)
             } else {
                 self.showOverview()
-                self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
-                self.actionBar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
+                self.resultActions.showNoSelection(prompt: "Select a virus to view details")
             }
         }
 
@@ -997,9 +988,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detectionTableView.onMultipleSelected = { [weak self] count in
             guard let self else { return }
             self.showMultiSelectionPlaceholder(count: count)
-            self.actionBar.updateInfoText("\(count) items selected")
-            self.actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
-            self.actionBar.setExtractEnabled(true)
+            self.resultActions.showSelection(count: count)
         }
 
         // Table detection selection -> action bar update
@@ -1008,8 +997,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self.hideMultiSelectionPlaceholder()
             self.setBatchBAMContext(forSample: detection.sampleId)
             self.updateActionBarForAssembly(name: detection.name, readCount: detection.readCount)
-            self.actionBar.setBlastEnabled(true)
-            self.actionBar.setExtractEnabled(true)
 
             guard let assembly = self.resolveAssembly(for: detection) else {
                 logger.warning("Unable to resolve parent assembly for detection \(detection.accession, privacy: .public)")
@@ -1052,6 +1039,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         actionBar.onProvenance = { [weak self] sender in
             self?.showProvenancePopover(relativeTo: sender)
         }
+        resultActions.onBlastDrawerOpenChanged = { [weak self] open in self?.animateBlastDrawer(open: open) }
 
         reserveTheSpaceOfTheDeletedRecomputeButton()
 
@@ -1109,7 +1097,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func presentUnifiedExtractionDialog() {
         guard let resultPath = esVirituDatabase?.databaseURL ?? esVirituConfig?.outputDirectory else { return }
         let firstAccession = detectionTableView.selectedAssemblyAccessions().first ?? "extract"
-        onExtractReadsRequested?(.esviritu, resultPath, buildEsVirituSelectors(), "esviritu_\(firstAccession)")
+        resultActions.requestExtraction(ClassifierExtractionRequest(
+            tool: .esviritu, resultPath: resultPath, selectors: buildEsVirituSelectors(),
+            suggestedName: "esviritu_\(firstAccession)"
+        ))
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
@@ -1241,36 +1232,43 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Shows BLAST loading state in a bottom drawer.
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastLoading(phase: phase, requestId: requestId)
     }
 
     /// Shows BLAST verification results in a bottom drawer.
     ///
-    /// Creates a ``BlastResultsDrawerTab`` if needed, populates it with the
-    /// results, and slides the drawer open with animation.
+    /// Fills the shared BLAST results pane and slides the drawer open with animation.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showResults(result, recordURL: recordURL)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastResults(result, recordURL: recordURL)
 
         logger.info("Showing BLAST results: \(result.verifiedCount)/\(result.readResults.count) verified for \(result.taxonName)")
     }
 
     /// Shows BLAST failure state in a bottom drawer.
     public func showBlastFailure(_ message: String) {
-        let drawer = ensureBlastDrawer()
-        drawer.showFailure(message: message)
-        openBlastDrawerIfNeeded()
+        resultActions.showBlastFailure(message)
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
-        if let blastDrawerContainer {
-            return blastDrawerContainer.blastResultsTab
+    /// Opens or closes the drawer's space with animation, as the BLAST Results button and a BLAST run do. The shared
+    /// actions keep the open state.
+    private func animateBlastDrawer(open: Bool) {
+        installBlastDrawerIfNeeded()
+        guard let blastDrawerHeightConstraint else { return }
+        blastDrawerContainer.isHidden = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+            blastDrawerHeightConstraint.animator().constant = open ? 220 : 0
+            self.view.layoutSubtreeIfNeeded()
         }
+        if !open { blastDrawerContainer.isHidden = true }
+    }
 
-        let container = BlastResultsDrawerContainerView()
+    /// Adds the drawer below the table the first time it opens. A person can drag it taller.
+    private func installBlastDrawerIfNeeded() {
+        guard blastDrawerContainer.superview == nil else { return }
+        let container = blastDrawerContainer
         container.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(container)
 
@@ -1290,7 +1288,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         newSplitBottom.isActive = true
         splitViewBottomConstraint = newSplitBottom
 
-        blastDrawerContainer = container
         blastDrawerHeightConstraint = heightConstraint
         container.onDrag = { [weak self] delta in
             guard let self, let heightConstraint = self.blastDrawerHeightConstraint else { return }
@@ -1308,20 +1305,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self?.view.layoutSubtreeIfNeeded()
         }
         view.layoutSubtreeIfNeeded()
-        return container.blastResultsTab
-    }
-
-    private func openBlastDrawerIfNeeded() {
-        guard !isBlastDrawerOpen else { return }
-        guard let blastDrawerHeightConstraint else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = true
-            blastDrawerHeightConstraint.animator().constant = 220
-            self.view.layoutSubtreeIfNeeded()
-        }
-        isBlastDrawerOpen = true
     }
 
     // MARK: - NSSplitViewDelegate
@@ -1403,9 +1386,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             formatter.numberStyle = .decimal
             formatter.groupingSeparator = ","
             let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads")
+            resultActions.showSelection(count: 1, info: "\(name) \u{2014} \(readStr) reads")
         } else {
-            actionBar.updateInfoText("Select a virus to view details")
+            resultActions.showSelection(count: 1)
         }
     }
 
@@ -1628,7 +1611,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     var testNeedsInitialSplitValidation: Bool { splitCoordinator.needsInitialSplitValidation }
 
     /// Returns the shared BLAST drawer container for testing.
-    var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+    var testBlastDrawerContainer: BlastResultsDrawerContainerView? {
+        blastDrawerContainer.superview == nil ? nil : blastDrawerContainer
+    }
 
     /// Returns the current EsViritu result for testing.
     var testResult: LungfishIO.EsVirituResult? { esVirituResult }
