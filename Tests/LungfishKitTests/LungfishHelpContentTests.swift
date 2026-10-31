@@ -124,11 +124,12 @@ final class LungfishHelpContentTests: XCTestCase {
     func testClassifierActionBarPreservesScientificHelpWhenBlastStateChanges() {
         let actionBar = ClassifierActionBar(frame: NSRect(x: 0, y: 0, width: 600, height: 36))
 
-        actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
+        actionBar.setBlastEnabled(false, reason: "Select a row to verify it with BLAST.")
 
+        // A ruled reason is a sentence with its own period, so the join adds only a space (UX-3E-LABELS D11).
         XCTAssertEqual(
             actionBar.blastButton.toolTip,
-            "Select a row to use BLAST Verify. \(LungfishHelpContent.classifierBlastVerify.summary)"
+            "Select a row to verify it with BLAST. \(LungfishHelpContent.classifierBlastVerify.summary)"
         )
         XCTAssertTrue(actionBar.blastButton.accessibilityHelp()?.contains("supports review") ?? false)
 
