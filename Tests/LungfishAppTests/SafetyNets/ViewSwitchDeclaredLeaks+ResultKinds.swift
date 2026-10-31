@@ -122,12 +122,13 @@ extension ViewSwitchDeclaredLeaks {
         leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
             "+ inspector: batchOperation=TaxTriage",
         ]),
+        // smaller after NVDV's reset (manager ruling 15:56)
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ provenance: nvdResult ../k05-nvd/Imports/nvd-demo",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: nvd, seeTheViewer, panelLayout",
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- status: Previewing: main.nf",
