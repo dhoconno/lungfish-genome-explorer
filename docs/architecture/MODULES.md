@@ -27,7 +27,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
-| LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
@@ -1880,6 +1880,7 @@ None.
 - `BatchTaxTriageTableView` class, `Sources/LungfishTaxTriageUI/BatchTaxTriageTableView.swift`
 - `TaxTriageResultViewController` class, `Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift`
 - `TaxTriageSummaryBar` class, `Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift`
+- `TaxTriageSurface` class, `Sources/LungfishTaxTriageUI/TaxTriageSurface.swift`
 - `TaxTriageTableRow` struct, `Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift`
 
 ## LungfishTwelveSUI
