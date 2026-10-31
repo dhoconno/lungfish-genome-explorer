@@ -81,8 +81,10 @@ extension ViewerViewController {
     ///
     /// The search covers all of `core_nt` and sends no Entrez filter, as the EsViritu, TaxTriage, Kraken 2 and NVD
     /// routes do, so a read whose best match is another organism can count as contradicting the taxon (3.1
-    /// BLAST-SCOPE). The verdicts are judged against the taxon's tax ID, with its name beside it for a hit that
-    /// names no tax ID. A `taxId` of 0 or less names no tax ID, and the name alone judges.
+    /// BLAST-SCOPE). The verdicts are judged against the taxon's tax ID. A hit with another tax ID counts as inside
+    /// the taxon only when its organism name holds the taxon's name as a whole phrase, so "Human rotavirus A"
+    /// (10941) counts for "Rotavirus A" (28875), and a descendant or a parent named otherwise counts as outside
+    /// (`BlastTaxonMatching.relation`). A `taxId` of 0 or less names no tax ID, and the older name rule judges.
     nonisolated static func naoMgsBlastSubmitPlan(
         taxonName: String,
         taxId: Int,
