@@ -285,7 +285,48 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         try await expectNothingAsked(of: run)
     }
 
+    // MARK: - The Kraken2 block leaves with its viewer
+
+    /// The Kraken2 block a single run gave leaves the Summary with the viewer the run showed the result in, as the
+    /// block of a sidebar click does (`Kraken2SurfaceRouteTests`, the CLI route's finding of lane K2).
+    func testTheKraken2BlockOfASingleRunLeavesWithItsViewer() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root)
+        let run = try await runThroughRoute(
+            .kraken2([kraken2Config(inputs: made.inputs, sampleFolder: "classification-0000K2CL")]),
+            tool: StandInClassifierTool(tool: .kraken2, units: [("reads", .complete)], layout: .singleFolder),
+            made: made
+        )
+        let revealed = await waitUntil(timeout: .seconds(30)) { run.selectedPaths == [run.folderPath] }
+        XCTAssertTrue(revealed, "the sidebar never selected the result folder, it selects \(run.selectedPaths)")
+        expectTheKraken2BlockLeavesWithTheViewer(of: run)
+    }
+
+    /// The Kraken2 block a batch gave for its first sample leaves with the viewer that shows that sample.
+    func testTheKraken2BlockOfABatchLeavesWithItsViewer() async throws {
+        let made = try ClassifierRouteFixtures.makeProject(in: root, inputs: ["A.fastq", "B.fastq"])
+        let run = try await runThroughRoute(
+            .kraken2([
+                kraken2Config(inputs: [made.inputs[0]], sampleFolder: "classification-batch-k2cl/A"),
+                kraken2Config(inputs: [made.inputs[1]], sampleFolder: "classification-batch-k2cl/B"),
+            ]),
+            tool: StandInClassifierTool(tool: .kraken2, units: [("A", .complete), ("B", .complete)], layout: .batchRoot),
+            made: made
+        )
+        try await expectAReloadWithTheResultShown(run)
+        expectTheKraken2BlockLeavesWithTheViewer(of: run)
+    }
+
     // MARK: - Expectations
+
+    /// The run's viewer shows the result and the Summary holds its Kraken2 block. Once the viewer's Kraken2 result
+    /// leaves, the Summary holds no Kraken2 block.
+    private func expectTheKraken2BlockLeavesWithTheViewer(of run: Run) {
+        let summary = run.rig.controller.mainSplitViewController.inspectorController.viewModel.documentSectionViewModel
+        XCTAssertNotNil(run.rig.viewer.taxonomyViewController, "the run's viewer shows the Kraken2 result")
+        XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the run gave the Summary its Kraken2 block")
+        run.rig.viewer.hideTaxonomyView()
+        XCTAssertNil(summary.batchOperationTool, "the Kraken2 block must leave with the viewer the run showed it in")
+    }
 
     /// A finished run that reveals nothing. The sidebar scanned again, shows the result as a row,
     /// keeps the row selected before the run and has it refreshed once.
