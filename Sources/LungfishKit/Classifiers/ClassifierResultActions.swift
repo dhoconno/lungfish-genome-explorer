@@ -140,9 +140,16 @@ public final class ClassifierResultActions: NSObject {
     /// The viewer opens or closes the pane's space.
     public var onBlastDrawerOpenChanged: (@MainActor (Bool) -> Void)?
 
-    public override init() {
+    public override convenience init() {
+        self.init(blastDrawer: BlastResultsDrawerTab())
+    }
+
+    /// Fills `blastDrawer` instead of a pane of its own. A viewer whose BLAST results sit in a resizable
+    /// `BlastResultsDrawerContainerView` hands over that container's pane, so the pane the component fills is the
+    /// one the viewer shows (lane ADOPT, for NAO-MGS, EsViritu and NVD).
+    public init(blastDrawer: BlastResultsDrawerTab) {
         bar = ClassifierActionBar()
-        blastDrawer = BlastResultsDrawerTab()
+        self.blastDrawer = blastDrawer
         blastResultsButton = Self.makeBlastResultsButton()
         super.init()
         blastResultsButton.target = self
