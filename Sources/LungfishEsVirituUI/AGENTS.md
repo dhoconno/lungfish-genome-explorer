@@ -18,6 +18,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Detection table | `ViralDetectionTableView`, Sources/LungfishEsVirituUI/ViralDetectionTableView.swift line 48 |
 | Detail pane | `EsVirituDetailPane`, Sources/LungfishEsVirituUI/EsVirituDetailPane.swift line 40 |
 | Batch table | Sources/LungfishEsVirituUI/BatchEsVirituTableView.swift |
+| The surface the viewer's host installs, which adopts the App's configured controller | Sources/LungfishEsVirituUI/EsVirituSurface.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+EsViritu.swift |
 
 ## Contracts this module owns

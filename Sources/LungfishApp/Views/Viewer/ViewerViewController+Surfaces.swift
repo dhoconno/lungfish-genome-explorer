@@ -6,6 +6,7 @@ import AppKit
 import LungfishIO
 import LungfishKit
 import LungfishNaoMgsUI
+import LungfishEsVirituUI
 import LungfishTwelveSUI
 
 extension ViewerViewController {
@@ -17,6 +18,7 @@ extension ViewerViewController {
         registry.register(.bundle(.primerAnalysis)) { PrimerAnalysisSurface() }
         registry.register(.analysis(.primerOrder)) { PrimerOrderSurface() }
         registry.register(.analysis(.naomgs), factory: NaoMgsSurface.factory())
+        registry.register(.analysis(.esviritu), factory: EsVirituSurface.factory())
         return registry
     }
 

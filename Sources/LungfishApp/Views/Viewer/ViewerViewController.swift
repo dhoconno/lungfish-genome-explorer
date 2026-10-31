@@ -204,9 +204,6 @@ public class ViewerViewController: NSViewController {
     /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
     var taxonomyViewController: TaxonomyViewController?
 
-    /// EsViritu viral detection browser (shown in place of sequence viewer for EsViritu results)
-    var esVirituViewController: EsVirituResultViewController?
-
     /// TaxTriage clinical triage browser (shown in place of sequence viewer for TaxTriage results)
     var taxTriageViewController: TaxTriageResultViewController?
 

@@ -434,20 +434,26 @@ extension MainSplitViewController {
             let dbURL = batchURL.appendingPathComponent("esviritu.sqlite")
             if FileManager.default.fileExists(atPath: dbURL.path),
                let db = try? EsVirituDatabase(at: dbURL) {
-                viewerController.displayEsVirituFromDatabase(db: db, resultURL: batchURL)
+                // Its viewer takes only an EsViritu block out of the Summary when it leaves.
+                do {
+                    try viewerController.displayEsVirituFromDatabase(db: db, resultURL: batchURL) { [weak self] in
+                        guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
+                              summary.batchOperationTool == "EsViritu" else { return }
+                        summary.showResultBlock(nil)
+                    }
+                } catch {
+                    mainSplitLogger.error("displayBatchGroup: EsViritu not shown - \(error.localizedDescription, privacy: .public)")
+                    viewerController.clearViewport(statusMessage: "Unable to open the EsViritu result. Select it again.")
+                    return
+                }
                 if let evVC = viewerController.esVirituViewController {
                     self.installClassifierMetadataPresentation(
-                        resultURL: batchURL,
-                        pickerState: evVC.samplePickerState,
-                        entries: evVC.sampleEntries,
-                        strippedPrefix: evVC.strippedPrefix,
-                        workflowName: "EsViritu",
-                        consumer: evVC
+                        resultURL: batchURL, pickerState: evVC.samplePickerState, entries: evVC.sampleEntries,
+                        strippedPrefix: evVC.strippedPrefix, workflowName: "EsViritu", consumer: evVC
                     )
                 }
             } else {
-                // No SQLite DB — show placeholder and auto-build.
-                showDatabaseBuildPlaceholder(tool: .esviritu, resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .esviritu, resultURL: batchURL)  // No SQLite DB yet, so it builds one.
                 return
             }
             // Build params from the first sample's EsViritu result sidecar.
@@ -461,10 +467,7 @@ extension MainSplitViewController {
                     }
                     esVirituParams["Threads"] = "\(cfg.threads)"
                     esVirituParams["Quality Filter"] = cfg.qualityFilter ? "Yes" : "No"
-                    // "Min Read Length" intentionally removed from
-                    // this summary -- EsViritu has no such option, so
-                    // `cfg.minReadLength` was never applied and echoing it
-                    // here contradicted the actual computation.
+                    // No "Min Read Length": EsViritu has no such option, so `cfg.minReadLength` was never applied.
                     esVirituParams["Paired-End"] = cfg.readFormat.pairedEndLabel
                     let runtimeStr = formatInspectorRuntime(sampleResult.runtime)
                     if !runtimeStr.isEmpty { esVirituParams["Runtime (first sample)"] = runtimeStr }
@@ -473,10 +476,7 @@ extension MainSplitViewController {
             if let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL) {
                 let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
                 self.inspectorController?.updateBatchOperationDetails(
-                    tool: "EsViritu",
-                    parameters: esVirituParams,
-                    timestamp: manifest.header.createdAt,
-                    sourceSamples: sourceSamples
+                    tool: "EsViritu", parameters: esVirituParams, timestamp: manifest.header.createdAt, sourceSamples: sourceSamples
                 )
             }
             if let esVirituVC = viewerController.esVirituViewController {

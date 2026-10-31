@@ -22,17 +22,25 @@ private let esVirituLogger = Logger(subsystem: LogSubsystem.app, category: "View
 
 extension ViewerViewController {
 
-    /// Displays the EsViritu viral detection browser backed by a SQLite database.
-    ///
-    /// Creates an ``EsVirituResultViewController``, adds it as a child filling the
-    /// content area, and calls ``EsVirituResultViewController/configureFromDatabase(_:)``
-    /// to populate it from the database. Follows the same pattern as
-    /// ``displayTaxTriageFromDatabase(db:resultURL:)``.
+    /// The installed EsViritu result viewer, read from the surface host.
+    var esVirituViewController: EsVirituResultViewController? {
+        (installedSurface as? EsVirituSurface)?.controller
+    }
+
+    /// Shows the EsViritu viral detection browser backed by `db` through the surface host,
+    /// in place of the normal sequence viewer, and returns once it is installed, or throws
+    /// the reason it is not. The browser is configured from the database before the host
+    /// adds it. `onWillDeactivate` runs whenever the host later removes this viewer,
+    /// another EsViritu result's show included.
     ///
     /// - Parameters:
     ///   - db: The opened ``EsVirituDatabase`` instance.
-    ///   - resultURL: The batch result directory URL (used for logging).
-    func displayEsVirituFromDatabase(db: EsVirituDatabase, resultURL: URL) {
+    ///   - resultURL: The batch result directory URL.
+    func displayEsVirituFromDatabase(
+        db: EsVirituDatabase,
+        resultURL: URL,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -72,14 +80,9 @@ extension ViewerViewController {
             }
             return resolution.candidate
         }
-        addChild(controller)
-
-        annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-
-        // Force loadView() so all subviews exist, then configure BEFORE adding
-        // to the view hierarchy to avoid a one-frame bounce.
-        let esView = controller.view
+        // Load the view and configure it before the host adds it to the view
+        // hierarchy, which avoids a one-frame bounce.
+        _ = controller.view
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for EsViritu.
@@ -100,23 +103,11 @@ extension ViewerViewController {
             controller.presentClassifierExtractionDialog(tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName)
         }
 
-        esView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(esView)
-
-        NSLayoutConstraint.activate([
-            esView.topAnchor.constraint(equalTo: view.topAnchor),
-            esView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            esView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            esView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        esVirituViewController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        let surface = try showSurface(.analysis(.esviritu), input: controller, as: EsVirituSurface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        annotationDrawerView?.isHidden = true
+        fastqMetadataDrawerView?.isHidden = true
 
         esVirituLogger.info("displayEsVirituFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }
@@ -248,22 +239,10 @@ extension ViewerViewController {
         return result
     }
 
-    /// Removes the EsViritu result browser and restores normal viewer components.
+    /// Hides the EsViritu result viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     public func hideEsVirituView() {
-        guard let controller = esVirituViewController else { return }
-        controller.clearClassifierAlignmentEvidence()
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        esVirituViewController = nil
-
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.esviritu))
     }
 }
 
