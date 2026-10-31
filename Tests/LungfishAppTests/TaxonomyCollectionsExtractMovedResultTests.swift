@@ -144,9 +144,9 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
         taxonomy.beginBlastVerification(for: node) // what Run in the popover does first
         taxonomy.onBlastVerification?(node, 10)
 
-        let words = "BLAST Matching Reads could not start because LGE could not find this sample's classification record. "
+        let words = "Verify with BLAST could not start because LGE could not find this sample's classification record. "
             + "Run the classification again to rebuild it."
-        assertBlastRefused(by: taxonomy, before: before, startingWith: "BLAST Matching Reads could not start because")
+        assertBlastRefused(by: taxonomy, before: before, startingWith: "Verify with BLAST could not start because")
         XCTAssertTrue(blastTabText(of: taxonomy).contains(words), "the BLAST tab says what is missing: \(blastTabText(of: taxonomy))")
     }
 
@@ -162,7 +162,7 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
         taxonomy.beginBlastVerification(for: node) // what Run in the popover does first
         taxonomy.onBlastVerification?(node, 10)
 
-        let start = "BLAST Matching Reads could not start because LGE could not read this sample's classification record: "
+        let start = "Verify with BLAST could not start because LGE could not read this sample's classification record: "
         let end = ". Run the classification again to rebuild it."
         assertBlastRefused(by: taxonomy, before: before, startingWith: start)
         let words = try XCTUnwrap(blastTabText(of: taxonomy).first { $0.hasPrefix(start) })

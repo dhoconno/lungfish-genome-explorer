@@ -176,7 +176,7 @@ extension ViewerViewController {
             // that say which record is the problem (ARCH Backlog B12).
             guard let sampleDirectory = kraken2SampleResultDirectory(resultURL: resultURL, controller: controller, node: node) else {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
-                let words = "BLAST Matching Reads could not start because LGE could not find this sample's classification record. "
+                let words = "Verify with BLAST could not start because LGE could not find this sample's classification record. "
                     + "Run the classification again to rebuild it."
                 controller.showBlastFailure(message: words, runID: controller.currentBlastRunID)
                 showBlastVerificationErrorAlert(words)
@@ -189,7 +189,7 @@ extension ViewerViewController {
                 taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 var reason = error.localizedDescription
                 if reason.hasSuffix(".") { reason.removeLast() }
-                let words = "BLAST Matching Reads could not start because LGE could not read this sample's classification record: "
+                let words = "Verify with BLAST could not start because LGE could not read this sample's classification record: "
                     + "\(reason). Run the classification again to rebuild it."
                 controller.showBlastFailure(message: words, runID: controller.currentBlastRunID)
                 showBlastVerificationErrorAlert(words)

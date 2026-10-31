@@ -156,7 +156,12 @@ final class ClassifierExtractionRefusedEstimateTests: XCTestCase {
         let model = ClassifierExtractionDialogViewModel(tool: .esviritu, selectionCount: 1, suggestedName: "reads")
         let error = ClassifierExtractionError.kraken2OutputMissing(URL(fileURLWithPath: "/work/classification.kraken"))
         model.applyEstimateFailure(error)
-        XCTAssertEqual(model.errorMessage, "Could not estimate read count: " + (try words(error)))
+        let said = try words(error)
+        XCTAssertEqual(
+            model.errorMessage,
+            "LGE could not count the reads for this selection. \(said.hasSuffix(".") ? said : said + ".") "
+                + "Cancel, then choose Extract Reads again."
+        )
         XCTAssertTrue(model.isPrimaryEnabled)
         XCTAssertFalse(model.showsReadEstimate)
         XCTAssertEqual(model.errorLineLimit, 3)

@@ -89,7 +89,7 @@ final class ClassifierExtractionDialogViewModel {
     // MARK: - Estimate failure
 
     /// Records a failed pre-flight estimate. The three BAM refusals show their words as they are, and every other
-    /// failure keeps the `Could not estimate read count` prefix and leaves Extract on, since the run may still work.
+    /// failure leads with the words of UX-3E-LABELS R16 and leaves Extract on, since the run may still work.
     func applyEstimateFailure(_ error: Error) {
         estimatedReadCount = 0
         estimateFailed = true
@@ -98,7 +98,7 @@ final class ClassifierExtractionDialogViewModel {
             errorMessage = refusal.errorDescription
         } else {
             estimateRefusalBlocksExtraction = false
-            errorMessage = "Could not estimate read count: \(error.localizedDescription)"
+            errorMessage = ClassifierActionWords.readCountFailed(error.localizedDescription)
         }
     }
 

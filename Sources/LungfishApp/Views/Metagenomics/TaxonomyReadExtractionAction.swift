@@ -93,11 +93,11 @@ public final class TaxonomyReadExtractionAction {
         }
         #endif
 
-        // AppKit only supports one sheet per window at a time, so if the host
-        // already has a sheet attached, drop this request silently. The user
-        // can retry once the current dialog closes.
+        // AppKit only supports one sheet per window at a time, so a request while a sheet is up only beeps. The
+        // open sheet is in view, and the user can retry once it closes (UX-3E-LABELS R17).
         if hostWindow.attachedSheet != nil {
             logger.info("Dropping present() — host window already has an attached sheet")
+            NSSound.beep()
             return
         }
 
@@ -373,7 +373,7 @@ public final class TaxonomyReadExtractionAction {
         }
     }
 
-    /// Presents an "Extraction Failed" alert sheet on `hostWindow`.
+    /// Presents the alert titled "The reads could not be extracted." on `hostWindow` (UX-3E-LABELS R15).
     ///
     /// Extracted into its own `@MainActor` helper so the failure path in
     /// `startExtraction` doesn't need to spawn a nested main-actor task from
@@ -381,8 +381,8 @@ public final class TaxonomyReadExtractionAction {
     @MainActor
     private func presentErrorAlert(_ errorDesc: String, on hostWindow: NSWindow) async {
         let alert = NSAlert()
-        alert.messageText = "Extraction Failed"
-        alert.informativeText = errorDesc
+        alert.messageText = ClassifierActionWords.extractionFailedTitle
+        alert.informativeText = ClassifierActionWords.extractionFailedText(errorDesc)
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         _ = await alertPresenter.present(alert, on: hostWindow)
