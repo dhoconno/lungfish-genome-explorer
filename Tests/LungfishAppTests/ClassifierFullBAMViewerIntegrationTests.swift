@@ -218,7 +218,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
         let paths = [
             "Sources/LungfishEsVirituUI/EsVirituSurface.swift",
             "Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxTriage.swift",
-            "Sources/LungfishApp/Views/Viewer/ViewerViewController+Nvd.swift",
+            "Sources/LungfishNvdUI/NvdSurface.swift",
         ]
         for path in paths {
             let source = try readRepositorySource(atPath: path)
