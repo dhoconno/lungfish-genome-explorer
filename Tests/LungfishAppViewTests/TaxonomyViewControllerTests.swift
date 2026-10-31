@@ -1508,7 +1508,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         )
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
-        viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
+        try viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
 
         XCTAssertNotNil(
             viewerVC.taxTriageViewController?.onBlastVerification,
@@ -1572,7 +1572,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         )
         let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
 
-        viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
+        try viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
 
         let controller = try XCTUnwrap(viewerVC.taxTriageViewController)
         let action = TaxonomyReadExtractionAction.shared

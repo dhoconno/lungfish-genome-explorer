@@ -44,13 +44,11 @@ extension ViewSwitchDeclaredLeaks {
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("TaxTriage", to: ["12S", "Reference", "Genotype"], "INSPECTOR-BLOCK-OWNER, NET-DOCUMENT-STAYS", [
+        leak("TaxTriage", to: ["12S", "Reference", "Genotype"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: batchOperation=TaxTriage",
         ]),
-        leak("12S", to: ["Genotype"], "INSPECTOR-BLOCK-OWNER, NET-DOCUMENT-STAYS", [
+        leak("12S", to: ["Genotype"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: batchOperation=TaxTriage",
         ]),
         leak("NAO-MGS", to: ["Assembly"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -61,9 +59,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("TaxTriage", to: ["Assembly", "FASTQ", "MHC reference", "Tree", "FASTA document", "Status only"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: batchOperation=TaxTriage",
-        ]),
         leak("CZ ID", to: ["Tree"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
@@ -73,10 +68,9 @@ extension ViewSwitchDeclaredLeaks {
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("TaxTriage", to: ["MSA"], "NET-MHC-HOST-STAYS, INSPECTOR-BLOCK-OWNER", [
+        leak("TaxTriage", to: ["MSA"], "NET-MHC-HOST-STAYS", [
             "+ viewports: NSHostingController<MHCReferenceBundleViewport>, MultipleSequenceAlignmentViewController",
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "+ inspector: batchOperation=TaxTriage",
             "- viewports: MultipleSequenceAlignmentViewController",
         ]),
         leak("NAO-MGS", to: ["Tree"], "NET-MHC-HOST-STAYS", [
@@ -116,12 +110,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "- viewports: none",
         ]),
-        leak("TaxTriage", to: ["Primer analysis"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: batchOperation=TaxTriage",
-        ]),
-        leak("TaxTriage", to: ["Primer order"], "INSPECTOR-BLOCK-OWNER", [
-            "+ inspector: batchOperation=TaxTriage",
-        ]),
         // smaller after NVDV's reset (manager ruling 15:56)
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
@@ -159,7 +147,6 @@ extension ViewSwitchDeclaredLeaks {
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("TaxTriage", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ inspector: batchOperation=TaxTriage",
             "+ provenance: taxTriageResult ../k03-taxtriage/Analyses/taxtriage-2026-01-15T12-30-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: panelLayout, operationDetails=TaxTriage",

@@ -20,7 +20,6 @@ extension ViewerViewController {
     /// for the menu title and the button state.
     var isActiveDrawerOpen: Bool {
         if let viewport = installedSurface { return viewport.isDrawerOpen }
-        if let taxTriageVC = taxTriageViewController { return taxTriageVC.isBlastDrawerOpen }
         if let taxVC = taxonomyViewController { return taxVC.isTaxaCollectionsDrawerOpen }
         if isDisplayingFASTQDataset { return isFASTQMetadataDrawerOpen }
         if let msa = multipleSequenceAlignmentViewController { return msa.isBottomPaneOpen }

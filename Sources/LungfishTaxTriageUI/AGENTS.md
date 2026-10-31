@@ -18,6 +18,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Batch table | `BatchTaxTriageTableView`, Sources/LungfishTaxTriageUI/BatchTaxTriageTableView.swift line 40 |
 | Row commands for menus and accessibility | Sources/LungfishTaxTriageUI/TaxTriageRowCommands.swift |
 | Batch export | `TaxTriageBatchExporter`, Sources/LungfishWorkflow/ViewerExport/TaxTriageBatchExporter.swift line 18 |
+| `TaxTriageSurface`, the ViewportHost surface the App registers for `.analysis(.taxtriage)`, whose drawer is the BLAST results drawer | Sources/LungfishTaxTriageUI/TaxTriageSurface.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxTriage.swift |
 
 ## Contracts this module owns

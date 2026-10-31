@@ -69,12 +69,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
-        // When TaxTriage is active, toggle its BLAST results drawer.
-        if let taxTriageVC = taxTriageViewController {
-            taxTriageVC.toggleBlastDrawer()
-            return
-        }
-
         // A native bundle viewport has no annotations for the parent drawer to
         // show. The MSA toggles its own bottom pane instead (ruling U2).
         if isNativeBundleViewportInstalled {

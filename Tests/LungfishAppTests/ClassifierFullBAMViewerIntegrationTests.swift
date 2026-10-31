@@ -217,7 +217,7 @@ final class ClassifierFullBAMViewerIntegrationTests: XCTestCase {
     func testAllClassifierHostHidePathsClearTheirLeafEvidence() throws {
         let paths = [
             "Sources/LungfishEsVirituUI/EsVirituSurface.swift",
-            "Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxTriage.swift",
+            "Sources/LungfishTaxTriageUI/TaxTriageSurface.swift",
             "Sources/LungfishNvdUI/NvdSurface.swift",
         ]
         for path in paths {

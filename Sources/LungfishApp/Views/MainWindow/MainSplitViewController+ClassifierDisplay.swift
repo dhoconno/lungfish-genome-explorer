@@ -487,31 +487,34 @@ extension MainSplitViewController {
         } else if tool == .taxtriage {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
-            let existingDB = FileManager.default.fileExists(atPath: dbURL.path)
-                ? try? TaxTriageDatabase(at: dbURL)
-                : nil
+            let existingDB = FileManager.default.fileExists(atPath: dbURL.path) ? try? TaxTriageDatabase(at: dbURL) : nil
             // Databases built before organism-report (.odr.txt) parsing hold only
             // Kraken counts and TASS 0. Rebuild those once per session; if the
             // rebuild does not clear the flag, fall through and show what exists.
             if let existingDB,
                existingDB.isStale(forResultDirectory: batchURL),
                TaxTriageStaleDatabaseRebuilds.shouldAttempt(for: dbURL) {
-                mainSplitLogger.info(
-                    "displayBatchGroup: Rebuilding stale TaxTriage database for '\(dirName, privacy: .public)'"
-                )
+                mainSplitLogger.info("displayBatchGroup: Rebuilding stale TaxTriage database for '\(dirName, privacy: .public)'")
                 showDatabaseBuildPlaceholder(tool: .taxtriage, resultURL: batchURL)
                 return
             }
             if let db = existingDB {
-                viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL)
+                // Its viewer takes only a TaxTriage block out of the Summary when it leaves.
+                do {
+                    try viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL) { [weak self] in
+                        guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
+                              summary.batchOperationTool == "TaxTriage" else { return }
+                        summary.showResultBlock(nil)
+                    }
+                } catch {
+                    mainSplitLogger.error("displayBatchGroup: TaxTriage not shown - \(error.localizedDescription, privacy: .public)")
+                    viewerController.clearViewport(statusMessage: "Unable to open the TaxTriage result. Select it again.")
+                    return
+                }
                 if let ttVC = viewerController.taxTriageViewController {
                     self.installClassifierMetadataPresentation(
-                        resultURL: batchURL,
-                        pickerState: ttVC.samplePickerState,
-                        entries: ttVC.sampleEntries,
-                        strippedPrefix: ttVC.strippedPrefix,
-                        workflowName: "TaxTriage",
-                        consumer: ttVC
+                        resultURL: batchURL, pickerState: ttVC.samplePickerState, entries: ttVC.sampleEntries,
+                        strippedPrefix: ttVC.strippedPrefix, workflowName: "TaxTriage", consumer: ttVC
                     )
                 }
             } else {
@@ -565,10 +568,7 @@ extension MainSplitViewController {
             }
 
             self.inspectorController?.updateBatchOperationDetails(
-                tool: "TaxTriage",
-                parameters: taxTriageParams,
-                timestamp: taxTriageTimestamp,
-                sourceSamples: taxTriageSamples
+                tool: "TaxTriage", parameters: taxTriageParams, timestamp: taxTriageTimestamp, sourceSamples: taxTriageSamples
             )
             if let taxTriageVC = viewerController.taxTriageViewController {
                 self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus =

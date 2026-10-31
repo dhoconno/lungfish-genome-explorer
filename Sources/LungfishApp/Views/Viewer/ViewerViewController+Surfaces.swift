@@ -8,6 +8,7 @@ import LungfishKit
 import LungfishNaoMgsUI
 import LungfishEsVirituUI
 import LungfishNvdUI
+import LungfishTaxTriageUI
 import LungfishTwelveSUI
 
 extension ViewerViewController {
@@ -21,6 +22,7 @@ extension ViewerViewController {
         registry.register(.analysis(.naomgs), factory: NaoMgsSurface.factory())
         registry.register(.analysis(.esviritu), factory: EsVirituSurface.factory())
         registry.register(.analysis(.nvd), factory: NvdSurface.factory())
+        registry.register(.analysis(.taxtriage), factory: TaxTriageSurface.factory())
         return registry
     }
 

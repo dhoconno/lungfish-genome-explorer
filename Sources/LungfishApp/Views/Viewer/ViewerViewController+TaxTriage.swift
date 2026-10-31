@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // This extension adds TaxTriage clinical triage result display to ViewerViewController,
-// following the same child-VC pattern as displayEsVirituResult / displayTaxonomyResult.
+// which shows the result through the viewer's surface host (TaxTriageSurface).
 
 import AppKit
 import LungfishCore
@@ -22,16 +22,25 @@ private let taxTriageLogger = Logger(subsystem: "com.lungfish.app", category: "V
 
 extension ViewerViewController {
 
-    /// Displays the TaxTriage clinical triage browser backed by a pre-built SQLite database.
-    ///
-    /// Creates a ``TaxTriageResultViewController``, adds it as a child filling the content area,
-    /// and calls ``TaxTriageResultViewController/configureFromDatabase(_:)`` to load rows
-    /// directly from the database rather than parsing per-sample files.
+    /// The installed TaxTriage result viewer, read from the surface host.
+    var taxTriageViewController: TaxTriageResultViewController? {
+        (installedSurface as? TaxTriageSurface)?.controller
+    }
+
+    /// Shows the TaxTriage clinical triage browser backed by `db` through the surface host,
+    /// in place of the normal sequence viewer, and returns once it is installed, or throws
+    /// the reason it is not. The browser is configured from the database before the host
+    /// adds it. `onWillDeactivate` runs whenever the host later removes this viewer,
+    /// another TaxTriage result's show included.
     ///
     /// - Parameters:
     ///   - db: The opened TaxTriage SQLite database.
     ///   - resultURL: The batch result root directory (used for display context).
-    func displayTaxTriageFromDatabase(db: TaxTriageDatabase, resultURL: URL) {
+    func displayTaxTriageFromDatabase(
+        db: TaxTriageDatabase,
+        resultURL: URL,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -54,14 +63,9 @@ extension ViewerViewController {
             }
             return split.makeClassifierAlignmentEvidenceViewport()
         }
-        addChild(controller)
-
-        annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-
-        // Force loadView() so all subviews exist, then configure BEFORE adding
-        // to the view hierarchy to avoid a one-frame bounce.
-        let ttView = controller.view
+        // Load the view and configure it before the host adds it to the view
+        // hierarchy, which avoids a one-frame bounce.
+        _ = controller.view
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for TaxTriage.
@@ -87,23 +91,12 @@ extension ViewerViewController {
         controller.resultActions.onExtractionRequested = { [weak controller] request in
             controller?.presentClassifierExtractionDialog(request)
         }
-        ttView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(ttView)
 
-        NSLayoutConstraint.activate([
-            ttView.topAnchor.constraint(equalTo: view.topAnchor),
-            ttView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            ttView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ttView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        taxTriageViewController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        let surface = try showSurface(.analysis(.taxtriage), input: controller, as: TaxTriageSurface.self)
+        surface.onWillDeactivate = onWillDeactivate
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        annotationDrawerView?.isHidden = true
+        fastqMetadataDrawerView?.isHidden = true
 
         taxTriageLogger.info("displayTaxTriageFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }
@@ -258,22 +251,10 @@ extension ViewerViewController {
         return result
     }
 
-    /// Removes the TaxTriage result browser and restores normal viewer components.
+    /// Hides the TaxTriage result viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     public func hideTaxTriageView() {
-        guard let controller = taxTriageViewController else { return }
-        controller.clearClassifierAlignmentEvidence()
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        taxTriageViewController = nil
-
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.taxtriage))
     }
 }
 
