@@ -1,5 +1,7 @@
 # UX ruling: reference sequences left out of a mapping result (Q-B2)
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort: Opus 5.5 (opus), effort max. Field UX, letter U. Code read at `65539ddcd2fbe756390d0890cda0b5181e77ffc0`, read only. Every `:line` without a file name is in `Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift`.
 
 ## 1. Ruling

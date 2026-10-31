@@ -1,5 +1,7 @@
 Verdict: Merge after fixes
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Reviewer. `lge-expert`, the UI and UX expert of the panel (field UX, letter U), ran at sonnet (Sonnet 5.5) at effort max.
 
 Lane UB, head `2fcf513b3ecf11b4ea4dc732bdf3c6e91c0d464b`, base `65539ddcd2fbe756390d0890cda0b5181e77ffc0`. Every `path:line` is at the lane head. Checks carried. UX 1, UX 5, UX 6, UX 7, SWIFT 2, ARCH 6, QA 1, QA 2.

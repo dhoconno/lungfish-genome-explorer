@@ -1,5 +1,7 @@
 # Landing 3 report. Lanes P1, P2, P5 and P4 and the owner's two commits onto the program branch
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort. `lge-worker` on sonnet (Claude Sonnet 5.5), effort max.
 
 | Item | Value |

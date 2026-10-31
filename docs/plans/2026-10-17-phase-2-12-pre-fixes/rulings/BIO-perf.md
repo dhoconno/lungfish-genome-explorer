@@ -1,5 +1,7 @@
 # BIO ruling: zero-read references and per-sequence records (pre-2.12 fixes)
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort: opus, effort max (agent type lge-expert, field BIO, letter B).
 
 Code: every `path:line` is at `65539ddcd2fbe756390d0890cda0b5181e77ffc0`, the commit the coordinator moved the program worktree to during this task. I read the code at `c59241ace` first and checked the move with `git diff --stat c59241ace 65539ddcd`. Of the files cited here, six source files changed (`AppDelegate.swift`, `AppDelegate+ManagedMapping.swift`, `ConvertCommand.swift`, `BAMImportService.swift`, `BundleBuildHelpers.swift`, `NativeBundleBuilder.swift`), plus `Tests/Fixtures/golden/README.md` and `docs/contracts/EXPERT-PANEL.md`. I found their cited lines again with `git grep -n` at 65539ddcd. The golden mapping fixtures, `scripts/golden/captures.py`, `docs/contracts/READ-PAIRING.md` and `docs/formats/reference-bundle.md` did not change.

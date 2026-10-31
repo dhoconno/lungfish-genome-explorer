@@ -1,5 +1,7 @@
 # Lane UA fix report. Fixes 1 to 4, 6 and 7 of the UA review
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 | Field | Value |
 |---|---|
 | Model and effort | lge-worker on sonnet (Sonnet 5.5), effort max |

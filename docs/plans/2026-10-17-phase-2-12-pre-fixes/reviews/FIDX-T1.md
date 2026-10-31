@@ -1,4 +1,7 @@
 Verdict: Merge
+
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites it; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Section 1. FIDX and FIDX-2, bd6923426dddcca80bc5d5813ec5c686a05c5b7a..7b6e696991b7175f190d8a15277d5896b960297c (FIDX head ab8b71d02565e3c971d093b2c49cc54396f8fde4).
 
 Reviewer. lge-expert, field SWIFT (letter S), on sonnet (claude-sonnet-5-5) at effort max. Checks carried: SWIFT 1, 2, 5, 7, ARCH 6, QA 1, 2, 6. I read the review brief, `briefs/lane-FIDX.md`, ruling `SWIFT-fai.md` section 4.7, the FIDX, FIDX-2, P2-fix, P6 and T1 reports, both diffs and the touched code with git show at 7b6e69699. I built and ran nothing and started no agent. About 76 tool calls. Every `path:line` is at 7b6e69699 unless it names another commit.

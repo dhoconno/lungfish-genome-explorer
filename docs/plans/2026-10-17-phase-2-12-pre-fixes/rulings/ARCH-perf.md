@@ -1,5 +1,7 @@
 # ARCH ruling: large-reference fixes (pre-2.12)
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort: opus, effort max (agent type lge-expert, field ARCH, letter A).
 
 Code: worktree `laptop-golden-runner-setup-e5434b`. The coordinator moved it from `c59241ace` to `65539ddcd2fbe756390d0890cda0b5181e77ffc0` during this task, and every `path:line` below is at `65539ddcd`. I checked the move with `git diff --name-only` over every file cited here. `BuildDbCommand+Provenance.swift`, `NativeBundleBuilder.swift`, `BAMImportService.swift`, `MappingViewerBundlePublicationService.swift`, `ImportCommand+FASTA.swift`, `EXPERT-PANEL.md`, `RECORDING-PROVENANCE.md`, `EXTERNAL-VOLUMES.md` and `scripts/ratchets/file-size.baseline` changed, and I read their cited lines again at `65539ddcd`. The coordinator's list of changed files left out the three mapping and import sources, so SWIFT's C3 lines moved (section 6). Data: project 32616 on `/Volumes/corella_geneious`, by `ls` only, on 2026-10-17. Of BIO's ruling I read sections 1, 2.4 and 7 only, as the coordinator asked.

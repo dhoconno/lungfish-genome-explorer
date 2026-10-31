@@ -1,5 +1,7 @@
 # SWIFT ruling: the per-fetch `.fai` parse and the linear name scan (C5, Q-A1)
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort: lge-expert on opus (Opus 5.5), effort max. Seat SWIFT, letter S.
 Code read at `65539ddcd2fbe756390d0890cda0b5181e77ffc0`. Every `path:line` below is at that commit. SCR = `/Users/dho/Documents/lungfish-branch-archive/pre-2-12-fixes`.
 

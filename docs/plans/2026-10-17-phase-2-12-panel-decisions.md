@@ -1,5 +1,7 @@
 # Panel decisions for 2.12, 2.13 and Phase 3 (2026-10-17)
 
+Status: active. Kept because Tests/LungfishCLITests/PrimerDesignProjectOptionTests.swift cites it; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 The briefs, the five inventories `inv/<FIELD>.md` and the five memos `memos/<FIELD>.md` that this table cites are kept in
 `~/lungfish-phase-records/phase-2-11/p3plan/`. The plan they decide is `471167711:docs/plans/2026-10-17-phase-2-12.md` beside this file.
 

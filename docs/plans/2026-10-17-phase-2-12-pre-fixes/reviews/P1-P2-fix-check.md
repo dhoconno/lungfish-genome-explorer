@@ -1,4 +1,7 @@
 Verdict: Merge
+
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Section 1. P1 fix e9f6097ed552ad91abe744290427f95323ef665d..71b512b5ba72b3db1a5d596e2868fb808421f626, answering reviews/P1.md fixes 1, 2, 3, 5 and 6.
 
 Reviewer. lge-expert, field SWIFT (letter S), on sonnet (claude-sonnet-5-5) at effort max. One agent wrote both sections. I read the two review files, the two fix reports and the two diffs, then the touched files with git show at each fix head. I built and ran nothing and started no agent. About 60 tool calls. Every `path:line` is at the head named in its section, and the few lines in test files that I derived from a diff hunk header are marked "per the hunk".

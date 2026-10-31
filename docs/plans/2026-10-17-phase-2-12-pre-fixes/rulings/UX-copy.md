@@ -1,5 +1,7 @@
 # UX ruling on Copy Name, the Inspector step overdraw and step copy
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Ran as lge-expert on opus (Opus 5.5) at effort max, the UI and UX expert of the panel, field UX, letter U, for the
 pre-2.12 fix session. Code read at `c59241aceb2cbedde51482212ccc67928e4e9a45` in the
 `laptop-golden-runner-setup-e5434b` worktree on 2026-10-17. Every `path:line` is at that commit. The brief is

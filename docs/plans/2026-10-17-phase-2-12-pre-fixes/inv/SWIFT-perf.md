@@ -1,5 +1,7 @@
 # SWIFT inventory: large-reference load stalls (pre-2.12)
 
+Status: active. Kept because Tests/LungfishAppTests/ReferenceCopySequencesPreparedBundleTests.swift cites a file of this folder; delete it once a code lane moves that citation (backlog PLAN-CITATIONS-IN-CODE).
+
 Model and effort: opus, effort max (agent type lge-expert, field SWIFT, letter S).
 
 Code: worktree `laptop-golden-runner-setup-e5434b` at `c59241aceb2cbedde51482212ccc67928e4e9a45`, read only. Every `path:line` below is at that commit. Data: R and M as the brief names them, read only. Measured on 2026-10-17 between 18:56 and 19:10 on this laptop (M4 Pro, 14 cores, 48 GB). The measurement script is `inv/measure_open_costs.swift`.
