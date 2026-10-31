@@ -352,7 +352,7 @@ extension AppDelegate {
         switch (launch.tool, launch.isBatch) {
         case (.kraken2, false):
             if let result = completion.taxonomyResult {
-                viewerController.displayTaxonomyResult(result)
+                viewerController.displayTaxonomyResult(result, onWillDeactivate: kraken2BlockReset(split?.inspectorController))
                 showKraken2OperationDetails(ofResultAt: completion.folder, in: split?.inspectorController)
                 if launch.extractsReads, let folder = completion.folder {
                     presentReadExtraction(for: result, folder: folder, viewerController: viewerController, routeContext: routeContext)
@@ -364,7 +364,7 @@ extension AppDelegate {
             }
         case (.kraken2, true):
             if let result = completion.taxonomyResult {
-                viewerController.displayTaxonomyResult(result)
+                viewerController.displayTaxonomyResult(result, onWillDeactivate: kraken2BlockReset(split?.inspectorController))
                 // The viewport shows the first sample, so the Summary describes that sample's result.
                 showKraken2OperationDetails(ofResultAt: firstSampleFolder(of: completion.folder), in: split?.inspectorController)
             }
@@ -374,6 +374,16 @@ extension AppDelegate {
             // TaxTriage route, which wrote its sidecars and run history here and the CLI route
             // does not (UX F4, R1).
             sidebar?.requestReloadFromFilesystem()
+        }
+    }
+
+    /// What the Kraken2 viewer a run shows does when it leaves: it takes a Summary block named Kraken2 out, and no
+    /// other, as the viewer a sidebar click shows does (`displayBatchGroup`, lane K2).
+    private static func kraken2BlockReset(_ inspector: InspectorViewController?) -> @MainActor () -> Void {
+        { [weak inspector] in
+            guard let summary = inspector?.viewModel.documentSectionViewModel,
+                  summary.batchOperationTool == "Kraken2" else { return }
+            summary.showResultBlock(nil)
         }
     }
 
