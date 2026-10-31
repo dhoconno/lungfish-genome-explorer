@@ -415,7 +415,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
     private let organismTableView = TaxTriageOrganismTableView()
     private let batchOverviewView = TaxTriageBatchOverviewView()
-    let actionBar = ClassifierActionBar()
+    /// The shared classifier actions (lane 3E): the bar, BLAST Results, the BLAST results pane and the extraction hand-off.
+    public let resultActions = ClassifierResultActions()
+    var actionBar: ClassifierActionBar { resultActions.bar }
 
     // MARK: - Custom Action Bar Buttons
 
@@ -431,7 +433,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return btn
     }()
 
-    private let blastDrawer = BlastResultsDrawerTab()
+    private var blastDrawer: BlastResultsDrawerTab { resultActions.blastDrawer }
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
@@ -449,10 +451,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 #endif
 
     /// Whether the BLAST results drawer is currently visible.
-    public private(set) var isBlastDrawerOpen = false
+    public var isBlastDrawerOpen: Bool { resultActions.isBlastDrawerOpen }
 
     /// The most recent BLAST verification result, if any.
-    public private(set) var lastBlastResult: BlastVerificationResult?
+    public var lastBlastResult: BlastVerificationResult? { resultActions.lastBlastResult }
 
     // MARK: - Inspector Sample Picker
 
@@ -518,11 +520,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Called when the user wants to re-run TaxTriage with the same or different settings.
     public var onReRun: (() -> Void)?
-
-    /// Invoked when the user requests read extraction. The App host wires this to
-    /// presentClassifierExtractionDialog; kept as a callback so this VC has no
-    /// dependency on the App-internal extraction/operation pipeline.
-    public var onExtractReadsRequested: (@MainActor (ClassifierTool, URL, [ClassifierRowSelector], String) -> Void)?
 
     // MARK: - Lifecycle
 
@@ -1900,6 +1897,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         blastDrawer.translatesAutoresizingMaskIntoConstraints = false
         blastDrawer.isHidden = true
         view.addSubview(blastDrawer)
+        resultActions.onBlastDrawerOpenChanged = { [weak self] open in self?.animateBlastDrawer(open: open) }
 
         blastDrawer.onRerunBlast = { [weak self] in
             guard let self, let result = self.lastBlastResult else { return }
@@ -1921,48 +1919,35 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Shows BLAST verification results in the bottom drawer, opening it if needed.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        lastBlastResult = result
-        blastDrawer.showResults(result, recordURL: recordURL)
-        if !isBlastDrawerOpen {
-            toggleBlastDrawer()
-        }
+        resultActions.showBlastResults(result, recordURL: recordURL)
     }
 
     /// Shows BLAST loading state in the bottom drawer.
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        blastDrawer.showLoading(phase: phase, requestId: requestId)
-        if !isBlastDrawerOpen {
-            toggleBlastDrawer()
-        }
+        resultActions.showBlastLoading(phase: phase, requestId: requestId)
     }
 
     /// Shows BLAST failure state in the bottom drawer.
     public func showBlastFailure(_ message: String) {
-        blastDrawer.showFailure(message: message)
-        if !isBlastDrawerOpen {
-            toggleBlastDrawer()
-        }
+        resultActions.showBlastFailure(message)
     }
 
-    /// Toggles the BLAST results drawer open or closed with animation.
+    /// Toggles the BLAST results drawer open or closed, as the bar's BLAST Results button does.
     public func toggleBlastDrawer() {
-        let drawerHeight: CGFloat = 250
-        let targetHeight: CGFloat = isBlastDrawerOpen ? 0 : drawerHeight
+        resultActions.toggleBlastResults()
+    }
 
+    /// Opens or closes the drawer's space with animation. The shared actions keep the open state.
+    private func animateBlastDrawer(open: Bool) {
         blastDrawer.isHidden = false
-        blastDrawerHeightConstraint?.constant = targetHeight
-
+        blastDrawerHeightConstraint?.constant = open ? 250 : 0
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
             self.view.layoutSubtreeIfNeeded()
         }
-
-        isBlastDrawerOpen = !isBlastDrawerOpen
-        if !isBlastDrawerOpen {
-            blastDrawer.isHidden = true
-        }
+        if !open { blastDrawer.isHidden = true }
     }
 
     // MARK: - Setup: Batch Flat Table View
@@ -2043,9 +2028,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
-            self.actionBar.updateInfoText("1 row selected")
-            self.actionBar.setBlastEnabled(true)
-            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
+            self.resultActions.showSelection(count: 1, extractable: self.hasExtractableResultPath)
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
 
@@ -2073,9 +2056,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
             guard let self else { return }
-            self.actionBar.updateInfoText("\(rows.count) rows selected")
-            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
+            self.resultActions.showSelection(count: rows.count, extractable: self.hasExtractableResultPath)
             self.showMultiSelectionPlaceholder(count: rows.count)
             // Hide the left pane when multiple rows are selected — the
             // miniBAM viewer can only show one organism at a time.
@@ -2083,8 +2064,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
-            self.actionBar.updateInfoText("Select an organism to view details")
-            self.actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
+            self.resultActions.showNoSelection(prompt: "Select an organism to view details")
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = nil
             self.alignmentEvidenceViewer?.clear()
@@ -2540,11 +2520,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             multiSelectionPlaceholder.isHidden = true
             collapseMiniBAMDetailPane()
             reconfigureDatabaseOverviewGrid()
-            actionBar.updateInfoText(
-                "Organism overview of \(selectedDatabaseSampleIds.count) samples. Double-click a sample value to open that sample."
+            resultActions.showSeveralSamples(
+                info: "Organism overview of \(selectedDatabaseSampleIds.count) samples. Double-click a sample value to open that sample."
             )
-            actionBar.setBlastEnabled(false, reason: "Choose one sample to use BLAST Verify")
-            actionBar.setExtractEnabled(false)
             return
         }
 
@@ -2561,8 +2539,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                   }) {
             batchFlatTableView.selectDisplayedRowForContextMenuIfNeeded(index)
         } else {
-            actionBar.updateInfoText("\(selection.count) rows selected")
-            actionBar.setExtractEnabled(hasExtractableResultPath)
+            resultActions.showSelection(count: selection.count, extractable: hasExtractableResultPath)
         }
     }
 
@@ -2670,9 +2647,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismTableView.onMultipleRowsSelected = { [weak self] count in
             guard let self else { return }
             self.showMultiSelectionPlaceholder(count: count)
-            self.actionBar.updateInfoText("\(count) items selected")
-            self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
-            self.actionBar.setExtractEnabled(self.hasExtractableResultPath)
+            self.resultActions.showSelection(count: count, extractable: self.hasExtractableResultPath)
         }
 
         // Table selection -> action bar update + BAM viewer update
@@ -2850,7 +2825,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
 
-        actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
+        actionBar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
     }
 
     private func presentBlastConfigPopover(
@@ -2973,8 +2948,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    /// The row count and the left-out line of the current selection. The app reads it when it opens the dialog, in the
-    /// same main-actor turn as the selectors, so both come from one selection.
+    /// The row count and the left-out line of the current selection, the two that the extraction request carries to
+    /// the App's dialog with the selectors, so all three come from one selection.
     public var extractReadsSelectionSummary: ExtractReadsSelectionSummary {
         let plan = buildTaxTriageSelectors()
         return ExtractReadsSelectionSummary(
@@ -3013,7 +2988,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         let firstAccession = selectors.first?.accessions.first ?? "extract"
         let sid = selectors.first?.sampleId ?? "sample"
-        onExtractReadsRequested?(.taxtriage, resultPath, selectors, "taxtriage_\(sid)_\(firstAccession)")
+        resultActions.requestExtraction(ClassifierExtractionRequest(
+            tool: .taxtriage, resultPath: resultPath, selectors: selectors, suggestedName: "taxtriage_\(sid)_\(firstAccession)",
+            selectedRowCount: plan.selectedRowCount, leftOutNotice: Self.leftOutNotice(for: plan.rowsLeftOut)
+        ))
     }
 
     /// Rows are selected and every one lacks a reference accession in its own sample, so nothing can be extracted.
@@ -3140,18 +3118,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             formatter.numberStyle = .decimal
             formatter.groupingSeparator = ","
             let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            if let uniqueReadCount {
-                let uniqueStr = formatter.string(from: NSNumber(value: uniqueReadCount)) ?? "\(uniqueReadCount)"
-                actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads (\(uniqueStr) unique)")
-            } else {
-                actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads")
-            }
-            actionBar.setBlastEnabled(true)
-            actionBar.setExtractEnabled(hasExtractableResultPath)
+            let uniqueStr = uniqueReadCount.map { formatter.string(from: NSNumber(value: $0)) ?? "\($0)" }
+            resultActions.showSelection(
+                count: 1, info: "\(name) \u{2014} \(readStr) reads" + (uniqueStr.map { " (\($0) unique)" } ?? ""),
+                extractable: hasExtractableResultPath
+            )
         } else {
-            actionBar.updateInfoText("Select an organism to view details")
-            actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
-            actionBar.setExtractEnabled(false)
+            resultActions.showNoSelection(prompt: "Select an organism to view details")
         }
     }
 

@@ -582,7 +582,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = makeRecordedController(fixture, recorder: RecordingEvidenceViewer())
         var captured: [ClassifierRowSelector]?
-        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+        vc.resultActions.onExtractionRequested = { captured = $0.selectors }
 
         let rows = vc.testBatchFlatTableView.displayedRows
         let first = try XCTUnwrap(rows.firstIndex { $0.sample == "sample-1" && $0.organism == "Alpha virus" })
@@ -605,7 +605,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = makeRecordedController(fixture, recorder: RecordingEvidenceViewer())
         var captured: [ClassifierRowSelector]?
-        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+        vc.resultActions.onExtractionRequested = { captured = $0.selectors }
         let rows = vc.testBatchFlatTableView.displayedRows
         let picks = [("sample-1", "Alpha virus"), ("sample-1", "Beta virus"), ("sample-2", "Alpha virus")]
         let indexes = try picks.map { pick in try XCTUnwrap(rows.firstIndex { $0.sample == pick.0 && $0.organism == pick.1 }) }

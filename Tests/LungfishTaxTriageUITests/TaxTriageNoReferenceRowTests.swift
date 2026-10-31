@@ -59,7 +59,7 @@ final class TaxTriageNoReferenceRowTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = makeController(fixture)
         var sent: [[ClassifierRowSelector]] = []
-        vc.onExtractReadsRequested = { _, _, selectors, _ in sent.append(selectors) }
+        vc.resultActions.onExtractionRequested = { sent.append($0.selectors) }
         var notices: [String] = []
         vc.extractNoticePresenter = { title, _, _ in notices.append(title) }
 
@@ -84,7 +84,7 @@ final class TaxTriageNoReferenceRowTests: XCTestCase {
         defer { fixture.cleanUp() }
         let vc = makeController(fixture)
         var captured: [ClassifierRowSelector]?
-        vc.onExtractReadsRequested = { _, _, selectors, _ in captured = selectors }
+        vc.resultActions.onExtractionRequested = { captured = $0.selectors }
 
         try select([Self.withReference, Self.withoutReference], in: vc) { vc.testActionBar.extractButton.isEnabled }
         let summary = vc.extractReadsSelectionSummary

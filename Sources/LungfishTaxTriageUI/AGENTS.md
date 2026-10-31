@@ -34,7 +34,7 @@ Target LungfishTaxTriageUITests in Tests/LungfishTaxTriageUITests. Run only it w
 | Trap | Evidence |
 |---|---|
 | The view controller is 5,918 lines, too large to read whole | TaxTriageResultViewController.swift (R6) |
-| Private copies of the extraction dialog and BLAST display | `presentUnifiedExtractionDialog` at TaxTriageResultViewController.swift line 4045, `showBlastResults` at line 2818 (R14) |
+| The bar, the BLAST results pane and the extraction hand-off belong to the shared `ClassifierResultActions` (Phase 3.1 lane 3E, R14). The view keeps only its selectors in `presentUnifiedExtractionDialog`, and the App wires `resultActions.onExtractionRequested` | `Sources/LungfishKit/Classifiers/ClassifierResultActions.swift`, `Sources/LungfishApp/Views/Viewer/ViewerViewController+TaxTriage.swift` |
 | The pipeline builds its own Nextflow environment with no JAVA_HOME | Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift lines 1500 to 1562 (R7) |
 | A "Database build failed" overlay once persisted over another viewport, so every viewport switch clears transient state | Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift line 526 (memory file known-issues.md) |
 | Never retype the BLAST database name. Use `BlastDatabaseID.coreNT.rawValue` from LungfishCore | TaxTriageRowCommands.swift and TaxTriageResultViewController.swift (R2) |

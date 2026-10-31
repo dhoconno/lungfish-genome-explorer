@@ -67,13 +67,13 @@ extension ViewerViewController {
         // Wire BLAST verification callback for TaxTriage.
         controller.onBlastVerification = { [weak self, weak controller] organism, readCount, accessions, bamURL, bamIndexURL in
             guard let bamURL else {
-                controller?.showBlastFailure("BAM file not available for BLAST verification.")
+                controller?.showBlastFailure(ClassifierActionWords.alignmentFileMissing)
                 return
             }
 
             let orgAccessions = accessions ?? []
             guard !orgAccessions.isEmpty else {
-                controller?.showBlastFailure("No reference accessions available for BLAST verification.")
+                controller?.showBlastFailure(ClassifierActionWords.noReferenceAccession)
                 return
             }
 
@@ -83,14 +83,9 @@ extension ViewerViewController {
                 bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller
             )
         }
-        controller.onExtractReadsRequested = { [weak controller] tool, resultPath, selectors, suggestedName in
-            guard let controller else { return }
-            // The row count and the rows left out come from the selection the selectors were built from.
-            let summary = controller.extractReadsSelectionSummary
-            controller.presentClassifierExtractionDialog(
-                tool: tool, resultPath: resultPath, selectors: selectors, suggestedName: suggestedName,
-                selectedRowCount: summary.rowCount, leftOutNotice: summary.leftOutNotice
-            )
+        // The request carries the row count and the rows left out from the selection its selectors came from.
+        controller.resultActions.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
         }
         ttView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(ttView)

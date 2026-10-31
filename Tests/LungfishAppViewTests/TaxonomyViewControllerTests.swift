@@ -1568,10 +1568,13 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
             action.testingCapture = priorCapture
         }
         let selector = ClassifierRowSelector(sampleId: "S1", accessions: ["NC_123456.1"], taxIds: [])
-        controller.onExtractReadsRequested?(.taxtriage, dir, [selector], "taxtriage_S1_NC_123456.1")
+        controller.resultActions.onExtractionRequested?(ClassifierExtractionRequest(
+            tool: .taxtriage, resultPath: dir, selectors: [selector], suggestedName: "taxtriage_S1_NC_123456.1",
+            selectedRowCount: 2, leftOutNotice: "1 selected row is left out."
+        ))
 
         XCTAssertEqual(action.testingCapture.presentCount, 1)
-        let summary = controller.extractReadsSelectionSummary
+        let summary = (rowCount: 2, leftOutNotice: "1 selected row is left out.")
         XCTAssertEqual(
             action.testingCapture.lastContext?.selectedRowCount, summary.rowCount,
             "the viewer closure must pass the row count on, nil means it dropped the argument"

@@ -687,7 +687,7 @@ final class TaxTriageResultViewControllerSmokeTests: XCTestCase {
         _ = vc.view
 
         var extractionRequestCount = 0
-        vc.onExtractReadsRequested = { _, _, _, _ in
+        vc.resultActions.onExtractionRequested = { _ in
             extractionRequestCount += 1
         }
 
