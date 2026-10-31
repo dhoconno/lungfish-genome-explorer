@@ -14,6 +14,7 @@ import pwd
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -653,7 +654,16 @@ def argument_parser():
     return parser
 
 
+def unwind_on_termination():
+    """Turns SIGTERM and SIGHUP into KeyboardInterrupt. Python ends the process on either signal without unwinding
+    the guard's `with`, which leaves the account's Lungfish domains deleted, so a `kill` would strand them.
+    KeyboardInterrupt unwinds the `with`, and the guard waits for the candidate to quit and restores them."""
+    for number in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, signal.default_int_handler)
+
+
 def main():
+    unwind_on_termination()
     args = argument_parser().parse_args()
     try:
         run(args)
