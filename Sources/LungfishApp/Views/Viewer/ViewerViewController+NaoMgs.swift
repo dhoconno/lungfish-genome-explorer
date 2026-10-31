@@ -78,6 +78,11 @@ extension ViewerViewController {
     /// of 0, and records the taxon, the count, the seed and the samples of the
     /// reads it drew. `sourceResultURL` is the folder of the NAO-MGS result the reads came from, which the
     /// record names as its lineage. The search's folder still sits under `projectURL`, never in that result.
+    ///
+    /// The search covers all of `core_nt` and sends no Entrez filter, as the EsViritu, TaxTriage, Kraken 2 and NVD
+    /// routes do, so a read whose best match is another organism can count as contradicting the taxon (3.1
+    /// BLAST-SCOPE). The verdicts are judged against the taxon's tax ID, with its name beside it for a hit that
+    /// names no tax ID. A `taxId` of 0 or less names no tax ID, and the name alone judges.
     nonisolated static func naoMgsBlastSubmitPlan(
         taxonName: String,
         taxId: Int,
@@ -104,7 +109,7 @@ extension ViewerViewController {
             outputParentURL: projectURL, taxId: taxId,
             sample: samples.isEmpty ? nil : samples.joined(separator: ","),
             subsampleCount: subsampled.count, subsampleSeed: seed,
-            entrezQuery: "txid\(taxId)[Organism:exp]", date: date
+            acceptedTaxIds: taxId > 0 ? [taxId] : [], acceptedNames: [taxonName], date: date
         )
     }
 

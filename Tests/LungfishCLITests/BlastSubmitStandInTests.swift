@@ -9,7 +9,8 @@ import LungfishWorkflow
 import XCTest
 
 /// Phase 2.11 lane A65 M1 (plan decision C1, 2.10 decisions C5 and G5). The built CLI runs against
-/// a loopback stand-in of NCBI's BLAST CGI: it sends the bytes the NAO-MGS site sends today, saves
+/// a loopback stand-in of NCBI's BLAST CGI: it sends the bytes of a search with an Entrez filter and of the
+/// NAO-MGS taxon search, which has none since 3.1 BLAST-SCOPE, saves
 /// the result beside its query copy, and SIGTERM cancels it inside the 6-second grace with its run
 /// recorded as cancelled and no process left. `LUNGFISH_RECAPTURE_CLI_EVENTS=1` writes the leaf's
 /// transcripts under `Tests/Fixtures/cli-events/commands/blast-submit`.
@@ -73,7 +74,7 @@ final class BlastSubmitStandInTests: XCTestCase {
                 + "&EXPECT=1e-10&HITLIST_SIZE=5&MAX_NUM_SEQ=5&FORMAT_TYPE=JSON2&WORD_SIZE=28"
                 + "&TOOL=lungfish&EMAIL=lungfish-app%40users.noreply.github.com&MEGABLAST=on"
                 + "&ENTREZ_QUERY=txid11320%5BOrganism%3Aexp%5D",
-            "the leaf sends the bytes BlastSiteRequestBytesPinTests pins for blast-nao-mgs"
+            "the leaf adds the Entrez filter it is given as the last parameter of the Put body"
         )
         let record = try BlastSubmissionRecord.load(output.appendingPathComponent("blast-result.json"))
         XCTAssertEqual(record.lineage.sample, "S1")
@@ -96,6 +97,36 @@ final class BlastSubmitStandInTests: XCTestCase {
         let refused = try await Self.runVerify(cli, copy, signedBy: sidecar)
         XCTAssertNotEqual(refused.status, 0, "an edited copy still verifies")
         XCTAssertFalse(refused.stdoutText.contains("Signature valid"), refused.stdoutText)
+    }
+
+    /// 3.1 BLAST-SCOPE (BIO-NAOMGS-BLAST-SCOPE, S1). The NAO-MGS plan passes the taxon's tax ID and name and no
+    /// Entrez filter (`ViewerNaoMgsOperationTests` holds the plan's arguments). The leaf then sends no
+    /// `ENTREZ_QUERY`, so the search covers all of `core_nt`, and records the clade it judges the hits by.
+    func testTheLeafSearchesAllOfCoreNTAndRecordsTheCladeTheNaoMgsPlanPasses() async throws {
+        let cli = try XCTUnwrap(CLISIGTERMHarness.cliBinaryURL(for: Self.self), "build lungfish-cli first")
+        let server = try Self.standIn()
+        defer { server.stop() }
+        let output = scratch.appendingPathComponent("rotavirus", isDirectory: true)
+        let arguments = [
+            "blast", "submit", "--query", try writeQuery().path, "--output", output.path, "--name", "Rotavirus A",
+            "--taxid", "28875", "--accepted-taxid", "28875", "--accepted-name", "Rotavirus A",
+            "--source-result", scratch.path, "--sample", "S1", "--subsample-count", "2", "--format", "json",
+        ]
+        // A throwaway key signs the record, as in the test above.
+        let signing = ["LUNGFISH_PROVENANCE_SIGNING_KEY": "lane-blast-scope-throwaway-\(UUID().uuidString)"]
+        let result = try await ToolProcess.run(ToolProcessSpec(
+            executableURL: cli, arguments: arguments,
+            environment: CLISIGTERMHarness.childEnvironment(
+                overriding: signing.merging([Self.standInVariable: server.baseURL.absoluteString]) { $1 }),
+            timeout: .seconds(90)
+        ))
+        XCTAssertEqual(result.status, 0, result.stderrText)
+        let put = try XCTUnwrap(server.requests.first { $0.method == "POST" })
+        XCTAssertFalse(String(decoding: put.body, as: UTF8.self).contains("ENTREZ_QUERY"), "the search is not restricted")
+        let record = try BlastSubmissionRecord.load(output.appendingPathComponent("blast-result.json"))
+        XCTAssertNil(record.search.entrezQuery)
+        XCTAssertEqual(record.search.taxonomy.cladeTaxIds, [28875], "the leaf judges with the clade the plan passed")
+        XCTAssertEqual(record.search.taxonomy.cladeNames, ["Rotavirus A"])
     }
 
     /// `provenance verify` on `sidecar`, against the signature and public key of `signedBy` when given.

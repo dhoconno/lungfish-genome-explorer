@@ -12,10 +12,10 @@ import XCTest
 /// class of each site in M2 and M3 can hold the leaf to the same bytes. It passes at the base, where
 /// the sites still call the service in process.
 ///
-/// Each row builds the request with the parameters its site passes today. The sites differ only in
-/// the Entrez filter (NAO-MGS restricts the search to the taxon's subtree) and the label and taxon
-/// id, which reach the record and not the request. Every request goes to a recording client, so no
-/// test reaches NCBI.
+/// Each row builds the request with the parameters its site passes today. No site restricts the search
+/// with an Entrez filter, since NAO-MGS searches all of core_nt too (3.1 BLAST-SCOPE), so every row
+/// sends the same bytes. The sites differ in the label, the taxon id and the clade, which reach the
+/// record and not the request. Every request goes to a recording client, so no test reaches NCBI.
 final class BlastSiteRequestBytesPinTests: XCTestCase {
     /// Two reads in a fixed order, the query every row sends.
     static let reads: [(id: String, sequence: String)] = [
@@ -37,11 +37,12 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
         // (`TaxTriageOrganism.blastTaxonomyContext`, which lane 12.09 pins as the site passes it).
         let clade: Set<Int> = [11320]
         return [
-            // ViewerViewController+NaoMgs.swift, the request after the mixed subsample.
+            // ViewerViewController+NaoMgs.swift, the request after the mixed subsample. It searches all of core_nt
+            // and judges by the taxon's tax ID and name (3.1 BLAST-SCOPE), as `naoMgsBlastSubmitPlan` passes them.
             Site(gapID: "blast-nao-mgs", request: BlastVerificationRequest(
-                taxonName: "Influenza A virus", taxId: 11320, sequences: reads,
-                database: coreNT, entrezQuery: "txid11320[Organism:exp]"
-            ), encodedEntrezQuery: "txid11320%5BOrganism%3Aexp%5D"),
+                taxonName: "Influenza A virus", taxId: 11320, sequences: reads, database: coreNT, entrezQuery: nil,
+                acceptedTaxIds: [11320], acceptedTaxonNames: ["Influenza A virus"]
+            ), encodedEntrezQuery: nil),
             // ViewerViewController.swift, the FASTA selection's request.
             Site(gapID: "blast-fasta-selection", request: BlastVerificationRequest(
                 taxonName: "2 selected sequences", taxId: 0, sequences: reads, database: coreNT, entrezQuery: nil

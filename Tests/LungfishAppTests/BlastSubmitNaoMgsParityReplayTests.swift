@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.11 lane A65 M2, the sides of BlastSubmitParity.swift. The NAO-MGS viewer searches a subsample of
-// a taxon's reads, drawn with the seed 0 the in-process route used, with the taxon's Entrez filter. The
+// a taxon's reads, drawn with the seed 0 the in-process route used, over all of core_nt and judged by the taxon's tax ID. The
 // class launches the built lungfish-cli against a loopback stand-in, so its name ends in ReplayTests, which
 // sends it to the integration tier.
 
@@ -88,7 +88,8 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
         try Data("{}\n".utf8).write(to: source.appendingPathComponent("manifest.json"))
     }
 
-    /// The draw and the request of the in-process route, as the viewer built them before the route moved.
+    /// The draw and the request of the in-process route, as the viewer built them before the route moved, except
+    /// that the search covers all of core_nt and is judged by the taxon's tax ID and name (3.1 BLAST-SCOPE).
     private static func inProcessRequest() -> BlastVerificationRequest {
         let allReads = reads.map { (id: $0.seqId, sequence: $0.readSequence) }
         let longest = min(5, readCount / 4)
@@ -97,7 +98,7 @@ final class BlastSubmitNaoMgsParityReplayTests: XCTestCase {
         )
         return BlastVerificationRequest(
             taxonName: taxonName, taxId: taxId, sequences: subsampled, database: BlastDatabaseID.coreNT.rawValue,
-            entrezQuery: "txid\(taxId)[Organism:exp]"
+            acceptedTaxIds: [taxId], acceptedTaxonNames: [taxonName]
         )
     }
 
