@@ -11,8 +11,8 @@ Treat a taxon call as stronger when read support, coverage, identity, and indepe
 1. Open the classifier result from the project sidebar.
 2. Use search or sample filters to focus the table.
 3. Compare total reads, unique reads, coverage, identity, and confidence fields.
-4. Use BLAST Verify when a selected organism or contig needs independent sequence review.
-5. Use Extract FASTQ when you need the reads behind a selected taxon or organism.
+4. Use Verify with BLAST… when a selected organism or contig needs independent sequence review.
+5. Use Extract Reads… when you need the reads behind a selected taxon or organism.
 
 ## Interpretation
 
