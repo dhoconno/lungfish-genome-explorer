@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// A Kraken2 run that held read pairs counts fragments, and the bar says how
 /// many came from pairs and how many from merged or single reads (decisions 1

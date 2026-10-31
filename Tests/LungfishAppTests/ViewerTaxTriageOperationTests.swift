@@ -20,6 +20,7 @@ import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ViewerTaxTriageOperationTests: XCTestCase {

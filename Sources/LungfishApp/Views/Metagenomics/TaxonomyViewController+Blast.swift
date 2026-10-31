@@ -25,7 +25,7 @@ extension TaxonomyViewController {
     /// still allowing completed results to ignore stale progress from the run
     /// that just finished.
     @discardableResult
-    func beginBlastVerification(for node: TaxonNode) -> UUID {
+    public func beginBlastVerification(for node: TaxonNode) -> UUID {
         let runID = UUID()
         currentBlastRunID = runID
         lastBlastNode = node
@@ -151,7 +151,7 @@ extension TaxonomyViewController {
     ///   - result: The BLAST verification result to display.
     ///   - recordURL: The file the result was read from, which the drawer's table export reads. Nil for a result no
     ///     file holds.
-    func showBlastResults(_ result: BlastVerificationResult, recordURL: URL? = nil, runID: UUID? = nil) {
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL? = nil, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID) else {
             blastVCLogger.info("Ignoring stale BLAST result from an older run")
             return
@@ -188,7 +188,7 @@ extension TaxonomyViewController {
     /// - Parameters:
     ///   - phase: The current BLAST job phase.
     ///   - requestId: The NCBI BLAST request ID, if available.
-    func showBlastLoading(phase: BlastJobPhase, requestId: String?, runID: UUID? = nil) {
+    public func showBlastLoading(phase: BlastJobPhase, requestId: String?, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID) else {
             blastVCLogger.info("Ignoring stale BLAST loading update from an older run")
             return
@@ -207,7 +207,7 @@ extension TaxonomyViewController {
     /// the failure message in place of the loading spinner.
     ///
     /// - Parameter message: User-facing error description.
-    func showBlastFailure(message: String, runID: UUID? = nil) {
+    public func showBlastFailure(message: String, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID) else {
             blastVCLogger.info("Ignoring stale BLAST failure from an older run")
             return

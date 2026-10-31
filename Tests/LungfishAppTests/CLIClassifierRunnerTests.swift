@@ -16,6 +16,7 @@ import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class CLIClassifierRunnerTests: XCTestCase {
     // MARK: - Completion

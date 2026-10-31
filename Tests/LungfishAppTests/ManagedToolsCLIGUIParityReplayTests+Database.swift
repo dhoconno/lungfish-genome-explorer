@@ -29,6 +29,7 @@ import XCTest
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 private let databasePayloadFiles = ["hash.k2d", "opts.k2d", "taxo.k2d"]
 

@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+@testable import LungfishTaxonomyUI
 
 /// Regression tests for the Preview 2026.9.57 defect where selecting a CZ-ID
 /// classification grew the main window from 1129 pt to 5355 pt tall. The

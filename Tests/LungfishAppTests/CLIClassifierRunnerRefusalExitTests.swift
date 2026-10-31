@@ -8,6 +8,7 @@ import LungfishCore
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.11 lane U64 M1, row SW23, decision U4 and the SWIFT memo's condition on Q-U64. A classifier command
 /// that refuses with exit status 3 (`kraken2 classify` on an input with no readable reads, as `esviritu detect`

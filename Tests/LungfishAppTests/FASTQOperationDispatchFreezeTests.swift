@@ -45,6 +45,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 import Synchronization
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class FASTQOperationDispatchFreezeTests: XCTestCase {

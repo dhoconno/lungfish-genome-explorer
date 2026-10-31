@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// End-to-end CLI runs of `lungfish extract reads --by-classifier` against
 /// the shared classifier extraction fixtures.

@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishKit
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 // MARK: - Test Helpers
 
@@ -1318,6 +1319,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
         let db = try makeSingleSampleKrakenDatabase(in: resultDir)
         let vc = TaxonomyViewController()
+        vc.onExtractionRequested = { [weak vc] request in vc?.presentClassifierExtractionDialog(request) }
         isolateLayouts(vc)
         _ = vc.view
 
@@ -1367,6 +1369,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
         let db = try makeSingleSampleKrakenDatabase(in: resultDir)
         let vc = TaxonomyViewController()
+        vc.onExtractionRequested = { [weak vc] request in vc?.presentClassifierExtractionDialog(request) }
         isolateLayouts(vc)
         _ = vc.view
 

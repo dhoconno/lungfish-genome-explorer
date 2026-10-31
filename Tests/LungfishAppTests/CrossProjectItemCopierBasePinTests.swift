@@ -15,6 +15,7 @@ import LungfishCore
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class CrossProjectItemCopierBasePinTests: XCTestCase {
     private var root: URL!

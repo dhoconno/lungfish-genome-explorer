@@ -13,6 +13,7 @@ import XCTest
 import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class ManagedToolsCommandTests: XCTestCase {
 

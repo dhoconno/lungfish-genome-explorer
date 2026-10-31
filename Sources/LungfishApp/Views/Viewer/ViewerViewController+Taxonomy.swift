@@ -11,6 +11,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 import LungfishKit
+import LungfishTaxonomyUI
 
 /// Logger for taxonomy display operations.
 private let taxonomyLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerTaxonomy")
@@ -48,6 +49,10 @@ extension ViewerViewController {
 
         let controller = TaxonomyViewController()
         addChild(controller)
+        // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
+        controller.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
+        }
 
         // Hide annotation drawer so it doesn't overlap the taxonomy view.
         // Also hide the FASTQ metadata drawer if present.
@@ -138,6 +143,10 @@ extension ViewerViewController {
 
         let controller = TaxonomyViewController()
         addChild(controller)
+        // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
+        controller.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
+        }
 
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
@@ -527,30 +536,6 @@ func kraken2SampleResultDirectory(
     node: TaxonNode
 ) -> URL? {
     kraken2SampleResultDirectory(resultURL: resultURL, sampleId: controller.owningSampleId(for: node))
-}
-
-/// The result folder of the Kraken 2 sample `sampleId` in a database-backed display: the batch
-/// manifest's sample folder, or `resultURL` itself for a single-sample result when
-/// `fallsBackToResultFolder` holds. A caller that must act on one named sample passes false for a
-/// batch of several, since the batch folder's own sidecar belongs to none of them. Only checks that
-/// the folder holds a classification sidecar.
-func kraken2SampleResultDirectory(
-    resultURL: URL,
-    sampleId: String?,
-    fallsBackToResultFolder: Bool = true
-) -> URL? {
-    func hasSidecar(_ directory: URL) -> Bool {
-        FileManager.default.fileExists(
-            atPath: directory.appendingPathComponent(ClassificationResult.sidecarFilename).path
-        )
-    }
-    if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
-       let sampleId,
-       let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }) {
-        let directory = resultURL.appendingPathComponent(sampleRecord.resultDirectory)
-        if hasSidecar(directory) { return directory }
-    }
-    return fallsBackToResultFolder && hasSidecar(resultURL) ? resultURL : nil
 }
 
 /// Presents an error alert for a failed BLAST verification request.

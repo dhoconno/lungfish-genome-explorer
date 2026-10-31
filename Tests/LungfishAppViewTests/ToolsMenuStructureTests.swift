@@ -3,6 +3,7 @@ import LungfishTestSupport
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ToolsMenuStructureTests: XCTestCase {

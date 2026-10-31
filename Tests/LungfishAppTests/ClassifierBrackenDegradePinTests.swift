@@ -20,6 +20,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ClassifierBrackenDegradePinTests: XCTestCase {

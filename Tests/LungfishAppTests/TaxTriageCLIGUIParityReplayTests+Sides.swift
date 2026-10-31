@@ -17,6 +17,7 @@ import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// The cases of section 2.2 of the 2.9 QA inventory.
 enum TaxTriageParityCase: String, CaseIterable, Sendable {

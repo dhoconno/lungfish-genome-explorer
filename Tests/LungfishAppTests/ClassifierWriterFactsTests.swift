@@ -19,6 +19,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 final class ClassifierWriterFactsTests: XCTestCase {
 

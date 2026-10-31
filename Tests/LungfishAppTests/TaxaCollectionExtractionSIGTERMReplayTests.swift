@@ -22,6 +22,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class TaxaCollectionExtractionSIGTERMReplayTests: XCTestCase {

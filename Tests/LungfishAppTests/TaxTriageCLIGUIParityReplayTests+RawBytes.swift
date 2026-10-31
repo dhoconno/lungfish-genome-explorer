@@ -25,6 +25,7 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 extension TaxTriageCLIGUIParityReplayTests {
     func testRawBytesOfX1OnSidesCAndCPrime() async throws {

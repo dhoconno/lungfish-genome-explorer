@@ -11,6 +11,7 @@ import XCTest
 @testable import LungfishTaxTriageUI
 @testable import LungfishNaoMgsUI
 @testable import LungfishNvdUI
+@testable import LungfishTaxonomyUI
 
 /// A test that opens a result in one of these views calls `isolateLayouts(_:)` first, so the tables of the view
 /// keep their column layouts in a suite that the test removes when it ends and write nothing to

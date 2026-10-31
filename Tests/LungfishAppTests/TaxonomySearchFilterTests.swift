@@ -8,6 +8,7 @@ import AppKit
 @testable import LungfishApp
 @testable import LungfishIO
 import LungfishKit
+@testable import LungfishTaxonomyUI
 
 // MARK: - Shared Fixture
 

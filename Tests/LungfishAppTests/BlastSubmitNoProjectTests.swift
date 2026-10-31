@@ -14,6 +14,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class BlastSubmitNoProjectTests: XCTestCase {

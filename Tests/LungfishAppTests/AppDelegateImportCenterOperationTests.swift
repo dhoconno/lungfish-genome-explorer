@@ -20,6 +20,7 @@ import LungfishWorkflow
 @testable import LungfishCLI
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class AppDelegateImportCenterOperationTests: XCTestCase {

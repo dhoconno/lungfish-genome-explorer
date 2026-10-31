@@ -11,6 +11,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class TaxonomySunburstStandard8FixtureTests: XCTestCase {

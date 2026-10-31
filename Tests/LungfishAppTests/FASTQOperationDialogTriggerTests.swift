@@ -14,6 +14,7 @@ import SwiftUI
 import ViewInspector
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class FASTQOperationDialogTriggerTests: XCTestCase {

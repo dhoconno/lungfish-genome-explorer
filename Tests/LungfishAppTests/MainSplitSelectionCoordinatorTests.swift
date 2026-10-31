@@ -5,6 +5,7 @@ import LungfishIO
 @testable import LungfishApp
 import LungfishKit
 @testable import LungfishOperations
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class MainSplitSelectionCoordinatorTests: XCTestCase {

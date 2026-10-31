@@ -6,6 +6,7 @@ import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
+@testable import LungfishTaxonomyUI
 
 final class CzIdImportWorkflowTests: XCTestCase {
     func testProjectImportWorkflowWritesClassificationBundleWithFirstClassProvenance() async throws {

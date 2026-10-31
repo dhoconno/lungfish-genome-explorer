@@ -20,6 +20,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 extension TwoSampleKraken2Batch {
     /// The batch as it sits in `projectURL`, a copy of the folder `init(in:)` built it in.

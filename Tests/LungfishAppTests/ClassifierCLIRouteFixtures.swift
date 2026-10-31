@@ -22,6 +22,7 @@ import Synchronization
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// What one stand-in classifier unit does under the real executor.
 enum StandInClassifierUnit: Sendable, Equatable {

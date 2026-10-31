@@ -21,6 +21,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class Kraken2BlastVerificationSourcesTests: XCTestCase {
     private var root: URL!

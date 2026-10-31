@@ -17,6 +17,7 @@ import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// The cases of panel decisions T2 and T3 and memo BIO O7.
 enum ClassifierParityCase: String, CaseIterable, Sendable {

@@ -14,6 +14,7 @@ import XCTest
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 final class TaxTriageCLICancelSignalTests: XCTestCase {
     func testOnlyTheTaxTriageRouteSignalsTheCommandFirst() {

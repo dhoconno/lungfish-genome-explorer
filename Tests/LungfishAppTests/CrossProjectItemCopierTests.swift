@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Builds two temporary projects, fills the source with one item of every
 /// kind the sidebar knows, and checks that each copies into the target whole,

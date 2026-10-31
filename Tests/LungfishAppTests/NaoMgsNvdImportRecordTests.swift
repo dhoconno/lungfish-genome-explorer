@@ -24,6 +24,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class NaoMgsNvdImportRecordTests: XCTestCase {

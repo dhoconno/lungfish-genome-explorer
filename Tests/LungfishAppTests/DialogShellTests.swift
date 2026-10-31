@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class DialogShellTests: XCTestCase {

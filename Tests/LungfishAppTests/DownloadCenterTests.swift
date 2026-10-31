@@ -9,6 +9,7 @@ import Combine
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// Unit tests for ``DownloadCenter``.
 ///

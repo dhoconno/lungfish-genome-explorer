@@ -9,6 +9,7 @@ import LungfishCore
 @testable import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.12 lane 12.33, M1 (QA 1), reduced by Phase 2.13. Pins the bytes of the taxonomy view's CSV and TSV and of
 /// the BLAST results table, for a quoted field, a read with no hits and a read with hits. Both exports run as leaves

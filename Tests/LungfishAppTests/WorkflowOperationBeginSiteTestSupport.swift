@@ -17,6 +17,7 @@ import LungfishKitTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 import XCTest
+@testable import LungfishTaxonomyUI
 
 /// The process a begin site launches, as a test sees it. It records the
 /// arguments and the working directory the site hands to `runLungfishCLI`, lets

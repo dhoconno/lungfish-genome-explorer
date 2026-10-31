@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// Row T2 of the Phase 2.9 UX inventory on the app's CLI route (lane U10, second milestone). The
 /// runner hands the viewer's overlay a line of the command only while the command's row runs. A

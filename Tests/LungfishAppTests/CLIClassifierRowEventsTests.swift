@@ -13,6 +13,7 @@ import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class CLIClassifierRowEventsTests: XCTestCase {
     // MARK: - Single runs

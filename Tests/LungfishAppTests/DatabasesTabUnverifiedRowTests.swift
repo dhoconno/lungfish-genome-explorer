@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.12 lane 12.26, B5 (UX ruling U-W5 and U-W7, BIO's line). A ready row that records the catalog identity of
 /// `Standard-8` and has no payload digest is a folder an older build adopted (its version label is the catalog's), a

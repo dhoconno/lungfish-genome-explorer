@@ -11,6 +11,7 @@ import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// One behavioural test per family of window-event posters that lane 1f
 /// changed. Each test triggers the real post and checks that the window's

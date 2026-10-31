@@ -28,6 +28,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class InspectorBatchDetailsStaleTests: XCTestCase {

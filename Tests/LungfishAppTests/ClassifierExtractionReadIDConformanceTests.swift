@@ -30,6 +30,7 @@ import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class ClassifierExtractionReadIDConformanceTests: XCTestCase {
     private var root: URL!

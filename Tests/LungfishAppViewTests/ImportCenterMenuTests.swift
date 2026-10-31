@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ImportCenterMenuTests: XCTestCase {

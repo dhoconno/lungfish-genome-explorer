@@ -25,6 +25,7 @@ import LungfishCore
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 extension TaxTriageParityCase {
     /// Whether `side` runs every sample of the request in one Nextflow, on sides C and C' only X8's

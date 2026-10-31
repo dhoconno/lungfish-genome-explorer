@@ -4,6 +4,7 @@ import ViewInspector
 @testable import LungfishCore
 import LungfishTestSupport
 import SwiftUI
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class SettingsAndImportXCUIReadinessTests: XCTestCase {

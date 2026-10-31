@@ -2,6 +2,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishTaxonomyUI
 
 final class ClassifierDatabaseRoutingTests: XCTestCase {
     private func makeTempDir() throws -> URL {

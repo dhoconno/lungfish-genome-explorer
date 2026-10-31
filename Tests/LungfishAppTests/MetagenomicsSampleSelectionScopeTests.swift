@@ -14,6 +14,7 @@ import LungfishKitTestSupport
 @testable import LungfishNvdUI
 import LungfishTestSupport
 @testable import LungfishTaxTriageUI
+@testable import LungfishTaxonomyUI
 
 /// `metagenomicsSampleSelectionChanged` is a window event. Each test puts the
 /// same kind of classifier viewport in two project windows and stages a new

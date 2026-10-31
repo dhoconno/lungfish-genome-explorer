@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 final class ClassificationBatchOutcomeTests: XCTestCase {
     private let summaryHeader = "sample_id\tstatus\tprofile_state\trequested_rank\tresolved_rank\ttotal_reads\tclassified_reads\tclassified_pct\tspecies_count\tdominant_species\tmessage"

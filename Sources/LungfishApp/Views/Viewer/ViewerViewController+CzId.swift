@@ -8,6 +8,10 @@ import LungfishNvdUI
 
 extension ViewerViewController {
     public func displayCzIdResult(_ controller: CzIdResultViewController) {
+        // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
+        controller.onExtractionRequested = { [weak controller] request in
+            controller?.presentClassifierExtractionDialog(request)
+        }
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()

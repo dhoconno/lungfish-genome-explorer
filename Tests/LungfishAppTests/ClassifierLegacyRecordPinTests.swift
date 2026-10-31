@@ -18,6 +18,7 @@ import XCTest
 import LungfishKitTestSupport
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ClassifierLegacyRecordPinTests: XCTestCase {

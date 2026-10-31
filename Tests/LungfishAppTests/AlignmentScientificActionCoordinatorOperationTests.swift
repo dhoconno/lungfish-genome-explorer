@@ -19,6 +19,7 @@ import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class AlignmentScientificActionCoordinatorOperationTests: XCTestCase {

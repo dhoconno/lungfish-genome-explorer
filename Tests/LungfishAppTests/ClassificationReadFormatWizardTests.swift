@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// The Kraken2 wizard used to treat every single-file sample, including a
 /// `.lungfishfastq` bundle with interleaved pairing, as single-end. It now

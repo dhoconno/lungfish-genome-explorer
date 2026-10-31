@@ -10,6 +10,7 @@ import AppKit
 @testable import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 final class FASTQDashboardTests: XCTestCase {
     // MARK: - Helpers

@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 private actor StubPackStatusProvider: PluginPackStatusProviding {
     let states: [String: PluginPackState]

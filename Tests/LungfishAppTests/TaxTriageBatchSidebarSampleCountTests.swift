@@ -12,6 +12,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class TaxTriageBatchSidebarSampleCountTests: XCTestCase {
     private var tempRoot: URL!

@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// ENA lists some runs as three files, `<run>_1.fastq.gz` and
 /// `<run>_2.fastq.gz` for the spots with both reads and `<run>.fastq.gz`

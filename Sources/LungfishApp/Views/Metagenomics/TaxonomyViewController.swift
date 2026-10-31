@@ -308,6 +308,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///   - result: The current classification result.
     public var onBatchExtract: ((TaxaCollection, ClassificationResult) -> Void)?
 
+    /// Hands the Extract Reads request to the host that shows the dialog, which the App wires (layering rule 1).
+    public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)?
+
     /// Called when the user confirms BLAST verification for a taxon via the popover.
     ///
     /// - Parameters:
@@ -326,12 +329,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var lastBlastNode: TaxonNode?
 
     /// Identifier for the currently active BLAST drawer update stream.
-    var currentBlastRunID: UUID?
+    public var currentBlastRunID: UUID?
 
     /// The ``OperationCenter`` operation ID for the currently active BLAST
     /// verification run, if any. The drawer's own Cancel button
     /// needs this to actually cancel the run, rather than only logging.
-    var currentBlastOperationID: UUID?
+    public var currentBlastOperationID: UUID?
 
     /// Whether a BLAST run started here has not yet shown results or a failure.
     /// While it is set, selecting a taxon does not replace the drawer's
@@ -355,7 +358,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private(set) var batchTableView = BatchClassificationTableView()
 
     /// The URL of the batch result directory (set during `configureFromDatabase`).
-    var batchURL: URL?
+    public var batchURL: URL?
 
     /// Sample currently rendered in the hierarchical taxonomy/sunburst views in batch mode.
     private(set) var currentBatchSampleId: String?
@@ -372,7 +375,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var taxaCollectionsDrawerHeightConstraint: NSLayoutConstraint?
 
     /// Whether the taxa collections drawer is currently visible.
-    var isTaxaCollectionsDrawerOpen: Bool = false
+    public var isTaxaCollectionsDrawerOpen: Bool = false
 
     /// Debounce work item for persisting drawer height changes.
     var _taxaDrawerHeightSaveWorkItem: DispatchWorkItem?
@@ -746,12 +749,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private func presentUnifiedExtractionDialog(explicitNodes: [TaxonNode]? = nil) {
         guard let resultPath = resolveKraken2ResultPath() else { return }
         let name = (explicitNodes?.first ?? taxonomyTableView.selectedNode)?.name ?? "extract"
-        presentClassifierExtractionDialog(
-            tool: .kraken2,
-            resultPath: resultPath,
-            selectors: buildKraken2Selectors(explicit: explicitNodes),
-            suggestedName: "kraken2_\(name.replacingOccurrences(of: " ", with: "_"))"
-        )
+        onExtractionRequested?(ClassifierExtractionRequest(
+            tool: .kraken2, resultPath: resultPath, selectors: buildKraken2Selectors(explicit: explicitNodes),
+            suggestedName: "kraken2_\(name.replacingOccurrences(of: " ", with: "_"))"))
     }
 
     // MARK: - Setup: Summary Bar

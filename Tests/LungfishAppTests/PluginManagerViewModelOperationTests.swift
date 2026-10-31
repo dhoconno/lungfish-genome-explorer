@@ -17,6 +17,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class PluginManagerViewModelOperationTests: XCTestCase {

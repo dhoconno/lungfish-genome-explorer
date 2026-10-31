@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.8 lane U3, decision P3. A classifier that runs through `lungfish-cli` records `lungfish-cli` as its
 /// tool, so the Tool row of the Run Summary never named Kraken2 or EsViritu above the Lineage. The Step Tools row

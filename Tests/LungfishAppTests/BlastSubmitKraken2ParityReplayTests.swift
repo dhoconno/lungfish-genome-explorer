@@ -18,6 +18,7 @@ import LungfishIO
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class BlastSubmitKraken2ParityReplayTests: XCTestCase {

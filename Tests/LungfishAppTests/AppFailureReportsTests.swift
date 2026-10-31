@@ -8,6 +8,7 @@ import LungfishCore
 import LungfishKit
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class AppFailureReportsTests: XCTestCase {

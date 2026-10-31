@@ -19,6 +19,7 @@ import AppKit
 @testable import LungfishGenotypeUI
 @testable import LungfishTwelveSUI
 import LungfishKit
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class TransientViewportOverlayClearingTests: XCTestCase {

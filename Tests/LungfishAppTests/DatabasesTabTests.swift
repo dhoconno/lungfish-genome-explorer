@@ -10,6 +10,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 // MARK: - DatabasesTabTests
 

@@ -14,6 +14,7 @@ import AppKit
 import LungfishKit
 import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 // MARK: - Shared Test Helpers
 

@@ -19,6 +19,12 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         taxonomyViewController
     }
 
+    /// Hands the embedded taxonomy view's Extract Reads request to the host that shows the dialog (layering rule 1).
+    public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)? {
+        get { taxonomyViewController.onExtractionRequested }
+        set { taxonomyViewController.onExtractionRequested = newValue }
+    }
+
     public override func loadView() {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false

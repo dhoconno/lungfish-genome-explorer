@@ -45,6 +45,7 @@ import Foundation
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 enum ClassifierLayoutFixtures {
     /// The sample every layout holds, and the first sample of a batch.

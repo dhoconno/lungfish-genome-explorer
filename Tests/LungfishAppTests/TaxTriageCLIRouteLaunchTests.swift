@@ -15,6 +15,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class TaxTriageCLIRouteLaunchTests: XCTestCase {
     private var root: URL!

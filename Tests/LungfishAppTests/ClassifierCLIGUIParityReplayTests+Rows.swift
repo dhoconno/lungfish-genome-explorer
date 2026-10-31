@@ -16,6 +16,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// A viewer that keeps every line its progress overlay showed.
 final class OverlayRecordingViewer: ViewerViewController {

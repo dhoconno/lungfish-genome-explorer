@@ -8,6 +8,7 @@ import LungfishKit
 import LungfishTwelveSUI
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// The Selection menu gives every row command a menu-bar route, and the
 /// items are nil-target so the first responder validates them. Lane 0 adds

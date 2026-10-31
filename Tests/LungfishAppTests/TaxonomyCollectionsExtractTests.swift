@@ -20,6 +20,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// A project that holds one Kraken2 batch of two samples as the sidebar opens it. The batch folder holds
 /// `kraken2.sqlite`, the batch manifest and one result folder a sample, each over loose read files with its

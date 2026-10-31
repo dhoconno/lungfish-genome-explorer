@@ -19,6 +19,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class SidebarBundleCapabilityTests: XCTestCase {

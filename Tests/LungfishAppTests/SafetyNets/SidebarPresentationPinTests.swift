@@ -9,6 +9,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 final class SidebarPresentationPinTests: XCTestCase {
     private static let expectedBadges: [String: String?] = [

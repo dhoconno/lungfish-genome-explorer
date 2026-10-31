@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class OperationCenterResourceStatsTests: XCTestCase {

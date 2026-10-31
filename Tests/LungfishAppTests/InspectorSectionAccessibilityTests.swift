@@ -10,6 +10,7 @@ import LungfishTestSupport
 import SwiftUI
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// Hosts the real Inspector sections in a window and reads what an AX client
 /// reads. A `.contextActions` command must arrive as a custom action on a

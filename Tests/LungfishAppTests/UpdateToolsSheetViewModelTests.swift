@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// Counts calls from a `@Sendable` closure without tripping strict concurrency.
 private final class Counter: @unchecked Sendable {

@@ -18,6 +18,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishTaxTriageUI
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class MetagenomicsTokenTableTests: XCTestCase {

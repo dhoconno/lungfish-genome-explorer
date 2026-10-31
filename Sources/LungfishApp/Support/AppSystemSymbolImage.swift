@@ -1,7 +1,7 @@
 import AppKit
 
-enum AppSystemSymbolImage {
-    static func named(
+public enum AppSystemSymbolImage {
+    public static func named(
         _ symbolName: String,
         accessibilityDescription: String?,
         fallbackSize: NSSize = NSSize(width: 16, height: 16)

@@ -20,6 +20,7 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class MetadataLayoutKeyShapePinTests: XCTestCase {

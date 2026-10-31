@@ -16,6 +16,7 @@ import XCTest
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ImportNoProjectRefusalTests: XCTestCase {

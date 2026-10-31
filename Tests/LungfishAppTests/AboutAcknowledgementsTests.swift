@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class AboutAcknowledgementsTests: XCTestCase {
 

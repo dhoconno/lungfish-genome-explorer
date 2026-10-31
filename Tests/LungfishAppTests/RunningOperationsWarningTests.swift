@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class RunningOperationsWarningTests: XCTestCase {

@@ -10,6 +10,7 @@ import XCTest
 import LungfishOperations
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// For every bundle shape, the `kraken2 classify` command the Workflow builder
 /// makes for the wizard's config reads the same files, paired the same way, as

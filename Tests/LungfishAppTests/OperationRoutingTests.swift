@@ -4,6 +4,7 @@ import LungfishCore
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class OperationRoutingTests: XCTestCase {

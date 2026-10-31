@@ -18,6 +18,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishKit
 import LungfishNaoMgsUI
+@testable import LungfishTaxonomyUI
 
 /// A surface whose load always fails, so the NAO-MGS show never installs.
 @MainActor

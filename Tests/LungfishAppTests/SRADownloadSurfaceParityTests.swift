@@ -9,6 +9,7 @@ import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCLI
+@testable import LungfishTaxonomyUI
 
 /// The acceptance check of lane L1 (sub-phase 2.1): for the same run and the
 /// same answers from the archives, the window's SRA download and

@@ -10,6 +10,7 @@ import Foundation
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 extension RoutingSafetyNetTable {
     // MARK: Bundles

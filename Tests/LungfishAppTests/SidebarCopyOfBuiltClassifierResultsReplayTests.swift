@@ -28,6 +28,7 @@ import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class SidebarCopyOfBuiltClassifierResultsReplayTests: XCTestCase {

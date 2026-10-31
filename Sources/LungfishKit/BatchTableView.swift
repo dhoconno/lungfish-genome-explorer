@@ -181,13 +181,13 @@ open class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelega
     /// Return `nil` if the row has no associated sample. The default returns `nil`.
     open func sampleId(for row: Row) -> String? { nil }
 
+    /// The type name a saved column layout is keyed by, with ``resultIdentity``. It is the reflected type name, which
+    /// holds the module name, so a table that moves to another module overrides it with the name it was saved under.
+    open var layoutKeyTypeName: String { String(reflecting: type(of: self)) }
+
     /// Result/run identity to include in stable row IDs for duplicated biological names.
     public var resultIdentity: String? {
-        didSet {
-            metadataColumns.persistenceKey = resultIdentity.map {
-                "\(String(reflecting: type(of: self))):\($0)"
-            }
-        }
+        didSet { metadataColumns.persistenceKey = resultIdentity.map { "\(layoutKeyTypeName):\($0)" } }
     }
 
     /// Returns a stable biological identity for `row`.

@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishTaxonomyUI
 
 // MARK: - ClassificationWizardTests
 

@@ -20,6 +20,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishOperations
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ViewerGraphicsExportAlertLog {

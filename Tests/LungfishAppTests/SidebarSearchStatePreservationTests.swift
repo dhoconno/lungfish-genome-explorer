@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishTaxonomyUI
 
 /// Preview 2026.9.57 click-test: after searching the sidebar while a Kraken2
 /// or genotyping run was in progress, the run's completion rescan collapsed

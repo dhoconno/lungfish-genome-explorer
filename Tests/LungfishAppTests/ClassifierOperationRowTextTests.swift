@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Pins the alert titles, the batch sample prefix and the database warning line of the Kraken2 and
 /// EsViritu launches. Each expected string is the one the launch closures built inline before they

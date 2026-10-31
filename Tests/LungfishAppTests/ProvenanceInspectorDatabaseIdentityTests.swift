@@ -14,6 +14,7 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ProvenanceInspectorDatabaseIdentityTests: XCTestCase {

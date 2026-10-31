@@ -75,7 +75,7 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
     ///
     /// Animation follows the same 0.25s ease-in-ease-out pattern used by the
     /// annotation drawer in ``ViewerViewController``.
-    func toggleTaxaCollectionsDrawer() {
+    public func toggleTaxaCollectionsDrawer() {
         if taxaCollectionsDrawerView == nil {
             configureTaxaCollectionsDrawer()
         }

@@ -4,6 +4,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishOperations
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class FASTAOperationCatalogTests: XCTestCase {

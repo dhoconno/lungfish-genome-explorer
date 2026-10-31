@@ -16,6 +16,7 @@ import XCTest
 import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 extension TaxTriageParityLiveConformanceTests {
     /// The real engine of `run`. The side that runs in this process resolves its tools from this process's root,

@@ -19,6 +19,7 @@ import LungfishTestSupport
 @testable import LungfishKit
 import LungfishNaoMgsUI
 import LungfishNvdUI
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class RenamedClassifierBatchRoutingTests: XCTestCase {

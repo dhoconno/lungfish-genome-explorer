@@ -16,6 +16,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Holds a lookup until the test opens it. A lookup whose task was cancelled meanwhile ends with `CancellationError`.
 private actor LookupGate {

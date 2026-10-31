@@ -10,6 +10,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Runs the built `lungfish-cli extract taxa-collection --format json` on the argv of the Extract button of the
 /// taxa collections drawer and checks the transcripts in `Tests/Fixtures/cli-events/commands/extract-taxa-collection`

@@ -5,6 +5,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// The shortcut audit. Every key equivalent in the whole menu tree is bound
 /// once, no menu-bar chord repurposes a view-local chord, and the standard

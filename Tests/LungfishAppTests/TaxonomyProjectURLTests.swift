@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// The taxonomy view resolves sample names from bundles in the run's project.
 /// It must find that project, never the folder above it.

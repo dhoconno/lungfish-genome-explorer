@@ -12,6 +12,7 @@ import os
 @testable import LungfishApp
 @testable import LungfishCLI
 import XCTest
+@testable import LungfishTaxonomyUI
 
 /// Re-review 2, N6. The app runs `lungfish-cli fastq 12s-match`. When a forced
 /// run fails while it writes its bundle and the earlier result cannot be moved

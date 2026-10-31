@@ -20,6 +20,7 @@ import LungfishKit
 @testable import LungfishTaxTriageUI
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 private final class WarningRecorder {
     var alerts: [(title: String, message: String)] = []

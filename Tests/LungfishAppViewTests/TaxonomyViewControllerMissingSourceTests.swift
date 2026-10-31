@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+@testable import LungfishTaxonomyUI
 
 /// A Kraken 2 result copied from another project still shows its taxonomy,
 /// tells the user which source data is missing, and switches off the actions

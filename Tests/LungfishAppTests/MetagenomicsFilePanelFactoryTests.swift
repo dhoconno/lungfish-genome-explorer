@@ -7,6 +7,7 @@ import LungfishKit
 import UniformTypeIdentifiers
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class MetagenomicsFilePanelFactoryTests: XCTestCase {

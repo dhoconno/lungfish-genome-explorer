@@ -10,6 +10,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ClassifierSampleMetadataImportTests: XCTestCase {

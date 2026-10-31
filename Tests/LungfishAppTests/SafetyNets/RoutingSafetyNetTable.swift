@@ -18,6 +18,7 @@ import Foundation
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// A scratch root and its path renderer, handed to every row builder.
 struct RoutingRowContext {

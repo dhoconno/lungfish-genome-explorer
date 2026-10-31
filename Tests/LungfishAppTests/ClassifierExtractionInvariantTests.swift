@@ -11,6 +11,7 @@ import XCTest
 @testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// Asserts the 7 spec invariants for the unified classifier extraction feature.
 ///

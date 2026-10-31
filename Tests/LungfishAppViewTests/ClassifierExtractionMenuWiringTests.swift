@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishNaoMgsUI
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Verifies that a context-menu "Extract Reads..." click reaches
 /// `TaxonomyReadExtractionAction.present()` with the expected `Context`

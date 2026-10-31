@@ -13,6 +13,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 final class ClassifierExtractionCopyRouteTests: XCTestCase {
     private var root: URL!

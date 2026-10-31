@@ -6,6 +6,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
+@testable import LungfishTaxonomyUI
 
 // MARK: - Test Helpers
 

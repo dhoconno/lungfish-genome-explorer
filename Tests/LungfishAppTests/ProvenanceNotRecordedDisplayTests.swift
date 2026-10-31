@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 /// The Inspector once showed the reading Mac's executable, process ID, architecture, dependency
 /// set and app version for a record that held none, as if the record had held them. A fact a

@@ -27,6 +27,7 @@ import LungfishIO
 import LungfishKit
 import LungfishPhylogeneticsUI
 import LungfishTwelveSUI
+@testable import LungfishTaxonomyUI
 
 // MARK: - Paths
 

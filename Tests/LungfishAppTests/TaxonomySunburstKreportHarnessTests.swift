@@ -11,6 +11,7 @@ import XCTest
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class TaxonomySunburstKreportHarnessTests: XCTestCase {

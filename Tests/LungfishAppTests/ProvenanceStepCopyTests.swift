@@ -8,6 +8,7 @@ import LungfishTestSupport
 import SwiftUI
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// Copy Step on the Provenance tab writes the step's block of the header's Copy text, and Copy All Steps writes the
 /// blocks of the step's run, from the step's label and from its Command row.

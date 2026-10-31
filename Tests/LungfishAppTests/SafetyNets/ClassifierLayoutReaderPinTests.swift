@@ -41,6 +41,7 @@ import XCTest
 @testable import LungfishKit
 @testable import LungfishWorkflow
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class ClassifierLayoutReaderPinTests: XCTestCase {

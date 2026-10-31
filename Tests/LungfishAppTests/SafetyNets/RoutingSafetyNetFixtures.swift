@@ -18,6 +18,7 @@ import Foundation
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 enum RoutingSafetyNetFixtures {
 

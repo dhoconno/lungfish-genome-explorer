@@ -8,6 +8,7 @@ import LungfishCore
 @testable import LungfishIO
 @testable import LungfishKit
 import LungfishKitTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class SidebarIncompleteAnalysisTests: XCTestCase {

@@ -19,6 +19,7 @@ import Foundation
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 struct SidebarScanFixtureProject: Sendable {
     /// The snapshot file stem under Tests/Fixtures/sidebar-scan.

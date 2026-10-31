@@ -44,6 +44,10 @@ final class BatchClassificationTableView: BatchTableView<BatchClassificationRow>
 
     override var searchPlaceholder: String { "Filter taxa\u{2026}" }
 
+    /// The layout key keeps the name this table was saved under in LungfishApp, so a person's saved column choice
+    /// and order survive the move to LungfishTaxonomyUI (``BatchTableView/layoutKeyTypeName``).
+    override var layoutKeyTypeName: String { "LungfishApp.BatchClassificationTableView" }
+
     override var columnTypeHints: [String: Bool] {
         [
             "sample": false, "name": false, "rank": false,

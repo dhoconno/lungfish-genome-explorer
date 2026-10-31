@@ -10,6 +10,7 @@ import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.12 lane 12.10 (A65-P50), M2 (1) and ARCH 4. The Kraken2 row saved each verification as an archive file
 /// under `<result>/blast-verifications/` and now keeps the folder `blast submit` writes there. Selecting the taxon

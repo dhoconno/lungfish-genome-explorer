@@ -22,6 +22,7 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 extension ClassifierReadSetParityTests {
     /// The executor route for Kraken2. Renders the kraken2 argv of the config the executor hands

@@ -15,6 +15,7 @@ import LungfishKit
 import SwiftUI
 import XCTest
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class InspectorAnalysesIconPinTests: XCTestCase {

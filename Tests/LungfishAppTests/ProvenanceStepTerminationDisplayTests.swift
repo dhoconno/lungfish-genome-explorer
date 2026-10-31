@@ -9,6 +9,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.10 lane U37. A classifier step now carries an `observation`, what ToolProcess saw of its launch
 /// (lane S36). The Provenance tab shows it as P2 of Phase 2.8 settles it. A line shows only when it adds

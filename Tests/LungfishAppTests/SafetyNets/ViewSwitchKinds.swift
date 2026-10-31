@@ -16,6 +16,7 @@
 
 import Foundation
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 /// One viewport kind and the routing row that opens it.
 struct ViewSwitchKind: Hashable, Sendable, CustomStringConvertible {

@@ -13,6 +13,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishOperations
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class SequenceExportSelectionTests: XCTestCase {

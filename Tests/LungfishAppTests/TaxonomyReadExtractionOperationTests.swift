@@ -19,6 +19,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class TaxonomyReadExtractionOperationTests: XCTestCase {

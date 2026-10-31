@@ -6,6 +6,7 @@ import ViewInspector
 import AppKit
 import SwiftUI
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class WindowAppearanceTests: XCTestCase {

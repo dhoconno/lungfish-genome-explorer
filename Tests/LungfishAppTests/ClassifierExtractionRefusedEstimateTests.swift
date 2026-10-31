@@ -9,6 +9,7 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
+@testable import LungfishTaxonomyUI
 
 /// Phase 2.12 lane 12.26, K12 (b) (UX ruling U-W1 to U-W3). The sheet is presented on a window with the real resolver,
 /// over an EsViritu result whose BAM is missing (`bamNotFound`) or is a link out of the result (`bamOutsideResult`),
