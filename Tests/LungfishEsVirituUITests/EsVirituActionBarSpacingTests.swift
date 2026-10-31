@@ -7,7 +7,9 @@
 // bar's leading constraint of the info text. The helper finds that constraint by its first item, so a change in the
 // bar would make it find nothing and move nothing, and this pin fails then. The 186 pt is the 10 pt the bar leaves
 // after its last button plus the 176 pt. It is the figure at the lane base (info text at x 489, Extract FASTQ ending
-// at 192 + 111). The view has no defaults seam and this test touches none.
+// at 192 + 111). Phase 3.1 lane ADOPT: the shared bar's BLAST Results button (O86) now sits between Extract Reads…
+// and the info text, so the pin measures the same 186 pt from the bar's last button, BLAST Results (manager ruling
+// 18:12, the layout pin moves with the change it guarded). The view has no defaults seam and this test touches none.
 
 import XCTest
 import AppKit
@@ -35,11 +37,14 @@ final class EsVirituActionBarSpacingTests: XCTestCase {
         let bars = Self.actionBars(in: controller.view)
         XCTAssertEqual(bars.count, 1)
         let bar = try XCTUnwrap(bars.first)
+        let blastResults = try XCTUnwrap(controller.resultActions.blastResultsButton.superview === bar
+            ? controller.resultActions.blastResultsButton : nil, "the bar holds BLAST Results")
+        XCTAssertGreaterThan(blastResults.frame.minX, bar.extractButton.frame.maxX, "BLAST Results follows Extract Reads…")
         XCTAssertEqual(
-            bar.infoLabel.frame.minX - bar.extractButton.frame.maxX,
+            bar.infoLabel.frame.minX - blastResults.frame.maxX,
             186,
             accuracy: 0.5,
-            "the info text starts 186 pt after Extract Reads…, the 10 pt gap plus the 176 pt of the deleted button"
+            "the info text starts 186 pt after BLAST Results, the 10 pt gap plus the 176 pt of the deleted button"
         )
     }
 
