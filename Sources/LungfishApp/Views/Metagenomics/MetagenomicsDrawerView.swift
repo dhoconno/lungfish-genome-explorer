@@ -7,6 +7,7 @@ import LungfishKit
 import LungfishCore
 import LungfishIO
 import os.log
+import LungfishTaxonomyUI
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "MetagenomicsDrawer")
 

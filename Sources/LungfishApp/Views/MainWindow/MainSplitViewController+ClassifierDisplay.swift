@@ -12,6 +12,7 @@ import LungfishNvdUI
 import LungfishTaxTriageUI
 import LungfishWorkflow
 import os.log
+import LungfishTaxonomyUI
 
 extension MainSplitViewController {
     private struct BAMInspectorSampleEntry: ClassifierSampleEntry {

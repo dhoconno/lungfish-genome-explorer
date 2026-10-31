@@ -12,7 +12,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | CLungfishExecutor | library | Sources/CLungfishExecutor | 0 | none |
 | Lungfish | executable | Sources/Lungfish | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 169 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 159 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
@@ -28,6 +28,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 11 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
@@ -39,8 +40,8 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | Test target | Path | Internal dependencies |
 |---|---|---|
 | LungfishAlignmentUITests | Tests/LungfishAlignmentUITests | LungfishAlignmentUI, LungfishIO, LungfishKit, LungfishTestSupport |
-| LungfishAppTests | Tests/LungfishAppTests | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
-| LungfishAppViewTests | Tests/LungfishAppViewTests | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport |
+| LungfishAppTests | Tests/LungfishAppTests | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport |
+| LungfishAppViewTests | Tests/LungfishAppViewTests | LungfishApp, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport |
 | LungfishAppWorkflowTests | Tests/LungfishAppWorkflowTests | LungfishApp, LungfishKitTestSupport, LungfishTestSupport, LungfishWorkflow |
 | LungfishAssemblyUITests | Tests/LungfishAssemblyUITests | LungfishAssemblyUI, LungfishKit, LungfishTestSupport |
 | LungfishCLITests | Tests/LungfishCLITests | LungfishCLI, LungfishIO, LungfishTestSupport |
@@ -127,7 +128,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI, LungfishWorkflow
+- Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow
 - External products. none
 - Used by. Lungfish
 - Test target. LungfishAppTests (also tested by LungfishAppViewTests, LungfishAppWorkflowTests, LungfishIntegrationTests)
@@ -212,7 +213,6 @@ None.
 - `ColumnPreference` struct, `Sources/LungfishApp/Views/Viewer/ColumnConfigurationPopover.swift`
 - `ContentSelectionIdentity` struct, `Sources/LungfishApp/StateManagement/ContentSelectionIdentity.swift`
 - `CoordinateRulerView` class, `Sources/LungfishApp/Views/Viewer/CoordinateRulerView.swift`
-- `CzIdResultViewController` class, `Sources/LungfishApp/Views/Metagenomics/CzIdResultViewController.swift`
 - `DatabaseBrowserViewController` class, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift`
 - `DatabaseBrowserViewModel` class, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift`
 - `DebugDependencySharing` enum, `Sources/LungfishApp/App/DebugDependencySharing.swift`
@@ -321,17 +321,8 @@ None.
 - `SRAPlatformFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift`
 - `SRAStrategyFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift`
 - `StackedSequenceInfo` struct, `Sources/LungfishApp/Views/Viewer/MultiSequenceSupport.swift`
-- `SunburstLayout` struct, `Sources/LungfishApp/Views/Metagenomics/SunburstGeometry.swift`
-- `SunburstSegment` struct, `Sources/LungfishApp/Views/Metagenomics/SunburstGeometry.swift`
 - `TabColumnPreferences` struct, `Sources/LungfishApp/Views/Viewer/ColumnConfigurationPopover.swift`
-- `TaxaCollectionsDrawerDelegate` protocol, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerDelegate.swift`
-- `TaxaCollectionsDrawerView` class, `Sources/LungfishApp/Views/Metagenomics/TaxaCollectionsDrawerView.swift`
-- `TaxonomyOutlineView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift`
 - `TaxonomyReadExtractionAction` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift`
-- `TaxonomySunburstView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomySunburstView.swift`
-- `TaxonomyTableView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift`
-- `TaxonomyTooltipView` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyTooltipView.swift`
-- `TaxonomyViewController` class, `Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift`
 - `TrackHeaderView` class, `Sources/LungfishApp/Views/Viewer/TrackHeaderView.swift`
 - `TrackHeaderViewDelegate` protocol, `Sources/LungfishApp/Views/Viewer/TrackHeaderView.swift`
 - `VariantInspectorField` struct, `Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift`
@@ -403,7 +394,7 @@ None.
 - Path. Sources/LungfishCore
 - Depends on. LungfishPortable
 - External products. Algorithms (swift-algorithms), Collections (swift-collections)
-- Used by. Lungfish, LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
+- Used by. Lungfish, LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
 - Test target. LungfishCoreTests (also tested by LungfishIntegrationTests, LungfishKitTests, LungfishOperationsTests)
 
 ### Subdirectories
@@ -882,7 +873,7 @@ None.
 - Path. Sources/LungfishIO
 - Depends on. LungfishCore
 - External products. AsyncAlgorithms (swift-async-algorithms), SystemPackage (swift-system)
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow
 - Test target. LungfishIOTests (also tested by LungfishAlignmentUITests, LungfishCLITests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishWorkflowTests)
 
 ### Subdirectories
@@ -1580,7 +1571,7 @@ None.
 - Path. Sources/LungfishKit
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI
 - Test target. LungfishKitTests (also tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAssemblyUITests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests)
 
 ### Subdirectories
@@ -1883,6 +1874,29 @@ None.
 - `TaxTriageSurface` class, `Sources/LungfishTaxTriageUI/TaxTriageSurface.swift`
 - `TaxTriageTableRow` struct, `Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift`
 
+## LungfishTaxonomyUI
+
+- Kind. library
+- Path. Sources/LungfishTaxonomyUI
+- Depends on. LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow
+- External products. none
+- Used by. LungfishApp
+- Test target. none named LungfishTaxonomyUITests, tested by LungfishAppTests, LungfishAppViewTests
+
+### Public types
+
+- `AppSystemSymbolImage` enum, `Sources/LungfishTaxonomyUI/AppSystemSymbolImage.swift`
+- `CzIdResultViewController` class, `Sources/LungfishTaxonomyUI/CzIdResultViewController.swift`
+- `SunburstLayout` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
+- `SunburstSegment` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
+- `TaxaCollectionsDrawerDelegate` protocol, `Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerDelegate.swift`
+- `TaxaCollectionsDrawerView` class, `Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift`
+- `TaxonomyOutlineView` class, `Sources/LungfishTaxonomyUI/TaxonomyTableView.swift`
+- `TaxonomySunburstView` class, `Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift`
+- `TaxonomyTableView` class, `Sources/LungfishTaxonomyUI/TaxonomyTableView.swift`
+- `TaxonomyTooltipView` class, `Sources/LungfishTaxonomyUI/TaxonomyTooltipView.swift`
+- `TaxonomyViewController` class, `Sources/LungfishTaxonomyUI/TaxonomyViewController.swift`
+
 ## LungfishTwelveSUI
 
 - Kind. library
@@ -1916,7 +1930,7 @@ None.
 - Path. Sources/LungfishWorkflow
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTestSupport, LungfishTwelveSUI
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI
 - Test target. LungfishWorkflowTests (also tested by LungfishAppWorkflowTests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests)
 
 ### Subdirectories

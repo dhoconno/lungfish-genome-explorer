@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import LungfishKit
 import UniformTypeIdentifiers
+import LungfishTaxonomyUI
 
 /// Parsed FASTQ read record for the read preview table.
 struct FASTQReadPreviewRecord {

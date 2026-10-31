@@ -17,7 +17,7 @@ Modules form a strict stack. Each row may import only the rows above it.
 | IO | LungfishIO | File-format readers and writers, indexes, bundle and analysis folder readers, SQLite stores |
 | Workflow | LungfishWorkflow | Tool execution, conda and container runtimes, pipelines, provenance, CLI event protocol |
 | Kit | LungfishKit | Shared UI kernel with OperationCenter, CLI subprocess transport, drawers, pickers, brand colors |
-| Leaves | LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI | One result viewer per target |
+| Leaves | LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI | One result viewer per target |
 | App | LungfishApp | Composition roots that wire leaves to app services |
 | Executables | Lungfish, LungfishCLI, LungfishCLIExecutable | The app entry point and the CLI library plus its entry point |
 
@@ -39,7 +39,7 @@ LungfishWorkflow is the largest target. Tool execution sits in `Sources/Lungfish
 
 LungfishKit is the shared kernel for every UI target. It owns `Sources/LungfishKit/OperationCenter.swift`, `Sources/LungfishKit/CLISubprocessTransport.swift` and the result viewport types in `Sources/LungfishKit/Surfaces/`, plus drawers, pickers and split-pane helpers.
 
-The nine leaves each hold one result viewer, its display state and its export service. LungfishGenotypeUI is by far the largest. LungfishAlignmentUI is a single file.
+The ten leaves each hold one result viewer, its display state and its export service. LungfishGenotypeUI is by far the largest. LungfishAlignmentUI is a single file.
 
 LungfishApp holds the six composition-root families. These are AppDelegate and its extensions under `Sources/LungfishApp/App`, MainSplitViewController and MainWindowController under `Sources/LungfishApp/Views/MainWindow`, ViewerViewController and its per-feature extensions under `Sources/LungfishApp/Views/Viewer`, InspectorViewController under `Sources/LungfishApp/Views/Inspector`, and SidebarViewController under `Sources/LungfishApp/Views/Sidebar`. `Sources/LungfishApp/Services` holds operation services, most of which do not need AppKit.
 

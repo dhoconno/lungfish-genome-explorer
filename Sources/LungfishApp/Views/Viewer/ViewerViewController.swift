@@ -19,6 +19,7 @@ import Quartz  // For QLPreviewView
 import PDFKit  // For PDF rendering (more reliable than QLPreviewView for PDFs)
 import os.log
 import LungfishKit
+import LungfishTaxonomyUI
 
 // QuickLookItem extracted to QuickLookItem.swift
 // BaseColors extracted to BaseColors.swift

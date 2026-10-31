@@ -5,6 +5,7 @@
 import AppKit
 import LungfishNaoMgsUI
 import LungfishNvdUI
+import LungfishTaxonomyUI
 
 extension ViewerViewController {
     public func displayCzIdResult(_ controller: CzIdResultViewController) {

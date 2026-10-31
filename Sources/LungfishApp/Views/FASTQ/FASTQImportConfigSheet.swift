@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 import UniformTypeIdentifiers
+import LungfishTaxonomyUI
 
 
 /// Callback invoked when the user clicks "Import" with configured settings.

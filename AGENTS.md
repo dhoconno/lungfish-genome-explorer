@@ -41,7 +41,7 @@ Modules form a stack. Each row imports only rows above it.
 | 3 | LungfishWorkflow |
 | 4 | LungfishOperations |
 | 5 | LungfishKit |
-| 6 | The nine leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTwelveSUI) |
+| 6 | The ten leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI) |
 | 7 | LungfishApp |
 | 8 | Lungfish (app executable) |
 

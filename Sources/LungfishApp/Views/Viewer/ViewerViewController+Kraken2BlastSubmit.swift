@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
+import LungfishTaxonomyUI
 
 extension ViewerViewController {
     /// The BLAST Verify of a Kraken2 taxon on `blast submit` (2.12 lane 12.10, A65-P50), for the tree display and

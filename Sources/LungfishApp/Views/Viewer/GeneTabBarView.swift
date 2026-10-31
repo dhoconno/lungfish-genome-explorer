@@ -6,6 +6,7 @@ import AppKit
 import LungfishKit
 import os.log
 import LungfishCore
+import LungfishTaxonomyUI
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "GeneTabBar")
 
