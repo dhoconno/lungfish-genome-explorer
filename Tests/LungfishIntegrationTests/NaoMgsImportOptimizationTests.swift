@@ -739,14 +739,14 @@ struct NaoMgsImportOptimizationTests {
         // All 3 rows should be imported (including the R2-only row)
         #expect(result.totalHitReads == 3)
 
-        // Verify taxon summaries count alignments, while public totalHitCount remains row-based.
+        // Verify taxon summaries count aligned reads (each mate once) and the public totalHitCount sums them.
         let db = try NaoMgsDatabase(at: result.resultDirectory.appendingPathComponent("hits.sqlite"))
         let summaries = try db.fetchTaxonSummaryRows(samples: nil)
         #expect(summaries.count == 1, "Single taxon (999)")
         #expect(summaries[0].hitCount == 4)
-        // The total is the sum of the taxon hit counts (aligned reads, each mate once), not a count of NAO-MGS rows.
-        let taxonHitSum = try db.fetchTaxonSummaryRows(samples: nil).reduce(0) { $0 + $1.hitCount }
-        #expect(try db.totalHitCount(samples: nil) == taxonHitSum)
+        // Three NAO-MGS rows hold four aligned reads, one read pair (two mates) and two single mates, so the total is
+        // four. It was three while the total counted rows.
+        #expect(try db.totalHitCount(samples: nil) == 4)
 
         // Verify BAMs: 1 paired read (2 SAM records) + 2 singles = 4 total
         if let samtoolsPath = SamtoolsLocator.locate() {

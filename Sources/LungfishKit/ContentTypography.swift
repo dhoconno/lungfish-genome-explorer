@@ -305,7 +305,8 @@ public final class ContentTypographyViewApplicator {
                         preference: AppSettings.shared.contentTextSizePreference,
                         preferredFontProvider: preferredFontProvider
                     ).font(for: .tableHeader)
-                    column.headerToolTip = column.headerCell.stringValue
+                    // A column keeps the description its owner set. A column with none shows its full title.
+                    column.headerToolTip = column.headerToolTip ?? column.headerCell.stringValue
                 }
             }
             table.enclosingScrollView?.tile()

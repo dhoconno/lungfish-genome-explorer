@@ -305,8 +305,10 @@ final class NaoMgsResultViewControllerSmokeTests: XCTestCase {
         }
         XCTAssertEqual(enlargedSampleField.toolTip, enlargedSampleField.stringValue)
         XCTAssertEqual(enlargedSampleField.accessibilityValue(), enlargedSampleField.stringValue)
+        // A header tooltip is the column's own description when it has one, and its full title otherwise.
         XCTAssertTrue(table.tableColumns.allSatisfy {
-            $0.headerToolTip == $0.headerCell.stringValue
+            guard let tip = $0.headerToolTip else { return false }
+            return tip == $0.headerCell.stringValue || tip.count > $0.headerCell.stringValue.count
         })
 
         controller.metadataColumnController.visibleColumns = ["Cohort"]
