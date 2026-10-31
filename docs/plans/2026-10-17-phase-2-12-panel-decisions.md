@@ -1,7 +1,7 @@
 # Panel decisions for 2.12, 2.13 and Phase 3 (2026-10-17)
 
 The briefs, the five inventories `inv/<FIELD>.md` and the five memos `memos/<FIELD>.md` that this table cites are kept in
-`~/lungfish-phase-records/phase-2-11/p3plan/`. The plan they decide is `2026-10-17-phase-2-12.md` beside this file.
+`~/lungfish-phase-records/phase-2-11/p3plan/`. The plan they decide is `471167711:docs/plans/2026-10-17-phase-2-12.md` beside this file.
 
 Model and effort. `lge-expert` on opus at effort xhigh, as tally clerk and plan drafter. I hold no field and cast no vote.
 CODE is `.claude/worktrees/phase-2-11` at `65539ddcd2fbe756390d0890cda0b5181e77ffc0`, which equals `origin/main`.
@@ -122,7 +122,7 @@ ARCH's other rulings, recorded as field rulings with no vote needed (`docs/contr
 
 | Ruling | Text | Votes cast on it |
 |---|---|---|
-| R-A3 | Each 2.12 flip lane ends its report with a deletion table in the form of the 2.11 K3 key table (`docs/plans/2026-10-15-phase-2-11.md:152-167`). "No key" means the lane already deleted the old path | None against. QA's ROUTE-KEYS meter (QA memo 12.01) serves the same end and had no second vote |
+| R-A3 | Each 2.12 flip lane ends its report with a deletion table in the form of the 2.11 K3 key table (`471167711:docs/plans/2026-10-15-phase-2-11.md:152-167`). "No key" means the lane already deleted the old path | None against. QA's ROUTE-KEYS meter (QA memo 12.01) serves the same end and had no second vote |
 | R-A4 | `OperationSpec` and `OperationLauncher` go in `Sources/LungfishKit/Launch/` | Q-A8, 3 to 0 |
 | R-A5 | Rename the nine test classes that keep a deleted key's words, in 2.13 | Q-A12, 4 to 0 |
 | R-A6 | `ResultViewport` and `SurfaceRegistry` go in a new `Sources/LungfishKit/Surfaces/`, with `ResultExportFormat` and `BlastRequest` moved there as a pure move. The typed event layer extends `ScopedEventFilter` | Q-B10, see T6 |

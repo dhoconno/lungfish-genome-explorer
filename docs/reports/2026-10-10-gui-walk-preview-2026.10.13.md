@@ -1,6 +1,6 @@
 # GUI walk of Preview 2026.10.13 (2026-10-10)
 
-Status is active. Cited by docs/plans/2026-10-09-phase-2-4.md. Delete both together when the program plan closes.
+Status is active. Cited by 471167711:docs/plans/2026-10-09-phase-2-4.md. Delete both together when the program plan closes.
 
 ## Why this walk ran
 

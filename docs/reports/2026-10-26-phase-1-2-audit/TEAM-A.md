@@ -33,7 +33,7 @@ The sharpest fact is that none of the science fixes reached a Stable user. Stabl
    (`docs/release-notes/2026.10.9.md`).
 2. **Science was pinned before code moved** [A1, A2]. Goldens and genotype suites preceded the risky moves, so 2.6
    recaptured 43 files predicted key by key. 2.3 fixed three MHC defects for about $650
-   (`docs/plans/2026-10-09-phase-2-3.md:74-150`).
+   (`471167711:docs/plans/2026-10-09-phase-2-3.md:74-150`).
 3. **One process primitive** [A1, A3]. Files creating `Process()` fell from 77 to 0 outside
    `Sources/LungfishCore/Process/`. Cancel now kills the whole tree, Nextflow and Java children included.
 4. **GUI and CLI run the same code** [A1, A2]. `NativeToolRunner` in LungfishApp went from 10 files to 0, and the
@@ -84,7 +84,7 @@ a seat's judged share of a session. Rule numbers point to Contract amendments.
 
 | Rank | Name | What happened | Rough cost | Evidence | Why low value | Rule that would have stopped it |
 |---|---|---|---|---|---|---|
-| 1 | CLI leaves for actions that make no scientific data | Every viewer export, label edit, clipboard and share action got a row, a CLI leaf, a parity class and a hidden key. O5 overrode five memos that asked for a census first | About $2,000 judged (half of 2.10 to 2.12), about 240 export commits | `docs/plans/2026-10-17-phase-2-12.md:32` (O5), OBS-W7 | A viewer PNG is not a result that needs replay, and the figure rebuild became a Stable blocker | 7 |
+| 1 | CLI leaves for actions that make no scientific data | Every viewer export, label edit, clipboard and share action got a row, a CLI leaf, a parity class and a hidden key. O5 overrode five memos that asked for a census first | About $2,000 judged (half of 2.10 to 2.12), about 240 export commits | `471167711:docs/plans/2026-10-17-phase-2-12.md:32` (O5), OBS-W7 | A viewer PNG is not a result that needs replay, and the figure rebuild became a Stable blocker | 7 |
 | 3 | Literal exit and the hidden-key cycle | Routes flipped behind a key for one Preview so the next could delete it. The literal reading made that and zero spawns an exit, which created 2.13 | About $750 of 2.13 judged, 144 key and 61 spawn commits in 10-18 to 10-22 | `a0eec8b32` plan:127 against plan:163, `85e584dca` | tar and gzip carried none of R7's risk, and 2.2 had deferred them. No user could reach a key | 5, 6 |
 | 4 | Review fixes and carried rows on margins | Each review asked for fixes, and each unfixed item became a carried row | 848 fixes, fix agents $681, about 47 S3 and S4 walk rows sent to Phase 3 | `events.log` of 2.10 to 2.13, `WALK-TALLY.md:226-289` | A 5.3 s cancel against a 6.0 s grace, 255-byte temp names | 9, 10, 11 |
 | 10 | Provenance minutiae | Signing spread to downloads and VCF attaches, and the app's name in records changed four ways and back | About 104 commits, about $340 | `904dc1d51` ("Restore lungfish-gui as argv[0]") | No lab sets a key, and no scientist reads argv[0] | 15 |
@@ -104,9 +104,9 @@ a seat's judged share of a session. Rule numbers point to Contract amendments.
 | 2 | Five-expert panel in every sub-phase | Inventories, memos, votes and rulings before lanes, even for mechanical batches, then five votes on every walk row | $1,640 (design and rulings) plus about $180 of walk votes | `EXPERT-PANEL.md:9`, `:53`, `WALK-TALLY.md` (64 KB) | About 85% of margins were unanimous. Four blockers passed 3 to 2 where a severity rule would have decided | 8, 9 |
 | 7 | Release notes as change logs, fact-checked | Notes grew to 111,565 characters with route keys and exit codes, each sentence fact-checked | $397 to $579, one runaway check of 2,791 calls | Memory `runaway-fact-check-agent.md` | Scientists need the result changes. O26 fixed it | 19 |
 | 8 | A notarized Preview per sub-phase | 24 Previews in 23 days, ten from 10-05 to 10-08, about 2.5 h of tiers each, four on a walk substitute | $424 of agents, dozens of machine hours | `git tag --sort=creatordate` | No Stable came of it, and most changed screens went unwalked | 1, 2 |
-| 9 | Monitor and contract self-editing | A monitor at every checkpoint (12 in 2.13) that also rewrote the process contract | $377, 24 contract commits | `docs/plans/2026-10-20-phase-2-13.md:487-500` | It never asked whether a lane should exist, and missed the runaway agent | 18 |
+| 9 | Monitor and contract self-editing | A monitor at every checkpoint (12 in 2.13) that also rewrote the process contract | $377, 24 contract commits | `471167711:docs/plans/2026-10-20-phase-2-13.md:487-500` | It never asked whether a lane should exist, and missed the runaway agent | 18 |
 | 11 | Generated-index and baseline churn | `MODULES.md` carries line numbers, and baselines are lowered by hand | 397 commits that touch nothing else | Spot check 5 | Line numbers in a map have no reader | 17 |
-| 12 | Effort A/B, round 2 | A second model-effort round after round 1 had set the roles | $311 | `docs/plans/2026-10-16-effort-ab-round-2.md` | Round 1 ($92) paid back. Round 2 tuned the factory | 18 |
+| 12 | Effort A/B, round 2 | A second model-effort round after round 1 had set the roles | $311 | `471167711:docs/plans/2026-10-16-effort-ab-round-2.md` | Round 1 ($92) paid back. Round 2 tuned the factory | 18 |
 
 ## Thematic allocation
 
@@ -326,7 +326,7 @@ records. Two held as stated, one held with a narrower meaning, and two were corr
 | # | Claim | Check | Result |
 |---|---|---|---|
 | 1 | Stable is still the base commit and drops primer-led reads [A2] | `v2026.9.78^{commit}` is `1f70a13ea` ("Prepare Stable 2026.9.78"). At the tag, `FastqCommand.swift:2054` passes `"ktrim=r"` to bbduk in `nativePrimerRemovalExecution`. `2026.10.24.md:7` reads "Stable baseline: v2026.9.78", and every later tag is a Preview | Holds |
-| 2 | The literal exit ruling, not the original plan, created 2.13 [A1, A2] | `a0eec8b32` plan line 127 reads "at the adapter sites only". Today's line 163 reads "with no exemption list". `docs/plans/2026-10-17-phase-2-12.md:32-36` quotes the owner's O1, O2 and O5 | Holds. These were the owner's own answers, so the tail is owner-set scope, not agent drift |
+| 2 | The literal exit ruling, not the original plan, created 2.13 [A1, A2] | `a0eec8b32` plan line 127 reads "at the adapter sites only". Today's line 163 reads "with no exemption list". `471167711:docs/plans/2026-10-17-phase-2-12.md:32-36` quotes the owner's O1, O2 and O5 | Holds. These were the owner's own answers, so the tail is owner-set scope, not agent drift |
 | 3 | 196 reviews asked for 848 fixes [A1] | Case-insensitive count of "merge after N" in `events.log`. 2.10 gave 1 and 2, 2.11 39 and 282, 2.12 50 and 240, 2.13 106 and 324, so 196 and 848 | Holds as 196 verdict lines, which include BIO reads and re-reviews, not 196 distinct lanes. The "one lane merged as is" could not be reproduced and is dropped |
 | 4 | No GUI test was added and the `ui` profile points at a deleted script [A3] | 40 `func test` in `Tests/LungfishXCUITests` at base and head. `config/test-catalog.json:245-257` names `scripts/release/app-smoke-gate.sh`, which no commit ever added or deleted (`34548a699` does not touch it). `app_smoke_gate.py` exists at base and head | Corrected. Never deleted, but misnamed since before Phase 1, so the GUI gate never ran in the program. The finding is stronger |
 | 5 | 451 commits (9%) were map regeneration or baseline lowering [A1] | Over `1f70a13ea..ca9091af1`, 488 commits touch `docs/architecture/MODULES.md`, 256 touch only it, 85 touch only ratchet baselines, and 397 touch nothing but the map or baselines. Subject matches give 321 and 138 | Corrected to 397 commits (7.8%). The point stands |

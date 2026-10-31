@@ -103,11 +103,11 @@ Every other row goes to the backlog, an edge case that nobody has met included.
 |---|---|---|
 | T8, an owner check list blocks Stable and a locked-screen substitute stands in for the walk | `docs/plans/2026-10-11-phase-2-7.md` | Stable comes first |
 | Every sub-phase ends with a Preview, the owner directive of 2026-10-05 | `docs/plans/2026-10-02-architecture-program.md` | Previews carry something |
-| O2 of 2026-10-17, the exit read literally with no exemption list | `docs/plans/2026-10-17-phase-2-12.md` | Exits name outcomes |
+| O2 of 2026-10-17, the exit read literally with no exemption list | `471167711:docs/plans/2026-10-17-phase-2-12.md` | Exits name outcomes |
 | A route key ships and goes one release later (2.10 C4, 2.12 R-A1) | `docs/plans/2026-10-02-architecture-program.md` | Route moves |
-| O5 of 2026-10-17, every viewer export gets a row and a command | `docs/plans/2026-10-17-phase-2-12.md` | CLI equivalence |
+| O5 of 2026-10-17, every viewer export gets a row and a command | `471167711:docs/plans/2026-10-17-phase-2-12.md` | CLI equivalence |
 | G1, a family lane pins today's behaviour first | `docs/plans/2026-10-13-phase-2-10.md` | Pins before a change are for science |
-| O35, the experts replace the owner in the check list by consensus | `docs/plans/2026-10-23-phase-2-14.md` | A short owner check list, and Severity, not votes |
+| O35, the experts replace the owner in the check list by consensus | `471167711:docs/plans/2026-10-23-phase-2-14.md` | A short owner check list, and Severity, not votes |
 | No golden and no cli-help capture moves in any Phase 3 commit, and row texts are frozen in 3.1 | `docs/plans/2026-10-02-architecture-program.md` | Everything else is checked by meaning |
 
 The panel's place in a session and the monitor's checkpoints changed with this contract too, in
