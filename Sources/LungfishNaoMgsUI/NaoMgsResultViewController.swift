@@ -60,7 +60,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var manifest: NaoMgsManifest?
 
     /// Total hits for percentage display in the action bar.
-    private var naoMgsTotalHits: Int = 0
+    private(set) var naoMgsTotalHits: Int = 0
 
     /// URL of the NAO-MGS bundle directory, which the BLAST action names as the lineage of a search.
     public private(set) var bundleURL: URL? { didSet { refreshExportItem() } }
@@ -443,7 +443,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyTableView.reloadData()
 
         // Update summary bar with cached counts
-        let totalHits = manifest.hitCount
+        let totalHits = rows.reduce(0) { $0 + $1.hitCount }
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
         summaryBar.update(cachedRows: cachedTaxonRows, manifest: manifest, selectedSamples: Array(selectedSamples))
@@ -488,7 +488,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         reloadTaxonomyTable()
 
         // Update action bar
-        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+        let totalHits = (try? database.totalHitCount()) ?? displayedRows.reduce(0) { $0 + $1.hitCount }
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
 
@@ -658,7 +658,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
 
         guard !counts.isEmpty else {
-            return [(sample: manifest.sampleName, hitCount: manifest.hitCount)]
+            return [(sample: manifest.sampleName, hitCount: 0)]
         }
 
         return counts.keys.sorted().map { sample in
@@ -1661,7 +1661,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let hitsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("hits"))
         hitsColumn.title = "Hits"
-        hitsColumn.headerToolTip = "Total hit count assigned to this taxon."
+        hitsColumn.headerToolTip = "Aligned reads assigned to this taxon. Each mate of a read pair counts as one read, as in the BAM; one NAO-MGS row is one read pair."
         hitsColumn.width = 64
         hitsColumn.minWidth = 48
         hitsColumn.sortDescriptorPrototype = NSSortDescriptor(key: "hits", ascending: false)
@@ -1669,7 +1669,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let uniqueColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("unique"))
         uniqueColumn.title = "Unique Reads"
-        uniqueColumn.headerToolTip = "Deduplicated read count assigned to this taxon."
+        uniqueColumn.headerToolTip = "Aligned reads assigned to this taxon after duplicates are set aside. Each mate of a read pair counts as one read, so a pair with both mates aligned counts as two."
         uniqueColumn.width = 96
         uniqueColumn.minWidth = 72
         uniqueColumn.sortDescriptorPrototype = NSSortDescriptor(key: "unique", ascending: false)

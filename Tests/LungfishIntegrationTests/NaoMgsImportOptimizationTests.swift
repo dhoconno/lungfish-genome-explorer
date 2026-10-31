@@ -162,7 +162,8 @@ struct NaoMgsImportOptimizationTests {
 
         // Verify SQLite database content
         let db = try NaoMgsDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
-        #expect(try db.totalHitCount(samples: nil) == 35)
+        // 35 NAO-MGS rows (33 pairs and 2 single mates) are 68 mates, the unit of the taxon table.
+        #expect(try db.totalHitCount(samples: nil) == 68)
         let samples = try db.fetchSamples()
         #expect(!samples.isEmpty)
         let summaryRows = try db.fetchTaxonSummaryRows(samples: nil)
@@ -502,15 +503,15 @@ struct NaoMgsImportOptimizationTests {
         let accB = try #require(accSummaries.first(where: { $0.accession == "ACC_B" }))
         #expect(accB.readCount == 2)
 
-        // 2. totalHitCount should remain row-based for the public result summary.
+        // 2. totalHitCount is in the unit of the taxon table (aligned reads, each mate once): 4 pairs are 8 mates.
         let totalHits = try db.totalHitCount()
-        #expect(totalHits == 4)
+        #expect(totalHits == 8)
 
-        // 3. fetchSamples should stay row-based as well.
+        // 3. fetchSamples is in the same unit.
         let samples = try db.fetchSamples()
         #expect(samples.count == 1)
         #expect(samples[0].sample == "SAMPLE_X")
-        #expect(samples[0].hitCount == 4)
+        #expect(samples[0].hitCount == 8)
 
         // 4. If BAMs were created, virus_hits should be purged
         let bamsDir = bundle.appendingPathComponent("bams")
@@ -743,7 +744,9 @@ struct NaoMgsImportOptimizationTests {
         let summaries = try db.fetchTaxonSummaryRows(samples: nil)
         #expect(summaries.count == 1, "Single taxon (999)")
         #expect(summaries[0].hitCount == 4)
-        #expect(try db.totalHitCount(samples: nil) == 3)
+        // The total is the sum of the taxon hit counts (aligned reads, each mate once), not a count of NAO-MGS rows.
+        let taxonHitSum = try db.fetchTaxonSummaryRows(samples: nil).reduce(0) { $0 + $1.hitCount }
+        #expect(try db.totalHitCount(samples: nil) == taxonHitSum)
 
         // Verify BAMs: 1 paired read (2 SAM records) + 2 singles = 4 total
         if let samtoolsPath = SamtoolsLocator.locate() {

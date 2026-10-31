@@ -13,9 +13,9 @@ extension NaoMgsDatabase {
 
     /// Returns the total number of virus hits, optionally filtered by sample names.
     ///
-    /// Uses `sample_hit_counts` so totals remain raw row counts even when taxon
-    /// summaries store alignment counts for paired-end inputs, and still work after
-    /// `virus_hits` rows have been purged.
+    /// Sums the taxon summaries' hit counts, so a sample's total is in the unit of the taxon
+    /// table (aligned reads, each mate once) and still works after `virus_hits` rows have
+    /// been purged.
     ///
     /// - Parameter samples: If non-nil, only count hits from these samples.
     /// - Returns: Total hit count.
@@ -27,9 +27,9 @@ extension NaoMgsDatabase {
         let sql: String
         if let samples, !samples.isEmpty {
             let placeholders = samples.map { _ in "?" }.joined(separator: ",")
-            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM sample_hit_counts WHERE sample IN (\(placeholders))"
+            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM taxon_summaries WHERE sample IN (\(placeholders))"
         } else {
-            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM sample_hit_counts"
+            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM taxon_summaries"
         }
 
         var stmt: OpaquePointer?
@@ -56,9 +56,9 @@ extension NaoMgsDatabase {
 
     /// Returns all distinct samples with their hit counts.
     ///
-    /// Uses `sample_hit_counts` so per-sample counts stay raw row-based even when
-    /// taxon summaries are alignment-based, and still work after `virus_hits`
-    /// rows have been purged.
+    /// Sums the taxon summaries' hit counts, so a sample's total is in the unit of the taxon
+    /// table (aligned reads, each mate once) and still works after `virus_hits` rows have
+    /// been purged.
     ///
     /// - Returns: Array of (sample, hitCount) tuples ordered by sample name.
     public func fetchSamples() throws -> [(sample: String, hitCount: Int)] {
@@ -66,7 +66,7 @@ extension NaoMgsDatabase {
             throw NaoMgsDatabaseError.queryFailed("Database not open")
         }
 
-        let sql = "SELECT sample, hit_count FROM sample_hit_counts ORDER BY sample"
+        let sql = "SELECT sample, SUM(hit_count) FROM taxon_summaries GROUP BY sample ORDER BY sample"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
