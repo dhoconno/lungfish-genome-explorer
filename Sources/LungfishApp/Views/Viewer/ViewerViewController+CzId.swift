@@ -3,12 +3,18 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import LungfishNaoMgsUI
-import LungfishNvdUI
+import LungfishIO
+import LungfishKit
 import LungfishTaxonomyUI
 
 extension ViewerViewController {
-    public func displayCzIdResult(_ controller: CzIdResultViewController) {
+    /// What a person reads when a CZ-ID result does not open, because its files could not be read or its viewer
+    /// was not shown. It says what did not open and what to try, with no kind id and no raw error text.
+    static let czIdNotShownWords = "Unable to open the CZ-ID result. Select it again, or import it again if it still does not open."
+
+    /// Shows `controller` through the surface host in place of the normal sequence viewer and returns once it is
+    /// installed, or throws the reason it is not. The caller configures the controller before the show.
+    public func displayCzIdResult(_ controller: CzIdResultViewController) throws {
         // The Extract Reads dialog is an App sheet, so the view hands its request up and the App presents it.
         controller.onExtractionRequested = { [weak controller] request in
             controller?.presentClassifierExtractionDialog(request)
@@ -28,45 +34,14 @@ extension ViewerViewController {
         hideAlignmentTreeBundleViews()
         contentMode = .metagenomics
 
-        addChild(controller)
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        _ = try showSurface(.analysis(.czId), input: controller, as: CzIdSurface.self)
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-
-        let resultView = controller.view
-        resultView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(resultView)
-        NSLayoutConstraint.activate([
-            resultView.topAnchor.constraint(equalTo: view.topAnchor),
-            resultView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            resultView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
     }
 
+    /// Hides the CZ-ID result viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
     public func hideCzIdView() {
-        for child in children where child is CzIdResultViewController {
-            child.view.removeFromSuperview()
-            child.removeFromParent()
-        }
-
-        guard taxonomyViewController == nil,
-              esVirituViewController == nil,
-              taxTriageViewController == nil,
-              !children.contains(where: { $0 is NaoMgsResultViewController }),
-              !children.contains(where: { $0 is NvdResultViewController }) else { return }
-
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.czId))
     }
 }

@@ -25,6 +25,7 @@ extension ViewerViewController {
         registry.register(.analysis(.nvd), factory: NvdSurface.factory())
         registry.register(.analysis(.taxtriage), factory: TaxTriageSurface.factory())
         registry.register(.analysis(.kraken2), factory: Kraken2Surface.factory())
+        registry.register(.analysis(.czId), factory: CzIdSurface.factory())
         return registry
     }
 

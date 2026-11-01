@@ -1192,20 +1192,14 @@ extension MainSplitViewController {
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 let controller = CzIdResultViewController()
                 controller.configure(result: result, manifest: manifest, bundleURL: bundleURL)
-                viewerController.displayCzIdResult(controller)
+                try viewerController.displayCzIdResult(controller)
                 inspectorController?.clearBatchOperationDetails()
                 mainSplitLogger.info("displayCzIdResult: Configured with \(manifest.rowCount, privacy: .public) taxa")
             } catch {
+                // Files that could not be read and a viewer that was not shown get the same words, never the raw error.
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                mainSplitLogger.error("displayCzIdResult: Failed - \(error.localizedDescription, privacy: .public)")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load CZ-ID Result"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                if let window = view.window ?? NSApp.keyWindow {
-                    await alert.beginSheetModal(for: window)
-                }
+                mainSplitLogger.error("displayCzIdResult: Not shown - \(error.localizedDescription, privacy: .public)")
+                viewerController.clearViewport(statusMessage: ViewerViewController.czIdNotShownWords)
             }
         }
     }

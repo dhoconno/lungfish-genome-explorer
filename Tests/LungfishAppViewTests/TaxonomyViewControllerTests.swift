@@ -1297,7 +1297,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         let viewerVC = ViewerViewController()
         _ = viewerVC.view
         let controller = CzIdResultViewController()
-        viewerVC.displayCzIdResult(controller)
+        try viewerVC.displayCzIdResult(controller)
         XCTAssertNotNil(
             controller.onExtractionRequested,
             "Extract Reads does nothing unless the viewer wires the request to the App dialog"
