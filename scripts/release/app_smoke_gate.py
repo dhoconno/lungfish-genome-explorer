@@ -554,7 +554,36 @@ def receipt_authority(root):
     return module
 
 
+# SMOKE-DD-TCC (3.1 GUI run 2). The xctestrun points the app's DYLD_FRAMEWORK_PATH at the derived data, and macOS
+# holds an app without access to Documents, Desktop or Downloads when it opens a file there at launch. A derived data
+# folder under ~/Documents stopped all 11 tasks before they ran. The package route keeps its derived data under
+# /private/var/tmp, outside all three.
+PRIVACY_PROTECTED_FOLDERS = ("Documents", "Desktop", "Downloads")
+DERIVED_DATA_EXAMPLE = "/private/var/tmp/lungfish-smoke-dd"
+
+
+def account_home():
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def refuse_protected_derived_data(derived_data, home):
+    """Refuses derived data inside the account's Documents, Desktop or Downloads folder. `run` calls it first, before
+    the gate builds anything or calls `defaults`. Both paths are resolved, and their names compare without regard to
+    case, as the account's volume does."""
+    target, base = Path(derived_data).resolve(), Path(home).resolve()
+    names = [part.casefold() for part in target.parts]
+    prefix = [part.casefold() for part in base.parts]
+    for folder in PRIVACY_PROTECTED_FOLDERS:
+        if names[:len(prefix) + 1] == prefix + [folder.casefold()]:
+            raise EvidenceError(
+                "--derived-data %s is inside %s. The runner's xctestrun points the app's DYLD_FRAMEWORK_PATH at that "
+                "folder, and macOS holds an app without access to that folder at launch, so every task would fail "
+                "before it ran. Give --derived-data a folder outside Documents, Desktop and Downloads, for example %s."
+                % (target, base / folder, DERIVED_DATA_EXAMPLE))
+
+
 def run(args):
+    refuse_protected_derived_data(args.derived_data, account_home())
     root, app, directory = args.root.resolve(), args.app.resolve(), args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     # Outside the evidence, since the candidate's preferences may flush after the run, and in the
@@ -650,7 +679,9 @@ def argument_parser():
     parser.add_argument("--channel", choices=["stable", "preview"], required=True)
     parser.add_argument("--output", type=Path, required=True,
                         help="new evidence folder (the candidate's fresh home goes in the temporary folder)")
-    parser.add_argument("--derived-data", type=Path, required=True)
+    parser.add_argument("--derived-data", type=Path, required=True,
+                        help="runner build folder, outside Documents, Desktop and Downloads (the app opens frameworks "
+                             "there at launch), for example " + DERIVED_DATA_EXAMPLE)
     return parser
 
 
