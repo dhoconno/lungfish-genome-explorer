@@ -79,6 +79,45 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
         XCTAssertEqual(context.relatedNames, ["Betacoronavirus"])
     }
 
+    /// With no lineage the row is judged by its names, bare of the rank prefixes no NCBI record carries. A subspecies never
+    /// counts, because `t__1` bare would match any organism that holds a 1. The Known limit of the ruling.
+    func testEsVirituWithoutLineageKeepsNamesAndStripsTheRankPrefixes() throws {
+        let context = oc43Detection().blastTaxonomyContext(databaseDirectory: nil, taxonomyDirectory: nil)
+        XCTAssertTrue(context.cladeTaxIds.isEmpty)
+        XCTAssertEqual(context.cladeNames, ["Human coronavirus OC43", "Betacoronavirus 1"])
+        XCTAssertEqual(context.relatedNames, ["Betacoronavirus"])
+
+        let numbered = oc43Detection(subspecies: "t__1").blastTaxonomyContext(databaseDirectory: nil, taxonomyDirectory: nil)
+        XCTAssertFalse(numbered.cladeNames.contains("1"))
+        XCTAssertFalse(numbered.cladeNames.contains("t__1"))
+    }
+
+    /// Every install that lacks one of the two files reads names only, the folder of an imported batch among them. An
+    /// imported batch's `databasePath` is `/imported`, which holds no table.
+    func testEsVirituKeepsTheNamesOnlyReadingWhenEitherFileIsMissing() throws {
+        let namesOnly = oc43Detection().blastTaxonomyContext
+        try writeTable(Self.tableHeader + Self.oc43Row)
+        let taxonomy = try writeTaxonomy()
+        let imported = URL(fileURLWithPath: "/imported")
+        let empty = scratch.appendingPathComponent("empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+
+        let installs: [(database: URL?, taxonomy: URL?, reason: String)] = [
+            (database, nil, "no NCBI Taxonomy"),
+            (database, empty, "a taxonomy folder with no nodes.dmp"),
+            (nil, taxonomy, "no EsViritu database"),
+            (empty, taxonomy, "a database folder with no table"),
+            (imported, taxonomy, "an imported batch's folder"),
+        ]
+        for install in installs {
+            let context = oc43Detection().blastTaxonomyContext(
+                databaseDirectory: install.database, taxonomyDirectory: install.taxonomy
+            )
+            XCTAssertEqual(context, namesOnly, install.reason)
+            XCTAssertTrue(context.cladeTaxIds.isEmpty, install.reason)
+        }
+    }
+
     /// The species check exists for a `[tax adj: …]` row, whose name is adjusted while its accession is the reference's.
     func testDatabaseTaxIdIsRefusedWhenTheTableFilesAnotherSpecies() throws {
         let taxId = { (accession: String, species: String?) in
