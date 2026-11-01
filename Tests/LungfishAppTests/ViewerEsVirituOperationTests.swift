@@ -254,6 +254,30 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         }
     }
 
+    /// Another species that shares the row's first word stays outside, and so does the genus above the species, so the
+    /// first-word rule no longer judges a row with a lineage.
+    func testEsVirituSpeciesCladeLeavesOtherHumanCoronavirusesOutside() throws {
+        let plan = try oc43Plan(taxonomyContext: oc43SpeciesContext())
+
+        let hku1 = Self.judge(plan, hits: [Self.oc43Hit("NC_006577.2", "Human coronavirus HKU1", 290028)])
+        XCTAssertEqual(hku1.readResults[0].matchesQueriedTaxon, false, "HKU1 is another species of the subgenus")
+        XCTAssertEqual(hku1.contradictingCount, 1)
+
+        let genus = Self.judge(plan, hits: [Self.oc43Hit("MN996532.2", "Betacoronavirus", 694002)])
+        XCTAssertEqual(genus.readResults[0].matchesQueriedTaxon, false, "a record filed at the genus sits above the species")
+    }
+
+    /// Without the database or the NCBI Taxonomy the row keeps its names, so the walk's read still reads as the walk read it.
+    /// This pins the Known limit of the ruling, not a wanted result.
+    func testEsVirituOC43WalkReadWithoutLineageStaysUnsupported() throws {
+        let names = Self.oc43Detection.blastTaxonomyContext(databaseDirectory: nil, taxonomyDirectory: nil)
+        let result = Self.judge(try oc43Plan(taxonomyContext: names), hits: Self.oc43Hits)
+
+        XCTAssertEqual(result.supportingCount, 0)
+        XCTAssertEqual(result.contradictingCount, 1)
+        XCTAssertEqual(result.confidence, .unsupported)
+    }
+
     // MARK: - Fixtures
 
     /// The walk's OC43 row, as EsViritu's result table writes it, with its rank prefixes.
