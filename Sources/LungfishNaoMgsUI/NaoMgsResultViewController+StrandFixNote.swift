@@ -16,6 +16,26 @@ private enum StrandFixFinding: Sendable, Equatable {
     case unreadable
 }
 
+/// The label of the note under the miniBAM header. A wrapping label reports the whole text on one line as its intrinsic
+/// width, so a long note asked the column, the split view and the window above it for that width and grew the window
+/// past the screen (walk finding NAO-NOTE-WIDENS-WINDOW). This label reports no intrinsic width, so the column alone
+/// sets the width, and it keeps `preferredMaxLayoutWidth` at the width the column gave it, so the height it reports is
+/// the height its words need at that width and the words wrap to as many lines as they take.
+private final class NaoMgsWrappingNoteLabel: NSTextField {
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: super.intrinsicContentSize.height)
+    }
+
+    override func layout() {
+        super.layout()
+        let width = bounds.width
+        guard width > 0, abs(preferredMaxLayoutWidth - width) > 0.5 else { return }
+        preferredMaxLayoutWidth = width
+        invalidateIntrinsicContentSize()
+    }
+}
+
 extension NaoMgsResultViewController {
 
     /// The note under the miniBAM header, which a fixed BAM, a running check and an unreadable header all keep.
@@ -39,9 +59,10 @@ extension NaoMgsResultViewController {
     }
 
     /// Builds the note label in today's words, adds it to `container` and keeps it, so that a strand-fix check that
-    /// ends later can change it. Called once for each build of the miniBAM list.
+    /// ends later can change it. Called once for each build of the miniBAM list. The label asks for no width and wraps
+    /// to the width of its column (`NaoMgsWrappingNoteLabel`), so a long note never widens the panel or the window.
     func makeMiniBAMNoteLabel(in container: NSView) -> NSTextField {
-        let label = NSTextField(labelWithString: Self.miniBAMReferenceNoteWords)
+        let label = NaoMgsWrappingNoteLabel(labelWithString: Self.miniBAMReferenceNoteWords)
         label.font = .systemFont(ofSize: 10)
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byWordWrapping
