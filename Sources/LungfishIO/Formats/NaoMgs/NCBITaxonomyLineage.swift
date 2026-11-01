@@ -26,7 +26,9 @@ public enum NCBITaxonomyLineage {
         public let taxIds: Set<Int>
     }
 
-    /// The clade of `taxId`, or nil when `nodes.dmp` is missing or does not hold `taxId`.
+    /// The clade of `taxId`, or nil when `nodes.dmp` is missing or does not hold `taxId`. An ID NCBI merged into another is
+    /// not in `nodes.dmp`, so `merged.dmp`, when present, names the ID it became, and the clade is that ID's. `path` then
+    /// starts at the new ID.
     ///
     /// - Parameter limit: The most descendants of the root the clade lists, which keeps the `--accepted-taxid` pairs of
     ///   `blast submit` well under the argv limit. A root with more keeps only `path`, and the name rule of
@@ -36,10 +38,12 @@ public enum NCBITaxonomyLineage {
               let dump = try? Data(contentsOf: taxonomyDirectory.appendingPathComponent("nodes.dmp"), options: .mappedIfSafe)
         else { return nil }
         let table = NodeTable(dump: dump)
-        guard table.holds(taxId) else { return nil }
+        guard let current = table.holds(taxId) ? taxId : mergedTaxId(of: taxId, taxonomyDirectory: taxonomyDirectory),
+              table.holds(current)
+        else { return nil }
 
-        let path = table.pathToSpecies(from: taxId)
-        let root = path.last ?? taxId
+        let path = table.pathToSpecies(from: current)
+        let root = path.last ?? current
         var taxIds = Set(path)
         if let descendants = table.descendants(of: root, limit: limit) {
             taxIds.formUnion(descendants)
@@ -68,6 +72,22 @@ public enum NCBITaxonomyLineage {
             if let name = pathNames[id], !accepted.contains(name) { accepted.append(name) }
         }
         return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted)
+    }
+
+    // MARK: - merged.dmp
+
+    /// The ID `merged.dmp` says `taxId` became, nil when the file is missing or has no row for it. It reads one step.
+    private static func mergedTaxId(of taxId: Int, taxonomyDirectory: URL) -> Int? {
+        guard let dump = try? Data(contentsOf: taxonomyDirectory.appendingPathComponent("merged.dmp"), options: .mappedIfSafe)
+        else { return nil }
+        var merged: Int?
+        forEachLine(of: dump) { bytes, start, end in
+            var cursor = start
+            guard readNumber(bytes, &cursor, end) == taxId, skipSeparator(bytes, &cursor, end) else { return true }
+            merged = readNumber(bytes, &cursor, end)
+            return false
+        }
+        return merged
     }
 
     // MARK: - names.dmp
