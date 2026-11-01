@@ -158,6 +158,217 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         )
     }
 
+    // MARK: - Judged at species level (lane BLAST-LINEAGE, BIO-BLAST-CLADE Q2)
+
+    private static let parent = (organism: "Rotavirus A", taxId: 28875)
+    private static let label = (organism: "Human rotavirus A", taxId: 10941)
+    private static let species = (organism: "Rotavirus alphagastroenteritidis", taxId: 3432193)
+
+    /// A project and a temporary `ncbi-taxonomy` folder with the real rows for these IDs, cut to the chain.
+    private static func makeSpeciesFixture(_ scratch: URL) throws -> (project: URL, taxonomy: URL) {
+        let project = scratch.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let taxonomy = scratch.appendingPathComponent("ncbi-taxonomy", isDirectory: true)
+        for folder in [project, taxonomy] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try [
+            (1, 1, "no rank"), (10912, 1, "genus"), (3432193, 10912, "species"), (28875, 3432193, "no rank"),
+            (10941, 28875, "no rank"), (42567, 28875, "no rank"), (9606, 1, "species"),
+        ].map { "\($0.0)\t|\t\($0.1)\t|\t\($0.2)\t|\t\t|\t8\t|\n" }.joined()
+            .write(to: taxonomy.appendingPathComponent("nodes.dmp"), atomically: true, encoding: .utf8)
+        try [
+            (10912, "Rotavirus"), (10941, "Human rotavirus A"), (28875, "Rotavirus A"), (42567, "Rotavirus G9"),
+            (3432193, "Rotavirus alphagastroenteritidis"),
+        ].map { "\($0.0)\t|\t\($0.1)\t|\t\t|\tscientific name\t|\n" }.joined()
+            .write(to: taxonomy.appendingPathComponent("names.dmp"), atomically: true, encoding: .utf8)
+        return (project, taxonomy)
+    }
+
+    /// One saved read: `suffix` follows `LH00642:161:23KFJ7LT4:` in its name. A hit row gives the bases identical, the
+    /// bit score and the E value.
+    private static func savedRead(
+        _ suffix: String,
+        length: Int,
+        aligned: Int,
+        hits: [(accession: String, taxon: (organism: String, taxId: Int), identity: Int, bit: Double, evalue: Double)]
+    ) -> BlastSearchResult {
+        BlastSearchResult(queryId: "LH00642:161:23KFJ7LT4:\(suffix)", queryLength: length, hits: hits.map { row in
+            BlastHit(
+                accession: row.accession, title: row.taxon.organism, organism: row.taxon.organism, taxId: row.taxon.taxId,
+                hsps: [BlastHSP(bitScore: row.bit, evalue: row.evalue, identity: row.identity, alignLength: aligned, queryFrom: 1, queryTo: aligned)]
+            )
+        })
+    }
+
+    /// A read whose five hits tie at one score, `accessions` in the saved order.
+    private static func tiedRead(
+        _ suffix: String, length: Int, aligned: Int, identity: Int, bit: Double, evalue: Double,
+        _ accessions: [(String, (organism: String, taxId: Int))]
+    ) -> BlastSearchResult {
+        savedRead(suffix, length: length, aligned: aligned, hits: accessions.map { ($0.0, $0.1, identity, bit, evalue) })
+    }
+
+    private func judge(_ reads: [BlastSearchResult], taxon: String, taxId: Int, plan: BlastSubmitPlan) -> BlastVerificationResult {
+        judge(reads, taxon: taxon, taxId: taxId, acceptedTaxIds: Set(plan.request.acceptedTaxIds), names: plan.request.acceptedNames)
+    }
+
+    private func judge(_ reads: [BlastSearchResult], taxon: String, taxId: Int, acceptedTaxIds: Set<Int>, names: [String]) -> BlastVerificationResult {
+        BlastVerificationResult(
+            taxonName: taxon, taxId: taxId,
+            readResults: BlastService(environment: [:]).assignVerdicts(
+                searchResults: reads, eValueThreshold: 1e-10, queriedTaxonName: taxon,
+                acceptedTaxIds: acceptedTaxIds, acceptedTaxonNames: names
+            ),
+            submittedAt: Date(timeIntervalSince1970: 0), completedAt: nil, rid: "CLADE1", blastProgram: "blastn", database: "core_nt"
+        )
+    }
+
+    /// The ruling's R1 to R6, from the record of the walk of 2026-10-29, with R1 and R2 in a tied order a rerun can return.
+    private static let tiedParentReads: [BlastSearchResult] = [
+        tiedRead("1:1455:22018:13163", length: 141, aligned: 141, identity: 140, bit: 255.958, evalue: 1.38398e-67, [
+            ("LC909836", parent), ("LC912132", label), ("LC909803", parent), ("LC912159", label), ("PZ450839", parent),
+        ]),
+        tiedRead("1:1207:14753:23027", length: 132, aligned: 132, identity: 132, bit: 244.878, evalue: 2.76535e-64, [
+            ("PV989861", parent), ("LC912090", label), ("LC912068", label), ("LC912095", label), ("LC912067", label),
+        ]),
+        tiedRead("1:1103:20982:1308", length: 132, aligned: 131, identity: 131, bit: 243.0, evalue: 3.54e-63, [("LC912154", label)]),
+        tiedRead("1:2205:22964:5638", length: 145, aligned: 144, identity: 144, bit: 267.0, evalue: 2.36e-70, [("LC912154", label)]),
+        tiedRead("1:2423:14340:5078", length: 113, aligned: 113, identity: 113, bit: 209.8, evalue: 5.96e-50, [("LC912223", label)]),
+        tiedRead("1:1131:25812:26208", length: 148, aligned: 148, identity: 146, bit: 263.0, evalue: 8.77e-70, [("LC912319", label)]),
+    ]
+
+    func testNaoMgsSubSpeciesRowCountsAHitFiledAtItsSpeciesAsSupporting() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-species-clade")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let fixture = try Self.makeSpeciesFixture(scratch)
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 6, reads: [Self.hit(id: "read_1", sample: "S1")],
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        XCTAssertEqual(Set(plan.request.acceptedTaxIds), [3432193, 28875, 10941, 42567])
+        XCTAssertEqual(plan.request.acceptedNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(plan.request.taxId, 10941, "the claim stays the row's own taxon")
+
+        let result = judge(Self.tiedParentReads, taxon: "Human rotavirus A", taxId: 10941, plan: plan)
+
+        XCTAssertEqual(result.supportingCount, 6)
+        XCTAssertEqual(result.contradictingCount, 0)
+        XCTAssertEqual(result.confidence, .supported)
+        XCTAssertFalse(result.readResults[0].hasLCADisagreement, "R1's parent records are the same organism")
+        XCTAssertFalse(result.readResults[1].hasLCADisagreement, "R2's parent record is the same organism")
+    }
+
+    func testNaoMgsSpeciesCladeAcceptsADescendantNamedOtherwiseAndNothingAboveTheSpecies() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-species-descendant")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let fixture = try Self.makeSpeciesFixture(scratch)
+        let reads = [Self.hit(id: "read_1", sample: "S1")]
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Rotavirus A", taxId: 28875, readCount: 4, reads: reads,
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        func readTopped(by taxon: (organism: String, taxId: Int)) -> [BlastSearchResult] {
+            [Self.tiedRead("1:1103:20982:1308", length: 132, aligned: 131, identity: 131, bit: 243.0, evalue: 3.54e-63, [("X1", taxon)])]
+        }
+
+        let descendant = judge(readTopped(by: ("Rotavirus G9", 42567)), taxon: "Rotavirus A", taxId: 28875, plan: plan)
+        XCTAssertEqual(descendant.supportingCount, 1, "Rotavirus G9 is a descendant named otherwise")
+        let genus = judge(readTopped(by: ("Rotavirus", 10912)), taxon: "Rotavirus A", taxId: 28875, plan: plan)
+        XCTAssertEqual(genus.readResults.first?.matchesQueriedTaxon, false, "the genus stays above the species")
+
+        let labelPlan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 4, reads: reads,
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        let human = [Self.tiedRead("read_b", length: 100, aligned: 100, identity: 100, bit: 185, evalue: 6e-46, [("NC_000001.11", ("Homo sapiens", 9606))])]
+        let host = judge(human, taxon: "Human rotavirus A", taxId: 10941, plan: labelPlan)
+        XCTAssertEqual(host.contradictingCount, 1, "a real other organism still contradicts")
+    }
+
+    func testNaoMgsPlanWithoutTaxonomyAcceptsTheTaxonsOwnTaxIdOnly() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-no-taxonomy")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let fixture = try Self.makeSpeciesFixture(scratch)
+        let reads = [Self.hit(id: "read_1", sample: "S1")]
+
+        let none = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 4, reads: reads,
+            projectURL: fixture.project, taxonomyDirectory: nil
+        )
+        XCTAssertEqual(none.request.acceptedTaxIds, [10941])
+        XCTAssertEqual(none.request.acceptedNames, ["Human rotavirus A"])
+
+        let noNodes = scratch.appendingPathComponent("empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: noNodes, withIntermediateDirectories: true)
+        let missing = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 4, reads: reads,
+            projectURL: fixture.project, taxonomyDirectory: noNodes
+        )
+        XCTAssertEqual(missing.request.acceptedTaxIds, [10941], "a folder without nodes.dmp is no lineage")
+
+        let noTaxId = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Taxid 0", taxId: 0, readCount: 4, reads: reads,
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        XCTAssertEqual(noTaxId.request.acceptedTaxIds, [], "a tax ID of 0 names no tax ID, and the older name rule judges")
+    }
+
+    /// The seven reads of the walk's row 7 (candidate c7ec1c761, RID EFD11HF1014), with the five hits each read's saved
+    /// `blast-result.json` holds. Every hit is filed at 10941, its parent 28875 or the species 3432193.
+    private static let walkRunReads: [BlastSearchResult] = [
+        tiedRead("1:2213:5538:25956", length: 151, aligned: 151, identity: 151, bit: 279.964, evalue: 6.65268e-71, [
+            ("LC912136", label), ("PX465035", parent), ("PZ019162", species), ("PV989814", parent), ("PZ450838", parent),
+        ]),
+        savedRead("1:2129:11905:11145", length: 141, aligned: 141, hits: [
+            ("MZ096926", parent, 141, 261.498, 2.20198e-65), ("PP848779", parent, 140, 255.958, 1.02448e-63),
+            ("PP848508", parent, 140, 255.958, 1.02448e-63), ("PP848501", parent, 140, 255.958, 1.02448e-63),
+            ("PP861585", label, 140, 255.958, 1.02448e-63),
+        ]),
+        tiedRead("1:1366:29671:15208", length: 141, aligned: 141, identity: 141, bit: 261.498, evalue: 2.20198e-65, [
+            ("LC912223", label), ("LC912209", label), ("LC912218", label), ("LC912207", label), ("LC912206", label),
+        ]),
+        tiedRead("1:2130:21274:16105", length: 121, aligned: 121, identity: 121, bit: 224.565, evalue: 2.37148e-54, [
+            ("LC912223", label), ("LC912209", label), ("LC912218", label), ("LC912207", label), ("LC912206", label),
+        ]),
+        tiedRead("1:1310:16484:2681", length: 61, aligned: 61, identity: 61, bit: 113.766, evalue: 1.72396e-21, [
+            ("LC912223", label), ("LC912218", label), ("LC912212", label), ("PX212625", species), ("PV990031", parent),
+        ]),
+        tiedRead("1:1397:3629:23041", length: 147, aligned: 146, identity: 146, bit: 270.731, evalue: 3.86582e-68, [
+            ("LC912136", label), ("PX465035", parent), ("PZ019162", species), ("PV989814", parent), ("PZ450838", parent),
+        ]),
+        savedRead("1:1214:39330:1112", length: 123, aligned: 122, hits: [
+            ("PP751117", parent, 122, 226.412, 6.74517e-55), ("PP751116", parent, 122, 226.412, 6.74517e-55),
+            ("PZ019155", species, 121, 220.872, 3.13822e-53), ("LC912140", label, 121, 220.872, 3.13822e-53),
+            ("PV753009", parent, 121, 220.872, 3.13822e-53),
+        ]),
+    ]
+
+    func testNaoMgsHumanRotavirusAWalkRunReadsSupportedAtSpeciesLevel() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-walk-run")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let fixture = try Self.makeSpeciesFixture(scratch)
+
+        // The walk's own reading, judged by the row's own tax ID as the candidate did: the false Mixed.
+        let walk = judge(Self.walkRunReads, taxon: "Human rotavirus A", taxId: 10941, acceptedTaxIds: [10941], names: ["Human rotavirus A"])
+        XCTAssertEqual(walk.readResults.filter { $0.verdict == .verified }.count, 7)
+        XCTAssertEqual(walk.supportingCount, 5)
+        XCTAssertEqual(walk.contradictingCount, 2)
+        XCTAssertEqual(walk.confidence, .mixed)
+        XCTAssertEqual(walk.readResults.filter(\.hasLCADisagreement).count, 5, "the banner's 5 with conflicting organisms")
+
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 7, reads: [Self.hit(id: "read_1", sample: "S1")],
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        let judged = judge(Self.walkRunReads, taxon: "Human rotavirus A", taxId: 10941, plan: plan)
+
+        XCTAssertEqual(judged.readResults.filter { $0.verdict == .verified }.count, 7)
+        XCTAssertEqual(judged.supportingCount, 7)
+        XCTAssertEqual(judged.contradictingCount, 0)
+        XCTAssertEqual(judged.confidence, .supported)
+        for read in judged.readResults {
+            XCTAssertFalse(read.hasLCADisagreement, read.id)
+        }
+    }
+
     func testTaxonBlastLaunchesNothingWhenTheBeginIsRefused() {
         // No real center refuses this row, because it requests no lock. A
         // reporter that refuses every begin proves the launch closure sits
