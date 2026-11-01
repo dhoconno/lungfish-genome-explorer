@@ -66,20 +66,32 @@ extension ViewerViewController {
             nvdDisplayLogger.info(
                 "BLAST verification requested for \(contigName, privacy: .public) (\(classificationName, privacy: .public)), taxId=\(taxIdInt, privacy: .public)"
             )
-            guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
-                try Self.nvdBlastSubmitPlan(
-                    hit: hit, sequence: sequence, classificationName: classificationName,
-                    projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
-                )
-            }) else { return }
-            Self.beginNvdBlastVerificationOperation(
-                contigName: contigName, classificationName: classificationName, taxId: taxIdInt, cliCommand: plan.cliCommand
-            ) { opID in
-                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                    results: { controller?.showBlastResults($0, recordURL: $1) },
-                    failure: { controller?.showBlastFailure($0) }
-                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+            let window = self?.view.window
+            let projectURL = self?.blastSubmitProjectURL()
+            let sourceResultURL = controller?.bundleURL
+            // The taxonomy's files are read before the row begins, so the drawer says so meanwhile. With no project the
+            // plan refuses, and the refusal shows no drawer.
+            if projectURL != nil { controller?.showBlastLoading(phase: .submitting, requestId: nil) }
+            Task { @MainActor in
+                let taxonomyDirectory = await Self.installedNCBITaxonomyDirectory()
+                let planned = await Self.blastSubmitPlanOffMainActor {
+                    try Self.nvdBlastSubmitPlan(
+                        hit: hit, sequence: sequence, classificationName: classificationName,
+                        projectURL: projectURL, sourceResultURL: sourceResultURL, taxonomyDirectory: taxonomyDirectory
+                    )
+                }
+                guard let plan = Self.blastSubmitPlan(
+                    window: window, failure: { controller?.showBlastFailure($0) }, { try planned.get() }
+                ) else { return }
+                Self.beginNvdBlastVerificationOperation(
+                    contigName: contigName, classificationName: classificationName, taxId: taxIdInt, cliCommand: plan.cliCommand
+                ) { opID in
+                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                        results: { controller?.showBlastResults($0, recordURL: $1) },
+                        failure: { controller?.showBlastFailure($0) }
+                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+                }
             }
         }
         controller.onRunOperationRequested = { [weak self] fastaRecords in
@@ -117,7 +129,8 @@ extension ViewerViewController {
 
     /// The NVD contig's search on `blast submit` (2.12 lane 12.08). It sends the one contig, trimmed, and
     /// judges hits on the request `NvdBlastHit.blastVerificationRequest` builds, the classification's name
-    /// and its adjusted tax ID with that taxon's names. The record names the sample, the contig, the taxon
+    /// and its adjusted tax ID with that taxon's names, judged at species level with `taxonomyDirectory`, the
+    /// installed NCBI Taxonomy (BLAST-CLADE-BY-LINEAGE). The record names the sample, the contig, the taxon
     /// and `sourceResultURL`, the NVD result, when the viewer has it. The search's folder sits under the
     /// project's `blast-verifications/`, never in the NVD result.
     nonisolated static func nvdBlastSubmitPlan(
@@ -126,12 +139,14 @@ extension ViewerViewController {
         classificationName: String,
         projectURL: URL?,
         sourceResultURL: URL? = nil,
+        taxonomyDirectory: URL? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         let trimmed = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw BlastServiceError.noSequences }
+        guard projectURL != nil else { throw BlastSubmitPlanError.noProject }
         return try BlastSubmitPlan.make(
-            request: hit.blastVerificationRequest(taxonName: classificationName, sequence: trimmed),
+            request: hit.blastVerificationRequest(taxonName: classificationName, sequence: trimmed, taxonomyDirectory: taxonomyDirectory),
             projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
             contig: hit.qseqid, sample: hit.sampleId, date: date
         )

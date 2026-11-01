@@ -15,9 +15,18 @@ extension NvdBlastHit {
     /// 2"), so when this row's own subject is the adjusted taxon its
     /// `sscinames` entry is added as an alternate name. That name also
     /// catches NCBI hits reporting an isolate-level tax ID below the taxon.
-    /// A row whose subject is some other organism adds nothing. Without a
-    /// taxonomy tree there are no known relatives.
-    public var blastTaxonomyContext: BlastTaxonomyContext {
+    /// A row whose subject is some other organism adds nothing. There are no
+    /// known relatives.
+    ///
+    /// With the installed NCBI Taxonomy's folder, the claim is judged at species
+    /// level (`NCBITaxonomyLineage`): the clade is the adjusted taxon's nearest
+    /// species-rank ancestor, or the taxon itself at or above species, the path
+    /// up to it and its descendants up to 5,000, and the path's names follow
+    /// these names. NVD's adjusted rank can sit below the current species (its
+    /// `adjusted_taxid_rank` also reads `clade`). The read walks whole files, so
+    /// call this off the main actor when a folder is passed. With no folder, or
+    /// a tax ID the taxonomy does not hold, the clade is the adjusted tax ID.
+    public func blastTaxonomyContext(taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         guard let taxId = Int(adjustedTaxid.trimmingCharacters(in: .whitespaces)) else {
             return BlastTaxonomyContext()
         }
@@ -33,7 +42,8 @@ extension NvdBlastHit {
                 names.append(name)
             }
         }
-        return BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names)
+        return NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: names, taxonomyDirectory: taxonomyDirectory)
+            ?? BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names)
     }
 
     /// The request that re-BLASTs this hit's contig against NCBI `core_nt`.
@@ -41,8 +51,13 @@ extension NvdBlastHit {
     /// - Parameters:
     ///   - taxonName: The name shown for the classification being checked.
     ///   - sequence: The contig sequence to submit.
-    public func blastVerificationRequest(taxonName: String, sequence: String) -> BlastVerificationRequest {
-        let context = blastTaxonomyContext
+    ///   - taxonomyDirectory: The installed NCBI Taxonomy's folder, nil to judge by the adjusted tax ID.
+    public func blastVerificationRequest(
+        taxonName: String,
+        sequence: String,
+        taxonomyDirectory: URL? = nil
+    ) -> BlastVerificationRequest {
+        let context = blastTaxonomyContext(taxonomyDirectory: taxonomyDirectory)
         return BlastVerificationRequest(
             taxonName: taxonName,
             taxId: Int(adjustedTaxid) ?? 0,

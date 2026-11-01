@@ -84,7 +84,8 @@ extension ViewerViewController {
             let selectedReadCount = min(50, max(1, readCount))
             self?.launchTaxTriageBlastSubmit(
                 organism: organism, readCount: selectedReadCount, accessions: orgAccessions, bamURL: bamURL,
-                bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller
+                bamIndexURL: bamIndexURL, resultURL: resultURL, controller: controller,
+                taxonomyDirectory: { await Self.installedNCBITaxonomyDirectory() }
             )
         }
         // The request carries the row count and the rows left out from the selection its selectors came from.
@@ -128,8 +129,10 @@ extension ViewerViewController {
     /// they are read, the plan they make gives the command, which names the count the subsample drew. The row
     /// takes it through `setCommand` and the leaf starts at once. A Cancel during the extraction ends the row
     /// cancelled and starts no search, and an extraction that fails fails the row and the drawer. `drawer`,
-    /// `runner` and `extractReads` are seams for tests. The result is the task that extracts and launches,
-    /// nil when no row began.
+    /// `runner` and `extractReads` are seams for tests. `taxonomyDirectory` finds the folder the verdicts are
+    /// judged at species level with: the result view passes ``installedNCBITaxonomyDirectory()``, and the default
+    /// of nil, which keeps a test off the installed taxonomy, judges by the organism's own tax ID. The result is the
+    /// task that extracts and launches, nil when no row began.
     @discardableResult
     func launchTaxTriageBlastSubmit(
         organism: TaxTriageOrganism,
@@ -141,7 +144,8 @@ extension ViewerViewController {
         controller: TaxTriageResultViewController?,
         drawer: BlastSubmitDrawer? = nil,
         runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
-        extractReads: @escaping TaxTriageBlastReads.Extractor = TaxTriageBlastReads.extract
+        extractReads: @escaping TaxTriageBlastReads.Extractor = TaxTriageBlastReads.extract,
+        taxonomyDirectory: @escaping @Sendable () async -> URL? = { nil }
     ) -> Task<Void, Never>? {
         let window = view.window
         guard let projectURL = blastSubmitProjectURL() ?? ProjectTempDirectory.findProjectRoot(resultURL) else {
@@ -163,14 +167,21 @@ extension ViewerViewController {
                     let reads = try await extractReads(bamURL, bamIndexURL, accessions, projectURL)
                     // A Cancel moves the row to cancelling at once but stops this task a moment later, so the
                     // row is asked as well as the task.
-                    try Task.checkCancellation()
-                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                        throw CancellationError()
+                    let stopIfCancelled = {
+                        try Task.checkCancellation()
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            throw CancellationError()
+                        }
                     }
-                    let plan = try Self.taxTriageBlastSubmitPlan(
-                        organism: organism, reads: reads, readCount: readCount, accessions: accessions,
-                        projectURL: projectURL, sourceResultURL: resultURL
-                    )
+                    try stopIfCancelled()
+                    let directory = await taxonomyDirectory()
+                    let plan = try await Self.blastSubmitPlanOffMainActor {
+                        try Self.taxTriageBlastSubmitPlan(
+                            organism: organism, reads: reads, readCount: readCount, accessions: accessions,
+                            projectURL: projectURL, sourceResultURL: resultURL, taxonomyDirectory: directory
+                        )
+                    }.get()
+                    try stopIfCancelled()
                     OperationCenter.shared.setCommand(id: opID, command: plan.cliCommand)
                     // No await sits between the checks above and the cancel callback this call replaces.
                     Self.launchBlastSubmit(plan, operationID: opID, runner: runner, drawer: drawer) {
@@ -193,8 +204,9 @@ extension ViewerViewController {
     /// The search of a TaxTriage organism's reads on `blast submit` (2.12 lane 12.09). From `reads`, the
     /// reads of the selected accessions, it draws the subsample the in-process route drew, the mixed
     /// strategy with seed 0, and judges hits on the request `TaxTriageOrganism.blastVerificationRequest`
-    /// builds, the organism's own tax ID and name with no relatives. The record names the TaxTriage result,
-    /// the organism's tax ID, the accessions as the contig, the organism's sample when it names one and the
+    /// builds, the organism's own tax ID and name with no relatives, judged at species level with
+    /// `taxonomyDirectory`, the installed NCBI Taxonomy (BLAST-CLADE-BY-LINEAGE). The record names the TaxTriage
+    /// result, the organism's tax ID, the accessions as the contig, the organism's sample when it names one and the
     /// count and seed of the subsample. The result view names the sample whose BAM the reads came from (lane
     /// 12.09b), and a nil sample records none. The search's folder sits under the project's
     /// `blast-verifications/`, never in the TaxTriage result.
@@ -205,16 +217,18 @@ extension ViewerViewController {
         accessions: [String],
         projectURL: URL?,
         sourceResultURL: URL? = nil,
+        taxonomyDirectory: URL? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         guard !reads.isEmpty else { throw BlastServiceError.noSequences }
+        guard projectURL != nil else { throw BlastSubmitPlanError.noProject }
         let longestCount = min(5, readCount / 4)
         let seed: UInt64 = 0
         let subsampled = BlastService(environment: [:]).subsampleReads(
             from: reads, strategy: .mixed(longest: longestCount, random: readCount - longestCount), seed: seed
         )
         return try BlastSubmitPlan.make(
-            request: organism.blastVerificationRequest(sequences: subsampled),
+            request: organism.blastVerificationRequest(sequences: subsampled, taxonomyDirectory: taxonomyDirectory),
             projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
             contig: accessions.isEmpty ? nil : accessions.joined(separator: ","), sample: organism.sample,
             subsampleCount: subsampled.count, subsampleSeed: seed, date: date
