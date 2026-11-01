@@ -1270,9 +1270,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         menu.popUp(positioning: nil, at: viewPoint, in: view)
     }
 
-    /// Builds context menu items for the given node (for testing).
-    func contextMenuItems(for node: TaxonNode) -> [NSMenuItem] {
-        buildTaxonContextMenu(for: node, includeNCBILinks: false).items
+    /// Builds context menu items for the given node (for testing). A segment's own menu passes `includeNCBILinks`.
+    func contextMenuItems(for node: TaxonNode, includeNCBILinks: Bool = false) -> [NSMenuItem] {
+        buildTaxonContextMenu(for: node, includeNCBILinks: includeNCBILinks).items
     }
 
     private func buildTaxonContextMenu(for node: TaxonNode, includeNCBILinks: Bool) -> NSMenu {

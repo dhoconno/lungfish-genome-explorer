@@ -101,6 +101,12 @@ final class Kraken2ResultActionsTests: XCTestCase {
         XCTAssertTrue(chartTitles.contains("Verify with BLAST\u{2026}"), "the chart's menu offers Verify with BLAST…")
         XCTAssertTrue(chartTitles.contains("Copy Name"), "the chart's menu offers Copy Name")
         XCTAssertFalse(chartTitles.contains("Copy Taxon Name"))
+        let segmentItems = controller.contextMenuItems(for: ecoli, includeNCBILinks: true)
+        for title in ["Open Taxonomy on NCBI", "Open GenBank Record", "Search PubMed", "Open Genome Assemblies on NCBI"] {
+            XCTAssertTrue(segmentItems.map(\.title).contains(title), "the segment's menu offers \(title)")
+        }
+        XCTAssertFalse(segmentItems.map(\.title).contains("Look Up on NCBI"), "the segment's menu still offers the old submenu")
+        XCTAssertTrue(segmentItems.allSatisfy { $0.submenu == nil })
     }
 
     /// Several picked rows read as rows in the bar, as in the other classifier viewers.
