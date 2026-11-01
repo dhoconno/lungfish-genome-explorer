@@ -156,4 +156,59 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         XCTAssertEqual(noNames.cladeTaxIds, [3432193, 28875, 10941, 42567], "the IDs do not need names.dmp")
         XCTAssertEqual(noNames.cladeNames, ["Human rotavirus A"])
     }
+
+    // MARK: - Empty, cut and odd-shaped dumps (BLAST-LINEAGE SWIFT SF1)
+
+    func testAnEmptyOrTruncatedNodesFileGivesNilOrAPartialCladeAndNeverCrashes() throws {
+        let nodesURL = directory.appendingPathComponent("nodes.dmp")
+
+        try Data().write(to: nodesURL)
+        XCTAssertNil(NCBITaxonomyLineage.speciesClade(of: 10941, taxonomyDirectory: directory), "an empty nodes.dmp holds no tax ID")
+
+        // The species row is cut inside its rank, so it reads as no species and none sits above the taxon.
+        let cutRank = "1\t|\t1\t|\tno rank\t|\n10912\t|\t1\t|\tgenus\t|\n28875\t|\t3432193\t|\tno rank\t|\n"
+            + "10941\t|\t28875\t|\tno rank\t|\n3432193\t|\t10912\t|\tspec"
+        try cutRank.write(to: nodesURL, atomically: true, encoding: .utf8)
+        let partial = try XCTUnwrap(NCBITaxonomyLineage.speciesClade(of: 10941, taxonomyDirectory: directory))
+        XCTAssertEqual(partial.root, 10941)
+        XCTAssertEqual(partial.path, [10941])
+        XCTAssertEqual(partial.taxIds, [10941])
+
+        // The last row ends right after its first separator, so it is skipped and the row before it still reads.
+        try "1\t|\t1\t|\tno rank\t|\n28875\t|\t".write(to: nodesURL, atomically: true, encoding: .utf8)
+        XCTAssertNil(NCBITaxonomyLineage.speciesClade(of: 28875, taxonomyDirectory: directory), "a row with no parent is skipped")
+        XCTAssertNotNil(NCBITaxonomyLineage.speciesClade(of: 1, taxonomyDirectory: directory))
+    }
+
+    func testANamesFileOfOtherShapesKeepsTheRowsNamesAndNeverCrashes() throws {
+        try writeNodes(Self.rotavirusNodes)
+        let namesURL = directory.appendingPathComponent("names.dmp")
+        let shapes = [
+            "28875\t|\tRotavirus A",
+            "28875\t|\tRotavirus A\t|\t\t|\tauthority\t|",
+            "3432193\t|\tRotavirus alphagastroenteritidis\t|\t\t|\tscientific na",
+        ]
+        func context() throws -> BlastTaxonomyContext {
+            try XCTUnwrap(
+                NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory)
+            )
+        }
+
+        // A row with no tail, an authority row and a row cut inside "scientific name" add no name, and the file has no final newline.
+        try shapes.joined(separator: "\n").write(to: namesURL, atomically: true, encoding: .utf8)
+        let odd = try context()
+        XCTAssertEqual(odd.cladeNames, ["Human rotavirus A"])
+        XCTAssertEqual(odd.cladeTaxIds, [3432193, 28875, 10941, 42567])
+
+        // A real scientific-name row ahead of them adds its name.
+        let real = "28875\t|\tRotavirus A\t|\t\t|\tscientific name\t|"
+        try ([real] + shapes).joined(separator: "\n").write(to: namesURL, atomically: true, encoding: .utf8)
+        let withReal = try context()
+        XCTAssertEqual(withReal.cladeNames, ["Human rotavirus A", "Rotavirus A"])
+
+        // An empty names.dmp keeps the row's own name.
+        try Data().write(to: namesURL)
+        let empty = try context()
+        XCTAssertEqual(empty.cladeNames, ["Human rotavirus A"])
+    }
 }
