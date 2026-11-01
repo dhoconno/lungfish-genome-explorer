@@ -47,7 +47,7 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         embedTaxonomyIfNeeded()
         taxonomyViewController.configure(result: result)
         // Gate both the action bar and the table's own context menu
-        // (Extract Reads…, BLAST Matching Reads…) on the same capability
+        // (Extract Reads…, Verify with BLAST…) on the same capability
         // flag, since CZ-ID imports have no per-read source IDs for either.
         // Set it before naming the import: changing it refreshes the action
         // bar, which would replace the name with the no-selection prompt.
@@ -55,6 +55,8 @@ public final class CzIdResultViewController: NSViewController, NSPopoverDelegate
         // buttons, and every later refresh keeps it.
         taxonomyViewController.readLevelActionsUnavailableReason = ClassifierActionWords.czIdHasNoReadIDs
         taxonomyViewController.readLevelActionsAvailable = false
+        // With no read IDs CZ-ID cannot run BLAST, so the BLAST Results button would open a pane that never fills.
+        taxonomyViewController.resultActions.blastResultsButton.isHidden = true
         taxonomyViewController.actionBar.updateInfoText(
             "Imported CZ-ID result · \(manifest.sampleName) · \(manifest.rowCount) taxa"
         )
