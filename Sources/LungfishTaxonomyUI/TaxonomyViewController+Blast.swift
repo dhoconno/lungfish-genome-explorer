@@ -300,8 +300,14 @@ extension TaxonomyViewController {
     func blastResultsOpenChanged(_ open: Bool) {
         if open {
             ensureDrawerOpenOnBlastTab()
-        } else if isTaxaCollectionsDrawerOpen, taxaCollectionsDrawerView?.selectedTab == .blastResults {
-            toggleTaxaCollectionsDrawer()
+        } else if isTaxaCollectionsDrawerOpen {
+            if taxaCollectionsDrawerView?.selectedTab == .blastResults {
+                toggleTaxaCollectionsDrawer()
+            } else {
+                // The button read on but the drawer shows Collections, since a tab switch tells this controller
+                // nothing. The click brings the BLAST tab forward, as the old toggle did.
+                ensureDrawerOpenOnBlastTab()
+            }
         }
     }
 

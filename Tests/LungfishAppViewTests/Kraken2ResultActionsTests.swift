@@ -68,6 +68,22 @@ final class Kraken2ResultActionsTests: XCTestCase {
         XCTAssertEqual(button.state, .off)
     }
 
+    /// A tab switch inside the drawer tells the controller nothing, so the button can read on while the drawer shows
+    /// Collections. A click still brings the BLAST tab forward.
+    func testBLASTResultsBringsTheBLASTTabBackWhenTheDrawerShowsCollections() throws {
+        let controller = makeController()
+        let button = try XCTUnwrap(blastResultsButton(of: controller), "Kraken2's bar has no BLAST Results button of the shared component")
+        button.performClick(nil)
+        controller.taxaCollectionsDrawerView?.switchToTab(.collections)
+        XCTAssertEqual(controller.taxaCollectionsDrawerView?.selectedTab, .collections)
+
+        button.performClick(nil)
+
+        XCTAssertTrue(controller.isTaxaCollectionsDrawerOpen, "the click leaves the drawer open")
+        XCTAssertEqual(controller.taxaCollectionsDrawerView?.selectedTab, .blastResults, "the click shows the BLAST tab")
+        XCTAssertEqual(button.state, .on)
+    }
+
     /// The table's menu and the chart's menu use the shared row words, with the NCBI commands as flat items.
     func testTheMenusUseTheSharedRowWords() throws {
         let controller = makeController()
