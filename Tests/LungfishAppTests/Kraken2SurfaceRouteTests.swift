@@ -14,6 +14,7 @@
 // main run loop.
 
 import AppKit
+import LungfishCore
 import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
@@ -141,6 +142,25 @@ final class Kraken2SurfaceRouteTests: XCTestCase {
         XCTAssertNil(summary.batchOperationTool)
     }
 
+    /// The CLI route's display (`displayTaxonomyResult`) has its own catch. A viewer that does not open says what
+    /// to try in the same words, names no internal kind id and leaves no Kraken2 child (NAOMGS-ARCH item 3,
+    /// K2-ARCH B1).
+    func testACliShownKraken2ResultThatDoesNotOpenSaysWhatToTry() {
+        let viewer = controller.viewerController!
+        viewer.surfaceHost.registry.register(.analysis(.kraken2)) { RefusingKraken2Surface() }
+
+        viewer.displayTaxonomyResult(makeCliResult())
+
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) {
+            viewer.statusBar.positionLabel.stringValue.contains("Unable to open the Kraken2 result.")
+        }, "no failure words: \(viewer.statusBar.positionLabel.stringValue)")
+        let words = viewer.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.contains("Select it again."), words)
+        XCTAssertFalse(words.contains("analysis:"), "the words name an internal kind id: \(words)")
+        XCTAssertFalse(viewer.children.contains { $0 is TaxonomyViewController })
+        XCTAssertNil(viewer.taxonomyViewController)
+    }
+
     /// View > Show Drawer and the toolbar button open and close the Kraken2 Collections and BLAST Results drawer
     /// through the host, which asks the installed surface first (NAOMGS-ARCH item 9, the second arm).
     func testShowDrawerTogglesTheKraken2DrawerThroughTheHost() {
@@ -215,6 +235,38 @@ final class Kraken2SurfaceRouteTests: XCTestCase {
             to: result.appendingPathComponent(ClassificationResult.sidecarFilename), atomically: true, encoding: .utf8
         )
         return result
+    }
+
+    /// A loaded Kraken2 result as the CLI route hands it to the viewer, a root with one species, in this test's folder.
+    private func makeCliResult() -> ClassificationResult {
+        let rootNode = TaxonNode(
+            taxId: 1, name: "root", rank: .root, depth: 0,
+            readsDirect: 0, readsClade: 100, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: nil
+        )
+        let species = TaxonNode(
+            taxId: 562, name: "Escherichia coli", rank: .species, depth: 1,
+            readsDirect: 100, readsClade: 100, fractionClade: 1.0, fractionDirect: 1.0, parentTaxId: 1
+        )
+        species.parent = rootNode
+        rootNode.children = [species]
+        let folder = root.appendingPathComponent("kraken2-cli-result", isDirectory: true)
+        let config = ClassificationConfig(
+            inputFiles: [folder.appendingPathComponent("reads.fastq")],
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databasePath: folder.appendingPathComponent("db"),
+            outputDirectory: folder
+        )
+        return ClassificationResult(
+            config: config,
+            tree: TaxonTree(root: rootNode, unclassifiedNode: nil, totalReads: 100),
+            reportURL: folder.appendingPathComponent("classification.kreport"),
+            outputURL: folder.appendingPathComponent("classification.kraken"),
+            brackenURL: nil,
+            runtime: 1,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
     }
 
     private func item(_ url: URL, _ type: SidebarItemType) -> SidebarItem {
