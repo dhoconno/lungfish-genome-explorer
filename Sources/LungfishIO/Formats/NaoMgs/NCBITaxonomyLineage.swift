@@ -98,8 +98,9 @@ public enum NCBITaxonomyLineage {
 
     // MARK: - The rows of a dump
 
-    /// A row beyond this ID is not a real tax ID and is skipped, so a broken file cannot size the table.
-    private static let largestTaxId = 100_000_000
+    /// A row beyond this ID is not a real tax ID and is skipped, so a broken file sizes the four arrays of one read at
+    /// about 220 MB at most.
+    private static let largestTaxId = 1 << 24
 
     /// Calls `body` with the offsets of each line until it returns false.
     private static func forEachLine(of dump: Data, _ body: (UnsafePointer<UInt8>, Int, Int) -> Bool) {

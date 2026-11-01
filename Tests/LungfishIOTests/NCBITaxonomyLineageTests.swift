@@ -239,4 +239,21 @@ final class NCBITaxonomyLineageTests: XCTestCase {
             "the scan reads the names that the resolver reads"
         )
     }
+
+    // MARK: - A row at an implausible tax ID (BLAST-LINEAGE SWIFT SF2)
+
+    func testARowAtAnImplausibleTaxIdIsSkippedAndNeverSizesTheTable() throws {
+        // 20,000,000 is past 1 << 24, about six times the largest real tax ID, so one such row must not grow the four
+        // arrays of a read.
+        var rows = Self.rotavirusNodes
+        rows.append((20_000_000, 1, "species"))
+        try writeNodes(rows)
+
+        XCTAssertNil(
+            NCBITaxonomyLineage.speciesClade(of: 20_000_000, taxonomyDirectory: directory), "a tax ID past the cap reads nil"
+        )
+        let clade = try XCTUnwrap(NCBITaxonomyLineage.speciesClade(of: 10941, taxonomyDirectory: directory))
+        XCTAssertEqual(clade.root, 3432193)
+        XCTAssertEqual(clade.taxIds, [3432193, 28875, 10941, 42567])
+    }
 }
