@@ -14,7 +14,7 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
-import LungfishCore
+@testable import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport

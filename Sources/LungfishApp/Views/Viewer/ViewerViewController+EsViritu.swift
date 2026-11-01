@@ -132,7 +132,9 @@ extension ViewerViewController {
         controller: EsVirituResultViewController?,
         drawer: BlastSubmitDrawer? = nil,
         runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
-        extractReads: @escaping EsVirituBlastReads.Extractor = EsVirituBlastReads.extract
+        extractReads: @escaping EsVirituBlastReads.Extractor = EsVirituBlastReads.extract,
+        taxonomyContext: @escaping @Sendable (ViralDetection) async -> BlastTaxonomyContext
+            = ViewerViewController.installedEsVirituBlastTaxonomyContext
     ) -> Task<Void, Never>? {
         let window = view.window
         guard let projectURL = blastSubmitProjectURL() ?? ProjectTempDirectory.findProjectRoot(resultURL) else {
@@ -154,13 +156,18 @@ extension ViewerViewController {
                     let reads = try await extractReads(bamURL, bamIndexURL, accessions, projectURL)
                     // A Cancel moves the row to cancelling at once but stops this task a moment later, so the
                     // row is asked as well as the task.
-                    try Task.checkCancellation()
-                    guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
-                        throw CancellationError()
+                    let stopIfCancelled = {
+                        try Task.checkCancellation()
+                        guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
+                            throw CancellationError()
+                        }
                     }
+                    try stopIfCancelled()
+                    let context = await taxonomyContext(detection)
+                    try stopIfCancelled()
                     let plan = try Self.esVirituBlastSubmitPlan(
                         detection: detection, reads: reads, readCount: readCount, accessions: accessions,
-                        projectURL: projectURL, sourceResultURL: resultURL
+                        projectURL: projectURL, sourceResultURL: resultURL, taxonomyContext: context
                     )
                     OperationCenter.shared.setCommand(id: opID, command: plan.cliCommand)
                     // No await sits between the checks above and the cancel callback this call replaces.
@@ -184,7 +191,8 @@ extension ViewerViewController {
     /// The search of an EsViritu detection's reads on `blast submit` (2.12 lane 12.08). From `reads`, the
     /// reads of the selected accessions, it draws the subsample the in-process route drew, the mixed
     /// strategy with seed 0, and judges hits on the request `ViralDetection.blastVerificationRequest`
-    /// builds, the detection's names with its genus as the relative. The record names the EsViritu result,
+    /// builds under `taxonomyContext`, which ``installedEsVirituBlastTaxonomyContext(of:)`` reads, or with nil
+    /// on the detection's names with its genus as the relative. The record names the EsViritu result,
     /// the sample, the accessions as the contig and the count and seed of the subsample. The search's
     /// folder sits under the project's `blast-verifications/`, never in the EsViritu result.
     nonisolated static func esVirituBlastSubmitPlan(
@@ -194,6 +202,7 @@ extension ViewerViewController {
         accessions: [String],
         projectURL: URL?,
         sourceResultURL: URL? = nil,
+        taxonomyContext: BlastTaxonomyContext? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         guard !reads.isEmpty else { throw BlastServiceError.noSequences }
@@ -203,11 +212,20 @@ extension ViewerViewController {
             from: reads, strategy: .mixed(longest: longestCount, random: readCount - longestCount), seed: seed
         )
         return try BlastSubmitPlan.make(
-            request: detection.blastVerificationRequest(sequences: subsampled),
+            request: detection.blastVerificationRequest(sequences: subsampled, taxonomyContext: taxonomyContext),
             projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
             contig: accessions.isEmpty ? nil : accessions.joined(separator: ","), sample: detection.sampleId,
             subsampleCount: subsampled.count, subsampleSeed: seed, date: date
         )
+    }
+
+    /// The taxonomy a detection's search is judged at on this Mac, from the installed EsViritu database and NCBI Taxonomy
+    /// (BIO-BLAST-WALK Q2). It reads local files only, takes seconds and never downloads. With either one missing it is the
+    /// names-only taxonomy. An imported result reads the same installed database, and its species must agree.
+    @concurrent nonisolated static func installedEsVirituBlastTaxonomyContext(of detection: ViralDetection) async -> BlastTaxonomyContext {
+        let databaseDirectory = await EsVirituDatabaseManager.shared.installedDatabaseInfo()?.path
+        let taxonomyDirectory = await Self.installedNCBITaxonomyDirectory()
+        return detection.blastTaxonomyContext(databaseDirectory: databaseDirectory, taxonomyDirectory: taxonomyDirectory)
     }
 
     /// Registers the BLAST verification row for an EsViritu detection and, only
