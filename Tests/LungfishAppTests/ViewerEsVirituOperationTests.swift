@@ -237,7 +237,94 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.leafStarted.path), "no leaf, so no search")
     }
 
+    // MARK: - Judged at species level (lane BLAST-ESVIRITU-SPECIES, BIO-BLAST-WALK Q2)
+
+    /// The walk's own read: its five hits in NCBI's order, the record's numbers, and the tax IDs NCBI gave. All five sit in
+    /// one species, 3433757, and the first is a sibling of the claim. With the database's tax ID the read supports the row,
+    /// and no order of the five changes that.
+    func testEsVirituOC43WalkRunReadsSupportedAtSpeciesLevel() throws {
+        let plan = try oc43Plan(taxonomyContext: oc43SpeciesContext())
+
+        for order in [Self.oc43Hits, Self.oc43Hits.moving("PZ054573"), Self.oc43Hits.moving("OZ540695")] {
+            let result = Self.judge(plan, hits: order)
+            XCTAssertEqual(result.supportingCount, 1, order[0].accession)
+            XCTAssertEqual(result.contradictingCount, 0, order[0].accession)
+            XCTAssertEqual(result.confidence, .supported, order[0].accession)
+            XCTAssertEqual(result.readResults[0].hasLCADisagreement, false, order[0].accession)
+        }
+    }
+
     // MARK: - Fixtures
+
+    /// The walk's OC43 row, as EsViritu's result table writes it, with its rank prefixes.
+    private static let oc43Detection = ViralDetection(
+        sampleId: "SRR35517703", name: "Human coronavirus OC43", description: "Human coronavirus OC43 strain ATCC VR-759",
+        length: 30_741, segment: nil, accession: "NC_006213.1", assembly: "GCF_003972325.1", assemblyLength: 30_741,
+        kingdom: "k__Viruses", phylum: "p__Pisuviricota", tclass: "c__Pisoniviricetes", order: "o__Nidovirales",
+        family: "f__Coronaviridae", genus: "g__Betacoronavirus", species: "s__Betacoronavirus 1",
+        subspecies: "t__Human coronavirus OC43", rpkmf: 10, readCount: 2, coveredBases: 100, meanCoverage: 1,
+        avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000_000
+    )
+
+    /// One hit of the walk's read SRR35517703.5327004 (query length 100). Each saved hit aligned 98 of 98 at E 1.09818e-41.
+    private static func oc43Hit(_ accession: String, _ organism: String, _ taxId: Int) -> BlastHit {
+        BlastHit(
+            accession: accession, title: organism, organism: organism, taxId: taxId,
+            hsps: [BlastHSP(bitScore: 182.092, evalue: 1.09818e-41, identity: 98, alignLength: 98, queryFrom: 1, queryTo: 98)]
+        )
+    }
+
+    private static let oc43Hits = [
+        oc43Hit("PZ529564", "Canine respiratory coronavirus", 215681),
+        oc43Hit("PZ054573", "Human coronavirus OC43", 31631), oc43Hit("PZ892151", "Human coronavirus OC43", 31631),
+        oc43Hit("OZ540695", "Bovine coronavirus", 11128), oc43Hit("OZ540701", "Bovine coronavirus", 11128),
+    ]
+
+    /// The context the row takes from a temporary EsViritu table and NCBI dump that hold the real rows, cut to these IDs.
+    private func oc43SpeciesContext() throws -> BlastTaxonomyContext {
+        let database = folder.appendingPathComponent("v3.2.4", isDirectory: true)
+        let taxonomy = folder.appendingPathComponent("ncbi-taxonomy", isDirectory: true)
+        for directory in [database, taxonomy] { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        try (
+            "Accession\tName\tgenus\tspecies\tsubspecies\tTaxID\n"
+                + "NC_006213.1\tHuman coronavirus OC43\tg__Betacoronavirus\ts__Betacoronavirus 1\tt__Human coronavirus OC43\t31631\n"
+        ).write(to: database.appendingPathComponent("virus_pathogen_database.all_metadata.tsv"), atomically: true, encoding: .utf8)
+        let nodes = [
+            (694002, 2501931, "genus"), (2509481, 694002, "subgenus"), (3433757, 2509481, "species"),
+            (694003, 3433757, "no rank"), (31631, 694003, "no rank"), (11128, 694003, "no rank"), (215681, 694003, "no rank"),
+            (3433758, 2509481, "species"), (290028, 3433758, "no rank"),
+        ]
+        try nodes.map { "\($0.0)\t|\t\($0.1)\t|\t\($0.2)\t|\t\t|\t9\t|\n" }.joined()
+            .write(to: taxonomy.appendingPathComponent("nodes.dmp"), atomically: true, encoding: .utf8)
+        let names = [(31631, "Human coronavirus OC43"), (694003, "Betacoronavirus 1"), (3433757, "Betacoronavirus gravedinis")]
+        try names.map { "\($0.0)\t|\t\($0.1)\t|\t\t|\tscientific name\t|\n" }.joined()
+            .write(to: taxonomy.appendingPathComponent("names.dmp"), atomically: true, encoding: .utf8)
+        return Self.oc43Detection.blastTaxonomyContext(databaseDirectory: database, taxonomyDirectory: taxonomy)
+    }
+
+    /// The plan of the walk's search, under `taxonomyContext`.
+    private func oc43Plan(taxonomyContext: BlastTaxonomyContext) throws -> BlastSubmitPlan {
+        let project = folder.appendingPathComponent("OC43.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        return try ViewerViewController.esVirituBlastSubmitPlan(
+            detection: Self.oc43Detection, reads: [(id: "SRR35517703.5327004", sequence: "ACGT")], readCount: 1,
+            accessions: ["NC_006213.1"], projectURL: project, taxonomyContext: taxonomyContext
+        )
+    }
+
+    /// What `blast submit` reads from `plan` for one read with these hits, judged as the leaf judges them.
+    private static func judge(_ plan: BlastSubmitPlan, hits: [BlastHit]) -> BlastVerificationResult {
+        let readResults = BlastService(environment: [:]).assignVerdicts(
+            searchResults: [BlastSearchResult(queryId: "SRR35517703.5327004", queryLength: 100, hits: hits)],
+            eValueThreshold: 1e-10, queriedTaxonName: plan.request.label,
+            acceptedTaxIds: Set(plan.request.acceptedTaxIds), acceptedTaxonNames: plan.request.acceptedNames,
+            relatedTaxIds: Set(plan.request.relatedTaxIds), relatedTaxonNames: plan.request.relatedNames
+        )
+        return BlastVerificationResult(
+            taxonName: plan.request.label, taxId: 0, readResults: readResults, submittedAt: Date(timeIntervalSince1970: 0),
+            completedAt: nil, rid: "EFDUA8BD014", blastProgram: "blastn", database: "core_nt"
+        )
+    }
 
     /// Three reads of the selected accession, as the BAM extraction gives them.
     private static let reads: [(id: String, sequence: String)] = [
@@ -280,6 +367,13 @@ final class ViewerEsVirituOperationTests: XCTestCase {
 
     private func row(_ id: UUID) -> OperationCenter.Item? {
         OperationCenter.shared.items.first { $0.id == id }
+    }
+}
+
+private extension Array where Element == BlastHit {
+    /// The same hits with the first of `accession` listed first, as NCBI may list hits tied at one score.
+    func moving(_ accession: String) -> [BlastHit] {
+        filter { $0.accession == accession } + filter { $0.accession != accession }
     }
 }
 
