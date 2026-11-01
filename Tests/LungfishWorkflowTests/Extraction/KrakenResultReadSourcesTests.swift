@@ -200,7 +200,7 @@ final class KrakenResultReadSourcesTests: XCTestCase {
     }
 
     /// The reads are in neither project, so the open project lacks them. The error says what happened and what to
-    /// try next, ending with the menu item of the action that refused: Extract, or BLAST Matching Reads… for the
+    /// try next, ending with the menu item of the action that refused: Extract, or Verify with BLAST for the
     /// BLAST alert (the UX ruling of 2026-10-26 on walk WF-3, and the manager's ruling on BLAST).
     func testAResultWhoseReadsAreInNeitherProjectSaysWhatToTry() throws {
         let project = copiedProject()
@@ -219,7 +219,7 @@ final class KrakenResultReadSourcesTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, words + "Extract.")
         }
         XCTAssertThrowsError(try KrakenResultReadSources.recordedInputs(of: loaded, refusalAction: .blast)) { error in
-            XCTAssertEqual(error.localizedDescription, words + "BLAST Matching Reads\u{2026}.")
+            XCTAssertEqual(error.localizedDescription, words + "Verify with BLAST.")
         }
     }
 

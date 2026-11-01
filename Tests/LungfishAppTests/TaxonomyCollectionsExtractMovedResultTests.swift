@@ -105,7 +105,7 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
     // MARK: - BLAST that cannot start (walk WF-3, the fix round of lane PROJECT-ROOT)
 
     /// ARCH should-fix 2 of the PROJECT-ROOT review. A result made in another project, opened in a project that
-    /// no longer holds its reads, refuses BLAST Matching Reads in words that name them. Run in the BLAST popover
+    /// no longer holds its reads, refuses Verify with BLAST in words that name them. Run in the BLAST popover
     /// first marks the search begun (`beginBlastVerification`) and then calls the closure the viewer wired, so a
     /// refusal has to end the run as every other BLAST failure does: no Operations row, no run left in flight,
     /// and the words in the BLAST tab as well as in the alert. At the lane head the alert showed the words and
@@ -129,7 +129,7 @@ final class TaxonomyCollectionsExtractMovedResultTests: XCTestCase {
         assertBlastRefused(by: taxonomy, before: before, startingWith: "The reads this result came from")
         let words = blastTabText(of: taxonomy).first { $0.hasPrefix("The reads this result came from") }
         XCTAssertTrue(words?.contains("are not in this project") == true, "the words name what is missing: \(String(describing: words))")
-        XCTAssertTrue(words?.hasSuffix("then choose BLAST Matching Reads….") == true, "the words end with the BLAST menu item: \(String(describing: words))")
+        XCTAssertTrue(words?.hasSuffix("then choose Verify with BLAST.") == true, "the words end with the BLAST menu item: \(String(describing: words))")
     }
 
     /// ARCH Backlog B12 (S2). On the drawer route Run resolves the classification record of the sample shown. A

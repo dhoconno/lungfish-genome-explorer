@@ -51,7 +51,7 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// The menu item that the words of ``sourceNotInProject(place:action:)`` name as the next step.
     public enum SourceRefusalAction: String, Sendable {
         case extract = "Extract"
-        case blast = "BLAST Matching Reads\u{2026}"
+        case blast = "Verify with BLAST"
     }
 
     /// The reads at `place` are not the reads a Kraken2 result was made from: of the `named` reads the selection
@@ -59,7 +59,7 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// Extract wrote nothing (BIO-READ-IDENTITY 4.1 and 4.3, lane READ-IDENTITY). A pair counts once.
     case kraken2ReadsChanged(place: String, missing: Int, otherLength: Int, named: Int)
 
-    /// The same refusal for BLAST Matching Reads and `lungfish-cli blast verify`, which sent nothing to BLAST.
+    /// The same refusal for Verify with BLAST and `lungfish-cli blast verify`, which sent nothing to BLAST.
     case kraken2ReadsChangedForBLAST(place: String, missing: Int, otherLength: Int, named: Int)
 
     /// A per-sample samtools invocation failed.
