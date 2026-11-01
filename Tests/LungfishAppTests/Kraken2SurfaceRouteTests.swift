@@ -188,6 +188,17 @@ final class Kraken2SurfaceRouteTests: XCTestCase {
         )
     }
 
+    /// The view switch smoke finds the Kraken2 viewer by `kraken2-result-view`. AppKit leaves a plain NSView out of
+    /// the accessibility tree whatever identifier it carries, so the root the host installs must be an element
+    /// (3.1 lane ROBOTS, GUI run 1).
+    func testTheInstalledKraken2RootIsAnAccessibilityGroupTheSmokeCanFind() {
+        openKraken2WithItsBlock()
+        let root = controller.viewerController.installedSurface?.viewController.view
+        XCTAssertEqual(root?.accessibilityIdentifier(), "kraken2-result-view")
+        XCTAssertEqual(root?.isAccessibilityElement(), true, "a plain NSView root is left out of the accessibility tree")
+        XCTAssertEqual(root?.accessibilityRole(), .group)
+    }
+
     // MARK: - Its own kind
 
     /// A second Kraken2 result replaces the first: one viewer, showing the second result, and the second result's

@@ -59,10 +59,14 @@ public final class Kraken2Surface: ResultViewport {
         onWillDeactivate?()
     }
 
-    /// Adopts the controller the App passed as `input` and gives its view the Kraken2 identifier.
+    /// Adopts the controller the App passed as `input`, gives its view the Kraken2 identifier and makes that view an
+    /// accessibility group. AppKit leaves a plain NSView out of the accessibility tree, identifier or not, so the
+    /// view switch smoke could not find the viewer.
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let adopted = try expectInput(input, as: TaxonomyViewController.self)
         adopted.view.setAccessibilityIdentifier(Self.viewIdentifier)
+        adopted.view.setAccessibilityElement(true)
+        adopted.view.setAccessibilityRole(.group)
         controller = adopted
     }
 }
