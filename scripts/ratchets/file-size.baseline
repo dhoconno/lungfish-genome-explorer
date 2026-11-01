@@ -25,7 +25,7 @@ Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1885
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1344
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1332
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1048
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 992
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1111
