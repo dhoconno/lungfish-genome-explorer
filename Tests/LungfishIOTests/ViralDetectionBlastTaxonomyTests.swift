@@ -92,8 +92,9 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
         XCTAssertFalse(numbered.cladeNames.contains("t__1"))
     }
 
-    /// Every install that lacks one of the two files reads names only, the folder of an imported batch among them. An
-    /// imported batch's `databasePath` is `/imported`, which holds no table.
+    /// Every install that lacks one of the two files reads names only. The reader gets the installed database's folder
+    /// and never a batch's `databasePath`, so an imported EsViritu result reads through the installed table when this
+    /// Mac has one.
     func testEsVirituKeepsTheNamesOnlyReadingWhenEitherFileIsMissing() throws {
         let namesOnly = oc43Detection().blastTaxonomyContext
         try writeTable(Self.tableHeader + Self.oc43Row)
@@ -107,7 +108,7 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
             (database, empty, "a taxonomy folder with no nodes.dmp"),
             (nil, taxonomy, "no EsViritu database"),
             (empty, taxonomy, "a database folder with no table"),
-            (imported, taxonomy, "an imported batch's folder"),
+            (imported, taxonomy, "a folder that holds no table"),
         ]
         for install in installs {
             let context = oc43Detection().blastTaxonomyContext(
