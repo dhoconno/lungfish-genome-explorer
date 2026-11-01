@@ -107,9 +107,23 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     observed = analyze_attempt(root, copy.deepcopy(test), selection, parallel=False, require_tools=True)
     if not observed["passed"] or observed["harnesses"] != test.get("harnesses"):
         raise EvidenceError("app smoke test records are failed, skipped, empty, or incomplete")
-    if "** TEST SUCCEEDED **" not in (root / test["files"][0]["path"]).read_text():
+    if not xcode_harness_finished((root / test["files"][0]["path"]).read_text()):
         raise EvidenceError("app smoke Xcode harness did not finish")
     return result
+
+
+# `xcodebuild test` ends a run with `** TEST SUCCEEDED **` or `** TEST FAILED **`. `xcodebuild test-without-building`, the
+# command this gate runs, ends it with `** TEST EXECUTE SUCCEEDED **` or `** TEST EXECUTE FAILED **` (Xcode 27.2). The
+# trailer stands on a line of its own, so a test message that quotes one does not count, and Xcode prints more lines
+# after it, so it is not always the last line.
+XCODE_TEST_TRAILER = re.compile(r"^\*\* TEST (?:EXECUTE )?(SUCCEEDED|FAILED) \*\*[ \t\r]*$", re.MULTILINE)
+
+
+def xcode_harness_finished(log_text):
+    """True when the log of an Xcode test run holds a success trailer and no failure trailer. The two places that ask
+    whether the harness finished, `verify_result` and `run`, both call this function."""
+    verdicts = {match.group(1) for match in XCODE_TEST_TRAILER.finditer(log_text)}
+    return "SUCCEEDED" in verdicts and "FAILED" not in verdicts
 
 
 def retain_result(path, digest, destination, source, channel, payload_digest, contract):
@@ -651,7 +665,7 @@ def run(args):
         result["candidateStateAfter"] = sorted(p for child in candidate_home.iterdir() for p in profile_paths(child))
         if session["lockedAtEnd"]:
             raise EvidenceError("the screen locked during the graphical smoke. Keep the session awake and run it again")
-        if not executed["passed"] or "** TEST SUCCEEDED **" not in (directory / executed["files"][0]["path"]).read_text():
+        if not executed["passed"] or not xcode_harness_finished((directory / executed["files"][0]["path"]).read_text()):
             raise EvidenceError("app smoke failed or did not complete every selected method")
         if runner_identity(products) != result["runnerIdentity"]:
             raise EvidenceError("compiled runner changed during graphical smoke")

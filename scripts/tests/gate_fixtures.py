@@ -228,8 +228,9 @@ def app_smoke_test_log(identifiers, trailer):
             + (trailer + "\n\nTesting started\n" if trailer else ""))
 
 
-def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TEST SUCCEEDED **"):
-    """Invented parser/receipt fixture; never represents a graphical test run. `trailer` ends the test log."""
+def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TEST EXECUTE SUCCEEDED **"):
+    """Invented parser/receipt fixture; never represents a graphical test run. `trailer` ends the test log. It defaults to
+    the trailer `xcodebuild test-without-building` prints under Xcode 27.2, the command the smoke gate runs."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
     from app_smoke_gate import receipt_authority
     from gate_evidence import analyze_attempt
