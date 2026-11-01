@@ -74,8 +74,9 @@ public struct BlastTaxonomyContext: Sendable, Codable, Equatable {
 ///    host-prefixed virus names ("Human alphaherpesvirus 1", "Human
 ///    gammaherpesvirus 4") share a first word without sharing a genus.
 /// 3. Only when the hit has no tax ID, or the caller supplied no clade tax
-///    IDs, does the legacy name rule apply (first word as genus, or name
-///    containment).
+///    IDs, does the legacy name rule apply (first word as genus, name
+///    containment of the queried name, or whole-phrase containment of an
+///    accepted name).
 public enum BlastTaxonMatching {
 
     /// The relation of one hit to the queried taxon, or `nil` when the hit

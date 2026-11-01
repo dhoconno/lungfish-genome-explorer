@@ -208,12 +208,7 @@ extension BlastService {
         if organismMatchesTaxon(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) {
             return true
         }
-        let hitLower = hitOrganism.lowercased()
-        guard !hitLower.isEmpty else { return false }
-        return acceptedTaxonNames.contains { name in
-            let nameLower = name.lowercased()
-            return !nameLower.isEmpty && hitLower.contains(nameLower)
-        }
+        return acceptedTaxonNames.contains { BlastTaxonMatching.containsPhrase(hitOrganism, $0) }
     }
 
     /// Builds an array of ``BlastHitSummary`` from up to `maxCount` hits.
