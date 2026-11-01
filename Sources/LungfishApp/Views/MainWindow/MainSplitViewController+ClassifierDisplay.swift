@@ -1196,10 +1196,12 @@ extension MainSplitViewController {
                 inspectorController?.clearBatchOperationDetails()
                 mainSplitLogger.info("displayCzIdResult: Configured with \(manifest.rowCount, privacy: .public) taxa")
             } catch {
-                // Files that could not be read and a viewer that was not shown get the same words, never the raw error.
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 mainSplitLogger.error("displayCzIdResult: Not shown - \(error.localizedDescription, privacy: .public)")
+                // The viewport is cleared whatever the cause. Files that could not be read also open the sheet of the NAO-MGS and NVD loads.
                 viewerController.clearViewport(statusMessage: ViewerViewController.czIdNotShownWords)
+                guard !(error is SurfaceError), let window = view.window ?? NSApp.keyWindow else { return }
+                FailurePresenter.present(MainWindowFailureReports.openCzIdResult(named: bundleURL.lastPathComponent, error), in: window)
             }
         }
     }

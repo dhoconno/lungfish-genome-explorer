@@ -65,6 +65,7 @@ final class CzIdSurfaceRouteTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        host.isReleasedWhenClosed = false
         host.contentViewController = split
         host.layoutIfNeeded()
         split.view.layoutSubtreeIfNeeded()
@@ -75,6 +76,7 @@ final class CzIdSurfaceRouteTests: XCTestCase {
     override func tearDown() async throws {
         if let sheet = window.attachedSheet { window.endSheet(sheet) }
         window.contentViewController = nil
+        window.close()
         window = nil
         controller = nil
         TaxaCollectionsDrawerSeams.defaults = .standard
@@ -101,23 +103,38 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         XCTAssertFalse(words.contains("analysis:"), "the words name an internal kind id: \(words)")
         XCTAssertFalse(viewer.children.contains { $0 is CzIdResultViewController })
         XCTAssertNil(viewer.installedSurface)
+        XCTAssertNil(window.attachedSheet, "a refused show opens a sheet")
     }
 
-    /// A CZ-ID result whose manifest cannot be read says what did not open and what to try, in the same words, and
-    /// opens no alert with the decoder's raw text (the 21:4x addition, ALERT-C5).
-    func testACzIdResultWhoseFilesCannotBeReadSaysWhatToTry() throws {
+    /// A damaged import opens the sheet of the NAO-MGS and NVD loads. It names the result and what to try, keeps the
+    /// decoder's text under Show Details and clears the viewport behind it (UX review of lane CZID, SF1).
+    func testACzIdResultWhoseFilesCannotBeReadOpensTheSheetAndSaysWhatToTry() throws {
         try Data("{".utf8).write(to: czId.appendingPathComponent("cz-id-manifest.json"))
         controller.displayContent(for: item(czId))
 
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { self.window.attachedSheet != nil }, "no sheet for the damaged import")
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        var texts: [String] = []
+        var details: String?
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField, !field.stringValue.isEmpty { texts.append(field.stringValue) }
+            if let area = view as? FailureDetailsView { details = area.textView.string }
+            view.subviews.forEach(walk)
+        }
+        if let content = sheet.contentView { walk(content) }
+        let title = "Could not open the CZ-ID result"
+        XCTAssertTrue(texts.contains(title), "the title names the step, got \(texts)")
+        let body = texts.filter { $0 != title }.joined(separator: "\n")
+        XCTAssertTrue(body.contains(czId.lastPathComponent), "the body names the result, got \(body)")
+        for step in ["select the result in the sidebar again", "import the CZ-ID result again"] {
+            XCTAssertTrue(body.localizedCaseInsensitiveContains(step), "the body says to \(step), got \(body)")
+        }
+        XCTAssertFalse(body.contains("correct format"), "the decoder's text is in the body: \(body)")
+        XCTAssertTrue(details?.contains("Error domain") ?? false, "no details area, got \(details ?? "none")")
         let viewer = controller.viewerController!
-        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) {
-            viewer.statusBar.positionLabel.stringValue.contains("Unable to open the CZ-ID result.")
-        }, "no failure words: \(viewer.statusBar.positionLabel.stringValue)")
-        let words = viewer.statusBar.positionLabel.stringValue
-        XCTAssertTrue(words.contains("import it again"), words)
-        XCTAssertFalse(words.contains("couldn\u{2019}t be read"), "the words are the decoder's raw text: \(words)")
-        XCTAssertNil(window.attachedSheet, "a raw-error alert opened")
+        XCTAssertTrue(viewer.statusBar.positionLabel.stringValue.contains("import it again"))
         XCTAssertFalse(viewer.children.contains { $0 is CzIdResultViewController })
+        XCTAssertNil(viewer.installedSurface)
     }
 
     /// View > Show Drawer and the toolbar button open and close the Collections drawer of the embedded taxonomy view
