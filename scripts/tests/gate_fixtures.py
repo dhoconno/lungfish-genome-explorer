@@ -219,8 +219,17 @@ def make_class_split_result(root, source, *, tier="integration", name="fixture-i
     return evidence_dir / "gate.result.json"
 
 
-def make_app_smoke_fixture(directory, source, app, contract_path):
-    """Invented parser/receipt fixture; never represents a graphical test run."""
+def app_smoke_test_log(identifiers, trailer):
+    """The log of a passing `xcodebuild test-without-building` run of `identifiers`, 0 failures. The trailer stands on a
+    line of its own, with a blank line and `Testing started` after it, as the log of the 3.1 candidate run c2 ends under
+    Xcode 27.2, so a check of the last line alone fails. An empty `trailer` leaves the log without one."""
+    return ("".join("Test Case '-[" + name.replace("/", ".", 1).replace("/", " ") + "]' passed (0.1 seconds).\n" for name in identifiers)
+            + "Test Suite 'Selected tests' passed\nExecuted " + str(len(identifiers)) + " tests, with 0 failures\n"
+            + (trailer + "\n\nTesting started\n" if trailer else ""))
+
+
+def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TEST SUCCEEDED **"):
+    """Invented parser/receipt fixture; never represents a graphical test run. `trailer` ends the test log."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
     from app_smoke_gate import receipt_authority
     from gate_evidence import analyze_attempt
@@ -230,8 +239,7 @@ def make_app_smoke_fixture(directory, source, app, contract_path):
         (directory / (name + ".log")).write_text("fixture completed\n")
     (directory / "sdk-version.log").write_text("26.5\n")
     log = directory / "real-app-tests.log"
-    log.write_text("".join("Test Case '-[" + name.replace("/", ".", 1).replace("/", " ") + "]' passed (0.1 seconds).\n" for name in identifiers)
-                   + "Test Suite 'Selected tests' passed\nExecuted " + str(len(identifiers)) + " tests, with 0 failures\n** TEST SUCCEEDED **\n")
+    log.write_text(app_smoke_test_log(identifiers, trailer))
     (directory / "run.xcresult").mkdir()
     (directory / "run.xcresult/fixture.txt").write_text("invented result bundle\n")
     runfile = directory / "candidate.xctestrun"

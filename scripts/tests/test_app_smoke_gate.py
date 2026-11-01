@@ -114,6 +114,84 @@ class AppSmokeGateTests(unittest.TestCase):
                 else:
                     with self.assertRaises(EvidenceError): verify_result(*args)
 
+    # SMOKE-GATE-SUCCESS-LINE (3.1 candidate run c2). Eleven of eleven tests passed and the gate refused the run, since
+    # `xcodebuild test-without-building` on Xcode 27.2 ends a passing run with `** TEST EXECUTE SUCCEEDED **` and the gate
+    # asked for `** TEST SUCCEEDED **`, the trailer of `xcodebuild test`. Both finish the harness. A failing trailer or
+    # none does not, whatever the counts above it say. Each row is (name, trailer, finished).
+    TRAILERS = (("Xcode 27.2 test-without-building", "** TEST EXECUTE SUCCEEDED **", True),
+                ("xcodebuild test", "** TEST SUCCEEDED **", True),
+                ("test-without-building failed", "** TEST EXECUTE FAILED **", False),
+                ("xcodebuild test failed", "** TEST FAILED **", False),
+                ("no trailer", "", False))
+
+    def test_the_retained_result_takes_both_success_trailers_and_refuses_a_failing_or_missing_one(self):
+        contract_path = ROOT / "config/release-contract.json"
+        for name, trailer, finished in self.TRAILERS:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                app = root / "Fixture.app"
+                app.mkdir()
+                (app / "payload").write_text("invented harmless payload")
+                source = {"clean": True, "commit": "a" * 40}
+                path = make_app_smoke_fixture(root / "evidence", source, app, contract_path, trailer=trailer)
+                payload = json.loads(path.read_text())["appPayloadSHA256"]
+                args = (path, hashlib.sha256(path.read_bytes()).hexdigest(), source, "stable", payload, load_contract(contract_path))
+                if finished:
+                    self.assertEqual(verify_result(*args)["selectedTests"], list(load_contract(contract_path).gates.appSmokeTests))
+                else:
+                    with self.assertRaisesRegex(EvidenceError, "Xcode harness did not finish"):
+                        verify_result(*args)
+
+    def test_the_run_takes_both_success_trailers_and_refuses_a_failing_or_missing_one(self):
+        import app_smoke_gate
+        from scripts.tests.gate_fixtures import app_smoke_test_log
+        contract_path = ROOT / "config/release-contract.json"
+        identifiers = list(load_contract(contract_path).gates.appSmokeTests)
+
+        class Guard:
+            evidence = {"before": [], "after": []}
+            def __enter__(self): return self
+            def __exit__(self, *exception): return False
+
+        for name, trailer, finished in self.TRAILERS:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                (root / "config").mkdir()
+                shutil.copyfile(contract_path, root / "config/release-contract.json")
+                (root / "Tests/Fixtures/analyses").mkdir(parents=True)
+                (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
+                (root / "Candidate.app/Contents").mkdir(parents=True)
+                (root / "Candidate.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
+                session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
+                           "accountHome": str(root / "owner-home"), "candidateHome": str(root / "evidence.home"),
+                           "cleanState": True, "existingState": []}
+                real_mkdtemp = tempfile.mkdtemp
+                def command(argv, cwd, directory, step):
+                    log = directory / (step + ".log")
+                    log.write_text(app_smoke_test_log(identifiers, trailer) if step == "real-app-tests"
+                                   else "26.5\n" if step == "sdk-version" else "fixture completed\n")
+                    return {"argv": argv, "exitStatus": 0, "files": [file_record(log, directory)]}
+                args = SimpleNamespace(root=root, app=root / "Candidate.app", output=root / "evidence",
+                                       channel="stable", derived_data=root / "DerivedData")
+                with patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(dir=temporary, **keywords)), \
+                     patch.object(app_smoke_gate, "source_identity", return_value={"clean": True, "commit": "a" * 40}), \
+                     patch.object(app_smoke_gate, "runtime_identity", return_value={}), \
+                     patch.object(app_smoke_gate, "graphical_session", return_value=session), \
+                     patch.object(app_smoke_gate, "receipt_authority", return_value=SimpleNamespace(_payload_digest=lambda _: "a" * 64)), \
+                     patch.object(app_smoke_gate, "command_record", side_effect=command), \
+                     patch.object(app_smoke_gate, "select_xctestrun", return_value=root / "compiled.xctestrun"), \
+                     patch.object(app_smoke_gate, "runner_identity", return_value=[]), \
+                     patch.object(app_smoke_gate, "configure_xctestrun"), \
+                     patch.object(app_smoke_gate, "account_preferences_guard", return_value=Guard()), \
+                     patch.object(app_smoke_gate, "screen_state", return_value={"locked": False}), \
+                     patch.object(app_smoke_gate, "verify_result"):
+                    if finished:
+                        app_smoke_gate.run(args)
+                        self.assertIs(json.loads((root / "evidence/app-smoke.result.json").read_text())["authorized"], True)
+                    else:
+                        with self.assertRaisesRegex(EvidenceError, "did not complete every selected method"):
+                            app_smoke_gate.run(args)
+
     def test_xctestrun_targets_exact_candidate_and_preserves_compiled_runner_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
