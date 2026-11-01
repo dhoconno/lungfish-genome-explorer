@@ -231,8 +231,23 @@ enum ReleaseSmokeFixtures {
             try FileManager.default.copyItem(at: LungfishFixtureCatalog.analyses.appendingPathComponent(folder), to: destination)
             try writeAnalysisMetadata(tool: tool, in: destination)
         }
+        try writeTaxTriageOrganismReport(in: analyses.appendingPathComponent("taxtriage-2026-01-15T12-00-00", isDirectory: true))
         try writeNaoMgsResult(in: analyses.appendingPathComponent("naomgs-2026-01-15T09-00-00", isDirectory: true))
         return project
+    }
+
+    /// The `report/testSample.odr.txt` that `build-db taxtriage` reads. The shared TaxTriage fixture holds only
+    /// `sample_report.tsv`, which the command does not read, so the app's build on open stopped with exit 64, "No
+    /// supported TaxTriage taxonomy report found", and the result showed "Build failed" with no viewer. The rows
+    /// match the fixture's `sample_report.tsv`.
+    static func writeTaxTriageOrganismReport(in result: URL) throws {
+        let report = result.appendingPathComponent("report", isDirectory: true)
+        try FileManager.default.createDirectory(at: report, withIntermediateDirectories: true)
+        let rows = ["Detected Organism\tSpecimen ID\t% Reads\t# Reads Aligned\tTaxonomic ID #\tBreadth %\tTASS Score\tPasses Threshold\tTASS Threshold",
+                    "SARS-CoV-2\ttestSample\t83.3\t500\t2697049\t95.0\t95\tTRUE\t75.0",
+                    "Influenza A\ttestSample\t16.7\t100\t11320\t80.0\t80\tTRUE\t75.0"]
+        try (rows.joined(separator: "\n") + "\n").write(to: report.appendingPathComponent("testSample.odr.txt"),
+                                                       atomically: true, encoding: .utf8)
     }
 
     /// A NAO-MGS result holding its `manifest.json` with one cached taxon row. The app shows the cached row and the
