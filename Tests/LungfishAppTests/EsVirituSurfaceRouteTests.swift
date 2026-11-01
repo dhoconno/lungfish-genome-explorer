@@ -11,6 +11,12 @@
 // Each test opens an EsViritu batch as the sidebar does (`displayContent(for:)`), which shows it in the same turn.
 // The batch is the routing fixture's EsViritu database with the analysis metadata and a batch manifest written beside
 // it. As in `NaoMgsSurfaceRouteTests`, the test methods are synchronous and wait by turning the main run loop.
+//
+// A 12S viewer that the first test opens stays alive after the test, and on a later test's text-size change its two
+// tables saved their layouts under `...TwelveSTargetTableView:primate-12s` and `...TwelveSUnresolvedTableView:
+// primate-12s` in the test host's own defaults (FULL3-LEAKS). The 12S key holds the result's output name, not this
+// test's folder, so `HostDefaultsRestorer` never owned it. Each 12S viewer here saves to a suite of its own from the
+// start, and `tearDown` takes the tables' identity away, so a viewer that outlives the test saves nothing.
 
 import AppKit
 import LungfishTestSupport
@@ -19,6 +25,7 @@ import XCTest
 @testable import LungfishEsVirituUI
 @testable import LungfishIO
 @testable import LungfishKit
+@testable import LungfishTwelveSUI
 @testable import LungfishWorkflow
 
 /// A surface whose load always fails, so the EsViritu show never installs.
@@ -43,6 +50,10 @@ final class EsVirituSurfaceRouteTests: XCTestCase {
 
     /// The EsViritu result view saves its column layout to `UserDefaults.standard` under the result's path.
     private var hostDefaults: HostDefaultsRestorer?
+    /// Where the 12S viewers this test opens save their column layouts, never `UserDefaults.standard`.
+    private var twelveSLayouts: TestDefaultsSuite?
+    /// The 12S viewers this test opened, whose tables `tearDown` takes the identity from.
+    private var twelveSViewers: [TwelveSAmpliconResultViewController] = []
 
     override func setUp() async throws {
         try await super.setUp()
@@ -62,13 +73,34 @@ final class EsVirituSurfaceRouteTests: XCTestCase {
         split.view.layoutSubtreeIfNeeded()
         controller = split
         window = host
+        // The App's 12S factory with its BLAST wiring, plus the suite, given before `configure(result:)` keys the
+        // tables' layouts by the result.
+        let layouts = TestDefaultsSuite(prefix: "EsVirituSurfaceRouteTests")
+        twelveSLayouts = layouts
+        let viewer: ViewerViewController = split.viewerController
+        viewer.surfaceHost.registry.register(
+            .bundle(.twelveSResult),
+            factory: TwelveSSurface.factory { [weak self, weak viewer] shown in
+                viewer?.wireTwelveSUnresolvedBlast(shown)
+                shown.targetTable.metadataColumns.userDefaults = layouts.defaults
+                shown.unresolvedTable.metadataColumns.userDefaults = layouts.defaults
+                self?.twelveSViewers.append(shown)
+            }
+        )
     }
 
     override func tearDown() async throws {
+        for shown in twelveSViewers {
+            shown.targetTable.resultIdentity = nil
+            shown.unresolvedTable.resultIdentity = nil
+        }
+        twelveSViewers = []
         window.contentViewController = nil
         window = nil
         controller = nil
         hostDefaults?.restore()
+        twelveSLayouts?.tearDown()
+        twelveSLayouts = nil
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }
