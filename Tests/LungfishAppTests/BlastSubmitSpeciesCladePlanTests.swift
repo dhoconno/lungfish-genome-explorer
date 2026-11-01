@@ -81,15 +81,26 @@ final class BlastSubmitSpeciesCladePlanTests: XCTestCase {
         ) { XCTAssertEqual($0 as? BlastSubmitPlanError, .noProject) }
     }
 
-    /// The three result views pass the installed folder off the main actor. EsViritu passes names only, and is not on this list.
+    private static let viewer = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/LungfishApp/Views/Viewer", isDirectory: true)
+
+    /// The three result views pass the installed folder off the main actor.
     func testEachCallerPassesTheInstalledTaxonomyAndBuildsItsPlanOffTheMainActor() throws {
-        let viewer = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Viewer", isDirectory: true)
         for name in ["ViewerViewController+NaoMgs.swift", "ViewerViewController+Nvd.swift", "ViewerViewController+TaxTriage.swift"] {
-            let source = try String(contentsOf: viewer.appendingPathComponent(name), encoding: .utf8)
+            let source = try String(contentsOf: Self.viewer.appendingPathComponent(name), encoding: .utf8)
             XCTAssertTrue(source.contains("await Self.installedNCBITaxonomyDirectory()"), name)
             XCTAssertTrue(source.contains("await Self.blastSubmitPlanOffMainActor"), name)
         }
+    }
+
+    /// EsViritu's plan is cheap, so only its taxonomy goes off the main actor, where it reads the installed database and the
+    /// installed NCBI Taxonomy. The launch itself takes the folders through that helper, not the test's stand-in.
+    func testTheEsVirituCallerReadsBothInstalledDatabasesOffTheMainActor() throws {
+        let source = try String(contentsOf: Self.viewer.appendingPathComponent("ViewerViewController+EsViritu.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("@concurrent nonisolated static func installedEsVirituBlastTaxonomyContext"))
+        XCTAssertTrue(source.contains("await EsVirituDatabaseManager.shared.installedDatabaseInfo()?.path"))
+        XCTAssertTrue(source.contains("await Self.installedNCBITaxonomyDirectory()"))
+        XCTAssertTrue(source.contains("= ViewerViewController.installedEsVirituBlastTaxonomyContext"))
     }
 }
