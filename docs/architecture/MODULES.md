@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 657 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 658 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 155 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -987,6 +987,7 @@ None.
 - `EsVirituCoverageWindow` struct, `Sources/LungfishIO/Formats/EsViritu/EsVirituDatabase.swift`
 - `EsVirituDatabase` class, `Sources/LungfishIO/Formats/EsViritu/EsVirituDatabase.swift`
 - `EsVirituDatabaseError` enum, `Sources/LungfishIO/Formats/EsViritu/EsVirituDatabase.swift`
+- `EsVirituDatabaseTaxonomy` enum, `Sources/LungfishIO/Formats/EsViritu/EsVirituDatabaseTaxonomy.swift`
 - `EsVirituDetectionParser` enum, `Sources/LungfishIO/Formats/EsViritu/EsVirituDetectionParser.swift`
 - `EsVirituDetectionParserError` enum, `Sources/LungfishIO/Formats/EsViritu/EsVirituDetectionParser.swift`
 - `EsVirituDetectionRow` struct, `Sources/LungfishIO/Formats/EsViritu/EsVirituDatabase.swift`
