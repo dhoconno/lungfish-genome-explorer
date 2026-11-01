@@ -196,6 +196,22 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(chartReadLevelItemsEnabled(TaxonomyViewController()), [true, true], "a Kraken2 chart lost them")
     }
 
+    /// The greyed Extract Reads… and Verify with BLAST… of the sunburst's menu carry the R8 words as their tip, so a
+    /// person who sees them greyed can read why. A Kraken2 chart, whose items are enabled, carries no reason (UX review
+    /// of lane CZID, SF2).
+    func testTheCzIdChartMenuGivesTheGreyedItemsTheR8Words() throws {
+        let shown = try openCzId(czId)
+        let taxonomy = try XCTUnwrap(shown.taxonomyViewControllerForTesting)
+        let node = chartNode()
+        for title in ["Extract Reads\u{2026}", ResultRowCommand.blastVerify.title] {
+            let greyed = taxonomy.contextMenuItems(for: node).first { $0.title == title }
+            XCTAssertEqual(greyed?.toolTip, ClassifierActionWords.czIdHasNoReadIDs, "\(title) lost the R8 reason")
+            let enabled = TaxonomyViewController().contextMenuItems(for: node).first { $0.title == title }
+            XCTAssertNotNil(enabled, "a Kraken2 chart lost \(title)")
+            XCTAssertNil(enabled?.toolTip, "a Kraken2 chart's enabled \(title) carries a reason")
+        }
+    }
+
     // MARK: - Pins
 
     /// A second CZ-ID result replaces the first: one viewer, a new one (no skip and no flag).
@@ -240,12 +256,8 @@ final class CzIdSurfaceRouteTests: XCTestCase {
     /// Whether the chart menu's Extract Reads… and Verify with BLAST… are enabled once the menu validates its items,
     /// as AppKit does before it shows the menu.
     private func chartReadLevelItemsEnabled(_ taxonomy: TaxonomyViewController) -> [Bool] {
-        let node = TaxonNode(
-            taxId: 562, name: "Escherichia coli", rank: .species, depth: 1,
-            readsDirect: 100, readsClade: 100, fractionClade: 1.0, fractionDirect: 1.0, parentTaxId: 1
-        )
         let menu = NSMenu()
-        for menuItem in taxonomy.contextMenuItems(for: node) {
+        for menuItem in taxonomy.contextMenuItems(for: chartNode()) {
             menuItem.menu?.removeItem(menuItem)
             menu.addItem(menuItem)
         }
@@ -253,6 +265,14 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         return ["Extract Reads\u{2026}", ResultRowCommand.blastVerify.title].map { title in
             menu.items.first { $0.title == title }?.isEnabled ?? true
         }
+    }
+
+    /// The taxon the chart menu tests build their menus for.
+    private func chartNode() -> TaxonNode {
+        TaxonNode(
+            taxId: 562, name: "Escherichia coli", rank: .species, depth: 1,
+            readsDirect: 100, readsClade: 100, fractionClade: 1.0, fractionDirect: 1.0, parentTaxId: 1
+        )
     }
 
     private func item(_ url: URL) -> SidebarItem {

@@ -1283,6 +1283,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         let extractItem = NSMenuItem(title: "Extract Reads\u{2026}", action: readLevel ? #selector(contextExtractReads(_:)) : nil, keyEquivalent: "")
         extractItem.target = self
         extractItem.representedObject = node
+        extractItem.toolTip = readLevel ? nil : readLevelActionsDisabledReason
         menu.addItem(extractItem)
 
         menu.addItem(.separator())
@@ -1354,6 +1355,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         )
         blastItem.target = self
         blastItem.representedObject = node
+        blastItem.toolTip = readLevel ? nil : readLevelActionsDisabledReason
         blastItem.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST")
         menu.addItem(blastItem)
 
