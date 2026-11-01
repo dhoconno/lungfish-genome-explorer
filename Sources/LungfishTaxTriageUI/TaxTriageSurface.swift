@@ -56,8 +56,13 @@ public final class TaxTriageSurface: ResultViewport {
         onWillDeactivate?()
     }
 
-    /// Adopts the controller the App passed as `input`.
+    /// Adopts the controller the App passed as `input` and makes its root view, which carries
+    /// `taxtriage-result-view`, an accessibility group. AppKit leaves a plain NSView out of the
+    /// accessibility tree, identifier or not, so the view switch smoke could not find it.
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
-        controller = try expectInput(input, as: TaxTriageResultViewController.self)
+        let adopted = try expectInput(input, as: TaxTriageResultViewController.self)
+        adopted.view.setAccessibilityElement(true)
+        adopted.view.setAccessibilityRole(.group)
+        controller = adopted
     }
 }
