@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishNaoMgsUI
 import LungfishKit
+import LungfishWorkflow
 import os.log
 
 private let naoMgsDisplayLogger = Logger(subsystem: "com.lungfish", category: "NaoMgsDisplay")
@@ -45,20 +46,33 @@ extension ViewerViewController {
             naoMgsDisplayLogger.info(
                 "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
             )
-            guard let plan = Self.blastSubmitPlan(window: self?.view.window, failure: { controller?.showBlastFailure($0) }, {
-                try Self.naoMgsBlastSubmitPlan(
-                    taxonName: taxonName, taxId: summary.taxId, readCount: selectedReadCount, reads: reads,
-                    projectURL: self?.blastSubmitProjectURL(), sourceResultURL: controller?.bundleURL
-                )
-            }) else { return }
-            Self.beginNaoMgsBlastVerificationOperation(
-                taxonName: taxonName, taxId: summary.taxId, cliCommand: plan.cliCommand
-            ) { opID in
-                Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                    loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                    results: { controller?.showBlastResults($0, recordURL: $1) },
-                    failure: { controller?.showBlastFailure($0) }
-                )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+            let window = self?.view.window
+            let projectURL = self?.blastSubmitProjectURL()
+            let sourceResultURL = controller?.bundleURL
+            let taxId = summary.taxId
+            // The taxonomy's files are read before the row begins, so the drawer says so meanwhile. With no project the
+            // plan refuses, and the refusal shows no drawer.
+            if projectURL != nil { controller?.showBlastLoading(phase: .submitting, requestId: nil) }
+            Task { @MainActor in
+                let taxonomyDirectory = await Self.installedNCBITaxonomyDirectory()
+                let planned = await Self.blastSubmitPlanOffMainActor {
+                    try Self.naoMgsBlastSubmitPlan(
+                        taxonName: taxonName, taxId: taxId, readCount: selectedReadCount, reads: reads,
+                        projectURL: projectURL, sourceResultURL: sourceResultURL, taxonomyDirectory: taxonomyDirectory
+                    )
+                }
+                guard let plan = Self.blastSubmitPlan(
+                    window: window, failure: { controller?.showBlastFailure($0) }, { try planned.get() }
+                ) else { return }
+                Self.beginNaoMgsBlastVerificationOperation(
+                    taxonName: taxonName, taxId: taxId, cliCommand: plan.cliCommand
+                ) { opID in
+                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
+                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
+                        results: { controller?.showBlastResults($0, recordURL: $1) },
+                        failure: { controller?.showBlastFailure($0) }
+                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+                }
             }
         }
         // The shared actions hand the App one extraction request, which the App answers with its dialog.
@@ -81,10 +95,13 @@ extension ViewerViewController {
     ///
     /// The search covers all of `core_nt` and sends no Entrez filter, as the EsViritu, TaxTriage, Kraken 2 and NVD
     /// routes do, so a read whose best match is another organism can count as contradicting the taxon (3.1
-    /// BLAST-SCOPE). The verdicts are judged against the taxon's tax ID. A hit with another tax ID counts as inside
-    /// the taxon only when its organism name holds the taxon's name as a whole phrase, so "Human rotavirus A"
-    /// (10941) counts for "Rotavirus A" (28875), and a descendant or a parent named otherwise counts as outside
-    /// (`BlastTaxonMatching.relation`). A `taxId` of 0 or less names no tax ID, and the older name rule judges.
+    /// BLAST-SCOPE). With the NCBI Taxonomy installed, the verdicts are judged at species level: the accepted tax IDs
+    /// are the taxon's nearest species-rank ancestor (the taxon itself at or above species), the path up to it, and
+    /// every descendant of it up to 5,000 (BLAST-CLADE-BY-LINEAGE). Without it, or for a `taxId` of 0 or less, the
+    /// taxon's own tax ID and name judge, and a descendant or parent named otherwise counts as outside.
+    ///
+    /// `taxonomyDirectory` is ``installedNCBITaxonomyDirectory()``. Reading it walks whole files, so a caller on the
+    /// main actor builds this plan through ``blastSubmitPlanOffMainActor(_:)``.
     nonisolated static func naoMgsBlastSubmitPlan(
         taxonName: String,
         taxId: Int,
@@ -92,6 +109,7 @@ extension ViewerViewController {
         reads: [NaoMgsVirusHit],
         projectURL: URL?,
         sourceResultURL: URL? = nil,
+        taxonomyDirectory: URL? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
@@ -99,6 +117,9 @@ extension ViewerViewController {
             return sequence.isEmpty ? nil : (id: hit.seqId, sequence: sequence)
         }
         guard !allReads.isEmpty else { throw BlastServiceError.noSequences }
+        guard projectURL != nil else { throw BlastSubmitPlanError.noProject }
+        let context = NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: [taxonName], taxonomyDirectory: taxonomyDirectory)
+        let acceptedTaxIds = context.map { $0.cladeTaxIds.sorted() } ?? (taxId > 0 ? [taxId] : [])
         let longestCount = min(5, readCount / 4)
         let seed: UInt64 = 0
         let subsampled = BlastService(environment: [:]).subsampleReads(
@@ -111,8 +132,22 @@ extension ViewerViewController {
             outputParentURL: projectURL, taxId: taxId,
             sample: samples.isEmpty ? nil : samples.joined(separator: ","),
             subsampleCount: subsampled.count, subsampleSeed: seed,
-            acceptedTaxIds: taxId > 0 ? [taxId] : [], acceptedNames: [taxonName], date: date
+            acceptedTaxIds: acceptedTaxIds, acceptedNames: context?.cladeNames ?? [taxonName], date: date
         )
+    }
+
+    /// The folder of the installed NCBI Taxonomy, or nil when it is not installed, as the NAO-MGS, TaxTriage and NVD
+    /// searches take it. It only looks, and never downloads (BIO-BLAST-CLADE Q2).
+    nonisolated static func installedNCBITaxonomyDirectory() async -> URL? {
+        let installed = try? await MetagenomicsDatabaseRegistry.shared.installedDatabase(tool: .ncbiTaxonomy)
+        return installed?.path
+    }
+
+    /// Runs `makePlan` off the main actor and hands back its plan or its error, for a plan that reads the taxonomy.
+    @concurrent nonisolated static func blastSubmitPlanOffMainActor(
+        _ makePlan: @Sendable () throws -> BlastSubmitPlan
+    ) async -> Result<BlastSubmitPlan, any Error> {
+        Result { try makePlan() }
     }
 
     /// Registers the BLAST verification row for a NAO-MGS taxon and, only when
