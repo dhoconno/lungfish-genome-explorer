@@ -1278,11 +1278,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private func buildTaxonContextMenu(for node: TaxonNode, includeNCBILinks: Bool) -> NSMenu {
         let menu = NSMenu()
 
-        let extractItem = NSMenuItem(
-            title: "Extract Reads\u{2026}",
-            action: #selector(contextExtractReads(_:)),
-            keyEquivalent: ""
-        )
+        // Extract and BLAST grey out with no action, as in the table's menu, when the reads cannot be reached (CZ-ID).
+        let readLevel = readLevelActionsAvailable
+        let extractItem = NSMenuItem(title: "Extract Reads\u{2026}", action: readLevel ? #selector(contextExtractReads(_:)) : nil, keyEquivalent: "")
         extractItem.target = self
         extractItem.representedObject = node
         menu.addItem(extractItem)
@@ -1351,7 +1349,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         let blastItem = NSMenuItem(
             title: ResultRowCommand.blastVerify.title,
-            action: #selector(contextBlastReads(_:)),
+            action: readLevel ? #selector(contextBlastReads(_:)) : nil,
             keyEquivalent: ""
         )
         blastItem.target = self
