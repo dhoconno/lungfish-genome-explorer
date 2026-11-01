@@ -1263,6 +1263,47 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         XCTAssertFalse(viewerVC.viewerView.isHidden)
     }
 
+    // MARK: - Extract Reads wiring (the leaf hands the request up, the App presents the dialog)
+
+    func testDisplayTaxonomyResultWiresTheExtractReadsRequestToTheApp() throws {
+        let viewerVC = ViewerViewController()
+        _ = viewerVC.view
+        let hostDefaults = HostDefaultsRestorer(keysContaining: "taxonomy-vc-test-")  // the outline's layout key
+        defer { hostDefaults.restore() }
+        viewerVC.displayTaxonomyResult(makeTestResult())
+        XCTAssertNotNil(
+            viewerVC.taxonomyViewController?.onExtractionRequested,
+            "Extract Reads does nothing unless the viewer wires the request to the App dialog"
+        )
+    }
+
+    func testDisplayTaxonomyFromDatabaseWiresTheExtractReadsRequestToTheApp() throws {
+        let resultDir = try makeTempDir(prefix: "KrakenWireDB")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+        let db = try makeSingleSampleKrakenDatabase(in: resultDir)
+        let viewerVC = ViewerViewController()
+        _ = viewerVC.view
+        let hostDefaults = HostDefaultsRestorer(keysContaining: "KrakenWireDB")  // the table's layout key holds the folder
+        defer { hostDefaults.restore() }
+        viewerVC.displayTaxonomyFromDatabase(db: db, resultURL: resultDir)
+        let controller = viewerVC.children.compactMap { $0 as? TaxonomyViewController }.first
+        XCTAssertNotNil(
+            controller?.onExtractionRequested,
+            "Extract Reads does nothing unless the viewer wires the request to the App dialog"
+        )
+    }
+
+    func testDisplayCzIdResultWiresTheExtractReadsRequestToTheApp() throws {
+        let viewerVC = ViewerViewController()
+        _ = viewerVC.view
+        let controller = CzIdResultViewController()
+        viewerVC.displayCzIdResult(controller)
+        XCTAssertNotNil(
+            controller.onExtractionRequested,
+            "Extract Reads does nothing unless the viewer wires the request to the App dialog"
+        )
+    }
+
     // MARK: - BLAST Context Menu
 
     func testBlastContextMenuItemExists() throws {
