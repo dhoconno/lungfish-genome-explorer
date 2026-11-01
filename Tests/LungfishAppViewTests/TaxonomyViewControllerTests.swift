@@ -1285,7 +1285,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         _ = viewerVC.view
         let hostDefaults = HostDefaultsRestorer(keysContaining: "KrakenWireDB")  // the table's layout key holds the folder
         defer { hostDefaults.restore() }
-        viewerVC.displayTaxonomyFromDatabase(db: db, resultURL: resultDir)
+        try viewerVC.displayTaxonomyFromDatabase(db: db, resultURL: resultDir)
         let controller = viewerVC.children.compactMap { $0 as? TaxonomyViewController }.first
         XCTAssertNotNil(
             controller?.onExtractionRequested,
