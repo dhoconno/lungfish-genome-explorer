@@ -238,6 +238,68 @@ class AppSmokeGateTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             app_smoke_gate.argument_parser().parse_args(base + ["beta"])
 
+    def test_the_gate_refuses_derived_data_in_a_privacy_protected_folder_before_any_build_or_defaults_call(self):
+        # SMOKE-DD-TCC (3.1 GUI run 2). The xctestrun points the app's DYLD_FRAMEWORK_PATH at the derived data, and
+        # macOS holds an app without access to Documents, Desktop or Downloads when it opens a file there at launch.
+        import app_smoke_gate
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            home = root / "owner-home"
+            for name in ("Documents/real", "Desktop", "Downloads", "Documents2", "Library/Documents"):
+                (home / name).mkdir(parents=True)
+            (home / "linked").symlink_to(home / "Documents/real")
+            (root / "config").mkdir()
+            shutil.copyfile(ROOT / "config/release-contract.json", root / "config/release-contract.json")
+            (root / "Tests/Fixtures/analyses").mkdir(parents=True)
+            (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
+            (root / "Candidate.app/Contents").mkdir(parents=True)
+            (root / "Candidate.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
+            session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
+                       "accountHome": str(home), "candidateHome": str(root / "evidence.home"),
+                       "cleanState": True, "existingState": []}
+            calls = []
+            real_mkdtemp = tempfile.mkdtemp
+            def command(argv, cwd, directory, name):
+                calls.append(argv)
+                log = directory / (name + ".log")
+                log.write_text("26.5\n" if name == "sdk-version" else "deliberate fake build stop\n")
+                return {"argv": argv, "exitStatus": 1 if name == "build-ui-runner" else 0,
+                        "files": [file_record(log, directory)]}
+            def guard(*arguments, **keywords):
+                calls.append(["defaults guard"])
+                raise EvidenceError("the account preferences guard opened")
+            def attempt(index, derived):
+                del calls[:]
+                args = SimpleNamespace(root=root, app=root / "Candidate.app", output=root / ("evidence-%d" % index),
+                                       channel="stable", derived_data=derived)
+                with patch.object(app_smoke_gate.pwd, "getpwuid", return_value=SimpleNamespace(pw_name="owner", pw_dir=str(home))), \
+                     patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(dir=temporary, **keywords)), \
+                     patch.object(app_smoke_gate, "source_identity", return_value={"clean": True, "commit": "a" * 40}), \
+                     patch.object(app_smoke_gate, "runtime_identity", return_value={}), \
+                     patch.object(app_smoke_gate, "graphical_session", return_value=session), \
+                     patch.object(app_smoke_gate, "receipt_authority", return_value=SimpleNamespace(_payload_digest=lambda _: "a" * 64)), \
+                     patch.object(app_smoke_gate, "account_preferences_guard", side_effect=guard), \
+                     patch.object(app_smoke_gate, "command_record", side_effect=command):
+                    with self.assertRaises(EvidenceError) as raised:
+                        app_smoke_gate.run(args)
+                return str(raised.exception)
+            refused = [home / "Documents/GitHub/lungfish/build/smoke/dd", home / "Documents", home / "Desktop/dd",
+                       home / "Downloads/dd", home / "linked/dd", home / "documents/dd"]
+            for index, derived in enumerate(refused):
+                with self.subTest(refused=str(derived)):
+                    message = attempt(index, derived)
+                    self.assertIn("DYLD_FRAMEWORK_PATH", message)
+                    self.assertIn("/private/var/tmp/lungfish-smoke-dd", message)
+                    self.assertEqual(calls, [], "no build, no defaults call and no tool ran")
+                    self.assertFalse((root / ("evidence-%d" % index)).exists(), "a refused run leaves no evidence folder")
+            allowed = [Path("/private/var/tmp/lungfish-smoke-dd"), home / "Documents2/dd", home / "Library/Documents/dd",
+                       home / "dd", root / "DerivedData"]
+            for index, derived in enumerate(allowed, start=len(refused)):
+                with self.subTest(allowed=str(derived)):
+                    message = attempt(index, derived)
+                    self.assertIn("runner build or Xcode identity failed", message)
+                    self.assertNotIn("DYLD_FRAMEWORK_PATH", message)
+
     def test_console_user_unlocked_session_with_a_fresh_candidate_home_is_accepted(self):
         contract = load_contract(ROOT / "config/release-contract.json")
         with tempfile.TemporaryDirectory() as temporary:
