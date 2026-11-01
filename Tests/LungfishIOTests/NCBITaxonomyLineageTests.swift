@@ -211,4 +211,32 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         let empty = try context()
         XCTAssertEqual(empty.cladeNames, ["Human rotavirus A"])
     }
+
+    // MARK: - The path names against TaxonomyNameResolver (BLAST-LINEAGE BIO SF1)
+
+    func testThePathNamesAreScientificNamesAndMatchResolveFromFile() throws {
+        try writeNodes(Self.rotavirusNodes)
+        // An acronym, a row at 288750 that shares the digits of 28875 and a genbank acronym sit among the scientific
+        // names, and the last row has no newline.
+        let lines = [
+            "28875\t|\tRVA\t|\t\t|\tacronym\t|",
+            "288750\t|\tRotavirus Z\t|\t\t|\tscientific name\t|",
+            "28875\t|\tRotavirus A\t|\t\t|\tscientific name\t|",
+            "10941\t|\tHuman rotavirus A\t|\t\t|\tscientific name\t|",
+            "10941\t|\tHRV-A\t|\t\t|\tgenbank acronym\t|",
+            "3432193\t|\tRotavirus alphagastroenteritidis\t|\t\t|\tscientific name\t|",
+        ]
+        try lines.joined(separator: "\n").write(to: directory.appendingPathComponent("names.dmp"), atomically: true, encoding: .utf8)
+
+        let context = try XCTUnwrap(
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory)
+        )
+        XCTAssertEqual(context.cladeNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+
+        let resolved = try TaxonomyNameResolver.resolveFromFile(directory, taxIds: [10941, 28875, 3432193])
+        XCTAssertEqual(
+            resolved, [10941: "Human rotavirus A", 28875: "Rotavirus A", 3432193: "Rotavirus alphagastroenteritidis"],
+            "the scan reads the names that the resolver reads"
+        )
+    }
 }
