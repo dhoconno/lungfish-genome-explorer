@@ -142,6 +142,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         let named = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", archive.lastPathComponent, archive.lastPathComponent)
         let words = robot.app.staticTexts.matching(named).firstMatch
         XCTAssertTrue(words.waitForExistence(timeout: 15), "The refusal names \(archive.lastPathComponent)")
+        let link = "link to a file outside the archive"
+        let reason = robot.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", link, link)).firstMatch
+        XCTAssertTrue(reason.waitForExistence(timeout: 5), "The refusal says the ZIP holds a link to a file outside the archive")
         robot.clickAlertButton("OK")
         XCTAssertEqual(ReleaseSmokeFixtures.listing(of: project), before, "A refused archive changes nothing in the project")
     }
