@@ -158,6 +158,7 @@ final class TaxTriageSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(root?.accessibilityIdentifier(), "taxtriage-result-view")
         XCTAssertEqual(root?.isAccessibilityElement(), true, "a plain NSView root is left out of the accessibility tree")
         XCTAssertEqual(root?.accessibilityRole(), .group)
+        XCTAssertFalse((root?.accessibilityChildren() ?? []).isEmpty, "the group must keep the viewer's content reachable for VoiceOver")
     }
 
     // MARK: - Its own kind
