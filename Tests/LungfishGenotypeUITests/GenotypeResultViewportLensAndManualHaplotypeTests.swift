@@ -1988,6 +1988,10 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeDisclosureKeepsCompactIconRowAtTwoHundredPercent()
         throws
     {
+        // The matrix remembers the pane width in `UserDefaults.standard` and takes no defaults of its own, so the test
+        // puts the key back at its end (FULL1-LEAKS).
+        let hostDefaults = HostDefaultsRestorer(keys: ["GenotypeMatrix.pinnedPaneWidth"])
+        defer { hostDefaults.restore() }
         let matrix = GenotypeComparisonMatrixView()
         matrix.frame = NSRect(x: 0, y: 0, width: 427, height: 520)
         matrix.testingSetPinnedPaneWidth(180)
@@ -2035,6 +2039,10 @@ final class GenotypeResultViewportLensAndManualHaplotypeTests: GenotypeResultVie
     func testManualHaplotypeDisclosureWidthChangesDoNotRetileCompactIcon()
         throws
     {
+        // The matrix remembers the pane width in `UserDefaults.standard` and takes no defaults of its own, so the test
+        // puts the key back at its end (FULL1-LEAKS).
+        let hostDefaults = HostDefaultsRestorer(keys: ["GenotypeMatrix.pinnedPaneWidth"])
+        defer { hostDefaults.restore() }
         let samples = ["AnimalA", "AnimalB", "AnimalC", "AnimalD"]
         let calls = (0..<24).flatMap { row in
             samples.map { sample in
