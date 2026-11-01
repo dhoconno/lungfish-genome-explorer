@@ -62,4 +62,45 @@ final class TaxonTreeBlastTaxonomyTests: XCTestCase {
         let tree = try KreportParser.parse(text: report)
         XCTAssertEqual(tree.blastTaxonomyContext(for: 562).cladeTaxIds, [562])
     }
+
+    /// Rotavirus as a Kraken 2 report lists it: the binomial species 3432193, then 28875 and its host label 10941 as the
+    /// no-rank nodes a report codes S1 and S2 (`TaxonomicRank.intermediate`), and a second genus member that stays a relative.
+    private let rotavirusReport = """
+      0.00\t0\t0\tU\t0\tunclassified
+    100.00\t100\t0\tR\t1\troot
+    100.00\t100\t0\tD\t10239\t  Viruses
+    100.00\t100\t5\tG\t10912\t    Rotavirus
+     90.00\t90\t5\tS\t3432193\t      Rotavirus alphagastroenteritidis
+     85.00\t85\t25\tS1\t28875\t        Rotavirus A
+     50.00\t50\t50\tS2\t10941\t          Human rotavirus A
+     10.00\t10\t10\tS2\t42567\t          Rotavirus G9
+      5.00\t5\t5\tS\t28876\t      Rotavirus B
+
+    """
+
+    /// BIO-BLAST-CLADE Q3 (lane BLAST-LINEAGE). A claim below a species is judged at its species, so the parent 28875
+    /// and a sibling are the same organism, not relatives whose verified reads contradict the claim.
+    func testCladeOfASubSpeciesNodeStartsAtItsSpecies() throws {
+        let tree = try KreportParser.parse(text: rotavirusReport)
+
+        let context = tree.blastTaxonomyContext(for: 10941)
+
+        XCTAssertEqual(context.cladeTaxIds, [3432193, 28875, 10941, 42567])
+        XCTAssertEqual(
+            context.cladeNames,
+            ["Human rotavirus A", "Rotavirus A", "Rotavirus G9", "Rotavirus alphagastroenteritidis"]
+        )
+        XCTAssertFalse(context.relatedTaxIds.contains(28875), "the parent is inside the claim's species")
+        XCTAssertEqual(context.relatedTaxIds, [10912, 28876], "the genus and its other species stay relatives")
+        XCTAssertEqual(context.relatedNames.first, "Rotavirus", "the genus name leads")
+
+        XCTAssertEqual(
+            tree.blastTaxonomyContext(for: 28875).cladeTaxIds, [3432193, 28875, 10941, 42567],
+            "the no-rank parent's claim has the same species"
+        )
+        XCTAssertEqual(
+            tree.blastTaxonomyContext(for: 3432193).cladeTaxIds, [3432193, 28875, 10941, 42567],
+            "a species claim is its own root"
+        )
+    }
 }
