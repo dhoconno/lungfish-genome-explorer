@@ -113,20 +113,16 @@ extension MainWindowNavigationXCUITests {
     @MainActor
     func testReleaseCandidateImportFailureStatus() throws {
         let robot = try ReleaseAppSmokeRobot()
-        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "ReleaseFailure-\(UUID().uuidString)")
+        // The import refuses a Read Only project before it reads the sheet (`canWriteProjectOutputs`), so the task
+        // works in a project the app made.
+        let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseFailure")
         let invalid = project.deletingLastPathComponent().appendingPathComponent("invalid.csv")
         try "invented,unsupported,columns\ninvalid,row,only\n".write(to: invalid, atomically: true, encoding: .utf8)
         defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
         try robot.launch()
-        robot.openProject(project)
+        try robot.openWritableProject(project) { _ in }
         robot.menu("File", item: "Import Center…")
-        // The card's Import… button carries the identifier (ImportCenterView.swift). The Release run found no
-        // button by it in 5 s (3.0 lane UIP), so the robot also takes the card's own button and waits 15 s.
-        let identifier = "import-center-button-fastq-sample-sheet"
-        guard let button = robot.firstOf([robot.app.buttons[identifier].firstMatch,
-                                          robot.app.descendants(matching: .any)[identifier].firstMatch,
-                                          robot.app.descendants(matching: .any)["import-center-card-fastq-sample-sheet"]
-                                              .buttons.firstMatch], timeout: 15) else {
+        guard let button = importButton(onCardTitled: "FASTQ Sample Sheet", in: robot) else {
             robot.failShowingScreen("The Import Center shows no Import\u{2026} button for the FASTQ Sample Sheet")
             return
         }
@@ -136,5 +132,21 @@ extension MainWindowNavigationXCUITests {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("invalid.csv").path))
         robot.clickAlertButton("OK")
         XCTAssertTrue(robot.window(project).exists)
+    }
+
+    /// The Import… button on the card titled `title`. SwiftUI gives every element in the card list the list's
+    /// identifier (GUI run 1 read `import-center-card-list` on each Import… button), so the card's and the button's
+    /// own identifiers (`ImportCenterView.swift`) never reach the tree. The button taken is the one level with the
+    /// card's title, after the identifier, which answers if the identifiers ever do.
+    @MainActor
+    private func importButton(onCardTitled title: String, in robot: ReleaseAppSmokeRobot) -> XCUIElement? {
+        let identified = robot.app.buttons["import-center-button-fastq-sample-sheet"].firstMatch
+        if identified.waitForExistence(timeout: 2) { return identified }
+        let window = robot.app.windows["import-center-window"].firstMatch
+        let heading = window.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", title, title)).firstMatch
+        guard heading.waitForExistence(timeout: 15) else { return nil }
+        let top = heading.frame.minY
+        return window.buttons.matching(NSPredicate(format: "label == %@ OR title == %@", "Import\u{2026}", "Import\u{2026}"))
+            .allElementsBoundByIndex.min { abs($0.frame.minY - top) < abs($1.frame.minY - top) }
     }
 }

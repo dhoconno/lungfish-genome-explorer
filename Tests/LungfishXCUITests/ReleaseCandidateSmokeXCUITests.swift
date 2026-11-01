@@ -70,19 +70,21 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     @MainActor
     func testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder() throws {
         let robot = try ReleaseAppSmokeRobot()
-        let project = try ReleaseSmokeFixtures.makeKraken2ResultProject(named: "ReleaseExtract-\(UUID().uuidString)")
+        let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseExtract")
         defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
         let renamed = project.appendingPathComponent("Analyses/kraken2-renamed-smoke", isDirectory: true)
         try robot.launch()
-        robot.openProject(project)
+        try robot.openWritableProject(project) { try ReleaseSmokeFixtures.addKraken2Result(to: $0) }
         ReleaseSmokeFixtures.renameSidebarItem(containing: ReleaseSmokeFixtures.kraken2Folder, to: renamed.lastPathComponent,
                                                in: robot)
         let moved = NSPredicate { _, _ in FileManager.default.fileExists(atPath: renamed.path) }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: moved, object: nil)], timeout: 30), .completed,
-                       "The sidebar renames the result's folder")
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: moved, object: nil)], timeout: 30) == .completed else {
+            robot.failShowingScreen("The sidebar did not rename the result's folder to \(renamed.lastPathComponent) within 30 s")
+            return
+        }
         ReleaseSmokeFixtures.openSidebarItem(containing: renamed.lastPathComponent, in: robot.app)
-        let drawer = ReleaseSmokeFixtures.kraken2Viewer(in: robot.app)
-        XCTAssertTrue(drawer.waitForExistence(timeout: 15), "The Kraken2 result shows its Collections button")
+        let drawer = ReleaseSmokeFixtures.kraken2CollectionsToggle(in: robot.app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 15), "The Kraken2 result shows its Collections toggle")
         drawer.click()
         let extract = robot.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Extract ticked taxa in")).firstMatch
         XCTAssertTrue(extract.waitForExistence(timeout: 10), "The collections drawer offers Extract")
@@ -102,7 +104,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     @MainActor
     func testReleaseCandidateDroppedZipLandsItsBundle() throws {
         let robot = try ReleaseAppSmokeRobot()
-        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "ReleaseZip-\(UUID().uuidString)")
+        let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseZip")
         let archive = try ReleaseSmokeFixtures.makeBundleArchive(named: "DroppedGenome")
         defer {
             robot.app.terminate()
@@ -110,11 +112,13 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             try? FileManager.default.removeItem(at: archive.deletingLastPathComponent())
         }
         try robot.launch()
-        robot.openProject(project)
-        ReleaseSmokeFixtures.dragFromFinder(archive, onto: robot.window(project).outlines["sidebar-outline"])
+        try robot.openWritableProject(project) { try ReleaseSmokeFixtures.addBundleBrowserContents(to: $0) }
+        ReleaseSmokeFixtures.dragFromFinder(archive, onto: robot.window(project).outlines["sidebar-outline"], robot: robot)
         let landed = NSPredicate { _, _ in !ReleaseSmokeFixtures.paths(in: project, named: "DroppedGenome.lungfishref").isEmpty }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: nil)], timeout: 30), .completed,
-                       "The dropped bundle lands in the project outside .tmp")
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: nil)], timeout: 30) == .completed else {
+            robot.failShowingScreen("The dropped bundle did not land in the project outside .tmp within 30 s")
+            return
+        }
         XCTAssertEqual(ReleaseSmokeFixtures.paths(in: project, named: "sidebar-zip-import", includeStaging: true).count, 0,
                        "No staging folder is left behind")
     }
@@ -123,7 +127,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     @MainActor
     func testReleaseCandidateRefusedZipShowsWords() throws {
         let robot = try ReleaseAppSmokeRobot()
-        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "ReleaseRefusedZip-\(UUID().uuidString)")
+        let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseRefusedZip")
         let archive = try ReleaseSmokeFixtures.makeEscapingLinkArchive()
         defer {
             robot.app.terminate()
@@ -131,10 +135,12 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             try? FileManager.default.removeItem(at: archive.deletingLastPathComponent())
         }
         try robot.launch()
-        robot.openProject(project)
+        try robot.openWritableProject(project) { try ReleaseSmokeFixtures.addBundleBrowserContents(to: $0) }
         let before = ReleaseSmokeFixtures.listing(of: project)
-        ReleaseSmokeFixtures.dragFromFinder(archive, onto: robot.window(project).outlines["sidebar-outline"])
-        let words = robot.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", archive.lastPathComponent)).firstMatch
+        ReleaseSmokeFixtures.dragFromFinder(archive, onto: robot.window(project).outlines["sidebar-outline"], robot: robot)
+        // An alert's words are its static texts' values, so the label and the value are both read.
+        let named = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", archive.lastPathComponent, archive.lastPathComponent)
+        let words = robot.app.staticTexts.matching(named).firstMatch
         XCTAssertTrue(words.waitForExistence(timeout: 15), "The refusal names \(archive.lastPathComponent)")
         robot.clickAlertButton("OK")
         XCTAssertEqual(ReleaseSmokeFixtures.listing(of: project), before, "A refused archive changes nothing in the project")
@@ -177,9 +183,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
                 robot.failShowingScreen("The \(kind.name) bundle shows no viewer after \(previous?.name ?? "the project") ")
                 return
             }
-            // Kraken2's Collections button and the NAO-MGS block stand in for viewers with no identifier of their
-            // own, and the NAO-MGS block has its own check below, so only an identified viewer root must go.
-            if let previous, !["Kraken2", "NAO-MGS"].contains(previous.name) {
+            // The NAO-MGS block stands in for a viewer and has its own check below. Kraken2's query takes its root
+            // or its Collections toggle, and either goes with the viewer.
+            if let previous, previous.name != "NAO-MGS" {
                 XCTAssertTrue(previous.viewer.waitForNonExistence(timeout: 5),
                               "The \(previous.name) viewer stays after the \(kind.name) bundle opened")
             }
@@ -256,10 +262,21 @@ enum ReleaseSmokeFixtures {
         if ok.waitForExistence(timeout: 10) { robot.clickAlertButton("OK") }
     }
 
-    /// The Kraken2 viewer's Collections button, which no other query of the Release app names.
+    /// The accessibility label of the Kraken2 viewer's Collections toggle (`TaxonomyViewController`).
+    static let kraken2CollectionsLabel = "Toggle Taxa Collections Drawer"
+
+    /// The Kraken2 viewer, by its root's `kraken2-result-view` (`Kraken2Surface.viewIdentifier`, lane K2) or its
+    /// Collections toggle. AppKit leaves a root that is a plain NSView out of the accessibility tree, identifier or
+    /// not, so the toggle answers until the root is an element.
     static func kraken2Viewer(in app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@",
-                                         "Toggle Taxa Collections Drawer", "Collections")).firstMatch
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                                             "kraken2-result-view", kraken2CollectionsLabel)).firstMatch
+    }
+
+    /// The Kraken2 viewer's Collections toggle. GUI run 1 found it as a CheckBox (title Collections), since the
+    /// button is `.pushOnPushOff`, where the robot asked for a button.
+    static func kraken2CollectionsToggle(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", kraken2CollectionsLabel)).firstMatch
     }
 
     /// Shows the Inspector's Summary (the `resultSummary` tab, `InspectorView.swift`) and says whether it shows.
@@ -315,10 +332,32 @@ enum ReleaseSmokeFixtures {
     /// The folder of the Kraken2 result `makeKraken2ResultProject` writes, before the task renames it.
     static let kraken2Folder = "kraken2-2026-01-15T16-00-00"
 
-    /// A project holding the Kraken2 result of `Tests/Fixtures/kraken2-mini/SRR35517702` with its reads, whose sidecar
-    /// names the result's folder by absolute path, as a real run writes it.
-    static func makeKraken2ResultProject(named name: String) throws -> URL {
-        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: name)
+    /// Copies the files of the bundle browser fixture project (its reference bundle) into `project`, all but the
+    /// fixture's own `metadata.json`, so a project the app made shows rows in its sidebar.
+    static func addBundleBrowserContents(to project: URL) throws {
+        let fixture = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "WritableSource")
+        defer { try? FileManager.default.removeItem(at: fixture.deletingLastPathComponent()) }
+        try merge(fixture, into: project, skipping: ["metadata.json"])
+    }
+
+    /// Copies each item of `source` into `destination`, merging into a folder the app already made there.
+    nonisolated static func merge(_ source: URL, into destination: URL, skipping: Set<String> = []) throws {
+        for item in try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+        where !skipping.contains(item.lastPathComponent) {
+            let target = destination.appendingPathComponent(item.lastPathComponent)
+            var isFolder: ObjCBool = false
+            if FileManager.default.fileExists(atPath: target.path, isDirectory: &isFolder), isFolder.boolValue {
+                try merge(item, into: target)
+            } else {
+                try FileManager.default.copyItem(at: item, to: target)
+            }
+        }
+    }
+
+    /// Adds the Kraken2 result of `Tests/Fixtures/kraken2-mini/SRR35517702` with its reads to `project`, its sidecar
+    /// naming the result's folder by absolute path, as a real run writes it.
+    static func addKraken2Result(to project: URL) throws {
+        try addBundleBrowserContents(to: project)
         let result = project.appendingPathComponent("Analyses/\(kraken2Folder)", isDirectory: true)
         try FileManager.default.createDirectory(at: result.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: LungfishFixtureCatalog.kraken2Mini.appendingPathComponent("SRR35517702"), to: result)
@@ -329,7 +368,6 @@ enum ReleaseSmokeFixtures {
         stored["config"] = config
         try JSONSerialization.data(withJSONObject: stored, options: [.prettyPrinted, .sortedKeys]).write(to: sidecar)
         try writeAnalysisMetadata(tool: "kraken2", in: result)
-        return project
     }
 
     /// The first sidebar row whose words contain `text`, opening the Analyses group when needed.
@@ -379,8 +417,11 @@ enum ReleaseSmokeFixtures {
         robot.clickAlertButton("Rename")
     }
 
-    /// Shows `file` in a Finder window and drags it onto `target`, then closes that window.
-    static func dragFromFinder(_ file: URL, onto target: XCUIElement) {
+    /// Shows `file` in a Finder window and drags it onto a point of `target` that no Finder window covers, then
+    /// closes that window. GUI run 1 dragged onto the element, and XCUI fell back to a point outside the sidebar
+    /// ({1749, 722} for an outline at {{327, 162}, {242, 422}}) or refused it as not hittable, so the drop point is
+    /// worked out here from the frames and the drag runs between coordinates.
+    static func dragFromFinder(_ file: URL, onto target: XCUIElement, robot: ReleaseAppSmokeRobot) {
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         NSWorkspace.shared.activateFileViewerSelecting([file])
         let names = [file.lastPathComponent, file.deletingPathExtension().lastPathComponent]
@@ -388,9 +429,28 @@ enum ReleaseSmokeFixtures {
             format: "label IN %@ OR value IN %@", names, names)).firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 15), "Finder shows \(file.lastPathComponent)")
         XCTAssertTrue(target.waitForExistence(timeout: 5))
-        item.press(forDuration: 1.0, thenDragTo: target)
+        let covers = finder.windows.allElementsBoundByIndex.map(\.frame)
+        guard let offset = uncoveredOffset(in: target.frame, avoiding: covers) else {
+            robot.failShowingScreen("Finder windows \(covers) cover every point of the drop target \(target.frame)")
+            return
+        }
+        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 1.0, thenDragTo: target.coordinate(withNormalizedOffset: offset),
+                   withVelocity: .default, thenHoldForDuration: 0.5)
         let window = finder.windows.firstMatch
         if window.exists { window.buttons[XCUIIdentifierCloseWindow].firstMatch.click() }
+    }
+
+    /// The first normalized offset in `frame`, centre first, whose point lies outside every frame of `covers`.
+    nonisolated static func uncoveredOffset(in frame: CGRect, avoiding covers: [CGRect]) -> CGVector? {
+        let steps: [CGFloat] = [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95]
+        for dy in steps {
+            for dx in steps {
+                let point = CGPoint(x: frame.minX + dx * frame.width, y: frame.minY + dy * frame.height)
+                if !covers.contains(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) { return CGVector(dx: dx, dy: dy) }
+            }
+        }
+        return nil
     }
 
     /// Paths under `project` whose last component starts with `prefix`, skipping `.tmp` unless asked.

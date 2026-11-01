@@ -208,20 +208,7 @@ struct ReleaseAppSmokeRobot {
             failShowingScreen("No open panel came within 10 s")
             return
         }
-        panel.click()
-        panel.typeKey("g", modifierFlags: [.command, .shift])
-        // Go to Folder opens as a sheet of the panel itself, so the field is looked for inside the panel only.
-        let editable = NSPredicate(format: "elementType == %d OR elementType == %d",
-                                   XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.comboBox.rawValue)
-        let input = panel.sheets.firstMatch.descendants(matching: .any).matching(editable).firstMatch
-        guard input.waitForExistence(timeout: 5) else {
-            failShowingScreen("The open panel (\(panel.elementType.rawValue)) shows no Go to Folder field")
-            return
-        }
-        input.click()
-        input.typeKey("a", modifierFlags: .command)
-        input.typeText(url.path)
-        input.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        guard goToFolder(url.path, in: panel, focusing: panel) else { return }
         let open = panel.buttons.matching(NSPredicate(format: "label == %@ OR title == %@", "Open", "Open")).firstMatch
         guard open.waitForExistence(timeout: 5) else {
             failShowingScreen("The open panel shows no Open button after Go to Folder \(url.path)")
@@ -229,6 +216,70 @@ struct ReleaseAppSmokeRobot {
         }
         XCTAssertTrue(open.isEnabled, "The open panel's Open button takes \(url.path)")
         open.click()
+    }
+
+    /// Types `path` into the panel's Go to Folder sheet, opened from `focus`. Go to Folder opens as a sheet of the
+    /// panel itself, so the field is looked for inside the panel only.
+    func goToFolder(_ path: String, in panel: XCUIElement, focusing focus: XCUIElement) -> Bool {
+        focus.click()
+        focus.typeKey("g", modifierFlags: [.command, .shift])
+        let editable = NSPredicate(format: "elementType == %d OR elementType == %d",
+                                   XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.comboBox.rawValue)
+        let input = panel.sheets.firstMatch.descendants(matching: .any).matching(editable).firstMatch
+        guard input.waitForExistence(timeout: 5) else {
+            failShowingScreen("The panel (\(panel.elementType.rawValue)) shows no Go to Folder field")
+            return false
+        }
+        input.click()
+        input.typeKey("a", modifierFlags: .command)
+        input.typeText(path)
+        input.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        return true
+    }
+
+    /// `<temp>/lungfish-xcui-writable-<UUID>/<name>-<UUID>.lungfish`, whose folder exists, for `openWritableProject`.
+    nonisolated static func newProjectURL(named name: String) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-xcui-writable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("\(name)-\(UUID().uuidString).lungfish", isDirectory: true)
+    }
+
+    /// Makes `project` through File > New Project, closes its window, lets `fill` add the task's files and opens
+    /// it again. A folder the test writes has no project store (`.project.db`), so the app opens it Read Only
+    /// behind an "Opened Read Only" sheet and refuses every write (`AppDelegate.swift`, filesystem fallback). In
+    /// GUI run 1 every project window read "(Read Only)", and rename, drop and import stopped there.
+    func openWritableProject(_ project: URL, filling fill: (URL) throws -> Void) throws {
+        menu("File", item: "New Project")
+        let nameField = NSPredicate(format: "elementType == %d AND (identifier == %@ OR value == %@)",
+                                    XCUIElement.ElementType.textField.rawValue, "saveAsNameTextField", "My Genome Project")
+        guard let panel = firstOf([app.sheets.containing(nameField).firstMatch, app.dialogs.containing(nameField).firstMatch,
+                                   app.windows.containing(nameField).firstMatch]) else {
+            failShowingScreen("File > New Project shows no panel with a Project Name field")
+            return
+        }
+        let field = panel.descendants(matching: .textField).matching(nameField).firstMatch
+        guard field.waitForExistence(timeout: 5),
+              goToFolder(project.deletingLastPathComponent().path, in: panel, focusing: field) else { return }
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(project.deletingPathExtension().lastPathComponent)
+        field.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        let store = NSPredicate { _, _ in FileManager.default.fileExists(atPath: project.appendingPathComponent(".project.db").path) }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: store, object: nil)], timeout: 30) == .completed,
+              window(project).waitForExistence(timeout: 15) else {
+            failShowingScreen("New Project made no project with its store and window at \(project.path)")
+            return
+        }
+        closeSheetRecordingIt(on: window(project))
+        window(project).click()
+        menu("File", item: "Close")
+        XCTAssertTrue(window(project).waitForNonExistence(timeout: 10), "The new project's window closes")
+        try fill(project)
+        openProject(project)
+        if window(project).title.contains("Read Only") {
+            failShowingScreen("The project New Project made opens Read Only: \(window(project).title)")
+        }
     }
 
     /// Fails with what the app shows, attached in full and written into the run's log.
