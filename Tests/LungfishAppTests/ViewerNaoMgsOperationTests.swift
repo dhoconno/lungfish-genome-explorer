@@ -283,6 +283,30 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertEqual(host.contradictingCount, 1, "a real other organism still contradicts")
     }
 
+    /// The plan adds the scientific name of every node on the path up to the species (BLAST-LINEAGE BIO SF3), so a record
+    /// the dump does not list still counts when its organism holds a path name whole, and a record of another species does not.
+    func testNaoMgsPathNameCountsAnUnlistedRecordOfTheSpeciesAndNoOtherSpecies() throws {
+        let scratch = try TestTempDirectory.make(prefix: "nao-mgs-path-name")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let fixture = try Self.makeSpeciesFixture(scratch)
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human rotavirus A", taxId: 10941, readCount: 4, reads: [Self.hit(id: "read_1", sample: "S1")],
+            projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
+        )
+        func readTopped(by taxon: (organism: String, taxId: Int)) -> [BlastSearchResult] {
+            [Self.tiedRead("1:1103:20982:1308", length: 132, aligned: 131, identity: 131, bit: 243.0, evalue: 3.54e-63, [("X1", taxon)])]
+        }
+
+        let newer = judge(
+            readTopped(by: ("Rotavirus A strain RVA/Human-wt/Z1", 99_999_999)), taxon: "Human rotavirus A", taxId: 10941, plan: plan
+        )
+        XCTAssertEqual(newer.supportingCount, 1, "a record newer than the dump counts by the path name Rotavirus A")
+
+        let other = judge(readTopped(by: ("Rotavirus B", 28876)), taxon: "Human rotavirus A", taxId: 10941, plan: plan)
+        XCTAssertEqual(other.readResults.first?.matchesQueriedTaxon, false, "Rotavirus B is another species and holds no path name")
+        XCTAssertEqual(other.contradictingCount, 1)
+    }
+
     func testNaoMgsPlanWithoutTaxonomyAcceptsTheTaxonsOwnTaxIdOnly() throws {
         let scratch = try TestTempDirectory.make(prefix: "nao-mgs-no-taxonomy")
         defer { TestTempDirectory.cleanup(scratch) }
