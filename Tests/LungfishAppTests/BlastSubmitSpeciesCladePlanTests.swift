@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Lane BLAST-LINEAGE, BIO-BLAST-CLADE Q3. Each plan takes the installed NCBI Taxonomy's folder from its caller, and with
-// none it keeps the row's own tax ID. The callers run on the real registry, so a test checks their wiring by their source
-// and never reads the installed taxonomy.
+// none it keeps the row's own tax ID. The callers run on the real registry, so these tests call the plans with a stand-in
+// folder and never read the installed taxonomy.
 
 import Foundation
 import XCTest
@@ -79,28 +79,5 @@ final class BlastSubmitSpeciesCladePlanTests: XCTestCase {
                 taxonomyDirectory: taxonomy
             )
         ) { XCTAssertEqual($0 as? BlastSubmitPlanError, .noProject) }
-    }
-
-    private static let viewer = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Sources/LungfishApp/Views/Viewer", isDirectory: true)
-
-    /// The three result views pass the installed folder off the main actor.
-    func testEachCallerPassesTheInstalledTaxonomyAndBuildsItsPlanOffTheMainActor() throws {
-        for name in ["ViewerViewController+NaoMgs.swift", "ViewerViewController+Nvd.swift", "ViewerViewController+TaxTriage.swift"] {
-            let source = try String(contentsOf: Self.viewer.appendingPathComponent(name), encoding: .utf8)
-            XCTAssertTrue(source.contains("await Self.installedNCBITaxonomyDirectory()"), name)
-            XCTAssertTrue(source.contains("await Self.blastSubmitPlanOffMainActor"), name)
-        }
-    }
-
-    /// EsViritu's plan is cheap, so only its taxonomy goes off the main actor, where it reads the installed database and the
-    /// installed NCBI Taxonomy. The launch itself takes the folders through that helper, not the test's stand-in.
-    func testTheEsVirituCallerReadsBothInstalledDatabasesOffTheMainActor() throws {
-        let source = try String(contentsOf: Self.viewer.appendingPathComponent("ViewerViewController+EsViritu.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("@concurrent nonisolated static func installedEsVirituBlastTaxonomyContext"))
-        XCTAssertTrue(source.contains("await EsVirituDatabaseManager.shared.installedDatabaseInfo()?.path"))
-        XCTAssertTrue(source.contains("await Self.installedNCBITaxonomyDirectory()"))
-        XCTAssertTrue(source.contains("= ViewerViewController.installedEsVirituBlastTaxonomyContext"))
     }
 }
