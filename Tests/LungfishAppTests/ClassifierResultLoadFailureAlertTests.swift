@@ -45,6 +45,7 @@ final class ClassifierResultLoadFailureAlertTests: XCTestCase {
     override func tearDown() async throws {
         if let sheet = window?.attachedSheet { window.endSheet(sheet) }
         window?.contentViewController = nil
+        window?.close()
         window = nil
         controller = nil
         hostDefaults?.restore()

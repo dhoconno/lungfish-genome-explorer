@@ -1056,13 +1056,9 @@ extension MainSplitViewController {
             } catch {
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 mainSplitLogger.error("displayNaoMgsResult: Failed - \(error.localizedDescription, privacy: .public)")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load NAO-MGS Result"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
+                let report = MainWindowFailureReports.openNaoMgsResult(named: bundleURL.lastPathComponent, error)
                 if let window = view.window ?? NSApp.keyWindow {
-                    await alert.beginSheetModal(for: window)
+                    FailurePresenter.present(report, in: window)
                 }
             }
         }
@@ -1160,13 +1156,9 @@ extension MainSplitViewController {
             } catch {
                 guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 mainSplitLogger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load NVD Result"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
+                let report = MainWindowFailureReports.openNvdResult(named: bundleURL.lastPathComponent, error)
                 if let window = view.window ?? NSApp.keyWindow {
-                    await alert.beginSheetModal(for: window)
+                    FailurePresenter.present(report, in: window)
                 }
             }
         }
