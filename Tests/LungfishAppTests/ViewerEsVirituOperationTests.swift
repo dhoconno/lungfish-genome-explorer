@@ -135,7 +135,8 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         let task = viewer.launchEsVirituBlastSubmit(
             detection: detection, readCount: 2, accessions: ["NC_026433.1"], bamURL: fixture.bam, bamIndexURL: nil,
             resultURL: fixture.result, controller: nil, drawer: spy.drawer,
-            runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in try await gate.extract() }
+            runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in try await gate.extract() },
+            taxonomyContext: { _ in BlastTaxonomyContext(cladeTaxIds: [2955291], cladeNames: ["Influenza A virus"]) }
         )
 
         XCTAssertNotNil(task, "a project is open, so the search starts")
@@ -160,6 +161,7 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         XCTAssertEqual(command.subsampleCount, 2, "the count the draw took, which only the reads fix")
         XCTAssertEqual(command.sourceResult, fixture.result.path)
         XCTAssertEqual(command.label, detection.name)
+        XCTAssertEqual(command.acceptedTaxIds, [2955291], "the search is judged by the taxonomy the launch read")
 
         OperationCenter.shared.cancel(id: id)
         let ended = await waitUntil(timeout: .seconds(15)) { self.row(id)?.state == .cancelled }
@@ -182,7 +184,11 @@ final class ViewerEsVirituOperationTests: XCTestCase {
             viewer.launchEsVirituBlastSubmit(
                 detection: detection, readCount: 2, accessions: ["NC_026433.1"], bamURL: fixture.bam, bamIndexURL: nil,
                 resultURL: fixture.result, controller: nil, drawer: spy.drawer,
-                runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in try await gate.extract() }
+                runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in try await gate.extract() },
+                taxonomyContext: { _ in
+                    XCTFail("a row cancelled during the extraction reads no taxonomy")
+                    return BlastTaxonomyContext()
+                }
             )
         }
         let task = try XCTUnwrap(launched)
@@ -208,6 +214,41 @@ final class ViewerEsVirituOperationTests: XCTestCase {
         XCTAssertEqual(spy.failures, [], "the drawer is told of no failure")
         XCTAssertEqual(spy.results.count, 0)
         XCTAssertEqual(presenter.presentations.count, 0, "a cancel shows no alert")
+    }
+
+    /// The taxonomy is read after the extraction and before the checks that guard the launch, so a Cancel while it is read
+    /// ends the row cancelled, with no plan, no stage and no search.
+    func testCancellingTheRowWhileTheTaxonomyIsReadStartsNoSearch() async throws {
+        let fixture = try makeFixture()
+        let detection = Self.detection(named: "Influenza A virus (cancel in taxonomy)")
+        let gate = TaxonomyGate()
+        addTeardownBlock { await gate.open() }
+        let spy = BlastDrawerSpy()
+        let reads = Self.reads
+        let viewer = ViewerViewController()
+
+        let launched = viewer.launchEsVirituBlastSubmit(
+            detection: detection, readCount: 2, accessions: ["NC_026433.1"], bamURL: fixture.bam, bamIndexURL: nil,
+            resultURL: fixture.result, controller: nil, drawer: spy.drawer,
+            runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in reads },
+            taxonomyContext: { _ in await gate.read() }
+        )
+        let task = try XCTUnwrap(launched)
+        let armed = await waitUntil(timeout: .seconds(10)) { await gate.started }
+        XCTAssertTrue(armed, "the taxonomy was never read")
+        let row = try XCTUnwrap(self.row(titled: "BLAST \(detection.name)"), "no row to cancel while the taxonomy is read")
+        let id = row.id
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        OperationCenter.shared.cancel(id: id)
+        await gate.open()
+        await task.value
+
+        let ended = try XCTUnwrap(self.row(id))
+        XCTAssertEqual(ended.state, .cancelled)
+        XCTAssertNil(ended.cliCommand, "no plan was made, so the row never took a command")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.leafStarted.path), "no leaf, so no search")
+        XCTAssertEqual(spy.failures, [], "the drawer is told of no failure")
     }
 
     /// A failed extraction fails the row with the error's words and shows the same words once in the drawer.
@@ -414,6 +455,22 @@ private final class BlastDrawerSpy {
             results: { [self] result, _ in results.append(result) },
             failure: { [self] text in failures.append(text) }
         )
+    }
+}
+
+/// A stand-in for the taxonomy read that waits for the test, so a Cancel can land while it runs.
+private actor TaxonomyGate {
+    private var continuation: CheckedContinuation<BlastTaxonomyContext, Never>?
+    private(set) var started = false
+
+    func read() async -> BlastTaxonomyContext {
+        started = true
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        continuation?.resume(returning: BlastTaxonomyContext())
+        continuation = nil
     }
 }
 
