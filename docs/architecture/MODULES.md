@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 656 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 657 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 155 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1279,6 +1279,7 @@ None.
 - `NaoMgsVirusHitsFile` struct, `Sources/LungfishIO/Formats/NaoMgs/NaoMgsManifest.swift`
 - `NativeProvenanceRecordFacts` enum, `Sources/LungfishIO/Bundles/NativeProvenanceRecordFacts.swift`
 - `NCBIBioSampleExporter` enum, `Sources/LungfishIO/Formats/FASTQ/NCBIBioSampleExporter.swift`
+- `NCBITaxonomyLineage` enum, `Sources/LungfishIO/Formats/NaoMgs/NCBITaxonomyLineage.swift`
 - `NvdBlastHit` struct, `Sources/LungfishIO/Formats/Nvd/NvdResultParser.swift`
 - `NvdContigRow` struct, `Sources/LungfishIO/Formats/Nvd/NvdManifest.swift`
 - `NvdDatabase` class, `Sources/LungfishIO/Formats/Nvd/NvdDatabase.swift`
