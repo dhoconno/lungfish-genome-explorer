@@ -311,6 +311,25 @@ final class BlastFragmentSamplingTests: XCTestCase {
         ))
     }
 
+    /// An accepted name counts whole, so a species name never takes the longer name of another species that starts
+    /// with it (BIO-BLAST-WALK Q2 item 6). EsViritu's table holds 150 such pairs among its species names.
+    func testNameRuleTakesAnAcceptedNameWholeOnly() {
+        XCTAssertFalse(BlastService.hitMatchesQueriedTaxon(
+            hitOrganism: "Alphapapillomavirus 10",
+            hitTaxId: nil,
+            queriedTaxonName: "Human papillomavirus type 16",
+            acceptedTaxIds: [],
+            acceptedTaxonNames: ["Alphapapillomavirus 1"]
+        ), "Alphapapillomavirus 10 is another species")
+        XCTAssertTrue(BlastService.hitMatchesQueriedTaxon(
+            hitOrganism: "Alphapapillomavirus 1",
+            hitTaxId: nil,
+            queriedTaxonName: "Human papillomavirus type 16",
+            acceptedTaxIds: [],
+            acceptedTaxonNames: ["Alphapapillomavirus 1"]
+        ))
+    }
+
     func testReadResultDecodesWithoutSubmittedMate() throws {
         let json = #"{"id":"r1","verdict":"verified","topHits":[],"hasLCADisagreement":false,"matchesQueriedTaxon":true}"#
         let decoded = try JSONDecoder().decode(BlastReadResult.self, from: Data(json.utf8))
