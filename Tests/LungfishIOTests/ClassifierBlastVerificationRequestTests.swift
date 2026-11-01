@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class ClassifierBlastVerificationRequestTests: XCTestCase {
 
@@ -90,6 +91,33 @@ final class ClassifierBlastVerificationRequestTests: XCTestCase {
         XCTAssertEqual(withoutTaxId.taxId, 0)
         XCTAssertTrue(withoutTaxId.acceptedTaxIds.isEmpty)
         XCTAssertEqual(withoutTaxId.acceptedTaxonNames, ["Kocuria rhizophila"])
+    }
+
+    /// Lane BLAST-LINEAGE, BIO-BLAST-CLADE Q3. A claim below a species is judged at its species when the installed taxonomy
+    /// is passed in, and with none it keeps the organism's own tax ID, so the same hit contradicts it.
+    func testTaxTriageSubSpeciesClaimCountsAHitFiledAtItsSpeciesAsSupporting() throws {
+        let directory = try TestTempDirectory.make(prefix: "taxtriage-species-clade")
+        defer { TestTempDirectory.cleanup(directory) }
+        try NCBITaxonomyLineageTests.writeRotavirusTaxonomy(to: directory)
+        let organism = TaxTriageOrganism(name: "Human rotavirus A", score: 0.9, reads: 12, taxId: 10941)
+        let top = ncbiHit("Rotavirus alphagastroenteritidis", taxId: 3432193)
+
+        let judged = organism.blastVerificationRequest(sequences: [("read1", "ACGT")], taxonomyDirectory: directory)
+        XCTAssertEqual(judged.acceptedTaxIds, [3432193, 28875, 10941, 42567])
+        XCTAssertEqual(judged.acceptedTaxonNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(judged.taxId, 10941, "the claim stays the row's own taxon")
+        let result = try judge(judged, against: top)
+        XCTAssertEqual(result.supportingCount, 1)
+        XCTAssertEqual(result.contradictingCount, 0)
+
+        let noDirectory = organism.blastVerificationRequest(sequences: [("read1", "ACGT")])
+        XCTAssertEqual(noDirectory.acceptedTaxIds, [10941], "with no taxonomy the organism's own tax ID judges")
+        XCTAssertEqual(noDirectory.acceptedTaxonNames, ["Human rotavirus A"])
+        XCTAssertEqual(try judge(noDirectory, against: top).contradictingCount, 1)
+
+        let unknown = TaxTriageOrganism(name: "Not in the dump", score: 0.9, reads: 12, taxId: 999_999)
+            .blastVerificationRequest(sequences: [("read1", "ACGT")], taxonomyDirectory: directory)
+        XCTAssertEqual(unknown.acceptedTaxIds, [999_999], "a tax ID the taxonomy does not hold keeps today's clade")
     }
 
     // MARK: - EsViritu

@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
+import LungfishTestSupport
 
 final class NvdBlastVerificationRequestTests: XCTestCase {
 
@@ -82,6 +83,45 @@ final class NvdBlastVerificationRequestTests: XCTestCase {
         )
         XCTAssertEqual(request.database, "core_nt")
         XCTAssertNil(request.entrezQuery)
+    }
+
+    /// Lane BLAST-LINEAGE, BIO-BLAST-CLADE Q3. An adjusted tax ID below a species is judged at its species when the
+    /// installed taxonomy is passed in, and with none it keeps `[adjustedTaxid]`, so the same hit contradicts it.
+    func testNvdSubSpeciesClaimCountsAHitFiledAtItsSpeciesAsSupporting() throws {
+        let directory = try TestTempDirectory.make(prefix: "nvd-species-clade")
+        defer { TestTempDirectory.cleanup(directory) }
+        try NCBITaxonomyLineageTests.writeRotavirusTaxonomy(to: directory)
+        let hit = NvdBlastHit(
+            experiment: "100", blastTask: "megablast", sampleId: "SampleA",
+            qseqid: "NODE_1_length_500_cov_10.0", qlen: 500,
+            sseqid: "LC912136", stitle: "Human rotavirus A segment 1",
+            taxRank: "no rank:Human rotavirus A", length: 500, pident: 99.8, evalue: 0, bitscore: 919,
+            sscinames: "Human rotavirus A", staxids: "10941",
+            blastDbVersion: "core_nt", snakemakeRunId: "run", mappedReads: 10, totalReads: 1000,
+            statDbVersion: "1", adjustedTaxid: "10941", adjustmentMethod: "dominant",
+            adjustedTaxidName: "Human rotavirus A", adjustedTaxidRank: "no rank", hitRank: 1,
+            readsPerBillion: 1
+        )
+        let top = [ncbiHit("Rotavirus alphagastroenteritidis", taxId: 3432193)]
+        let search = [BlastSearchResult(queryId: hit.qseqid, queryLength: 500, hits: top)]
+
+        let judged = hit.blastVerificationRequest(taxonName: "Human rotavirus A", sequence: "ACGT", taxonomyDirectory: directory)
+        XCTAssertEqual(judged.acceptedTaxIds, [3432193, 28875, 10941, 42567])
+        XCTAssertEqual(judged.acceptedTaxonNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(judged.taxId, 10941, "the claim stays the row's own taxon")
+        let result = try BlastService().buildVerificationResult(
+            request: judged, searchResults: search, rid: "RID", submittedAt: Date(), completedAt: Date()
+        )
+        XCTAssertEqual(result.supportingCount, 1)
+        XCTAssertEqual(result.contradictingCount, 0)
+
+        let noDirectory = hit.blastVerificationRequest(taxonName: "Human rotavirus A", sequence: "ACGT")
+        XCTAssertEqual(noDirectory.acceptedTaxIds, [10941], "with no taxonomy the adjusted tax ID judges alone")
+        XCTAssertEqual(noDirectory.acceptedTaxonNames, ["Human rotavirus A"])
+        let unjudged = try BlastService().buildVerificationResult(
+            request: noDirectory, searchResults: search, rid: "RID", submittedAt: Date(), completedAt: Date()
+        )
+        XCTAssertEqual(unjudged.contradictingCount, 1)
     }
 
     func testRowForAnotherOrganismDoesNotWidenTheClade() {

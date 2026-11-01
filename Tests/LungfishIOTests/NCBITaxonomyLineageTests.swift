@@ -22,6 +22,18 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         TestTempDirectory.cleanup(directory)
     }
 
+    /// Writes the fixture's `nodes.dmp` and `names.dmp` into `directory`, for the routes' tests in this target.
+    static func writeRotavirusTaxonomy(to directory: URL) throws {
+        let nodes = rotavirusNodes.map { "\($0.id)\t|\t\($0.parent)\t|\t\($0.rank)\t|\t\t|\t8\t|\n" }
+        try nodes.joined().write(to: directory.appendingPathComponent("nodes.dmp"), atomically: true, encoding: .utf8)
+        let names: [(id: Int, name: String)] = [
+            (10912, "Rotavirus"), (10941, "Human rotavirus A"), (28875, "Rotavirus A"), (42567, "Rotavirus G9"),
+            (3432193, "Rotavirus alphagastroenteritidis"),
+        ]
+        let lines = names.map { "\($0.id)\t|\t\($0.name)\t|\t\t|\tscientific name\t|\n" }
+        try lines.joined().write(to: directory.appendingPathComponent("names.dmp"), atomically: true, encoding: .utf8)
+    }
+
     private func writeNodes(_ rows: [(id: Int, parent: Int, rank: String)]) throws {
         let lines = rows.map { "\($0.id)\t|\t\($0.parent)\t|\t\($0.rank)\t|\t\t|\t8\t|\t0\t|\t1\t|\t0\t|\t0\t|\t1\t|\t0\t|\t0\t|\t\t|\n" }
         try lines.joined().write(to: directory.appendingPathComponent("nodes.dmp"), atomically: true, encoding: .utf8)
