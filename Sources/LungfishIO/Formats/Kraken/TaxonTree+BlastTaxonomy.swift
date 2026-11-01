@@ -9,7 +9,12 @@ extension TaxonTree {
 
     /// The taxonomy BLAST verification judges hits against for `taxId`.
     ///
-    /// - The clade is the taxon and every descendant in this tree.
+    /// - The clade is judged at species level. Its root is the taxon's nearest
+    ///   species-rank ancestor in this tree, or the taxon itself when it is at
+    ///   species rank or has no species above it, and the clade is that root
+    ///   and every descendant in this tree. A report codes a no-rank node below
+    ///   a species `S1`, `S2` and so on, which is not `.species`, so a claim on
+    ///   such a node reaches the binomial species (BIO-BLAST-CLADE Q3).
     /// - The related set is the rest of the taxon's genus in this tree (the
     ///   nearest genus-rank ancestor and its descendants, minus the clade),
     ///   with the genus name leading the related names. A taxon at or above
@@ -20,7 +25,17 @@ extension TaxonTree {
         guard let node = node(taxId: taxId) else {
             return BlastTaxonomyContext(cladeTaxIds: [taxId])
         }
-        let clade = node.allDescendants()
+        var root = node
+        var ancestor = node.rank == .species ? nil : node.parent
+        while let current = ancestor, current.rank != .genus {
+            if current.rank == .species {
+                root = current
+                break
+            }
+            ancestor = current.parent
+        }
+        // `allDescendants()` starts with the node itself, so the root is in the clade.
+        let clade = root.allDescendants()
         let cladeIds = Set(clade.map(\.taxId))
         let cladeNames = Array(Set(clade.map(\.name))).sorted()
 
