@@ -1009,8 +1009,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         // Table BLAST request -> forward to host with BAM context
         detectionTableView.onBlastRequested = { [weak self] detection, readCount, accessions in
             guard let self else { return }
-            let sampleBAMURL = self.batchBAMLookup[detection.sampleId] ?? self.bamURL
-            let sampleBAMIndexURL = self.batchBAMIndexLookup[detection.sampleId] ?? self.bamIndexURL
+            // A batch sample with no recorded BAM gets none, never the last selected row's (ADOPT-BIO Backlog 3).
+            let sampleBAMURL = self.isBatchMode ? self.batchBAMLookup[detection.sampleId] : self.bamURL
+            let sampleBAMIndexURL = self.isBatchMode ? self.batchBAMIndexLookup[detection.sampleId] : self.bamIndexURL
             self.onBlastVerification?(detection, readCount, accessions, sampleBAMURL, sampleBAMIndexURL)
         }
 
