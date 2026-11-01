@@ -28,7 +28,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 12 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
@@ -1887,6 +1887,7 @@ None.
 
 - `AppSystemSymbolImage` enum, `Sources/LungfishTaxonomyUI/AppSystemSymbolImage.swift`
 - `CzIdResultViewController` class, `Sources/LungfishTaxonomyUI/CzIdResultViewController.swift`
+- `CzIdSurface` class, `Sources/LungfishTaxonomyUI/CzIdSurface.swift`
 - `Kraken2Surface` class, `Sources/LungfishTaxonomyUI/Kraken2Surface.swift`
 - `SunburstLayout` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
 - `SunburstSegment` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
