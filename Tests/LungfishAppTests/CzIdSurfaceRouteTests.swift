@@ -148,6 +148,25 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(root?.accessibilityRole(), .group)
     }
 
+    // MARK: - The shared bar
+
+    /// A CZ-ID import holds no read IDs, so it cannot run BLAST and its bar shows no BLAST Results button, whose pane
+    /// could never fill. Extract and Verify with BLAST stay greyed with the R8 reason, and Collections stays.
+    func testTheCzIdBarShowsNoBLASTResultsButtonAndKeepsTheR8Reason() throws {
+        let shown = try openCzId(czId)
+        let taxonomy = try XCTUnwrap(shown.taxonomyViewControllerForTesting)
+        XCTAssertTrue(taxonomy.resultActions.blastResultsButton.isHidden, "CZ-ID cannot run BLAST")
+        let bar = taxonomy.resultActions.bar
+        for button in [bar.extractButton, bar.blastButton] {
+            XCTAssertFalse(button.isEnabled)
+            XCTAssertTrue(
+                button.toolTip?.hasPrefix(ClassifierActionWords.czIdHasNoReadIDs) ?? false,
+                "\(button.title) lost the R8 reason: \(button.toolTip ?? "none")"
+            )
+        }
+        XCTAssertFalse(taxonomy.collectionsToggleButton.isHidden)
+    }
+
     // MARK: - Pins
 
     /// A second CZ-ID result replaces the first: one viewer, a new one (no skip and no flag).
