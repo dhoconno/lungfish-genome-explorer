@@ -171,7 +171,9 @@ struct ReleaseAppSmokeRobot {
     func closeSheetRecordingIt(on window: XCUIElement) {
         let sheet = window.sheets.firstMatch
         guard sheet.waitForExistence(timeout: 5) else { return }
-        let words = sheet.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " | ")
+        let words = sheet.staticTexts.allElementsBoundByIndex
+            .map { $0.label.isEmpty ? String(describing: $0.value ?? "") : $0.label }
+            .joined(separator: " | ")
         let record = XCTAttachment(string: sheet.debugDescription)
         record.name = "Sheet on the opened project window: \(words)"
         record.lifetime = .keepAlways
