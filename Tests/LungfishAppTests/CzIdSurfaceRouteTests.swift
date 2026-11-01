@@ -13,12 +13,14 @@
 // loop.
 
 import AppKit
+import LungfishCore
 import LungfishTestSupport
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
 @testable import LungfishTaxonomyUI
+@testable import LungfishWorkflow
 
 /// A surface whose load always fails, so the CZ-ID show never installs.
 @MainActor
@@ -167,6 +169,16 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         XCTAssertFalse(taxonomy.collectionsToggleButton.isHidden)
     }
 
+    /// The sunburst's menu greys Extract Reads… and Verify with BLAST… for a CZ-ID import, as the table's menu does,
+    /// since it has no read IDs and no BLAST hand-off, so Run in BLAST would do nothing (K2-UX Backlog 7, the 22:0x
+    /// grant). A Kraken2 chart, whose reads can be reached, keeps both enabled.
+    func testTheCzIdChartMenuGreysTheReadLevelItems() throws {
+        let shown = try openCzId(czId)
+        let taxonomy = try XCTUnwrap(shown.taxonomyViewControllerForTesting)
+        XCTAssertEqual(chartReadLevelItemsEnabled(taxonomy), [false, false], "the CZ-ID chart offers Extract or BLAST")
+        XCTAssertEqual(chartReadLevelItemsEnabled(TaxonomyViewController()), [true, true], "a Kraken2 chart lost them")
+    }
+
     // MARK: - Pins
 
     /// A second CZ-ID result replaces the first: one viewer, a new one (no skip and no flag).
@@ -206,6 +218,24 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         return try XCTUnwrap(
             viewer.children.compactMap { $0 as? CzIdResultViewController }.first, file: file, line: line
         )
+    }
+
+    /// Whether the chart menu's Extract Reads… and Verify with BLAST… are enabled once the menu validates its items,
+    /// as AppKit does before it shows the menu.
+    private func chartReadLevelItemsEnabled(_ taxonomy: TaxonomyViewController) -> [Bool] {
+        let node = TaxonNode(
+            taxId: 562, name: "Escherichia coli", rank: .species, depth: 1,
+            readsDirect: 100, readsClade: 100, fractionClade: 1.0, fractionDirect: 1.0, parentTaxId: 1
+        )
+        let menu = NSMenu()
+        for menuItem in taxonomy.contextMenuItems(for: node) {
+            menuItem.menu?.removeItem(menuItem)
+            menu.addItem(menuItem)
+        }
+        menu.update()
+        return ["Extract Reads\u{2026}", ResultRowCommand.blastVerify.title].map { title in
+            menu.items.first { $0.title == title }?.isEnabled ?? true
+        }
     }
 
     private func item(_ url: URL) -> SidebarItem {
