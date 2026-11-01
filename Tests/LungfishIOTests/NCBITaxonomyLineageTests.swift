@@ -122,6 +122,29 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         XCTAssertEqual(lastLine.taxIds, [200, 201])
     }
 
+    /// `nodes.dmp` no longer lists a merged ID, so `merged.dmp` names the ID it became (BIO-BLAST-WALK Q2 item 2). The rows
+    /// are the real ones of an ID EsViritu's table files an accession under.
+    func testSpeciesCladeFollowsAMergedTaxId() throws {
+        try writeNodes([(3430681, 10509, "species"), (2301506, 3430681, "no rank")])
+
+        XCTAssertNil(
+            NCBITaxonomyLineage.speciesClade(of: 3043422, taxonomyDirectory: directory),
+            "with no merged.dmp the old ID is unknown"
+        )
+
+        try "3043422\t|\t2301506\t|\n7\t|\t8\t|\n"
+            .write(to: directory.appendingPathComponent("merged.dmp"), atomically: true, encoding: .utf8)
+
+        let clade = try XCTUnwrap(NCBITaxonomyLineage.speciesClade(of: 3043422, taxonomyDirectory: directory))
+        XCTAssertEqual(clade.root, 3430681)
+        XCTAssertEqual(clade.path, [2301506, 3430681], "the path starts at the ID the old one became")
+        XCTAssertEqual(clade.taxIds, [2301506, 3430681])
+        XCTAssertNil(
+            NCBITaxonomyLineage.speciesClade(of: 7, taxonomyDirectory: directory),
+            "a merged row whose new ID nodes.dmp does not hold is no lineage"
+        )
+    }
+
     // MARK: - The context a BLAST route judges by
 
     func testTheBlastContextHoldsTheCladeAndTheNamesUpToTheSpecies() throws {
