@@ -62,6 +62,31 @@ extension BlastService {
         }
     }
 
+    /// One row per fragment, from every mate NCBI answered. One molecule counts once (BIO-BLAST-MATES Q2).
+    nonisolated static func fragmentRows(_ judged: [BlastReadResult]) -> [BlastReadResult] {
+        let weight: (BlastReadResult) -> Int = {
+            $0.verdict == .verified ? ($0.matchesQueriedTaxon ? 4 : 3) : $0.verdict == .ambiguous ? 2 : $0.verdict == .unverified ? 1 : 0
+        }
+        var keys: [String] = [], groups: [String: [BlastReadResult]] = [:]
+        for row in judged {
+            let key = normalizeFragmentId(row.id).id
+            if groups[key] == nil { keys.append(key) }
+            groups[key, default: []].append(row)
+        }
+        return keys.map { key in
+            let group = groups[key] ?? []
+            guard group.count > 1 else { return group[0] }
+            let ranked = group.enumerated().sorted {
+                (weight($0.element), $0.element.bitScore ?? 0, $1.offset) > (weight($1.element), $1.element.bitScore ?? 0, $0.offset)
+            }.map(\.element)
+            let disagree = group.contains { weight($0) == 4 } && group.contains { weight($0) == 3 }
+            return ranked[0].fragmentRow(
+                verdict: disagree ? .ambiguous : ranked[0].verdict, matchesQueriedTaxon: !disagree && ranked[0].matchesQueriedTaxon,
+                hasLCADisagreement: disagree || group.contains(where: \.hasLCADisagreement), otherMates: Array(ranked.dropFirst())
+            )
+        }
+    }
+
     /// Assigns a verdict for a single query result.
     ///
     /// Besides the alignment-quality thresholds, this decides whether the top

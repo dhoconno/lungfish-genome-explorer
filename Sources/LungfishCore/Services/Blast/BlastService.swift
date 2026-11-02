@@ -449,10 +449,12 @@ public actor BlastService {
 
     /// Turns parsed NCBI results into a verification result for `request`.
     ///
-    /// Every submitted read gets exactly one row, in submission order. A read
-    /// NCBI returned no entry for, or whose entry could not be parsed, gets an
-    /// `.error` verdict and the rest of the batch is still judged. Only when
-    /// no read has a usable result does this throw, because then the job as a
+    /// Every submitted sequence is judged, in submission order. A sequence NCBI
+    /// returned no entry for, or whose entry could not be parsed, gets an
+    /// `.error` verdict and the rest of the batch is still judged. A request
+    /// that judges a claim holds one row per fragment (``fragmentRows(_:)``),
+    /// and a request with no claim holds one row per sequence. Only when no
+    /// row has a usable result does this throw, because then the job as a
     /// whole produced nothing to review.
     nonisolated func buildVerificationResult(
         request: BlastVerificationRequest,
@@ -461,25 +463,18 @@ public actor BlastService {
         submittedAt: Date,
         completedAt: Date
     ) throws -> BlastVerificationResult {
-        let sequenceMap = Dictionary(
-            request.sequences.map { ($0.id, $0.sequence) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let reconciled = Self.reconcile(
-            searchResults: searchResults,
-            submittedIds: request.sequences.map(\.id)
-        )
-        let readResults = assignVerdicts(
-            searchResults: reconciled,
-            eValueThreshold: request.eValueThreshold,
-            sequenceMap: sequenceMap,
-            queriedTaxonName: request.taxonName,
-            sequenceMates: request.sequenceMates,
-            acceptedTaxIds: request.acceptedTaxIds,
-            acceptedTaxonNames: request.acceptedTaxonNames,
-            relatedTaxIds: request.relatedTaxIds,
-            relatedTaxonNames: request.relatedTaxonNames
-        )
+        let reconciled = Self.reconcile(searchResults: searchResults, submittedIds: request.sequences.map(\.id))
+        let judged = reconciled.enumerated().flatMap { index, entry in
+            assignVerdicts(
+                searchResults: [entry], eValueThreshold: request.eValueThreshold,
+                sequenceMap: index < request.sequences.count ? [entry.queryId: request.sequences[index].sequence] : [:],
+                queriedTaxonName: request.taxonName, sequenceMates: request.sequenceMates,
+                acceptedTaxIds: request.acceptedTaxIds, acceptedTaxonNames: request.acceptedTaxonNames,
+                relatedTaxIds: request.relatedTaxIds, relatedTaxonNames: request.relatedTaxonNames
+            )
+        }
+        let judgesAClaim = !request.acceptedTaxIds.isEmpty || !request.acceptedTaxonNames.isEmpty
+        let readResults = judgesAClaim ? Self.fragmentRows(judged) : judged
         if !readResults.isEmpty, readResults.allSatisfy({ $0.verdict == .error }) {
             let reason = readResults.first?.errorMessage ?? "no usable result"
             throw BlastServiceError.resultParsingFailed(
@@ -501,46 +496,51 @@ public actor BlastService {
     /// Message on the `.error` row of a read NCBI returned no entry for.
     public nonisolated static let missingReadResultMessage = "NCBI returned no result for this read"
 
-    /// Lines parsed results up with the submitted reads.
+    /// Lines parsed results up with the submitted sequences, one answer each.
     ///
-    /// Results are matched by query title. When no title matches but NCBI
-    /// returned exactly one entry per read, entries are matched by position,
-    /// which is the order NCBI reports a batch in. Submitted reads with no
-    /// entry get a failure placeholder, and entries that match no read are
+    /// Results are matched by query title, and the answers to a shared title
+    /// go to its sequences in submission order, the order NCBI reports a batch
+    /// in. When no title matches but NCBI returned exactly one entry per
+    /// sequence, entries are matched by position. A sequence with no entry
+    /// gets a failure placeholder, and entries that match no sequence are
     /// kept after the submitted ones unless they are unparsed placeholders.
     nonisolated static func reconcile(
         searchResults: [BlastSearchResult],
         submittedIds: [String]
     ) -> [BlastSearchResult] {
         guard !submittedIds.isEmpty else { return searchResults }
-        let submittedSet = Set(submittedIds)
+        var slots: [String: Int] = [:]
+        for id in submittedIds { slots[id, default: 0] += 1 }
         let positional = searchResults.count == submittedIds.count
 
-        var byId: [String: BlastSearchResult] = [:]
+        var answers: [String: [BlastSearchResult]] = [:]
         var orphans: [BlastSearchResult] = []
         for (index, result) in searchResults.enumerated() {
             var id = result.queryId
-            if !submittedSet.contains(id), positional, byId[submittedIds[index]] == nil {
+            if slots[id] == nil, positional, answers[submittedIds[index], default: []].count < slots[submittedIds[index], default: 0] {
                 id = submittedIds[index]
             }
-            guard submittedSet.contains(id) else {
+            guard let slotCount = slots[id] else {
                 if result.failureMessage == nil { orphans.append(result) }
                 continue
             }
-            if byId[id] == nil {
-                byId[id] = BlastSearchResult(
+            if answers[id, default: []].count < slotCount {
+                answers[id, default: []].append(BlastSearchResult(
                     queryId: id,
                     queryLength: result.queryLength,
                     hits: result.hits,
                     failureMessage: result.failureMessage
-                )
+                ))
             }
         }
 
-        var seen = Set<String>()
+        var answered: [String: Int] = [:]
         var ordered: [BlastSearchResult] = []
-        for id in submittedIds where seen.insert(id).inserted {
-            ordered.append(byId[id] ?? BlastSearchResult(
+        for id in submittedIds {
+            let position = answered[id, default: 0]
+            answered[id] = position + 1
+            let queue = answers[id, default: []]
+            ordered.append(position < queue.count ? queue[position] : BlastSearchResult(
                 queryId: id,
                 queryLength: 0,
                 hits: [],
