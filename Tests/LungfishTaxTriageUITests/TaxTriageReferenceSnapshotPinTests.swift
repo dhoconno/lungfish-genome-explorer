@@ -138,6 +138,10 @@ final class TaxTriageReferenceSnapshotPinTests: XCTestCase {
             rows: [Self.rowWithNoStoredLength()],
             metadata: ["tool": "taxtriage"]
         )
+        // The view selects its top row as the rows load and reads the BAM on a detached task, so its length map can
+        // already hold the header length by the time the rows show (full tier at f641a7538). Ask the database instead.
+        let stored = try XCTUnwrap(database.fetchRowsPage(samples: ["S1"], limit: 1, offset: 0).rows.first)
+        XCTAssertNil(stored.accessionLength, "Precondition failed: the database stores no length")
 
         let recorder = SnapshotPinRecordingViewer()
         let vc = TaxTriageResultViewController()
@@ -150,7 +154,6 @@ final class TaxTriageReferenceSnapshotPinTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
         XCTAssertEqual(vc.testBatchFlatTableView.displayedRows.count, 1, "rows did not load")
-        XCTAssertNil(vc.testAccessionLengths["MT192765.1"], "Precondition failed: the database stores no length")
 
         vc.testBatchFlatTableView.testTableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         // The request arrives after the detached BAM read, so wait for it. The loop ends once it is recorded.
