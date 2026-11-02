@@ -97,6 +97,11 @@ extension BlastCommand {
 
         // MARK: - Run
 
+        /// The message of the leaf's complete event.
+        static func completionSummary(for result: BlastVerificationResult) -> String {
+            "rid=\(result.rid) supporting=\(result.supportingCount) contradicting=\(result.contradictingCount) reads=\(result.totalReads)"
+        }
+
         func run() async throws {
             let eventsOn = globalOptions.outputFormat == .json
             let events = CLIEventEmitter(enabled: eventsOn) { printEventLine($0) }
@@ -134,7 +139,7 @@ extension BlastCommand {
                     FileHandle.standardError.write(Data("Error: \(message)\n".utf8))
                     throw CLIExitCode.outputError.exitCode
                 }
-                let summary = "rid=\(result.rid) supporting=\(result.supportingCount) contradicting=\(result.contradictingCount) reads=\(result.totalReads)"
+                let summary = Self.completionSummary(for: result)
                 events.emitComplete(outputs: [recordURL.path, query.url.path], message: summary)
                 if chatty {
                     print("Saved the BLAST result to \(recordURL.path) (\(summary))")

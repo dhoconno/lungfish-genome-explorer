@@ -19,7 +19,9 @@ public enum BlastVerdict: String, Sendable, Codable, CaseIterable {
 
     /// A hit was found but does not meet the full verification thresholds.
     /// This may indicate partial matches, short alignments, or multiple
-    /// organisms with nearly equal scores.
+    /// organisms with nearly equal scores. A fragment row whose mates match
+    /// different organisms, one in the queried clade and one outside it, also
+    /// reads this: it counts as neither supporting nor contradicting.
     case ambiguous
 
     /// No significant hit was found within the target taxon at the
@@ -186,6 +188,12 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// Why the read has an `.error` verdict. `nil` for other verdicts.
     public let errorMessage: String?
 
+    /// On a fragment row, the rows of the fragment's other mates, each with its own
+    /// hits, verdict and sequence. This row's other fields are the deciding mate's,
+    /// except the verdict, the taxon match and the conflict flag, which the mates
+    /// decide together. `nil` for a single read, and then the JSON has no such key.
+    public let otherMates: [BlastReadResult]?
+
     /// Creates a new per-read BLAST result.
     ///
     /// - Parameters:
@@ -218,7 +226,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         matchesQueriedTaxon: Bool = false,
         submittedMate: Int? = nil,
         topHitRelation: BlastHitRelation? = nil,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        otherMates: [BlastReadResult]? = nil
     ) {
         self.id = id
         self.verdict = verdict
@@ -236,6 +245,36 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.submittedMate = submittedMate
         self.topHitRelation = topHitRelation
         self.errorMessage = errorMessage
+        self.otherMates = otherMates
+    }
+
+    /// A copy of this row that stands for its whole fragment, with the four
+    /// fields the fragment's mates decide together (BIO-BLAST-MATES Q2).
+    func fragmentRow(
+        verdict: BlastVerdict,
+        matchesQueriedTaxon: Bool,
+        hasLCADisagreement: Bool,
+        otherMates: [BlastReadResult]
+    ) -> BlastReadResult {
+        BlastReadResult(
+            id: id,
+            verdict: verdict,
+            topHitOrganism: topHitOrganism,
+            topHitAccession: topHitAccession,
+            percentIdentity: percentIdentity,
+            queryCoverage: queryCoverage,
+            eValue: eValue,
+            alignmentLength: alignmentLength,
+            bitScore: bitScore,
+            topHits: topHits,
+            querySequence: querySequence,
+            hasLCADisagreement: hasLCADisagreement,
+            matchesQueriedTaxon: matchesQueriedTaxon,
+            submittedMate: submittedMate,
+            topHitRelation: topHitRelation,
+            errorMessage: errorMessage,
+            otherMates: otherMates
+        )
     }
 }
 
@@ -264,7 +303,9 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// The NCBI taxonomy ID of the target taxon.
     public let taxId: Int
 
-    /// Total number of reads submitted for verification.
+    /// The count of ``readResults``: the fragments judged. Two mates of one read
+    /// pair are one row, so a request that judges a claim can send more sequences
+    /// than this. ``judgedSequenceCount`` counts those.
     public let totalReads: Int
 
     /// Number of reads with `.verified` verdict.
@@ -279,8 +320,14 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// Number of reads with `.error` verdict.
     public let errorCount: Int
 
-    /// Individual results for each submitted read.
+    /// One row per fragment judged, in submission order. A fragment row holds its
+    /// other mates in ``BlastReadResult/otherMates``.
     public let readResults: [BlastReadResult]
+
+    /// The sequences behind the rows: each row and its other mates.
+    public var judgedSequenceCount: Int {
+        readResults.reduce(0) { $0 + 1 + ($1.otherMates?.count ?? 0) }
+    }
 
     /// When the BLAST job was submitted to NCBI.
     public let submittedAt: Date
