@@ -497,6 +497,71 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertFalse(tab.outlineView(tab.resultsOutlineView, isItemExpandable: child1))
     }
 
+    // MARK: - Mates Of A Fragment
+
+    /// A fragment's deciding mate is followed directly by its other mate, whichever
+    /// column the rows are sorted by (BLAST-MATES UX B1).
+    func testMatesOfAFragmentStayTogetherUnderEverySort() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let pair = BlastReadResult(
+            id: "read.1", verdict: .verified, topHitOrganism: "Human immunodeficiency virus 1",
+            topHitAccession: "OQ751369", percentIdentity: 100, eValue: 4e-29, bitScore: 139.6,
+            querySequence: "AAAA", matchesQueriedTaxon: true,
+            otherMates: [BlastReadResult(id: "read.1", verdict: .unverified, querySequence: "CCCC")]
+        )
+        let result = BlastVerificationResult(
+            taxonName: "Human immunodeficiency virus 1",
+            taxId: 11676,
+            readResults: [
+                pair,
+                BlastReadResult(id: "read.2", verdict: .unverified, querySequence: "GGGG"),
+                BlastReadResult(
+                    id: "read.3", verdict: .ambiguous, topHitOrganism: "Shigella flexneri",
+                    eValue: 1e-120, querySequence: "TTTT"
+                ),
+            ],
+            submittedAt: Date(),
+            completedAt: Date(),
+            rid: "MATES_TEST_1",
+            blastProgram: "megablast",
+            database: "core_nt"
+        )
+        tab.showResults(result, recordURL: nil)
+        tab.layoutSubtreeIfNeeded()
+
+        // The query sequences of the top-level rows, in the order the outline shows them
+        func shownSequences() throws -> [String] {
+            let count = tab.outlineView(tab.resultsOutlineView, numberOfChildrenOfItem: nil)
+            return try (0..<count).map { index in
+                let item = tab.outlineView(tab.resultsOutlineView, child: index, ofItem: nil)
+                return try XCTUnwrap(item as? ReadResultItem).result.querySequence ?? ""
+            }
+        }
+        func assertMateFollowsLead(_ sort: String) throws {
+            let shown = try shownSequences()
+            XCTAssertEqual(shown.count, 4, "\(sort): one row for each mate sent")
+            let lead = try XCTUnwrap(shown.firstIndex(of: "AAAA"), "\(sort): the deciding mate has a row")
+            XCTAssertEqual(
+                shown.dropFirst(lead + 1).first, "CCCC",
+                "\(sort): the other mate must follow the deciding mate directly, got \(shown)"
+            )
+        }
+
+        try assertMateFollowsLead("default sort")
+        for key in ["status", "readId", "organism", "eValue"] {
+            for ascending in [true, false] {
+                tab.resultsOutlineView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+                try assertMateFollowsLead("\(key) \(ascending ? "ascending" : "descending")")
+            }
+        }
+
+        // The sort took effect, and the two mates moved as one
+        tab.resultsOutlineView.sortDescriptors = [NSSortDescriptor(key: "readId", ascending: true)]
+        XCTAssertEqual(try shownSequences(), ["AAAA", "CCCC", "GGGG", "TTTT"])
+        tab.resultsOutlineView.sortDescriptors = [NSSortDescriptor(key: "readId", ascending: false)]
+        XCTAssertEqual(try shownSequences(), ["TTTT", "GGGG", "AAAA", "CCCC"])
+    }
+
     // MARK: - LCA Disagreement
 
     func testLCADisagreementSummaryLabel() throws {
