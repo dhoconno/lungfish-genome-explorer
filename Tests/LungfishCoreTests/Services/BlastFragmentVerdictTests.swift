@@ -263,6 +263,57 @@ final class BlastFragmentVerdictTests: XCTestCase {
         XCTAssertEqual(row.otherMates?.first?.querySequence, mate1)
     }
 
+    /// NCBI's reply for RID EGTB319K014 holds two reports under one `query_title`: the 76-mer with no hits, then the
+    /// 75-mer with five. The parser must hand back both, in the reply's order, or the fragment rule never sees the
+    /// second mate and the row reads Inconclusive again. The JSON is the saved reply without its alignments and ranges
+    /// on the subject, and the five records share one HSP here as they do in the reply (the same score and span).
+    func testTheWalkReplyKeepsBothMatesThroughTheParser() throws {
+        let fragment = "SRR12486983.3484597"
+        let mate1 = "CTCCGTTGTTGTTGTTGAGAGAGATTGCTCGCGTACCTGTGCATCAACCCTACTATCATTATGAATAATTTTATAT"
+        let mate2 = "TTGAAGAATCGCAAAACCAGCAAGAAAAGAATGAACAAGAATTATTGGAATTAGATAAATGGGCAAGTTTGTGGA"
+        let hsp = #"{"bit_score": 139.619, "evalue": 4.2664e-29, "identity": 75, "align_len": 75, "query_from": 1, "query_to": 75}"#
+        let reply = #"""
+        {"BlastOutput2": [
+          {"report": {"results": {"search": {
+            "query_id": "Query_6160774", "query_title": "SRR12486983.3484597", "query_len": 76,
+            "hits": [], "message": "No hits found"
+          }}}},
+          {"report": {"results": {"search": {
+            "query_id": "Query_6160775", "query_title": "SRR12486983.3484597", "query_len": 75,
+            "hits": [
+              {"num": 1, "len": 10062, "hsps": [\#(hsp)], "description": [
+                {"accession": "PX372844", "taxid": 3464302, "sciname": "Expression vector pHR_SFFV",
+                 "title": "Expression vector pHR_SFFV clone pHR_SFFV_hCXCR4, complete sequence"}]},
+              {"num": 2, "len": 8191, "hsps": [\#(hsp)], "description": [
+                {"accession": "OQ751369", "taxid": 11676, "sciname": "Human immunodeficiency virus 1",
+                 "title": "HIV-1 isolate BC021_proviral_350_Scramble from Canada defective provirus genomic sequence"}]},
+              {"num": 3, "len": 12284, "hsps": [\#(hsp)], "description": [
+                {"accession": "ON783971", "taxid": 2974064, "sciname": "Vector pLV[Exp]-EGFP:T2A:Puro-EF1A >hAAK1",
+                 "title": "Vector pLV[Exp]-EGFP:T2A:Puro-EF1A >hAAK1, complete sequence"}]},
+              {"num": 4, "len": 408, "hsps": [\#(hsp)], "description": [
+                {"accession": "MN965909", "taxid": 11676, "sciname": "Human immunodeficiency virus 1",
+                 "title": "HIV-1 isolate pj32 from China envelope glycoprotein (env) gene, partial cds"},
+                {"accession": "MN966033", "taxid": 11676, "sciname": "Human immunodeficiency virus 1",
+                 "title": "HIV-1 isolate xh42 from China envelope glycoprotein (env) gene, partial cds"}]},
+              {"num": 5, "len": 408, "hsps": [\#(hsp)], "description": [
+                {"accession": "MN965880", "taxid": 11676, "sciname": "Human immunodeficiency virus 1",
+                 "title": "HIV-1 isolate jm11 from China envelope glycoprotein (env) gene, partial cds"}]}
+            ]
+          }}}}
+        ]}
+        """#
+        let parsed = try service.parseJSON2Results(Data(reply.utf8))
+        XCTAssertEqual(parsed.map(\.queryId), [fragment, fragment], "both reports keep the shared title")
+        XCTAssertEqual(parsed.map(\.queryLength), [76, 75], "in the reply's order")
+        XCTAssertEqual(parsed.map { $0.hits.map(\.accession) }, [[], ["PX372844", "OQ751369", "ON783971", "MN965909", "MN965880"]])
+
+        let result = try judged([(id: fragment, sequence: mate1), (id: fragment, sequence: mate2)], replies: parsed)
+        XCTAssertEqual(result.totalReads, 1)
+        XCTAssertEqual(result.supportingCount, 1)
+        XCTAssertEqual(result.judgedSequenceCount, 2)
+        XCTAssertEqual(result.readResults.first?.topHitAccession, "PX372844")
+    }
+
     // MARK: - Reconciling answers with sequences
 
     /// A query of R1s then R2s holds a fragment's mates apart. Each answer still pairs with its own sequence.
