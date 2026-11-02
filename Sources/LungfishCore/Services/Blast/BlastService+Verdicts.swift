@@ -132,12 +132,20 @@ extension BlastService {
             queriedTaxonName: queriedTaxonName,
             context: context
         )
-        let matchesQueriedTaxon = relation.map { $0 == .clade }
-            ?? Self.legacyNameMatchesQueriedTaxon(
-                hitOrganism: hitOrganism,
-                queriedTaxonName: queriedTaxonName,
-                acceptedTaxonNames: context.cladeNames
-            )
+        // NCBI's order among records tied at the best score is not evidence. The tax ID rule looks at the whole tie.
+        let tied = result.hits.prefix(5).filter {
+            $0.hsps.first?.bitScore == bestHSP.bitScore && $0.hsps.first?.evalue == eValue
+        }
+        let matchesQueriedTaxon = relation.map { _ in
+            tied.contains {
+                BlastTaxonMatching.relation(
+                    hitOrganism: $0.organism ?? $0.title, hitTaxId: $0.taxId,
+                    queriedTaxonName: queriedTaxonName, context: context
+                ) == .clade
+            }
+        } ?? Self.legacyNameMatchesQueriedTaxon(
+            hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName, acceptedTaxonNames: context.cladeNames
+        )
 
         return BlastReadResult(
             id: result.queryId,
