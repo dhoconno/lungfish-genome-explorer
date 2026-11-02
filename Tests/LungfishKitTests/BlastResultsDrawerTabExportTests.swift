@@ -37,4 +37,32 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         )
         XCTAssertTrue(BlastResultsDrawerTab.verificationSummary(for: result).hasSuffix("(1 read)"))
     }
+
+    /// Ruling BIO-BLAST-MATES Q2. Counts are fragments, and reads are the sequences sent.
+    func testSummaryCountsFragmentsAndReads() {
+        func fragment(_ id: String) -> BlastReadResult {
+            BlastReadResult(
+                id: id, verdict: .verified, matchesQueriedTaxon: true,
+                otherMates: [BlastReadResult(id: id, verdict: .unverified)]
+            )
+        }
+        func summary(_ rows: [BlastReadResult]) -> String {
+            BlastResultsDrawerTab.verificationSummary(for: BlastVerificationResult(
+                taxonName: "Human immunodeficiency virus 1", taxId: 11676, readResults: rows,
+                submittedAt: Date(), completedAt: Date(), rid: "EGTB319K014", blastProgram: "blastn", database: "core_nt"
+            ))
+        }
+        XCTAssertEqual(
+            summary([fragment("SRR12486983.3484597")]),
+            "BLAST for Human immunodeficiency virus 1: 1 supporting, 0 contradicting (1 fragment, 2 reads)"
+        )
+        XCTAssertEqual(
+            summary([fragment("a"), fragment("b"), BlastReadResult(id: "c", verdict: .unverified)]),
+            "BLAST for Human immunodeficiency virus 1: 2 supporting, 0 contradicting (3 fragments, 5 reads)"
+        )
+        XCTAssertEqual(
+            summary([BlastReadResult(id: "c", verdict: .unverified), BlastReadResult(id: "d", verdict: .unverified)]),
+            "BLAST for Human immunodeficiency virus 1: 0 supporting, 0 contradicting (2 reads)"
+        )
+    }
 }

@@ -235,4 +235,91 @@ final class BlastFragmentVerdictTests: XCTestCase {
         XCTAssertEqual(result.readResults.map(\.querySequence), ["AAAA", "GGGG"])
         XCTAssertEqual(result.readResults.map(\.verdict), [.verified, .unverified])
     }
+
+    // MARK: - The walk's fragment
+
+    /// The walk read `0 supporting, 0 contradicting (1 read)` while NCBI's reply held five 100% matches for the second mate.
+    func testBothMatesOfTheWalkHIVFragmentAreJudged() throws {
+        let fragment = "SRR12486983.3484597"
+        let mate1 = "CTCCGTTGTTGTTGTTGAGAGAGATTGCTCGCGTACCTGTGCATCAACCCTACTATCATTATGAATAATTTTATAT"
+        let mate2 = "TTGAAGAATCGCAAAACCAGCAAGAAAAGAATGAACAAGAATTATTGGAATTAGATAAATGGGCAAGTTTGTGGA"
+        let result = try judged(
+            [(id: fragment, sequence: mate1), (id: fragment, sequence: mate2)],
+            replies: [
+                BlastSearchResult(queryId: fragment, queryLength: 76, hits: []),
+                BlastSearchResult(queryId: fragment, queryLength: 75, hits: walkHits),
+            ]
+        )
+        XCTAssertEqual(result.supportingCount, 1)
+        XCTAssertEqual(result.contradictingCount, 0)
+        XCTAssertEqual(result.confidence, .supported)
+        XCTAssertEqual(result.totalReads, 1)
+        XCTAssertEqual(result.judgedSequenceCount, 2)
+        let row = try XCTUnwrap(result.readResults.first)
+        XCTAssertEqual(row.topHitAccession, "PX372844")
+        XCTAssertTrue(row.hasLCADisagreement)
+        XCTAssertEqual(row.querySequence, mate2)
+        XCTAssertEqual(row.otherMates?.first?.verdict, .unverified)
+        XCTAssertEqual(row.otherMates?.first?.querySequence, mate1)
+    }
+
+    // MARK: - Reconciling answers with sequences
+
+    /// A query of R1s then R2s holds a fragment's mates apart. Each answer still pairs with its own sequence.
+    func testMatesApartInTheQueryLineUpBySubmissionOrder() throws {
+        let result = try judged(
+            [(id: "a", sequence: "AAAA"), (id: "b", sequence: "CCCC"), (id: "a", sequence: "GGGG")],
+            replies: [reply("a", .noHit), reply("b", .outside), reply("a", .inClade)]
+        )
+        XCTAssertEqual(result.readResults.map(\.id), ["a", "b"])
+        let fragmentA = result.readResults[0]
+        XCTAssertEqual(fragmentA.verdict, .verified)
+        XCTAssertEqual(fragmentA.querySequence, "GGGG")
+        XCTAssertEqual(fragmentA.matchesQueriedTaxon, true)
+        XCTAssertEqual(fragmentA.otherMates?.map(\.querySequence), ["AAAA"])
+        XCTAssertEqual(fragmentA.otherMates?.map(\.verdict), [.unverified])
+        XCTAssertEqual(result.readResults[1].querySequence, "CCCC")
+        XCTAssertEqual(result.readResults[1].matchesQueriedTaxon, false)
+        XCTAssertEqual(result.judgedSequenceCount, 3)
+    }
+
+    func testAMateMissingFromTheReplyStaysAnErrorMate() throws {
+        let result = try judged(
+            [(id: "a", sequence: "AAAA"), (id: "a", sequence: "GGGG")],
+            replies: [reply("a", .inClade)]
+        )
+        XCTAssertEqual(result.readResults.count, 1)
+        XCTAssertEqual(result.readResults.first?.verdict, .verified)
+        XCTAssertEqual(result.readResults.first?.querySequence, "AAAA")
+        XCTAssertEqual(result.readResults.first?.otherMates?.map(\.verdict), [.error])
+        XCTAssertEqual(result.readResults.first?.otherMates?.first?.errorMessage, BlastService.missingReadResultMessage)
+        XCTAssertEqual(result.readResults.first?.otherMates?.first?.querySequence, "GGGG")
+    }
+
+    // MARK: - The record
+
+    func testOtherMatesSurviveARecordAndOldRecordsDecode() throws {
+        let fragmentRow = BlastReadResult(
+            id: "a", verdict: .verified, querySequence: "GGGG", matchesQueriedTaxon: true,
+            otherMates: [BlastReadResult(id: "a", verdict: .unverified, querySequence: "AAAA")]
+        )
+        let result = BlastVerificationResult(
+            taxonName: taxonName, taxId: 11676, readResults: [fragmentRow], submittedAt: Date(), completedAt: Date(),
+            rid: "EGTB319K014", blastProgram: "blastn", database: "core_nt"
+        )
+        let decoded = try JSONDecoder().decode(BlastVerificationResult.self, from: JSONEncoder().encode(result))
+        XCTAssertEqual(decoded.totalReads, 1)
+        XCTAssertEqual(decoded.judgedSequenceCount, 2)
+        XCTAssertEqual(decoded.readResults.first?.otherMates?.map(\.querySequence), ["AAAA"])
+        XCTAssertEqual(decoded.readResults.first?.otherMates?.map(\.verdict), [.unverified])
+
+        let singleRead = String(decoding: try JSONEncoder().encode(BlastReadResult(id: "r1", verdict: .verified)), as: UTF8.self)
+        XCTAssertFalse(singleRead.contains("otherMates"), "a single read's JSON is unchanged: \(singleRead)")
+
+        // A read row as the walk's saved record holds it.
+        let saved = #"{"hasLCADisagreement":false,"id":"r1","matchesQueriedTaxon":false,"querySequence":"AAAA","topHits":[],"verdict":"unverified"}"#
+        let old = try JSONDecoder().decode(BlastReadResult.self, from: Data(saved.utf8))
+        XCTAssertNil(old.otherMates)
+        XCTAssertEqual(old.verdict, .unverified)
+    }
 }

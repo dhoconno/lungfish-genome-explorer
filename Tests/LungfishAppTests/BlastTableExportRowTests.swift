@@ -85,4 +85,48 @@ final class BlastTableExportRowTests: XCTestCase {
         XCTAssertFalse(failure.message.isEmpty)
         XCTAssertEqual(calls.messages, [failure.message])
     }
+
+    private func walkFragment(rows otherMates: [BlastReadResult]?) -> BlastVerificationResult {
+        let hits = ["PX372844", "OQ751369", "ON783971", "MN965909", "MN965880"].enumerated().map { index, accession in
+            BlastHitSummary(
+                rank: index + 1, accession: accession, organism: "Organism \(index)", taxId: 11676,
+                percentIdentity: 100, queryCoverage: 100, eValue: 4.2664e-29, bitScore: 139.619, alignmentLength: 75
+            )
+        }
+        return BlastVerificationResult(
+            taxonName: "Human immunodeficiency virus 1", taxId: 11676,
+            readResults: [BlastReadResult(
+                id: "SRR12486983.3484597", verdict: .verified, topHits: hits, matchesQueriedTaxon: true, otherMates: otherMates
+            )],
+            submittedAt: Date(), completedAt: Date(), rid: "EGTB319K014", blastProgram: "blastn", database: "core_nt"
+        )
+    }
+
+    /// Ruling BIO-BLAST-MATES Q2. One row per mate sent, deciding mate first, so `No significant hit` shows only on the mate it is true of.
+    func testExportKeepsBothMatesOfAFragment() {
+        let result = walkFragment(rows: [BlastReadResult(id: "SRR12486983.3484597", verdict: .unverified)])
+        let rows = BlastVerificationTableExport.tableContent(result: result, separator: ",")
+            .split(separator: "\n")
+            .dropFirst()
+            .map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(rows.count, 6, "five hit rows and one no-hit row")
+        XCTAssertEqual(rows.prefix(5).map { $0[4] }, ["PX372844", "OQ751369", "ON783971", "MN965909", "MN965880"])
+        XCTAssertEqual(rows.prefix(5).map { $0[1] }, Array(repeating: "verified", count: 5))
+        XCTAssertEqual(rows.last?[0], "SRR12486983.3484597")
+        XCTAssertEqual(rows.last?[1], "unverified")
+        XCTAssertEqual(rows.last?[4], "")
+    }
+
+    /// `blast submit`'s complete message adds what was sent only when it differs from the rows counted, so the
+    /// leaf's recorded event stays as it was for single reads.
+    func testSubmitSummaryAddsTheSequencesSentOnlyWhenTheyDiffer() {
+        XCTAssertEqual(
+            BlastCommand.SubmitSubcommand.completionSummary(for: walkFragment(rows: [BlastReadResult(id: "SRR12486983.3484597", verdict: .unverified)])),
+            "rid=EGTB319K014 supporting=1 contradicting=0 reads=1 sent=2"
+        )
+        XCTAssertEqual(
+            BlastCommand.SubmitSubcommand.completionSummary(for: walkFragment(rows: nil)),
+            "rid=EGTB319K014 supporting=1 contradicting=0 reads=1"
+        )
+    }
 }
