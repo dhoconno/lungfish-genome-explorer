@@ -27,20 +27,24 @@ import LungfishTestSupport
 final class MSAPaneFlagFixture {
     private static let key = MSABottomPaneView.DefaultsKey.isOpen
 
+    private let defaults: UserDefaults
     private let saved: Any?
 
     /// Writes the machine's saved pane flag as `open` and remembers what was there.
-    init(machineFlag open: Bool) {
-        saved = UserDefaults.standard.object(forKey: Self.key)
-        UserDefaults.standard.set(open, forKey: Self.key)
+    /// The nets leave `defaults` as the machine's. The fixture's own tests pass a
+    /// suite they own, since every parallel worker shares the machine's key.
+    init(machineFlag open: Bool, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        saved = defaults.object(forKey: Self.key)
+        defaults.set(open, forKey: Self.key)
     }
 
-    /// Puts the machine's saved pane flag back as the fixture found it.
+    /// Puts the saved pane flag back as the fixture found it.
     func restore() {
         if let saved {
-            UserDefaults.standard.set(saved, forKey: Self.key)
+            defaults.set(saved, forKey: Self.key)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.key)
+            defaults.removeObject(forKey: Self.key)
         }
     }
 }

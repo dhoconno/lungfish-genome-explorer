@@ -10,60 +10,51 @@
 // found it, down to an absent key, and the app itself keeps the standard
 // defaults for every alignment it displays.
 //
-// Each test writes the machine's flag, because that is what the fixture does.
-// The class saves the key before every test and puts it back after it, so a
-// test that fails halfway leaves the machine as it found it.
+// Each test runs the fixture on a suite it owns, never on the machine's key. The
+// unit tier's parallel workers share that key, and one test read nil after its
+// restore when another worker removed the key (unit tier at 327052394).
 
 import AppKit
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishApp
 
 @MainActor
 final class MSAPaneFlagFixtureTests: XCTestCase {
     private let key = MSABottomPaneView.DefaultsKey.isOpen
-    private var machineFlagBeforeTheTest: Any?
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
-        machineFlagBeforeTheTest = UserDefaults.standard.object(forKey: key)
-    }
-
-    override func tearDownWithError() throws {
-        if let machineFlagBeforeTheTest {
-            UserDefaults.standard.set(machineFlagBeforeTheTest, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        machineFlagBeforeTheTest = nil
-        try super.tearDownWithError()
+    private func makeSuite() -> UserDefaults {
+        makeTestDefaultsSuite(prefix: "MSAPaneFlagFixtureTests").defaults
     }
 
     func testRestoreLeavesNoKeyWhenTheMachineHeldNone() {
-        UserDefaults.standard.removeObject(forKey: key)
-        let fixture = MSAPaneFlagFixture(machineFlag: false)
-        XCTAssertEqual(UserDefaults.standard.object(forKey: key) as? Bool, false, "the fixture writes the flag closed")
+        let defaults = makeSuite()
+        let fixture = MSAPaneFlagFixture(machineFlag: false, defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, false, "the fixture writes the flag closed")
         fixture.restore()
         XCTAssertNil(
-            UserDefaults.standard.object(forKey: key),
+            defaults.object(forKey: key),
             "a machine that held no flag must hold none after the restore"
         )
     }
 
     func testRestorePutsBackTrue() {
-        UserDefaults.standard.set(true, forKey: key)
-        let fixture = MSAPaneFlagFixture(machineFlag: false)
-        XCTAssertEqual(UserDefaults.standard.object(forKey: key) as? Bool, false, "the fixture writes the flag closed")
+        let defaults = makeSuite()
+        defaults.set(true, forKey: key)
+        let fixture = MSAPaneFlagFixture(machineFlag: false, defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, false, "the fixture writes the flag closed")
         fixture.restore()
-        XCTAssertEqual(UserDefaults.standard.object(forKey: key) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
     }
 
     func testRestorePutsBackFalse() {
-        UserDefaults.standard.set(false, forKey: key)
-        let fixture = MSAPaneFlagFixture(machineFlag: true)
-        XCTAssertEqual(UserDefaults.standard.object(forKey: key) as? Bool, true, "the fixture writes the flag it is given")
+        let defaults = makeSuite()
+        defaults.set(false, forKey: key)
+        let fixture = MSAPaneFlagFixture(machineFlag: true, defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, true, "the fixture writes the flag it is given")
         fixture.restore()
-        XCTAssertEqual(UserDefaults.standard.object(forKey: key) as? Bool, false)
+        XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
     /// The hook the nets use must leave the app on the standard defaults. A
