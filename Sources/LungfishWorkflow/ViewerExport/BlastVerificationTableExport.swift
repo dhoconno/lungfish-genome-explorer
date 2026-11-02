@@ -42,7 +42,8 @@ extension BlastVerificationTableExport {
     /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
     /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
     ///
-    /// One row per hit (a read with 5 hits produces 5 output rows).
+    /// One row per hit (a read with 5 hits produces 5 output rows). A fragment's
+    /// mates each get their own rows under the one read ID, deciding mate first.
     public static func tableContent(result: BlastVerificationResult, separator: String) -> String {
         var lines: [String] = []
 
@@ -55,7 +56,7 @@ extension BlastVerificationTableExport {
         lines.append(header.joined(separator: separator))
 
         // Data rows
-        for readResult in result.readResults {
+        for readResult in result.readResults.flatMap({ [$0] + ($0.otherMates ?? []) }) {
             if readResult.topHits.isEmpty {
                 // Read with no hits: single row with top-level fields
                 let row = [

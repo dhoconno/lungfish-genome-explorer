@@ -437,25 +437,25 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         showState(.loading(phase: phase, requestId: requestId))
     }
 
-    /// Shows BLAST verification results.
-    ///
-    /// Populates the summary bar and results outline view with data from the
-    /// verification result. Reads are displayed as parent rows with expandable
-    /// child rows for secondary BLAST hits.
-    ///
-    /// - Parameter result: The BLAST verification result to display.
     /// The summary bar text for a taxon verification.
     ///
     /// Reads NCBI returned no usable result for are counted on their own, so
-    /// they are not mistaken for reads that found no hit.
+    /// they are not mistaken for reads that found no hit. When read pairs were
+    /// sent the counts are fragments, and the end says how many reads were sent.
     public static func verificationSummary(for result: BlastVerificationResult) -> String {
         var text = "BLAST for \(result.taxonName): \(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
         if result.errorCount > 0 {
             text += ", \(result.errorCount) with no BLAST result"
         }
-        return text + " (\(result.totalReads) \(result.totalReads == 1 ? "read" : "reads"))"
+        let (rows, sent) = (result.totalReads, result.judgedSequenceCount)
+        return text + (sent > rows ? " (\(rows) \(rows == 1 ? "fragment" : "fragments"), \(sent) reads)" : " (\(rows) \(rows == 1 ? "read" : "reads"))")
     }
 
+    /// Shows BLAST verification results.
+    ///
+    /// Populates the summary bar and results outline view with data from the
+    /// verification result. Reads are displayed as parent rows with expandable
+    /// child rows for secondary BLAST hits.
     public func showResults(_ result: BlastVerificationResult, recordURL: URL?) {
         displayState = .results(result, recordURL: recordURL)
         let total = result.totalReads
@@ -520,8 +520,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         // Enable/disable "Open in BLAST" based on request ID
         openInBlastButton.isEnabled = !result.rid.isEmpty
 
-        // Build outline items, sort, and reload
-        outlineItems = result.readResults.map { ReadResultItem($0) }
+        // Build outline items, one for each mate sent with the deciding mate first, sort, and reload
+        outlineItems = result.readResults.flatMap { [$0] + ($0.otherMates ?? []) }.map { ReadResultItem($0) }
         applySortDescriptors()
         resultsOutlineView.reloadData()
 

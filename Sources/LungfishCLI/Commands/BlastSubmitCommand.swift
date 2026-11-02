@@ -97,9 +97,11 @@ extension BlastCommand {
 
         // MARK: - Run
 
-        /// The message of the leaf's complete event.
+        /// The message of the leaf's complete event. `reads` counts the rows, which are fragments when read pairs
+        /// were sent, and ` sent=M` then says how many sequences went to NCBI.
         static func completionSummary(for result: BlastVerificationResult) -> String {
-            "rid=\(result.rid) supporting=\(result.supportingCount) contradicting=\(result.contradictingCount) reads=\(result.totalReads)"
+            let summary = "rid=\(result.rid) supporting=\(result.supportingCount) contradicting=\(result.contradictingCount) reads=\(result.totalReads)"
+            return result.judgedSequenceCount == result.totalReads ? summary : summary + " sent=\(result.judgedSequenceCount)"
         }
 
         func run() async throws {
