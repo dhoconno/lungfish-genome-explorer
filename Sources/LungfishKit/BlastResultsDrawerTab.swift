@@ -176,9 +176,7 @@ public final class ReadResultItem {
     /// Child hit items (hits 2+, since hit 1 is shown on the parent row).
     public let hitItems: [HitSummaryItem]
 
-    /// Creates a wrapper for the given read result.
-    ///
-    /// Populates `hitItems` from `result.topHits` where rank > 1.
+    /// Creates a wrapper for the given read result, populating `hitItems` from `result.topHits` where rank > 1.
     public init(_ result: BlastReadResult) {
         self.result = result
         let items = result.topHits.dropFirst().map { HitSummaryItem($0) }
@@ -298,8 +296,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         }
     }
 
-    /// Outline view wrapper items for the current result (parent rows).
+    /// Outline view wrapper items for the current result (parent rows), and the same rows by fragment.
     private var outlineItems: [ReadResultItem] = []
+    private var fragmentItems: [(lead: ReadResultItem, others: [ReadResultItem])] = []
 
     /// The current sort descriptor key path and direction.
     private var sortKey: NSUserInterfaceItemIdentifier = .blastStatus
@@ -453,9 +452,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     /// Shows BLAST verification results.
     ///
-    /// Populates the summary bar and results outline view with data from the
-    /// verification result. Reads are displayed as parent rows with expandable
-    /// child rows for secondary BLAST hits.
+    /// Populates the summary bar and results outline view with data from the verification result.
+    /// Reads are displayed as parent rows with expandable child rows for secondary BLAST hits.
     public func showResults(_ result: BlastVerificationResult, recordURL: URL?) {
         displayState = .results(result, recordURL: recordURL)
         let total = result.totalReads
@@ -520,8 +518,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         // Enable/disable "Open in BLAST" based on request ID
         openInBlastButton.isEnabled = !result.rid.isEmpty
 
-        // Build outline items, one for each mate sent with the deciding mate first, sort, and reload
-        outlineItems = result.readResults.flatMap { [$0] + ($0.otherMates ?? []) }.map { ReadResultItem($0) }
+        // Build one entry for each fragment, deciding mate first, then sort and reload
+        fragmentItems = result.readResults.map { (ReadResultItem($0), ($0.otherMates ?? []).map { ReadResultItem($0) }) }
         applySortDescriptors()
         resultsOutlineView.reloadData()
 
@@ -1412,9 +1410,10 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     // MARK: - Sorting
 
-    /// Sorts the outline items based on the current sort key and direction.
+    /// Sorts the fragments by their deciding mate under the current sort, each followed by its other mates.
     private func applySortDescriptors() {
-        outlineItems.sort { lhs, rhs in
+        fragmentItems.sort { left, right in
+            let lhs = left.lead, rhs = right.lead
             let result: Bool
             switch sortKey {
             case .blastStatus:
@@ -1450,6 +1449,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             }
             return sortAscending ? result : !result
         }
+        outlineItems = fragmentItems.flatMap { [$0.lead] + $0.others }
     }
 
     // MARK: - E-Value Formatting
