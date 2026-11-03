@@ -55,7 +55,7 @@ public final class AssemblyResultViewController: NSViewController {
     private let detailPane = AssemblyContigDetailPane()
     private let actionBar = AssemblyActionBar()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
-    private let materializationAction = AssemblyContigMaterializationAction()
+    let materializationAction = AssemblyContigMaterializationAction()
 
     private var savePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
     private var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
@@ -360,7 +360,7 @@ public final class AssemblyResultViewController: NSViewController {
         return fastaRecords
     }
 
-    private func performExtractSelectedSequence() {
+    func performExtractSelectedSequence() {
         guard !selectedContigNames.isEmpty else { return }
         let suggestedName = defaultSuggestedName(for: selectedContigNames)
         Task { [weak self] in
@@ -440,7 +440,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
-    private func performCreateBundle() {
+    func performCreateBundle() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
         let suggestedName = defaultSuggestedName(for: selectedContigNames)
 
@@ -464,7 +464,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
-    private func performRunOperation() {
+    func performRunOperation() {
         guard !selectedContigNames.isEmpty else { return }
         Task { [weak self] in
             guard let self else { return }

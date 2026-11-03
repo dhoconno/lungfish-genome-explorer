@@ -126,4 +126,37 @@ final class AssemblySavedBlastRestoreTests: XCTestCase {
 
         XCTAssertEqual(viewer.testBlastDrawerContainer?.blastResultsTab.currentResult?.rid, "RID-A")
     }
+
+    // Phase 3.1 lane REPLACED (ruling BIO-ASSEMBLY-REPLACED, Fix E). The key holds the bases of the selected contigs, so a
+    // search of other bytes under the same contig name stays away, and one of the same bytes comes back.
+
+    func testASearchOfOtherBytesDoesNotComeBackOnTheSameContigName() async throws {
+        let project = try SavedBlastSearchProject()
+        defer { project.remove() }
+        let viewer = try await makeViewer(result: "A", in: project)
+        try project.saveRecord(
+            rid: "RID-OTHER-BYTES", sourceResult: "A", sample: nil, taxId: nil, contig: "contig_7", heldIn: "A",
+            querySequences: [(id: "contig_7", sequence: "TTTTTTTT")]
+        )
+
+        try await viewer.testSelectContigs(named: ["contig_7"])
+        await settle(viewer)
+
+        XCTAssertNil(viewer.testBlastDrawerContainer, "a search of other bases does not come back on the name alone")
+    }
+
+    func testASearchOfTheSameBytesComesBack() async throws {
+        let project = try SavedBlastSearchProject()
+        defer { project.remove() }
+        let viewer = try await makeViewer(result: "A", in: project)
+        try project.saveRecord(
+            rid: "RID-SAME-BYTES", sourceResult: "A", sample: nil, taxId: nil, contig: "contig_7", heldIn: "A",
+            querySequences: [(id: "contig_7", sequence: "AACCGGTT")]
+        )
+
+        try await viewer.testSelectContigs(named: ["contig_7"])
+        await settle(viewer)
+
+        XCTAssertEqual(viewer.testBlastDrawerContainer?.blastResultsTab.currentResult?.rid, "RID-SAME-BYTES")
+    }
 }
