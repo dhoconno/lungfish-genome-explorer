@@ -57,9 +57,9 @@ final class BlastSavedSearchSelectionPlanTests: XCTestCase {
     }
 
     func testATwelveSSelectionsKeyIsItsPlansLineageAndQuery() throws {
+        let sequences: [(id: String, sequence: String)] = [(id: "unresolved_1", sequence: "ACGT"), (id: "unresolved_2", sequence: "TGCA")]
         let plan = try ViewerViewController.twelveSUnresolvedBlastSubmitPlan(
-            sequences: [(id: "unresolved_1", sequence: "ACGT"), (id: "unresolved_2", sequence: "TGCA")],
-            bundleURL: result, projectURL: project
+            sequences: sequences, bundleURL: result, projectURL: project
         )
         XCTAssertNil(plan.request.contig, "a 12S search names no contig, so its query tells selections apart")
         XCTAssertNil(plan.request.sample)
@@ -70,11 +70,18 @@ final class BlastSavedSearchSelectionPlanTests: XCTestCase {
         try plan.queryData.write(to: held.appendingPathComponent(BlastSubmissionRecord.queryFileName))
         let recordURL = held.appendingPathComponent(BlastSubmissionRecord.recordFileName)
 
-        let key = try XCTUnwrap(BlastSavedSearchRow.twelveSSelection(sequenceIDs: ["unresolved_2", "unresolved_1"], bundleURL: result))
-        XCTAssertTrue(key.isSource(of: lineage(of: plan), recordAt: recordURL))
-        let other = try XCTUnwrap(BlastSavedSearchRow.twelveSSelection(sequenceIDs: ["unresolved_1"], bundleURL: result))
-        XCTAssertFalse(other.isSource(of: lineage(of: plan), recordAt: recordURL))
-        XCTAssertNil(BlastSavedSearchRow.twelveSSelection(sequenceIDs: [], bundleURL: result))
+        func key(_ pairs: [(id: String, sequence: String)]) throws -> BlastSavedSearchRow {
+            try XCTUnwrap(BlastSavedSearchRow.twelveSSelection(
+                sequences: pairs.map { BlastSavedSearchRow.QuerySequence(id: $0.id, sequence: $0.sequence) }, bundleURL: result
+            ))
+        }
+        XCTAssertTrue(try key(sequences.reversed()).isSource(of: lineage(of: plan), recordAt: recordURL))
+        XCTAssertFalse(try key([sequences[0]]).isSource(of: lineage(of: plan), recordAt: recordURL), "one row of the two")
+        XCTAssertFalse(
+            try key([sequences[0], (id: "unresolved_2", sequence: "TTTT")]).isSource(of: lineage(of: plan), recordAt: recordURL),
+            "the same IDs with one sequence changed are another search"
+        )
+        XCTAssertNil(BlastSavedSearchRow.twelveSSelection(sequences: [], bundleURL: result))
 
         XCTAssertEqual(
             plan.request.outputURL.deletingLastPathComponent().path,

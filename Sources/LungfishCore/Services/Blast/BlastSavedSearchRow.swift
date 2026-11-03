@@ -13,23 +13,39 @@ import Foundation
 /// of each field comes from the code its submit plan writes that field with: ``lineageSample(of:)``,
 /// ``lineageContig(of:)`` and ``lineageTaxId(ofRequestTaxId:)``, and the row builders in LungfishIO. Assembly and 12S
 /// selections have keys here too (lane REOPEN2), ``assemblySelection(contigs:resultURL:)`` and
-/// ``twelveSSelection(sequenceIDs:bundleURL:)``.
+/// ``twelveSSelection(sequences:bundleURL:)``.
 public struct BlastSavedSearchRow: Sendable, Equatable {
     public var sourceResultURL: URL
     public var sample: String?
     public var taxId: Int?
     public var contig: String?
-    /// The IDs a search's query holds, for a search whose lineage does not name its sequences. A 12S search pools its
-    /// sequences across samples and names no sample or contig, so its own query tells one selection's search from
-    /// another's. Nil when the lineage alone tells them apart.
-    public var querySequenceIDs: [String]?
+    /// The sequences a search's query holds, for a search whose lineage does not name them. A 12S search pools its sequences
+    /// across samples and names no sample or contig, so its own query tells one selection's search from another's. Nil
+    /// when the lineage alone tells them apart.
+    public var querySequences: [QuerySequence]?
 
-    public init(sourceResultURL: URL, sample: String?, taxId: Int?, contig: String?, querySequenceIDs: [String]? = nil) {
+    /// One sequence of a search's query. A 12S ID is a rank, the n-th most abundant sequence of its run, and a re-run that
+    /// replaces a bundle at the same path gives that ID another sequence. So an ID alone does not say what was searched.
+    public struct QuerySequence: Sendable, Equatable, Comparable {
+        public var id: String
+        public var sequence: String
+
+        public init(id: String, sequence: String) {
+            self.id = id
+            self.sequence = sequence
+        }
+
+        public static func < (lhs: QuerySequence, rhs: QuerySequence) -> Bool {
+            (lhs.id, lhs.sequence) < (rhs.id, rhs.sequence)
+        }
+    }
+
+    public init(sourceResultURL: URL, sample: String?, taxId: Int?, contig: String?, querySequences: [QuerySequence]? = nil) {
         self.sourceResultURL = sourceResultURL
         self.sample = sample
         self.taxId = taxId
         self.contig = contig
-        self.querySequenceIDs = querySequenceIDs
+        self.querySequences = querySequences
     }
 
     /// The key of an Assembly selection, in the fields `assemblyBlastSubmitPlan` records, the result folder and the
@@ -39,18 +55,25 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
     }
 
     /// The key of a 12S unresolved selection. `twelveSUnresolvedBlastSubmitPlan` records only the bundle, so the key adds
-    /// the IDs the search's query holds. Nil for no sequences.
-    public static func twelveSSelection(sequenceIDs: [String], bundleURL: URL) -> BlastSavedSearchRow? {
-        guard !sequenceIDs.isEmpty else { return nil }
-        return BlastSavedSearchRow(sourceResultURL: bundleURL, sample: nil, taxId: nil, contig: nil, querySequenceIDs: sequenceIDs)
+    /// the IDs and sequences the search's query holds. Nil for no sequences.
+    public static func twelveSSelection(sequences: [QuerySequence], bundleURL: URL) -> BlastSavedSearchRow? {
+        guard !sequences.isEmpty else { return nil }
+        return BlastSavedSearchRow(sourceResultURL: bundleURL, sample: nil, taxId: nil, contig: nil, querySequences: sequences)
     }
 
-    /// The sequence IDs of a FASTA's headers, each header's first word.
-    public static func sequenceIDs(ofFASTA text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline).compactMap { line in
-            guard line.hasPrefix(">") else { return nil }
-            return line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init)
+    /// The sequences of a FASTA. Each header's first word is the ID, and the lines after it, joined and trimmed, are the
+    /// sequence, as the 12S plan reads its export.
+    public static func sequences(ofFASTA text: String) -> [QuerySequence] {
+        var records: [QuerySequence] = []
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix(">") {
+                let id = line.dropFirst().split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+                records.append(QuerySequence(id: id, sequence: ""))
+            } else if !records.isEmpty {
+                records[records.count - 1].sequence += line.trimmingCharacters(in: .whitespaces)
+            }
         }
+        return records
     }
 
     /// The lineage's sample of a search that drew reads from `samples`, each named once and sorted. Nil for none.
@@ -80,15 +103,16 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
               Self.comparablePath(recorded) == Self.comparablePath(sourceResultURL) else {
             return false
         }
-        guard let querySequenceIDs else { return true }
-        return Self.query(ofRecordAt: recordURL, holds: querySequenceIDs)
+        guard let querySequences else { return true }
+        return Self.query(ofRecordAt: recordURL, holds: querySequences)
     }
 
-    /// Whether the query copy beside the record holds exactly `ids`, in any order. A copy that cannot be read holds none.
-    private static func query(ofRecordAt recordURL: URL, holds ids: [String]) -> Bool {
+    /// Whether the query copy beside the record holds exactly `held`, each ID with its sequence, in any order. A copy that
+    /// cannot be read holds none.
+    private static func query(ofRecordAt recordURL: URL, holds held: [QuerySequence]) -> Bool {
         let queryURL = recordURL.deletingLastPathComponent().appendingPathComponent(BlastSubmissionRecord.queryFileName)
         guard let text = try? String(contentsOf: queryURL, encoding: .utf8) else { return false }
-        return sequenceIDs(ofFASTA: text).sorted() == ids.sorted()
+        return sequences(ofFASTA: text).sorted() == held.sorted()
     }
 
     /// A contig value's IDs in one order. A multi-contig search joins its IDs in selection or lookup order, and TaxTriage

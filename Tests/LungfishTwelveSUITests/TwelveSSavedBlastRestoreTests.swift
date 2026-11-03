@@ -19,7 +19,7 @@ extension TwelveSAmpliconResultViewControllerTests {
     private func makeRestoreViewer(
         result name: String,
         in project: SavedBlastSearchProject
-    ) throws -> (viewer: TwelveSAmpliconResultViewController, ids: [String]) {
+    ) throws -> (viewer: TwelveSAmpliconResultViewController, rows: [(id: String, sequence: String)]) {
         let viewer = TwelveSAmpliconResultViewController()
         isolateLayouts(viewer)
         viewer.loadViewIfNeeded()
@@ -28,9 +28,9 @@ extension TwelveSAmpliconResultViewControllerTests {
         viewer.savedBlastSearchProject = { projectURL }
         viewer.applyDisplayState(TwelveSResultDisplayState(minimumUnresolvedReads: 1))
         viewer.showUnresolvedForTesting()
-        let ids = viewer.selectedUnresolvedRows().map(\.sequenceID)
-        XCTAssertEqual(ids.count, 2)
-        return (viewer, ids)
+        let rows = viewer.selectedUnresolvedRows().map { (id: $0.sequenceID, sequence: $0.sequence) }
+        XCTAssertEqual(rows.count, 2)
+        return (viewer, rows)
     }
 
     private func settle(_ viewer: TwelveSAmpliconResultViewController) async {
@@ -41,9 +41,9 @@ extension TwelveSAmpliconResultViewControllerTests {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
         _ = try project.result("B.lungfish12s")
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        let recordA = try project.saveRecord(rid: "RID-A", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
-        try project.saveRecord(rid: "RID-B", sourceResult: "B.lungfish12s", sample: nil, taxId: nil, contig: nil, age: -60, queryIDs: [ids[0]])
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        let recordA = try project.saveRecord(rid: "RID-A", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: [rows[0]])
+        try project.saveRecord(rid: "RID-B", sourceResult: "B.lungfish12s", sample: nil, taxId: nil, contig: nil, age: -60, querySequences: [rows[0]])
 
         viewer.testingSelectUnresolvedRow(0)
         await settle(viewer)
@@ -58,8 +58,8 @@ extension TwelveSAmpliconResultViewControllerTests {
     func testAnotherTwelveSSelectionInTheSameResultDoesNotShowIt() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: [rows[0]])
 
         viewer.testingSelectUnresolvedRow(1)
         await settle(viewer)
@@ -69,8 +69,8 @@ extension TwelveSAmpliconResultViewControllerTests {
     func testATwelveSSearchOfEveryShownSequenceComesBackWithNoRowSelected() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (first, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        try project.saveRecord(rid: "RID-ALL", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: ids.reversed())
+        let (first, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(rid: "RID-ALL", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: rows.reversed())
 
         first.testingSelectUnresolvedRow(0)
         await settle(first)
@@ -85,8 +85,8 @@ extension TwelveSAmpliconResultViewControllerTests {
     func testATwelveSScanAfterTheSelectionMovedIsDropped() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: [rows[0]])
 
         viewer.testingSelectUnresolvedRow(0)
         let scan = try XCTUnwrap(viewer.savedBlastRestorer.restoreTask)
@@ -100,8 +100,8 @@ extension TwelveSAmpliconResultViewControllerTests {
     func testATwelveSRunIsNotReplacedAndARestoreFollowsItsEnd() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(rid: "RID-ONE", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: [rows[0]])
 
         viewer.showBlastLoading(phase: .submitting, requestId: nil)
         viewer.testingSelectUnresolvedRow(0)
@@ -121,10 +121,11 @@ extension TwelveSAmpliconResultViewControllerTests {
     func testATwelveSSelectionDoesNotShowASearchOfAnEarlierBundleWithTheSameIDs() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        let record = try project.saveRecord(rid: "RID-EARLIER", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
-        let query = record.deletingLastPathComponent().appendingPathComponent(BlastSubmissionRecord.queryFileName)
-        try Data(">\(ids[0])\nTTTTTTTT\n".utf8).write(to: query)
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(
+            rid: "RID-EARLIER", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil,
+            querySequences: [(id: rows[0].id, sequence: "TTTTTTTT")]
+        )
 
         viewer.testingSelectUnresolvedRow(0)
         await settle(viewer)
@@ -132,12 +133,27 @@ extension TwelveSAmpliconResultViewControllerTests {
         XCTAssertNil(viewer.blastDrawerContainer, "the same ID with another sequence is another search")
     }
 
+    func testATwelveSSearchOfEveryRowDoesNotComeBackWhenOneSequenceDiffers() async throws {
+        let project = try SavedBlastSearchProject()
+        defer { project.remove() }
+        let (_, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(
+            rid: "RID-EARLIER", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil,
+            querySequences: [rows[0], (id: rows[1].id, sequence: "TTTTTTTT")]
+        )
+
+        let (viewer, _) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        await settle(viewer)
+
+        XCTAssertNil(viewer.blastDrawerContainer, "the same count of rows is not the same search")
+    }
+
     func testTheNewestTwelveSRecordWinsAndAFolderWithNoReadableRecordIsSkipped() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
-        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
-        try project.saveRecord(rid: "RID-OLD", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, age: 60, queryIDs: [ids[0]])
-        try project.saveRecord(rid: "RID-NEW", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
+        let (viewer, rows) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        try project.saveRecord(rid: "RID-OLD", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, age: 60, querySequences: [rows[0]])
+        try project.saveRecord(rid: "RID-NEW", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, querySequences: [rows[0]])
         try project.saveRecord(rid: "RID-NO-QUERY", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, age: -60)
         try project.saveFolderWithNoReadableRecord(named: "timed-out")
 

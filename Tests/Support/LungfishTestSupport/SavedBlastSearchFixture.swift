@@ -32,7 +32,8 @@ public struct SavedBlastSearchProject {
     /// Saves a record of the search `rid` from the result `Analyses/<sourceResult>`, in the `@/` form the leaf writes.
     /// `age` is how many seconds before a fixed date it completed, so a smaller age is newer. `heldIn` names the result
     /// whose own `blast-verifications` folder holds the record, as an assembly's plan saves it, and nil is the project's.
-    /// `queryIDs` writes the query copy beside the record, as a 12S search's only word on its sequences.
+    /// `querySequences` writes the query copy beside the record, one line a sequence as a plan writes it, since that copy
+    /// is a 12S search's only word on its sequences.
     @discardableResult
     public func saveRecord(
         rid: String,
@@ -42,7 +43,7 @@ public struct SavedBlastSearchProject {
         contig: String?,
         age: TimeInterval = 0,
         heldIn: String? = nil,
-        queryIDs: [String]? = nil
+        querySequences: [(id: String, sequence: String)]? = nil
     ) throws -> URL {
         let completedAt = Date(timeIntervalSince1970: 1_800_000_000 - age)
         let result = BlastVerificationResult(
@@ -63,8 +64,8 @@ public struct SavedBlastSearchProject {
             project.appendingPathComponent("Analyses/\($0)/blast-verifications/search-\(rid)", isDirectory: true)
         } ?? searchFolder(named: "search-\(rid)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        if let queryIDs {
-            let query = queryIDs.map { ">\($0)\nACGT\n" }.joined()
+        if let querySequences {
+            let query = querySequences.map { ">\($0.id)\n\($0.sequence)\n" }.joined()
             try Data(query.utf8).write(to: folder.appendingPathComponent(BlastSubmissionRecord.queryFileName))
         }
         let url = folder.appendingPathComponent(BlastSubmissionRecord.recordFileName)

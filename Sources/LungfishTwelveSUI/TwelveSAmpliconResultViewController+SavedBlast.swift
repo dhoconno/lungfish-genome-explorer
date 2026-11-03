@@ -20,13 +20,15 @@ extension TwelveSAmpliconResultViewController {
     }
 
     /// Looks for the saved search of the sequences a BLAST would send now (Phase 3.1 lane REOPEN2), the selected unresolved
-    /// rows or, with none selected, every row showing. A search matches on its bundle and the IDs its query holds, in any
-    /// order, since its lineage names no sample, taxon or contig. The Targets list has no search. This viewer has no
+    /// rows or, with none selected, every row showing. A search matches on its bundle and the IDs and sequences its query
+    /// holds, in any order, since its lineage names no sample, taxon or contig and an ID is only a rank in its run, which a
+    /// re-run at the same path gives to another sequence. The Targets list has no search. This viewer has no
     /// control that opens a closed pane, so a restore opens it, since a result nobody can reach would not close the gap.
     func scheduleSavedBlastRestore() {
-        let row = result.flatMap {
-            BlastSavedSearchRow.twelveSSelection(sequenceIDs: selectedUnresolvedRows().map(\.sequenceID), bundleURL: $0.bundleURL)
+        let sequences = selectedUnresolvedRows().map {
+            BlastSavedSearchRow.QuerySequence(id: $0.sequenceID, sequence: $0.sequence)
         }
+        let row = result.flatMap { BlastSavedSearchRow.twelveSSelection(sequences: sequences, bundleURL: $0.bundleURL) }
         savedBlastRestorer.select(row) { [weak self] result, recordURL in
             guard let self else { return }
             self.ensureBlastDrawer().showResults(result, recordURL: recordURL)
