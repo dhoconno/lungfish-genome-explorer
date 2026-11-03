@@ -127,6 +127,37 @@ extension AssemblyResultViewControllerTests {
         // so the words say that and no longer "could not read". Nothing is exported either way.
         XCTAssertTrue(report.body.contains("changed on disk"), report.body)
     }
+
+    @MainActor
+    func testSelectedContigReadFailureWithTheFileUnchangedShowsTheReadWords() async throws {
+        _ = NSApplication.shared
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        let result = try makeAssemblyResult()
+        vc.catalogLoader = { result in
+            let catalog = try await AssemblyContigCatalog(result: result)
+            return UnreadableSequenceCatalog(rows: catalog)
+        }
+        try await vc.configureForTesting(result: result)
+        let shown = expectation(description: "the failure words are shown")
+        var failure: FailureReport?
+        var exported = false
+        vc.failurePresenter = { report in
+            failure = report
+            shown.fulfill()
+        }
+        vc.onExportFASTARequested = { _, _ in exported = true }
+        try await vc.testSelectContigs(named: ["contig_7"])
+
+        vc.testTriggerExport()
+        await fulfillment(of: [shown], timeout: 5)
+
+        XCTAssertFalse(exported, "nothing is exported when a selected contig cannot be read")
+        let report = try XCTUnwrap(failure, "a failed read shows words")
+        XCTAssertTrue(report.body.contains("could not read all of the selected contigs"), report.body)
+        XCTAssertFalse(report.body.contains("changed on disk"), "the file did not change: \(report.body)")
+        XCTAssertTrue(report.details?.contains("the stand-in cannot read this contig") ?? false, "the cause stays in the details")
+    }
 }
 
 extension AssemblySavedBlastRestoreTests {

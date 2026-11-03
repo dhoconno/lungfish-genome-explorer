@@ -31,6 +31,22 @@ extension AssemblyResultViewController {
     func testTriggerRunOperation() { performRunOperation() }
 }
 
+/// A catalog that lists the result's real rows and cannot read any sequence, with the contigs file untouched. A deleted file
+/// now reads as changed on disk (ruling BIO-ASSEMBLY-REPLACED, Fix A), so this is how a test reaches a read that fails by itself.
+struct UnreadableSequenceCatalog: AssemblyContigCatalogProviding {
+    struct Unreadable: LocalizedError {
+        var errorDescription: String? { "the stand-in cannot read this contig" }
+    }
+
+    let rows: any AssemblyContigCatalogProviding
+
+    func records() async throws -> [AssemblyContigRecord] { try await rows.records() }
+    func sequenceFASTA(for name: String, lineWidth: Int) async throws -> String { throw Unreadable() }
+    func selectionSummary(for names: [String]) async throws -> AssemblyContigSelectionSummary {
+        try await rows.selectionSummary(for: names)
+    }
+}
+
 @MainActor
 final class AssemblyResultOnDiskTests: XCTestCase {
     /// Opens `result` with `contig_7` selected. `duringRun` runs inside the stand-in `extract contigs`, before it answers.
