@@ -6,8 +6,9 @@
 // rows the viewer holds, so a check that is too strict would refuse BLAST on every healthy result. This runs the route
 // the viewer runs with the built lungfish-cli. The rows come from a real loadResult, the argv from
 // twelveSUnresolvedExportArguments and the query from the real TwelveSBlastQuery.prepare. It stops before the plan, so
-// nothing goes to NCBI. The table holds a chimera candidate, a lowercase sequence, a long sequence and a row under the
-// minimum. It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the integration tier.
+// nothing goes to NCBI. The table holds a chimera candidate, a lowercase sequence, a long sequence, a row under the
+// minimum and a row at exactly the minimum (review STALE12S-BIO should-fix 2), so both sides of >= are pinned.
+// It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the integration tier.
 
 import Foundation
 import XCTest
@@ -50,17 +51,21 @@ final class TwelveSBlastQueryHeldRowsReplayTests: XCTestCase {
             "unresolved_3\tacgtacgtac\t6\tSampleA:6\tnot_detected\t",
             "unresolved_4\t\(String(repeating: "ACGTTGCA", count: 40))\t5\tSampleA:5\tnot_detected\t",
             "unresolved_5\tGGGGAAAA\t1\tSampleA:1\tnot_detected\t",
+            "unresolved_6\tGATTACAGAT\t3\tSampleA:3\tnot_detected\t",
         ].joined(separator: "\n") + "\n"
         try table.write(to: bundle.appendingPathComponent("unresolved-sequences.tsv"), atomically: true, encoding: .utf8)
 
         let result = try TwelveSAmpliconResultBundle.loadResult(from: bundle)
-        XCTAssertEqual(result.unresolvedSequences.count, 5)
+        XCTAssertEqual(result.unresolvedSequences.count, 6)
         let request = TwelveSUnresolvedBlastRequest(
             bundleURL: bundle, minimumReads: 3, sequences: result.unresolvedSequences
         )
         let held = ViewerViewController.twelveSHeldRows(of: request)
-        let expected = ["unresolved_1", "unresolved_2", "unresolved_3", "unresolved_4"]
-        XCTAssertEqual(held.map(\.sequenceID).sorted(), expected, "the row under the minimum is not held")
+        let expected = ["unresolved_1", "unresolved_2", "unresolved_3", "unresolved_4", "unresolved_6"]
+        XCTAssertEqual(
+            held.map(\.sequenceID).sorted(), expected,
+            "the row under the minimum is not held and the row at exactly the minimum is"
+        )
 
         let exportURL = scratch.appendingPathComponent("lungfish-12s-blast-\(UUID().uuidString)/unresolved-min3.fasta")
         let arguments = ViewerViewController.twelveSUnresolvedExportArguments(
