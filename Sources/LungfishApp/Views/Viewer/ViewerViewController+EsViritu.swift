@@ -172,7 +172,7 @@ extension ViewerViewController {
                     OperationCenter.shared.setCommand(id: opID, command: plan.cliCommand)
                     // No await sits between the checks above and the cancel callback this call replaces.
                     Self.launchBlastSubmit(plan, operationID: opID, runner: runner, drawer: drawer) {
-                        "\($0.verifiedCount)/\($0.readResults.count) verified"
+                        blastVerificationCompletionDetail($0)
                     }
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)

@@ -90,7 +90,7 @@ extension ViewerViewController {
                         loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
                         results: { controller?.showBlastResults($0, recordURL: $1) },
                         failure: { controller?.showBlastFailure($0) }
-                    )) { "\($0.verifiedCount)/\($0.readResults.count) verified" }
+                    )) { blastVerificationCompletionDetail($0) }
                 }
             }
         }
