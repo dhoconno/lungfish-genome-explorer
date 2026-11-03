@@ -45,11 +45,21 @@ extension BlastVerificationTableExport {
     ///
     /// Verdict says only whether a read's alignment passed the quality thresholds, so a read that contradicts the
     /// row can read `verified`. Taxon Check says what the read means for the row: `supporting`, `contradicting` or
-    /// `inconclusive` (ruling BIO-VERIFIED-EXPORT).
+    /// `inconclusive` (ruling BIO-VERIFIED-EXPORT). A search that asked no taxon question, such as a contig or sequence
+    /// BLAST, has an empty Queried Taxon and a Taxon Check of `no taxon queried`.
     ///
     /// One row per hit (a read with 5 hits produces 5 output rows). A fragment's
     /// mates each get their own rows under the one read ID, deciding mate first.
-    public static func tableContent(result: BlastVerificationResult, separator: String) -> String {
+    ///
+    /// - Parameters:
+    ///   - result: The saved result.
+    ///   - taxonomy: The taxonomy the saved file holds beside the result, or nil when the file holds none.
+    ///   - separator: The field separator.
+    public static func tableContent(
+        result: BlastVerificationResult,
+        taxonomy: BlastTaxonomyContext? = nil,
+        separator: String
+    ) -> String {
         var lines: [String] = []
 
         // Header
@@ -61,9 +71,12 @@ extension BlastVerificationTableExport {
         lines.append(header.joined(separator: separator))
 
         // Data rows
-        let queriedTaxon = escapeField(result.taxonName, separator: separator)
+        let asked = asksAboutATaxon(result, taxonomy: taxonomy)
+        let queriedTaxon = asked ? escapeField(result.taxonName, separator: separator) : ""
         let rows = result.readResults.flatMap { fragment in
-            ([fragment] + (fragment.otherMates ?? [])).map { (readResult: $0, taxonCheck: taxonCheckWord(fragment)) }
+            ([fragment] + (fragment.otherMates ?? [])).map {
+                (readResult: $0, taxonCheck: asked ? taxonCheckWord(fragment) : "no taxon queried")
+            }
         }
         for (readResult, taxonCheck) in rows {
             if readResult.topHits.isEmpty {
@@ -110,6 +123,15 @@ extension BlastVerificationTableExport {
         }
 
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Whether the saved search asked about a taxon. A clade that holds an ID or a name is a claim, as `judgesAClaim`
+    /// in `BlastService` reads it, and EsViritu saves that with tax ID 0, so the tax ID alone cannot say. A tax ID other
+    /// than 0 names a taxon with no clade, which is all an archive that saved no request holds. Tax ID 0 and no clade
+    /// is the contig or sequence BLAST.
+    private static func asksAboutATaxon(_ result: BlastVerificationResult, taxonomy: BlastTaxonomyContext?) -> Bool {
+        if let taxonomy, !taxonomy.cladeTaxIds.isEmpty || !taxonomy.cladeNames.isEmpty { return true }
+        return result.taxId != 0
     }
 
     /// What a fragment says about the queried taxon, by the rule of the counts behind the badge

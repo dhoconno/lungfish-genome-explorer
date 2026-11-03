@@ -25,7 +25,7 @@ extension BlastCommand {
     /// `blast-result.json` of a `blast submit` folder or a ``BlastVerificationArchive`` file. The leaf decodes the
     /// submit record first and the archive only when that fails, because an archive record needs only a version,
     /// a date and a result, so it would also decode a submit record. The rows are the hits of the file's result, one
-    /// row per hit, built by ``BlastVerificationTableExport/tableContent(result:separator:)``, which the drawer's
+    /// row per hit, built by ``BlastVerificationTableExport/tableContent(result:taxonomy:separator:)``, which the drawer's
     /// writer for a result with no file shares. The record names the one file the leaf read with its digest and
     /// resolves the taxon, the search and which of the two forms the file is (BIO 6).
     struct ExportTableSubcommand: AsyncParsableCommand {
@@ -71,7 +71,9 @@ extension BlastCommand {
             try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: [recordURL], force: invocation.force)
             let loaded = try Self.load(recordURL)
             let result = loaded.result
-            let content = BlastVerificationTableExport.tableContent(result: result, separator: format.format.separator)
+            let content = BlastVerificationTableExport.tableContent(
+                result: result, taxonomy: loaded.taxonomy, separator: format.format.separator
+            )
 
             var explicitOptions: [String: ParameterValue] = [
                 "outputPath": .file(outputURL),
@@ -110,8 +112,9 @@ extension BlastCommand {
             )
         }
 
-        /// The result the file holds, and which of the two forms the file is. The submit record is decoded first.
-        static func load(_ url: URL) throws -> (result: BlastVerificationResult, kind: String) {
+        /// The result the file holds, the taxonomy saved beside it (nil for an archive that saved no request), and
+        /// which of the two forms the file is. The submit record is decoded first.
+        static func load(_ url: URL) throws -> (result: BlastVerificationResult, taxonomy: BlastTaxonomyContext?, kind: String) {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ViewerExportRefusal(
                     "No saved BLAST search at \(url.path). Pass the blast-result.json of a blast submit folder "
@@ -119,10 +122,10 @@ extension BlastCommand {
                 )
             }
             if let record = try? BlastSubmissionRecord.load(url) {
-                return (record.result, "blast-submit-record")
+                return (record.result, record.search.taxonomy, "blast-submit-record")
             }
             if let archived = try? BlastVerificationArchive.load(url) {
-                return (archived.result, "blast-verification-archive")
+                return (archived.result, archived.request?.taxonomy, "blast-verification-archive")
             }
             throw ViewerExportRefusal(
                 "\(url.path) is neither a blast submit record (blast-result.json) nor a BLAST verification archive "
