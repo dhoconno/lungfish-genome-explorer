@@ -332,7 +332,6 @@ public enum FASTAError: Error, LocalizedError {
     case indexNotFound(URL)
     case invalidIndex(String)
     case regionOutOfBounds(GenomicRegion, sequenceLength: Int)
-    case duplicateSequenceName(String)
 
     public var errorDescription: String? {
         switch self {
@@ -350,8 +349,6 @@ public enum FASTAError: Error, LocalizedError {
             return "Invalid FASTA index: \(message)"
         case .regionOutOfBounds(let region, let length):
             return "Region \(region) exceeds sequence length \(length)"
-        case .duplicateSequenceName(let name):
-            return "FASTA file lists the sequence name '\(name)' more than once, so its records cannot be told apart"
         }
     }
 }

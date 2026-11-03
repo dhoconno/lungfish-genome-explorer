@@ -161,21 +161,4 @@ final class FASTAIndexTests: XCTestCase {
             }
         }
     }
-
-    func testTheBuilderRefusesARepeatedNameAndWritesNoIndex() throws {
-        let fasta = tempDirectory.appendingPathComponent("repeated.fasta")
-        try ">a\nAC\n>a\nGT\n".write(to: fasta, atomically: true, encoding: .utf8)
-
-        XCTAssertThrowsError(try FASTAIndexBuilder.build(for: fasta)) { error in
-            guard case FASTAError.duplicateSequenceName(let name) = error else {
-                return XCTFail("a repeated name throws duplicateSequenceName, not \(error)")
-            }
-            XCTAssertEqual(name, "a")
-        }
-        XCTAssertThrowsError(try FASTAIndexBuilder.buildAndWrite(for: fasta))
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: fasta.appendingPathExtension("fai").path),
-            "no index is written for a file that lists a name twice"
-        )
-    }
 }

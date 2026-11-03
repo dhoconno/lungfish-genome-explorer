@@ -145,12 +145,7 @@ public struct AssemblyContigCatalog: Sendable {
     /// The `.fai` is written only when it differs, so opening a result does not touch the folder, and a read-only project
     /// still opens (ruling BIO-ASSEMBLY-REPLACED, Fix C).
     private static func currentFASTAIndex(for fastaURL: URL) throws -> FASTAIndex {
-        let index: FASTAIndex
-        do {
-            index = try FASTAIndexBuilder.build(for: fastaURL)
-        } catch FASTAError.duplicateSequenceName(let name) {
-            throw AssemblyContigCatalogError.duplicateContigName(name)
-        }
+        let index = try FASTAIndexBuilder.build(for: fastaURL)
         let indexURL = fastaURL.appendingPathExtension("fai")
         if (try? FASTAIndex(url: indexURL)) != index {
             try? index.write(to: indexURL)
