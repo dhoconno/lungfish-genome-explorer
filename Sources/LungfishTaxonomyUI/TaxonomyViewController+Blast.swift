@@ -120,17 +120,8 @@ extension TaxonomyViewController {
         in directory: URL
     ) -> (result: BlastVerificationResult, recordURL: URL)? {
         let archived = BlastVerificationArchive.latestEntry(forTaxId: taxId, in: directory)
-        let folder = BlastVerificationArchive.directoryURL(for: directory)
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        let submitted = names.compactMap { name -> (record: BlastSubmissionRecord, url: URL)? in
-            let url = folder.appendingPathComponent(name, isDirectory: true)
-                .appendingPathComponent(BlastSubmissionRecord.recordFileName)
-            guard let record = try? BlastSubmissionRecord.load(url) else { return nil }
-            return (record, url)
-        }
-        .filter { ($0.record.lineage.taxId ?? $0.record.result.taxId) == taxId }
-        .max {
-            ($0.record.result.completedAt ?? $0.record.savedAt) < ($1.record.result.completedAt ?? $1.record.savedAt)
+        let submitted = BlastVerificationArchive.newestSubmission(in: directory) { record, _ in
+            (record.lineage.taxId ?? record.result.taxId) == taxId
         }
         guard let submitted else { return archived.map { ($0.record.result, $0.url) } }
         guard let archived,

@@ -58,6 +58,7 @@ extension ViewerViewController {
 
         // Wire BLAST verification callback.
         // NVD submits a single contig sequence rather than multiple reads.
+        controller.resultActions.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
         controller.onBlastVerification = { [weak self, weak controller] hit, sequence in
             let contigName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             // Use the classification name for concordance checking, not the contig name
@@ -89,7 +90,8 @@ extension ViewerViewController {
                     Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                         loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
                         results: { controller?.showBlastResults($0, recordURL: $1) },
-                        failure: { controller?.showBlastFailure($0) }
+                        failure: { controller?.showBlastFailure($0) },
+                        began: { controller?.resultActions.trackBlastRun(operationID: $0) }
                     )) { blastVerificationCompletionDetail($0) }
                 }
             }

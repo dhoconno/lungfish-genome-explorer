@@ -2686,14 +2686,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         formatter.groupingSeparator = ","
         let readStr = formatter.string(from: NSNumber(value: row.hitCount)) ?? "\(row.hitCount)"
 
-        let pct = totalHits > 0
-            ? Double(row.hitCount) / Double(totalHits) * 100
-            : 0
+        let pct = totalHits > 0 ? Double(row.hitCount) / Double(totalHits) * 100 : 0
         let pctStr = String(format: "%.1f%%", pct)
 
         let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
         resultActions.showSelection(
-            count: 1, info: "\(displayName) \u{2014} \(readStr) hits (\(pctStr))", extractable: database != nil
+            count: 1, info: "\(displayName) \u{2014} \(readStr) hits (\(pctStr))", extractable: database != nil,
+            blastRow: bundleURL.map { row.blastSavedSearchRow(sourceResultURL: $0) }
         )
     }
 

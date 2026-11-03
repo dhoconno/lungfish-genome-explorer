@@ -118,7 +118,7 @@ struct BlastSubmitPlan: Sendable {
         try make(
             sequences: search.sequences, label: search.taxonName, projectURL: projectURL,
             sourceResultURL: sourceResultURL, outputParentURL: outputParentURL,
-            taxId: search.taxId == 0 ? nil : search.taxId, contig: contig, sample: sample,
+            taxId: BlastSavedSearchRow.lineageTaxId(ofRequestTaxId: search.taxId), contig: contig, sample: sample,
             subsampleCount: subsampleCount, subsampleSeed: subsampleSeed, entrezQuery: search.entrezQuery,
             acceptedTaxIds: search.acceptedTaxIds.sorted(), acceptedNames: search.acceptedTaxonNames,
             relatedTaxIds: search.relatedTaxIds.sorted(), relatedNames: search.relatedTaxonNames, date: date

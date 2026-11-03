@@ -86,6 +86,7 @@ extension ViewerViewController {
         controller.configureFromDatabase(db, resultURL: resultURL)
 
         // Wire BLAST verification callback for EsViritu.
+        controller.resultActions.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
         controller.onBlastVerification = { [weak self, weak controller] detection, readCount, accessions, bamURL, bamIndexURL in
             guard let bamURL else {
                 controller?.showBlastFailure(ClassifierActionWords.alignmentFileMissing)
@@ -144,11 +145,13 @@ extension ViewerViewController {
         let drawer = drawer ?? BlastSubmitDrawer(
             loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
             results: { controller?.showBlastResults($0, recordURL: $1) },
-            failure: { controller?.showBlastFailure($0) }
+            failure: { controller?.showBlastFailure($0) },
+            began: { controller?.resultActions.trackBlastRun(operationID: $0) }
         )
         var extraction: Task<Void, Never>?
         // 1. The row begins with no command. 2. The reads are extracted. 3. The row takes the plan's command.
         Self.beginEsVirituBlastVerificationOperation(taxonName: detection.name) { opID in
+            drawer.began?(opID)
             drawer.loading(.submitting)
             OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting reads for selected accessions…")
             let task = Task { @MainActor in
@@ -214,7 +217,7 @@ extension ViewerViewController {
         return try BlastSubmitPlan.make(
             request: detection.blastVerificationRequest(sequences: subsampled, taxonomyContext: taxonomyContext),
             projectURL: projectURL, sourceResultURL: sourceResultURL, outputParentURL: projectURL,
-            contig: accessions.isEmpty ? nil : accessions.joined(separator: ","), sample: detection.sampleId,
+            contig: BlastSavedSearchRow.lineageContig(of: accessions), sample: detection.sampleId,
             subsampleCount: subsampled.count, subsampleSeed: seed, date: date
         )
     }

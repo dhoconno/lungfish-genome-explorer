@@ -13,6 +13,8 @@ struct BlastSubmitDrawer: Sendable {
     let loading: @MainActor @Sendable (BlastJobPhase) -> Void
     let results: @MainActor @Sendable (BlastVerificationResult, URL?) -> Void
     let failure: @MainActor @Sendable (String) -> Void
+    /// Names the operation that carries the run, which the pane reads to see that a cancelled run has ended.
+    var began: (@MainActor @Sendable (UUID) -> Void)? = nil
 }
 
 extension ViewerViewController {
@@ -126,6 +128,7 @@ extension ViewerViewController {
         drawer: BlastSubmitDrawer,
         completeDetail: @escaping @Sendable (BlastVerificationResult) -> String
     ) -> Task<Void, Never> {
+        drawer.began?(operationID)
         drawer.loading(.submitting)
         let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID) { message in
             drawer.loading(BlastSubmitPlan.phase(forProgressMessage: message))

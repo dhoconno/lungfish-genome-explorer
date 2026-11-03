@@ -40,6 +40,7 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         // Wire BLAST verification callback.
+        controller.resultActions.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
         controller.onBlastVerification = { [weak self, weak controller] summary, readCount, reads in
             let selectedReadCount = min(50, max(1, readCount))
             let taxonName = summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name
@@ -70,7 +71,8 @@ extension ViewerViewController {
                     Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                         loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
                         results: { controller?.showBlastResults($0, recordURL: $1) },
-                        failure: { controller?.showBlastFailure($0) }
+                        failure: { controller?.showBlastFailure($0) },
+                        began: { controller?.resultActions.trackBlastRun(operationID: $0) }
                     )) { blastVerificationCompletionDetail($0) }
                 }
             }
@@ -130,7 +132,7 @@ extension ViewerViewController {
         return try BlastSubmitPlan.make(
             sequences: subsampled, label: taxonName, projectURL: projectURL, sourceResultURL: sourceResultURL,
             outputParentURL: projectURL, taxId: taxId,
-            sample: samples.isEmpty ? nil : samples.joined(separator: ","),
+            sample: BlastSavedSearchRow.lineageSample(of: samples),
             subsampleCount: subsampled.count, subsampleSeed: seed,
             acceptedTaxIds: acceptedTaxIds, acceptedNames: context?.cladeNames ?? [taxonName], date: date
         )

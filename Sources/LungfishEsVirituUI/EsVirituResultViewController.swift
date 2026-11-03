@@ -976,7 +976,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             if let assembly {
                 self.setBatchBAMContext(forSample: assembly.contigs.first?.sampleId)
                 // Update action bar with selection info
-                self.updateActionBarForAssembly(name: assembly.name, readCount: assembly.totalReads)
+                self.updateActionBarForAssembly(name: assembly.name, readCount: assembly.totalReads, blastRow: self.batchURL.flatMap { assembly.blastSavedSearchRow(sourceResultURL: $0) })
                 self.showAssemblyDetail(assembly)
             } else {
                 self.showOverview()
@@ -996,7 +996,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             guard let self else { return }
             self.hideMultiSelectionPlaceholder()
             self.setBatchBAMContext(forSample: detection.sampleId)
-            self.updateActionBarForAssembly(name: detection.name, readCount: detection.readCount)
+            self.updateActionBarForAssembly(name: detection.name, readCount: detection.readCount, blastRow: self.batchURL.map { detection.blastSavedSearchRow(accessions: [detection.accession], sourceResultURL: $0) })
 
             guard let assembly = self.resolveAssembly(for: detection) else {
                 logger.warning("Unable to resolve parent assembly for detection \(detection.accession, privacy: .public)")
@@ -1381,15 +1381,15 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - Action Bar Selection Helper
 
     /// Updates the unified action bar info text from assembly/detection selection.
-    private func updateActionBarForAssembly(name: String?, readCount: Int?) {
+    private func updateActionBarForAssembly(name: String?, readCount: Int?, blastRow: BlastSavedSearchRow? = nil) {
         if let name, let count = readCount {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
             formatter.groupingSeparator = ","
             let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            resultActions.showSelection(count: 1, info: "\(name) \u{2014} \(readStr) reads")
+            resultActions.showSelection(count: 1, info: "\(name) \u{2014} \(readStr) reads", blastRow: blastRow)
         } else {
-            resultActions.showSelection(count: 1)
+            resultActions.showSelection(count: 1, blastRow: blastRow)
         }
     }
 

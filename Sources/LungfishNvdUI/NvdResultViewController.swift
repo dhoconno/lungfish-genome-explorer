@@ -2314,7 +2314,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
             resultActions.showSelection(
-                count: 1, info: "\(displayName) \u{2014} \(classification)", extractable: database != nil
+                count: 1, info: "\(displayName) \u{2014} \(classification)", extractable: database != nil, blastRow: bundleURL.map { hit.blastSavedSearchRow(sourceResultURL: $0) }
             )
         } else {
             resultActions.showNoSelection(prompt: "Select a contig to view details")

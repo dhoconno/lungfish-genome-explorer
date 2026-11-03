@@ -209,18 +209,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
 
     /// Path to the active BAM for the currently selected sample.
-    private var bamURL: URL?
+    var bamURL: URL?
 
     /// Path to the resolved BAM index (.bai or .csi).
-    private var bamIndexURL: URL?
+    var bamIndexURL: URL?
 
     /// The sample, accessions and BAM of the last BLAST request this view forwarded to its host. The drawer's re-run
     /// sends them again, so it repeats the request and not the BAM the view holds by then (2.12 lane 12.09b).
     private var lastBlastRequest: (sample: String?, accessions: [String]?, bamURL: URL?, bamIndexURL: URL?)?
 
     /// All discovered BAM files keyed by sample ID substring.
-    private var bamFilesBySample: [String: URL] = [:]
-    private var bamIndexesBySample: [String: URL] = [:]
+    var bamFilesBySample: [String: URL] = [:]
+    var bamIndexesBySample: [String: URL] = [:]
     private var retainedReferencesBySample: [String: URL] = [:]
 
     /// Maps normalized organism names → BAM reference accessions (from gcfmapping.tsv).
@@ -1671,7 +1671,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         TaxTriageAccessionLookup.accessions(for: normalizedOrganismName, in: mapping, readCounts: accessionMappedReadCounts)
     }
 
-    private func accessions(for row: TaxTriageTableRow, sampleId: String? = nil) -> [String]? {
+    func accessions(for row: TaxTriageTableRow, sampleId: String? = nil) -> [String]? {
         if let taxID = row.taxId,
            let sampleId,
            let sampleTaxMap = taxIDToAccessionsBySample[sampleId],
@@ -1686,7 +1686,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return accessions(for: row.organism, sampleId: sampleId)
     }
 
-    private func accessions(for metric: TaxTriageMetric) -> [String]? {
+    func accessions(for metric: TaxTriageMetric) -> [String]? {
         // A row of a sample reads that sample's maps and no other's (13.66). The maps merged over every loaded
         // sample hold the other samples' accessions, which this sample's BAM and stored lengths do not describe.
         if let sampleId = metric.sample {
@@ -1903,7 +1903,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self, let result = self.lastBlastResult else { return }
             // The request this repeats, with its own sample, accessions, BAM and index (2.12 lane 12.09b).
             let heldSample = Self.sample(owning: self.bamURL, in: self.bamFilesBySample)
-            let last = self.lastBlastRequest ?? (
+            let last = self.blastRequestOfRestoredRow() ?? self.lastBlastRequest ?? (
                 sample: heldSample, accessions: self.accessions(for: result.taxonName, sampleId: heldSample),
                 bamURL: self.bamURL, bamIndexURL: self.bamIndexURL
             )
@@ -2028,7 +2028,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
-            self.resultActions.showSelection(count: 1, extractable: self.hasExtractableResultPath)
+            self.resultActions.showSelection(count: 1, extractable: self.hasExtractableResultPath, blastRow: self.blastSavedSearchRow(for: row))
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
 
@@ -2658,7 +2658,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.updateActionBarForOrganism(
                 name: row?.organism,
                 readCount: row?.reads,
-                uniqueReadCount: row?.uniqueReads
+                uniqueReadCount: row?.uniqueReads, blastRow: row.flatMap { self.blastSavedSearchRow(for: $0) }
             )
 
             // Load BAM alignments for the selected organism.
@@ -2743,15 +2743,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
-        let organism = TaxTriageOrganism(
-            name: row.organism,
-            score: row.tassScore,
-            reads: row.reads,
-            coverage: row.coverage,
-            taxId: row.taxId,
-            rank: row.rank,
-            sample: Self.sample(owning: bamURL, in: bamFilesBySample)
-        )
+        let organism = blastOrganism(for: row)
         let rowAccessions = accessions(for: row)
         forwardBlastVerification(organism, readCount, rowAccessions, bamURL, bamIndexURL)
     }
@@ -2776,16 +2768,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let rowAccessions = accessions(for: metric)
         let ownBamURL = metric.sample.flatMap { bamFilesBySample[$0] }
         let metricBamURL = ownBamURL ?? bamURL
-        // The request names the sample whose BAM goes with it: the metric's own, else the owner of the BAM held now.
-        let organism = TaxTriageOrganism(
-            name: metric.organism,
-            score: metric.tassScore,
-            reads: metric.reads,
-            coverage: metric.coverageBreadth,
-            taxId: metric.taxId,
-            rank: metric.rank,
-            sample: ownBamURL == nil ? Self.sample(owning: metricBamURL, in: bamFilesBySample) : metric.sample
-        )
+        let organism = blastOrganism(for: metric)
         let metricBamIndexURL: URL?
         if let metricBamURL {
             metricBamIndexURL = resolveBamIndex(
@@ -3112,7 +3095,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Action Bar Selection Helper
 
     /// Updates the unified action bar info text from organism selection.
-    private func updateActionBarForOrganism(name: String?, readCount: Int?, uniqueReadCount: Int?) {
+    private func updateActionBarForOrganism(name: String?, readCount: Int?, uniqueReadCount: Int?, blastRow: BlastSavedSearchRow? = nil) {
         if let name, let count = readCount {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -3121,7 +3104,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let uniqueStr = uniqueReadCount.map { formatter.string(from: NSNumber(value: $0)) ?? "\($0)" }
             resultActions.showSelection(
                 count: 1, info: "\(name) \u{2014} \(readStr) reads" + (uniqueStr.map { " (\($0) unique)" } ?? ""),
-                extractable: hasExtractableResultPath
+                extractable: hasExtractableResultPath, blastRow: blastRow
             )
         } else {
             resultActions.showNoSelection(prompt: "Select an organism to view details")

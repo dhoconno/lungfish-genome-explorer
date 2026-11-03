@@ -134,6 +134,20 @@ public final class ClassifierResultActions: NSObject {
     public private(set) var isBlastDrawerOpen = false
     /// The last BLAST result the pane showed, which Run Again repeats.
     public private(set) var lastBlastResult: BlastVerificationResult?
+    /// The file ``lastBlastResult`` was read from, when one holds it.
+    public private(set) var lastBlastRecordURL: URL?
+    /// The row whose saved search the pane shows, nil once a run's own words or result replace it.
+    public private(set) var restoredBlastRow: BlastSavedSearchRow?
+    /// The scan for the selected row's saved search, which tests await.
+    public private(set) var savedBlastRestoreTask: Task<Void, Never>?
+    /// The project whose `blast-verifications` folder a submit plan saves under, as the App knows it. With none, or
+    /// when it gives nil, a row's searches are looked for in the project that holds the row's result.
+    public var savedBlastSearchProject: (@MainActor () -> URL?)? {
+        didSet { scheduleSavedBlastRestore(for: selectedBlastRow) }
+    }
+    private var selectedBlastRow: BlastSavedSearchRow?
+    private var isBlastRunInFlight = false
+    private var blastRunOperationID: UUID?
 
     /// The App opens its extraction dialog for the request.
     public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)?
@@ -162,6 +176,7 @@ public final class ClassifierResultActions: NSObject {
 
     /// Nothing is picked. The bar shows the viewer's own prompt, and the greyed buttons give R1 and R4.
     public func showNoSelection(prompt: String) {
+        scheduleSavedBlastRestore(for: nil)
         bar.updateInfoText(prompt)
         bar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
         bar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
@@ -169,8 +184,16 @@ public final class ClassifierResultActions: NSObject {
 
     /// `count` rows are picked, at least one. One row can be verified with BLAST, and more ask for one (R2).
     /// `info` replaces the count when the viewer has more to say about the row. `extractable` is false when the
-    /// result has nothing to extract from, and `extractReason` then says why.
-    public func showSelection(count: Int, info: String? = nil, extractable: Bool = true, extractReason: String? = nil) {
+    /// result has nothing to extract from, and `extractReason` then says why. `blastRow` names the one row picked, and
+    /// the newest saved search of that row then comes back to the pane.
+    public func showSelection(
+        count: Int,
+        info: String? = nil,
+        extractable: Bool = true,
+        extractReason: String? = nil,
+        blastRow: BlastSavedSearchRow? = nil
+    ) {
+        scheduleSavedBlastRestore(for: count == 1 ? blastRow : nil)
         bar.updateInfoText(info ?? ClassifierActionWords.rowsSelected(count))
         if count == 1 {
             bar.setBlastEnabled(true)
@@ -182,6 +205,7 @@ public final class ClassifierResultActions: NSObject {
 
     /// The viewer shows several samples at once, so BLAST asks for one sample (R3) and there are no rows to extract.
     public func showSeveralSamples(info: String) {
+        scheduleSavedBlastRestore(for: nil)
         bar.updateInfoText(info)
         bar.setBlastEnabled(false, reason: ClassifierActionWords.chooseOneSampleToVerify)
         bar.setExtractEnabled(false)
@@ -199,6 +223,7 @@ public final class ClassifierResultActions: NSObject {
 
     /// Shows a BLAST result in the pane and opens it.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
+        endBlastRun(shownRecord: recordURL)
         lastBlastResult = result
         blastDrawer.showResults(result, recordURL: recordURL)
         setBlastDrawerOpen(true)
@@ -206,14 +231,88 @@ public final class ClassifierResultActions: NSObject {
 
     /// Shows a BLAST run's progress in the pane and opens it.
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+        isBlastRunInFlight = true
+        restoredBlastRow = nil
+        lastBlastRecordURL = nil
         blastDrawer.showLoading(phase: phase, requestId: requestId)
         setBlastDrawerOpen(true)
     }
 
     /// Shows why a BLAST run could not start or failed in the pane and opens it.
     public func showBlastFailure(_ message: String) {
+        endBlastRun(shownRecord: nil)
         blastDrawer.showFailure(message: message)
         setBlastDrawerOpen(true)
+    }
+
+    /// Names the operation that carries the run the pane is waiting for. A Cancel tells the pane nothing, so the run
+    /// counts as running only while its operation is active, and a cancelled run cannot block a saved search.
+    public func trackBlastRun(operationID: UUID) {
+        isBlastRunInFlight = true
+        blastRunOperationID = operationID
+    }
+
+    /// Shows a saved search in the pane and leaves the pane as open or as closed as it is. The record's file comes
+    /// with it, since the pane's table export reads that file.
+    public func restoreBlastResults(_ result: BlastVerificationResult, recordURL: URL, row: BlastSavedSearchRow) {
+        lastBlastResult = result
+        lastBlastRecordURL = recordURL
+        restoredBlastRow = row
+        blastDrawer.showResults(result, recordURL: recordURL)
+    }
+
+    private func endBlastRun(shownRecord recordURL: URL?) {
+        isBlastRunInFlight = false
+        blastRunOperationID = nil
+        restoredBlastRow = nil
+        lastBlastRecordURL = recordURL
+    }
+
+    /// Whether a run of this pane is still running. A run with no operation yet counts, and one whose operation has
+    /// ended without a word to the pane stops counting here.
+    private func blastRunIsActive() -> Bool {
+        guard isBlastRunInFlight else { return false }
+        guard let blastRunOperationID else { return true }
+        if OperationCenter.shared.activeItems.contains(where: { $0.id == blastRunOperationID }) { return true }
+        isBlastRunInFlight = false
+        self.blastRunOperationID = nil
+        return false
+    }
+
+    /// Looks for the newest saved search of `row` off the main actor, as Kraken2's `scheduleSavedBlastVerificationRestore`
+    /// does. Nothing starts while a run is in flight or when the pane already shows this row's search. A result that
+    /// comes back after the selection moved or a run began is dropped, and a row with no saved search leaves the pane.
+    private func scheduleSavedBlastRestore(for row: BlastSavedSearchRow?) {
+        savedBlastRestoreTask?.cancel()
+        savedBlastRestoreTask = nil
+        selectedBlastRow = row
+        guard let row, !blastRunIsActive(), restoredBlastRow != row else { return }
+        let project = savedBlastSearchProject?()
+        savedBlastRestoreTask = Task { @MainActor [weak self] in
+            let saved = await Self.newestSavedSearch(of: row, inProject: project)
+            guard let self,
+                  let saved,
+                  !Task.isCancelled,
+                  self.selectedBlastRow == row,
+                  !self.blastRunIsActive(),
+                  self.restoredBlastRow != row,
+                  self.lastBlastRecordURL != saved.url else {
+                return
+            }
+            self.restoreBlastResults(saved.record.result, recordURL: saved.url, row: row)
+        }
+    }
+
+    @concurrent nonisolated private static func newestSavedSearch(
+        of row: BlastSavedSearchRow,
+        inProject project: URL?
+    ) async -> (record: BlastSubmissionRecord, url: URL)? {
+        guard let project = project ?? BlastVerificationArchive.savedSearchProject(ofResult: row.sourceResultURL) else {
+            return nil
+        }
+        return BlastVerificationArchive.newestSubmission(in: project) { record, url in
+            row.isSource(of: record.lineage, recordAt: url)
+        }
     }
 
     /// Opens the pane when it is closed and closes it when it is open, as the BLAST Results button does.
