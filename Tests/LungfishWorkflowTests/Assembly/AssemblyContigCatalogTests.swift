@@ -150,7 +150,10 @@ final class AssemblyContigCatalogTests: XCTestCase {
         }
     }
 
-    func testZeroLengthContigBuildsRecordAndFormatsEmptyFASTA() async throws {
+    /// A record with a header and no bases has no entry in the index the builder makes from the file, so the catalog lists no
+    /// contig for it. The strip counts the same contigs, since the statistics close a contig only when it has bases (ruling
+    /// BIO-ASSEMBLY-REPLACED, Fix C, and the review of lane REPLACED, question 1).
+    func testAHeaderOnlyRecordIsNotListedAsAContig() async throws {
         let catalog = try await makeFixtureCatalog(
             contigs: [
                 ("empty header", ""),
@@ -162,13 +165,16 @@ final class AssemblyContigCatalogTests: XCTestCase {
         )
 
         let records = try await catalog.records()
-        let fasta = try await catalog.sequenceFASTA(for: "empty", lineWidth: 8)
-        let emptyRecord = try XCTUnwrap(records.last)
 
-        XCTAssertEqual(records.map(\.name), ["beta", "empty"])
-        XCTAssertEqual(emptyRecord.lengthBP, 0)
-        XCTAssertEqual(emptyRecord.gcPercent, 0.0, accuracy: 0.001)
-        XCTAssertEqual(fasta, ">empty header\n")
+        XCTAssertEqual(records.map(\.name), ["beta"])
+        let statistics = AssemblyStatisticsCalculator.compute(fromFASTAString: ">empty header\n>beta middle header\nACGT\n")
+        XCTAssertEqual(statistics.contigCount, records.count, "the strip counts the contigs the table lists")
+        do {
+            _ = try await catalog.sequenceFASTA(for: "empty", lineWidth: 8)
+            XCTFail("a record with no bases is not a contig of the catalog")
+        } catch let error as AssemblyContigCatalogError {
+            guard case .contigNotFound("empty") = error else { return XCTFail("\(error)") }
+        }
     }
 
     func testInitBuildsMissingFASTAIndexForManagedAssemblyOutput() async throws {
