@@ -137,7 +137,7 @@ final class AssemblyContigCatalogTests: XCTestCase {
                 ("alpha secondary", "CCCC"),
             ],
             indexNameTransform: nil,
-            writeIndex: true
+            writeIndex: false
         )
 
         // The catalog builds the index from the contigs file (BIO-ASSEMBLY-REPLACED, Fix C), so the repeated name is in the
