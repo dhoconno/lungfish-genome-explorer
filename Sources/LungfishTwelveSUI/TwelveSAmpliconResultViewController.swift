@@ -275,6 +275,8 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     private var allUnresolvedRows: [TwelveSUnresolvedSequence] = []
     private var unresolvedRows: [TwelveSUnresolvedSequence] = []
     private var unresolvedRowsLoaded = true
+    /// The result tables as they were on disk when this result opened, which the check before an export compares.
+    var heldResultStamp: [String] = []
     /// Pasteboard seam for the copy context menu (overridable in tests).
     private var pasteboard: PasteboardWriting = DefaultPasteboard()
     private let copyContextMenu = NSMenu()
@@ -482,6 +484,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     public func configure(result: TwelveSAmpliconResultBundleData) {
         self.result = result
+        heldResultStamp = Self.resultTableStamp(of: result)
         allTargetRows = result.scientificNameRows
         sampleEntries = result.samples.map {
             TwelveSSampleEntry(id: $0.sampleID, displayName: $0.displayName, exactReads: $0.exactMatchReads)
