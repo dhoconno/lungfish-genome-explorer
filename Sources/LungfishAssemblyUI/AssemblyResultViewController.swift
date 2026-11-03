@@ -781,5 +781,9 @@ extension AssemblyResultViewController {
     func testTriggerBlast() {
         performBlastSelected()
     }
+
+    func testTriggerExport() {
+        performExportSelectedFASTA()
+    }
 }
 #endif

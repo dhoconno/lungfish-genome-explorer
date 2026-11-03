@@ -99,6 +99,32 @@ extension AssemblyResultViewControllerTests {
         XCTAssertTrue(report.body.contains("nothing was sent to NCBI"), report.body)
         XCTAssertTrue(report.details?.contains("contig not found in assembly output") ?? false, "the cause stays in the details")
     }
+
+    @MainActor
+    func testSelectedContigReadFailureShowsWordsAndRunsNothing() async throws {
+        _ = NSApplication.shared
+        let vc = AssemblyResultViewController()
+        _ = vc.view
+        let result = try makeAssemblyResult()
+        try await vc.configureForTesting(result: result)
+        let shown = expectation(description: "the failure words are shown")
+        var failure: FailureReport?
+        var exported = false
+        vc.failurePresenter = { report in
+            failure = report
+            shown.fulfill()
+        }
+        vc.onExportFASTARequested = { _, _ in exported = true }
+        try await vc.testSelectContigs(named: ["contig_7"])
+        try FileManager.default.removeItem(at: result.contigsPath)
+
+        vc.testTriggerExport()
+        await fulfillment(of: [shown], timeout: 5)
+
+        XCTAssertFalse(exported, "nothing is exported when a selected contig cannot be read")
+        let report = try XCTUnwrap(failure, "a failed read shows words")
+        XCTAssertTrue(report.body.contains("could not read"), report.body)
+    }
 }
 
 extension AssemblySavedBlastRestoreTests {
