@@ -80,7 +80,7 @@ Sources/LungfishCore/Bundles/BundleManifest.swift 814
 Sources/LungfishCore/Bundles/Converters/AnnotationConverter.swift 866
 Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
 Sources/LungfishCore/Models/AppSettings.swift 827
-Sources/LungfishCore/Services/Blast/BlastService.swift 1333
+Sources/LungfishCore/Services/Blast/BlastService.swift 1323
 Sources/LungfishCore/Services/NCBI/NCBIService.swift 1921
 Sources/LungfishCore/Storage/PortablePath.swift 1013
 Sources/LungfishCore/Storage/ProjectStore.swift 1568
@@ -128,14 +128,14 @@ Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1008
 Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
-Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3097
+Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3096
 Sources/LungfishNvdUI/NvdResultViewController.swift 3116
 Sources/LungfishOperations/AI/AIAssistantService.swift 901
 Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
-Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4565
+Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4548
 Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift 874
 Sources/LungfishTaxonomyUI/TaxonomyTableView.swift 1582
