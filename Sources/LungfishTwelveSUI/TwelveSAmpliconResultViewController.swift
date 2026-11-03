@@ -1513,14 +1513,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     private func updateActionBar() {
+        scheduleSavedBlastRestore()
         switch mode {
         case .targets:
             actionBar.updateInfoText("\(targetTable.displayedRows.count) of \(totalProjectedTargetRowCount()) target rows")
             actionBar.setBlastEnabled(false, reason: "Switch to Unresolved to BLAST unmatched sequences")
         case .unresolved:
-            let count = selectedUnresolvedRows().count
             actionBar.updateInfoText("\(unresolvedRows.count) unresolved clusters visible")
-            actionBar.setBlastEnabled(count > 0, reason: "No unresolved sequence clusters match the current filters")
+            actionBar.setBlastEnabled(!selectedUnresolvedRows().isEmpty, reason: "No unresolved sequence clusters match the current filters")
         }
     }
 
