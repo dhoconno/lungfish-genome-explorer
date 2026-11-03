@@ -172,8 +172,8 @@ final class AssemblyContigCatalogTests: XCTestCase {
         do {
             _ = try await catalog.sequenceFASTA(for: "empty", lineWidth: 8)
             XCTFail("a record with no bases is not a contig of the catalog")
-        } catch let error as AssemblyContigCatalogError {
-            guard case .contigNotFound("empty") = error else { return XCTFail("\(error)") }
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Contig not found: empty")
         }
     }
 
