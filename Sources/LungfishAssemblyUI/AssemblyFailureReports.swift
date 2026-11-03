@@ -44,4 +44,14 @@ enum AssemblyFailureReports {
             underlying: error
         )
     }
+
+    /// The result's contigs could not be opened, so the table is empty (review of lane REPLACED, question 2).
+    static func contigsNotOpened(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Open the assembly contigs",
+            whatHappened: "Lungfish could not read the contigs file of this assembly, so the table is empty and no contig can be selected.",
+            nextStep: "Check that the contigs file is still in the assembly folder and that every contig in it has its own name, then select another item in the sidebar and open this assembly again. The details say what could not be read.",
+            underlying: error
+        )
+    }
 }

@@ -676,7 +676,13 @@ extension AssemblyResultViewController {
         loadGeneration += 1
         let generation = loadGeneration
         loadTask = Task { [weak self] in
-            try? await self?.load(result: result, generation: generation)
+            do {
+                try await self?.load(result: result, generation: generation)
+            } catch {
+                // A load that a later configure replaced or cancelled is not a failure. One that failed leaves the table empty.
+                guard let self, !Task.isCancelled, generation == self.loadGeneration else { return }
+                self.presentFailure(AssemblyFailureReports.contigsNotOpened(error))
+            }
         }
     }
 }
