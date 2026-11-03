@@ -152,9 +152,30 @@ class PatternKillHookTests(unittest.TestCase):
             with self.subTest(label=label):
                 self.assert_silent(stdin_text)
 
-    def test_registration_runs_this_script_and_holds_nothing_else(self):
+    def test_permissions_deny_the_forbidden_forms_and_cannot_widen_themselves(self):
+        # O126 added the allowlist. A rule that opens these forms, or lets a session edit this file, undoes the deny.
+        permissions = json.loads(SETTINGS.read_text(encoding='utf-8'))['permissions']
+        self.assertEqual(sorted(permissions), ['allow', 'deny'])
+        for rule in ('Bash(git -C *)', 'Bash(pkill *)', 'Bash(killall *)', 'Bash(git push --force*)',
+                     'Bash(git push -f *)', 'Bash(git push * --force*)', 'Bash(git push * -f *)',
+                     'Bash(git push * +*)', 'Bash(git merge --no-ff *)'):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, permissions['deny'])
+        for rule in permissions['allow']:
+            with self.subTest(rule=rule):
+                self.assertNotIn(rule, permissions['deny'])
+                self.assertNotIn('.claude/settings', rule)
+                self.assertFalse(rule.startswith('Edit(.claude') or rule in ('Edit', 'Write', 'Bash', 'Bash(*)'))
+        removals = [rule for rule in permissions['allow'] if rule.startswith('Bash(rm ')]
+        self.assertEqual(removals, [
+            'Bash(rm -rf /Users/dho/Documents/GitHub/lungfish-genome-explorer/.claude/worktrees/*/.build)',
+            'Bash(rm -rf /Users/dho/LGE-GUI-Walk/*)',
+            'Bash(rm -rf /private/var/tmp/lungfish-smoke-dd*)',
+        ])
+
+    def test_registration_runs_this_script_and_holds_no_other_hook(self):
         settings = json.loads(SETTINGS.read_text(encoding='utf-8'))
-        self.assertEqual(list(settings), ['hooks'])
+        self.assertEqual(sorted(settings), ['hooks', 'permissions'])
         self.assertEqual(list(settings['hooks']), ['PreToolUse'])
         entries = settings['hooks']['PreToolUse']
         self.assertEqual(len(entries), 1)

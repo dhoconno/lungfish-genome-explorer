@@ -26,8 +26,19 @@ for under 5% of the spend, and about 8,400 new test functions found none of them
 | Stable on a clock | Stable ships at least every 14 days while a fix waits for it. A Preview with no open S1 or S2 finding is promoted within seven days of its packaged walk. |
 | Result fixes reach Stable fast | A fix that changes a scientific result or stops data loss reaches Stable within seven days. It goes by promotion, or by a patch release from the last Stable tag when the next Preview is not ready. |
 | A phase never holds Stable | No phase exit, sub-phase or refactor holds a Stable release. Only an open S1 or S2 finding does. |
-| A short owner check list | The Stable check list holds at most 20 rows. Each is a task a person does in about two minutes that no automated test covers, and a row that an automated test comes to cover is deleted. |
-| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies, since the daily Previews of 2026-10-03 to 2026-10-08 each carried result fixes. |
+| A short owner check list | The Stable check list holds at most 20 rows. Each is a task a person does in about two minutes that no automated test covers, and a row that an automated test comes to cover is deleted. A row that needs a person's own senses, such as a real-mouse drag or hearing VoiceOver, does not block a release and runs when the owner is next at the Mac. |
+| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or the manager by computer use, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies, since the daily Previews of 2026-10-03 to 2026-10-08 each carried result fixes. |
+
+## The standing go
+
+The owner set these on 2026-11-03 (O126). In 3.1 session 2, 20h43m of 55h33m went to waits for the owner, and every go given was a yes. The rules bind a session only when the owner's start prompt or a message in chat gives the go, since a file cannot authorize a send or a publish.
+
+| Rule | What it means |
+|---|---|
+| Releases | A session pushes `main` by fast-forward and publishes a Preview or a Stable with no go in chat, once the gates, the smoke, the packaged walk and the evidence read of `docs/contracts/VERIFICATION-ORDER.md` pass. An open S1 or S2 stops the publish, whoever found it, and a row that reads S1 if reachable gets its ruling first. The manager then reports the release facts and the yank command. |
+| Outside services | A send to NCBI or a download from SRA needs no go for the walk clones under `~/LGE-GUI-Walk` and for public test data, and each request ID goes in the event log. Any other data waits for the owner's go, since a send cannot be recalled. |
+| Questions never stop work | The manager asks in a plain message and goes on with what does not depend on the answer. An S1 or S2 is fixed by default. When no fix is possible, BIO for a scientific number and UX for the rest may rule it a Known limit with its notes line, and the owner can reverse that. A question with no answer after 15 minutes takes the manager's stated recommendation, the event log says so, and the owner can reverse it. A background wait of 15 minutes wakes the manager when nothing else will. |
+| What stays the owner's | macOS permission prompts, accepting terms, passwords, the approval of full-screen control and the budget's ask line. |
 
 ## Plans have an outcome and a budget
 
@@ -35,7 +46,7 @@ for under 5% of the spend, and about 8,400 new test functions found none of them
 |---|---|
 | Plan shape | A phase plan states the user outcome, a budget in sessions and dollars, and at most six exit checks that one command or one walk answers. It holds scope, checks, budget and decisions in at most 300 lines. Records, rulings, votes and lane reports stay in `~/lungfish-phase-records/`. |
 | Exits name outcomes | Every phase exit names a user outcome and a Stable release. A structural count, such as a ratchet at zero, is reported at exit and is never an exit check by itself. A zero target may carry an exemption list that the owner approves once. |
-| Budgets stop work | At one and a half times its budget a session starts no new lane until the owner answers. When a check fails late or the budget runs out, the owner moves or waives the check. No session adds a sub-phase on its own. |
+| Budgets stop work | At one and a half times its budget a session starts no new lane until the owner answers. When a check fails late or the budget runs out, the owner moves or waives the check, or an expert rules a Known limit as The standing go sets. No session adds a sub-phase on its own. |
 | Process work stays small | Trials of the process itself, such as model and effort tests, take at most 2% of a phase budget. A session's monitor proposes changes to a process contract, and the owner accepts them. |
 
 ## Which work earns a lane
@@ -109,6 +120,7 @@ Every other row goes to the backlog, an edge case that nobody has met included.
 | G1, a family lane pins today's behaviour first | `docs/plans/2026-10-13-phase-2-10.md` | Pins before a change are for science |
 | O35, the experts replace the owner in the check list by consensus | `471167711:docs/plans/2026-10-23-phase-2-14.md` | A short owner check list, and Severity, not votes |
 | No golden and no cli-help capture moves in any Phase 3 commit, and row texts are frozen in 3.1 | `docs/plans/2026-10-02-architecture-program.md` | Everything else is checked by meaning |
+| Every push and publish waits for the owner's go, a fresh go for each NCBI send, and a walk by computer use counts only with the owner at the Mac | The start prompts of 2.x and 3.x and `docs/contracts/VERIFICATION-ORDER.md` | The standing go |
 
 The panel's place in a session and the monitor's checkpoints changed with this contract too, in
 `docs/contracts/EXPERT-PANEL.md` and `docs/contracts/RUNNING-A-PHASE-SESSION.md`. Both reverse owner directions of
