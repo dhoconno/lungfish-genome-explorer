@@ -48,6 +48,91 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         }
     }
 
+    /// Ruling BIO-VERIFIED-EXPORT. Verdict says only that an alignment passed the thresholds, so a read that contradicts
+    /// the row reads `verified`. Taxon Check says what the read means for the row, by the rule of the counts behind the
+    /// badge. Each read ID carries one word, and the read IDs per word equal the result's counts.
+    func testTaxonCheckColumnMatchesTheCountsBehindTheBadge() throws {
+        let result = taxonCheckResult()
+        XCTAssertEqual(
+            [result.supportingCount, result.contradictingCount, result.inconclusiveCount], [1, 2, 2], "the fixture's counts"
+        )
+        let table = BlastVerificationTableExport.tableContent(result: result, separator: "\t")
+            .split(separator: "\n")
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        let header = try XCTUnwrap(table.first)
+        XCTAssertEqual(Array(header.suffix(2)), ["Queried Taxon", "Taxon Check"])
+        let verdictColumn = try XCTUnwrap(header.firstIndex(of: "Verdict"))
+        let taxonColumn = try XCTUnwrap(header.firstIndex(of: "Queried Taxon"))
+        let checkColumn = try XCTUnwrap(header.firstIndex(of: "Taxon Check"))
+        let rows = Array(table.dropFirst())
+        XCTAssertTrue(rows.allSatisfy { $0.count == header.count }, "every row holds every column")
+        XCTAssertEqual(Set(rows.map { $0[taxonColumn] }), [result.taxonName])
+
+        let contradicting = rows.filter { $0[0] == "read_contradicting" }
+        XCTAssertEqual(contradicting.count, 2, "one row per hit")
+        for row in contradicting {
+            XCTAssertEqual(row[verdictColumn], "verified")
+            XCTAssertEqual(row[checkColumn], "contradicting")
+        }
+
+        let wordsByRead = Dictionary(grouping: rows) { $0[0] }.mapValues { Set($0.map { $0[checkColumn] }) }
+        XCTAssertEqual(wordsByRead, [
+            "read_supporting": ["supporting"],
+            "read_contradicting": ["contradicting"],
+            "pair_conflicting": ["inconclusive"],
+            "pair_one_mate_no_hit": ["contradicting"],
+            "read_no_hit": ["inconclusive"],
+        ])
+        func readCount(_ word: String) -> Int { wordsByRead.values.filter { $0 == [word] }.count }
+        XCTAssertEqual(readCount("supporting"), result.supportingCount)
+        XCTAssertEqual(readCount("contradicting"), result.contradictingCount)
+        XCTAssertEqual(readCount("inconclusive"), result.inconclusiveCount)
+
+        func verdicts(_ id: String) -> [String] { rows.filter { $0[0] == id }.map { $0[verdictColumn] } }
+        XCTAssertEqual(verdicts("pair_conflicting"), ["ambiguous", "verified"], "both mates, deciding mate first")
+        XCTAssertEqual(verdicts("pair_one_mate_no_hit"), ["verified", "unverified"], "both mates, deciding mate first")
+
+        let csvLines = BlastVerificationTableExport.tableContent(result: result, separator: ",").split(separator: "\n")
+        XCTAssertTrue(csvLines[1].hasSuffix(",\"\(result.taxonName)\",supporting"), "the quoted taxon, \(csvLines[1])")
+    }
+
+    /// One supporting read, one contradicting read, one pair with conflicting mates, one pair whose second mate has no
+    /// hit (the shape of the walk's row10b-hiv.tsv) and one read with no hit. A taxon name with a comma tests the quoting.
+    private func taxonCheckResult() -> BlastVerificationResult {
+        func hit(_ accession: String, rank: Int = 1) -> BlastHitSummary {
+            BlastHitSummary(
+                rank: rank, accession: accession, organism: "Organism of \(accession)", taxId: nil,
+                percentIdentity: 99, queryCoverage: 98, eValue: 1e-40, bitScore: 200, alignmentLength: 150
+            )
+        }
+        return BlastVerificationResult(
+            taxonName: "Human immunodeficiency virus 1, group M",
+            taxId: 11676,
+            readResults: [
+                BlastReadResult(id: "read_supporting", verdict: .verified, topHits: [hit("SUPPORT.1")], matchesQueriedTaxon: true),
+                BlastReadResult(
+                    id: "read_contradicting", verdict: .verified, topHits: [hit("VECTOR.1"), hit("VECTOR.2", rank: 2)]
+                ),
+                // `BlastService.fragmentRows`: mates that disagree on the taxon make the fragment ambiguous, and the
+                // other mate keeps its own verdict.
+                BlastReadResult(
+                    id: "pair_conflicting", verdict: .ambiguous, topHits: [hit("SUPPORT.2")], hasLCADisagreement: true,
+                    otherMates: [BlastReadResult(id: "pair_conflicting", verdict: .verified, topHits: [hit("VECTOR.3")])]
+                ),
+                BlastReadResult(
+                    id: "pair_one_mate_no_hit", verdict: .verified, topHits: [hit("VECTOR.4")],
+                    otherMates: [BlastReadResult(id: "pair_one_mate_no_hit", verdict: .unverified)]
+                ),
+                BlastReadResult(id: "read_no_hit", verdict: .unverified),
+            ],
+            submittedAt: Date(timeIntervalSince1970: 1_790_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_790_000_060),
+            rid: "PIN-RID",
+            blastProgram: "megablast",
+            database: "core_nt"
+        )
+    }
+
     // MARK: - Taxonomy fixture
 
     /// A tree with a root, a taxon whose name holds a comma and quotes, a plain taxon and an unclassified node.
