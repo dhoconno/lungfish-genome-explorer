@@ -405,7 +405,7 @@ public final class AssemblyResultViewController: NSViewController {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs)
+                try await self.materializationAction.copyFASTA(result: result, selectedContigs: selectedContigs, stillCurrent: { self.contigsAreTheOnesOpened() })
             } catch {
                 NSSound.beep()
                 self.presentFailure(AssemblyFailureReports.copyContigFASTA(error))

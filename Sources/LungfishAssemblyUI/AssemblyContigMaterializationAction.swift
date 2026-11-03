@@ -34,8 +34,11 @@ final class AssemblyContigMaterializationAction {
         try await LungfishCLIRunner.run(arguments: arguments)
     }
 
-    func copyFASTA(result: AssemblyResult, selectedContigs: [String]) async throws {
+    /// `stillCurrent` runs after the CLI answered and before the pasteboard is written, so a caller can refuse bytes that were
+    /// read after their source changed.
+    func copyFASTA(result: AssemblyResult, selectedContigs: [String], stillCurrent: () -> Bool = { true }) async throws {
         let output = try await runner(cliArguments(result: result, selectedContigs: selectedContigs))
+        guard stillCurrent() else { return }
         pasteboard.setString(output.stdout)
     }
 
