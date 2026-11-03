@@ -16,7 +16,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 336 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 337 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -33,7 +33,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 79 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 80 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -464,6 +464,7 @@ None.
 - `BlastRateLimitConfiguration` struct, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
 - `BlastReadResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastReadSource` struct, `Sources/LungfishCore/Services/Blast/BlastService+Sources.swift`
+- `BlastSavedSearchRow` struct, `Sources/LungfishCore/Services/Blast/BlastSavedSearchRow.swift`
 - `BlastSearchResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastService` actor, `Sources/LungfishCore/Services/Blast/BlastService.swift`
 - `BlastServiceError` enum, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
@@ -3687,6 +3688,7 @@ None.
 - `ProvenanceCompatSweep` enum, `Tests/Support/LungfishTestSupport/ProvenanceCompatSweep.swift`
 - `ProvenanceCompatSweepReport` struct, `Tests/Support/LungfishTestSupport/ProvenanceCompatSweep.swift`
 - `ReadSetFixtures` struct, `Tests/Support/LungfishTestSupport/ReadSetFixtures.swift`
+- `SavedBlastSearchProject` struct, `Tests/Support/LungfishTestSupport/SavedBlastSearchFixture.swift`
 - `SRAArchivesStandIn` enum, `Tests/Support/LungfishTestSupport/SRAArchivesStandIn.swift`
 - `SRAScriptedArchives` class, `Tests/Support/LungfishTestSupport/SRAScriptedArchives.swift`
 - `SRAToolkitRecordedRunner` class, `Tests/Support/LungfishTestSupport/SRAToolkitRecordedRunner.swift`
