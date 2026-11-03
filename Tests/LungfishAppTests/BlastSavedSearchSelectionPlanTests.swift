@@ -41,6 +41,7 @@ final class BlastSavedSearchSelectionPlanTests: XCTestCase {
             sourceLabel: "2 contigs", taxId: nil,
             fastaRecords: [">contig_9 second header\nATAT\n", ">contig_7 annotated header\nAACC\n"], resultURL: result
         )
+        XCTAssertEqual(plan.request.contig, "contig_9,contig_7", "the record keeps the contigs in the order they were sent")
         let recordURL = plan.request.outputURL.appendingPathComponent(BlastSubmissionRecord.recordFileName)
 
         let key = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(contigs: ["contig_7", "contig_9"], resultURL: result))
