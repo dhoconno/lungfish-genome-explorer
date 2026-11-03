@@ -169,6 +169,11 @@ extension ViewerViewController {
                     guard OperationCenter.shared.items.first(where: { $0.id == opID })?.state == .running else {
                         throw CancellationError()
                     }
+                    // The export read the bundle on disk when it ran, so a bundle replaced after this viewer opened
+                    // gives the new bundle's sequences under the same IDs. Nothing is sent unless the query is the rows.
+                    guard Self.twelveSBlastQuery(sequences, isHeldRows: heldRows) else {
+                        throw TwelveSBlastQuery.ResultChangedOnDisk()
+                    }
                     let plan = try Self.twelveSUnresolvedBlastSubmitPlan(
                         sequences: sequences, bundleURL: bundleURL, projectURL: projectURL
                     )
@@ -218,6 +223,20 @@ extension ViewerViewController {
         )
     }
 
+    /// Whether a prepared query is exactly the held rows, each ID with its sequence, in any order. A held row with
+    /// no sequence is left out, since the export writes it and the FASTA reader drops it, which also trims the
+    /// sequence it keeps. The case of a sequence and its letters are compared as they are.
+    nonisolated static func twelveSBlastQuery(
+        _ query: [(id: String, sequence: String)], isHeldRows heldRows: [TwelveSUnresolvedSequence]
+    ) -> Bool {
+        let sent = query.map { BlastSavedSearchRow.QuerySequence(id: $0.id, sequence: $0.sequence) }
+        let held = heldRows.compactMap { row -> BlastSavedSearchRow.QuerySequence? in
+            let sequence = row.sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+            return sequence.isEmpty ? nil : BlastSavedSearchRow.QuerySequence(id: row.sequenceID, sequence: sequence)
+        }
+        return sent.sorted() == held.sorted()
+    }
+
     /// The query a 12S unresolved-sequence BLAST sends, prepared off the main actor (2.12 lane 12.09).
     enum TwelveSBlastQuery {
         /// The preparation a BLAST runs, ``prepare`` or a test's stand-in. It runs the export `arguments` name,
@@ -226,6 +245,14 @@ extension ViewerViewController {
         typealias Preparer = @Sendable (
             _ arguments: [String], _ exportURL: URL, _ cancellation: LungfishCLIRunner.CancellationHandle
         ) async throws -> [(id: String, sequence: String)]
+
+        /// The query the export wrote is not the rows on screen, which happens when another run replaced the 12S
+        /// result on disk after the viewer opened it. The row fails with these words and nothing is sent.
+        struct ResultChangedOnDisk: LocalizedError {
+            var errorDescription: String? {
+                "This 12S result changed on disk after it opened, so the rows on screen are not the sequences in the result. Nothing was sent to NCBI. Select another item in the sidebar, select this result again, and run BLAST again."
+            }
+        }
 
         /// Runs `lungfish-cli fastq 12s-export-unresolved`, checks that its provenance names the FASTA and reads
         /// the sequences, as the in-process route does. The staging folder is removed when the preparation ends.
@@ -258,7 +285,7 @@ extension ViewerViewController {
     /// `lungfish-cli fastq 12s-export-unresolved` command it is, the step that
     /// makes the query. `cliCommand` is the `lungfish-cli blast submit` command
     /// that runs the search (``BlastSubmitPlan/cliCommand``), nil on the row
-    /// ``launchTwelveSUnresolvedBlastSubmit(bundleURL:exportURL:arguments:controller:drawer:runner:prepare:)``
+    /// ``launchTwelveSUnresolvedBlastSubmit(bundleURL:exportURL:arguments:heldRows:controller:drawer:runner:prepare:)``
     /// begins before the query exists.
     @discardableResult
     static func beginTwelveSUnresolvedBlastOperation(
