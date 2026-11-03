@@ -54,7 +54,7 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
     func testTaxonCheckColumnMatchesTheCountsBehindTheBadge() throws {
         let result = taxonCheckResult()
         XCTAssertEqual(
-            [result.supportingCount, result.contradictingCount, result.inconclusiveCount], [1, 2, 2], "the fixture's counts"
+            [result.supportingCount, result.contradictingCount, result.inconclusiveCount], [1, 2, 5], "the fixture's counts"
         )
         let table = BlastVerificationTableExport.tableContent(result: result, separator: "\t")
             .split(separator: "\n")
@@ -82,6 +82,9 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             "pair_conflicting": ["inconclusive"],
             "pair_one_mate_no_hit": ["contradicting"],
             "read_no_hit": ["inconclusive"],
+            "read_ambiguous_in_clade": ["inconclusive"],
+            "read_error": ["inconclusive"],
+            "pair_no_hit": ["inconclusive"],
         ])
         func readCount(_ word: String) -> Int { wordsByRead.values.filter { $0 == [word] }.count }
         XCTAssertEqual(readCount("supporting"), result.supportingCount)
@@ -97,7 +100,9 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
     }
 
     /// One supporting read, one contradicting read, one pair with conflicting mates, one pair whose second mate has no
-    /// hit (the shape of the walk's row10b-hiv.tsv) and one read with no hit. A taxon name with a comma tests the quoting.
+    /// hit (the shape of the walk's row10b-hiv.tsv) and one read with no hit. Then three kinds the counts call
+    /// inconclusive whatever their match says: an ambiguous read in the clade, an error and a pair with no hit on either
+    /// mate. A taxon name with a comma tests the quoting.
     private func taxonCheckResult() -> BlastVerificationResult {
         func hit(_ accession: String, rank: Int = 1) -> BlastHitSummary {
             BlastHitSummary(
@@ -124,6 +129,16 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
                     otherMates: [BlastReadResult(id: "pair_one_mate_no_hit", verdict: .unverified)]
                 ),
                 BlastReadResult(id: "read_no_hit", verdict: .unverified),
+                // `assignVerdict` sets the match from the top hit whatever the verdict, so a read below the thresholds
+                // can sit in the clade.
+                BlastReadResult(id: "read_ambiguous_in_clade", verdict: .ambiguous, topHits: [hit("SUPPORT.3")], matchesQueriedTaxon: true),
+                // A query NCBI returned no usable entry for.
+                BlastReadResult(id: "read_error", verdict: .error, errorMessage: "NCBI returned no result for this read"),
+                // `BlastService.fragmentRows`: a no-hit mate decides only when no mate has a hit.
+                BlastReadResult(
+                    id: "pair_no_hit", verdict: .unverified,
+                    otherMates: [BlastReadResult(id: "pair_no_hit", verdict: .unverified)]
+                ),
             ],
             submittedAt: Date(timeIntervalSince1970: 1_790_000_000),
             completedAt: Date(timeIntervalSince1970: 1_790_000_060),
