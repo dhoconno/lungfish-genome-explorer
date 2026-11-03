@@ -217,6 +217,128 @@ final class BlastExportTableCommandTests: XCTestCase {
         XCTAssertEqual(BlastCommand.ExportTableSubcommand.configuration.commandName, BlastVerificationTableExport.commandPath.last)
     }
 
+    // MARK: - Whether the search asked about a taxon (BIO review of EXPORT-CHECK, B-1)
+
+    /// A contig or sequence BLAST records tax ID 0 and no clade, so it asked no taxon question, and the drawer shows no
+    /// badge for it. Its verified reads must not read `contradicting`, and its label, often a file name, is not a
+    /// queried taxon. The saved file decides this, in both of the leaf's forms.
+    func testTaxonCheckSaysNoTaxonWasQueriedForASequenceBlast() throws {
+        let result = Self.taxIdZeroResult(taxonName: "reads.fasta")
+        let request = BlastVerificationRequest(
+            taxonName: "reads.fasta", taxId: 0, sequences: [(id: "read_in_clade", sequence: "ACGTACGTAC")],
+            database: BlastDatabaseID.coreNT.rawValue
+        )
+        let archive = try BlastVerificationArchive.save(
+            result, request: nil, in: try newFolder(), toolName: "lungfish-cli", toolKind: "cli"
+        )
+        for recordURL in [try writeSubmitRecord(request: request, result: result), archive] {
+            let rows = try exportedRows(of: recordURL)
+            XCTAssertEqual(rows.count, 3, recordURL.lastPathComponent)
+            XCTAssertEqual(rows.first?["Verdict"], "verified", recordURL.lastPathComponent)
+            XCTAssertEqual(rows.compactMap { $0["Queried Taxon"] }, ["", "", ""], recordURL.lastPathComponent)
+            XCTAssertEqual(
+                rows.compactMap { $0["Taxon Check"] },
+                Array(repeating: "no taxon queried", count: 3),
+                recordURL.lastPathComponent
+            )
+        }
+    }
+
+    /// EsViritu builds every request with tax ID 0 and puts its question in the clade, and TaxTriage and NVD can too. A
+    /// rule on the tax ID alone would call those rows unqueried. A clade that holds an ID or a name is a claim
+    /// (`judgesAClaim` in `BlastService`), in both of the leaf's forms.
+    func testTaxonCheckStaysForAResultWithTaxIdZeroAndAClade() throws {
+        let result = Self.taxIdZeroResult(taxonName: "Test coronavirus")
+        let clades: [(ids: Set<Int>, names: [String])] = [([1001, 1002], []), ([], ["Test coronavirus"])]
+        for clade in clades {
+            let request = BlastVerificationRequest(
+                taxonName: "Test coronavirus", taxId: 0, sequences: [(id: "read_in_clade", sequence: "ACGTACGTAC")],
+                database: BlastDatabaseID.coreNT.rawValue, entrezQuery: nil,
+                acceptedTaxIds: clade.ids, acceptedTaxonNames: clade.names
+            )
+            let archive = try BlastVerificationArchive.save(
+                result, request: request, in: try newFolder(), toolName: "lungfish-cli", toolKind: "cli"
+            )
+            for recordURL in [try writeSubmitRecord(request: request, result: result), archive] {
+                let rows = try exportedRows(of: recordURL)
+                XCTAssertEqual(
+                    rows.compactMap { $0["Queried Taxon"] },
+                    Array(repeating: "Test coronavirus", count: 3),
+                    recordURL.lastPathComponent
+                )
+                XCTAssertEqual(
+                    rows.compactMap { $0["Taxon Check"] },
+                    ["supporting", "contradicting", "inconclusive"],
+                    recordURL.lastPathComponent
+                )
+            }
+        }
+    }
+
+    /// A tax ID other than 0 names a taxon with or without a clade. An archive that saved no request holds only that,
+    /// and `blast submit --taxid` records the tax ID "and used to judge hits", as its help says.
+    func testTaxonCheckStaysForATaxIdWithNoClade() throws {
+        for recordURL in [try XCTUnwrap(archiveFile), try XCTUnwrap(submitRecord)] {
+            let rows = try exportedRows(of: recordURL)
+            XCTAssertEqual(rows.first?["Queried Taxon"], "Escherichia coli", recordURL.lastPathComponent)
+            XCTAssertEqual(rows.first?["Taxon Check"], "supporting", recordURL.lastPathComponent)
+        }
+    }
+
+    /// Three reads under tax ID 0, with a significant hit that matches, a significant hit that does not and no hit.
+    private static func taxIdZeroResult(taxonName: String) -> BlastVerificationResult {
+        func hit(_ accession: String) -> BlastHitSummary {
+            BlastHitSummary(
+                rank: 1, accession: accession, organism: "Organism of \(accession)", taxId: nil,
+                percentIdentity: 99, queryCoverage: 98, eValue: 1e-40, bitScore: 200, alignmentLength: 150
+            )
+        }
+        return BlastVerificationResult(
+            taxonName: taxonName,
+            taxId: 0,
+            readResults: [
+                BlastReadResult(id: "read_in_clade", verdict: .verified, topHits: [hit("IN.1")], matchesQueriedTaxon: true),
+                BlastReadResult(id: "read_outside", verdict: .verified, topHits: [hit("OUT.1")]),
+                BlastReadResult(id: "read_no_hit", verdict: .unverified),
+            ],
+            submittedAt: Date(timeIntervalSince1970: 1_790_000_000),
+            completedAt: Date(timeIntervalSince1970: 1_790_000_060),
+            rid: "PIN-RID",
+            blastProgram: "megablast",
+            database: "core_nt"
+        )
+    }
+
+    private func newFolder() throws -> URL {
+        let url = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeSubmitRecord(request: BlastVerificationRequest, result: BlastVerificationResult) throws -> URL {
+        let url = try newFolder().appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        let record = BlastSubmissionRecord(
+            savedAt: Date(timeIntervalSince1970: 1_790_000_060),
+            query: .init(fileName: BlastSubmissionRecord.queryFileName, sha256: String(repeating: "0", count: 64), sequenceCount: 3),
+            lineage: .init(),
+            search: .init(request),
+            result: result
+        )
+        try BlastSubmissionRecord.encoder.encode(record).write(to: url)
+        return url
+    }
+
+    /// The data rows the leaf writes for a saved file, each keyed by the header.
+    private func exportedRows(of recordURL: URL) throws -> [[String: String]] {
+        let output = try newFolder().appendingPathComponent("hits.tsv")
+        _ = try command(leafArguments(recordURL, output: output)).export()
+        let table = try String(contentsOf: output, encoding: .utf8)
+            .split(separator: "\n")
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        let header = try XCTUnwrap(table.first)
+        return table.dropFirst().map { Dictionary(uniqueKeysWithValues: zip(header, $0)) }
+    }
+
     func testBlastTableLeafRefusesAnOptionItDoesNotTake() {
         let output = folder.appendingPathComponent("refuse.tsv")
         XCTAssertThrowsError(try command(leafArguments(submitRecord, output: output, extra: ["--separator", "tsv"])))
