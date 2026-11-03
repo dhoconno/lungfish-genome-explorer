@@ -43,7 +43,10 @@ extension BlastCommand {
         @Option(name: .customLong("name"), help: "Label of the search in the result (default: the query's file name)")
         var label: String?
 
-        @Option(name: .customLong("taxid"), help: "Taxon the sequences were assigned to, recorded and used to judge hits")
+        @Option(
+            name: .customLong("taxid"),
+            help: "Taxon the sequences were assigned to, recorded. --accepted-taxid and --accepted-name judge hits, or else the --name label"
+        )
         var taxId: Int?
 
         @Option(name: .customLong("contig"), help: "Contig the sequences are, or came from, recorded")

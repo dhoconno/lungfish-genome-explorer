@@ -13,8 +13,9 @@ OPTIONS:
                           blast-result.json and its provenance
   --name <name>           Label of the search in the result (default: the
                           query's file name)
-  --taxid <taxid>         Taxon the sequences were assigned to, recorded and
-                          used to judge hits
+  --taxid <taxid>         Taxon the sequences were assigned to, recorded.
+                          --accepted-taxid and --accepted-name judge hits, or
+                          else the --name label
   --contig <contig>       Contig the sequences are, or came from, recorded
   --source-result <source-result>
                           Result folder the sequences came from, recorded
