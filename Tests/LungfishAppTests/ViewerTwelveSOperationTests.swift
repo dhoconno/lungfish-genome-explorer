@@ -20,9 +20,11 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCLI
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
+@testable import LungfishTwelveSUI
 
 @MainActor
 final class ViewerTwelveSOperationTests: XCTestCase {
@@ -192,7 +194,7 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         let known = Set(OperationCenter.shared.items.map(\.id))
 
         let task = viewer.launchTwelveSUnresolvedBlastSubmit(
-            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), controller: nil,
+            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), heldRows: Self.heldRows, controller: nil,
             drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
             prepare: { _, _, _ in try await gate.prepare() }
         )
@@ -235,7 +237,7 @@ final class ViewerTwelveSOperationTests: XCTestCase {
 
         let launched = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(presenter) {
             viewer.launchTwelveSUnresolvedBlastSubmit(
-                bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), controller: nil,
+                bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), heldRows: Self.heldRows, controller: nil,
                 drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
                 prepare: { arguments, _, cancellation in
                     _ = try await LungfishCLIRunner.run(
@@ -283,7 +285,7 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         let known = Set(OperationCenter.shared.items.map(\.id))
 
         let launched = viewer.launchTwelveSUnresolvedBlastSubmit(
-            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), controller: nil,
+            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(), heldRows: Self.heldRows, controller: nil,
             drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
             prepare: { _, _, _ in throw BlastServiceError.noSequences }
         )
@@ -316,7 +318,7 @@ final class ViewerTwelveSOperationTests: XCTestCase {
 
         let launched = AppDelegate.NoProjectPresenterSeam.$presenter.withValue(presenter) {
             viewer.launchTwelveSUnresolvedBlastSubmit(
-                bundleURL: bundle, exportURL: exportURL, arguments: makeArguments(), controller: nil,
+                bundleURL: bundle, exportURL: exportURL, arguments: makeArguments(), heldRows: Self.heldRows, controller: nil,
                 prepare: { _, _, _ in [] }
             )
         }
@@ -329,6 +331,110 @@ final class ViewerTwelveSOperationTests: XCTestCase {
         XCTAssertThrowsError(
             try ViewerViewController.twelveSUnresolvedBlastSubmitPlan(sequences: Self.sequences, bundleURL: bundle, projectURL: nil)
         ) { XCTAssertEqual($0 as? BlastSubmitPlanError, .noProject) }
+    }
+
+    // MARK: - A result replaced on disk (STALE12S, ruling BIO-12S-STALE-EXPORT, Fix A)
+
+    /// Nothing goes to NCBI unless the sequences the export wrote are the rows the viewer holds. The export reads
+    /// the bundle on disk when it runs, and a bundle another run replaced gives another sequence under the same ID.
+    func testAQueryThatIsNotTheRowsOnScreenFailsTheRowAndSendsNothing() async throws {
+        let fixture = try makeFixture()
+        let spy = DrawerSpy()
+        let viewer = ViewerViewController()
+        let known = Set(OperationCenter.shared.items.map(\.id))
+
+        let launched = viewer.launchTwelveSUnresolvedBlastSubmit(
+            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(),
+            heldRows: [Self.heldRow("unresolved_1", "ACGT")], controller: nil,
+            drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
+            prepare: { _, _, _ in [(id: "unresolved_1", sequence: "TTTT")] }
+        )
+        let task = try XCTUnwrap(launched)
+        await task.value
+
+        let row = try XCTUnwrap(newRow(since: known), "the refusal reaches the Operations panel")
+        defer {
+            OperationCenter.shared.cancel(id: row.id)
+            OperationCenter.shared.clearItem(id: row.id)
+        }
+        let words = row.errorMessage ?? ""
+        XCTAssertEqual(row.state, .failed)
+        XCTAssertTrue(words.contains("changed on disk"), "the row says why: \(words)")
+        XCTAssertTrue(words.contains("Nothing was sent to NCBI"), words)
+        XCTAssertEqual(row.detail, words)
+        XCTAssertNil(row.cliCommand, "no plan was made, so the row never took a blast submit command")
+        XCTAssertEqual(spy.failures, [words], "the drawer shows the same words once")
+        XCTAssertEqual(spy.results.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.leaf.started.path), "no leaf, so no search")
+    }
+
+    /// The false-refusal guard. The export orders its rows by read count and the viewer by its sort, so the same
+    /// rows in another order are the same query.
+    func testAQueryThatIsTheRowsOnScreenInAnotherOrderGoesAhead() async throws {
+        let fixture = try makeFixture()
+        let spy = DrawerSpy()
+        let viewer = ViewerViewController()
+        let known = Set(OperationCenter.shared.items.map(\.id))
+        let reordered = Array(Self.sequences.reversed())
+
+        let launched = viewer.launchTwelveSUnresolvedBlastSubmit(
+            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(),
+            heldRows: Self.heldRows, controller: nil,
+            drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
+            prepare: { _, _, _ in reordered }
+        )
+        await (try XCTUnwrap(launched)).value
+        try await assertTheSearchStartsThenStopIt(fixture, known: known, spy: spy)
+    }
+
+    /// The export drops the rows under the minimum reads, so the rows the viewer holds against it drop them too.
+    /// Held against the unfiltered request, the one row the export wrote would be a refusal.
+    func testARowUnderTheMinimumReadsIsNotHeldAgainstTheExport() async throws {
+        let fixture = try makeFixture()
+        let spy = DrawerSpy()
+        let viewer = ViewerViewController()
+        let known = Set(OperationCenter.shared.items.map(\.id))
+        let request = TwelveSUnresolvedBlastRequest(
+            bundleURL: fixture.bundle, minimumReads: 3,
+            sequences: [Self.heldRow("unresolved_1", "ACGTACGT", reads: 5), Self.heldRow("unresolved_2", "GGCCTTAA", reads: 1)]
+        )
+        let held = ViewerViewController.twelveSHeldRows(of: request)
+        XCTAssertEqual(held.map(\.sequenceID), ["unresolved_1"], "the row under the minimum is not held")
+
+        let launched = viewer.launchTwelveSUnresolvedBlastSubmit(
+            bundleURL: fixture.bundle, exportURL: exportURL, arguments: makeArguments(),
+            heldRows: held, controller: nil,
+            drawer: spy.drawer, runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf.script),
+            prepare: { _, _, _ in [(id: "unresolved_1", sequence: "ACGTACGT")] }
+        )
+        await (try XCTUnwrap(launched)).value
+        try await assertTheSearchStartsThenStopIt(fixture, known: known, spy: spy)
+    }
+
+    /// The search started, so the leaf ran and the drawer saw no failure. Then the row is cancelled and cleared.
+    private func assertTheSearchStartsThenStopIt(_ fixture: Fixture, known: Set<UUID>, spy: DrawerSpy) async throws {
+        let started = await waitUntil(budget: .lookup) { FileManager.default.fileExists(atPath: fixture.leaf.started.path) }
+        XCTAssertTrue(started, "the search never started")
+        let row = try XCTUnwrap(newRow(since: known), "no row for the search")
+        let id = row.id
+        defer { OperationCenter.shared.clearItem(id: id) }
+        XCTAssertEqual(spy.failures, [])
+        OperationCenter.shared.cancel(id: id)
+        let ended = await waitUntil(budget: .lookup) { self.row(id)?.state == .cancelled }
+        XCTAssertTrue(ended, "the cancelled row never reached Cancelled")
+    }
+
+    /// A row the viewer holds, as the table gives it.
+    private static func heldRow(_ id: String, _ sequence: String, reads: Int = 5) -> TwelveSUnresolvedSequence {
+        TwelveSUnresolvedSequence(
+            sequenceID: id, sequence: sequence, readCount: reads, sampleCounts: ["SampleA": reads],
+            chimeraStatus: .notDetected
+        )
+    }
+
+    /// The rows on screen for `sequences`.
+    private static let heldRows = ViewerTwelveSOperationTests.sequences.map {
+        ViewerTwelveSOperationTests.heldRow($0.id, $0.sequence)
     }
 
     // MARK: - Fixtures

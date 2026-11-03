@@ -937,11 +937,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            // The leaf writes the report and its record behind an Operations row (lane 12.35, row B3), with the
-            // filters frozen above. A failure shows today's alert, and a cancel from the row shows none (UX 4).
-            Self.runResultExport(snapshot: snapshot, format: format, outputURL: url) { [weak self] failure in
-                self?.presentExportError(failure, fileName: url.lastPathComponent)
-            }
+            self?.exportAfterSavePanel(snapshot: snapshot, format: format, outputURL: url)
         }
         if let window = view.window {
             panel.beginSheetModal(for: window, completionHandler: completion)
@@ -1626,7 +1622,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         presentExport(format: format)
     }
 
-    private func presentExportError(_ error: Error, fileName: String) {
+    func presentExportError(_ error: Error, fileName: String) {
         ResultExportCoordinator.reportFailure(
             fileName: fileName,
             error: error,

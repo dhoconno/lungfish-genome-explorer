@@ -75,9 +75,17 @@ extension ViewerViewController {
                 sequenceIDs: request.sequences.map(\.sequenceID)
             )
             self?.launchTwelveSUnresolvedBlastSubmit(
-                bundleURL: request.bundleURL, exportURL: exportURL, arguments: arguments, controller: controller
+                bundleURL: request.bundleURL, exportURL: exportURL, arguments: arguments,
+                heldRows: Self.twelveSHeldRows(of: request), controller: controller
             )
         }
+    }
+
+    /// The rows a 12S BLAST holds against the export it runs, which are the requested rows the export keeps. The
+    /// export drops the rows under the minimum reads (`TwelveSUnresolvedFastaExportWorkflow`), so these drop them too.
+    nonisolated static func twelveSHeldRows(of request: TwelveSUnresolvedBlastRequest) -> [TwelveSUnresolvedSequence] {
+        let minimumReads = max(0, request.minimumReads)
+        return request.sequences.filter { $0.readCount >= minimumReads }
     }
 
     /// The `lungfish-cli fastq 12s-export-unresolved` argv that the BLAST
@@ -123,6 +131,7 @@ extension ViewerViewController {
         bundleURL: URL,
         exportURL: URL,
         arguments: [String],
+        heldRows: [TwelveSUnresolvedSequence],
         controller: TwelveSAmpliconResultViewController?,
         drawer: BlastSubmitDrawer? = nil,
         runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),

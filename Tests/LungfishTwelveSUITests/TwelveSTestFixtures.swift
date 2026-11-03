@@ -9,13 +9,17 @@ import Foundation
 enum TwelveSFixtures {
     /// - Parameter referenceURL: optional override for the reference FASTA
     ///   artifact, so reference-sequence tests can point at a real file.
+    /// - Parameter bundleURL: the folder the result claims, a real one when a test reads the bundle on disk.
+    /// - Parameter loadUnresolvedRows: false gives the result a sidebar open leaves it, with the unresolved
+    ///   table named by the manifest and its rows not read.
     static func twoSampleResult(
+        bundleURL: URL = URL(fileURLWithPath: "/tmp/fixture.lungfish12s"),
+        loadUnresolvedRows: Bool = true,
         referenceURL: URL? = nil,
         discordantPairs: Int = 0,
         discordantPairsByReason: [String: Int] = [:],
         pairedFragments: Int = 0
     ) -> TwelveSAmpliconResultBundleData {
-        let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfish12s")
         let manifest = TwelveSAmpliconResultBundleManifest(
             outputName: "fixture",
             analysisName: "Fixture",
@@ -90,7 +94,7 @@ enum TwelveSFixtures {
                 discordantPairsByReason: discordantPairsByReason,
                 pairedFragments: pairedFragments
             ),
-            unresolvedSequences: [
+            unresolvedSequences: !loadUnresolvedRows ? [] : [
                 TwelveSUnresolvedSequence(
                     sequenceID: "unresolved_1",
                     sequence: "ACGTACGT",
