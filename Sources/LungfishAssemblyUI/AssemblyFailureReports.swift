@@ -25,4 +25,13 @@ enum AssemblyFailureReports {
             underlying: error
         )
     }
+
+    static func selectedContigs(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Read the selected contigs",
+            whatHappened: "Lungfish could not read all of the selected contigs from the assembly output, so the action did not run.",
+            nextStep: "Check that the assembly output is still in the project, open the result again from the sidebar, then select the contigs and try again.",
+            underlying: error
+        )
+    }
 }

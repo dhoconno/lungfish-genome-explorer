@@ -341,13 +341,20 @@ public final class AssemblyResultViewController: NSViewController {
             : "\(result.outputDirectory.lastPathComponent)-selected-contigs"
     }
 
+    /// The FASTA of each selected contig. When one cannot be read, the failure alert says so and the list is empty, so no
+    /// action goes on with fewer contigs than the person selected.
     private func selectedFASTARecords(lineWidth: Int = 70) async -> [String] {
         guard let catalog else { return [] }
         var fastaRecords: [String] = []
         fastaRecords.reserveCapacity(selectedContigNames.count)
         for contigName in selectedContigNames {
-            if let fasta = try? await catalog.sequenceFASTA(for: contigName, lineWidth: lineWidth) {
+            do {
+                let fasta = try await catalog.sequenceFASTA(for: contigName, lineWidth: lineWidth)
                 fastaRecords.append(fasta)
+            } catch {
+                NSSound.beep()
+                presentFailure(AssemblyFailureReports.selectedContigs(error))
+                return []
             }
         }
         return fastaRecords
@@ -458,15 +465,10 @@ public final class AssemblyResultViewController: NSViewController {
     }
 
     private func performRunOperation() {
-        guard !selectedContigNames.isEmpty, let catalog else { return }
-        let selectedContigs = selectedContigNames
-        Task {
-            var fastaRecords: [String] = []
-            for contigName in selectedContigs {
-                if let fasta = try? await catalog.sequenceFASTA(for: contigName, lineWidth: 70) {
-                    fastaRecords.append(fasta)
-                }
-            }
+        guard !selectedContigNames.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let fastaRecords = await selectedFASTARecords()
             guard !fastaRecords.isEmpty else { return }
             onRunOperationRequested?(fastaRecords)
         }
