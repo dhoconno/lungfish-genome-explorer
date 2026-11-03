@@ -181,4 +181,65 @@ final class AssemblyResultOnDiskTests: XCTestCase {
         XCTAssertEqual(exported?.name, "contig_7.fa")
         XCTAssertNil(failure, "an unchanged file is not refused")
     }
+
+    func testACatalogLoadThatFailsShowsWordsAndLeavesTheTableEmpty() async throws {
+        struct CannotOpen: LocalizedError {
+            var errorDescription: String? { "Duplicate contig name in FASTA index: contig_7" }
+        }
+        _ = NSApplication.shared
+        let viewer = AssemblyResultViewController()
+        _ = viewer.view
+        let result = try makeAssemblyResult()
+        let project = result.outputDirectory.deletingLastPathComponent().deletingLastPathComponent()
+        addTeardownBlock { try? FileManager.default.removeItem(at: project) }
+        viewer.catalogLoader = { _ in throw CannotOpen() }
+        var failure: FailureReport?
+        viewer.failurePresenter = { failure = $0 }
+
+        viewer.configure(result: result)
+        await waitUntil(timeoutNanoseconds: 5_000_000_000) { failure != nil }
+
+        XCTAssertTrue(failure?.body.contains("could not read the contigs file") ?? false, "\(String(describing: failure?.body))")
+        XCTAssertTrue(failure?.details?.contains("Duplicate contig name") ?? false, "the cause goes to the details")
+        XCTAssertTrue(viewer.testContigTableView.displayedRows.isEmpty, "no row stays on screen")
+    }
+
+    func testAPaneReadThatFailsWithTheFileUnchangedShowsWords() async throws {
+        _ = NSApplication.shared
+        let viewer = AssemblyResultViewController()
+        _ = viewer.view
+        let result = try makeAssemblyResult()
+        let project = result.outputDirectory.deletingLastPathComponent().deletingLastPathComponent()
+        addTeardownBlock { try? FileManager.default.removeItem(at: project) }
+        viewer.catalogLoader = { result in
+            let catalog = try await AssemblyContigCatalog(result: result)
+            return UnreadableSequenceCatalog(rows: catalog)
+        }
+        try await viewer.configureForTesting(result: result)
+
+        try await viewer.testSelectContig(named: "contig_7")
+
+        let text = viewer.testDetailPane.testSequenceView.string
+        XCTAssertTrue(text.contains("could not read the sequence of this contig"), "the pane says why: \(text)")
+        XCTAssertFalse(text.contains("changed on disk"), "the file did not change: \(text)")
+    }
+
+    func testCopyWhenTheFileChangesDuringTheReadLeavesThePasteboardAlone() async throws {
+        let result = try makeAssemblyResult()
+        let contigsURL = result.contigsPath
+        let (viewer, calls) = try await open(result, duringRun: {
+            try replacementContigs.write(to: contigsURL, atomically: true, encoding: .utf8)
+        })
+        let pasteboard = RecordingPasteboard()
+        viewer.materializationAction.pasteboard = pasteboard
+        var failure: FailureReport?
+        viewer.failurePresenter = { failure = $0 }
+
+        viewer.testActionBar.copyButton.performClick(nil)
+        await waitUntil(timeoutNanoseconds: 5_000_000_000) { failure != nil || pasteboard.lastString != nil }
+
+        XCTAssertEqual(calls.count, 1, "the read began while the file was still the one opened")
+        XCTAssertNil(pasteboard.lastString, "bytes read after the replace are not copied")
+        XCTAssertTrue(failure?.body.contains("changed on disk") ?? false, "\(String(describing: failure?.body))")
+    }
 }
