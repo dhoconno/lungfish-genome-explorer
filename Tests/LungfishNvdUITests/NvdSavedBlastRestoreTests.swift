@@ -36,7 +36,7 @@ final class NvdSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-1")
 
-        let shown = await waitUntil { self.vc.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(vc.resultActions.lastBlastResult?.rid, "RID-A", "the newer search of result B is not this row's")
         XCTAssertFalse(vc.resultActions.isBlastDrawerOpen, "a restored search does not open the pane")
@@ -48,11 +48,11 @@ final class NvdSavedBlastRestoreTests: XCTestCase {
         try openResult(adjustedTaxid: "1234")
 
         try select(sample: "sample-2")
-        let second = await waitUntil { self.vc.resultActions.lastBlastResult?.rid == "RID-S-2" }
+        let second = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult?.rid == "RID-S-2" }
         XCTAssertTrue(second, "sample 2's row shows sample 2's search")
 
         try select(sample: "sample-1")
-        let first = await waitUntil { self.vc.resultActions.lastBlastResult?.rid == "RID-S-1" }
+        let first = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult?.rid == "RID-S-1" }
         XCTAssertTrue(first, "sample 1's row shows sample 1's search")
     }
 
@@ -66,7 +66,7 @@ final class NvdSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-1")
 
-        let shown = await waitUntil { self.vc.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(vc.resultActions.lastBlastResult?.rid, "RID-OWN")
     }

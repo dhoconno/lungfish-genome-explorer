@@ -36,7 +36,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-1")
 
-        let shown = await waitUntil { self.controller.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(controller.resultActions.lastBlastResult?.rid, "RID-A", "the newer search of result B is not this row's")
         XCTAssertFalse(controller.resultActions.isBlastDrawerOpen, "a restored search does not open the pane")
@@ -48,11 +48,11 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         try await openResult()
 
         try select(sample: "sample-2")
-        let second = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-S-2" }
+        let second = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult?.rid == "RID-S-2" }
         XCTAssertTrue(second, "sample 2's row shows sample 2's search")
 
         try select(sample: "sample-1")
-        let first = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-S-1" }
+        let first = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult?.rid == "RID-S-1" }
         XCTAssertTrue(first, "sample 1's row shows sample 1's search")
     }
 
@@ -72,7 +72,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         XCTAssertEqual(forwarded.last?.sample, "sample-2", "row B's request is the one the view now holds")
 
         try select(sample: "sample-1")
-        let shown = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-A" }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult?.rid == "RID-A" }
         XCTAssertTrue(shown, "row A's saved search comes back")
         let drawer = controller.view.subviews.compactMap { $0 as? BlastResultsDrawerTab }.first
         try XCTUnwrap(drawer?.onRerunBlast, "the pane offers Run Again")()
@@ -101,7 +101,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         controller.testBatchFlatTableView.metadataColumns.userDefaults = layouts.defaults
         _ = controller.view
         controller.configureFromDatabase(database, resultURL: result)
-        let loaded = await waitUntil { self.controller.testBatchFlatTableView.displayedRows.count == rows.count }
+        let loaded = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.testBatchFlatTableView.displayedRows.count == rows.count }
         XCTAssertTrue(loaded, "the rows load")
     }
 

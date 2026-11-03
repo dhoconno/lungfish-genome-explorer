@@ -37,7 +37,7 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-A", taxId: 1_000)
 
-        let shown = await waitUntil { self.vc.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(vc.resultActions.lastBlastResult?.rid, "RID-A", "the newer search of result B is not this row's")
         XCTAssertFalse(vc.resultActions.isBlastDrawerOpen, "a restored search does not open the pane")
@@ -49,11 +49,11 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
         try await openResult()
 
         try select(sample: "sample-B", taxId: 1_000)
-        let second = await waitUntil { self.vc.resultActions.lastBlastResult?.rid == "RID-S-B" }
+        let second = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult?.rid == "RID-S-B" }
         XCTAssertTrue(second, "sample B's row shows sample B's search")
 
         try select(sample: "sample-A", taxId: 1_000)
-        let first = await waitUntil { self.vc.resultActions.lastBlastResult?.rid == "RID-S-A" }
+        let first = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult?.rid == "RID-S-A" }
         XCTAssertTrue(first, "sample A's row shows sample A's search")
     }
 
@@ -64,7 +64,7 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-A", taxId: 1_000)
 
-        let shown = await waitUntil { self.vc.resultActions.lastBlastResult?.rid == "RID-OLD" }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult?.rid == "RID-OLD" }
         XCTAssertTrue(shown, "the older good record shows")
     }
 
@@ -75,7 +75,7 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
 
         try select(sample: "sample-A", taxId: 1_000)
 
-        let shown = await waitUntil { self.vc.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(vc.resultActions.lastBlastResult?.rid, "RID-NEWER")
     }
@@ -93,7 +93,7 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
         vc.testDisableMiniBAMLoading = true
         _ = vc.view
         vc.configure(database: database, manifest: manifest, bundleURL: result)
-        let loaded = await waitUntil { self.vc.testDisplayedTaxonOrder.count == 2 }
+        let loaded = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.testDisplayedTaxonOrder.count == 2 }
         XCTAssertTrue(loaded, "the rows load")
     }
 

@@ -33,7 +33,7 @@ final class NaoMgsNoteWidthTests: XCTestCase {
     }
 
     /// A check ends within milliseconds, and the wait returns as soon as it has. The budget leaves room for a loaded Mac.
-    private static let checkBudget = WaitBudget.standard.raised(to: .seconds(15))
+    private static let checkBudget = WaitBudget.lookup
 
     // MARK: - The note asks for no width
 

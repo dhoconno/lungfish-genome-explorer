@@ -53,7 +53,7 @@ extension NaoMgsResultViewControllerSmokeTests {
         + "Import Center (NAO-MGS Results)."
 
     /// A check ends within milliseconds, and the wait returns as soon as it has. The budget leaves room for a loaded Mac.
-    private static let checkBudget = WaitBudget.standard.raised(to: .seconds(15))
+    private static let checkBudget = WaitBudget.lookup
 
     @MainActor func testStaleBAMShowsTheReimportNote() throws {
         let rig = try openStrandFixResult { _ in .beforeStrandFix }

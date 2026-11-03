@@ -36,7 +36,7 @@ final class EsVirituSavedBlastRestoreTests: XCTestCase {
 
         controller.testDetectionTableView.onDetectionSelected?(Self.detection(sample: "A", accession: "NC_X.1"))
 
-        let shown = await waitUntil { self.controller.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the row's saved search comes back")
         XCTAssertEqual(controller.resultActions.lastBlastResult?.rid, "RID-A", "the newer search of result B is not this row's")
         XCTAssertFalse(controller.resultActions.isBlastDrawerOpen, "a restored search does not open the pane")
@@ -49,11 +49,11 @@ final class EsVirituSavedBlastRestoreTests: XCTestCase {
         let table = controller.testDetectionTableView
 
         table.onDetectionSelected?(Self.detection(sample: "B", accession: "NC_X.1"))
-        let second = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-S-B" }
+        let second = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult?.rid == "RID-S-B" }
         XCTAssertTrue(second, "sample B's row shows sample B's search")
 
         table.onDetectionSelected?(Self.detection(sample: "A", accession: "NC_X.1"))
-        let first = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-S-A" }
+        let first = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult?.rid == "RID-S-A" }
         XCTAssertTrue(first, "sample A's row shows sample A's search")
     }
 
@@ -65,7 +65,7 @@ final class EsVirituSavedBlastRestoreTests: XCTestCase {
 
         controller.testDetectionTableView.testOutlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
 
-        let shown = await waitUntil { self.controller.resultActions.lastBlastResult != nil }
+        let shown = await waitUntil(timeout: WaitBudget.lookup.duration) { self.controller.resultActions.lastBlastResult != nil }
         XCTAssertTrue(shown, "the assembly row's saved search comes back")
         XCTAssertEqual(controller.resultActions.lastBlastResult?.rid, "RID-ASSEMBLY")
     }
