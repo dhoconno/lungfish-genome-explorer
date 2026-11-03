@@ -74,7 +74,7 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
     /// the project that holds the record now. Resolving a path reads the disk, so this runs off the main actor.
     public func isSource(of lineage: BlastSubmissionRecord.Lineage, recordAt recordURL: URL) -> Bool {
         guard lineage.sample == sample,
-              lineage.contig == contig,
+              Self.contigList(lineage.contig) == Self.contigList(contig),
               (lineage.taxId ?? 0) == (taxId ?? 0),
               let recorded = lineage.sourceResultURL(recordAt: recordURL),
               Self.comparablePath(recorded) == Self.comparablePath(sourceResultURL) else {
@@ -89,6 +89,12 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
         let queryURL = recordURL.deletingLastPathComponent().appendingPathComponent(BlastSubmissionRecord.queryFileName)
         guard let text = try? String(contentsOf: queryURL, encoding: .utf8) else { return false }
         return sequenceIDs(ofFASTA: text).sorted() == ids.sorted()
+    }
+
+    /// A contig value's IDs in one order. A multi-contig search joins its IDs in selection or lookup order, and TaxTriage
+    /// ranks its accessions by read support, so the same contigs in another order are the same search. Nil stays nil.
+    private static func contigList(_ contig: String?) -> [Substring]? {
+        contig?.split(separator: ",", omittingEmptySubsequences: false).sorted()
     }
 
     private static func comparablePath(_ url: URL) -> String {
