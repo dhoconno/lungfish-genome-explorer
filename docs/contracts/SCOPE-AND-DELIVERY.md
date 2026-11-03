@@ -23,8 +23,8 @@ for under 5% of the spend, and about 8,400 new test functions found none of them
 
 | Rule | What it means |
 |---|---|
-| Stable on a clock | Stable ships at least every 14 days while a fix waits for it. A Preview with no open S1 or S2 finding is promoted within seven days of its packaged walk. |
-| Result fixes reach Stable fast | A fix that changes a scientific result or stops data loss reaches Stable within seven days. It goes by promotion, or by a patch release from the last Stable tag when the next Preview is not ready. |
+| Stable on a clock | Stable ships about once a month, about four weeks after the last Stable, from the newest Preview that passed its packaged walk with no open S1 or S2 finding (owner direction O128). A phase ends in a Preview and not in a Stable, since the Stable loop took longer than a phase could carry. When the date falls inside a phase, the manager promotes that Preview and the phase goes on. |
+| Result fixes reach a Preview fast | A fix that changes a scientific result or stops data loss reaches a Preview within seven days of landing, and the next monthly Stable carries it. When BIO rules that an S1 live in Stable cannot wait for that Stable, the manager asks the owner for a known-issue line on the Stable's release page and a patch release from the last Stable tag. |
 | A phase never holds Stable | No phase exit, sub-phase or refactor holds a Stable release. Only an open S1 or S2 finding does. |
 | A short owner check list | The Stable check list holds at most 20 rows. Each is a task a person does in about two minutes that no automated test covers, and a row that an automated test comes to cover is deleted. A row that needs a person's own senses, such as a real-mouse drag or hearing VoiceOver, does not block a release and runs when the owner is next at the Mac. |
 | Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or the manager by computer use, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies, since the daily Previews of 2026-10-03 to 2026-10-08 each carried result fixes. |
@@ -45,7 +45,7 @@ The owner set these on 2026-11-03 (O126). In 3.1 session 2, 20h43m of 55h33m wen
 | Rule | What it means |
 |---|---|
 | Plan shape | A phase plan states the user outcome, a budget in sessions and dollars, and at most six exit checks that one command or one walk answers. It holds scope, checks, budget and decisions in at most 300 lines. Records, rulings, votes and lane reports stay in `~/lungfish-phase-records/`. |
-| Exits name outcomes | Every phase exit names a user outcome and a Stable release. A structural count, such as a ratchet at zero, is reported at exit and is never an exit check by itself. A zero target may carry an exemption list that the owner approves once. |
+| Exits name outcomes | Every phase exit names a user outcome and the Preview that carries it. A structural count, such as a ratchet at zero, is reported at exit and is never an exit check by itself. A zero target may carry an exemption list that the owner approves once. |
 | Budgets stop work | At one and a half times its budget a session starts no new lane until the owner answers. When a check fails late or the budget runs out, the owner moves or waives the check, or an expert rules a Known limit as The standing go sets. No session adds a sub-phase on its own. |
 | Process work stays small | Trials of the process itself, such as model and effort tests, take at most 2% of a phase budget. A session's monitor proposes changes to a process contract, and the owner accepts them. |
 
