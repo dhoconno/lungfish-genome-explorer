@@ -462,6 +462,12 @@ public struct FASTAIndexBuilder {
 
         appendCurrentEntry()
 
+        // A name listed twice would read only its last record, so an index of such a file is refused.
+        var seenNames = Set<String>()
+        for entry in entries where !seenNames.insert(entry.name).inserted {
+            throw FASTAError.duplicateSequenceName(entry.name)
+        }
+
         return FASTAIndex(entries: entries)
     }
 
