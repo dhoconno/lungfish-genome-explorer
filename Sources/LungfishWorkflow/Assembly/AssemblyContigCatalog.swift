@@ -58,8 +58,8 @@ public struct AssemblyContigCatalog: Sendable {
     private let rankedRecords: [AssemblyContigRecord]
 
     public init(result: AssemblyResult) async throws {
-        let indexURL = try Self.ensureFASTAIndexExists(for: result.contigsPath)
-        self.reader = try IndexedFASTAReader(url: result.contigsPath, indexURL: indexURL)
+        let index = try Self.currentFASTAIndex(for: result.contigsPath)
+        self.reader = IndexedFASTAReader(url: result.contigsPath, index: index)
         try Self.validateUniqueSequenceNames(reader.sequenceNames)
 
         let headersByName = try Self.parseHeaders(from: result.contigsPath)
@@ -140,12 +140,17 @@ public struct AssemblyContigCatalog: Sendable {
         }
     }
 
-    private static func ensureFASTAIndexExists(for fastaURL: URL) throws -> URL {
+    /// The index of the file as it is now. A `.fai` already beside it may belong to an earlier file of this name, since a
+    /// run into the same folder or a Finder Replace of the file leaves it there, and its offsets would read other bases.
+    /// The `.fai` is written only when it differs, so opening a result does not touch the folder, and a read-only project
+    /// still opens (ruling BIO-ASSEMBLY-REPLACED, Fix C).
+    private static func currentFASTAIndex(for fastaURL: URL) throws -> FASTAIndex {
+        let index = try FASTAIndexBuilder.build(for: fastaURL)
         let indexURL = fastaURL.appendingPathExtension("fai")
-        if !FileManager.default.fileExists(atPath: indexURL.path) {
-            try FASTAIndexBuilder.buildAndWrite(for: fastaURL, outputURL: indexURL)
+        if (try? FASTAIndex(url: indexURL)) != index {
+            try? index.write(to: indexURL)
         }
-        return indexURL
+        return index
     }
 
     public func records() async throws -> [AssemblyContigRecord] {

@@ -12,7 +12,7 @@ import Foundation
 /// the row's own, so a search of the same taxon from another result or sample never shows on this row. The row's value
 /// of each field comes from the code its submit plan writes that field with: ``lineageSample(of:)``,
 /// ``lineageContig(of:)`` and ``lineageTaxId(ofRequestTaxId:)``, and the row builders in LungfishIO. Assembly and 12S
-/// selections have keys here too (lane REOPEN2), ``assemblySelection(contigs:resultURL:)`` and
+/// selections have keys here too (lane REOPEN2), ``assemblySelection(contigs:sequences:resultURL:)`` and
 /// ``twelveSSelection(sequences:bundleURL:)``.
 public struct BlastSavedSearchRow: Sendable, Equatable {
     public var sourceResultURL: URL
@@ -49,9 +49,15 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
     }
 
     /// The key of an Assembly selection, in the fields `assemblyBlastSubmitPlan` records, the result folder and the
-    /// contigs. Nil for no contigs. An Assembly request has no taxon and the plan names no sample.
-    public static func assemblySelection(contigs: [String], resultURL: URL) -> BlastSavedSearchRow? {
-        lineageContig(of: contigs).map { BlastSavedSearchRow(sourceResultURL: resultURL, sample: nil, taxId: nil, contig: $0) }
+    /// contigs, plus the bases of those contigs as the 12S key holds them, since a result whose contigs file was replaced
+    /// can hold other bases under the same names (BIO-ASSEMBLY-REPLACED). An Assembly request has no taxon and the plan
+    /// names no sample. Nil for no contigs, and for fewer or more sequences than contigs, since a selection whose bases are
+    /// not all known cannot be shown to be the same search.
+    public static func assemblySelection(contigs: [String], sequences: [QuerySequence], resultURL: URL) -> BlastSavedSearchRow? {
+        guard sequences.count == contigs.count else { return nil }
+        return lineageContig(of: contigs).map {
+            BlastSavedSearchRow(sourceResultURL: resultURL, sample: nil, taxId: nil, contig: $0, querySequences: sequences)
+        }
     }
 
     /// The key of a 12S unresolved selection. `twelveSUnresolvedBlastSubmitPlan` records only the bundle, so the key adds

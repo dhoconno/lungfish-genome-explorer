@@ -123,7 +123,9 @@ extension AssemblyResultViewControllerTests {
 
         XCTAssertFalse(exported, "nothing is exported when a selected contig cannot be read")
         let report = try XCTUnwrap(failure, "a failed read shows words")
-        XCTAssertTrue(report.body.contains("could not read"), report.body)
+        // A contigs file that is gone is a contigs file that changed after the result opened (BIO-ASSEMBLY-REPLACED, Fix A),
+        // so the words say that and no longer "could not read". Nothing is exported either way.
+        XCTAssertTrue(report.body.contains("changed on disk"), report.body)
     }
 }
 
@@ -138,12 +140,24 @@ extension AssemblySavedBlastRestoreTests {
         return viewer
     }
 
+    /// The query copy a BLAST of `name` leaves beside its record, read from the contigs file the viewer opened, since the saved
+    /// search comes back only when its query holds the bases of the selected contigs (ruling BIO-ASSEMBLY-REPLACED, Fix E).
+    @MainActor
+    private func contigQuery(_ name: String, of viewer: AssemblyResultViewController) throws -> [(id: String, sequence: String)] {
+        let contigs = try XCTUnwrap(viewer.currentResult?.contigsPath)
+        let text = try String(contentsOf: contigs, encoding: .utf8)
+        return BlastSavedSearchRow.sequences(ofFASTA: text).filter { $0.id == name }.map { (id: $0.id, sequence: $0.sequence) }
+    }
+
     @MainActor
     func testACloneRestoresTheSearchInItsOwnFolder() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
         let viewer = try await makeCloneViewer(in: project)
-        let record = try project.saveRecord(rid: "RID-CLONE", sourceResult: "Clone", sample: nil, taxId: nil, contig: "k141_0", heldIn: "Clone")
+        let record = try project.saveRecord(
+            rid: "RID-CLONE", sourceResult: "Clone", sample: nil, taxId: nil, contig: "k141_0", heldIn: "Clone",
+            querySequences: try contigQuery("k141_0", of: viewer)
+        )
 
         try await viewer.testSelectContigs(named: ["k141_0"])
         await viewer.savedBlastRestorer.restoreTask?.value
@@ -158,7 +172,10 @@ extension AssemblySavedBlastRestoreTests {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
         let viewer = try await makeCloneViewer(in: project)
-        try project.saveRecord(rid: "RID-OTHER", sourceResult: "Other", sample: nil, taxId: nil, contig: "k141_0", heldIn: "Other")
+        try project.saveRecord(
+            rid: "RID-OTHER", sourceResult: "Other", sample: nil, taxId: nil, contig: "k141_0", heldIn: "Other",
+            querySequences: try contigQuery("k141_0", of: viewer)
+        )
 
         try await viewer.testSelectContigs(named: ["k141_0"])
         await viewer.savedBlastRestorer.restoreTask?.value

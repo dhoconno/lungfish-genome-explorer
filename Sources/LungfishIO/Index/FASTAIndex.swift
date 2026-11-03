@@ -21,9 +21,9 @@ import LungfishCore
 /// print(index.sequenceNames)  // ["chr1", "chr2", ...]
 /// print(index.length(of: "chr1"))  // 248956422
 /// ```
-public struct FASTAIndex: Sendable {
+public struct FASTAIndex: Sendable, Equatable {
     /// Index entry for a single sequence
-    public struct Entry: Sendable, Codable {
+    public struct Entry: Sendable, Codable, Equatable {
         /// Sequence name
         public let name: String
         /// Total length in bases
@@ -90,7 +90,7 @@ public struct FASTAIndex: Sendable {
     /// Creates an index from a list of entries.
     public init(entries: [Entry]) {
         self.orderedEntries = entries
-        self.positionByName = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($1.name, $0) })
+        self.positionByName = Dictionary(entries.enumerated().map { ($1.name, $0) }, uniquingKeysWith: { _, last in last })
     }
 
     /// Returns the entry for a sequence by name.
@@ -246,6 +246,12 @@ public final class IndexedFASTAReader: Sendable {
     public init(url: URL, indexURL: URL) throws {
         self.url = url
         self.index = try FASTAIndex(url: indexURL)
+    }
+
+    /// Creates an indexed FASTA reader with an index the caller already holds.
+    public init(url: URL, index: FASTAIndex) {
+        self.url = url
+        self.index = index
     }
 
     /// Fetches a subsequence from the FASTA file.

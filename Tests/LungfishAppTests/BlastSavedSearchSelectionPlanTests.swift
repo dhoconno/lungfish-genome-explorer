@@ -36,19 +36,35 @@ final class BlastSavedSearchSelectionPlanTests: XCTestCase {
         )
     }
 
-    func testAnAssemblySelectionsKeyIsItsPlansLineageInAnyOrder() throws {
+    func testAnAssemblySelectionsKeyIsItsPlansLineageAndBasesInAnyOrder() throws {
+        let records = [">contig_9 second header\nATAT\n", ">contig_7 annotated header\nAACC\n"]
         let plan = try ViewerViewController.assemblyBlastSubmitPlan(
-            sourceLabel: "2 contigs", taxId: nil,
-            fastaRecords: [">contig_9 second header\nATAT\n", ">contig_7 annotated header\nAACC\n"], resultURL: result
+            sourceLabel: "2 contigs", taxId: nil, fastaRecords: records, resultURL: result
         )
         XCTAssertEqual(plan.request.contig, "contig_9,contig_7", "the record keeps the contigs in the order they were sent")
-        let recordURL = plan.request.outputURL.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        let held = folder.appendingPathComponent("held-assembly", isDirectory: true)
+        try FileManager.default.createDirectory(at: held, withIntermediateDirectories: true)
+        try plan.queryData.write(to: held.appendingPathComponent(BlastSubmissionRecord.queryFileName))
+        let recordURL = held.appendingPathComponent(BlastSubmissionRecord.recordFileName)
 
-        let key = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(contigs: ["contig_7", "contig_9"], resultURL: result))
+        // The pane reads each contig's FASTA, and the key holds the sequences of those texts.
+        let bases = BlastSavedSearchRow.sequences(ofFASTA: records.joined())
+        let key = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(
+            contigs: ["contig_7", "contig_9"], sequences: bases.reversed(), resultURL: result
+        ))
         XCTAssertTrue(key.isSource(of: lineage(of: plan), recordAt: recordURL))
-        let other = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(contigs: ["contig_7"], resultURL: result))
+        let other = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(contigs: ["contig_7"], sequences: [bases[1]], resultURL: result))
         XCTAssertFalse(other.isSource(of: lineage(of: plan), recordAt: recordURL))
-        XCTAssertNil(BlastSavedSearchRow.assemblySelection(contigs: [], resultURL: result))
+        let changed = [bases[0], BlastSavedSearchRow.QuerySequence(id: "contig_7", sequence: "TTTT")]
+        let changedKey = try XCTUnwrap(BlastSavedSearchRow.assemblySelection(
+            contigs: ["contig_7", "contig_9"], sequences: changed, resultURL: result
+        ))
+        XCTAssertFalse(changedKey.isSource(of: lineage(of: plan), recordAt: recordURL), "the same names over other bases are another search")
+        XCTAssertNil(BlastSavedSearchRow.assemblySelection(contigs: [], sequences: [], resultURL: result))
+        XCTAssertNil(
+            BlastSavedSearchRow.assemblySelection(contigs: ["contig_7", "contig_9"], sequences: [bases[1]], resultURL: result),
+            "a selection with fewer sequences than contigs cannot be shown to be the same search"
+        )
 
         XCTAssertEqual(
             plan.request.outputURL.deletingLastPathComponent().path,

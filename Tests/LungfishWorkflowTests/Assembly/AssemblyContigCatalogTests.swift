@@ -134,17 +134,19 @@ final class AssemblyContigCatalogTests: XCTestCase {
         let result = try makeFixtureAssemblyResult(
             contigs: [
                 ("alpha primary", "AAAA"),
-                ("beta secondary", "CCCC"),
+                ("alpha secondary", "CCCC"),
             ],
-            indexNameTransform: { _ in "duplicate" },
+            indexNameTransform: nil,
             writeIndex: true
         )
 
+        // The catalog builds the index from the contigs file (BIO-ASSEMBLY-REPLACED, Fix C), so the repeated name is in the
+        // FASTA and no longer only in a hand-written .fai.
         do {
             _ = try await AssemblyContigCatalog(result: result)
             XCTFail("Expected duplicate index names to throw")
         } catch {
-            XCTAssertTrue(error.localizedDescription.contains("Duplicate contig name in FASTA index: duplicate"))
+            XCTAssertTrue(error.localizedDescription.contains("Duplicate contig name in FASTA index: alpha"))
         }
     }
 

@@ -138,6 +138,14 @@ struct AssembleCommand: AsyncParsableCommand {
         let projectName = resolvedProjectName(from: inputURLs)
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
         let referenceBundleURL = try refusingAnExistingReferenceBundle(outputDirectory: outputDirectory, projectName: projectName, reporter: reporter)
+        // This command never overwrites a finished run (ruling BIO-ASSEMBLY-REPLACED, Fix D). The bundle check runs only under
+        // its flag, so nothing else holds this folder. An empty folder the app made for the sidebar passes.
+        if FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent("assembly-result.json").path) {
+            throw reporter.refusal(
+                "\(outputDirectory.path) already holds a finished assembly, and an assembly never overwrites one. Choose another name or output folder.",
+                exit: .inputError
+            )
+        }
 
         if pairedEnd && inputURLs.count != 2 {
             throw reporter.refusal("Paired-end assembly requires exactly two sequence inputs.", exit: .inputError)

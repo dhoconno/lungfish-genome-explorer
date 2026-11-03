@@ -26,6 +26,16 @@ enum AssemblyFailureReports {
         )
     }
 
+    /// The contigs file changed after the result opened (ruling BIO-ASSEMBLY-REPLACED). The cause goes to the details.
+    static func resultChangedOnDisk() -> FailureReport {
+        FailureReport(
+            failedStep: "Use the selected contigs",
+            whatHappened: "The contigs file of this assembly changed on disk after it opened, so the contigs on screen are not the ones in the result. Nothing was sent to NCBI, copied or written.",
+            nextStep: "Select another item in the sidebar, select this assembly again, and try again.",
+            underlying: AssemblyContigsChangedOnDisk()
+        )
+    }
+
     static func selectedContigs(_ error: any Error) -> FailureReport {
         FailureReport(
             failedStep: "Read the selected contigs",

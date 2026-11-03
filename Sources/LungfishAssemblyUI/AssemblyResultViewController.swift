@@ -18,7 +18,7 @@ extension AssemblyContigCatalog: AssemblyContigCatalogProviding {}
 
 @MainActor
 public final class AssemblyResultViewController: NSViewController {
-    private enum BlastSelectionLimit {
+    enum BlastSelectionLimit {
         static let maxContigs = 50
     }
 
@@ -27,6 +27,8 @@ public final class AssemblyResultViewController: NSViewController {
     }
 
     private(set) var currentResult: AssemblyResult?
+    /// The contigs file's stamp when the table and catalog were loaded, nil until they are (BIO-ASSEMBLY-REPLACED).
+    private(set) var heldContigsStamp: [String]?
     public var onBlastVerification: ((BlastRequest) -> Void)?
     public var onExtractSequenceRequested: (([String], String) -> Void)? {
         didSet { refreshContextMenu() }
@@ -52,7 +54,7 @@ public final class AssemblyResultViewController: NSViewController {
     private let contigTableView = AssemblyContigTableView()
     private let emptyStateView = NSView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: EmptyStateCopy.noContigs)
-    private let detailPane = AssemblyContigDetailPane()
+    let detailPane = AssemblyContigDetailPane()
     private let actionBar = AssemblyActionBar()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
     let materializationAction = AssemblyContigMaterializationAction()
@@ -270,14 +272,14 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
-    private func setDetailPaneVisible(_ visible: Bool) {
+    func setDetailPaneVisible(_ visible: Bool) {
         guard detailContainer.isHidden == visible else { return }
         splitCoordinator.invalidateInitialSplitPosition()
         detailContainer.isHidden = !visible
         applyLayoutPreference()
     }
 
-    private func applyLayoutPreference() {
+    func applyLayoutPreference() {
         guard splitView.arrangedSubviews.count > 1 else { return }
         guard !detailContainer.isHidden else {
             tableContainer.frame = splitView.bounds
@@ -344,7 +346,7 @@ public final class AssemblyResultViewController: NSViewController {
     /// The FASTA of each selected contig. When one cannot be read, the failure alert says so and the list is empty, so no
     /// action goes on with fewer contigs than the person selected.
     private func selectedFASTARecords(lineWidth: Int = 70) async -> [String] {
-        guard let catalog else { return [] }
+        guard let catalog, contigsAreTheOnesOpened() else { return [] }
         var fastaRecords: [String] = []
         fastaRecords.reserveCapacity(selectedContigNames.count)
         for contigName in selectedContigNames {
@@ -357,6 +359,7 @@ public final class AssemblyResultViewController: NSViewController {
                 return []
             }
         }
+        guard contigsAreTheOnesOpened() else { return [] }
         return fastaRecords
     }
 
@@ -374,6 +377,7 @@ public final class AssemblyResultViewController: NSViewController {
     private func performBlastSelected() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
         let selectedContigs = selectedContigNames
+        guard contigsAreTheOnesOpened() else { return }
         guard selectedContigs.count <= BlastSelectionLimit.maxContigs else {
             presentWarning(
                 title: "Too Many Contigs for BLAST",
@@ -385,6 +389,7 @@ public final class AssemblyResultViewController: NSViewController {
             guard let self else { return }
             do {
                 let request = try await self.materializationAction.buildBlastRequest(result: result, selectedContigs: selectedContigs)
+                guard self.contigsAreTheOnesOpened() else { return }
                 self.onBlastVerification?(request)
             } catch {
                 NSSound.beep()
@@ -396,6 +401,7 @@ public final class AssemblyResultViewController: NSViewController {
     private func performCopySelectedFASTA() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
         let selectedContigs = selectedContigNames
+        guard contigsAreTheOnesOpened() else { return }
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -409,6 +415,7 @@ public final class AssemblyResultViewController: NSViewController {
 
     private func performExportSelectedFASTA() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
+        guard contigsAreTheOnesOpened() else { return }
         let suggestedName = defaultSuggestedName(for: selectedContigNames)
 
         if let onExportFASTARequested {
@@ -432,6 +439,7 @@ public final class AssemblyResultViewController: NSViewController {
             guard let destination = await savePanelPresenter.present(suggestedName: exportName, on: window, startingIn: MetagenomicsFilePanelFactory.startFolder(forResultAt: result.outputDirectory)) else {
                 return
             }
+            guard contigsAreTheOnesOpened() else { return }
             try? await materializationAction.exportFASTA(
                 result: result,
                 selectedContigs: selectedContigs,
@@ -442,6 +450,7 @@ public final class AssemblyResultViewController: NSViewController {
 
     func performCreateBundle() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
+        guard contigsAreTheOnesOpened() else { return }
         let suggestedName = defaultSuggestedName(for: selectedContigNames)
 
         if let onCreateBundleRequested {
@@ -477,6 +486,7 @@ public final class AssemblyResultViewController: NSViewController {
     private func load(result: AssemblyResult, generation: Int) async throws {
         guard generation == loadGeneration else { return }
         currentResult = result
+        heldContigsStamp = nil
         summaryStrip.configure(result: result, pasteboard: scalarPasteboard)
         contigTableView.scalarPasteboard = scalarPasteboard
         detailPane.configureQuickCopy(pasteboard: scalarPasteboard)
@@ -491,6 +501,7 @@ public final class AssemblyResultViewController: NSViewController {
             return
         }
 
+        let stamp = Self.contigsStamp(of: result)
         let catalog = try await catalogLoader(result)
         let records = try await catalog.records()
         guard !Task.isCancelled, generation == loadGeneration else {
@@ -499,6 +510,7 @@ public final class AssemblyResultViewController: NSViewController {
 
         self.catalog = catalog
         self.allRecords = records
+        self.heldContigsStamp = stamp
         self.selectedContigNames = []
         refreshContextMenu()
         contigTableView.configure(rows: records)
@@ -521,10 +533,13 @@ public final class AssemblyResultViewController: NSViewController {
             setDetailPaneVisible(false)
             return
         }
+        guard !paneStopsForAChangedContigsFile(selectedContigCount: rows.count) else { return }
 
         if rows.count == 1, let record = rows.first {
             let fastaPreview = (try? await catalog.sequenceFASTA(for: record.name, lineWidth: 70)) ?? ""
-            guard generation == selectionGeneration else { return }
+            guard generation == selectionGeneration,
+                  !paneStopsForAChangedContigsFile(selectedContigCount: 1) else { return }
+            restoreSavedBlastSearch(afterReading: [fastaPreview])
             detailPane.showSingleSelection(record: record, fastaPreview: fastaPreview)
             setDetailPaneVisible(true)
             applyLayoutPreference()
@@ -539,7 +554,9 @@ public final class AssemblyResultViewController: NSViewController {
                 fastaPreviewRecords.append(fasta)
             }
         }
-        guard generation == selectionGeneration else { return }
+        guard generation == selectionGeneration,
+              !paneStopsForAChangedContigsFile(selectedContigCount: rows.count) else { return }
+        restoreSavedBlastSearch(afterReading: fastaPreviewRecords)
         let fastaPreview = fastaPreviewRecords.joined(separator: "\n")
         if let summary = try? await catalog.selectionSummary(for: selectedNames) {
             guard generation == selectionGeneration else { return }
@@ -650,27 +667,6 @@ public final class AssemblyResultViewController: NSViewController {
             view.layoutSubtreeIfNeeded()
         }
         isBlastDrawerOpen = true
-    }
-
-    /// Shows a failure report, or hands it to the test seam (ALERT-PRESENTER, Phase 3.1).
-    private func presentFailure(_ report: FailureReport) {
-        if let failurePresenter {
-            failurePresenter(report)
-            return
-        }
-        FailurePresenter.present(report, in: view.window)
-    }
-    
-    private func presentWarning(title: String, message: String) {
-        if let warningPresenter {
-            warningPresenter(title, message)
-            return
-        }
-
-        // Leaf modules use the system default alert icon (the running app icon),
-        // matching the LungfishTwelveSUI leaf precedent. App-internal branding
-        // helpers stay in LungfishApp.
-        WarningPresenter.present(title: title, message: message, in: view.window)
     }
 }
 
