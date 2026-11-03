@@ -106,6 +106,52 @@ final class BlastSavedSearchRowPlanTests: XCTestCase {
         try assertKey(key, isLineageOf: plan)
     }
 
+    /// The case above states the NAO-MGS key by hand. This one takes the key from the row's own builder and the lineage
+    /// from the plan's request, written the way `blast submit` records it (`BlastSubmitCommand.lineage(recordAt:)`), and
+    /// asks the question the restore asks. A change on either side fails here and not as a search that never comes back
+    /// (REOPEN BIO 3 item 2, UX 3 item 2).
+    func testNaoMgsRowKeyIsTheSourceOfItsPlansRecord() throws {
+        func row(sample: String) -> NaoMgsTaxonSummaryRow {
+            NaoMgsTaxonSummaryRow(
+                sample: sample, taxId: 11676, name: "Human immunodeficiency virus 1", hitCount: 4, uniqueReadCount: 4,
+                avgIdentity: 99, avgBitScore: 210, avgEditDistance: 1, pcrDuplicateCount: 0, accessionCount: 1,
+                topAccessions: ["NC_001802.1"], bamPath: nil, bamIndexPath: nil
+            )
+        }
+        let hits = (1...4).map { read in
+            NaoMgsVirusHit(
+                sample: "S1", seqId: "read-\(read)", taxId: 11676,
+                bestAlignmentScore: 120, cigar: "100M", queryStart: 0, queryEnd: 100,
+                refStart: read * 100, refEnd: read * 100 + 100,
+                readSequence: String(repeating: "A", count: 100), readQuality: String(repeating: "I", count: 100),
+                subjectSeqId: "NC_001802.1", subjectTitle: "Human immunodeficiency virus 1",
+                bitScore: 210, eValue: 1e-40, percentIdentity: 99, editDistance: 1, fragmentLength: 100,
+                isReverseComplement: false, pairStatus: "CP", queryLength: 100
+            )
+        }
+        let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
+            taxonName: "Human immunodeficiency virus 1", taxId: 11676, readCount: 4, reads: hits,
+            projectURL: project, sourceResultURL: result
+        )
+        let recordURL = plan.request.outputURL.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        let context = try XCTUnwrap(PortablePath.Context.forWriting(at: recordURL))
+        let lineage = BlastSubmissionRecord.Lineage(
+            sourceResult: plan.request.sourceResultURL.map { PortablePath.sanitize(path: $0.path, context: context) },
+            sample: plan.request.sample, taxId: plan.request.taxId, contig: plan.request.contig,
+            subsampleCount: plan.request.subsampleCount, subsampleSeed: plan.request.subsampleSeed
+        )
+
+        try assertKey(row(sample: "S1").blastSavedSearchRow(sourceResultURL: result), isLineageOf: plan)
+        XCTAssertTrue(
+            row(sample: "S1").blastSavedSearchRow(sourceResultURL: result).isSource(of: lineage, recordAt: recordURL),
+            "the row's key is the source of the record its own plan writes"
+        )
+        XCTAssertFalse(
+            row(sample: "S2").blastSavedSearchRow(sourceResultURL: result).isSource(of: lineage, recordAt: recordURL),
+            "a row of another sample is not the source of that record"
+        )
+    }
+
     /// A record's `@/` path resolves in the project that holds it, and a path through a symbolic link still matches.
     func testAKeyMatchesItsRecordsPortablePathAndNotAnotherResult() throws {
         let key = BlastSavedSearchRow(sourceResultURL: result, sample: "S1", taxId: nil, contig: "c")
