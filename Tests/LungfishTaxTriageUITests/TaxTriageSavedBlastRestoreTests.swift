@@ -56,7 +56,35 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         XCTAssertTrue(first, "sample 1's row shows sample 1's search")
     }
 
-    private func openResult() async throws {
+    /// The view holds the request of row B when row A's saved search comes back. Run Again then repeats row A's sample,
+    /// accessions, BAM and index, since the pane names row A.
+    func testRunAgainOnARestoredSearchRepeatsThatRowsRequest() async throws {
+        try saved.saveRecord(rid: "RID-A", sourceResult: "taxtriage-A", sample: "sample-1", taxId: 1001, contig: "NC_1001")
+        try await openResult(secondSampleAccession: "NC_2002")
+        var forwarded: [(sample: String?, accessions: [String]?, bamURL: URL?, bamIndexURL: URL?)] = []
+        controller.onBlastVerification = { organism, _, accessions, bamURL, bamIndexURL in
+            forwarded.append((organism.sample, accessions, bamURL, bamIndexURL))
+        }
+        controller.blastConfigPopoverPresenter = { _, _, _, onRun in onRun(20) }
+
+        try select(sample: "sample-2")
+        controller.testActionBar.blastButton.performClick(nil)
+        XCTAssertEqual(forwarded.last?.sample, "sample-2", "row B's request is the one the view now holds")
+
+        try select(sample: "sample-1")
+        let shown = await waitUntil { self.controller.resultActions.lastBlastResult?.rid == "RID-A" }
+        XCTAssertTrue(shown, "row A's saved search comes back")
+        let drawer = controller.view.subviews.compactMap { $0 as? BlastResultsDrawerTab }.first
+        try XCTUnwrap(drawer?.onRerunBlast, "the pane offers Run Again")()
+
+        XCTAssertEqual(forwarded.count, 2, "Run Again reaches the host")
+        XCTAssertEqual(forwarded.last?.sample, "sample-1")
+        XCTAssertEqual(forwarded.last?.accessions, ["NC_1001"])
+        XCTAssertEqual(forwarded.last?.bamURL?.lastPathComponent, "sample-1.bam")
+        XCTAssertEqual(forwarded.last?.bamIndexURL?.lastPathComponent, "sample-1.bam.bai")
+    }
+
+    private func openResult(secondSampleAccession: String = "NC_1001") async throws {
         let result = try saved.result("taxtriage-A")
         for sample in ["sample-1", "sample-2"] {
             let folder = result.appendingPathComponent("\(sample)/minimap2", isDirectory: true)
@@ -64,7 +92,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
             try Data().write(to: folder.appendingPathComponent("\(sample).bam"))
             try Data().write(to: folder.appendingPathComponent("\(sample).bam.bai"))
         }
-        let rows = [Self.row(sample: "sample-1"), Self.row(sample: "sample-2")]
+        let rows = [Self.row(sample: "sample-1"), Self.row(sample: "sample-2", accession: secondSampleAccession)]
         let database = try TaxTriageDatabase.create(
             at: result.appendingPathComponent("taxtriage.sqlite"), rows: rows, metadata: ["tool": "taxtriage"]
         )
@@ -83,7 +111,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         table.selectDisplayedRowForContextMenuIfNeeded(index)
     }
 
-    private static func row(sample: String) -> TaxTriageTaxonomyRow {
+    private static func row(sample: String, accession: String = "NC_1001") -> TaxTriageTaxonomyRow {
         TaxTriageTaxonomyRow(
             sample: sample, organism: "Alpha virus", taxId: 1001, status: nil, tassScore: 0.9, readsAligned: 40,
             uniqueReads: 20, pctReads: nil, pctAlignedReads: nil, coverageBreadth: 50, meanCoverage: nil,
@@ -93,7 +121,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
             hhsPercentile: nil, isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
             isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil,
             bamPath: "\(sample)/minimap2/\(sample).bam", bamIndexPath: "\(sample)/minimap2/\(sample).bam.bai",
-            primaryAccession: "NC_1001", accessionLength: 10_000
+            primaryAccession: accession, accessionLength: 10_000
         )
     }
 }
