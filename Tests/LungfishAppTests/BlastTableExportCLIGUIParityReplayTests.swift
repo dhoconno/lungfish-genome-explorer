@@ -353,7 +353,10 @@ extension BlastTableExportCLIGUIParityReplayTests {
         XCTAssertTrue(lines[2].hasPrefix(readID + separator), "the second hit of the same read, \(lines[2])")
         XCTAssertEqual(
             lines[3],
-            ["read_2", BlastVerdict.unverified.rawValue, "false", "1", "", "", "", "", "", "", "", ""].joined(separator: separator),
+            [
+                "read_2", BlastVerdict.unverified.rawValue, "false", "1", "", "", "", "", "", "", "", "",
+                "Escherichia coli", "inconclusive",
+            ].joined(separator: separator),
             "a read with no hit"
         )
         XCTAssertTrue(lines[4].hasPrefix(["read_3", BlastVerdict.ambiguous.rawValue].joined(separator: separator)), lines[4])

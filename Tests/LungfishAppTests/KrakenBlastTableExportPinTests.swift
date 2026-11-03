@@ -224,18 +224,25 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         let verified = BlastVerdict.verified.rawValue
         let unverified = BlastVerdict.unverified.rawValue
         let ambiguous = BlastVerdict.ambiguous.rawValue
+        let taxon = "Escherichia coli"
         let rows: [[String]] = [
             [
                 "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession", "Organism", "TaxId", "Identity%",
-                "Coverage%", "E-value", "Bit Score", "Alignment Length",
+                "Coverage%", "E-value", "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check",
             ],
             [
                 field("read,1"), verified, "true", "1", "NC_000001.1", field("Escherichia coli, strain \"K-12\""),
-                "562", "99.50", "98.25", "1e-50", "250.5", "150",
+                "562", "99.50", "98.25", "1e-50", "250.5", "150", taxon, "supporting",
             ],
-            [field("read,1"), verified, "true", "2", "NC_000002.1", "", "", "90.00", "80.13", "0.0", "100.0", "120"],
-            ["read_2", unverified, "false", "1", "", "", "", "", "", "", "", ""],
-            ["read_3", ambiguous, "false", "1", "NC_000003.1", "Shigella", "", "88.13", "70.50", "0.002", "55.5", "99"],
+            [
+                field("read,1"), verified, "true", "2", "NC_000002.1", "", "", "90.00", "80.13", "0.0", "100.0", "120",
+                taxon, "supporting",
+            ],
+            ["read_2", unverified, "false", "1", "", "", "", "", "", "", "", "", taxon, "inconclusive"],
+            [
+                "read_3", ambiguous, "false", "1", "NC_000003.1", "Shigella", "", "88.13", "70.50", "0.002", "55.5", "99",
+                taxon, "inconclusive",
+            ],
         ]
         return rows.map { $0.joined(separator: separator) }.joined(separator: "\n") + "\n"
     }

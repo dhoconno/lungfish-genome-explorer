@@ -40,7 +40,12 @@ extension BlastVerificationTableExport {
     /// The CSV or TSV text of a BLAST verification result.
     ///
     /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
-    /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
+    /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length,
+    /// Queried Taxon, Taxon Check.
+    ///
+    /// Verdict says only whether a read's alignment passed the quality thresholds, so a read that contradicts the
+    /// row can read `verified`. Taxon Check says what the read means for the row: `supporting`, `contradicting` or
+    /// `inconclusive` (ruling BIO-VERIFIED-EXPORT).
     ///
     /// One row per hit (a read with 5 hits produces 5 output rows). A fragment's
     /// mates each get their own rows under the one read ID, deciding mate first.
@@ -51,12 +56,16 @@ extension BlastVerificationTableExport {
         let header = [
             "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession",
             "Organism", "TaxId", "Identity%", "Coverage%", "E-value",
-            "Bit Score", "Alignment Length"
+            "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check"
         ]
         lines.append(header.joined(separator: separator))
 
         // Data rows
-        for readResult in result.readResults.flatMap({ [$0] + ($0.otherMates ?? []) }) {
+        let queriedTaxon = escapeField(result.taxonName, separator: separator)
+        let rows = result.readResults.flatMap { fragment in
+            ([fragment] + (fragment.otherMates ?? [])).map { (readResult: $0, taxonCheck: taxonCheckWord(fragment)) }
+        }
+        for (readResult, taxonCheck) in rows {
             if readResult.topHits.isEmpty {
                 // Read with no hits: single row with top-level fields
                 let row = [
@@ -72,6 +81,8 @@ extension BlastVerificationTableExport {
                     readResult.eValue.map { String($0) } ?? "",
                     readResult.bitScore.map { String(format: "%.1f", $0) } ?? "",
                     readResult.alignmentLength.map { String($0) } ?? "",
+                    queriedTaxon,
+                    taxonCheck,
                 ]
                 lines.append(row.joined(separator: separator))
             } else {
@@ -90,6 +101,8 @@ extension BlastVerificationTableExport {
                         String(hit.eValue),
                         String(format: "%.1f", hit.bitScore),
                         String(hit.alignmentLength),
+                        queriedTaxon,
+                        taxonCheck,
                     ]
                     lines.append(row.joined(separator: separator))
                 }
@@ -97,6 +110,15 @@ extension BlastVerificationTableExport {
         }
 
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// What a fragment says about the queried taxon, by the rule of the counts behind the badge
+    /// (`BlastVerificationResult.supportingCount`, `contradictingCount` and `inconclusiveCount`). Every mate of a
+    /// fragment carries the one word, since the counts read only the fragment's row. A pair whose mates conflict
+    /// counts as neither, and its other mate still holds its own `.verified`.
+    private static func taxonCheckWord(_ fragment: BlastReadResult) -> String {
+        guard fragment.verdict == .verified else { return "inconclusive" }
+        return fragment.matchesQueriedTaxon ? "supporting" : "contradicting"
     }
 
     /// Escapes a field for CSV output by quoting if it contains the separator,
