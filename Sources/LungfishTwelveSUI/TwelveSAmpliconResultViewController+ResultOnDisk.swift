@@ -56,4 +56,40 @@ extension TwelveSAmpliconResultViewController {
             return "\(path) \(size) \(modified)"
         }
     }
+
+    /// The unresolved rows of the result's table, in the order the Unresolved tab shows them. The loader reads a
+    /// table that is not on disk as no sequences, so a table the manifest names that is missing throws here.
+    static func readUnresolvedRows(of result: TwelveSAmpliconResultBundleData) throws -> [TwelveSUnresolvedSequence] {
+        if let path = result.manifest.unresolvedTablePath {
+            let url = TwelveSAmpliconResultBundle.resolvedURL(for: path, in: result.bundleURL)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw TwelveSUnresolvedTableMissing(name: url.lastPathComponent)
+            }
+        }
+        return try TwelveSAmpliconResultBundle
+            .loadUnresolvedSequences(fromBundle: result.bundleURL, manifest: result.manifest)
+            .sorted { lhs, rhs in
+                if lhs.readCount != rhs.readCount { return lhs.readCount > rhs.readCount }
+                return lhs.sequenceID < rhs.sequenceID
+            }
+    }
+
+    /// Tells the person the unresolved table could not be read, through the seam the export failures use. The
+    /// table stays empty, and the next click on Unresolved reads it again.
+    func presentUnresolvedLoadFailure(_ error: Error) {
+        exportFailurePresenter.presentExportFailure(
+            title: "12S Unresolved Sequences Not Shown",
+            message: "The unresolved sequences of this result could not be read, so the Unresolved table is empty. That does not mean the result has none. \(error.localizedDescription) Click Targets and then Unresolved to try again, or select this result again.",
+            in: view.window ?? NSApp.keyWindow
+        )
+    }
+}
+
+/// The result names an unresolved table that is not in its folder.
+struct TwelveSUnresolvedTableMissing: LocalizedError {
+    let name: String
+
+    var errorDescription: String? {
+        "The file \(name) is not in the result."
+    }
 }

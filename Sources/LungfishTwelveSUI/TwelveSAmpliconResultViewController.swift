@@ -1283,16 +1283,13 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     private func loadUnresolvedRowsIfNeeded() {
         guard !unresolvedRowsLoaded, let result else { return }
-        unresolvedRowsLoaded = true
         do {
-            allUnresolvedRows = try TwelveSAmpliconResultBundle
-                .loadUnresolvedSequences(fromBundle: result.bundleURL, manifest: result.manifest)
-                .sorted { lhs, rhs in
-                    if lhs.readCount != rhs.readCount { return lhs.readCount > rhs.readCount }
-                    return lhs.sequenceID < rhs.sequenceID
-                }
+            allUnresolvedRows = try Self.readUnresolvedRows(of: result)
+            unresolvedRowsLoaded = true
         } catch {
+            // The rows stay empty and unresolvedRowsLoaded stays false, so the next click reads the table again.
             allUnresolvedRows = []
+            presentUnresolvedLoadFailure(error)
         }
     }
 
