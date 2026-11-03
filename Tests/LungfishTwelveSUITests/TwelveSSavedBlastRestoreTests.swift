@@ -116,6 +116,22 @@ extension TwelveSAmpliconResultViewControllerTests {
         XCTAssertEqual(pane.currentResult?.rid, "RID-ONE")
     }
 
+    /// IDs are ranks. A re-run with Replace Existing Bundle writes a new bundle at the same path, where `unresolved_1` names
+    /// another sequence, so a search of the earlier bundle's `unresolved_1` is not this row's search (REOPEN2-BIO B1).
+    func testATwelveSSelectionDoesNotShowASearchOfAnEarlierBundleWithTheSameIDs() async throws {
+        let project = try SavedBlastSearchProject()
+        defer { project.remove() }
+        let (viewer, ids) = try makeRestoreViewer(result: "A.lungfish12s", in: project)
+        let record = try project.saveRecord(rid: "RID-EARLIER", sourceResult: "A.lungfish12s", sample: nil, taxId: nil, contig: nil, queryIDs: [ids[0]])
+        let query = record.deletingLastPathComponent().appendingPathComponent(BlastSubmissionRecord.queryFileName)
+        try Data(">\(ids[0])\nTTTTTTTT\n".utf8).write(to: query)
+
+        viewer.testingSelectUnresolvedRow(0)
+        await settle(viewer)
+
+        XCTAssertNil(viewer.blastDrawerContainer, "the same ID with another sequence is another search")
+    }
+
     func testTheNewestTwelveSRecordWinsAndAFolderWithNoReadableRecordIsSkipped() async throws {
         let project = try SavedBlastSearchProject()
         defer { project.remove() }
