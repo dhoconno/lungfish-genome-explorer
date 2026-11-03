@@ -374,9 +374,14 @@ public final class AssemblyResultViewController: NSViewController {
             )
             return
         }
-        Task {
-            if let request = try? await materializationAction.buildBlastRequest(result: result, selectedContigs: selectedContigs) {
-                onBlastVerification?(request)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let request = try await self.materializationAction.buildBlastRequest(result: result, selectedContigs: selectedContigs)
+                self.onBlastVerification?(request)
+            } catch {
+                NSSound.beep()
+                self.presentFailure(AssemblyFailureReports.blastContigs(error))
             }
         }
     }

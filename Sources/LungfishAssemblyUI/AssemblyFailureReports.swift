@@ -16,4 +16,13 @@ enum AssemblyFailureReports {
             underlying: error
         )
     }
+
+    static func blastContigs(_ error: any Error) -> FailureReport {
+        FailureReport(
+            failedStep: "Send the selected contigs to BLAST",
+            whatHappened: "Lungfish could not read the selected contigs from the assembly output, so nothing was sent to NCBI.",
+            nextStep: "Check that the assembly output is still in the project, then select the contigs and run BLAST again.",
+            underlying: error
+        )
+    }
 }

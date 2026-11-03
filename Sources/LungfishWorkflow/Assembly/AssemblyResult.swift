@@ -122,7 +122,9 @@ public extension AssemblyResult {
                 logPath: persisted.logPath.map { directory.appendingPathComponent($0) },
                 assemblerVersion: persisted.assemblerVersion,
                 commandLine: persisted.commandLine,
-                outputDirectory: URL(fileURLWithPath: persisted.outputDirectory),
+                // The folder it loads from, like the paths around it. The JSON names where the run wrote, and a moved,
+                // renamed or copied result is no longer there.
+                outputDirectory: directory,
                 statistics: persisted.statistics,
                 wallTimeSeconds: persisted.wallTimeSeconds,
                 scaffoldsPath: persisted.scaffoldsPath.map { directory.appendingPathComponent($0) },
