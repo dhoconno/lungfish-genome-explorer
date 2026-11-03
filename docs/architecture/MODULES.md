@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 658 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 155 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 156 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1718,6 +1718,7 @@ None.
 - `SampleMetadataPresentationConsumer` protocol, `Sources/LungfishKit/SampleMetadataPresentationContext.swift`
 - `SampleMetadataPresentationContext` class, `Sources/LungfishKit/SampleMetadataPresentationContext.swift`
 - `SampleMetadataSection` struct, `Sources/LungfishKit/SampleMetadataSection.swift`
+- `SavedBlastSearchRestorer` class, `Sources/LungfishKit/SavedBlastSearchRestorer.swift`
 - `SavePanelPresenting` protocol, `Sources/LungfishKit/SavePanelPresenting.swift`
 - `ScopedEventFilter` enum, `Sources/LungfishKit/ScopedEventFilter.swift`
 - `ScrollViewSplitPaneContainerView` class, `Sources/LungfishKit/ScrollViewSplitPaneContainerView.swift`
