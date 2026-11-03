@@ -276,7 +276,7 @@ final class BlastExportTableCommandTests: XCTestCase {
     }
 
     /// A tax ID other than 0 names a taxon with or without a clade. An archive that saved no request holds only that,
-    /// and `blast submit --taxid` records the tax ID "and used to judge hits", as its help says.
+    /// and `blast submit --taxid` records the tax ID as the taxon the sequences were assigned to, as its help says.
     func testTaxonCheckStaysForATaxIdWithNoClade() throws {
         for recordURL in [try XCTUnwrap(archiveFile), try XCTUnwrap(submitRecord)] {
             let rows = try exportedRows(of: recordURL)
