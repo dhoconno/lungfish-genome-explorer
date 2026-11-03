@@ -60,6 +60,15 @@ extension AssemblyResultViewController {
         return true
     }
 
+    /// What the pane shows in place of bases when a contig could not be read although the contigs file did not change.
+    static let sequenceNotReadWords = "Lungfish could not read the sequence of this contig from the contigs file. Select another item in the sidebar, then select this assembly again."
+
+    /// The first lines of a many-contig preview when some of the selected contigs could not be read. Empty when all were.
+    static func unreadNote(selected: Int, read: Int) -> String {
+        guard read < selected else { return "" }
+        return "\(selected - read) of the \(selected) selected contigs could not be read from the contigs file, so their sequences are not shown.\n\n"
+    }
+
     /// Shows a failure report, or hands it to the test seam (ALERT-PRESENTER, Phase 3.1).
     func presentFailure(_ report: FailureReport) {
         if let failurePresenter {

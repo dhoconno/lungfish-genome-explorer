@@ -536,11 +536,11 @@ public final class AssemblyResultViewController: NSViewController {
         guard !paneStopsForAChangedContigsFile(selectedContigCount: rows.count) else { return }
 
         if rows.count == 1, let record = rows.first {
-            let fastaPreview = (try? await catalog.sequenceFASTA(for: record.name, lineWidth: 70)) ?? ""
+            let read = try? await catalog.sequenceFASTA(for: record.name, lineWidth: 70)
             guard generation == selectionGeneration,
                   !paneStopsForAChangedContigsFile(selectedContigCount: 1) else { return }
-            restoreSavedBlastSearch(afterReading: [fastaPreview])
-            detailPane.showSingleSelection(record: record, fastaPreview: fastaPreview)
+            restoreSavedBlastSearch(afterReading: read.map { [$0] } ?? [])
+            detailPane.showSingleSelection(record: record, fastaPreview: read ?? Self.sequenceNotReadWords)
             setDetailPaneVisible(true)
             applyLayoutPreference()
             return
@@ -557,7 +557,7 @@ public final class AssemblyResultViewController: NSViewController {
         guard generation == selectionGeneration,
               !paneStopsForAChangedContigsFile(selectedContigCount: rows.count) else { return }
         restoreSavedBlastSearch(afterReading: fastaPreviewRecords)
-        let fastaPreview = fastaPreviewRecords.joined(separator: "\n")
+        let fastaPreview = Self.unreadNote(selected: selectedNames.count, read: fastaPreviewRecords.count) + fastaPreviewRecords.joined(separator: "\n")
         if let summary = try? await catalog.selectionSummary(for: selectedNames) {
             guard generation == selectionGeneration else { return }
             detailPane.showMultiSelection(summary: summary, fastaPreview: fastaPreview)
