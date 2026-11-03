@@ -260,9 +260,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     #endif
 
     private var splitViewBottomConstraint: NSLayoutConstraint?
-    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    private(set) var blastDrawerContainer: BlastResultsDrawerContainerView?
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
-    private var isBlastDrawerOpen = false
+    private(set) var isBlastDrawerOpen = false
+    let savedBlastRestorer = SavedBlastSearchRestorer()
 
     private(set) var result: TwelveSAmpliconResultBundleData?
     private var mode: Mode = .targets
@@ -950,20 +951,20 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
     }
 
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
+        savedBlastRestorer.runBegan()
+        ensureBlastDrawer().showLoading(phase: phase, requestId: requestId)
         openBlastDrawerIfNeeded()
     }
 
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showResults(result, recordURL: recordURL)
+        savedBlastRestorer.runEnded(shownRecord: recordURL)
+        ensureBlastDrawer().showResults(result, recordURL: recordURL)
         openBlastDrawerIfNeeded()
     }
 
     public func showBlastFailure(_ message: String) {
-        let drawer = ensureBlastDrawer()
-        drawer.showFailure(message: message)
+        savedBlastRestorer.runEnded(shownRecord: nil)
+        ensureBlastDrawer().showFailure(message: message)
         openBlastDrawerIfNeeded()
     }
 
@@ -1523,16 +1524,14 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         }
     }
 
-    private func selectedUnresolvedRows() -> [TwelveSUnresolvedSequence] {
+    func selectedUnresolvedRows() -> [TwelveSUnresolvedSequence] {
         guard mode == .unresolved else { return [] }
         let selected = unresolvedTable.selectedRowsByIdentity()
         return selected.isEmpty ? unresolvedTable.displayedRows : selected
     }
 
     private func performUnresolvedBlast() {
-        guard let result else { return }
-        let rows = selectedUnresolvedRows()
-        guard !rows.isEmpty else { return }
+        guard let result, case let rows = selectedUnresolvedRows(), !rows.isEmpty else { return }
         onUnresolvedBlastRequested?(
             TwelveSUnresolvedBlastRequest(
                 bundleURL: result.bundleURL,
@@ -1542,7 +1541,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         )
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
+    func ensureBlastDrawer() -> BlastResultsDrawerTab {
         if let blastDrawerContainer {
             blastDrawerContainer.blastResultsTab.presentationStyle = .sequenceBlast
             return blastDrawerContainer.blastResultsTab
@@ -1589,7 +1588,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         return container.blastResultsTab
     }
 
-    private func openBlastDrawerIfNeeded() {
+    func openBlastDrawerIfNeeded() {
         guard !isBlastDrawerOpen, let blastDrawerHeightConstraint else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25

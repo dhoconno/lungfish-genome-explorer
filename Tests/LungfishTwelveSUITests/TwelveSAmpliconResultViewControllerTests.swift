@@ -545,11 +545,11 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
                        "the standard defaults hold the layout they held before the test")
     }
 
-    private func makeResult(
+    func makeResult(
         sampleCount: Int = 2,
-        includeTaxonGroups: Bool = true
+        includeTaxonGroups: Bool = true,
+        bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfish12s")
     ) -> TwelveSAmpliconResultBundleData {
-        let bundleURL = URL(fileURLWithPath: "/tmp/example.lungfish12s")
         let manifest = TwelveSAmpliconResultBundleManifest(
             outputName: "example",
             analysisName: "Example",

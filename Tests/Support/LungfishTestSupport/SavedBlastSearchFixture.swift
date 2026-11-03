@@ -6,7 +6,8 @@ import Foundation
 import LungfishCore
 
 /// A temporary project whose `blast-verifications` folder holds `blast submit` records, as the NAO-MGS, EsViritu,
-/// TaxTriage and NVD rows save them (Phase 3.1 lane REOPEN). Every record is made here, so no test holds real data.
+/// TaxTriage and NVD rows save them (Phase 3.1 lane REOPEN), and Assembly and 12S selections (lane REOPEN2). Every record
+/// is made here, so no test holds real data.
 public struct SavedBlastSearchProject {
     public let root: URL
     public var project: URL { root.appendingPathComponent("Project.lungfish", isDirectory: true) }
@@ -29,7 +30,9 @@ public struct SavedBlastSearchProject {
     }
 
     /// Saves a record of the search `rid` from the result `Analyses/<sourceResult>`, in the `@/` form the leaf writes.
-    /// `age` is how many seconds before a fixed date it completed, so a smaller age is newer.
+    /// `age` is how many seconds before a fixed date it completed, so a smaller age is newer. `heldIn` names the result
+    /// whose own `blast-verifications` folder holds the record, as an assembly's plan saves it, and nil is the project's.
+    /// `queryIDs` writes the query copy beside the record, as a 12S search's only word on its sequences.
     @discardableResult
     public func saveRecord(
         rid: String,
@@ -37,7 +40,9 @@ public struct SavedBlastSearchProject {
         sample: String?,
         taxId: Int?,
         contig: String?,
-        age: TimeInterval = 0
+        age: TimeInterval = 0,
+        heldIn: String? = nil,
+        queryIDs: [String]? = nil
     ) throws -> URL {
         let completedAt = Date(timeIntervalSince1970: 1_800_000_000 - age)
         let result = BlastVerificationResult(
@@ -54,8 +59,14 @@ public struct SavedBlastSearchProject {
             )),
             result: result
         )
-        let folder = searchFolder(named: "search-\(rid)")
+        let folder = heldIn.map {
+            project.appendingPathComponent("Analyses/\($0)/blast-verifications/search-\(rid)", isDirectory: true)
+        } ?? searchFolder(named: "search-\(rid)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        if let queryIDs {
+            let query = queryIDs.map { ">\($0)\nACGT\n" }.joined()
+            try Data(query.utf8).write(to: folder.appendingPathComponent(BlastSubmissionRecord.queryFileName))
+        }
         let url = folder.appendingPathComponent(BlastSubmissionRecord.recordFileName)
         try BlastSubmissionRecord.encoder.encode(record).write(to: url)
         return url

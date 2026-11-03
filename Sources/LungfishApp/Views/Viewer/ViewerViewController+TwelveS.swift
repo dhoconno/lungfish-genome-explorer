@@ -61,6 +61,7 @@ extension ViewerViewController {
     /// surface factory in ViewerViewController+Surfaces.swift calls it for each new
     /// viewer.
     func wireTwelveSUnresolvedBlast(_ controller: TwelveSAmpliconResultViewController) {
+        controller.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
         controller.onUnresolvedBlastRequested = { [weak self, weak controller] request in
             guard let controller else { return }
             let minimumReads = max(0, request.minimumReads)
@@ -147,6 +148,7 @@ extension ViewerViewController {
         // 1. The row begins with no command. 2. The sequences are exported. 3. The row takes the plan's command.
         Self.beginTwelveSUnresolvedBlastOperation(cliArguments: arguments) { opID in
             drawer.loading(.submitting)
+            controller?.trackBlastRun(operationID: opID)
             controller?.onUnresolvedBlastCancelRequested = { OperationCenter.shared.cancel(id: opID) }
             let cancellation = LungfishCLIRunner.CancellationHandle()
             let task = Task { @MainActor in

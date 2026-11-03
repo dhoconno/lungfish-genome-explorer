@@ -46,6 +46,7 @@ extension ViewerViewController {
             Self.beginAssemblyContigBlastVerificationOperation(
                 sourceLabel: request.sourceLabel, cliCommand: plan.cliCommand
             ) { opID in
+                blastController.trackBlastRun(operationID: opID)
                 Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                     loading: { blastController.showBlastLoading(phase: $0, requestId: nil) },
                     results: { blastController.showBlastResults($0, recordURL: $1) },
@@ -118,7 +119,7 @@ extension ViewerViewController {
         let sequences = blastSequences(from: fastaRecords)
         return try BlastSubmitPlan.make(
             sequences: sequences, label: sourceLabel, projectURL: ProjectTempDirectory.findProjectRoot(resultURL),
-            sourceResultURL: resultURL, taxId: taxId, contig: sequences.map(\.id).joined(separator: ","), date: date
+            sourceResultURL: resultURL, taxId: taxId, contig: BlastSavedSearchRow.lineageContig(of: sequences.map(\.id)), date: date
         )
     }
 

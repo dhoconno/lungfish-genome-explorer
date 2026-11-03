@@ -99,10 +99,10 @@ func makeAssemblyResult() throws -> AssemblyResult {
     try makeAssemblyResult(writeFASTAIndex: true)
 }
 
-func makeAssemblyResult(writeFASTAIndex: Bool) throws -> AssemblyResult {
+func makeAssemblyResult(writeFASTAIndex: Bool, in resultFolder: URL? = nil) throws -> AssemblyResult {
     let projectRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("assembly-viewport-test-\(UUID().uuidString).lungfish", isDirectory: true)
-    let root = projectRoot
+    let root = resultFolder ?? projectRoot
         .appendingPathComponent("Analyses", isDirectory: true)
         .appendingPathComponent("spades-2026-04-19T21-40-00", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

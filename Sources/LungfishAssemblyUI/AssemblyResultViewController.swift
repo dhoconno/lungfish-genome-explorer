@@ -66,7 +66,7 @@ public final class AssemblyResultViewController: NSViewController {
 
     private var catalog: (any AssemblyContigCatalogProviding)?
     private var allRecords: [AssemblyContigRecord] = []
-    private var selectedContigNames: [String] = []
+    var selectedContigNames: [String] = []
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var selectionGeneration = 0
@@ -75,7 +75,8 @@ public final class AssemblyResultViewController: NSViewController {
     private var splitViewBottomConstraint: NSLayoutConstraint?
     private var blastDrawerContainer: BlastResultsDrawerContainerView?
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
-    private var isBlastDrawerOpen = false
+    private(set) var isBlastDrawerOpen = false
+    let savedBlastRestorer = SavedBlastSearchRestorer()
     private var contentTypographyObservation: AssemblyContentTypographyObservation?
     private var preferredFontProvider: any ContentPreferredFontProviding =
         AppKitContentPreferredFontProvider()
@@ -566,24 +567,24 @@ public final class AssemblyResultViewController: NSViewController {
     }
 
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
+        savedBlastRestorer.runBegan()
+        ensureBlastDrawer().showLoading(phase: phase, requestId: requestId)
         openBlastDrawerIfNeeded()
     }
 
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        let drawer = ensureBlastDrawer()
-        drawer.showResults(result, recordURL: recordURL)
+        savedBlastRestorer.runEnded(shownRecord: recordURL)
+        ensureBlastDrawer().showResults(result, recordURL: recordURL)
         openBlastDrawerIfNeeded()
     }
 
     public func showBlastFailure(_ message: String) {
-        let drawer = ensureBlastDrawer()
-        drawer.showFailure(message: message)
+        savedBlastRestorer.runEnded(shownRecord: nil)
+        ensureBlastDrawer().showFailure(message: message)
         openBlastDrawerIfNeeded()
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
+    func ensureBlastDrawer() -> BlastResultsDrawerTab {
         if let blastDrawerContainer {
             blastDrawerContainer.blastResultsTab.presentationStyle = .contigBlast
             return blastDrawerContainer.blastResultsTab
@@ -632,9 +633,8 @@ public final class AssemblyResultViewController: NSViewController {
         return container.blastResultsTab
     }
 
-    private func openBlastDrawerIfNeeded() {
-        guard !isBlastDrawerOpen else { return }
-        guard let blastDrawerHeightConstraint else { return }
+    func openBlastDrawerIfNeeded() {
+        guard !isBlastDrawerOpen, let blastDrawerHeightConstraint else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
