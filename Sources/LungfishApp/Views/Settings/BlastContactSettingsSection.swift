@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import LungfishCore
+import LungfishKit
 import Observation
 import SwiftUI
 
@@ -89,12 +90,12 @@ struct BlastContactSettingsSection: View {
 
             Text(BlastContactAddress.Words.state(model.reading))
                 .font(.caption)
-                .foregroundStyle(model.reading == .notValid ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .foregroundStyle(model.reading == .notValid ? AnyShapeStyle(Color.lungfishDangerFallback) : AnyShapeStyle(.secondary))
 
             if let saveFailure = model.saveFailure {
                 Text(saveFailure)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
             }
         }
         .task { await model.load() }
