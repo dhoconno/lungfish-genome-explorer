@@ -332,6 +332,73 @@ final class ReferenceBundleSequenceAccessTests: XCTestCase {
         }
     }
 
+    /// What a person leaves by replacing the genome inside the bundle with a shorter file, `>chr1` and its first
+    /// 20 bases, while the `.fai` and the manifest still describe the 60 bases the bundle was built with.
+    private func writeShorterGenome(in genomeDir: URL, compressed: Bool) throws {
+        let fastaName = compressed ? "sequence.fa.gz" : "sequence.fa"
+        let shorter = Data(">chr1\n\(Self.bases(of: "chr1", 0..<20))\n".utf8)
+        try (compressed ? bgzf(shorter) : shorter).write(to: genomeDir.appendingPathComponent(fastaName))
+    }
+
+    private func expectDisagreement(_ error: Error, basesRead expected: Int, line: UInt = #line) {
+        guard case FASTAError.fileDisagreesWithIndex(_, let basesRead) = error else {
+            return XCTFail("Expected fileDisagreesWithIndex, got \(error)", line: line)
+        }
+        XCTAssertEqual(basesRead, expected, line: line)
+    }
+
+    func testFetchSequenceThrowsWhenGenomeIsReplacedByAShorterOne() async throws {
+        for compressed in [false, true] {
+            let bundleURL = try makeSequenceBundle(compressed: compressed)
+            try writeShorterGenome(in: bundleURL.appendingPathComponent("genome"), compressed: compressed)
+            let bundle = try await ReferenceBundle(url: bundleURL)
+            let whole = GenomicRegion(chromosome: "chr1", start: 0, end: 60)
+            let insideTheLineThatRemains = GenomicRegion(chromosome: "chr1", start: 0, end: 10)
+            let pastTheEnd = GenomicRegion(chromosome: "chr2", start: 0, end: 50)
+
+            XCTAssertThrowsError(try bundle.fetchSequenceSync(region: whole), "sync, compressed \(compressed)") { error in
+                self.expectDisagreement(error, basesRead: 20)
+            }
+            do {
+                let bases = try await bundle.fetchSequence(region: whole)
+                XCTFail("async, compressed \(compressed): returned \(bases.count) of 60 bases with no word")
+            } catch {
+                expectDisagreement(error, basesRead: 20)
+            }
+            XCTAssertThrowsError(try bundle.fetchSequenceSync(region: pastTheEnd), "chr2 starts past the end, compressed \(compressed)")
+            XCTAssertEqual(
+                try bundle.fetchSequenceSync(region: insideTheLineThatRemains), Self.bases(of: "chr1", 0..<10),
+                "A read inside the bytes that remain still works, compressed \(compressed)"
+            )
+        }
+    }
+
+    func testHeldBundleThrowsAfterItsFolderIsReplacedAtTheSamePath() async throws {
+        for compressed in [false, true] {
+            let bundleURL = try makeSequenceBundle(compressed: compressed)
+            let bundle = try await ReferenceBundle(url: bundleURL)
+            let whole = GenomicRegion(chromosome: "chr1", start: 0, end: 60)
+            XCTAssertEqual(try bundle.fetchSequenceSync(region: whole), Self.bases(of: "chr1", 0..<60))
+
+            // The reference is deleted and a shorter one of the same name is put at the same path. The open
+            // bundle keeps the index it parsed, and its reader opens the file again on each read.
+            try FileManager.default.removeItem(at: bundleURL)
+            let genomeDir = bundleURL.appendingPathComponent("genome")
+            try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+            try writeShorterGenome(in: genomeDir, compressed: compressed)
+            let fastaName = compressed ? "sequence.fa.gz" : "sequence.fa"
+            try "chr1\t20\t6\t20\t21\n".write(to: genomeDir.appendingPathComponent("\(fastaName).fai"), atomically: true, encoding: .utf8)
+            if compressed {
+                try Data(count: 8).write(to: genomeDir.appendingPathComponent("\(fastaName).gzi"))
+            }
+
+            XCTAssertThrowsError(try bundle.fetchSequenceSync(region: whole), "compressed \(compressed)") { error in
+                self.expectDisagreement(error, basesRead: 20)
+            }
+            XCTAssertEqual(bundle.sequenceCache.readerBuildCount, 1, "The held bundle keeps the reader it built from the old index.")
+        }
+    }
+
     func testPrepareSequenceAccessBuildsTheIndexAndTheReaderOnce() async throws {
         let bundle = try await ReferenceBundle(url: try makeSequenceBundle(compressed: true))
 

@@ -363,6 +363,21 @@ public final class IndexedFASTAReader: Sendable {
     static func sequenceText(fromIndexedWindow rawSequence: String) -> String {
         String(String.UnicodeScalarView(rawSequence.unicodeScalars.filter { $0.value != 10 && $0.value != 13 }))
     }
+
+    /// The bases of `region` from an indexed window, or a throw when the file no longer holds what the index says.
+    ///
+    /// The check runs on the text after the trim to `region.length`, never on the whole window. A window that
+    /// covers a whole record runs on into the next record's header, and that is a good read. A `>` inside the
+    /// trimmed text means the record ended early, and fewer characters than `region.length` mean the file ended
+    /// early. Shared with ``BgzipIndexedFASTAReader``, which reads the same on-disk byte layout.
+    static func regionBases(_ region: GenomicRegion, fromIndexedWindow rawWindow: String) throws -> String {
+        let bases = String(sequenceText(fromIndexedWindow: rawWindow).prefix(region.length))
+        let usable = bases.utf8.prefix(while: { $0 != UInt8(ascii: ">") }).count
+        guard usable == region.length else {
+            throw FASTAError.fileDisagreesWithIndex(region, basesRead: usable)
+        }
+        return bases
+    }
 }
 
 // MARK: - FASTAIndexBuilder

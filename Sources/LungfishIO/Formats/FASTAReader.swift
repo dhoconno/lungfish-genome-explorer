@@ -333,6 +333,9 @@ public enum FASTAError: Error, LocalizedError {
     case invalidIndex(String)
     case regionOutOfBounds(GenomicRegion, sequenceLength: Int)
     case duplicateSequenceName(String)
+    /// The file holds fewer bases than its index says for `region` (it was changed or cut after indexing),
+    /// or the window ran into the next record's header. `basesRead` counts the bases found before the gap.
+    case fileDisagreesWithIndex(GenomicRegion, basesRead: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -352,6 +355,8 @@ public enum FASTAError: Error, LocalizedError {
             return "Region \(region) exceeds sequence length \(length)"
         case .duplicateSequenceName(let name):
             return "FASTA file lists the sequence name '\(name)' more than once, so its records cannot be told apart"
+        case .fileDisagreesWithIndex(let region, let basesRead):
+            return "The sequence file does not match its index, so nothing was read. \(region.chromosome) should have \(region.length) bases at \(region.start + 1)-\(region.end), and the file gave \(basesRead). The file was probably changed or cut after it was indexed. Import the original FASTA again."
         }
     }
 }

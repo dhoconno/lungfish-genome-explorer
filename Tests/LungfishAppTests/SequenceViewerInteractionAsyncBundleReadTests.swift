@@ -107,6 +107,32 @@ final class SequenceViewerInteractionAsyncBundleReadTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    /// A two-exon copy where the second exon lies past the end of a genome that was replaced by a shorter one
+    /// must give nothing. A copy of the first exon alone is the wrong sequence with no word.
+    func testFetchAnnotationBasesReturnsNilWhenOneIntervalFails() async throws {
+        let bundleURL = try makeReferenceBundle(chromosomeName: "MN908947", sequence: "AAACCCGGGTTT")
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        // The .fai still says 12 bases and the file now holds 6, as after a replacement by hand inside the bundle.
+        try ">MN908947\nAAACCC\n".write(
+            to: bundleURL.appendingPathComponent("genome/sequence.fa"), atomically: true, encoding: .utf8
+        )
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        viewer.setReferenceBundle(bundle)
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "split-gene",
+            chromosome: "MN908947",
+            intervals: [
+                AnnotationInterval(start: 0, end: 3),
+                AnnotationInterval(start: 9, end: 12)
+            ]
+        )
+
+        let result = await viewer.fetchAnnotationBasesAsync(annotation)
+
+        XCTAssertNil(result, "A failed interval must fail the copy, not drop the exon. Got \(result ?? "nil").")
+    }
+
     func testSelectedFASTAOperationInputAsyncMatchesSyncFetchForBundleBackedSelection() async throws {
         let bundleURL = try makeReferenceBundle(chromosomeName: "MN908947", sequence: "AAACCCGGGTTT")
         let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
