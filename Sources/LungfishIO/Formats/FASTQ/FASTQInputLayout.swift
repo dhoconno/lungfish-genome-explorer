@@ -194,7 +194,8 @@ public enum FASTQInputLayoutResolver {
     ///     a `.lungfishfastq` bundle, or the bundle itself, contributes its
     ///     metadata; a materialized scratch file is scanned on its own.
     ///   - pairedFiles: whether the caller bound exactly two files as R1/R2.
-    ///   - explicit: a layout the caller already knows; final when non-nil.
+    ///   - explicit: a layout the caller already knows; final when non-nil, except that a stated interleaved single
+    ///     file gives way to a scan of the whole file that finds pairs beside single reads.
     ///   - recordLimit: how many records the scan reads before deciding. The
     ///     default is the whole file, and a bounded scan never says strict.
     public static func resolve(
@@ -204,6 +205,20 @@ public enum FASTQInputLayoutResolver {
         recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
     ) -> FASTQInputLayoutResolution {
         if let explicit {
+            // A stated single-end pairs nothing. A stated interleaved file pairs by position, so a whole scan that finds
+            // pairs beside single reads outranks it, as FASTQPairingModeResolver holds for a declared pairing. A scan that
+            // finds no pair at all leaves the statement, since it does not read every true name form.
+            if explicit == .strictlyInterleaved, inputURLs.count == 1 {
+                let scan = resolve(inputURLs: inputURLs, pairedFiles: false, explicit: nil, recordLimit: recordLimit)
+                if let counted = scan.classification, counted.matePairs > 0, counted.unpairedRecords > 0 {
+                    return FASTQInputLayoutResolution(
+                        layout: scan.layout,
+                        source: .contentScan,
+                        classification: counted,
+                        reason: "The caller stated interleaved pairs, but \(scan.reason) No tool pairs this file by position."
+                    )
+                }
+            }
             return FASTQInputLayoutResolution(
                 layout: explicit,
                 source: .explicit,
