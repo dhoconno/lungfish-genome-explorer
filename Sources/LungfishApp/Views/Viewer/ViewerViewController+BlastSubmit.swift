@@ -197,16 +197,28 @@ extension ViewerViewController {
         stopper: CLIBlastSubmitRunner = CLIBlastSubmitRunner()
     ) {
         OperationCenter.shared.setCancelCallback(for: operationID) {
-            let quitting = OperationCenter.wasCancelledByAQuit(id: operationID)
-            task.cancel()
-            guard !quitting, let output else { return }
-            Task { @MainActor in
-                await task.value
-                guard FileManager.default.fileExists(atPath: output.appendingPathComponent(BlastSearchFile.fileName).path) else { return }
-                OperationCenter.shared.setStoppedWords(id: operationID, words: BlastSearchWords.stopped)
-                await stopper.stopSearch(output: output)
-                BlastSearchNews.post()
-            }
+            cancelFASTABlastRun(operationID: operationID, output: output, task: task, stopper: stopper)
+        }
+    }
+
+    /// What that Cancel does when OperationCenter runs it, apart so that a test can run it once a quit's `cancelAll()` has
+    /// returned, as the callback's own queue does, and wait for the stop it starts. A quit starts none and returns nil.
+    @discardableResult
+    nonisolated static func cancelFASTABlastRun(
+        operationID: UUID,
+        output: URL?,
+        task: Task<Void, Never>,
+        stopper: CLIBlastSubmitRunner
+    ) -> Task<Void, Never>? {
+        let quitting = OperationCenter.wasCancelledByAQuit(id: operationID)
+        task.cancel()
+        guard !quitting, let output else { return nil }
+        return Task { @MainActor in
+            await task.value
+            guard FileManager.default.fileExists(atPath: output.appendingPathComponent(BlastSearchFile.fileName).path) else { return }
+            OperationCenter.shared.setStoppedWords(id: operationID, words: BlastSearchWords.stopped)
+            await stopper.stopSearch(output: output)
+            BlastSearchNews.post()
         }
     }
 
