@@ -379,7 +379,7 @@ extension BlastCommand {
                 ("Ambiguous", "\(result.ambiguousCount)"),
                 ("Unverified", "\(result.unverifiedCount)"),
                 ("Errors", "\(result.errorCount)"),
-                ("Confidence", result.confidence.rawValue.capitalized),
+                ("Confidence", result.confidence == .notSpecific ? "Not specific" : result.confidence.rawValue.capitalized),
                 ("BLAST RID", result.rid),
                 ("Program", result.blastProgram),
                 ("Database", result.database),
@@ -423,6 +423,7 @@ extension BlastCommand {
             let confidenceLabel: String
             switch result.confidence {
             case .supported:    confidenceLabel = "SUPPORTED"
+            case .notSpecific:  confidenceLabel = "NOT SPECIFIC"
             case .mixed:        confidenceLabel = "MIXED"
             case .unsupported:  confidenceLabel = "UNSUPPORTED"
             case .inconclusive: confidenceLabel = "INCONCLUSIVE"
@@ -432,6 +433,9 @@ extension BlastCommand {
             switch result.confidence {
             case .supported:
                 print(formatter.success("Verification: \(confidenceLabel) (\(supportInfo))"))
+            case .notSpecific:
+                print(formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"))
+                print(BlastTieWords.notSpecificSummary(for: result) ?? "")
             case .mixed:
                 print(formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"))
             case .unsupported:

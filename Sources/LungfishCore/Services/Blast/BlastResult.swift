@@ -301,6 +301,7 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
 /// | Level | Criteria |
 /// |-------|----------|
 /// | `.supported` | >= 80% of significant hits match the queried taxon |
+/// | `.notSpecific` | As `.supported`, when every supporting read also ties with records outside the taxon |
 /// | `.mixed` | 40-79% of significant hits match |
 /// | `.unsupported` | < 40% match, or most hits are to different organisms |
 /// | `.inconclusive` | No significant hits found at all |
@@ -419,12 +420,15 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// | Level | Criteria |
     /// |-------|----------|
     /// | `.supported` | >= 80% of significant hits match the queried taxon |
+/// | `.notSpecific` | As `.supported`, when every supporting read also ties with records outside the taxon |
     /// | `.mixed` | 40-79% of significant hits match |
     /// | `.unsupported` | < 40% match, or most hits are to different organisms |
     /// | `.inconclusive` | No significant hits found at all |
     public enum Confidence: String, Sendable, Codable {
         /// >= 80% of reads with significant hits match the queried taxon
         case supported
+        /// As supported, but every supporting read also ties with records outside the taxon
+        case notSpecific
         /// 40-79% of reads with significant hits match
         case mixed
         /// < 40% of reads match, or most hits are to different organisms

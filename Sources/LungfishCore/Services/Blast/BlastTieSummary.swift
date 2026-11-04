@@ -87,4 +87,18 @@ public enum BlastTieWords {
         if flagged.count > shared { parts.append("\(flagged.count - shared) with conflicting organisms") }
         return parts.joined(separator: ", ")
     }
+
+    /// The sentence beside a Not specific row's counts, or `nil` on any other row.
+    public static func notSpecificSummary(for result: BlastVerificationResult) -> String? {
+        guard result.confidence == .notSpecific else { return nil }
+        var examples: [String] = []
+        for row in result.readResults where row.verdict == .verified && row.matchesQueriedTaxon {
+            for mate in [row] + (row.otherMates ?? []) {
+                for name in mate.tieSummary?.outsideExamples ?? [] where !examples.contains(name) { examples.append(name) }
+            }
+        }
+        let suchAs = examples.isEmpty ? "" : ", such as " + examples.prefix(2).joined(separator: " and ")
+        return "Every supporting read also matches other records equally\(suchAs). "
+            + "These reads cannot tell \(result.taxonName) apart from them."
+    }
 }

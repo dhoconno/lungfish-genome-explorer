@@ -71,6 +71,7 @@ extension BlastVerificationResult.Confidence {
     var tintColor: NSColor {
         switch self {
         case .supported:    return NSColor.systemGreen.withAlphaComponent(0.15)
+        case .notSpecific:  return NSColor.systemOrange.withAlphaComponent(0.15)
         case .mixed:        return NSColor.systemYellow.withAlphaComponent(0.15)
         case .unsupported:  return NSColor.blastVerdictDanger.withAlphaComponent(0.15)
         case .inconclusive: return NSColor.systemGray.withAlphaComponent(0.15)
@@ -81,6 +82,7 @@ extension BlastVerificationResult.Confidence {
     var accentColor: NSColor {
         switch self {
         case .supported:    return .systemGreen
+        case .notSpecific:  return .systemOrange
         case .mixed:        return .systemYellow
         case .unsupported:  return .blastVerdictDanger
         case .inconclusive: return .systemGray
@@ -91,6 +93,7 @@ extension BlastVerificationResult.Confidence {
     public var displayLabel: String {
         switch self {
         case .supported:    return "Supported"
+        case .notSpecific:  return "Not specific"
         case .mixed:        return "Mixed"
         case .unsupported:  return "Unsupported"
         case .inconclusive: return "Inconclusive"
@@ -451,16 +454,16 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
         switch presentationStyle {
         case .verification:
-            let supporting = result.supportingCount
-            let contradicting = result.contradictingCount
-            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)
+            let badgeWords = BlastTieWords.notSpecificSummary(for: result)
+            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject) + (badgeWords.map { ". " + $0 } ?? "")
+            summaryLabel.toolTip = badgeWords
 
             let confidence = result.confidence
             confidenceLabel.stringValue = confidence.displayLabel
             confidenceLabel.textColor = confidence.accentColor
             confidenceDots.stringValue = buildConfidenceDots(
-                supporting: supporting,
-                contradicting: contradicting,
+                supporting: result.supportingCount,
+                contradicting: result.contradictingCount,
                 total: total
             )
             confidenceDots.textColor = confidence.accentColor
@@ -475,6 +478,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             let summaryIconName: String
             switch confidence {
             case .supported:    summaryIconName = "checkmark.circle.fill"
+            case .notSpecific:  summaryIconName = "equal.circle.fill"
             case .mixed:        summaryIconName = "exclamationmark.triangle.fill"
             case .unsupported:  summaryIconName = "xmark.circle.fill"
             case .inconclusive: summaryIconName = "questionmark.circle.fill"
