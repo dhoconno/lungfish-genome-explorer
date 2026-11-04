@@ -16,6 +16,105 @@ import XCTest
 /// and 8). A waiting row has no process behind it, so nothing about it holds up a quit, a cancel of all, or other work.
 @MainActor
 final class BlastInFlightMonitorTests: XCTestCase {
+    /// A viewer's run holds its folder, so the pane hears that Check Now has nothing to do there (gap 11 of C3).
+    @MainActor
+    func testThePaneHearsAViewersRunIsAtWorkOnItsFolderOnly() {
+        let worker = BlastInFlightMonitor.Worker(lines: { _ in [] }, pass: { _, _, _ in .noNews(words: "") }, stop: { _ in })
+        let monitor = BlastInFlightMonitor(worker: worker)
+        let held = (BlastSearchPaneActions.perform, BlastSearchPaneActions.isAtWork)
+        defer { (BlastSearchPaneActions.perform, BlastSearchPaneActions.isAtWork) = held }
+        monitor.start()
+        let output = URL(fileURLWithPath: "/tmp/at-work-search", isDirectory: true)
+        let other = URL(fileURLWithPath: "/tmp/other-search", isDirectory: true)
+
+        XCTAssertEqual(BlastSearchPaneActions.isAtWork?(output), false)
+        monitor.viewerRunBegan(output: output, row: UUID())
+        XCTAssertEqual(BlastSearchPaneActions.isAtWork?(output), true)
+        XCTAssertEqual(BlastSearchPaneActions.isAtWork?(other), false)
+        monitor.viewerRunEnded(output: output)
+        XCTAssertEqual(BlastSearchPaneActions.isAtWork?(output), false)
+    }
+
+    /// A search that waits in its folder with nothing due.
+    private func waitingSearch(in folder: URL) throws -> (file: BlastSearchFile, output: URL, line: BlastInFlightLine) {
+        let output = folder.appendingPathComponent("search", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let request = BlastVerificationRequest(
+            taxonName: "Taxon", taxId: 7, sequences: [(id: "read_1", sequence: "ACGT")], database: "core_nt"
+        )
+        var file = BlastSearchFile(
+            origin: .standIn, createdAt: Date(), submitArgv: [], facts: BlastSearchFile.Facts(request),
+            query: BlastSubmissionRecord.Query(fileName: "query.fasta", sha256: "x", sequenceCount: 1), formSHA256: "x"
+        )
+        file.state = .waiting
+        file.copies[0].rid = "RID-REFUSED"
+        file.copies[0].state = .live
+        file.copies[0].nextCheckAt = Date().addingTimeInterval(3600)
+        file.spentAt = Date()
+        try BlastSearchStore(folder: output).save(file)
+        return (file, output, BlastInFlightLine(file, output: output, words: "Waiting at NCBI", now: Date()))
+    }
+
+    private func pane(on search: (file: BlastSearchFile, output: URL, line: BlastInFlightLine)) throws -> BlastWaitingPaneView {
+        let pane = BlastWaitingPaneView()
+        pane.show(try XCTUnwrap(BlastSearchPaneState.make(BlastLiveSearch(file: search.file, folder: search.output), noun: "reads", now: Date())))
+        return pane
+    }
+
+    /// UX's blocker. The row's next refresh takes the words of a refused press away, so the log and the pane keep them.
+    func testASendAgainTheLimitRefusesKeepsItsWordsInView() async throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-limit-refusal")
+        defer { TestTempDirectory.cleanup(folder) }
+        let search = try waitingSearch(in: folder)
+        let words = "LGE's own limit stopped this search, and NCBI was not contacted."
+        let event = folder.appendingPathComponent("failed-event.json")
+        try Data(#"{"event":"failed","message":"\#(words)","schemaVersion":2}"#.utf8).write(to: event)
+        let cli = folder.appendingPathComponent("lungfish-cli-refuses")
+        try "#!/bin/bash\n/bin/cat '\(event.path)'\n/bin/echo\nexit 1\n".write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let real = BlastInFlightMonitor.Worker.cli(cliURLOverride: cli)
+        let line = search.line
+        let monitor = BlastInFlightMonitor(worker: BlastInFlightMonitor.Worker(lines: { _ in [line] }, pass: real.pass, stop: real.stop))
+        let pane = try pane(on: search)
+
+        monitor.perform(.sendAgain, folder: search.output)
+        let began = await waitUntil(timeout: WaitBudget.lookup.duration) { monitor.row(ofSearch: search.file.searchID) != nil }
+        XCTAssertTrue(began)
+        let row = try XCTUnwrap(monitor.row(ofSearch: search.file.searchID))
+        rows.append(row)
+        let settled = await waitUntil(timeout: WaitBudget.lookup.duration) { self.item(row)?.detail == line.words }
+        XCTAssertTrue(settled, "the row reads \(item(row)?.detail ?? "nothing")")
+        await monitor.passesFinished()
+        await monitor.refresh()
+
+        XCTAssertEqual(item(row)?.detail, line.words, "this refresh is the one that takes the words off the row")
+        XCTAssertEqual(item(row)?.state, .waiting, "a refused press ends no search")
+        XCTAssertTrue(item(row)?.logEntries.contains { $0.message == words } == true, "the row's log keeps the refusal")
+        XCTAssertEqual(pane.noteLabel.stringValue, words, "the pane says what the press came to")
+    }
+
+    /// A Stop that was not taken leaves the search going, so the row may not read Stopped.
+    func testAStopThatIsNotTakenLeavesTheRowWaitingAndSaysSo() async throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-stop-not-taken")
+        defer { TestTempDirectory.cleanup(folder) }
+        let search = try waitingSearch(in: folder)
+        let line = search.line
+        let monitor = BlastInFlightMonitor(worker: BlastInFlightMonitor.Worker(
+            lines: { _ in [line] }, pass: { _, _, _ in .noNews(words: "") }, stop: { _ -> Bool in false }
+        ))
+        let pane = try pane(on: search)
+        await monitor.refresh()
+        let row = try XCTUnwrap(monitor.row(ofSearch: search.file.searchID))
+        rows.append(row)
+
+        OperationCenter.shared.cancel(id: row)
+
+        let said = await waitUntil(timeout: WaitBudget.lookup.duration) { self.item(row)?.state == .waiting }
+        XCTAssertTrue(said, "the row reads \(String(describing: item(row)?.state))")
+        XCTAssertEqual(item(row)?.detail, BlastSearchWords.stopNotTaken)
+        XCTAssertEqual(pane.noteLabel.stringValue, BlastSearchWords.stopNotTaken)
+    }
+
     private var rows: [UUID] = []
 
     override func tearDown() async throws {

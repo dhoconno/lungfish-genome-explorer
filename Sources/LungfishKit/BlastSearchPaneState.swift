@@ -41,7 +41,7 @@ public struct BlastSearchPaneState: Sendable, Equatable {
     package static func sourceReplaced(folder: URL) -> BlastSearchPaneState {
         BlastSearchPaneState(
             folder: folder,
-            heading: "This search is not shown on these rows",
+            heading: "This search came back and is saved",
             body: "This search came back, but the result it was sent from has changed, so it is not shown on these rows. "
                 + "It is saved in \(folder.path).",
             requestIDs: [],
@@ -93,7 +93,7 @@ public struct BlastSearchPaneState: Sendable, Equatable {
                 let body = "The last \(BlastSearchPolicy.spentInARowThatPause) searches got stuck at NCBI, so LGE sends nothing again "
                     + "before \(time(hold.until)), to add no load to a stuck service. This search stays at NCBI and comes back on this "
                     + "row on its own. You can send it again yourself or stop it."
-                return state("Still waiting at NCBI", body, still: true, buttons: [check, sendAgain, stop])
+                return state("Still waiting at NCBI", body + checkedLine(lastChecked, time), still: true, buttons: [check, sendAgain, stop])
             }
             if file.spentAt != nil {
                 var body = "NCBI has not finished this search. It is not lost: LGE keeps every request ID and keeps checking, and "
@@ -117,12 +117,12 @@ public struct BlastSearchPaneState: Sendable, Equatable {
             if winner.replyUnreadable, winner.fetchTries >= BlastSearchPolicy.fetchTries {
                 var tryAgain = check
                 tryAgain.title = "Try Again"
-                return state("Still waiting at NCBI", BlastSearchWords.replyUnreadableLastTry + ".", still: true, buttons: [tryAgain, sendAgain, stop])
+                return state("Result not read", BlastSearchWords.replyUnreadableLastTry + ".", still: true, buttons: [tryAgain, sendAgain, stop])
             }
             if winner.replyUnreadable, let next = winner.nextCheckAt {
-                return state("Still waiting at NCBI", BlastSearchWords.replyUnreadable(nextTry: next, now: now) + ".", still: true, buttons: [check, sendAgain, stop])
+                return state("Result not read yet", BlastSearchWords.replyUnreadable(nextTry: next, now: now) + ".", still: true, buttons: [check, sendAgain, stop])
             }
-            return state("Waiting for NCBI", BlastSearchWords.collecting(rid: winner.rid) + ".", buttons: [check, greySendAgain, stop])
+            return state("Collecting the result", BlastSearchWords.collecting(rid: winner.rid) + ".", buttons: [check, greySendAgain, stop])
         case .expired:
             let body = "NCBI keeps a search for a limited time, and it no longer has request ID \(rid). No result was saved and no badge "
                 + "was given. LGE kept the \(noun), so Send Again searches them afresh."
@@ -133,7 +133,9 @@ public struct BlastSearchPaneState: Sendable, Equatable {
                 + "If NCBI says the same again, its message is about this search, so check the \(noun) or the database."
             return state("NCBI could not finish this search", body, still: true, buttons: [sendAgain], bar: "BLAST: no result")
         case .notSent:
-            return state("Not sent", file.ending?.words ?? "Not sent. Nothing is waiting at NCBI. Choose Send Again later", still: true, buttons: [sendAgain], bar: "BLAST: no result")
+            let words = file.ending?.words ?? "Not sent. Nothing is waiting at NCBI. Choose Send Again later"
+            let said = words.hasPrefix("Not sent. ") ? String(words.dropFirst("Not sent. ".count)) : words
+            return state("Not sent", said.hasSuffix(".") ? said : said + ".", still: true, buttons: [sendAgain], bar: "BLAST: no result")
         case .stopped:
             let body = "LGE no longer checks it, and NCBI may still finish it. Choose Resume to check it again, or Send Again to "
                 + "send the same \(noun) afresh. No result is saved until one comes back."
@@ -161,4 +163,16 @@ public struct BlastSearchPaneState: Sendable, Equatable {
 @MainActor
 public enum BlastSearchPaneActions {
     public static var perform: (@MainActor (BlastSearchPaneState.Action, URL) -> Void)?
+    /// Whether a viewer's own run holds `folder`. The monitor leaves such a folder alone, so Check Now says so.
+    public static var isAtWork: (@MainActor (URL) -> Bool)?
+    /// The name a pane hears a press's answer under, with the search's folder as its object.
+    public static let saidNotification = Notification.Name("BlastSearchPaneActions.said")
+    /// The key of the words in ``saidNotification``.
+    public static let saidWordsKey = "words"
+
+    /// Says what a press came to when the row's next refresh would take the words away, such as a Send Again that LGE's
+    /// own limit refused (UX 8).
+    public static func say(_ words: String, about folder: URL) {
+        NotificationCenter.default.post(name: saidNotification, object: folder, userInfo: [saidWordsKey: words])
+    }
 }

@@ -12,6 +12,8 @@ public final class BlastWaitingPaneView: NSView {
     public let bodyLabel = NSTextField(wrappingLabelWithString: "")
     /// Each request ID, as selectable text.
     public let requestIDsLabel = NSTextField(wrappingLabelWithString: "")
+    /// What the last press came to, when nothing else on the pane says so.
+    public let noteLabel = NSTextField(wrappingLabelWithString: "")
     private let clockIcon = NSImageView()
     private let movingBar = NSProgressIndicator()
     private let buttonRow = NSStackView()
@@ -37,7 +39,12 @@ public final class BlastWaitingPaneView: NSView {
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
 
-        let stack = NSStackView(views: [clockIcon, movingBar, headingLabel, bodyLabel, requestIDsLabel, buttonRow])
+        noteLabel.font = .systemFont(ofSize: 11)
+        noteLabel.alignment = .center
+        noteLabel.isHidden = true
+        NotificationCenter.default.addObserver(self, selector: #selector(heardWords(_:)), name: BlastSearchPaneActions.saidNotification, object: nil)
+
+        let stack = NSStackView(views: [clockIcon, movingBar, headingLabel, bodyLabel, requestIDsLabel, buttonRow, noteLabel])
         stack.orientation = .vertical
         stack.spacing = 8
         stack.alignment = .centerX
@@ -49,6 +56,7 @@ public final class BlastWaitingPaneView: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
             bodyLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             requestIDsLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            noteLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             movingBar.widthAnchor.constraint(equalToConstant: 240),
         ])
     }
@@ -57,6 +65,8 @@ public final class BlastWaitingPaneView: NSView {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     public func show(_ state: BlastSearchPaneState) {
+        // A note stays until the search's state moves, since news of any other search shows this one again.
+        if state != self.state { setNote("") }
         self.state = state
         headingLabel.stringValue = state.heading
         bodyLabel.stringValue = state.body
@@ -65,18 +75,20 @@ public final class BlastWaitingPaneView: NSView {
         movingBar.isHidden = state.holdsStill
         if state.holdsStill { movingBar.stopAnimation(nil) } else { movingBar.startAnimation(nil) }
         buttonRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let atWork = BlastSearchPaneActions.isAtWork?(state.folder) ?? false
         for model in state.buttons {
+            let held = atWork && model.action == .checkNow
             let button = NSButton(title: model.title, target: self, action: #selector(buttonPressed(_:)))
             button.bezelStyle = .rounded
             button.identifier = NSUserInterfaceItemIdentifier(model.action.rawValue)
-            button.isEnabled = model.isEnabled
-            button.toolTip = model.reason ?? (model.action == .stop ? Self.stopTip : nil)
+            button.isEnabled = model.isEnabled && !held
+            button.toolTip = held ? Self.checkWhileARunIsAtWork : model.reason ?? (model.action == .stop ? Self.stopTip : nil)
             button.setAccessibilityHelp(button.toolTip)
             buttonRow.addArrangedSubview(button)
         }
         checkAgain?.cancel()
         checkAgain = nil
-        guard let again = state.checkAgainAt else { return }
+        guard let again = state.checkAgainAt, !atWork else { return }
         let delay = max(again.timeIntervalSinceNow, 0)
         checkAgain = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
@@ -90,9 +102,26 @@ public final class BlastWaitingPaneView: NSView {
     /// The tooltip of Stop, which does not say it ends the search at NCBI, since it does not.
     public static let stopTip = "Stop this search. LGE stops checking, and NCBI may still finish it."
 
+    /// Why Check Now is grey while a viewer's run is at work on the search.
+    public static let checkWhileARunIsAtWork =
+        "LGE is checking this search on its own for now. You can check it yourself once LGE's own sends are done."
+
     /// The button that offers `action`, nil when this state does not.
     public func button(for action: BlastSearchPaneState.Action) -> NSButton? {
         buttonRow.arrangedSubviews.compactMap { $0 as? NSButton }.first { $0.identifier?.rawValue == action.rawValue }
+    }
+
+    private func setNote(_ words: String) {
+        noteLabel.stringValue = words
+        noteLabel.isHidden = words.isEmpty
+    }
+
+    /// What a press came to, for the search this pane shows.
+    @objc private func heardWords(_ notification: Notification) {
+        guard let folder = notification.object as? URL, let shown = state?.folder,
+              folder.standardizedFileURL.path == shown.standardizedFileURL.path,
+              let words = notification.userInfo?[BlastSearchPaneActions.saidWordsKey] as? String else { return }
+        setNote(words)
     }
 
     @objc private func buttonPressed(_ sender: NSButton) {

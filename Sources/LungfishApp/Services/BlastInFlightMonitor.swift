@@ -26,6 +26,8 @@ final class BlastInFlightMonitor {
         case waiting(words: String, state: CLIEventWaitingState)
         /// NCBI or the person ended the search, and these are the words.
         case ended(words: String)
+        /// A press or a pass was refused and the search goes on as it was, with the words a person must read.
+        case refused(words: String)
         /// The pass could not tell, so nothing about the search has changed. The words go in the log only.
         case noNews(words: String)
     }
@@ -36,8 +38,30 @@ final class BlastInFlightMonitor {
         var lines: @Sendable (_ project: URL?) async throws -> [BlastInFlightLine]
         /// One pass of `blast resume --output <folder> --once`, with `extra` options after it.
         var pass: @Sendable (_ output: URL, _ extra: [String], _ onEvent: @escaping @Sendable (CLIEvent) -> Void) async -> PassOutcome
-        /// A person's Stop.
-        var stop: @Sendable (_ output: URL) async -> Void
+        /// A person's Stop, and whether the search took it.
+        var stop: @Sendable (_ output: URL) async -> Bool
+
+        init(
+            lines: @escaping @Sendable (_ project: URL?) async throws -> [BlastInFlightLine],
+            pass: @escaping @Sendable (_ output: URL, _ extra: [String], _ onEvent: @escaping @Sendable (CLIEvent) -> Void) async -> PassOutcome,
+            stop: @escaping @Sendable (_ output: URL) async -> Bool
+        ) {
+            self.lines = lines
+            self.pass = pass
+            self.stop = stop
+        }
+
+        /// A worker whose Stop is always taken.
+        init(
+            lines: @escaping @Sendable (_ project: URL?) async throws -> [BlastInFlightLine],
+            pass: @escaping @Sendable (_ output: URL, _ extra: [String], _ onEvent: @escaping @Sendable (CLIEvent) -> Void) async -> PassOutcome,
+            stop: @escaping @Sendable (_ output: URL) async -> Void
+        ) {
+            self.init(lines: lines, pass: pass, stop: { output -> Bool in
+                await stop(output)
+                return true
+            })
+        }
     }
 
     /// Posted when a pass has saved a record, with the folder under ``resultFolderKey``.
@@ -80,6 +104,7 @@ final class BlastInFlightMonitor {
         guard !started else { return }
         started = true
         BlastSearchPaneActions.perform = { [weak self] action, folder in self?.perform(action, folder: folder) }
+        BlastSearchPaneActions.isAtWork = { [weak self] folder in self?.viewerRuns[folder.standardizedFileURL.path] != nil }
         Task { await self.refresh(project: nil) }
     }
 
@@ -142,7 +167,10 @@ final class BlastInFlightMonitor {
             center.cancel(id: row)
             return
         }
-        await worker.stop(folder)
+        guard await worker.stop(folder) else {
+            BlastSearchPaneActions.say(BlastSearchWords.stopNotTaken, about: folder)
+            return
+        }
         BlastSearchNews.post()
     }
 
@@ -269,6 +297,11 @@ final class BlastInFlightMonitor {
             center.reopen(id: row, detail: words)
             OperationCenterCLIBridge.failOperation(row, detail: words, fallbackMessage: words)
             forget(line.searchID)
+        case .refused(let words):
+            // The next read of the lines resets the row's words, so the row's log and the pane keep what was refused (UX 8).
+            center.log(id: row, level: .info, message: words)
+            BlastSearchPaneActions.say(words, about: output)
+            return
         case .noNews(let words):
             guard !words.isEmpty else { return }
             center.log(id: row, level: .info, message: words)
@@ -287,7 +320,17 @@ final class BlastInFlightMonitor {
     /// A row's Cancel, which does what the pane's Stop does (UX-BLAST-WORDS Q3).
     private func stopSearch(_ searchID: UUID, output: URL) async {
         let row = rows[searchID]
-        await worker.stop(output)
+        guard await worker.stop(output) else {
+            // The search goes on, so its row does too, and both say why (UX 8).
+            if let row, center.returnToWaiting(id: row, detail: BlastSearchWords.stopNotTaken) {
+                center.log(id: row, level: .info, message: BlastSearchWords.stopNotTaken)
+                center.setWaitingCancelCallback(id: row) { [weak self] in
+                    Task { @MainActor in await self?.stopSearch(searchID, output: output) }
+                }
+            }
+            BlastSearchPaneActions.say(BlastSearchWords.stopNotTaken, about: output)
+            return
+        }
         passes[searchID]?.cancel()
         forget(searchID)
         guard let row else { return }
@@ -339,14 +382,14 @@ extension BlastInFlightMonitor.Worker {
                 } catch CLISubprocessTransport.RunError.failedEvent(let message, _) {
                     // A failed event from a search that goes on, such as a reply that cannot be read, is not an ending.
                     let ended = (try? BlastSearchStore(folder: output).load())?.state.isEnding ?? false
-                    return ended ? .ended(words: message) : .waiting(words: message, state: .parked)
+                    return ended ? .ended(words: message) : .refused(words: message)
                 } catch is CancellationError {
                     return .noNews(words: "")
                 } catch {
                     return .noNews(words: error.localizedDescription)
                 }
             },
-            stop: { output in
+            stop: { output -> Bool in
                 let transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
                 do {
                     _ = try await transport.run(
@@ -355,8 +398,10 @@ extension BlastInFlightMonitor.Worker {
                         isCancelled: { false },
                         onEvent: { _ in }
                     )
+                    return true
                 } catch {
                     monitorLogger.warning("Could not stop a BLAST search: \(error.localizedDescription, privacy: .public)")
+                    return false
                 }
             }
         )
