@@ -34,6 +34,7 @@ struct BlastCommand: AsyncParsableCommand {
         subcommands: [
             VerifySubcommand.self,
             SubmitSubcommand.self,
+            ResumeSubcommand.self,
             ExportSubcommand.self,
         ],
         defaultSubcommand: VerifySubcommand.self
@@ -312,8 +313,17 @@ extension BlastCommand {
             )
             _ = request.blastURLAPIExtraParameters
 
+            // With a result folder the search is a file under it, so `blast resume` can go on with it after a crash.
+            let searchFolder = resultDirectory.map { directory in
+                URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(BlastVerificationArchive.directoryName, isDirectory: true)
+                    .appendingPathComponent("search-\(UUID().uuidString)", isDirectory: true)
+            }
             let result = try await service.verify(
-                request: request
+                request: request,
+                searchFolder: searchFolder,
+                submitArgv: CommandLine.arguments,
+                clock: await BlastCommand.searchClock()
             ) { fraction, message in
                 if chatty {
                     print("\r\(formatter.info(message))", terminator: "")

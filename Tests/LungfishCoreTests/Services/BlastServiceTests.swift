@@ -1421,7 +1421,7 @@ final class BlastServiceTests: XCTestCase {
         let errors: [BlastServiceError] = [
             .submissionFailed(message: "Server busy"),
             .ridParsingFailed(responseBody: "<html>"),
-            .timeout(rid: "ABC123", elapsed: 600),
+            .searchEnded(words: "NCBI no longer holds this search, request ID ABC123. No result. Choose Send Again"),
             .jobFailed(rid: "DEF456", message: "Search expired"),
             .resultParsingFailed(message: "Invalid JSON"),
             .noSequences,
@@ -1435,12 +1435,6 @@ final class BlastServiceTests: XCTestCase {
             XCTAssertNotNil(error.errorDescription, "Missing description for \(error)")
             XCTAssertFalse(error.errorDescription!.isEmpty)
         }
-    }
-
-    func testTimeoutErrorContainsRID() {
-        let error = BlastServiceError.timeout(rid: "XYZRID", elapsed: 600)
-        let description = error.errorDescription!
-        XCTAssertTrue(description.contains("XYZRID"))
     }
 
     // MARK: - BlastJobStatus Equatable

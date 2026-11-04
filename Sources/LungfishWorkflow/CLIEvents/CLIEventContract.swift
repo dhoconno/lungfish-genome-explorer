@@ -85,6 +85,7 @@ package enum CLIEventContractTable {
         "bam remove-track": .events(flag: formatJSON, channel: .standardOutput),
         "blast export table": .events(flag: formatJSON, channel: .standardOutput),
         "blast submit": .events(flag: formatJSON, channel: .standardOutput),
+        "blast resume": .events(flag: formatJSON, channel: .standardOutput),
         "build-db esviritu": .events(flag: formatJSON, channel: .standardOutput),
         "build-db kraken2": .events(flag: formatJSON, channel: .standardOutput),
         "build-db taxtriage": .events(flag: formatJSON, channel: .standardOutput),

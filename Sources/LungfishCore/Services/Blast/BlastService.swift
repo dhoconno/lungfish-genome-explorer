@@ -63,28 +63,10 @@ public actor BlastService {
     nonisolated let blastBaseURL: URL
 
     /// Tool identifier sent with all BLAST requests (NCBI policy).
-    private let toolName = "lungfish"
+    let toolName = "lungfish"
 
     /// Email placeholder sent with BLAST requests (NCBI policy).
-    private let toolEmail = "lungfish-app@users.noreply.github.com"
-
-    /// The shortest wait before the first status check of a request, whatever RTOE NCBI gave.
-    private let minPollInterval: TimeInterval = 10.0
-
-    /// The wait after each status check. NCBI: "Do not poll for any single RID more often than once a minute."
-    private let secondsBetweenChecks: TimeInterval = 60.0
-
-    /// Default maximum time to wait for a BLAST job to complete.
-    private let defaultTimeout: TimeInterval = 600.0 // 10 minutes
-
-    /// Maximum attempts for transient network/transport failures.
-    private let maxNetworkRetryAttempts = 3
-
-    /// Initial retry backoff delay (seconds).
-    private let initialRetryBackoff: TimeInterval = 1.0
-
-    /// Maximum retry backoff delay (seconds).
-    private let maxRetryBackoff: TimeInterval = 8.0
+    let toolEmail = "lungfish-app@users.noreply.github.com"
 
     /// Identity threshold for a "verified" verdict (percentage).
     nonisolated let verifiedIdentityThreshold: Double = 90.0
@@ -95,7 +77,7 @@ public actor BlastService {
     // MARK: - State
 
     /// The HTTP client used for requests (injectable for testing).
-    private let httpClient: HTTPClient
+    let httpClient: HTTPClient
 
     /// Local NCBI BLAST etiquette limits.
     private let rateLimits: BlastRateLimitConfiguration
@@ -104,7 +86,7 @@ public actor BlastService {
     private var lastSubmitTime: Date?
 
     /// Number of currently active NCBI BLAST submission requests.
-    private var activeSubmissionCount = 0
+    var activeSubmissionCount = 0
 
     /// Rolling one-hour record of reads sent to NCBI.
     private let submissionLedger: any BlastSubmissionLedger
@@ -377,78 +359,6 @@ public actor BlastService {
 
     // MARK: - High-Level API
 
-    /// Submits reads for BLAST verification against a specific taxon.
-    ///
-    /// This is the primary entry point for the verification pipeline. It:
-    /// 1. Formats sequences as multi-FASTA
-    /// 2. Submits to NCBI BLAST
-    /// 3. Polls for completion
-    /// 4. Parses results
-    /// 5. Assigns verdicts to each read
-    ///
-    /// - Parameters:
-    ///   - request: The verification request with sequences and parameters
-    ///   - progress: Optional callback for progress updates (fraction 0-1, message)
-    /// - Returns: The verification result with per-read verdicts and summary
-    /// - Throws: ``BlastServiceError`` if submission, polling, or parsing fails
-    public func verify(
-        request: BlastVerificationRequest,
-        progress: (@Sendable (Double, String) -> Void)? = nil
-    ) async throws -> BlastVerificationResult {
-        guard !request.sequences.isEmpty else {
-            throw BlastServiceError.noSequences
-        }
-
-        let runClock = ProvenanceRunClock(startedAt: now())
-        let fasta = request.toMultiFASTA()
-        let extraParameters = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(request.extraArgs)
-
-        // Phase 1: Submit
-        progress?(0.15, "Submitting \(request.sequences.count) reads to NCBI BLAST...")
-        logger.info("Submitting BLAST job: \(request.sequences.count, privacy: .public) reads, taxon=\(request.taxonName, privacy: .public) (txid\(request.taxId, privacy: .public))")
-
-        let submission = try await submit(
-            query: fasta,
-            program: request.program,
-            database: request.database,
-            entrezQuery: request.entrezQuery,
-            evalue: request.eValueThreshold,
-            maxTargetSeqs: request.maxTargetSeqs,
-            megablast: request.program == "blastn",
-            sequenceCount: request.sequences.count,
-            extraParameters: extraParameters,
-            maxConcurrentSubmissions: request.maxConcurrentSubmissions
-        )
-
-        logger.info("BLAST job submitted: RID=\(submission.rid, privacy: .public), RTOE=\(submission.rtoe, privacy: .public)s")
-
-        // Phase 2: Poll for results
-        progress?(0.20, "BLAST job submitted (RID: \(submission.rid)). Waiting for results...")
-
-        let searchResults = try await pollForResults(
-            rid: submission.rid,
-            initialWait: submission.rtoe,
-            timeout: defaultTimeout,
-            progress: progress
-        )
-
-        // Phase 3: Assign verdicts
-        progress?(0.90, "Parsing BLAST results...")
-
-        let result = try buildVerificationResult(
-            request: request,
-            searchResults: searchResults,
-            rid: submission.rid,
-            submittedAt: runClock.startedAt,
-            completedAt: runClock.now
-        )
-        progress?(1.0, "BLAST verification complete")
-
-        logger.info("BLAST verification complete: \(result.verifiedCount, privacy: .public)/\(result.totalReads, privacy: .public) verified, \(result.errorCount, privacy: .public) without a usable result")
-
-        return result
-    }
-
     /// Turns parsed NCBI results into a verification result for `request`.
     ///
     /// Every submitted sequence is judged, in submission order. A sequence NCBI
@@ -711,7 +621,39 @@ public actor BlastService {
 
         try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
 
-        // Build form-encoded body
+        let body = putFormBody(
+            query: query,
+            program: program,
+            database: database,
+            entrezQuery: entrezQuery,
+            evalue: evalue,
+            maxTargetSeqs: maxTargetSeqs,
+            megablast: megablast,
+            extraParameters: extraParameters
+        )
+        switch try await putOnce(Data(body.utf8)) {
+        case .accepted(let submission):
+            return submission
+        case .noRID(let page):
+            throw BlastServiceError.ridParsingFailed(responseBody: String(page.prefix(500)))
+        case .busy(let status, let body), .refused(let status, let body):
+            throw BlastServiceError.httpError(statusCode: status, body: body)
+        case .notReached(let reason), .lostAfterSending(let reason):
+            throw BlastServiceError.networkFailed(message: reason)
+        }
+    }
+
+    /// The Put body of a search, form-encoded in the order NCBI has always been sent it.
+    nonisolated func putFormBody(
+        query: String,
+        program: String,
+        database: String,
+        entrezQuery: String?,
+        evalue: Double,
+        maxTargetSeqs: Int,
+        megablast: Bool,
+        extraParameters: [String: String]
+    ) -> String {
         var params: [(String, String)] = [
             ("CMD", "Put"),
             ("PROGRAM", program),
@@ -740,26 +682,7 @@ public actor BlastService {
             params.append((key, value))
         }
 
-        let body = formEncode(params)
-
-        var request = URLRequest(url: blastBaseURL)
-        request.httpMethod = "POST"
-        request.httpBody = body.data(using: .utf8)
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        let (data, _) = try await requestWithTransportRetry(operation: "submit BLAST job") {
-            let (data, response) = try await httpClient.data(for: request)
-            let httpResponse = try Self.validateHTTPResponse(
-                data,
-                response,
-                nonHTTPMessage: "Non-HTTP response",
-                failureBodyFallback: "(non-UTF8)"
-            )
-            return (data, httpResponse)
-        }
-
-        let responseBody = String(data: data, encoding: .utf8) ?? ""
-        return try parseSubmissionResponse(responseBody)
+        return formEncode(params)
     }
 
     // MARK: - Poll (CMD=Get)
@@ -773,31 +696,7 @@ public actor BlastService {
     /// - Returns: The job status
     /// - Throws: ``BlastServiceError`` on HTTP errors
     public func checkStatus(rid: String) async throws -> BlastJobStatus {
-        var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "CMD", value: "Get"),
-            URLQueryItem(name: "RID", value: rid),
-            URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo"),
-            URLQueryItem(name: "TOOL", value: toolName),
-            URLQueryItem(name: "EMAIL", value: toolEmail),
-        ]
-
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-
-        let (data, _) = try await requestWithTransportRetry(operation: "poll BLAST status (\(rid))") {
-            let (data, response) = try await httpClient.data(for: request)
-            let httpResponse = try Self.validateHTTPResponse(
-                data,
-                response,
-                nonHTTPMessage: "Status check returned non-HTTP response",
-                failureBodyFallback: "Status check failed"
-            )
-            return (data, httpResponse)
-        }
-
-        let body = String(data: data, encoding: .utf8) ?? ""
-        return parseStatusResponse(body)
+        try await statusOnce(rid: rid).status
     }
 
     /// Retrieves BLAST results in JSON2 format.
@@ -806,111 +705,7 @@ public actor BlastService {
     /// - Returns: Parsed search results for each query sequence
     /// - Throws: ``BlastServiceError`` on HTTP or parsing errors
     public func getResults(rid: String) async throws -> [BlastSearchResult] {
-        var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "CMD", value: "Get"),
-            URLQueryItem(name: "RID", value: rid),
-            URLQueryItem(name: "FORMAT_TYPE", value: "JSON2"),
-            URLQueryItem(name: "FORMAT_OBJECT", value: "Alignment"),
-            URLQueryItem(name: "TOOL", value: toolName),
-            URLQueryItem(name: "EMAIL", value: toolEmail),
-        ]
-
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
-
-        let (data, httpResponse) = try await requestWithTransportRetry(operation: "fetch BLAST results (\(rid))") {
-            let (data, response) = try await httpClient.data(for: request)
-            let httpResponse = try Self.validateHTTPResponse(
-                data,
-                response,
-                nonHTTPMessage: "Result fetch returned non-HTTP response",
-                failureBodyFallback: ""
-            )
-            return (data, httpResponse)
-        }
-
-        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-        logger.info("getResults: received \(data.count, privacy: .public) bytes, Content-Type=\(contentType, privacy: .public)")
-
-        // NCBI sometimes returns BLAST JSON2 results as a ZIP archive.
-        // Detect ZIP magic bytes (PK\x03\x04) and decompress before parsing.
-        let resultData: Data
-        if data.count >= 4, data[0] == 0x50, data[1] == 0x4B, data[2] == 0x03, data[3] == 0x04 {
-            logger.info("getResults: response is a ZIP archive, decompressing")
-            resultData = try await decompressZIPResponse(data)
-        } else {
-            resultData = data
-        }
-
-        return try parseJSON2Results(resultData)
-    }
-
-    // MARK: - Poll Loop
-
-    /// Polls for BLAST results until they are ready or timeout is reached.
-    ///
-    /// - Parameters:
-    ///   - rid: The Request ID to poll
-    ///   - initialWait: RTOE from submission (seconds to wait before first poll)
-    ///   - timeout: Maximum time to wait
-    ///   - progress: Progress callback
-    ///   - wait: How a wait is spent, a stand-in for a test
-    /// - Returns: Parsed search results
-    /// - Throws: ``BlastServiceError`` on timeout or job failure
-    func pollForResults(
-        rid: String,
-        initialWait: Int,
-        timeout: TimeInterval,
-        progress: (@Sendable (Double, String) -> Void)?,
-        wait: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
-    ) async throws -> [BlastSearchResult] {
-        let startTime = Date()
-
-        // Wait NCBI's RTOE before the first check, at least the minimum.
-        let initialDelay = max(Double(initialWait), minPollInterval)
-        logger.info("Waiting \(Int(initialDelay), privacy: .public)s before first poll (RTOE=\(initialWait, privacy: .public)s)")
-        try await wait(initialDelay)
-
-        var pollCount = 0
-        while true {
-            try Task.checkCancellation()
-
-            let elapsed = Date().timeIntervalSince(startTime)
-            if elapsed >= timeout {
-                throw BlastServiceError.timeout(rid: rid, elapsed: elapsed)
-            }
-
-            pollCount += 1
-            let progressFraction = 0.20 + min(0.70, (elapsed / timeout) * 0.70)
-            progress?(progressFraction, "Polling BLAST results (attempt \(pollCount))...")
-
-            logger.debug("Polling BLAST status for RID=\(rid, privacy: .public) (attempt \(pollCount, privacy: .public), elapsed=\(Int(elapsed), privacy: .public)s)")
-
-            let status = try await checkStatus(rid: rid)
-
-            switch status {
-            case .ready:
-                logger.info("BLAST job \(rid, privacy: .public) is ready after \(Int(elapsed), privacy: .public)s")
-                return try await getResults(rid: rid)
-
-            case .waiting(let queuePosition):
-                if let queuePosition {
-                    progress?(progressFraction, "BLAST job \(rid) is waiting at upstream queue position \(queuePosition).")
-                }
-                try await wait(secondsBetweenChecks)
-
-            case .error(let message):
-                throw BlastServiceError.jobFailed(rid: rid, message: message)
-
-            case .unknown:
-                throw BlastServiceError.jobFailed(rid: rid, message: "BLAST status: UNKNOWN")
-
-            case .noStatusLine:
-                logger.warning("BLAST status page held no Status line for RID=\(rid, privacy: .public), retrying...")
-                try await wait(secondsBetweenChecks)
-            }
-        }
+        try await parseReply(try await fetchOnce(rid: rid))
     }
 
     // MARK: - Response Parsing
@@ -1069,7 +864,6 @@ public actor BlastService {
 
     // MARK: - Helpers
 
-    /// HTTP error that should be retried with backoff.
     /// Orders extracted ZIP members by the trailing number of their base
     /// name (`RID_2` before `RID_10`), then by name.
     nonisolated static func zipEntryOrder(_ lhs: URL, _ rhs: URL) -> Bool {
@@ -1084,135 +878,7 @@ public actor BlastService {
         }
     }
 
-    private struct RetryableHTTPError: Error {
-        let statusCode: Int
-        let body: String
-    }
-
-    /// HTTP status codes that are commonly transient and safe to retry.
-    private nonisolated static let retryableHTTPStatusCodes: Set<Int> = [408, 429, 500, 502, 503, 504]
-
-    /// URL transport error codes that are commonly transient.
-    private nonisolated static let retryableURLErrorCodes: Set<URLError.Code> = [
-        .timedOut,
-        .cannotFindHost,
-        .cannotConnectToHost,
-        .dnsLookupFailed,
-        .networkConnectionLost,
-        .notConnectedToInternet,
-        .resourceUnavailable,
-        .internationalRoamingOff,
-        .callIsActive,
-        .dataNotAllowed,
-        .cannotLoadFromNetwork,
-    ]
-
-    /// Executes a network request with retry/backoff for transient transport failures.
-    ///
-    /// Non-transient errors are surfaced immediately. After retry exhaustion,
-    /// transport failures are normalized to ``BlastServiceError/networkFailed(message:)``.
-    private func requestWithTransportRetry<T>(
-        operation: String,
-        body: () async throws -> T
-    ) async throws -> T {
-        var attempt = 1
-        var delay = initialRetryBackoff
-
-        while true {
-            do {
-                return try await body()
-            } catch {
-                if error is CancellationError {
-                    throw error
-                }
-
-                let shouldRetry = attempt < maxNetworkRetryAttempts && isRetryableTransportError(error)
-                if shouldRetry {
-                    let failureSummary = (error as NSError).localizedDescription
-                    logger.warning(
-                        "\(operation, privacy: .public) attempt \(attempt, privacy: .public) failed: \(failureSummary, privacy: .public). Retrying in \(delay, privacy: .public)s"
-                    )
-                    try await Task.sleep(for: .seconds(delay))
-                    attempt += 1
-                    delay = min(delay * 2, maxRetryBackoff)
-                    continue
-                }
-
-                throw normalizeTransportError(error, operation: operation, attempts: attempt)
-            }
-        }
-    }
-
-    /// Validates an HTTP response from a BLAST network call.
-    ///
-    /// Casts the response to ``HTTPURLResponse`` and branches on the status
-    /// code: 200 succeeds, retryable status codes surface a
-    /// ``RetryableHTTPError``, and all other codes throw
-    /// ``BlastServiceError/httpError(statusCode:body:)``.
-    ///
-    /// - Parameters:
-    ///   - data: The response body used to build error messages.
-    ///   - response: The raw ``URLResponse`` to validate.
-    ///   - nonHTTPMessage: Message used when the response is not an HTTP response.
-    ///   - failureBodyFallback: Fallback string used when the body is not valid UTF-8.
-    /// - Returns: The validated ``HTTPURLResponse`` on a 200 status.
-    private nonisolated static func validateHTTPResponse(
-        _ data: Data,
-        _ response: URLResponse,
-        nonHTTPMessage: String,
-        failureBodyFallback: String
-    ) throws -> HTTPURLResponse {
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BlastServiceError.submissionFailed(message: nonHTTPMessage)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? failureBodyFallback
-            if retryableHTTPStatusCodes.contains(httpResponse.statusCode) {
-                throw RetryableHTTPError(statusCode: httpResponse.statusCode, body: body)
-            }
-            throw BlastServiceError.httpError(statusCode: httpResponse.statusCode, body: body)
-        }
-
-        return httpResponse
-    }
-
-    private nonisolated func isRetryableTransportError(_ error: Error) -> Bool {
-        if error is RetryableHTTPError {
-            return true
-        }
-        guard let code = extractURLErrorCode(from: error) else {
-            return false
-        }
-        return Self.retryableURLErrorCodes.contains(code)
-    }
-
-    private nonisolated func normalizeTransportError(
-        _ error: Error,
-        operation: String,
-        attempts: Int
-    ) -> Error {
-        if let blastError = error as? BlastServiceError {
-            return blastError
-        }
-
-        if let retryableHTTP = error as? RetryableHTTPError {
-            return BlastServiceError.httpError(statusCode: retryableHTTP.statusCode, body: retryableHTTP.body)
-        }
-
-        let nsError = error as NSError
-        if let code = extractURLErrorCode(from: error) {
-            return BlastServiceError.networkFailed(
-                message: "\(operation) failed after \(attempts) attempt(s): \(nsError.localizedDescription) (NSURLError \(code.rawValue))"
-            )
-        }
-
-        return BlastServiceError.networkFailed(
-            message: "\(operation) failed after \(attempts) attempt(s): \(nsError.localizedDescription)"
-        )
-    }
-
-    private nonisolated func extractURLErrorCode(from error: Error) -> URLError.Code? {
+    nonisolated func extractURLErrorCode(from error: Error) -> URLError.Code? {
         if let urlError = error as? URLError {
             return urlError.code
         }
@@ -1293,7 +959,7 @@ public actor BlastService {
     /// over budget fails at once without waiting, then sleeps out the
     /// minimum interval since the previous submission. The reservation is
     /// dated when the submission will actually be sent.
-    private func enforceSubmitRateLimit(sequenceCount: Int) async throws {
+    func enforceSubmitRateLimit(sequenceCount: Int) async throws {
         let current = now()
         var wait: TimeInterval = 0
         if let lastTime = lastSubmitTime {
@@ -1312,7 +978,7 @@ public actor BlastService {
         }
     }
 
-    private func acquireSubmissionSlot(maxConcurrentSubmissions: Int) async throws {
+    func acquireSubmissionSlot(maxConcurrentSubmissions: Int) async throws {
         let limit = max(1, maxConcurrentSubmissions)
         while activeSubmissionCount >= limit {
             try Task.checkCancellation()

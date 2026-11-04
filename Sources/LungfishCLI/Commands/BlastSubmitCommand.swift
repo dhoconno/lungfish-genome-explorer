@@ -125,30 +125,33 @@ extension BlastCommand {
             }
 
             let request = makeRequest(sequences: query.sequences)
-            events.emitProgress(0.05, message: "Submitting \(query.sequences.count) sequences to NCBI BLAST")
-            if chatty { print("Submitting \(query.sequences.count) sequences to NCBI BLAST...") }
-            let outcome = await runCancellingOnSIGTERM {
-                try await BlastService.shared.verify(request: request) { fraction, message in
-                    events.emitProgress(fraction, message: message)
-                }
+            if chatty { print("\(BlastSearchWords.sending(query.sequences.count, noun: "sequences"))...") }
+            let environment = ProcessInfo.processInfo.environment
+            let clock = await BlastCommand.searchClock(environment: environment)
+            let submitArgv = recordedCommandLine()
+            let outcome = await runCancellingOnSIGTERM { [self] in
+                try await BlastService.shared.search(
+                    request: request,
+                    in: output,
+                    query: BlastSubmissionRecord.Query(
+                        fileName: BlastSubmissionRecord.queryFileName,
+                        sha256: query.sha256,
+                        sequenceCount: query.sequences.count
+                    ),
+                    submitArgv: submitArgv,
+                    origin: BlastSearchFile.Origin(environment: environment),
+                    clock: clock,
+                    noun: "sequences",
+                    progress: { events.emitProgress($0, message: $1) },
+                    publish: { result in
+                        try publishRecord(result: result, request: request, query: query, in: output, runClock: runClock, argv: nil)
+                    }
+                )
             }
 
             switch outcome {
-            case .success(let result):
-                let recordURL: URL
-                do {
-                    recordURL = try writeRecord(result: result, request: request, query: query, in: output, runClock: runClock)
-                } catch {
-                    let message = "Could not save the BLAST result in \(output.path): \(error.localizedDescription)"
-                    events.emitFailed(message)
-                    FileHandle.standardError.write(Data("Error: \(message)\n".utf8))
-                    throw CLIExitCode.outputError.exitCode
-                }
-                let summary = Self.completionSummary(for: result)
-                events.emitComplete(outputs: [recordURL.path, query.url.path], message: summary)
-                if chatty {
-                    print("Saved the BLAST result to \(recordURL.path) (\(summary))")
-                }
+            case .success(let ending):
+                try finishSearch(ending, output: output, query: query, events: events, chatty: chatty, startedAt: runClock.startedAt)
             case .failure(let error) where error is CancellationError:
                 writeCancelledRecord(in: output, query: query, startedAt: runClock.startedAt)
                 FileHandle.standardError.write(Data("BLAST search cancelled. No result was saved.\n".utf8))

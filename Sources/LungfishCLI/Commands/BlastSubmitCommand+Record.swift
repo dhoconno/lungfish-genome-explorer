@@ -38,6 +38,12 @@ extension BlastCommand.SubmitSubcommand {
         guard !FileManager.default.fileExists(atPath: recordURL.path) else {
             throw SubmitRefusal(message: "\(output.path) already holds a BLAST result", exitCode: .outputError)
         }
+        guard !BlastSearchStore(folder: output).holdsALiveSearch() else {
+            throw SubmitRefusal(
+                message: "\(output.path) already holds a BLAST search that has not ended. Go on with it with blast resume --output, or choose another folder.",
+                exitCode: .outputError
+            )
+        }
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             try DurableReplace.replace(data, named: BlastSubmissionRecord.queryFileName, in: output)
@@ -128,14 +134,63 @@ extension BlastCommand.SubmitSubcommand {
         return options
     }
 
+    /// The publish step of a search. A query that is no longer the one sent stops here, so no record claims another
+    /// query, and the search keeps its reply (ARCH-BLAST-RESILIENCE section 1, Replaced file).
+    func publishRecord(
+        result: BlastVerificationResult,
+        request: BlastVerificationRequest,
+        query: StagedQuery,
+        in output: URL,
+        runClock: ProvenanceRunClock,
+        argv: [String]?
+    ) throws {
+        guard let bytes = try? Data(contentsOf: query.url), BlastSearchStore.digest(of: bytes) == query.sha256 else {
+            throw BlastSearchRefusal(words: BlastSearchWords.queryReplaced(folder: output.path))
+        }
+        _ = try writeRecord(result: result, request: request, query: query, in: output, runClock: runClock, argv: argv)
+    }
+
+    /// What a leaf says and does when its search comes to an ending, for `blast submit` and `blast resume` alike.
+    func finishSearch(
+        _ ending: BlastSearchOutcome,
+        output: URL,
+        query: StagedQuery,
+        events: CLIEventEmitter,
+        chatty: Bool,
+        startedAt: Date
+    ) throws {
+        func fail(_ words: String) -> ExitCode {
+            events.emitFailed(words)
+            FileHandle.standardError.write(Data("Error: \(words)\n".utf8))
+            return CLIExitCode.failure.exitCode
+        }
+        switch ending {
+        case .done(let result):
+            let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+            let summary = Self.completionSummary(for: result)
+            events.emitComplete(outputs: [recordURL.path, query.url.path], message: summary)
+            if chatty {
+                print("Saved the BLAST result to \(recordURL.path) (\(summary))")
+            }
+        case .ended(_, let words):
+            writeFailedRecord(in: output, query: query, startedAt: startedAt, message: "BLAST search failed: \(words)")
+            throw fail(words)
+        case .needsAPerson(let words):
+            // The search stays in `fetching` with its reply kept, so nothing has failed for a record to say.
+            throw fail(words)
+        }
+    }
+
     /// Writes `blast-result.json` with its provenance, whose source is the query copy, so the
-    /// provenance fingerprints the file the record names. Returns the record's URL.
+    /// provenance fingerprints the file the record names. `argv` is the command to record, the one this
+    /// process runs when nil. Returns the record's URL.
     func writeRecord(
         result: BlastVerificationResult,
         request: BlastVerificationRequest,
         query: StagedQuery,
         in output: URL,
-        runClock: ProvenanceRunClock
+        runClock: ProvenanceRunClock,
+        argv: [String]? = nil
     ) throws -> URL {
         let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
         let record = BlastSubmissionRecord(
@@ -155,7 +210,7 @@ extension BlastCommand.SubmitSubcommand {
             sourceURLs: [query.url],
             outputURL: recordURL,
             outputFormat: .json,
-            argv: recordedCommandLine(),
+            argv: argv ?? recordedCommandLine(),
             explicitOptions: explicit,
             resolved: [
                 "rid": .string(result.rid),

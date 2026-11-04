@@ -1,0 +1,5 @@
+{"event":"start","message":"Going on with the BLAST search in result","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, request ID FAULT1","progress":0.3554302610194435,"schemaVersion":2}
+{"event":"progress","message":"Parsing BLAST results...","progress":0.9,"schemaVersion":2}
+{"event":"progress","message":"BLAST verification complete","progress":1,"schemaVersion":2}
+{"event":"complete","message":"rid=FAULT1 supporting=0 contradicting=0 reads=2","output":"\/work\/result\/blast-result.json","outputs":["\/work\/result\/blast-result.json","\/work\/result\/query.fasta"],"progress":1,"schemaVersion":2}

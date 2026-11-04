@@ -1,0 +1,2 @@
+{"event":"start","message":"Going on with the BLAST search in result","progress":0,"schemaVersion":2}
+{"error":"No BLAST search is saved in \/work\/result. Choose the folder that holds blast-search.json.","event":"failed","schemaVersion":2}

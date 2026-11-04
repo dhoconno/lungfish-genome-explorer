@@ -344,8 +344,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     /// Failed to parse the RID from the NCBI submission response.
     case ridParsingFailed(responseBody: String)
 
-    /// The BLAST job timed out after the maximum wait period.
-    case timeout(rid: String, elapsed: TimeInterval)
+    /// A search ended without a result, and `words` say why and what to try next.
+    case searchEnded(words: String)
 
     /// The BLAST job failed on the NCBI server.
     case jobFailed(rid: String, message: String)
@@ -377,10 +377,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "BLAST submission failed: \(message)"
         case .ridParsingFailed:
             return "Failed to parse NCBI Request ID from submission response"
-        case .timeout(let rid, let elapsed):
-            let minutes = Int(elapsed / 60)
-            return "BLAST job timed out after \(minutes) minutes (RID: \(rid)). "
-                + "Check results at https://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Get&RID=\(rid)"
+        case .searchEnded(let words):
+            return words
         case .jobFailed(let rid, let message):
             return "BLAST job \(rid) failed: \(message)"
         case .resultParsingFailed(let message):

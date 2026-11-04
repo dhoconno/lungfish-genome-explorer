@@ -245,5 +245,37 @@ final class BlastSearchChildTests: XCTestCase {
 
         try assertSavedResult(result)
         XCTAssertEqual(count(.put, on: server), 1, "a resume sends nothing again")
+        try BlastSubmitStandInTests.recaptureIfAsked("complete", stdout: result.stdoutText, scratch: scratch, command: "blast-resume")
+    }
+
+    func testAResumeOfAFolderWithNoSearchSaysSoAndContactsNothing() async throws {
+        let server = try BlastFaultStandIn.start(timeScale: Self.fastClock)
+        defer { server.stop() }
+
+        let result = try await run(["blast", "resume", "--output", output.path, "--format", "json"], server: server)
+
+        XCTAssertEqual(result.status, 3, result.stderrText)
+        XCTAssertTrue(result.stdoutText.contains("No BLAST search is saved"), result.stdoutText)
+        XCTAssertEqual(server.arrivals.count, 0)
+        try BlastSubmitStandInTests.recaptureIfAsked("failed", stdout: result.stdoutText, scratch: scratch, command: "blast-resume")
+    }
+
+    func testASecondSubmitIntoALiveSearchIsRefused() async throws {
+        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.fastClock)
+        defer { server.stop() }
+        let arguments = try submitArguments()
+        let first = try CLISIGTERMHarness.launchCLI(
+            arguments, environment: environment(server, scale: Self.fastClock), testClass: Self.self
+        )
+        defer { first.stop() }
+        let checked = await server.waitForRequest(count: 1, of: .status)
+        XCTAssertTrue(checked, "the leaf never checked its search")
+        first.stop()
+
+        let second = try await run(arguments, server: server)
+
+        XCTAssertEqual(second.status, 4, second.stderrText)
+        XCTAssertTrue(second.stderrText.contains("blast resume"), second.stderrText)
+        XCTAssertEqual(count(.put, on: server), 1, "a search in the folder is not sent over")
     }
 }

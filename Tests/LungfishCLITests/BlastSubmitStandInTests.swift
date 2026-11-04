@@ -191,7 +191,13 @@ final class BlastSubmitStandInTests: XCTestCase {
 
     /// Writes `stdout` as the transcript `name` when `LUNGFISH_RECAPTURE_CLI_EVENTS=1`, with the
     /// scratch folder rewritten to `/work` in its plain and slash-escaped spellings.
-    static func recaptureIfAsked(_ name: String, stdout: String, scratch: URL, file: StaticString = #filePath) throws {
+    static func recaptureIfAsked(
+        _ name: String,
+        stdout: String,
+        scratch: URL,
+        command: String = "blast-submit",
+        file: StaticString = #filePath
+    ) throws {
         guard ProcessInfo.processInfo.environment["LUNGFISH_RECAPTURE_CLI_EVENTS"] == "1" else { return }
         var text = stdout
         for root in [scratch.path, scratch.resolvingSymlinksInPath().path] {
@@ -199,7 +205,7 @@ final class BlastSubmitStandInTests: XCTestCase {
             text = text.replacingOccurrences(of: root.replacingOccurrences(of: "/", with: "\\/"), with: "\\/work")
         }
         let folder = URL(fileURLWithPath: "\(file)").deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Fixtures/cli-events/commands/blast-submit", isDirectory: true)
+            .appendingPathComponent("Fixtures/cli-events/commands/\(command)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: folder.appendingPathComponent("\(name).ndjson"))
     }

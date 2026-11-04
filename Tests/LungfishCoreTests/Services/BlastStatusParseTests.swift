@@ -50,23 +50,6 @@ final class BlastStatusParseTests: XCTestCase {
         XCTAssertEqual(status, .ready(thereAreHits: nil))
     }
 
-    /// The run ends as it did before the split, with the same words, until the advancer of N2 takes over the check.
-    func testStatusUnknownStillEndsThePollWithTheSameWords() async throws {
-        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .unknown(after: 0))])
-        defer { server.stop() }
-        let environment = [BlastServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString]
-
-        do {
-            _ = try await BlastService(environment: environment).pollForResults(
-                rid: "NEVERSENT", initialWait: 0, timeout: 600, progress: nil, wait: { _ in }
-            )
-            XCTFail("Status=UNKNOWN ends the run")
-        } catch let error as BlastServiceError {
-            XCTAssertEqual(error.localizedDescription, "BLAST job NEVERSENT failed: BLAST status: UNKNOWN")
-        }
-        XCTAssertEqual(server.arrivals.count { $0.contact == .status }, 1, "one read ends it")
-    }
-
     /// Every status answer of the fault stand-in, read through the service's own check on a real connection.
     func testEachStandInAnswerReadsAsItsStatus() async throws {
         let hand = BlastHandClock()
