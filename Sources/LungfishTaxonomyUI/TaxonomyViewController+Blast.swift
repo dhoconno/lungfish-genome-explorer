@@ -29,6 +29,7 @@ extension TaxonomyViewController {
         let runID = UUID()
         currentBlastRunID = runID
         lastBlastNode = node
+        lastBlastSampleId = owningSampleId(for: node)
         lastBlastResult = nil
         lastBlastRecordURL = nil
         isBlastRunInFlight = true
@@ -41,18 +42,19 @@ extension TaxonomyViewController {
     /// folders `blast submit` writes since Phase 2.12 and the archive files
     /// of the route before it (``newestSavedBlastVerification(forTaxId:in:)``).
     /// Nothing changes while a run is in
-    /// flight, when the drawer already shows this taxon, or when the taxon
-    /// has no saved verification. The drawer is not opened or switched: the
+    /// flight or when the drawer already shows this row's search. A row is a
+    /// sample and a taxon (``blastPaneShowsSearch(of:)``). A row with no saved
+    /// verification shows nothing, so the pane no longer keeps the verdict of
+    /// the row picked before it (lane ROWPANE). The drawer is not opened or switched: the
     /// saved result is waiting in the BLAST Results tab when the user opens it.
     ///
     /// - Returns: The restored result, or `nil` when nothing was restored.
     @discardableResult
     func restoreSavedBlastVerification(for node: TaxonNode?) -> BlastVerificationResult? {
-        guard let node,
-              !blastRunIsActive,
-              lastBlastResult?.taxId != node.taxId,
-              let directory = blastVerificationDirectoryResolver?(node),
+        guard let node, !blastRunIsActive, !blastPaneShowsSearch(of: node) else { return nil }
+        guard let directory = blastVerificationDirectoryResolver?(node),
               let saved = Self.newestSavedBlastVerification(forTaxId: node.taxId, in: directory) else {
+            emptyBlastPaneOfOtherRow()
             return nil
         }
         applyRestoredBlastVerification(saved.result, recordURL: saved.recordURL, for: node, from: directory)
@@ -63,25 +65,28 @@ extension TaxonomyViewController {
     /// lane 12.10). Selecting a taxon lists and decodes every saved search under the result, a cost that grows with
     /// each search saved and is paid for every taxon selected, so the scan runs off the main actor. The result
     /// applies on the main actor only while the same three conditions hold that the synchronous form checks first
-    /// (no run in flight, this taxon still selected, the drawer not already showing it). A selection that moved on
+    /// (no run in flight, this row still selected, the drawer not already showing its search). A selection that moved on
     /// or a run that began meanwhile drops the result. That check is the stale guard, so no task handle is stored.
+    /// A scan that finds no saved search empties a pane that shows another row's verdict (lane ROWPANE).
     ///
     /// - Returns: The task that scans and applies, which tests await, or `nil` when nothing was scheduled.
     @discardableResult
     func scheduleSavedBlastVerificationRestore(for node: TaxonNode?) -> Task<Void, Never>? {
-        guard let node,
-              !blastRunIsActive,
-              lastBlastResult?.taxId != node.taxId,
-              let directory = blastVerificationDirectoryResolver?(node) else {
+        guard let node, !blastRunIsActive, !blastPaneShowsSearch(of: node) else { return nil }
+        guard let directory = blastVerificationDirectoryResolver?(node) else {
+            emptyBlastPaneOfOtherRow()
             return nil
         }
         return Task { @MainActor [weak self] in
             let saved = await Self.savedBlastVerificationOffMain(forTaxId: node.taxId, in: directory)
             guard let self,
-                  let saved,
                   !self.blastRunIsActive,
-                  self.selectedTaxonNode?.taxId == node.taxId,
-                  self.lastBlastResult?.taxId != node.taxId else {
+                  self.selectedTaxonNode === node,
+                  !self.blastPaneShowsSearch(of: node) else {
+                return
+            }
+            guard let saved else {
+                self.emptyBlastPaneOfOtherRow()
                 return
             }
             self.applyRestoredBlastVerification(saved.result, recordURL: saved.recordURL, for: node, from: directory)
@@ -96,6 +101,23 @@ extension TaxonomyViewController {
         newestSavedBlastVerification(forTaxId: taxId, in: directory)
     }
 
+    /// Whether the pane shows the search of `node`'s row. A row is a sample and a taxon, and a merged display lists one
+    /// taxon under each sample, so the taxon alone does not name it (KRAKEN2-RESTORE-TAXID-ONLY).
+    func blastPaneShowsSearch(of node: TaxonNode) -> Bool {
+        lastBlastResult?.taxId == node.taxId && lastBlastSampleId == owningSampleId(for: node)
+    }
+
+    /// Empties the pane when it holds a verdict, since a row with no saved search shows nothing and never the verdict of
+    /// the row picked before it (BLAST-STALE-PANE-TAXON-ONLY). A failure message names no verdict and stays.
+    private func emptyBlastPaneOfOtherRow() {
+        guard lastBlastResult != nil else { return }
+        lastBlastResult = nil
+        lastBlastRecordURL = nil
+        lastBlastNode = nil
+        lastBlastSampleId = nil
+        taxaCollectionsDrawerView?.blastResultsTab.showEmpty()
+    }
+
     /// Shows a restored verification. The drawer is not opened or switched.
     private func applyRestoredBlastVerification(
         _ result: BlastVerificationResult,
@@ -106,6 +128,7 @@ extension TaxonomyViewController {
         lastBlastResult = result
         lastBlastRecordURL = recordURL
         lastBlastNode = node
+        lastBlastSampleId = owningSampleId(for: node)
         taxaCollectionsDrawerView?.blastResultsTab.showResults(result, recordURL: recordURL)
         blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
     }

@@ -316,9 +316,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var lastBlastResult: BlastVerificationResult?
     /// The file `lastBlastResult` was read from, which the BLAST drawer's table export reads (ARCH ruling T5 of lane 12.33).
     var lastBlastRecordURL: URL?
-
-    /// The taxon node that was last sent to BLAST, for re-run support.
+    /// The taxon node that was last sent to BLAST, for re-run support, and the sample that owned it then (nil without a sample layer). A row is a sample and a taxon.
     var lastBlastNode: TaxonNode?
+    var lastBlastSampleId: String?
 
     /// Identifier for the currently active BLAST drawer update stream.
     public var currentBlastRunID: UUID?

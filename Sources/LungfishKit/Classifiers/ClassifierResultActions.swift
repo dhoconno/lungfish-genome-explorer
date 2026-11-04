@@ -146,6 +146,11 @@ public final class ClassifierResultActions: NSObject {
         didSet { scheduleSavedBlastRestore(for: selectedBlastRow) }
     }
     private var selectedBlastRow: BlastSavedSearchRow?
+    /// The row whose search the pane shows, whether it came back from disk or from a run that began on that row. Nil
+    /// when no row is known. A row with no saved search empties the pane unless the pane shows that row's search.
+    private var shownBlastRow: BlastSavedSearchRow?
+    /// The row that was picked when the run in flight began.
+    private var runBlastRow: BlastSavedSearchRow?
     private var isBlastRunInFlight = false
     private var blastRunOperationID: UUID?
 
@@ -223,7 +228,7 @@ public final class ClassifierResultActions: NSObject {
 
     /// Shows a BLAST result in the pane and opens it.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        endBlastRun(shownRecord: recordURL)
+        endBlastRun(shownRecord: recordURL, shownRow: runBlastRow)
         lastBlastResult = result
         blastDrawer.showResults(result, recordURL: recordURL)
         setBlastDrawerOpen(true)
@@ -231,6 +236,7 @@ public final class ClassifierResultActions: NSObject {
 
     /// Shows a BLAST run's progress in the pane and opens it.
     public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+        noteBlastRunStart()
         isBlastRunInFlight = true
         restoredBlastRow = nil
         lastBlastRecordURL = nil
@@ -248,6 +254,7 @@ public final class ClassifierResultActions: NSObject {
     /// Names the operation that carries the run the pane is waiting for. A Cancel tells the pane nothing, so the run
     /// counts as running only while its operation is active, and a cancelled run cannot block a saved search.
     public func trackBlastRun(operationID: UUID) {
+        noteBlastRunStart()
         isBlastRunInFlight = true
         blastRunOperationID = operationID
     }
@@ -258,14 +265,33 @@ public final class ClassifierResultActions: NSObject {
         lastBlastResult = result
         lastBlastRecordURL = recordURL
         restoredBlastRow = row
+        shownBlastRow = row
         blastDrawer.showResults(result, recordURL: recordURL)
     }
 
-    private func endBlastRun(shownRecord recordURL: URL?) {
+    /// A run belongs to the row that was picked when it began, so its result can be told from another row's later.
+    private func noteBlastRunStart() {
+        if !isBlastRunInFlight { runBlastRow = selectedBlastRow }
+    }
+
+    private func endBlastRun(shownRecord recordURL: URL?, shownRow: BlastSavedSearchRow? = nil) {
         isBlastRunInFlight = false
         blastRunOperationID = nil
         restoredBlastRow = nil
         lastBlastRecordURL = recordURL
+        shownBlastRow = shownRow
+        runBlastRow = nil
+    }
+
+    /// A row with no saved search shows nothing, never the verdict of the row picked before it
+    /// (BLAST-STALE-PANE-TAXON-ONLY). A run's result that began on `row` stays.
+    private func emptyBlastPane(unlessItShows row: BlastSavedSearchRow) {
+        guard lastBlastResult != nil, shownBlastRow != row else { return }
+        lastBlastResult = nil
+        lastBlastRecordURL = nil
+        restoredBlastRow = nil
+        shownBlastRow = nil
+        blastDrawer.showEmpty()
     }
 
     /// Whether a run of this pane is still running. A run with no operation yet counts, and one whose operation has
@@ -281,7 +307,8 @@ public final class ClassifierResultActions: NSObject {
 
     /// Looks for the newest saved search of `row` off the main actor, as Kraken2's `scheduleSavedBlastVerificationRestore`
     /// does. Nothing starts while a run is in flight or when the pane already shows this row's search. A result that
-    /// comes back after the selection moved or a run began is dropped, and a row with no saved search leaves the pane.
+    /// comes back after the selection moved or a run began is dropped. A row with no saved search empties a pane that
+    /// shows another row's verdict, and a nil row picks no single row, so the pane keeps what it shows.
     private func scheduleSavedBlastRestore(for row: BlastSavedSearchRow?) {
         savedBlastRestoreTask?.cancel()
         savedBlastRestoreTask = nil
@@ -291,14 +318,17 @@ public final class ClassifierResultActions: NSObject {
         savedBlastRestoreTask = Task { @MainActor [weak self] in
             let saved = await Self.newestSavedSearch(of: row, inProject: project)
             guard let self,
-                  let saved,
                   !Task.isCancelled,
                   self.selectedBlastRow == row,
                   !self.blastRunIsActive(),
-                  self.restoredBlastRow != row,
-                  self.lastBlastRecordURL != saved.url else {
+                  self.restoredBlastRow != row else {
                 return
             }
+            guard let saved else {
+                self.emptyBlastPane(unlessItShows: row)
+                return
+            }
+            guard self.lastBlastRecordURL != saved.url else { return }
             self.restoreBlastResults(saved.record.result, recordURL: saved.url, row: row)
         }
     }
