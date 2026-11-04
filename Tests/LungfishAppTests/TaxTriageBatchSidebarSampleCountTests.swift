@@ -75,6 +75,109 @@ final class TaxTriageBatchSidebarSampleCountTests: XCTestCase {
         XCTAssertTrue(subtitle.hasPrefix("2 samples · "), subtitle)
     }
 
+    // MARK: - Imported results (Phase 3.2 lane TTIMPORT, row IMPORT-TAXTRIAGE-BATCH-HIDDEN)
+
+    /// A one-sample run made inside a project carries `isBatch` true. Its import has a row in the sidebar.
+    func testImportedOneSampleBatchIsListed() throws {
+        let imported = try importRun(sampleIDs: ["SRR12486983"])
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: imported))
+
+        XCTAssertNotNil(SidebarProjectScanner.buildAnalysisNode(info: info), "the imported one-sample run has no sidebar row")
+    }
+
+    /// A two-sample run keeps its record through the import, so the row reads two samples.
+    func testImportedTwoSampleBatchReadsTwoSamples() throws {
+        let imported = try importRun(sampleIDs: ["S1", "S2"])
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: imported))
+
+        XCTAssertNotNil(SidebarProjectScanner.buildAnalysisNode(info: info), "the imported two-sample run has no sidebar row")
+        let subtitle = try XCTUnwrap(SidebarProjectScanner.classifierBatchSubtitle(for: info))
+        XCTAssertTrue(subtitle.hasPrefix("2 samples · "), subtitle)
+    }
+
+    /// An import from an earlier release holds a record with no samples and reports. It is listed, and says why it has no count.
+    func testOlderImportWithEmptySamplesAndReportsIsListed() throws {
+        let older = try makeOlderImport(reportCount: 1)
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: older))
+
+        XCTAssertNotNil(SidebarProjectScanner.buildAnalysisNode(info: info), "the older import has no sidebar row")
+        let subtitle = try XCTUnwrap(SidebarProjectScanner.classifierBatchSubtitle(for: info))
+        XCTAssertTrue(subtitle.hasPrefix("Samples not recorded · "), subtitle)
+    }
+
+    /// An older import with no samples and no reports is listed too, and says it has no reports.
+    func testOlderImportWithNoReportsIsListed() throws {
+        let older = try makeOlderImport(reportCount: 0)
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: older))
+
+        XCTAssertNotNil(SidebarProjectScanner.buildAnalysisNode(info: info), "the older import has no sidebar row")
+        let subtitle = try XCTUnwrap(SidebarProjectScanner.classifierBatchSubtitle(for: info))
+        XCTAssertTrue(subtitle.hasPrefix("No reports · "), subtitle)
+    }
+
+    /// Listing an older import is a read. No file of its folder is added or changed (UX 6).
+    func testListingAnOlderImportWritesNothing() throws {
+        let older = try makeOlderImport(reportCount: 1)
+        let before = try folderSnapshot(of: older)
+        let info = try XCTUnwrap(AnalysesFolder.analysisInfo(for: older))
+
+        XCTAssertNotNil(SidebarProjectScanner.buildAnalysisNode(info: info), "the older import has no sidebar row")
+        _ = SidebarProjectScanner.classifierBatchSubtitle(for: info)
+        XCTAssertEqual(try folderSnapshot(of: older), before, "listing changed the older import's folder")
+    }
+
+    /// What an earlier release imported: a batch-marked folder whose record names no samples and `reportCount` reports.
+    private func makeOlderImport(reportCount: Int) throws -> URL {
+        let batch = try makeBatch(sampleIDs: [], subfolders: [])
+        var reports: [URL] = []
+        for index in 0..<reportCount {
+            let report = batch.appendingPathComponent("S\(index).top_report.tsv")
+            try "taxid\tname\treads\n111\tVirus A\t12\n".write(to: report, atomically: true, encoding: .utf8)
+            reports.append(report)
+        }
+        let config = TaxTriageConfig(samples: [], outputDirectory: batch)
+        try TaxTriageResult(config: config, runtime: 0, exitCode: 0, outputDirectory: batch, reportFiles: reports).save()
+        return batch
+    }
+
+    /// Every regular file under `folder` with its bytes, by path relative to the folder.
+    private func folderSnapshot(of folder: URL) throws -> [String: Data] {
+        var snapshot: [String: Data] = [:]
+        let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
+        while let file = enumerator?.nextObject() as? URL {
+            guard (try file.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { continue }
+            snapshot[String(file.path.dropFirst(folder.path.count))] = try Data(contentsOf: file)
+        }
+        return snapshot
+    }
+
+    /// A run folder as `taxtriage run` leaves it in a project (`isBatch` true, one folder and one report a sample, the run's
+    /// own record), imported into the project's `Analyses` folder with the real importer. Returns the imported folder.
+    private func importRun(sampleIDs: [String]) throws -> URL {
+        let source = tempRoot.appendingPathComponent("run-source", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try AnalysesFolder.writeAnalysisMetadata(AnalysesFolder.AnalysisMetadata(tool: "taxtriage", isBatch: true), to: source)
+        var reports: [URL] = []
+        for id in sampleIDs {
+            let folder = source.appendingPathComponent(id, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let report = folder.appendingPathComponent("\(id).top_report.tsv")
+            try "taxid\tname\treads\n111\tVirus A\t12\n".write(to: report, atomically: true, encoding: .utf8)
+            reports.append(report)
+        }
+        let config = TaxTriageConfig(
+            samples: sampleIDs.map { TaxTriageSample(sampleId: $0, fastq1: tempRoot.appendingPathComponent("\($0).fastq.gz")) },
+            outputDirectory: source,
+            maxCpus: 2,
+            profile: "docker"
+        )
+        try TaxTriageResult(config: config, runtime: 417, exitCode: 0, outputDirectory: source, reportFiles: reports).save()
+        return try MetagenomicsImportService.importTaxTriage(
+            inputURL: source,
+            outputDirectory: projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        ).resultDirectory
+    }
+
     /// A `taxtriage-batch-<ts>` folder in the project with `subfolders`, and with the run's
     /// `taxtriage-result.json` naming `sampleIDs` unless that list is empty.
     private func makeBatch(sampleIDs: [String], subfolders: [String]) throws -> URL {
