@@ -126,7 +126,9 @@ final class FASTQReadLayoutCountParityTests: XCTestCase {
             XCTAssertEqual(counted.scannedRecords, fixture.wholeFile.records, fixture.name)
             XCTAssertEqual(counted.matePairs, fixture.wholeFile.pairs, fixture.name)
             XCTAssertEqual(counted.unpairedRecords, fixture.wholeFile.unpaired, fixture.name)
-            XCTAssertTrue(counted.scannedWholeFile, fixture.name)
+            // A scan that stops at a record that is not FASTQ did not read the whole file (BIO review B2). The counts
+            // of the records before it stay as worked by hand.
+            XCTAssertEqual(counted.scannedWholeFile, fixture.name != "a non-@ header at record 3", fixture.name)
         }
     }
 
