@@ -74,8 +74,8 @@ final class ReferenceCopySequencesPreparedBundleTests: XCTestCase {
         // The bytes (review 12.34 fix 5). The provider the copy used before the fix has no shared bundle, so it builds
         // its own and reads the same rows. The copy has to equal what it fetches, row by row in the order of the rows
         // and joined by a line feed. It runs after the build counts above, which it would raise. The fixture's index
-        // points each record at its header line, so the fetched text holds header bytes, and the test compares bytes
-        // without assuming what they are.
+        // points each record at its first base, as samtools writes it, so the fetched text is the bases and the read
+        // check accepts it. The test compares bytes without assuming what they are.
         let manifest = try BundleManifest.load(from: bundleURL)
         let unshared = BundleDataProvider(bundleURL: bundleURL, manifest: manifest)
         var fetched: [String] = []

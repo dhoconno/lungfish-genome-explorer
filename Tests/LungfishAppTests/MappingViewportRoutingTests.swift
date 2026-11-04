@@ -1793,16 +1793,20 @@ enum MappingRoutingFixture {
         let fastaURL = genomeURL.appendingPathComponent("sequence.fa")
         try fasta.write(to: fastaURL, atomically: true, encoding: .utf8)
 
+        // `offset` is where a record starts in the FASTA, at its `>`. The manifest and the `.fai` give the offset of the
+        // first base, the byte after the header line, as samtools writes it. A reader that checks the bases it got
+        // (`IndexedFASTAReader.regionBases`) refuses an index that points at a header line.
         var offset = Int64(0)
         let chromInfos = chromosomes.map { chrom in
+            let headerBytes = Int64(">\(chrom.name)\n".utf8.count)
             let info = ChromosomeInfo(
                 name: chrom.name,
                 length: Int64(chrom.length),
-                offset: offset,
+                offset: offset + headerBytes,
                 lineBases: chrom.length,
                 lineWidth: chrom.length + 1
             )
-            offset += Int64(">\(chrom.name)\n".utf8.count + chrom.length + 1)
+            offset += headerBytes + Int64(chrom.length) + 1
             return info
         }
 
