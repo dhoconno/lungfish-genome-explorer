@@ -2251,11 +2251,14 @@ extension FASTQDatasetViewController {
         return (buildOperationRequest(), runButton.isEnabled)
     }
 
-    /// Testing enum mirroring `LegacyOperationKind`'s classifier/generic-category
-    /// cases so test code outside this file can name a selection without
-    /// exporting `LegacyOperationKind` itself. Added for batch 3 (2026-08-22) to
-    /// drive `runOperationClicked()`'s tool/category dispatch branches
-    /// behaviorally instead of via source-text string matching.
+    /// The request a demultiplex makes from the drawer's plan, the far end of what the drawer feeds.
+    func testingDemultiplexRequest() -> FASTQDerivativeRequest? {
+        _ = view
+        selectedOperation = .demultiplex
+        return buildOperationRequest()
+    }
+
+    /// Lets a test outside this file name a selection without exporting `LegacyOperationKind`.
     enum TestingLaunchableOperation {
         case classifyReads
         case detectViruses
@@ -2297,10 +2300,7 @@ extension FASTQDatasetViewController {
     }
 
     /// Sets `selectedOperation` to the given tool/category-launching case and
-    /// re-renders the parameter bar (without invoking `runOperationClicked`),
-    /// returning the actual rendered copy text. Added for batch 3 (2026-08-22)
-    /// so the classifier/assembly/mapping action-description strings can be
-    /// proven to render for real instead of via source-text grep.
+    /// re-renders the parameter bar, returning the rendered copy text.
     func testingParameterBarText(
         for operation: TestingLaunchableOperation
     ) -> String? {
