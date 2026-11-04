@@ -535,11 +535,18 @@ public enum NaoMgsBamMaterializer {
         }
 
         writeGroup.wait()
-        // Code 7 is a stage that stopped reading. It stopped on its own, and its stderr below says why.
-        if let err = writeError.value, (err as NSError).code != 7 {
-            // The stream stopped early, so stop every stage rather than wait on a partial BAM.
+        if let err = writeError.value {
+            // The stream stopped early, so stop every stage rather than wait on a partial BAM. A run that a stage
+            // failure already ended returns its stages and a cancelled one throws them, so both keep samtools' stderr.
             run.cancel()
-            _ = try? run.waitBlocking()
+            var said = ""
+            do {
+                said = stderrText(try run.waitBlocking().stages)
+            } catch let stopped as ToolProcessError {
+                if case .cancelled(let results) = stopped { said = stderrText(results) }
+            }
+            // A stage that stopped reading says why in its own line, which tells more than the broken pipe after it.
+            if (err as NSError).code == 7, !said.isEmpty { throw pipelineFailure(said) }
             throw err
         }
         let result: ToolPipelineResult
@@ -549,16 +556,9 @@ public enum NaoMgsBamMaterializer {
             throw pipelineFailure(error.localizedDescription)
         }
         let completedAt = pipelineClock.now
-        // Each stage's stderr in stage order, where the shell gave them one shared pipe.
-        let stderr = result.stages.map { String(data: $0.stderr, encoding: .utf8) ?? "" }.joined()
+        let stderr = stderrText(result.stages)
         // Every stage counts, where `sh -c` reported the last stage's status alone (lane 13.09 prediction (b)).
-        guard result.isSuccess else {
-            // samtools' own line says more than the broken pipe the writer saw after it stopped.
-            if let err = writeError.value, stderr.isEmpty { throw err }
-            throw pipelineFailure(stderr)
-        }
-        // Every stage reported success but the writer was cut off, so the BAM is short.
-        if let err = writeError.value { throw err }
+        guard result.isSuccess else { throw pipelineFailure(stderr) }
 
         let step = NaoMgsBamMaterializationStep(
             sample: sample,
@@ -592,6 +592,11 @@ public enum NaoMgsBamMaterializer {
             )
         }
         return step
+    }
+
+    /// Each stage's stderr in stage order, where the shell gave them one shared pipe.
+    private static func stderrText(_ results: [ToolProcessResult]) -> String {
+        results.map { String(data: $0.stderr, encoding: .utf8) ?? "" }.joined()
     }
 
     /// The error of a samtools pipeline that failed (code 5), with the reason or every stage's stderr.
