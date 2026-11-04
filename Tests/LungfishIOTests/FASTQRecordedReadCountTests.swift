@@ -50,6 +50,7 @@ final class FASTQRecordedReadCountTests: XCTestCase {
 
         XCTAssertEqual(classification.layout, .strictlyInterleaved, classification.reason)
         XCTAssertEqual(classification.matePairs, 40)
+        XCTAssertFalse(classification.reason.contains("recorded at import"), "a scan says it was a scan: \(classification.reason)")
         XCTAssertNil(FASTQMetadataStore.load(for: fastq)?.readClassification, "the stale roles go with the count")
     }
 
@@ -66,7 +67,8 @@ final class FASTQRecordedReadCountTests: XCTestCase {
         XCTAssertEqual(classification.unpairedRecords, 20)
     }
 
-    /// A count that still names the file's size is the one other proof of strict, so a bounded call takes it.
+    /// A count that still names the file's size is the one other proof of strict, so a bounded call takes it. The
+    /// reason says the file was not read again (BIO review, should-fix 1).
     func testACountOfTheseBytesIsTakenWithoutAScan() throws {
         let fastq = root.appendingPathComponent("reads.fastq")
         try FASTQLayoutRecordFixtures.write([.pairs(40)], to: fastq)
@@ -78,6 +80,8 @@ final class FASTQRecordedReadCountTests: XCTestCase {
         XCTAssertEqual(classification.scannedRecords, 80)
         XCTAssertEqual(classification.matePairs, 40)
         XCTAssertTrue(classification.scannedWholeFile)
+        XCTAssertTrue(classification.reason.contains("recorded at import"), classification.reason)
+        XCTAssertTrue(classification.reason.contains("not read again"), classification.reason)
     }
 
     /// The count travels with the file, so a moved project keeps it.
@@ -97,6 +101,48 @@ final class FASTQRecordedReadCountTests: XCTestCase {
         XCTAssertEqual(classification.layout, .mixedInterleaved, classification.reason)
         XCTAssertEqual(classification.scannedRecords, 80)
         XCTAssertTrue(classification.scannedWholeFile)
+    }
+
+    // MARK: - The strip on save (BIO review should-fix 3, QA should-fix 2)
+
+    private func rawSidecar(of fastq: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: FASTQMetadataStore.metadataURL(for: fastq))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func metadata(countingBytes sizeBytes: Int) -> PersistedFASTQMetadata {
+        PersistedFASTQMetadata(
+            recordedReadCount: FASTQRecordedReadCount(pairedR1: 40, pairedR2: 40, unpaired: 0, storedSizeBytes: Int64(sizeBytes)))
+    }
+
+    /// `save` is the second guard against a stale proof. A count copied from another file is not written.
+    func testSaveDropsACountCopiedFromAnotherFile() throws {
+        let fastq = root.appendingPathComponent("reads.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(40)], to: fastq)
+
+        FASTQMetadataStore.save(metadata(countingBytes: try size(of: fastq) + 1), for: fastq)
+
+        XCTAssertNil(try rawSidecar(of: fastq)["recordedReadCount"])
+    }
+
+    func testSaveKeepsACountOfTheSameBytes() throws {
+        let fastq = root.appendingPathComponent("reads.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(40)], to: fastq)
+
+        FASTQMetadataStore.save(metadata(countingBytes: try size(of: fastq)), for: fastq)
+
+        let kept = try XCTUnwrap(try rawSidecar(of: fastq)["recordedReadCount"] as? [String: Any])
+        XCTAssertEqual(kept["paired_r1"] as? Int, 40)
+    }
+
+    /// QA guessed that a save before the FASTQ is in place strips only the count. It writes nothing at all, so a writer
+    /// that saves its sidecar first loses all of it, not only the count. The CLI import saves after the file is there.
+    func testSaveBeforeTheFileExistsWritesNoSidecar() throws {
+        let fastq = root.appendingPathComponent("not-yet.fastq")
+
+        FASTQMetadataStore.save(metadata(countingBytes: 1_000), for: fastq)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: FASTQMetadataStore.metadataURL(for: fastq).path))
     }
 
     // MARK: - A cancelled scan (the first report's try? Finding)

@@ -8,7 +8,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishIO
 import LungfishTestSupport
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 /// Row READ-LAYOUT-PARTIAL-SCAN, the CLI tests of ruling section 6. No test here needs a managed tool, since
 /// `--no-optimize-storage` stores the file as given and a mixed file is split in process.
@@ -190,14 +190,95 @@ final class ReadLayoutWholeFileCLITests: XCTestCase {
         XCTAssertTrue(wholeFile.contains("1") || wholeFile.contains("true"), wholeFile)
         XCTAssertTrue(envelope.reproducibleCommand.contains("--unpaired"), envelope.reproducibleCommand)
 
+        // The replay runs the recorded command with its outputs moved, so a record that dropped `--unpaired`, a path or
+        // its quoting fails here (QA blocker, BIO review should-fix 2).
+        let words = try XCTUnwrap(ProvenanceCommandPresentation.split(envelope.reproducibleCommand), envelope.reproducibleCommand)
+            .compactMap { piece -> String? in
+                if case .word(let word) = piece { return word.value }
+                return nil
+            }
+        let verb = try XCTUnwrap(words.firstIndex(of: "deinterleave"), envelope.reproducibleCommand)
+        var tokens = Array(words[(verb + 1)...])
+        XCTAssertEqual(tokens.first, input.path)
+        XCTAssertTrue(tokens.contains("--unpaired"), envelope.reproducibleCommand)
         let again = root.appendingPathComponent("again", isDirectory: true)
         try FileManager.default.createDirectory(at: again, withIntermediateDirectories: true)
         let replayed = ["r1.fastq", "r2.fastq", "single.fastq"].map { again.appendingPathComponent($0) }
-        try await FastqDeinterleaveSubcommand.parse([
-            input.path, "--out1", replayed[0].path, "--out2", replayed[1].path, "--unpaired", replayed[2].path,
-        ]).run()
+        for (flag, output) in zip(["--out1", "--out2", "--unpaired"], replayed) {
+            let at = try XCTUnwrap(tokens.firstIndex(of: flag), "\(flag) is in the recorded command")
+            tokens[at + 1] = output.path
+        }
+        try await FastqDeinterleaveSubcommand.parse(tokens).run()
+        let recordedOutputs = envelope.outputs + envelope.steps.flatMap(\.outputs)
         for (one, other) in zip(outputs, replayed) {
             XCTAssertEqual(try digest(one), try digest(other), one.lastPathComponent)
+            let entry = recordedOutputs.first { URL(fileURLWithPath: $0.path).lastPathComponent == one.lastPathComponent }
+            XCTAssertEqual(entry?.checksumSHA256, try digest(other), "the record holds the digest of \(one.lastPathComponent)")
         }
+    }
+
+    // MARK: - An R1/R2 import records its count (BIO review, ruling 2)
+
+    /// Writes `<stem>_1.fastq` and `<stem>_2.fastq`, `pairs` reads each, mates named by `names`, and imports them.
+    private func importMates(stem: String, pairs: Int, names: (Int) -> (String, String)) async throws -> URL {
+        let folder = root.appendingPathComponent("\(stem)-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var first = "", second = ""
+        for index in 0..<pairs {
+            let mates = names(index)
+            first += "@\(mates.0)\nACGTACGT\n+\nIIIIIIII\n"
+            second += "@\(mates.1)\nTTGGCCAA\n+\nIIIIIIII\n"
+        }
+        try first.write(to: folder.appendingPathComponent("\(stem)_1.fastq"), atomically: true, encoding: .utf8)
+        try second.write(to: folder.appendingPathComponent("\(stem)_2.fastq"), atomically: true, encoding: .utf8)
+        try await ImportCommand.FastqSubcommand.parse([
+            folder.path, "--project", project.path, "--platform", "illumina", "--quality-binning", "none",
+            "--no-optimize-storage", "--no-color",
+        ]).run()
+        return project.appendingPathComponent("Imports/\(stem).lungfishfastq", isDirectory: true)
+    }
+
+    /// Red at the lane's head, where an R1/R2 import recorded no count and a wizard said the layout was decided when
+    /// the run starts. The pairs are 3,000 records, past the 2,000 a wizard reads on its own.
+    func testImportOfAPairRecordsItsCountAndAWizardNamesTheLayout() async throws {
+        let bundle = try await importMates(stem: "SRR200", pairs: 1_500) { ("p\($0)/1", "p\($0)/2") }
+
+        let stored = try sidecar(of: bundle)
+        let counted = try XCTUnwrap(stored.metadata.recordedReadCount, "the count is recorded")
+        XCTAssertEqual([counted.pairedR1, counted.pairedR2, counted.unpaired], [1_500, 1_500, 0])
+        XCTAssertNil(stored.metadata.readClassification, "a file of one kind records no roles")
+        let sample = MetagenomicsSampleInput(sampleId: "pair", fastq1: bundle, fastq2: nil)
+        let decidedAtRunTime = "Read layout is decided when the run starts"
+        let esViritu = await EsVirituSampleReadPlan.planned(for: sample)
+        XCTAssertEqual(esViritu.layout?.layout, .strictlyInterleaved)
+        XCTAssertNotEqual(esViritu.label, decidedAtRunTime)
+        let kraken = await ClassificationSampleReadPlan.planned(for: sample)
+        XCTAssertEqual(kraken.layout?.layout, .strictlyInterleaved)
+        XCTAssertNotEqual(kraken.label, decidedAtRunTime)
+    }
+
+    /// A stored pair named `SRR123.1.1` and `SRR123.1.2` counts as single reads to the layout scan. A count recorded
+    /// for it would outlive the scan's rule, so none is kept and each run scans.
+    func testImportOfAPairWithDottedMateNamesRecordsNoCount() async throws {
+        let bundle = try await importMates(stem: "SRR201", pairs: 3) { ("SRR201.\($0 + 1).1", "SRR201.\($0 + 1).2") }
+
+        let stored = try sidecar(of: bundle)
+        XCTAssertNil(stored.metadata.recordedReadCount)
+        XCTAssertNil(stored.metadata.readClassification)
+    }
+
+    /// The control of BIO review B1. A recorded pair that holds no mates at all keeps the split by name, so every read
+    /// goes to the unpaired file, and the name check does not turn it into a pair.
+    func testFastqDeinterleaveKeepsANameSplitWhenARecordedPairHoldsNoMates() async throws {
+        let input = root.appendingPathComponent("lone.fastq")
+        try FASTQLayoutRecordFixtures.write([.singles(6)], to: input)
+        let bundle = try await importFile(input, pairing: "interleaved")
+        let paths = ["r1.fastq", "r2.fastq", "single.fastq"].map { root.appendingPathComponent($0) }
+
+        try await FastqDeinterleaveSubcommand.parse([
+            bundle.path, "--out1", paths[0].path, "--out2", paths[1].path, "--unpaired", paths[2].path,
+        ]).run()
+
+        XCTAssertEqual(try paths.map { try FASTQPairInterleaver.countRecords(in: $0) }, [0, 0, 6])
     }
 }

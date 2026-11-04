@@ -115,4 +115,29 @@ final class MixedFileRouteDecisionTests: XCTestCase {
         XCTAssertEqual(plan.composition.pairedFragments, 60_000)
         XCTAssertEqual(plan.composition.fragmentCount, 80_000)
     }
+
+    // MARK: - A stated layout
+
+    /// BIO review B4. A stated `--read-layout interleaved` was final, so a mixed file was paired by position with no
+    /// word. A scan of the whole file that finds pairs beside single reads outranks the statement, as it outranks a
+    /// declared pairing on the FASTQ operations.
+    func testAStatedInterleavedMixedFileIsNotPairedByPosition() throws {
+        let mixed = try file([.pairs(60_000), .singles(20_000)])
+        let stated = FASTQInputLayoutResolver.resolve(inputURLs: [mixed], explicit: .strictlyInterleaved)
+        XCTAssertEqual(stated.layout, .mixedMergedAndPairs, stated.reason)
+        XCTAssertEqual(stated.source, .contentScan)
+        XCTAssertTrue(stated.reason.contains("The caller stated interleaved pairs"), stated.reason)
+
+        // The controls. A true strict file, a path with no file and a stated single-end keep the statement.
+        let strict = FASTQInputLayoutResolver.resolve(inputURLs: [try file([.pairs(70)])], explicit: .strictlyInterleaved)
+        XCTAssertEqual(strict.layout, .strictlyInterleaved)
+        XCTAssertEqual(strict.source, .explicit)
+        let missing = FASTQInputLayoutResolver.resolve(
+            inputURLs: [root.appendingPathComponent("gone.fastq")], explicit: .strictlyInterleaved)
+        XCTAssertEqual(missing.layout, .strictlyInterleaved)
+        XCTAssertEqual(missing.source, .explicit)
+        let single = FASTQInputLayoutResolver.resolve(inputURLs: [try file([.pairs(70)])], explicit: .singleEnd)
+        XCTAssertEqual(single.layout, .singleEnd)
+        XCTAssertEqual(single.source, .explicit)
+    }
 }

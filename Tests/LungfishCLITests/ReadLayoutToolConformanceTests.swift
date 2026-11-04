@@ -151,4 +151,59 @@ final class ReadLayoutToolConformanceTests: XCTestCase {
         let fastq = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
         XCTAssertEqual(FASTQMetadataStore.load(for: fastq)?.recordedReadCount?.pairedR1, 60_000)
     }
+
+    /// The value of `key` wherever the record keeps it, since the test reads the record by meaning.
+    private func recorded(_ key: String, in object: Any) -> String? {
+        if let dictionary = object as? [String: Any] {
+            if let value = dictionary[key] { return String(describing: value) }
+            for value in dictionary.values {
+                if let found = recorded(key, in: value) { return found }
+            }
+        } else if let array = object as? [Any] {
+            for value in array {
+                if let found = recorded(key, in: value) { return found }
+            }
+        }
+        return nil
+    }
+
+    private func firstName(of url: URL) throws -> String {
+        let line = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").first.map(String.init) ?? ""
+        return line.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    /// BIO review B1 (ruling 3). A recorded pair whose mates are named `SRR123.1.1` and `SRR123.1.2` is not a pair to the
+    /// layout scan, so `--unpaired` wrote empty R1 and R2 with exit 0 and kept every read in the unpaired file. LGE's own
+    /// name check reads these names as mates, so the split asks it first. Red at the lane's head, where R1 holds 0 records.
+    func testFastqDeinterleaveSplitsARecordedPairWithDottedMateNames() async throws {
+        try await requireNativeTool(.reformat)
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let run = root.appendingPathComponent("run", isDirectory: true)
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        for folder in [project, run, out] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let first = (1...3).map { "@SRR123.\($0).1 \($0) length=8\nACGTACGT\n+\nIIIIIIII\n" }.joined()
+        let second = (1...3).map { "@SRR123.\($0).2 \($0) length=8\nTTGGCCAA\n+\nIIIIIIII\n" }.joined()
+        try first.write(to: run.appendingPathComponent("SRR123_1.fastq"), atomically: true, encoding: .utf8)
+        try second.write(to: run.appendingPathComponent("SRR123_2.fastq"), atomically: true, encoding: .utf8)
+        try await ImportCommand.FastqSubcommand.parse([
+            run.path, "--project", project.path, "--platform", "illumina", "--quality-binning", "none",
+            "--no-optimize-storage", "--no-color",
+        ]).run()
+        let bundle = project.appendingPathComponent("Imports/SRR123.lungfishfastq", isDirectory: true)
+        let paths = ["a.fastq", "b.fastq", "c.fastq"].map { out.appendingPathComponent($0) }
+
+        try await FastqDeinterleaveSubcommand.parse([
+            bundle.path, "--out1", paths[0].path, "--out2", paths[1].path, "--unpaired", paths[2].path,
+        ]).run()
+
+        XCTAssertEqual(try paths.map { try FASTQPairInterleaver.countRecords(in: $0) }, [3, 3, 0])
+        XCTAssertEqual(try firstName(of: paths[0]), "@SRR123.1.1")
+        XCTAssertEqual(try firstName(of: paths[1]), "@SRR123.1.2")
+        let record = try JSONSerialization.jsonObject(with: Data(contentsOf: out.appendingPathComponent(".lungfish-provenance.json")))
+        XCTAssertTrue(try XCTUnwrap(recorded("readLayout", in: record)).contains("strictly_interleaved"))
+        XCTAssertTrue(try XCTUnwrap(recorded("pairs", in: record)).contains("3"))
+        XCTAssertTrue(try XCTUnwrap(recorded("unpairedReads", in: record)).contains("0"))
+    }
 }

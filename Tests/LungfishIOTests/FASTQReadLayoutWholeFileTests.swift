@@ -91,4 +91,44 @@ final class FASTQReadLayoutWholeFileTests: XCTestCase {
         XCTAssertEqual(resolution.layout, .mixedMergedAndPairs)
         XCTAssertEqual(resolution.classification?.matePairs, 60_000)
     }
+
+    // MARK: - A scan that stops at a bad record
+
+    private func written(_ text: String) throws -> URL {
+        let url = root.appendingPathComponent("\(UUID().uuidString).fastq")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func text(_ runs: [FASTQLayoutRecordFixtures.Run]) throws -> String {
+        try String(contentsOf: try file(runs), encoding: .utf8)
+    }
+
+    /// BIO review B2. A scan that stopped at a record that is not FASTQ said it read the whole file, so 60,000 pairs
+    /// followed by one bad line read as strict, and the importer recorded that prefix as the file's count. A file that
+    /// stops being FASTQ was not read whole, whatever tool follows.
+    func testABadRecordMidFileIsNotAWholeScan() throws {
+        let pairs = try text([.pairs(10)])
+        let morePairs = try text([.pairs(10, first: 10)])
+        let singles = try text([.singles(10)])
+        let bad: [(name: String, text: String)] = [
+            ("a line that is not a header", pairs + "not a header\n" + morePairs),
+            ("an empty line, then single reads", pairs + "\n" + singles),
+        ]
+        for example in bad {
+            let url = try written(example.text)
+            XCTAssertFalse(try FASTQReadLayoutClassifier.countMates(in: url).scannedWholeFile, example.name)
+            XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: url).layout, .mixedInterleaved, example.name)
+            XCTAssertFalse(
+                try FASTQReadLayoutClassifier.readHeaders(from: url, limit: 10_000).scannedWholeFile, example.name)
+        }
+    }
+
+    /// The control. Empty lines at the end of a file are not a bad record, so the file is still read whole.
+    func testTrailingEmptyLinesStayAWholeScan() throws {
+        let url = try written(try text([.pairs(10)]) + "\n\n")
+        XCTAssertTrue(try FASTQReadLayoutClassifier.countMates(in: url).scannedWholeFile)
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: url).layout, .strictlyInterleaved)
+        XCTAssertTrue(try FASTQReadLayoutClassifier.readHeaders(from: url, limit: 10_000).scannedWholeFile)
+    }
 }
