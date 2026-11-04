@@ -16,12 +16,12 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 342 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 343 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 157 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 160 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1578 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1579 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 86 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
@@ -467,6 +467,7 @@ None.
 - `BlastReadResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastReadSource` struct, `Sources/LungfishCore/Services/Blast/BlastService+Sources.swift`
 - `BlastSavedSearchRow` struct, `Sources/LungfishCore/Services/Blast/BlastSavedSearchRow.swift`
+- `BlastSearchNews` enum, `Sources/LungfishCore/Services/Blast/BlastLiveSearch.swift`
 - `BlastSearchResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastService` actor, `Sources/LungfishCore/Services/Blast/BlastService.swift`
 - `BlastServiceError` enum, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
@@ -1614,6 +1615,9 @@ None.
 - `BlastRequest` struct, `Sources/LungfishKit/Surfaces/BlastRequest.swift`
 - `BlastResultsDrawerContainerView` class, `Sources/LungfishKit/BlastResultsDrawerContainerView.swift`
 - `BlastResultsDrawerTab` class, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
+- `BlastSearchPaneActions` enum, `Sources/LungfishKit/BlastSearchPaneState.swift`
+- `BlastSearchPaneState` struct, `Sources/LungfishKit/BlastSearchPaneState.swift`
+- `BlastWaitingPaneView` class, `Sources/LungfishKit/BlastResultsDrawerTab+Waiting.swift`
 - `ClassifierActionBar` class, `Sources/LungfishKit/ClassifierActionBar.swift`
 - `ClassifierActionWords` enum, `Sources/LungfishKit/Classifiers/ClassifierResultActions.swift`
 - `ClassifierAlignmentContig` struct, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
@@ -2292,6 +2296,7 @@ None.
 - `CLIEventLine` struct, `Sources/LungfishWorkflow/CLIEvents/CLIEventLine.swift`
 - `CLIEventLineDecoder` struct, `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift`
 - `CLIEventLogLevel` enum, `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift`
+- `CLIEventWaitingState` enum, `Sources/LungfishWorkflow/CLIEvents/CLIEvent.swift`
 - `CLIInvocation` struct, `Sources/LungfishWorkflow/CLIEvents/CLIInvocation.swift`
 - `CLISequenceInputMaterialization` enum, `Sources/LungfishWorkflow/Extraction/CLISequenceInputMaterialization.swift`
 - `CLISequenceInputMaterializationError` enum, `Sources/LungfishWorkflow/Extraction/CLISequenceInputMaterialization.swift`
