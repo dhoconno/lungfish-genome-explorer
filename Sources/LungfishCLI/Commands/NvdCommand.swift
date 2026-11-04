@@ -274,6 +274,10 @@ private func nvdImportExitCode(for error: Error) -> CLIExitCode {
             return .dependency
         case .importAborted:
             return .outputError
+        case .naoMgsBAMNotWritten:
+            return .outputError
+        case .naoMgsSamtoolsMissing:
+            return .dependency
         }
     }
     if error is CancellationError {

@@ -581,6 +581,10 @@ private func metagenomicsImportExitCode(for error: MetagenomicsImportError) -> C
         return .dependency
     case .importAborted(_, let underlying):
         return metagenomicsImportExitCode(for: underlying)
+    case .naoMgsBAMNotWritten:
+        return .outputError
+    case .naoMgsSamtoolsMissing:
+        return .dependency
     }
 }
 

@@ -7,10 +7,13 @@ import Foundation
 public struct NaoMgsBamMaterializationResult: Sendable {
     public let bamURLs: [URL]
     public let steps: [NaoMgsBamMaterializationStep]
+    /// Why each sample's BAM was not written, by sample name. A sample with nothing to write is not listed.
+    public let failures: [String: String]
 
-    public init(bamURLs: [URL], steps: [NaoMgsBamMaterializationStep]) {
+    public init(bamURLs: [URL], steps: [NaoMgsBamMaterializationStep], failures: [String: String] = [:]) {
         self.bamURLs = bamURLs
         self.steps = steps
+        self.failures = failures
     }
 }
 

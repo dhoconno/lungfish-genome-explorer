@@ -74,8 +74,8 @@ public enum NaoMgsBamMaterializer {
 
         var generated: [URL] = []
         var steps: [NaoMgsBamMaterializationStep] = []
+        var failures: [String: String] = [:]
         let resolvedSamtoolsVersion = samtoolsVersion ?? detectSamtoolsVersion(samtoolsPath: samtoolsPath)
-        let databaseURL = URL(fileURLWithPath: dbPath)
         for sample in samples {
             let bamURL = bamsDir.appendingPathComponent("\(sample).bam")
 
@@ -111,7 +111,7 @@ public enum NaoMgsBamMaterializer {
                     samtoolsPath: samtoolsPath,
                     samtoolsVersion: resolvedSamtoolsVersion,
                     lungfishVersion: lungfishVersion,
-                    databaseURL: databaseURL,
+                    databaseURL: URL(fileURLWithPath: dbPath),
                     createIndex: markDuplicates
                 ) else { continue }  // no BAM was written (no accessions, or no virus_hits rows left): keep the file on disk, count nothing
                 steps.append(generateStep)
@@ -128,12 +128,13 @@ public enum NaoMgsBamMaterializer {
                 logger.info("Materialized NAO-MGS BAM for sample \(sample, privacy: .public)")
             } catch {
                 logger.warning("Failed to materialize BAM for sample \(sample, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                failures[sample] = error.localizedDescription
                 // Clean up partial BAM so it doesn't block future attempts
                 try? fm.removeItem(at: bamURL)
             }
         }
 
-        return NaoMgsBamMaterializationResult(bamURLs: generated, steps: steps)
+        return NaoMgsBamMaterializationResult(bamURLs: generated, steps: steps, failures: failures)
     }
 
     // MARK: - Private

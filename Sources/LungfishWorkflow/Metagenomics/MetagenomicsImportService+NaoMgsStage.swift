@@ -54,6 +54,12 @@ extension MetagenomicsImportService {
             let generated = materialized.bamURLs
             materializationSteps.append(contentsOf: materialized.steps)
             createdBAM = !generated.isEmpty
+            // Each stage holds one sample, so no BAM from a stage that has hits is that sample's BAM not written.
+            if generated.isEmpty, streamResult.hitCount > 0 {
+                throw MetagenomicsImportError.naoMgsBAMNotWritten(
+                    sample: sampleName, reason: materialized.failures.values.first
+                )
+            }
 
             if !generated.isEmpty {
                 // Record BAM paths in the stage database so the merge can read them.
@@ -79,6 +85,8 @@ extension MetagenomicsImportService {
                 // Purge virus_hits now that BAMs are materialized.
                 try? rwDB.deleteVirusHitsAndVacuum()
             }
+        } else if streamResult.hitCount > 0 {
+            throw MetagenomicsImportError.naoMgsSamtoolsMissing(sample: sampleName)
         }
 
         // Build the stage input descriptor for the merge phase.

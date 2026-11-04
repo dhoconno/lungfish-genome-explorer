@@ -19,6 +19,10 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
     case importAborted(resultDirectory: URL, underlying: Error)
     /// A TaxTriage folder that holds no report, metrics or Krona file, which is usually the wrong folder.
     case noTaxTriageReports(URL)
+    /// Writing the BAM of one NAO-MGS sample failed, so the import stopped. `reason` is the writer's last word.
+    case naoMgsBAMNotWritten(sample: String, reason: String?)
+    /// A NAO-MGS sample has hits and there was no samtools to write its BAM.
+    case naoMgsSamtoolsMissing(sample: String)
 
     public var errorDescription: String? {
         switch self {
@@ -38,6 +42,16 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
             return "Import aborted: \(underlying.localizedDescription)"
         case .noTaxTriageReports(let url):
             return "No TaxTriage reports were found in \(url.path). Nothing was imported. Choose the run's output folder."
+        case .naoMgsBAMNotWritten(let sample, _):
+            return "Lungfish could not write the alignment file for sample \(sample), so the import stopped and kept no result. Try the import again. If it stops again, check that the results file is complete and read the log for the cause."
+        case .naoMgsSamtoolsMissing(let sample):
+            return "Lungfish could not write the alignment file for sample \(sample), since samtools could not be found, so the import stopped and kept no result. Install the app's tools again, then import the file again."
         }
+    }
+
+    /// What the BAM writer last said when it could not write a sample's BAM. It is for the log and not for the words.
+    public var failureReason: String? {
+        if case .naoMgsBAMNotWritten(_, let reason) = self { return reason }
+        return nil
     }
 }
