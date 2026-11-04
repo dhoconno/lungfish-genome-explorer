@@ -41,11 +41,20 @@ public struct LoopbackHTTPResponse: Sendable {
     public var status: Int
     public var contentType: String
     public var body: Data
+    /// Close the connection with no answer at all, after the whole request was read.
+    public var dropsConnection = false
 
     public init(status: Int = 200, contentType: String = "application/octet-stream", body: Data = Data()) {
         self.status = status
         self.contentType = contentType
         self.body = body
+    }
+
+    /// No answer at all: the connection closes once the request has been read.
+    public static var droppedConnection: LoopbackHTTPResponse {
+        var response = LoopbackHTTPResponse()
+        response.dropsConnection = true
+        return response
     }
 
     /// A UTF-8 text answer.
@@ -198,6 +207,7 @@ public final class LoopbackHTTPStandIn: Sendable {
         guard let request = Self.readRequest(from: client) else { return }
         state.withLock { $0.requests.append(request) }
         let response = responder(request)
+        guard !response.dropsConnection else { return }
         var head = "HTTP/1.1 \(response.status) \(Self.reasonPhrase(response.status))\r\n"
         head += "Content-Type: \(response.contentType)\r\n"
         head += "Content-Length: \(response.body.count)\r\n"
