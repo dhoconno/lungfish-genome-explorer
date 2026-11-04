@@ -114,7 +114,7 @@ public enum GUIImportedProvenanceRehydrator {
         argumentPathMap[sourceRoot.standardizedFileURL.path] = destinationRoot.standardizedFileURL.path
 
         let rehydrated = try rewriteSelectedOutputDescriptors(
-            in: source.envelope,
+            in: envelopeNamingPresentBytes(source.envelope, ownsRecord: ownsRecord),
             pathMap: pathMap,
             sourceProvenancePath: source.sidecarURL.path, cancellationCheck: cancellationCheck
         )

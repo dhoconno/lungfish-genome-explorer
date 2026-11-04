@@ -163,9 +163,18 @@ package enum CrossProjectItemCopier {
         package var errorDescription: String? {
             switch self {
             case .recordFileMissing(let item, let file):
-                return "\(item) was not copied. \(file) is listed in the provenance record of \(item) but is not in the folder, so "
-                    + "the copy would not match its record. Nothing in the original was changed. Restore \(file) from a backup of "
-                    + "its project or run the analysis again, then copy it again."
+                // The cause is BIO's (ruling BIO-COPY-CHANGED-FILES section 3). The record cannot say who removed the file,
+                // and Lungfish removes files of its own when it builds a result's database.
+                return [
+                    "\(item) was not copied.",
+                    "\(file) is listed in the provenance record of \(item) but is not in \(item), so the copy could not be checked "
+                        + "against that record.",
+                    "A person or another program may have removed it, or Lungfish may have removed it when it built the result's "
+                        + "database without noting that in the record.",
+                    "This copy changed nothing in the original, and it can still be opened where it is.",
+                    "If you have a backup of its project from before that file went, restore the file and copy it again.",
+                    "Otherwise run the analysis or import again in the project you want it in."
+                ].joined(separator: " ")
             case .copyDiffers(let item, let file):
                 return "\(item) was not copied. \(file) in the copy does not match the original. Nothing in the original was "
                     + "changed, and the partial copy was removed. Check that the disk of the target project has room and is "
@@ -179,9 +188,18 @@ package enum CrossProjectItemCopier {
                     + "or cannot be read, so the copy could not carry its record. Nothing in the original was changed. "
                     + "Restore \(item) from a backup of its project, then copy it again."
             case .recordDoesNotMatch(let item, let file):
-                return "\(item) was not copied. \(file) has changed since the provenance record of \(item) was written, so the "
-                    + "copy would not match its record. Nothing in the original was changed. Restore \(file) from a backup of its "
-                    + "project or run the analysis again, then copy it again."
+                // The cause is BIO's. The record cannot say who changed the file, and an earlier version of Lungfish marked
+                // the BAM of a TaxTriage run in place without noting it at the run level.
+                return [
+                    "\(item) was not copied.",
+                    "\(file) in \(item) is not the file that the provenance record of \(item) describes, so the copy could not be "
+                        + "checked against that record.",
+                    "A person or another program may have changed it, or an earlier version of Lungfish may have changed it "
+                        + "without noting that in the record.",
+                    "This copy changed nothing in the original, and it can still be opened where it is.",
+                    "If you have a backup of its project from before that file changed, restore the file and copy it again.",
+                    "Otherwise run the analysis or import again in the project you want it in."
+                ].joined(separator: " ")
             case .recordLacksChecksum(let item, let file):
                 return "\(item) was not copied. Its provenance record lists \(file) without a checksum, so the copy cannot be "
                     + "checked against the record. Nothing in the original was changed. Run the analysis again to write a "

@@ -17,7 +17,7 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class CrossProjectFolderResultCopyTests: XCTestCase {
-    private enum Kind: CaseIterable {
+    enum Kind: CaseIterable {
         case taxTriage, kraken2, esViritu, nvd, naoMgs
 
         var tool: String {
@@ -40,16 +40,16 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }
     }
 
-    private var root: URL!
-    private var sourceProject: URL!
-    private var targetProject: URL!
-    private var analyses: URL!
-    private let fm = FileManager.default
+    var root: URL!
+    var sourceProject: URL!
+    var targetProject: URL!
+    var analyses: URL!
+    let fm = FileManager.default
 
     /// How the record of the next fixture is written. A test sets these before it builds.
-    private var listsTheFolderItself = false
-    private var unlistedFiles: Set<String> = []
-    private var tweakRecord: ((URL, inout ProvenanceEnvelope) -> Void)?
+    var listsTheFolderItself = false
+    var unlistedFiles: Set<String> = []
+    var tweakRecord: ((URL, inout ProvenanceEnvelope) -> Void)?
 
     override func setUpWithError() throws {
         root = fm.temporaryDirectory.resolvingSymlinksInPath()
@@ -369,7 +369,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
 
     // MARK: - Checks
 
-    private func assertCopies(_ kind: Kind, file: StaticString = #filePath, line: UInt = #line) async throws {
+    func assertCopies(_ kind: Kind, file: StaticString = #filePath, line: UInt = #line) async throws {
         for listsFolder in [false, true] {
             try resetProjects()
             listsTheFolderItself = listsFolder
@@ -377,7 +377,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }
     }
 
-    private func assertCopiesOnce(_ kind: Kind, file: StaticString, line: UInt) async throws {
+    func assertCopiesOnce(_ kind: Kind, file: StaticString, line: UInt) async throws {
         let source = try await buildWithRecord(kind)
         let numberAtSource = try fingerprint(kind, in: source)
         let before = try treeDigest(of: source)
@@ -407,7 +407,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         XCTAssertEqual(stages(), [], file: file, line: line)
     }
 
-    private func resetProjects() throws {
+    func resetProjects() throws {
         try? fm.removeItem(at: analyses)
         try? fm.removeItem(at: targetProject.appendingPathComponent("Analyses"))
         try fm.createDirectory(at: analyses, withIntermediateDirectories: true)
@@ -415,7 +415,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
 
     /// Every output the copy's record lists lies inside the copy (or is the copy), holds the digest of its file and is
     /// not the source's, and no argument or path names the source project or the stage.
-    private func expectRecordNamesOnly(_ copy: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+    func expectRecordNamesOnly(_ copy: URL, file: StaticString = #filePath, line: UInt = #line) throws {
         let sidecar = copy.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let record = try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: sidecar), file: file, line: line)
         let outputs = record.outputs + record.steps.flatMap(\.outputs) + record.files.filter { $0.role == .output }
@@ -434,7 +434,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         XCTAssertFalse(text.contains("project-copy-"), "the record names the stage", file: file, line: line)
     }
 
-    private func refusal(of source: URL) throws -> String {
+    func refusal(of source: URL) throws -> String {
         var message = ""
         XCTAssertThrowsError(try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)) {
             message = $0.localizedDescription
@@ -443,7 +443,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
     }
 
     /// The copy's error as the copier throws it. A copy that succeeds, or an error of another type, fails the test.
-    private func copyError(of source: URL, file: StaticString = #filePath, line: UInt = #line) -> CrossProjectItemCopier.CopyError? {
+    func copyError(of source: URL, file: StaticString = #filePath, line: UInt = #line) -> CrossProjectItemCopier.CopyError? {
         do {
             _ = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, identity: .neutral)
             XCTFail("the copy was made", file: file, line: line)
@@ -457,7 +457,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
     }
 
     /// Verifies a staged copy that `damage` changed in the file `named`, and expects the comparison to name that file.
-    private func expectCopyDiffers(
+    func expectCopyDiffers(
         _ source: URL, naming named: String, damage: (URL) throws -> Void, file: StaticString = #filePath, line: UInt = #line
     ) throws {
         let files = try CrossProjectItemCopier.readSourceFiles(of: source, checkCancellation: {})
@@ -475,25 +475,25 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }
     }
 
-    private func flipLastByte(of url: URL) throws {
+    func flipLastByte(of url: URL) throws {
         var data = try Data(contentsOf: url)
         XCTAssertFalse(data.isEmpty)
         data[data.count - 1] ^= 0xFF
         try data.write(to: url)
     }
 
-    private func recordOf(_ copy: URL) throws -> ProvenanceEnvelope {
+    func recordOf(_ copy: URL) throws -> ProvenanceEnvelope {
         try XCTUnwrap(try ProvenanceEnvelopeReader.load(fromSidecar: copy.appendingPathComponent(ProvenanceRecorder.provenanceFilename)))
     }
 
-    private func samePath(_ first: String, _ second: String) -> Bool {
+    func samePath(_ first: String, _ second: String) -> Bool {
         URL(fileURLWithPath: first).resolvingSymlinksInPath().standardizedFileURL.path
             == URL(fileURLWithPath: second).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     /// The words name the item, say what happened and what to try, and keep the hidden stage, the word sidecar and
     /// the old internal sentences out.
-    private func expectPlainWords(_ message: String, item: String, file: StaticString = #filePath, line: UInt = #line) {
+    func expectPlainWords(_ message: String, item: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(message.contains(item), "names the item: \(message)", file: file, line: line)
         XCTAssertTrue(message.contains("was not copied"), message, file: file, line: line)
         XCTAssertTrue(message.contains("copy it again"), "says what to try: \(message)", file: file, line: line)
@@ -502,7 +502,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }
     }
 
-    private func expectNothingLeftInTarget(file: StaticString = #filePath, line: UInt = #line) throws {
+    func expectNothingLeftInTarget(file: StaticString = #filePath, line: UInt = #line) throws {
         XCTAssertEqual(stages(), [], "a failed copy leaves its stage", file: file, line: line)
         let landed = (try? fm.contentsOfDirectory(atPath: targetProject.appendingPathComponent("Analyses").path)) ?? []
         XCTAssertEqual(landed, [], "a failed copy leaves part of the item", file: file, line: line)
@@ -510,13 +510,13 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func buildWithRecord(_ kind: Kind) async throws -> URL {
+    func buildWithRecord(_ kind: Kind) async throws -> URL {
         let folder = try await build(kind)
         try writeRunRecord(kind, in: folder)
         return folder
     }
 
-    private func build(_ kind: Kind) async throws -> URL {
+    func build(_ kind: Kind) async throws -> URL {
         switch kind {
         case .taxTriage:
             let folder = try RoutingSafetyNetFixtures.taxTriageResult(named: "taxtriage-2026-09-24T09-00-00", in: analyses, samples: ["S1", "S2"])
@@ -539,7 +539,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
 
     /// The root record a run or an import writes into its folder, with every other file listed as an output except the
     /// files `unlistedFiles` names. `tweakRecord` may change the record before it is written.
-    private func writeRunRecord(_ kind: Kind, in folder: URL) throws {
+    func writeRunRecord(_ kind: Kind, in folder: URL) throws {
         var outputs = try regularFiles(in: folder)
             .filter { $0 != ProvenanceRecorder.provenanceFilename && !unlistedFiles.contains($0) }
             .map { relative -> ProvenanceFileDescriptor in
@@ -571,7 +571,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
     }
 
     /// A number the result's own reader gives: the count of rows or hits per sample that its database holds.
-    private func fingerprint(_ kind: Kind, in folder: URL) throws -> String {
+    func fingerprint(_ kind: Kind, in folder: URL) throws -> String {
         let database = folder.appendingPathComponent(kind.database)
         switch kind {
         case .taxTriage:
@@ -587,7 +587,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }
     }
 
-    private func regularFiles(in folder: URL) throws -> [String] {
+    func regularFiles(in folder: URL) throws -> [String] {
         let prefix = folder.resolvingSymlinksInPath().path + "/"
         guard let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
         return try enumerator.compactMap { $0 as? URL }.compactMap { url -> String? in
@@ -597,7 +597,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         }.sorted()
     }
 
-    private func treeDigest(of folder: URL) throws -> [String: String] {
+    func treeDigest(of folder: URL) throws -> [String: String] {
         var digests: [String: String] = [:]
         for relative in try regularFiles(in: folder) {
             digests[relative] = try ProvenanceFileHasher.sha256(of: folder.appendingPathComponent(relative))
@@ -605,12 +605,12 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         return digests
     }
 
-    private func stages() -> [String] {
+    func stages() -> [String] {
         let temp = ProjectTempDirectory.tempRoot(for: targetProject)
         return ((try? fm.contentsOfDirectory(atPath: temp.path)) ?? []).filter { $0.hasPrefix("project-copy-") }
     }
 
-    private func sidebarTitles(in project: URL) -> [String] {
+    func sidebarTitles(in project: URL) -> [String] {
         func collect(_ nodes: [SidebarScanNode]) -> [String] {
             nodes.flatMap { [$0.url?.lastPathComponent ?? $0.title] + collect($0.children) }
         }

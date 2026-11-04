@@ -41,9 +41,44 @@ extension GUIImportedProvenanceRehydrator {
         descriptors.append(contentsOf: envelope.outputs)
         descriptors.append(contentsOf: envelope.files.filter { $0.role == .output })
         var seen = Set<String>()
-        return descriptors.filter {
+        return descriptors.compactMap { presentBytes(of: $0, in: envelope) }.filter {
             seen.insert("\($0.path)\u{0}\($0.checksumSHA256 ?? "")\u{0}\($0.fileSize.map(String.init) ?? "")").inserted
         }
+    }
+
+    /// The entry that describes the file now (ruling BIO-COPY-CHANGED-FILES items 2 and 3). A record may name a file at its
+    /// run level with the bytes the run left, though a later step of the same record marked it in place, named the new bytes
+    /// and named the old ones as removed. The record is true about the file, so the file is compared with the step that last
+    /// wrote it. A file the record does not account for keeps its run-level digest and stays refused. An entry without a
+    /// checksum, and an entry that no removal step of the record names with that path and checksum, comes back as it is.
+    /// Otherwise the answer is the last entry of any step's outputs with the same path, a size and another checksum, or nil
+    /// when no step names other bytes.
+    static func presentBytes(of descriptor: ProvenanceFileDescriptor, in envelope: ProvenanceEnvelope) -> ProvenanceFileDescriptor? {
+        guard let removed = descriptor.checksumSHA256 else { return descriptor }
+        let accounted = envelope.steps.contains { step in
+            step.resolvedOptions["operation"] == .string(RecordedRemovalStep.operation)
+                && step.inputs.contains { $0.path == descriptor.path && $0.checksumSHA256 == removed }
+        }
+        guard accounted else { return descriptor }
+        var present: ProvenanceFileDescriptor?
+        for step in envelope.steps {
+            for output in step.outputs where output.path == descriptor.path && output.fileSize != nil {
+                if let checksum = output.checksumSHA256, checksum != removed { present = output }
+            }
+        }
+        return present
+    }
+
+    /// The record a relocated copy rewrites (ruling BIO-COPY-CHANGED-FILES item 4). For a plain folder that holds its own
+    /// record, `output`, `outputs` and the `files` with role output name the bytes each file holds now, so the copy's record
+    /// says what its files are and a second copy passes the same check. Any other item keeps its record as it is.
+    static func envelopeNamingPresentBytes(_ envelope: ProvenanceEnvelope, ownsRecord: Bool) -> ProvenanceEnvelope {
+        guard ownsRecord else { return envelope }
+        var present = envelope
+        present.output = envelope.output.flatMap { presentBytes(of: $0, in: envelope) }
+        present.outputs = envelope.outputs.compactMap { presentBytes(of: $0, in: envelope) }
+        present.files = envelope.files.compactMap { $0.role == .output ? presentBytes(of: $0, in: envelope) : $0 }
+        return present
     }
 
     /// Compares each listed output with the file at its mapped place. `itemFolder` is the copy of a plain folder that holds
