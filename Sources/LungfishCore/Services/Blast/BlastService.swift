@@ -47,13 +47,12 @@ public actor BlastService {
     /// Its hourly submission ledger lives under the managed storage root
     /// (`<root>/blast/submission-ledger.json`), so quitting the app or
     /// running the CLI does not reset NCBI's 50-reads-per-hour budget. A
-    /// debug build pointed at a stand-in (``BlastServiceEndpoints``) keeps
-    /// its ledger in memory, because a stand-in spends none of that budget.
+    /// debug build pointed at a stand-in keeps it in the run's stand-in state
+    /// folder (``BlastStandInState``), and never under the root.
     public static let shared: BlastService = {
         let environment = ProcessInfo.processInfo.environment
-        let standIn = BlastServiceEndpoints(environment: environment).isStandIn
         return BlastService(
-            submissionLedger: standIn ? InMemoryBlastSubmissionLedger() : FileBlastSubmissionLedger.managedStorageDefault(),
+            submissionLedger: FileBlastSubmissionLedger.managedStorageDefault(environment: environment),
             environment: environment
         )
     }()

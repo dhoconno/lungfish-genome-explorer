@@ -135,11 +135,15 @@ public actor FileBlastSubmissionLedger: BlastSubmissionLedger {
             .appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// The ledger under the active managed storage root.
-    public static func managedStorageDefault() -> FileBlastSubmissionLedger {
+    /// The ledger under the active managed storage root. A debug build's stand-in run keeps it in its own state
+    /// folder instead (``BlastStandInState``), so two children can share it and neither touches the real root.
+    public static func managedStorageDefault(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> FileBlastSubmissionLedger {
         FileBlastSubmissionLedger {
             let root = await MainActor.run { ManagedStorageConfigStore.shared.currentLocation().rootURL }
-            return fileURL(storageRoot: root)
+            return BlastStandInState.sharedFolder(environment: environment, storageRoot: root)
+                .appendingPathComponent(fileName, isDirectory: false)
         }
     }
 

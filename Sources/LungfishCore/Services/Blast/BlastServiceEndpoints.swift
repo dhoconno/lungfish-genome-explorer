@@ -12,7 +12,8 @@ import Foundation
 /// `lungfish-cli blast submit` through the child's environment (Phase 2.10 decision G5, Phase 2.11
 /// lane A65). No option, project file, defaults key or downloaded field can set it. The variable
 /// accepts the loopback origins ``NCBIServiceEndpoints`` accepts, and any other value sends every
-/// request to a loopback port that nothing answers, so it never falls back to NCBI.
+/// request to a loopback port that nothing answers, so it never falls back to NCBI. The two values a
+/// debug build reads beside it, for a stand-in run's shared files and its clock, are ``BlastStandInState``.
 package struct BlastServiceEndpoints: Sendable, Equatable {
     /// The variable a debug build reads.
     package static let standInOriginVariable = "LUNGFISH_BLAST_STAND_IN_ORIGIN"
