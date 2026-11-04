@@ -30,7 +30,7 @@ Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swif
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 992
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1111
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
-Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1121
+Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1119
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
 Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 988
 Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift 897
