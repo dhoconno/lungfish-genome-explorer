@@ -64,6 +64,18 @@ final class FASTQImportSheetRecipeSwitchTests: XCTestCase {
         XCTAssertTrue(FASTQImportSheetRecipeOption.options(for: amplicon)[0].switches.isEmpty)
     }
 
+    // MARK: - The sheet says what the merge recipe does
+
+    /// Review AMPLICON should-fix 2. The sheet is where a person decides, so its text for Illumina Amplicon Merge says
+    /// that the pairs that do not overlap are dropped, and a preset description cannot hide the recipe's words.
+    func testTheSheetTextOfIlluminaAmpliconMergeSaysThatPairsThatDoNotOverlapAreDropped() throws {
+        let recipe = try XCTUnwrap(RecipeResolver.resolve(
+            "illumina-amplicon-merge", in: RecipeRegistryV2.builtinRecipes(), switchOptions: [:]))
+        let text = FASTQImportSheetRecipeOption(recipe: recipe).descriptionText(switchValues: [:])
+        XCTAssertTrue(text.contains("Pairs that do not overlap are dropped and are not stored."), text)
+        XCTAssertFalse(text.contains("overlap-merged synthetic"), text)
+    }
+
     // MARK: - The state of each preset gives its argv
 
     @MainActor
