@@ -225,7 +225,7 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
         XCTAssertFalse(summary.contains("S1"), summary)
     }
 
-    /// ROWPANE-UX-2 F2. A second search that begins while the first still runs shares one pane with it, so neither
+    /// A second search that begins while the first still runs shares one pane with it, so neither
     /// verdict can be told from the other's row. The verdict names no sample rather than the wrong one.
     func testASecondSearchWhileOneRunsNamesNoSampleOverTheOthersVerdict() async throws {
         let center = OperationCenter.shared

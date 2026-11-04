@@ -114,7 +114,7 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         XCTAssertFalse(summary.contains("sample-1"), "the verdict does not name the selected row: \(summary)")
     }
 
-    /// ROWPANE-UX-2 F1. Re-run repeats the request of the row the run was sent for (the clicked row's reads), so its
+    /// Re-run repeats the request of the row the run was sent for (the clicked row's reads), so its
     /// verdict names that row's sample too. At the landed head the Re-run named no row and the pane took the pick.
     func testReRunAfterAClickedRowRunNamesTheClickedRowsSample() async throws {
         try await openResult()

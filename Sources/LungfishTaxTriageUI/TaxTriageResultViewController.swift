@@ -2758,7 +2758,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// Hands a BLAST request to the host and keeps its sample, accessions and BAM for the drawer's re-run. Every send
-    /// names its own row, a re-run too, so a run is about the row it repeats (ROWPANE-UX-2 F1).
+    /// names its own row, a re-run too, so a run is about the row it repeats.
     private func forwardBlastVerification(
         _ organism: TaxTriageOrganism, _ readCount: Int, _ accessions: [String]?, _ bamURL: URL?, _ bamIndexURL: URL?
     ) {
