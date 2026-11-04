@@ -9,20 +9,43 @@ import LungfishIO
 ///
 /// A saved bundle is named by its ``BundleKindID`` and an analysis result under
 /// `Analyses/` by its ``AnalysisToolID``. Kraken2, EsViritu, TaxTriage, NAO-MGS and
-/// NVD have only an analysis id, so ``SurfaceRegistry`` is keyed by both.
+/// NVD have only an analysis id, so ``SurfaceRegistry`` is keyed by all three.
+/// A viewer of a file that is neither is named by its ``SurfaceViewID``.
 public enum SurfaceKind: Hashable, Sendable, CustomStringConvertible {
     /// A saved bundle, such as a `.lungfish12s` 12S amplicon result.
     case bundle(BundleKindID)
     /// An analysis result, such as a Kraken2 classification.
     case analysis(AnalysisToolID)
+    /// A viewer of a file or of a view of one, such as the dashboard of a VCF file.
+    case view(SurfaceViewID)
 
-    /// `bundle:<id>` or `analysis:<id>`, as logs, errors and tests spell the kind.
+    /// `bundle:<id>`, `analysis:<id>` or `view:<id>`, as logs, errors and tests spell the kind.
     public var description: String {
         switch self {
         case .bundle(let id): "bundle:\(id.rawValue)"
         case .analysis(let id): "analysis:\(id.rawValue)"
+        case .view(let id): "view:\(id.rawValue)"
         }
     }
+}
+
+/// The name of a viewer that is neither a saved bundle nor an analysis result.
+///
+/// No ``BundleKindID`` fits the viewer of a standalone file, so it has this raw-value id,
+/// in the shape of ``SurfaceInspectorBlock``.
+public struct SurfaceViewID: RawRepresentable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    /// The dashboard of a standalone VCF file.
+    public static let vcfDataset = SurfaceViewID(rawValue: "vcf-dataset")
+    /// The browser of a multi-sequence FASTA file.
+    public static let fastaCollection = SurfaceViewID(rawValue: "fasta-collection")
+    /// The preview of a file the viewer shows without a result of its own.
+    public static let quickLook = SurfaceViewID(rawValue: "quick-look")
 }
 
 /// The name of one Inspector block a surface shows, such as its sample filter.
