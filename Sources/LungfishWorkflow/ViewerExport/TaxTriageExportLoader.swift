@@ -155,6 +155,7 @@ public struct TaxTriageExportSource {
         TaxTriageControlMatch(
             samples: result?.config.samples ?? [],
             failedSampleIDs: result?.sampleFailures.map(\.sampleID) ?? [],
+            ignoredFailures: result?.ignoredFailures ?? [],
             databaseSampleIds: sampleIds
         )
     }

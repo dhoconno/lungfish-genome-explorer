@@ -24,6 +24,7 @@ extension TaxTriageResultViewController {
         return TaxTriageControlMatch(
             samples: config.samples,
             failedSampleIDs: taxTriageResult?.sampleFailures.map(\.sampleID) ?? [],
+            ignoredFailures: taxTriageResult?.ignoredFailures ?? [],
             databaseSampleIds: sampleIds
         ).noticeWords
     }

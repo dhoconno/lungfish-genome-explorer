@@ -102,6 +102,7 @@ public enum TaxTriageBatchExporter {
         let match = TaxTriageControlMatch(
             samples: config.samples,
             failedSampleIDs: result.sampleFailures.map(\.sampleID),
+            ignoredFailures: result.ignoredFailures,
             databaseSampleIds: sampleIds
         )
         let negControlIds = match.controlSampleIds

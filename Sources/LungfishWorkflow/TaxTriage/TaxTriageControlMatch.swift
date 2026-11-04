@@ -26,7 +26,9 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             /// The control ran and the database holds no sample for it, and every sample the database holds
             /// belongs to a sample the run lists. The control found nothing, which is the usual clean control.
             case noOrganisms
-            /// The run lists the control as a failed sample, so it never ran.
+            /// The run lists the control as a failed sample, so it never ran. A control that has no sample in the
+            /// database and that a task Nextflow ignored names is the same, since the task's results are missing
+            /// (lane TTCONTROLS).
             case failed
             /// The control ran and the database holds no sample for it, but the database holds samples that no
             /// sample of the run accounts for. The control's organisms may sit under one of them, so its
@@ -114,8 +116,17 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
     /// - Parameters:
     ///   - samples: The samples the run's sidecar lists, as typed.
     ///   - failedSampleIDs: The samples the sidecar lists as failed.
+    ///   - ignoredFailures: The tasks Nextflow ignored an error in, which name their sample in the task label
+    ///     (`MINIMAP2_ALIGN (NTC1)`). A control with no sample in the database that one of them names is a failed
+    ///     control, since the pipeline goes on after an ignored error and ends with exit 0 and no rows for it. A task
+    ///     that only draws quality plots costs the sample no result and is not counted.
     ///   - databaseSampleIds: The samples the result's database holds.
-    public init(samples: [TaxTriageSample], failedSampleIDs: [String], databaseSampleIds: [String]) {
+    public init(
+        samples: [TaxTriageSample],
+        failedSampleIDs: [String],
+        ignoredFailures: [TaxTriageIgnoredFailure] = [],
+        databaseSampleIds: [String]
+    ) {
         let database = Array(Set(databaseSampleIds)).sorted()
         var sharing: [String: Int] = [:]
         for sample in samples {
@@ -125,6 +136,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             !samples.contains { Self.belongs(name, to: $0.sampleId, sharing: sharing) }
         }
         let failed = Set(failedSampleIDs)
+        let ignored = Set(ignoredFailures.filter { !$0.onlyAffectsQualityPlots }.compactMap(\.sampleID))
 
         var controls: [Control] = []
         var controlSampleIds: Set<String> = []
@@ -136,6 +148,8 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
                 state = .failed
             } else if !owned.isEmpty {
                 state = .found
+            } else if ignored.contains(sample.sampleId) || (!resultsName.isEmpty && ignored.contains(resultsName)) {
+                state = .failed
             } else {
                 state = unlisted.isEmpty ? .noOrganisms : .notFound
             }
