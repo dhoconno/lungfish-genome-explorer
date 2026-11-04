@@ -10,6 +10,7 @@
 import AppKit
 import CoreGraphics
 import LungfishTestSupport
+import PDFKit
 import Quartz
 import XCTest
 @testable import LungfishApp
@@ -435,6 +436,38 @@ final class QuickLookPreviewSurfaceRouteTests: XCTestCase {
         let released = await waitUntil(budget: .lookup) { weakContent == nil }
         XCTAssertTrue(released, "the preview's view outlived the window")
         XCTAssertEqual(openDescriptors(of: figure), 0, "the window's close left the PDF open")
+    }
+
+    /// The descriptor check above must be able to see an open file, or the 0 it reads proves nothing.
+    func testTheDescriptorCheckSeesAnOpenFile() throws {
+        let figure = root.appendingPathComponent("figure.pdf")
+        try writePDF(to: figure, pages: 1)
+        XCTAssertEqual(openDescriptors(of: figure), 0, "the check reads an open file where nobody has one")
+
+        let handle = try FileHandle(forReadingFrom: figure)
+        XCTAssertEqual(openDescriptors(of: figure), 1, "the check cannot see an open file")
+
+        try handle.close()
+        XCTAssertEqual(openDescriptors(of: figure), 0, "the check still reads a file that was closed as open")
+    }
+
+    /// A replaced PDF preview lets go of its document, whatever PDFKit does with descriptors. This is the check that
+    /// the preview does not keep the person's file.
+    func testAReplacedPDFPreviewReleasesItsDocument() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let figure = root.appendingPathComponent("figure.pdf")
+        try writePDF(to: figure, pages: 1)
+
+        viewer.displayQuickLookPreview(url: figure)
+        weak var document = viewer.quickLookPreviewController?.pdfView?.document
+        XCTAssertNotNil(document, "the PDF preview holds no document while it shows")
+
+        viewer.clearViewport()
+
+        let released = await waitUntil(budget: .lookup) { document == nil }
+        XCTAssertTrue(released, "the PDFDocument outlived its preview")
     }
 
     // MARK: - Support
