@@ -86,6 +86,7 @@ extension ClassificationPipeline {
         adjusted.inputLayout = resolution.classification ?? config.inputLayout
         let warning = "\(source.lastPathComponent) was requested as interleaved pairs, but \(resolution.reason) "
             + "kraken2 pairs split halves by position, so the reads run as single-end instead."
+            + " Both reads of a true pair then count, so counts run high. To count pairs beside single reads, run again with --read-format auto."
         return (adjusted, resolution, warning)
     }
 
