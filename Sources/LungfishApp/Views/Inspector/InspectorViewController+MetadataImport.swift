@@ -519,7 +519,6 @@ extension InspectorViewController {
                 // this is the other failure mode (mutation threw despite
                 // write access being granted).
                 if let window = self?.view.window {
-                    NSSound.beep()
                     self?.presentFailure(InspectorFailureReports.saveSampleMetadata(sampleName: sampleName, error), in: window)
                 }
                 return false

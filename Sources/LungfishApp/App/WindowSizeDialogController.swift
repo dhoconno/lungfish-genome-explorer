@@ -63,7 +63,6 @@ final class WindowSizeDialogController: NSObject {
         let request = WindowSizeRequest(widthText: widthField.stringValue, heightText: heightField.stringValue)
         guard let size = request.contentSize else {
             validationLabel.stringValue = "Enter positive width and height values in points."
-            NSSound.beep()
             return
         }
 

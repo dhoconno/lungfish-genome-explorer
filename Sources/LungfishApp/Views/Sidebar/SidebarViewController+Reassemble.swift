@@ -61,7 +61,6 @@ extension SidebarViewController {
             presentWizard(window, inputFiles, outputDirectory, initialTool)
         case .refuse(let reason):
             sidebarLogger.error("contextMenuReassemble: Cannot reassemble \(bundleURL.lastPathComponent): \(reason)")
-            NSSound.beep()
             let alert = NSAlert()
             alert.messageText = "Cannot Reassemble"
             alert.informativeText = reason

@@ -98,7 +98,6 @@ struct AttachmentsSection: View {
             // or deleted) -- surface it the same way "Attach File..." does
             // (attachmentErrorMessage) instead of silently leaving the
             // attachment in the list with zero visible indication.
-            NSSound.beep()
             attachmentErrorMessage = GenericAttachmentPolicy.userFacingMessage(for: error)
         }
     }
