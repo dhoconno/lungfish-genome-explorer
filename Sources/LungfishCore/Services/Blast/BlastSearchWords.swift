@@ -193,7 +193,7 @@ package enum BlastSearchWords {
     /// Row 7's ending for a search that has come back, or nil for one that has not.
     package static func collected(in file: BlastSearchFile) -> String? {
         guard file.state == .done, let ending = file.ending else { return nil }
-        return collected(after: ending.at.timeIntervalSince(file.createdAt), sends: file.copies.filter { $0.rid != nil }.count)
+        return collected(after: ending.at.timeIntervalSince(file.copies.first?.postAt ?? file.createdAt), sends: file.copies.filter { $0.rid != nil }.count)
     }
 
     /// What the pane says under the summary of a search that has come back (UX-BLAST-WORDS Q7), or nil for one that has not.
@@ -201,7 +201,7 @@ package enum BlastSearchWords {
         guard file.state == .done, let ending = file.ending,
               let rid = file.copies.first(where: { $0.ordinal == file.winnerOrdinal })?.rid else { return nil }
         let sends = file.copies.filter { $0.rid != nil }.count
-        return "Collected \(duration(ending.at.timeIntervalSince(file.createdAt))) after the first send. "
+        return "Collected \(duration(ending.at.timeIntervalSince(file.copies.first?.postAt ?? file.createdAt))) after the first send. "
             + "\(counted(sends, "sends")), answered by request ID \(rid)."
     }
 
