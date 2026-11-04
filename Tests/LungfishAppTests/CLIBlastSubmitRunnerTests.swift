@@ -26,7 +26,7 @@ final class CLIBlastSubmitRunnerTests: XCTestCase {
             "--output", "/p/naomgs-1/blast-verifications/run-1", "--name", "Influenza A virus",
             "--taxid", "11320", "--source-result", "/p/naomgs-1", "--sample", "S1", "--subsample-count", "20",
             "--entrez-query", "txid11320[Organism:exp]", "--accepted-taxid", "11320", "--accepted-taxid", "114727",
-            "--format", "json", "--no-progress",
+            "--park", "--format", "json", "--no-progress",
         ])
     }
 
@@ -37,7 +37,7 @@ final class CLIBlastSubmitRunnerTests: XCTestCase {
         )
         XCTAssertEqual(CLIBlastSubmitRunner.arguments(for: request), [
             "blast", "submit", "--query", "/q.fasta", "--output", "/o", "--name", "contig_7",
-            "--contig", "contig_7", "--format", "json", "--no-progress",
+            "--contig", "contig_7", "--park", "--format", "json", "--no-progress",
         ])
     }
 
@@ -52,7 +52,7 @@ final class CLIBlastSubmitRunnerTests: XCTestCase {
         request.database = "nt"
         XCTAssertEqual(CLIBlastSubmitRunner.arguments(for: request), [
             "blast", "submit", "--query", "/q.fasta", "--output", "/o", "--name", "taxon",
-            "--database", "nt", "--format", "json", "--no-progress",
+            "--database", "nt", "--park", "--format", "json", "--no-progress",
         ])
     }
 
