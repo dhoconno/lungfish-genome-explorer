@@ -283,6 +283,20 @@ final class FastqTranslateInputPinTests: XCTestCase {
         XCTAssertEqual(String(decoding: written, as: UTF8.self), Fixture.slashMatesFrame1)
     }
 
+    /// Row READ-LAYOUT-DOTTED-MATES. Dotted mates are mates now, and their ids already differ, so like `/1` and `/2` they
+    /// keep their names and take no `.1` or `.2`. The bytes do not move, only the layout read before them.
+    func testDottedMatesKeepTheirBytes() async throws {
+        func dotted(_ text: String) -> String {
+            text.replacingOccurrences(of: "/1", with: ".7.1").replacingOccurrences(of: "/2", with: ".7.2")
+        }
+        let input = try writeFASTQ(dotted(Fixture.slashMates), named: "dotted.fastq")
+        XCTAssertEqual(resolvedLayoutPin(input), .strictlyInterleaved)
+
+        let written = try await runFastqTranslatePin(input, frame: 1, output: folder.appendingPathComponent("dotted-1.fa"))
+
+        XCTAssertEqual(String(decoding: written, as: UTF8.self), dotted(Fixture.slashMatesFrame1))
+    }
+
     // MARK: --compress
 
     /// Lane 13.39 moved this pin. At the base `--compress` was accepted, the writer was a plain FileHandle, the

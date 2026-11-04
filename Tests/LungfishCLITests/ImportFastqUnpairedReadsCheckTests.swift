@@ -407,6 +407,48 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
 
     // MARK: - A run ENA lists as three files
 
+    /// Row READ-LAYOUT-DOTTED-MATES. The mates of `fastq-dump --split-3 --readids` are mates to the join, so the third
+    /// file joins and no read is left out.
+    func testAThreeFileRunWithDottedMateNamesIsJoined() async throws {
+        let folder = try writeRun("SRR140", files: [
+            "SRR140_1.fastq": Self.records([("SRR140.1.1", 1), ("SRR140.2.1", 2), ("SRR140.3.1", 3)], bases: "ACGTACGT"),
+            "SRR140_2.fastq": Self.records([("SRR140.1.2", 1), ("SRR140.2.2", 2), ("SRR140.3.2", 3)], bases: "TTGGCCAA"),
+            "SRR140.fastq": Self.records([("SRR140.4.1", 4), ("SRR140.5.2", 5)], bases: "GATTACAG"),
+        ])
+
+        let run = try await runImport([folder.path])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertFalse(run.output.contains("was not joined"), run.output)
+        let bundle = try importedBundle("SRR140")
+        XCTAssertEqual(
+            try Self.headers(in: bundle),
+            ["SRR140.1.1 1", "SRR140.1.2 1", "SRR140.2.1 2", "SRR140.2.2 2", "SRR140.3.1 3", "SRR140.3.2 3", "SRR140.4.1 4", "SRR140.5.2 5"]
+                .map { "\($0) length=8" }
+        )
+        let metadata = try XCTUnwrap(FASTQMetadataStore.load(for: try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))))
+        XCTAssertEqual(metadata.readClassification?.pairedReadCount, 6)
+        XCTAssertEqual(metadata.readClassification?.unpairedReadCount, 2)
+        XCTAssertEqual(metadata.ingestion?.pairingMode, .singleEnd, "labelled by its count, which holds single reads")
+    }
+
+    /// A copy of a dotted pair still stays out, so no read is stored twice.
+    func testAnInterleavedCopyOfADottedPairIsNotJoined() async throws {
+        let folder = try writeRun("SRR141", files: [
+            "SRR141_1.fastq": Self.records([("SRR141.1.1", 1), ("SRR141.2.1", 2), ("SRR141.3.1", 3)], bases: "ACGTACGT"),
+            "SRR141_2.fastq": Self.records([("SRR141.1.2", 1), ("SRR141.2.2", 2), ("SRR141.3.2", 3)], bases: "TTGGCCAA"),
+            "SRR141.fastq": Self.records([("SRR141.2.1", 2), ("SRR141.2.2", 2), ("SRR141.3.1", 3), ("SRR141.3.2", 3)], bases: "ACGTACGT"),
+        ])
+
+        let run = try await runImport([folder.path])
+
+        XCTAssertNil(run.error, run.output)
+        XCTAssertTrue(
+            run.output.contains("its first two reads, SRR141.2.1 and SRR141.2.2, belong to one fragment"), run.output
+        )
+        XCTAssertEqual(try Self.headers(in: try importedBundle("SRR141")).count, 6, "each read is stored once")
+    }
+
     func testAThreeFileRunWithIdenticalMateNamesIsStillJoinedFromGzipFiles() async throws {
         let paired = [1, 2, 4, 5]
         let unpaired = [3, 6]

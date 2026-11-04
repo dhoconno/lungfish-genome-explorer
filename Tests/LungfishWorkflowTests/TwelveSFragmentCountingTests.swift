@@ -267,6 +267,34 @@ final class TwelveSFragmentCountingTests: XCTestCase {
         XCTAssertNil(mergedRow.note)
     }
 
+    /// Row READ-LAYOUT-DOTTED-MATES. Mates named `p1.7.1` and `p1.7.2` count once per fragment on every 12S route.
+    /// They counted twice as single reads, or stopped the interleaved route on its name check.
+    func testDottedMatesCountAsFragmentsInAnInterleavedRootAndAMixedRoot() async throws {
+        func dotted(_ bundleName: String, merged: Bool) throws -> URL {
+            let url = try bundle(bundleName)
+            let file = url.appendingPathComponent("reads.fastq")
+            let lone = merged ? Self.fastq(Self.merged.map { (name: "\($0.name).9", sequence: $0.sequence) }) : ""
+            let text = lone + Self.pairs.map { Self.record("\($0.name).7.1", $0.r1) + Self.record("\($0.name).7.2", $0.r2) }.joined()
+            try text.write(to: file, atomically: true, encoding: .utf8)
+            FASTQMetadataStore.save(
+                PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: merged ? .singleEnd : .interleaved, pairingSource: .detected)),
+                for: file
+            )
+            return url
+        }
+        let interleaved = try await run([try dotted("DottedPairs", merged: false)], outputName: "dotted-pairs-12s")
+        let pairs = try XCTUnwrap(interleaved.samples.first { $0.sampleID == "DottedPairs" })
+        XCTAssertEqual(pairs.inputReads, 4)
+        XCTAssertEqual(pairs.exactMatchReads, 1)
+        XCTAssertEqual(pairs.unresolvedReads, 1)
+
+        let mixed = try await run([try dotted("DottedMixed", merged: true)], outputName: "dotted-mixed-12s")
+        let sample = try XCTUnwrap(mixed.samples.first { $0.sampleID == "DottedMixed" })
+        XCTAssertEqual(sample.inputReads, 8)
+        XCTAssertEqual(sample.exactMatchReads, 4)
+        XCTAssertEqual(sample.unresolvedReads, 2)
+    }
+
     func testPairedDerivativeInterleavedRootAndMixedRootAgreeWithTheMergeDerivative() async throws {
         let paired = try await run([try writePairedDerivative()], outputName: "paired-12s")
         let interleaved = try await run([try writeInterleavedRoot()], outputName: "interleaved-12s")

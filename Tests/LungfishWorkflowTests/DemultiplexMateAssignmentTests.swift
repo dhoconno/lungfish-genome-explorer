@@ -36,7 +36,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
 
     // MARK: - Fixture
 
-    enum Naming { case casava, slash, identical }
+    enum Naming { case casava, slash, identical, dotted }
 
     private static let bc01 = "ACGTTGCA"
     private static let bc02 = "TTGGCCAA"
@@ -73,6 +73,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         case .casava: return "\(name) \(mate):N:0:1"
         case .slash: return "\(name)/\(mate)"
         case .identical: return name
+        case .dotted: return "\(name).7.\(mate)"
         }
     }
 
@@ -116,6 +117,9 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
             if fragment.hasSuffix("/1") || fragment.hasSuffix("/2") {
                 mate = fragment.hasSuffix("/1") ? 1 : 2
                 fragment = String(fragment.dropLast(2))
+            } else if fragment.hasSuffix(".7.1") || fragment.hasSuffix(".7.2") {
+                mate = fragment.hasSuffix(".7.1") ? 1 : 2
+                fragment = String(fragment.dropLast(4))
             } else if let description = record.description {
                 mate = description.hasPrefix("1:") ? 1 : description.hasPrefix("2:") ? 2 : 0
             }
@@ -405,6 +409,63 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         XCTAssertEqual(unassigned, whole(Self.expectedUnassigned))
         XCTAssertEqual(result.manifest.barcodes.map(\.readCount), [8, 2])
         XCTAssertEqual(result.manifest.unassigned.readCount, 4)
+        XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
+    }
+
+    // MARK: - Mates named as fastq-dump --readids names them
+
+    /// Row READ-LAYOUT-DOTTED-MATES. Mates named `agree_0.7.1` and `agree_0.7.2` follow their fragment's call. They were
+    /// called one at a time, so a pair whose mates disagree landed in two bundles.
+    func testTheExactBareEnginePlacesDottedMatesByTheirFragmentsCall() async throws {
+        let project = try project()
+        let input = project.appendingPathComponent("pairs.fastq")
+        try Self.fastq(Self.pairs, .dotted).write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try kit(),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-dotted", isDirectory: true),
+                trimBarcodes: false,
+                threads: 1,
+                engine: .exactBareBarcode
+            ),
+            progress: { _, _ in }
+        )
+
+        func whole(_ rows: [(String, Int, Int)]) -> [Placed] { rows.map { p($0.0, $0.1, 60) } }
+        let bc01 = try await placed(inBundle: try bundle(result, "BC01"))
+        XCTAssertEqual(bc01, whole(Self.expectedBC01))
+        let unassigned = try await placed(inBundle: try bundle(result, "unassigned"))
+        XCTAssertEqual(unassigned, whole(Self.expectedUnassigned))
+        XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
+    }
+
+    /// The same on the cutadapt engine, through `DemultiplexMatePass`.
+    func testAPhysicalRunPlacesDottedMatesByTheirFragmentsCall() async throws {
+        try await requireTools()
+        let project = try project()
+        let input = project.appendingPathComponent("pairs.fastq")
+        try Self.fastq(Self.pairs, .dotted).write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: try kit(),
+                outputDirectory: project.appendingPathComponent("Analyses/demux-dotted-cutadapt", isDirectory: true),
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 8,
+                trimBarcodes: true,
+                threads: 2
+            ),
+            progress: { _, _ in }
+        )
+
+        let bc01 = try await placed(inBundle: try bundle(result, "BC01"))
+        XCTAssertEqual(bc01, expected(Self.expectedBC01))
+        let unassigned = try await placed(inBundle: try bundle(result, "unassigned"))
+        XCTAssertEqual(unassigned, expected(Self.expectedUnassigned))
         XCTAssertEqual(result.manifest.mateCalls, Self.fixtureMateCalls)
     }
 

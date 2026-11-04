@@ -257,13 +257,15 @@ final class ReadLayoutWholeFileCLITests: XCTestCase {
         XCTAssertNotEqual(kraken.label, decidedAtRunTime)
     }
 
-    /// A stored pair named `SRR123.1.1` and `SRR123.1.2` counts as single reads to the layout scan. A count recorded
-    /// for it would outlive the scan's rule, so none is kept and each run scans.
-    func testImportOfAPairWithDottedMateNamesRecordsNoCount() async throws {
+    /// Row READ-LAYOUT-DOTTED-MATES moved this pin of BIO ruling 2. The scan reads a stored pair named `SRR123.1.1` and
+    /// `SRR123.1.2` as mates, so its count is true and is kept like any other.
+    func testImportOfAPairWithDottedMateNamesRecordsItsCount() async throws {
         let bundle = try await importMates(stem: "SRR201", pairs: 3) { ("SRR201.\($0 + 1).1", "SRR201.\($0 + 1).2") }
 
         let stored = try sidecar(of: bundle)
-        XCTAssertNil(stored.metadata.recordedReadCount)
+        XCTAssertEqual(stored.metadata.recordedReadCount?.pairedR1, 3)
+        XCTAssertEqual(stored.metadata.recordedReadCount?.pairedR2, 3)
+        XCTAssertEqual(stored.metadata.recordedReadCount?.unpaired, 0)
         XCTAssertNil(stored.metadata.readClassification)
     }
 
