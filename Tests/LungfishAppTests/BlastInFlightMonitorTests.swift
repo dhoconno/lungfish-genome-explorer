@@ -35,6 +35,42 @@ final class BlastInFlightMonitorTests: XCTestCase {
         XCTAssertEqual(BlastSearchPaneActions.isAtWork?(output), false)
     }
 
+    /// Closing a window with a saved search at work raised a sheet that said nothing was running, and its Close stopped the
+    /// search (BLASTCOLLECT-UX-2 blocker 2). The close gate, the sheet and the cancel read one list that leaves a saved
+    /// search out and keeps a row with nothing saved, which a close would lose. At the lane head the method did not exist,
+    /// so this test did not build.
+    func testTheCloseListLeavesOutASavedSearchAndKeepsARowWithNothingSaved() throws {
+        let savedFolder = try TestTempDirectory.make(prefix: "blast-close-saved")
+        let unsavedFolder = try TestTempDirectory.make(prefix: "blast-close-unsaved")
+        defer {
+            TestTempDirectory.cleanup(savedFolder)
+            TestTempDirectory.cleanup(unsavedFolder)
+        }
+        let center = OperationCenter()
+        let monitor = BlastInFlightMonitor(
+            worker: BlastInFlightMonitor.Worker(lines: { _ in [] }, pass: { _, _, _ in .noNews(words: "") }, stop: { _ in }),
+            center: center
+        )
+        let project = URL(fileURLWithPath: "/tmp/close-list-project", isDirectory: true)
+        let context = OperationRouteContext(projectURL: project, windowStateScope: nil)
+        let saved = center.begin(
+            title: "BLAST close list saved", detail: "Running", operationType: .blastVerification,
+            cliCommand: "lungfish-cli blast submit", routeContext: context
+        ).rowID
+        let unsaved = center.begin(
+            title: "BLAST close list unsaved", detail: "Running", operationType: .blastVerification,
+            cliCommand: "lungfish-cli blast submit", routeContext: context
+        ).rowID
+        let search = try waitingSearch(in: savedFolder)
+        monitor.viewerRunBegan(output: search.output, row: saved)
+        monitor.viewerRunBegan(output: unsavedFolder, row: unsaved)
+
+        let list = monitor.closeList(forProjectURL: project).map(\.id)
+        XCTAssertFalse(list.contains(saved), "a saved search goes on after a close, so the gate, the sheet and the cancel leave it out")
+        XCTAssertTrue(list.contains(unsaved), "a row with nothing saved would be lost by a close, so the sheet names it")
+        XCTAssertEqual(center.activeItems(forProjectURL: project).count, 2, "both rows are at work")
+    }
+
     /// A search that waits in its folder with nothing due.
     private func waitingSearch(in folder: URL) throws -> (file: BlastSearchFile, output: URL, line: BlastInFlightLine) {
         let output = folder.appendingPathComponent("search", isDirectory: true)

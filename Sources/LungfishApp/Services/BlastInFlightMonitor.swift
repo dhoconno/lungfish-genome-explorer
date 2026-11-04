@@ -145,6 +145,13 @@ final class BlastInFlightMonitor {
         center.activeItems.filter { !isSavedSearch(row: $0.id) }
     }
 
+    /// What closing a project's window would end: the quit list's rule, for one project. Only NCBI's answer or the
+    /// person ends a saved search, so closing a window leaves it at work and it goes on to park. The close gate, its
+    /// sheet and its cancel all read this list, so no sheet says nothing is running and no Close stops the search.
+    func closeList(forProjectURL url: URL?) -> [OperationCenter.Item] {
+        center.activeItems(forProjectURL: url).filter { !isSavedSearch(row: $0.id) }
+    }
+
     /// Whether `row` is a viewer's run of a search that is saved in its folder.
     func isSavedSearch(row: UUID) -> Bool {
         viewerRuns.contains { path, id in

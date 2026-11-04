@@ -872,9 +872,9 @@ extension MainWindowController: NSWindowDelegate {
         // interrupted. Scope the check to this window's project so a long
         // operation in another project's window does not block this close.
         if !hasConfirmedCloseWithRunningOperations {
-            let runningOperations = OperationCenter.shared.activeItems(
-                forProjectURL: projectSession.projectURL
-            )
+            // A saved BLAST search stays out: only NCBI's answer or the person ends it, so closing a window leaves it
+            // at work, and the sheet and the cancel below read the same list.
+            let runningOperations = BlastInFlightMonitor.shared.closeList(forProjectURL: projectSession.projectURL)
             if !runningOperations.isEmpty {
                 if operationsCloseWarningTask != nil {
                     return false
@@ -889,9 +889,7 @@ extension MainWindowController: NSWindowDelegate {
                     self.hasConfirmedCloseWithRunningOperations = true
                     // Re-check on confirm: cancel what is running now, not
                     // what was running when the sheet opened.
-                    for operation in OperationCenter.shared.activeItems(
-                        forProjectURL: self.projectSession.projectURL
-                    ) {
+                    for operation in BlastInFlightMonitor.shared.closeList(forProjectURL: self.projectSession.projectURL) {
                         OperationCenter.shared.cancel(id: operation.id)
                     }
                     sender.performClose(nil)
@@ -933,7 +931,7 @@ extension MainWindowController: NSWindowDelegate {
         // The list follows OperationCenter while the sheet is open.
         let projectURL = projectSession.projectURL
         let live = LiveRunningOperationsAlert(alert: alert, kind: .closeWindow) {
-            OperationCenter.shared.activeItems(forProjectURL: projectURL).filter { !BlastInFlightMonitor.shared.isSavedSearch(row: $0.id) }
+            BlastInFlightMonitor.shared.closeList(forProjectURL: projectURL)
         }
         defer { live.stop() }
         alert.applyLungfishBranding()
