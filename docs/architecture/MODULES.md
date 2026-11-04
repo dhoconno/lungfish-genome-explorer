@@ -25,7 +25,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
-| LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1827,6 +1827,7 @@ None.
 - `PhylogeneticTreeCanvasLayoutMode` enum, `Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift`
 - `PhylogeneticTreeSelectionState` struct, `Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSelectionState.swift`
 - `PhylogeneticTreeSupportPresentation` enum, `Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSupportPresentation.swift`
+- `PhylogeneticTreeSurface` class, `Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSurface.swift`
 - `PhylogeneticTreeViewController` class, `Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift`
 
 ## LungfishPortable
