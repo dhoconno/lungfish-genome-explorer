@@ -88,19 +88,16 @@ public final class FASTACollectionViewController: NSViewController,
         didSet { refreshContextMenu() }
     }
     public var onBlastCancelRequested: (() -> Void)? {
-        didSet {
-            if let blastDrawerContainer {
-                configureBlastDrawerCallbacks(blastDrawerContainer)
-            }
-        }
+        didSet { if let blastDrawerContainer { configureBlastDrawerCallbacks(blastDrawerContainer) } }
     }
     public var onBlastRerunRequested: (() -> Void)? {
-        didSet {
-            if let blastDrawerContainer {
-                configureBlastDrawerCallbacks(blastDrawerContainer)
-            }
-        }
+        didSet { if let blastDrawerContainer { configureBlastDrawerCallbacks(blastDrawerContainer) } }
     }
+    /// Told with the new selection once the detail under the list is set again, so the viewer can look for a saved BLAST
+    /// search of those sequences. Not told while a search of this list is loading, whose pane stays.
+    var onSelectionChanged: (([LungfishCore.Sequence]) -> Void)?
+    /// The look-up of the saved search of the picked sequences, which the viewer replaces at each selection.
+    var savedBlastRestorer: SavedBlastSearchRestorer?
 
     // MARK: - Filter State
 
@@ -668,7 +665,7 @@ public final class FASTACollectionViewController: NSViewController,
         makeActionHandlers().onCreateBundle?()
     }
 
-    private func selectedSequences() -> [LungfishCore.Sequence] {
+    func selectedSequences() -> [LungfishCore.Sequence] {
         tableView.selectedRowIndexes.compactMap { row in
             guard row >= 0, row < displayedSequences.count else { return nil }
             return displayedSequences[row]
@@ -805,9 +802,10 @@ public final class FASTACollectionViewController: NSViewController,
         } else {
             revealSelectionDetail()
         }
+        onSelectionChanged?(selection)
     }
 
-    private func collapseSelectionDetail() {
+    func collapseSelectionDetail() {
         guard collectionSplitView.bounds.height > 0 else {
             selectionDetailView.isHidden = true
             return
@@ -934,7 +932,7 @@ public final class FASTACollectionViewController: NSViewController,
         }
     }
 
-    private func openBlastDrawerIfNeeded() {
+    func openBlastDrawerIfNeeded() {
         guard let container = blastDrawerContainer,
               let heightConstraint = blastDrawerHeightConstraint else { return }
         container.isHidden = false

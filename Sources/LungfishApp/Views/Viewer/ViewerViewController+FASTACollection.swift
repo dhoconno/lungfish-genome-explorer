@@ -159,6 +159,10 @@ extension ViewerViewController {
                 run: blastRun
             )
         }
+        controller.onSelectionChanged = { [weak self, weak controller] picked in
+            guard let self, let controller else { return }
+            self.restoreSavedBlast(on: controller, run: blastRun, picked: picked)
+        }
         controller.onExtractSequenceRequested = { [weak self] selectedSequences in
             self?.presentFASTASequenceExtractionDialog(
                 records: selectedSequences.map(Self.fastaRecord(for:)),
@@ -338,6 +342,7 @@ extension ViewerViewController {
             blastRun.lastRequest = (sourceLabel, fastaRecords)
             let runID = UUID()
             blastRun.runID = runID
+            controller.savedBlastRestorer = nil
             controller.showBlastLoading(phase: .submitting, requestId: nil)
             blastRun.operationID = opID
 
@@ -359,7 +364,7 @@ extension ViewerViewController {
                 )
             }
 
-            let task = Task { [weak blastRun, weak controller] in
+            let task = Task { [weak self, weak blastRun, weak controller] in
                 do {
                     let (result, recordURL) = try await runner(
                         request,
@@ -380,6 +385,10 @@ extension ViewerViewController {
                     let ownsThePane = blastRun?.runID == runID
                     blastRun?.clear(runID: runID)
                     await Self.parkFASTABlastRow(opID, parked, controller: ownsThePane ? controller : nil)
+                    // The look-up for the sequences picked now keeps this pane current, and brings a late result onto it.
+                    if ownsThePane, let self, let blastRun, let controller {
+                        self.restoreSavedBlast(on: controller, run: blastRun, picked: controller.selectedSequences())
+                    }
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
                     blastRun?.clear(runID: runID)
@@ -394,6 +403,35 @@ extension ViewerViewController {
 
             Self.setFASTABlastCancel(operationID: opID, output: plan?.request.outputURL, task: task)
             blastRun.task = task
+        }
+    }
+
+    /// Looks for the saved BLAST search of the sequences picked in `controller` (FASTA-BLAST-WAITING-NOT-ON-ROW). The FASTA
+    /// plan records the file the list came from and no sample, taxon or contig, so a row is that file and the IDs and bases
+    /// picked, built from the same records the send reads. A waiting search or its saved result shows on the pane, and the news
+    /// of a search brings a late result onto it while those sequences stay picked. A list with nothing picked or no file names
+    /// no row, and a search this list has loading keeps its own pane.
+    func restoreSavedBlast(on controller: FASTACollectionViewController, run: FASTACollectionBlastRun, picked: [LungfishCore.Sequence]) {
+        controller.savedBlastRestorer = nil
+        guard run.runID == nil else { return }
+        let source = fastaExportSourceURLs().first
+        let sequences = Self.blastSequences(from: picked.map(Self.fastaRecord(for:)))
+            .map { BlastSavedSearchRow.QuerySequence(id: $0.id, sequence: $0.sequence) }
+        let restorer = SavedBlastSearchRestorer()
+        controller.savedBlastRestorer = restorer
+        restorer.savedSearchProject = { [weak self] in
+            self?.blastSubmitProjectURL() ?? source.flatMap(ProjectTempDirectory.findProjectRoot)
+        }
+        restorer.searchPane = { [weak controller] in
+            guard let controller else { return nil }
+            controller.collapseSelectionDetail()
+            let pane = controller.ensureBlastDrawer()
+            controller.openBlastDrawerIfNeeded()
+            return pane
+        }
+        let row = source.flatMap { BlastSavedSearchRow.fastaSelection(sequences: sequences, sourceURL: $0) }
+        restorer.select(row) { [weak controller] result, recordURL in
+            controller?.showBlastResults(result, recordURL: recordURL)
         }
     }
 

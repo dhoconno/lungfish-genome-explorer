@@ -81,8 +81,9 @@ final class BlastFastaCancelTests: XCTestCase {
         OperationCenter.shared.items.first { $0.id == id }
     }
 
-    /// BIO's SF2. FASTA's pane is on no row, so it hears no lookup. A result the monitor collects reaches it all the same.
-    func testAParkedFastaSearchShowsItsResultInItsPaneWhenTheMonitorCollectsIt() async throws {
+    /// A parked FASTA search shows waiting in its pane. A late result reaches the pane through the list's look-up of the picked
+    /// sequences, which FASTACollectionSavedBlastTests reads.
+    func testAParkedFastaSearchShowsWaitingInItsPane() async throws {
         let output = folder.appendingPathComponent("parked", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let request = BlastVerificationRequest(
@@ -117,24 +118,6 @@ final class BlastFastaCancelTests: XCTestCase {
         guard case .waiting = fasta.ensureBlastDrawer().displayState else {
             return XCTFail("the pane reads \(fasta.ensureBlastDrawer().displayState)")
         }
-
-        let saved = try SavedBlastSearchProject()
-        defer { saved.remove() }
-        _ = try saved.result("result-A")
-        let record = try BlastSubmissionRecord.load(
-            try saved.saveRecord(rid: "RID-PARKED", sourceResult: "result-A", sample: nil, taxId: nil, contig: nil)
-        )
-        try BlastSubmissionRecord.encoder.encode(record).write(to: output.appendingPathComponent(BlastSubmissionRecord.recordFileName))
-        file.state = .done
-        try store.save(file)
-        BlastSearchNews.post()
-
-        let landed = await waitUntil(timeout: WaitBudget.lookup.duration) {
-            if case .results = fasta.ensureBlastDrawer().displayState { return true }
-            return false
-        }
-        XCTAssertTrue(landed, "the pane still reads \(fasta.ensureBlastDrawer().displayState)")
-        XCTAssertEqual(fasta.ensureBlastDrawer().currentResult?.rid, "RID-PARKED")
     }
 
     func testAPersonsCancelOfAFastaRowStopsTheSearchAndTheRowSaysSo() async throws {

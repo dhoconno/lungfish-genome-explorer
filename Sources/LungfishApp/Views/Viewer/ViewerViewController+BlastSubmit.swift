@@ -171,7 +171,8 @@ extension ViewerViewController {
         }
     }
 
-    /// Parks a FASTA row. Its pane is on no row, so no lookup brings a late result to it, and a watcher does (BIO SF2).
+    /// Parks a FASTA row and shows its search waiting. A late result reaches the pane through the list's look-up of the
+    /// search for the picked sequences, which the caller starts, so it never shows over other sequences (O1).
     static func parkFASTABlastRow(
         _ operationID: UUID,
         _ parked: BlastSubmitParked,
@@ -180,10 +181,6 @@ extension ViewerViewController {
     ) async {
         await parkBlastRow(operationID, words: parked.words, output: parked.output, monitor: monitor) {
             controller?.ensureBlastDrawer().showWaiting($0)
-        }
-        guard let controller else { return }
-        BlastParkedPaneWatcher.watch(output: parked.output, drawer: controller.ensureBlastDrawer()) { [weak controller] result, recordURL in
-            controller?.showBlastResults(result, recordURL: recordURL)
         }
     }
 

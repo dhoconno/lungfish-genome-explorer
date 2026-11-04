@@ -67,6 +67,14 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
         return BlastSavedSearchRow(sourceResultURL: bundleURL, sample: nil, taxId: nil, contig: nil, querySequences: sequences)
     }
 
+    /// The key of a FASTA list's selection (FASTA-BLAST-WAITING-NOT-ON-ROW). `fastaSelectionBlastSubmitPlan` records the file
+    /// the list came from and no sample, taxon or contig, so the key adds the IDs and bases the search's query holds, in any
+    /// order. Nil for no sequences.
+    public static func fastaSelection(sequences: [QuerySequence], sourceURL: URL) -> BlastSavedSearchRow? {
+        guard !sequences.isEmpty else { return nil }
+        return BlastSavedSearchRow(sourceResultURL: sourceURL, sample: nil, taxId: nil, contig: nil, querySequences: sequences)
+    }
+
     /// The sequences of a FASTA. Each header's first word is the ID, and the lines after it, joined and trimmed, are the
     /// sequence, as the 12S plan reads its export.
     public static func sequences(ofFASTA text: String) -> [QuerySequence] {
