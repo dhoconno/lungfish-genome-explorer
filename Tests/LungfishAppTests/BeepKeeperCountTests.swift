@@ -27,10 +27,6 @@ final class BeepKeeperCountTests: XCTestCase {
         "App/AppDelegate+SequenceMenu.swift": 2,
     ]
 
-    private func lines(_ counts: [String: Int]) -> [String] {
-        counts.keys.sorted().map { "\($0): \(counts[$0] ?? 0)" }
-    }
-
     func testOnlyTheNamedKeepersStillBeep() throws {
         let appRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -42,15 +38,20 @@ final class BeepKeeperCountTests: XCTestCase {
         var found: [String: Int] = [:]
         for path in paths {
             let text = try String(contentsOf: appRoot.appendingPathComponent(path), encoding: .utf8)
-            let count = text.components(separatedBy: "NSSound.beep()").count - 1
+            let count = text.components(separatedBy: "NSSound.beep()").count + text.components(separatedBy: "NSBeep()").count - 2
             if count > 0 { found[path] = count }
         }
-        XCTAssertEqual(
-            lines(found),
-            lines(Self.keepers),
-            "A refused command answers in words (a FailureReport through ViewerRefusalSeam, or the words already on screen). "
-                + "A file that gained a beep must show words instead, and a file that lost one must lower its number in this table."
-        )
+        var problems: [String] = []
+        for path in Set(found.keys).union(Self.keepers.keys).sorted() {
+            let now = found[path] ?? 0
+            let allowed = Self.keepers[path] ?? 0
+            if now > allowed {
+                problems.append("\(path) has \(now) NSSound.beep() and may keep \(allowed). A refused command must show words (a FailureReport through ViewerRefusalSeam, or the label of its own sheet), because the owner hears no audio (O116).")
+            } else if now < allowed {
+                problems.append("\(path) has \(now) NSSound.beep() and this table keeps \(allowed). Lower its number in BeepKeeperCountTests.keepers, or delete its entry.")
+            }
+        }
+        XCTAssertTrue(problems.isEmpty, problems.joined(separator: "\n"))
     }
 
     func testTheKeeperTableCountsTen() {
