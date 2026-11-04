@@ -98,6 +98,14 @@ public struct ExtractionResult: Sendable {
     /// Whether the sequence was reverse-complemented.
     public let isReverseComplement: Bool
 
+    /// For a protein, the coding bases its translation was read from. When this is below `proteinBasesAnnotated`
+    /// the sequence end clipped the CDS and the protein is built from the bases that were read (Phase 3.2 row
+    /// FASTA-CLAMPED-TRUNCATED). Nil when there is no protein.
+    public let proteinBasesRead: Int?
+
+    /// For a protein, the coding bases the annotation names. Nil when there is no protein.
+    public let proteinBasesAnnotated: Int?
+
     /// The coordinate convention used by `fastaHeader` and `headerRegion` ("1-based").
     /// `effectiveStart`/`effectiveEnd` themselves stay 0-based half-open.
     public static let headerCoordinateSystem = GenomicRegion.displayCoordinateSystem
@@ -115,7 +123,9 @@ public struct ExtractionResult: Sendable {
         chromosome: String,
         effectiveStart: Int,
         effectiveEnd: Int,
-        isReverseComplement: Bool
+        isReverseComplement: Bool,
+        proteinBasesRead: Int? = nil,
+        proteinBasesAnnotated: Int? = nil
     ) {
         self.fastaHeader = fastaHeader
         self.nucleotideSequence = nucleotideSequence
@@ -125,6 +135,8 @@ public struct ExtractionResult: Sendable {
         self.effectiveStart = effectiveStart
         self.effectiveEnd = effectiveEnd
         self.isReverseComplement = isReverseComplement
+        self.proteinBasesRead = proteinBasesRead
+        self.proteinBasesAnnotated = proteinBasesAnnotated
     }
 }
 
@@ -205,10 +217,16 @@ public enum SequenceExtractor {
     }
 
     /// Formats an extraction result as a protein FASTA string.
-    /// Returns nil if no protein sequence is available.
+    /// Returns nil if no protein sequence is available. When the sequence end clipped the CDS, the header says
+    /// how many of its coding bases the protein was translated from. The letters never change, and the header of
+    /// a CDS read whole is byte for byte what it was.
     public static func formatProteinFASTA(_ result: ExtractionResult, lineWidth: Int = 70) -> String? {
         guard let protein = result.proteinSequence else { return nil }
-        var fasta = ">\(result.fastaHeader) [protein]\n"
+        var fasta = ">\(result.fastaHeader) [protein]"
+        if let read = result.proteinBasesRead, let annotated = result.proteinBasesAnnotated, read < annotated {
+            fasta += " [partial: translated from \(read) of \(annotated) coding bases, the sequence ends inside this annotation]"
+        }
+        fasta += "\n"
         fasta += wrapSequence(protein, lineWidth: lineWidth)
         return fasta
     }
@@ -381,6 +399,8 @@ public enum SequenceExtractor {
 
         // CDS translation
         let proteinSequence: String?
+        let proteinBasesRead: Int?
+        let proteinBasesAnnotated: Int?
         if annotation.type == .cds {
             // Ask only for the bases the chromosome holds. A segment that runs past the end comes back
             // short, and the engine moves the frame of a reverse-strand CDS by the bases that are missing,
@@ -394,8 +414,13 @@ public enum SequenceExtractor {
                 }
             )
             proteinSequence = result?.protein
+            // The figures travel with the protein so the record can say when a clip made it shorter.
+            proteinBasesRead = result?.codingBasesRead
+            proteinBasesAnnotated = result?.annotatedCodingLength
         } else {
             proteinSequence = nil
+            proteinBasesRead = nil
+            proteinBasesAnnotated = nil
         }
 
         let header = buildHeader(
@@ -419,7 +444,9 @@ public enum SequenceExtractor {
             chromosome: chromosome,
             effectiveStart: effectiveStart,
             effectiveEnd: effectiveEnd,
-            isReverseComplement: reverseComplement
+            isReverseComplement: reverseComplement,
+            proteinBasesRead: proteinBasesRead,
+            proteinBasesAnnotated: proteinBasesAnnotated
         )
     }
 
