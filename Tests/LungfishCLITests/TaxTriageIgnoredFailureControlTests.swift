@@ -66,6 +66,31 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0.hasSuffix(",Not checked") }, "\(rows)")
     }
 
+    // MARK: - The entry the parser writes from the pipeline's own log note (BIO review, should-fix 1)
+
+    /// The pipeline's note, read by the real parser, names the control as the hand-made entries above do.
+    func testMatrixReadsNotCheckedForAControlNamedByARealNextflowNote() async throws {
+        let result = try await importedRun(
+            reports: [("patient", [0, 1])], ignored: [Self.parsedEntry(process: "MINIMAP2_ALIGN", tag: "NTC1")]
+        )
+
+        let shared = try XCTUnwrap(try matrixLines(of: result).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",Not checked,"), shared)
+    }
+
+    /// The parser cuts a task's tag at its first dot and the pipeline keeps dots in a sample name, so a control typed
+    /// `NTC.1` is `NTC` by the entry's sample and `NTC.1` by the whole tag.
+    func testMatrixReadsNotCheckedForAControlWhoseNameHasADot() async throws {
+        let result = try await importedRun(
+            reports: [("patient", [0, 1])],
+            control: "NTC.1",
+            ignored: [Self.parsedEntry(process: "MINIMAP2_ALIGN", tag: "NTC.1")]
+        )
+
+        let shared = try XCTUnwrap(try matrixLines(of: result).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",Not checked,"), "the dotted control has no result, but the matrix said: \(shared)")
+    }
+
     // MARK: - Guards, true at the base and after
 
     /// An entry that names the patient says nothing about the control.
@@ -109,6 +134,13 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
             sampleID: sample,
             exitCode: 137
         )
+    }
+
+    /// The entry that the parser writes for the pipeline's note about a task of `tag`, which holds the whole tag as the
+    /// task label and the sample cut at its first dot.
+    private static func parsedEntry(process: String, tag: String) throws -> TaxTriageIgnoredFailure {
+        let note = "NOTE: Process `NFCORE_TAXTRIAGE:TAXTRIAGE:\(process) (\(tag))` terminated with an error exit status (255) -- Error is ignored"
+        return try XCTUnwrap(TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: note).first, note)
     }
 
     /// Imports a run folder of flat reports and builds the database. `reports` lists each sample with the rows of the
