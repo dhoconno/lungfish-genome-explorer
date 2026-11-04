@@ -67,6 +67,7 @@ Every other row goes to the backlog, an edge case that nobody has met included.
 | Severity, not votes | Each finding gets a severity from the table below. BIO sets it for anything that touches a scientific number, and no vote lowers an S1. UX sets it for everything else, and the owner settles a dispute. S1 and S2 block Stable. S3 and S4 go to the backlog with no vote. |
 | Bounded reviews | A lane review returns its blockers and at most three should-fix items. A blocker is a wrong result, data loss, a crash, a security hole, a broken build, an S1 or S2 finding or an unmet requirement of the brief. Every other finding goes to the backlog. |
 | Upstream defects | A defect inside a third-party tool gets a retry where one helps and a Known limit, not a study. A Known limit that the app reports in words is not an open S1 or S2 finding. |
+| Live services | The app treats a third-party service as one that can stall at any time. A test, gate or walk row never counts on how fast such a service answers, or on which of several equally right records it returns. Those paths are tested on a stand-in with faults on demand. A live call in a walk is a smoke: any honest ending passes, and its time is reported (O138). |
 
 | Severity | Meaning |
 |---|---|
