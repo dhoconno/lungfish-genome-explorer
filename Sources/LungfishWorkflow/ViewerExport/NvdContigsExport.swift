@@ -48,21 +48,26 @@ public enum NvdContigsExport {
             : try database.searchBestHits(query: searchText, samples: samples)
     }
 
-    /// The contigs table of `hits`, each row with its own sample's metadata values.
+    /// The contigs table of `hits`, each row with its own sample's metadata values. `aln_length` is the BLAST alignment
+    /// length of the row's hit, and `length` is the contig's length. `unique_reads` follows `mapped_reads` and is empty
+    /// when the count was never computed.
     public static func contigsTSV(
         hits: [NvdBlastHit],
         metadataHeaders: [String],
         metadataValuesBySample: [String: [String]]
     ) -> String {
         var lines: [String] = []
-        var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
+        var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\taln_length\tevalue\tbitscore\tmapped_reads\tunique_reads\treads_per_billion"
         if !metadataHeaders.isEmpty {
             header += "\t" + metadataHeaders.joined(separator: "\t")
         }
         lines.append(header)
 
         for hit in hits {
-            var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
+            // A count never computed writes an empty cell, never 0 or 1 (BIO review Ruling 2).
+            let uniqueReads = ClassifierUniqueReads.normalized(stored: hit.uniqueReads, readCount: hit.mappedReads)
+                .map(String.init) ?? ""
+            var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.length)\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(uniqueReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
             let metaValues = metadataValuesBySample[hit.sampleId] ?? []
             if !metaValues.isEmpty {
                 line += "\t" + metaValues.joined(separator: "\t")

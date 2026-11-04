@@ -37,9 +37,9 @@ final class NvdContigsExportPinTests: XCTestCase {
         let vc = try configuredController()
 
         XCTAssertEqual(Self.bytes(of: vc), [
-            "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion\tCohort",
-            "sample1\tcontig_1\t8\tAlpha virus\tspecies\tNC_sample1_contig_1\tAlpha virus\t100.00\t0.0\t50.0\t30\t30000000\tcase",
-            "sample2\tcontig_1\t8\tGamma virus\tspecies\tNC_sample2_contig_1\tGamma virus\t100.00\t0.0\t50.0\t20\t20000000\tcontrol",
+            "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\taln_length\tevalue\tbitscore\tmapped_reads\tunique_reads\treads_per_billion\tCohort",
+            "sample1\tcontig_1\t8\tAlpha virus\tspecies\tNC_sample1_contig_1\tAlpha virus\t100.00\t8\t0.0\t50.0\t30\t\t30000000\tcase",
+            "sample2\tcontig_1\t8\tGamma virus\tspecies\tNC_sample2_contig_1\tGamma virus\t100.00\t8\t0.0\t50.0\t20\t\t20000000\tcontrol",
         ].joined(separator: "\n") + "\n")
     }
 
