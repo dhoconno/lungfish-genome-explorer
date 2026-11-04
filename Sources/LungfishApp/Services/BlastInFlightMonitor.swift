@@ -170,6 +170,14 @@ final class BlastInFlightMonitor {
         guard viewerRuns[folder.standardizedFileURL.path] == nil else { return }
         guard let search = await ViewerViewController.readBlastSearch(in: folder) else { return }
         let searchID = search.file.searchID
+        // A press in a copy of the project the search was sent from (the pane reads "Sent from another copy of this
+        // project", with Check Now alone) checks that folder and nothing else. Taking the search's row and line over
+        // completed the sender's row with the copy's result, ended the monitoring of the sender's folder and left the
+        // search with no home (BLASTCOLLECT-7, the Copied gap).
+        if let home = known[searchID]?.output, home != folder.standardizedFileURL.path, FileManager.default.fileExists(atPath: home) {
+            await checkCopy(folder, extra: extra, rid: search.file.copies.last?.rid)
+            return
+        }
         guard passes[searchID] == nil else { return }
         ended.remove(searchID)
         let line = BlastInFlightLine(
@@ -177,6 +185,26 @@ final class BlastInFlightMonitor {
         )
         take(line)
         run(pass: line, extra: extra)
+    }
+
+    /// One check of a copy's folder, which sends nothing. The row, the line and the passes of the search stay with the folder
+    /// that sent it. A result that comes back is saved in the copy and told to the panes as a result of the copy's folder.
+    private func checkCopy(_ folder: URL, extra: [String], rid: String?) async {
+        guard extra == ["--check-now"] else {
+            BlastSearchPaneActions.say(BlastSearchWords.fromAnotherCopy(rid: rid), about: folder)
+            return
+        }
+        let outcome = await worker.pass(folder, extra, { _ in })
+        switch outcome {
+        case .collected(_, let words), .ended(let words), .refused(let words), .waiting(let words, _):
+            BlastSearchPaneActions.say(words, about: folder)
+        case .noNews:
+            break
+        }
+        if case .collected = outcome {
+            NotificationCenter.default.post(name: Self.searchCameBack, object: self, userInfo: [Self.resultFolderKey: folder])
+        }
+        BlastSearchNews.post()
     }
 
     /// Stop on the row that carries the search, or on the folder alone when no row does.
