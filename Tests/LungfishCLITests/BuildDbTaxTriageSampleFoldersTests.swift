@@ -76,6 +76,28 @@ final class BuildDbTaxTriageSampleFoldersTests: XCTestCase {
         XCTAssertTrue(clashes.first?.contains("S1") == true && clashes.first?.contains("S2") == false, "\(clashes)")
     }
 
+    /// A batch root with no report of its own and two sample folders that hold one sample name: the first folder in byte
+    /// order keeps its rows, the second folder's rows are left out, and one line names the clash. At the base the build
+    /// stopped on the database's unique key (sample and organism), since both folders hold the same organisms under
+    /// one sample name (BIO review of lane TTBUILDDB, should-fix 3 and ruling 4).
+    func testBuildDbKeepsTheFirstFolderWhenTwoSampleFoldersHoldOneSampleName() async throws {
+        let root = folder.appendingPathComponent("twofolders", isDirectory: true)
+        try writeReport(for: "S1", rows: 2, to: root.appendingPathComponent("A/report/A.odr.txt"))
+        try writeReport(for: "S1", rows: 3, to: root.appendingPathComponent("B/report/B.odr.txt"))
+
+        let output = try await build(root)
+
+        let db = try TaxTriageDatabase(at: root.appendingPathComponent("taxtriage.sqlite"))
+        XCTAssertEqual(try db.fetchSamples().map(\.sample), ["S1"])
+        XCTAssertEqual(try db.fetchRows(samples: ["S1"]).count, 2, "folder A is first in byte order, so its 2 rows stand")
+        let clashes = output.components(separatedBy: "\n").filter { $0.contains("already read") }
+        XCTAssertEqual(clashes.count, 1, "one line names the clash: \(output)")
+        XCTAssertTrue(
+            clashes.first.map { $0.contains("S1") && $0.contains("folder B") } == true,
+            "the line names S1 and folder B: \(clashes)"
+        )
+    }
+
     // MARK: - Helpers
 
     /// Runs `build-db taxtriage` on `root` with its human text on, and returns what it printed.
