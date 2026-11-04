@@ -21,13 +21,26 @@ public struct TranslationResult: Sendable {
     /// The phase offset applied (0, 1, or 2 bases skipped at start).
     public let phaseOffset: Int
 
+    /// The coding bases the annotation names, which is the sum of the lengths of its intervals. When it is more than
+    /// `codingBasesRead`, the end of the sequence or a read that failed cut the CDS and the protein was built from
+    /// the bases that were read alone. A result made without the figure counts as read whole.
+    public let annotatedCodingLength: Int
+
+    /// The coding bases that were read and translated.
+    public var codingBasesRead: Int { codingSequence.count }
+
+    /// Whether fewer bases were read than the annotation names. The letters of the protein are the same either way.
+    public var isClipped: Bool { codingBasesRead < annotatedCodingLength }
+
     public init(
         protein: String,
         codingSequence: String,
         aminoAcidPositions: [AminoAcidPosition],
         codonTable: CodonTable,
-        phaseOffset: Int
+        phaseOffset: Int,
+        annotatedCodingLength: Int? = nil
     ) {
+        self.annotatedCodingLength = annotatedCodingLength ?? codingSequence.count
         self.protein = protein
         self.codingSequence = codingSequence
         self.aminoAcidPositions = aminoAcidPositions

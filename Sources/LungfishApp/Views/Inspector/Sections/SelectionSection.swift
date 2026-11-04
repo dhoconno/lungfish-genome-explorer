@@ -158,6 +158,9 @@ public final class SelectionSectionViewModel {
     /// Full amino acid translation (not truncated), from GenBank qualifier or computed.
     public var fullTranslation: String?
 
+    /// Words under the protein when a sequence end clipped its CDS or the bases could not be read.
+    public var translationNotice: String?
+
     // MARK: - Enrichment Fields (read-only, from qualifiers + SQLite)
 
     /// All displayable qualifier key-value pairs.
