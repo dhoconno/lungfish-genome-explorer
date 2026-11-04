@@ -257,6 +257,33 @@ final class BlastTieVerdictTests: XCTestCase {
         }
     }
 
+    // MARK: - The words
+
+    func testTheWordsSayWhatTheTieHeld() throws {
+        let wide = try XCTUnwrap(BlastTieFixture.judged("t1-hiv2-500-a", claim: "hiv", list: 500).readResults.first)
+        XCTAssertEqual(
+            BlastTieWords.read(wide),
+            "Tied with 287 other records at the best score: 116 more in this taxon, 171 outside. NCBI returned 500."
+        )
+        let full = try XCTUnwrap(judge(fiveWithNoHIV, hitListSize: 5).readResults.first)
+        XCTAssertEqual(
+            BlastTieWords.read(full),
+            "More than 5 records tie at the best score and none returned is in this taxon. "
+                + "NCBI's list ended before the tie did, so this read counts neither way."
+        )
+        XCTAssertNil(BlastTieWords.read(try XCTUnwrap(judge([hiv("A")]).readResults.first)), "a record alone ties with nothing")
+        XCTAssertNil(BlastTieWords.read(BlastReadResult(id: "saved", verdict: .verified)), "a saved record has no summary")
+
+        XCTAssertEqual(BlastTieWords.flaggedCount(in: judge([hiv("A"), hit("B", 3464302)])), "1 also matches other records equally")
+        XCTAssertEqual(BlastTieWords.flaggedCount(in: judge([hiv("A")])), "")
+        let saved = BlastVerificationResult(
+            taxonName: taxonName, taxId: 11676,
+            readResults: Array(repeating: BlastReadResult(id: "saved", verdict: .verified, hasLCADisagreement: true), count: 2),
+            submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "core_nt"
+        )
+        XCTAssertEqual(BlastTieWords.flaggedCount(in: saved), "2 with conflicting organisms", "a saved record reads as it did")
+    }
+
     // MARK: - The record
 
     func testTieSummarySurvivesARecordAndOldRecordsDecode() throws {

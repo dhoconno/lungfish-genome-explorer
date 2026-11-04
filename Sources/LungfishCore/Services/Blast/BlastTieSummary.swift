@@ -54,3 +54,37 @@ public struct BlastTieSummary: Sendable, Codable, Equatable {
         self.outsideExamples = outsideExamples
     }
 }
+
+/// The words a person reads about a tie, from BIO-BLAST-TIES section 3.
+public enum BlastTieWords {
+
+    /// The words for one read, or `nil` when it has no tie to speak of. A saved record has no summary, so none.
+    public static func read(_ row: BlastReadResult) -> String? {
+        guard let tie = row.tieSummary else { return nil }
+        if tie.runsPastList, tie.inClade == 0, !row.matchesQueriedTaxon {
+            let list = tie.hitListSize ?? tie.hitsReturned
+            return "More than \(list) records tie at the best score and none returned is in this taxon. "
+                + "NCBI's list ended before the tie did, so this read counts neither way."
+        }
+        guard tie.tied > 1 else { return nil }
+        // A tie that holds the clade shows a clade record first, so "more" counts the ones beside the record shown.
+        let others = tie.tied - 1
+        let more = max(tie.inClade - 1, 0)
+        let outside = tie.inClade > 0 ? tie.outside : max(tie.outside - 1, 0)
+        return "Tied with \(others) other \(others == 1 ? "record" : "records") at the best score: "
+            + "\(more) more in this taxon, \(outside) outside. NCBI returned \(tie.hitsReturned)."
+    }
+
+    /// The count beside a row's numbers, empty when no read is flagged. A flag with no shared tie behind it, on the
+    /// name rule, on mates that split or on a saved record, keeps the older words.
+    public static func flaggedCount(in result: BlastVerificationResult) -> String {
+        let flagged = result.readResults.filter(\.hasLCADisagreement)
+        let shared = flagged.filter { row in
+            ([row] + (row.otherMates ?? [])).contains { ($0.tieSummary?.outside ?? 0) > 0 }
+        }.count
+        var parts: [String] = []
+        if shared > 0 { parts.append("\(shared) also \(shared == 1 ? "matches" : "match") other records equally") }
+        if flagged.count > shared { parts.append("\(flagged.count - shared) with conflicting organisms") }
+        return parts.joined(separator: ", ")
+    }
+}

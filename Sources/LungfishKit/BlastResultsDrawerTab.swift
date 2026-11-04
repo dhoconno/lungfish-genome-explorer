@@ -468,15 +468,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             confidenceLabel.isHidden = false
             summaryBar.layer?.backgroundColor = confidence.tintColor.cgColor
 
-            let lcaCount = result.lcaDisagreementCount
-            if lcaCount > 0 {
-                lcaWarningLabel.stringValue = "\(lcaCount) with conflicting organisms"
-                lcaWarningLabel.textColor = .systemOrange
-                lcaWarningLabel.isHidden = false
-            } else {
-                lcaWarningLabel.stringValue = ""
-                lcaWarningLabel.isHidden = true
-            }
+            lcaWarningLabel.stringValue = BlastTieWords.flaggedCount(in: result)
+            lcaWarningLabel.textColor = .systemOrange
+            lcaWarningLabel.isHidden = lcaWarningLabel.stringValue.isEmpty
 
             let summaryIconName: String
             switch confidence {
@@ -1856,6 +1850,7 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
     /// orange warning triangle is overlaid.
     private func makeParentStatusCell(for result: BlastReadResult) -> NSView {
         let cell = NSTableCellView()
+        cell.toolTip = BlastTieWords.read(result)
 
         if result.hasLCADisagreement {
             // Show orange LCA warning triangle instead of verdict icon

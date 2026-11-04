@@ -41,7 +41,7 @@ extension BlastVerificationTableExport {
     ///
     /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
     /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length,
-    /// Queried Taxon, Taxon Check.
+    /// Queried Taxon, Taxon Check, tied, tied_in_taxon, tied_outside.
     ///
     /// Verdict says only whether a read's alignment passed the quality thresholds, so a read that contradicts the
     /// row can read `verified`. Taxon Check says what the read means for the row: `supporting`, `contradicting` or
@@ -66,7 +66,8 @@ extension BlastVerificationTableExport {
         let header = [
             "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession",
             "Organism", "TaxId", "Identity%", "Coverage%", "E-value",
-            "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check"
+            "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check",
+            "tied", "tied_in_taxon", "tied_outside",
         ]
         lines.append(header.joined(separator: separator))
 
@@ -97,7 +98,7 @@ extension BlastVerificationTableExport {
                     queriedTaxon,
                     taxonCheck,
                 ]
-                lines.append(row.joined(separator: separator))
+                lines.append((row + tieColumns(readResult)).joined(separator: separator))
             } else {
                 // One row per hit
                 for hit in readResult.topHits {
@@ -117,12 +118,18 @@ extension BlastVerificationTableExport {
                         queriedTaxon,
                         taxonCheck,
                     ]
-                    lines.append(row.joined(separator: separator))
+                    lines.append((row + tieColumns(readResult)).joined(separator: separator))
                 }
             }
         }
 
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The counts of the read's tie, and empty on a record saved before they were kept (BIO-BLAST-TIES section 5).
+    private static func tieColumns(_ row: BlastReadResult) -> [String] {
+        guard let tie = row.tieSummary else { return ["", "", ""] }
+        return [String(tie.tied), String(tie.inClade), String(tie.outside)]
     }
 
     /// Whether the saved search asked about a taxon. A clade that holds an ID or a name is a claim, as `judgesAClaim`

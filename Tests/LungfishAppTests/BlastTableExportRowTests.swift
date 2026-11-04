@@ -117,6 +117,28 @@ final class BlastTableExportRowTests: XCTestCase {
         XCTAssertEqual(rows.last?[4], "")
     }
 
+    /// BIO-BLAST-TIES section 5. The tie's counts follow every column a table had, and an old record leaves them empty.
+    func testExportEndsWithTheTieCounts() {
+        let tie = BlastTieSummary(
+            hitListSize: 500, hitsReturned: 500, bestBitScore: 139.619, tied: 288, inClade: 117, outside: 171,
+            runsPastList: false, outsideExamples: []
+        )
+        let result = BlastVerificationResult(
+            taxonName: "Human immunodeficiency virus 1", taxId: 11676,
+            readResults: [
+                BlastReadResult(id: "tied", verdict: .verified, matchesQueriedTaxon: true, tieSummary: tie),
+                BlastReadResult(id: "old", verdict: .verified, matchesQueriedTaxon: true),
+            ],
+            submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "core_nt"
+        )
+        let lines = BlastVerificationTableExport.tableContent(result: result, separator: ",")
+            .split(separator: "\n")
+            .map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(Array(lines[0].suffix(3)), ["tied", "tied_in_taxon", "tied_outside"])
+        XCTAssertEqual(Array(lines[1].suffix(3)), ["288", "117", "171"])
+        XCTAssertEqual(Array(lines[2].suffix(3)), ["", "", ""])
+    }
+
     /// `blast submit`'s complete message adds what was sent only when it differs from the rows counted, so the
     /// leaf's recorded event stays as it was for single reads.
     func testSubmitSummaryAddsTheSequencesSentOnlyWhenTheyDiffer() {

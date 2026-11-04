@@ -408,6 +408,7 @@ extension BlastCommand {
                         ?? "(no hit)"
                     let identity = readResult.percentIdentity.map { String(format: "%.1f%%", $0) } ?? "--"
                     print("  \(verdictStr) \(readResult.id)  \(organism)  \(identity)")
+                    if let tieWords = BlastTieWords.read(readResult) { print("       \(tieWords)") }
                 }
                 print("")
             }

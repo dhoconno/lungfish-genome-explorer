@@ -60,7 +60,7 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             .split(separator: "\n")
             .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
         let header = try XCTUnwrap(table.first)
-        XCTAssertEqual(Array(header.suffix(2)), ["Queried Taxon", "Taxon Check"])
+        XCTAssertEqual(Array(header.suffix(5)), ["Queried Taxon", "Taxon Check", "tied", "tied_in_taxon", "tied_outside"])
         let verdictColumn = try XCTUnwrap(header.firstIndex(of: "Verdict"))
         let taxonColumn = try XCTUnwrap(header.firstIndex(of: "Queried Taxon"))
         let checkColumn = try XCTUnwrap(header.firstIndex(of: "Taxon Check"))
@@ -244,19 +244,20 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
             [
                 "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession", "Organism", "TaxId", "Identity%",
                 "Coverage%", "E-value", "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check",
+                "tied", "tied_in_taxon", "tied_outside",
             ],
             [
                 field("read,1"), verified, "true", "1", "NC_000001.1", field("Escherichia coli, strain \"K-12\""),
-                "562", "99.50", "98.25", "1e-50", "250.5", "150", taxon, "supporting",
+                "562", "99.50", "98.25", "1e-50", "250.5", "150", taxon, "supporting", "", "", "",
             ],
             [
                 field("read,1"), verified, "true", "2", "NC_000002.1", "", "", "90.00", "80.13", "0.0", "100.0", "120",
-                taxon, "supporting",
+                taxon, "supporting", "", "", "",
             ],
-            ["read_2", unverified, "false", "1", "", "", "", "", "", "", "", "", taxon, "inconclusive"],
+            ["read_2", unverified, "false", "1", "", "", "", "", "", "", "", "", taxon, "inconclusive", "", "", ""],
             [
                 "read_3", ambiguous, "false", "1", "NC_000003.1", "Shigella", "", "88.13", "70.50", "0.002", "55.5", "99",
-                taxon, "inconclusive",
+                taxon, "inconclusive", "", "", "",
             ],
         ]
         return rows.map { $0.joined(separator: separator) }.joined(separator: "\n") + "\n"
