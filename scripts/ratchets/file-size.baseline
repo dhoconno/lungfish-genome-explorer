@@ -122,7 +122,7 @@ Sources/LungfishIO/Formats/Nvd/NvdDatabase.swift 906
 Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift 839
 Sources/LungfishIO/Search/ProjectUniversalSearchIndex+Indexers.swift 1243
 Sources/LungfishKit/BatchTableView.swift 1406
-Sources/LungfishKit/BlastResultsDrawerTab.swift 1964
+Sources/LungfishKit/BlastResultsDrawerTab.swift 1963
 Sources/LungfishKit/LungfishHelpContent.swift 1052
 Sources/LungfishKit/MetadataColumnController.swift 895
 Sources/LungfishKit/MiniBAMViewController.swift 1008
