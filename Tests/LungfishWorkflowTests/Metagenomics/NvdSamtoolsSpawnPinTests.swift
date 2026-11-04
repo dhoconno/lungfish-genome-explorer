@@ -134,15 +134,15 @@ final class NvdSamtoolsSpawnPinTests: XCTestCase {
         XCTAssertEqual(step.argv.first, imported.samtools.path)
         XCTAssertEqual(Array(step.argv[1...4]), ["view", "-c", "-F", "3332"])
         XCTAssertEqual(URL(fileURLWithPath: step.argv[5]).lastPathComponent, "S1.bam")
-        XCTAssertEqual(step.argv.last, "gb|NC_001|")
+        XCTAssertEqual(step.argv.last, "contig-1", "the count names the contig, which is the BAM's reference")
         XCTAssertEqual(step.exitStatus, 0)
         XCTAssertEqual(step.toolVersion, "samtools fake 1.0")
         XCTAssertTrue(step.outputs.contains { $0.path.hasSuffix("hits.sqlite") })
         XCTAssertEqual(imported.calls.filter { $0 == "[--version]" }.count, 1)
         // The two counts of markdup use -F 3332 as well, so the count of the import is the one that names the accession.
-        let counts = imported.calls.filter { $0.hasPrefix("[view][-c][-F][3332][") && $0.hasSuffix("][gb|NC_001|]") }
+        let counts = imported.calls.filter { $0.hasPrefix("[view][-c][-F][3332][") && $0.hasSuffix("][contig-1]") }
         XCTAssertEqual(counts.count, 1)
-        XCTAssertTrue(counts.first?.hasSuffix("/S1.bam][gb|NC_001|]") == true, "\(counts)")
+        XCTAssertTrue(counts.first?.hasSuffix("/S1.bam][contig-1]") == true, "\(counts)")
     }
 
     func testTheVersionIsTheFirstNonEmptyLineOfStdoutThenStderr() async throws {

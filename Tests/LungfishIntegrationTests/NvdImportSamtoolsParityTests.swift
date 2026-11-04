@@ -36,7 +36,7 @@ final class NvdImportSamtoolsParityTests: XCTestCase {
     }
 
     /// An NVD run with one sample whose BAM is the SARS-CoV-2 fixture, and two
-    /// BLAST hits on its reference, the layout `05_labkey_bundling` plus
+    /// BLAST hits on the one contig the BAM holds (its reference, MT192765.1), the layout `05_labkey_bundling` plus
     /// `02_human_viruses/03_human_virus_results` that the importer reads.
     private func makeNvdRun() throws -> URL {
         let fileManager = FileManager.default
@@ -50,10 +50,10 @@ final class NvdImportSamtoolsParityTests: XCTestCase {
             + "bitscore,sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,"
             + "stat_db_version,adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank"
         let rows = [
-            "EXP001,megablast,S1,NODE_1,29829,MT192765.1,Severe acute respiratory syndrome coronavirus 2,"
+            "EXP001,megablast,S1,MT192765.1,29829,NC_045512.2,Severe acute respiratory syndrome coronavirus 2,"
                 + "species:SARS-CoV-2,29800,99.9,0.0,55000.0,SARS-CoV-2,2697049,2.5.0,run-001,197,200,"
                 + "2.5.0,2697049,dominant,SARS-CoV-2,species",
-            "EXP001,megablast,S1,NODE_2,1200,MT192765.1,Severe acute respiratory syndrome coronavirus 2,"
+            "EXP001,megablast,S1,MT192765.1,29829,MW422255.1,Severe acute respiratory syndrome coronavirus 2,"
                 + "species:SARS-CoV-2,1190,99.1,0.0,2100.0,SARS-CoV-2,2697049,2.5.0,run-001,40,200,"
                 + "2.5.0,2697049,dominant,SARS-CoV-2,species",
         ]
@@ -67,7 +67,7 @@ final class NvdImportSamtoolsParityTests: XCTestCase {
             at: TestFixtures.sarscov2.bamIndex,
             to: mappedReads.appendingPathComponent("S1.filtered.bam.bai")
         )
-        try ">NODE_1\nACGT\n>NODE_2\nACGT\n".write(
+        try ">MT192765.1\nACGT\n".write(
             to: results.appendingPathComponent("S1.human_virus.fasta"),
             atomically: true,
             encoding: .utf8
@@ -86,8 +86,7 @@ final class NvdImportSamtoolsParityTests: XCTestCase {
     private func counts(in bundle: URL) throws -> ImportCounts {
         let database = try NvdDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
         var uniqueReads: [String: Int?] = [:]
-        for hit in try database.childHits(sampleId: "S1", qseqid: "NODE_1")
-            + database.childHits(sampleId: "S1", qseqid: "NODE_2") {
+        for hit in try database.childHits(sampleId: "S1", qseqid: "MT192765.1") {
             uniqueReads["\(hit.qseqid) \(hit.sseqid)"] = hit.uniqueReads
         }
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundle))

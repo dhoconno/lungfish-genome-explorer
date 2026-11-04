@@ -1987,6 +1987,8 @@ private func nvdMarkdupReplayCommand(bamURL: URL, samtoolsPath: String, threads:
         + " && mv \(metagenomicsShellEscape(tempBaiPath)) \(metagenomicsShellEscape(baiPath))"
 }
 
+/// Fills `unique_reads` of each hit with the primary, non-duplicate records of the hit's contig. The BAM's references
+/// are the sample's contigs (`qseqid`) and never the BLAST subjects (`sseqid`), so the count asks for the contig.
 private func nvdPopulateUniqueReads(
     dbPath: String,
     bundleDir: URL,
@@ -2000,14 +2002,14 @@ private func nvdPopulateUniqueReads(
     }
     defer { sqlite3_close(db) }
 
-    let selectSQL = "SELECT rowid, sample_id, sseqid FROM blast_hits"
+    let selectSQL = "SELECT rowid, sample_id, qseqid FROM blast_hits"
     var selectStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
         return NvdUniqueReadPopulationResult(updatedRows: 0, steps: [])
     }
     defer { sqlite3_finalize(selectStmt) }
 
-    struct Row { let rowid: Int64; let sampleId: String; let sseqid: String }
+    struct Row { let rowid: Int64; let sampleId: String; let qseqid: String }
     var rows: [Row] = []
     var step = sqlite3_step(selectStmt)
     while step == SQLITE_ROW {
@@ -2019,7 +2021,7 @@ private func nvdPopulateUniqueReads(
         rows.append(Row(
             rowid: sqlite3_column_int64(selectStmt, 0),
             sampleId: String(cString: samplePtr),
-            sseqid: String(cString: accessionPtr)
+            qseqid: String(cString: accessionPtr)
         ))
         step = sqlite3_step(selectStmt)
     }
@@ -2067,14 +2069,14 @@ private func nvdPopulateUniqueReads(
         guard let bamURL = bamBySample[row.sampleId],
               FileManager.default.fileExists(atPath: bamURL.path) else { continue }
 
-        let cacheKey = "\(bamURL.path)\t\(row.sseqid)"
+        let cacheKey = "\(bamURL.path)\t\(row.qseqid)"
         let unique: Int
         if let cached = cache[cacheKey] {
             unique = cached
         } else {
             let countResult = nvdCountReadsWithTelemetry(
                 bamURL: bamURL,
-                accession: row.sseqid,
+                accession: row.qseqid,
                 flagFilter: 0xD04, // UNMAP | DUP | SECONDARY | SUPPLEMENTARY
                 samtoolsPath: samtoolsPath,
                 samtoolsVersion: samtoolsVersion,
@@ -2150,7 +2152,8 @@ private func nvdCountReadsWithTelemetry(
     }
     let output = String(data: result.stdout, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
-    let count = result.isSuccess ? Int(output) : nil
+    // samtools exits 0 and prints 0 for a reference the BAM does not hold, which is no count.
+    let count = result.isSuccess && !stderrText.contains("unknown reference") ? Int(output) : nil
     return (
         count,
         NvdAuxiliaryStep(
