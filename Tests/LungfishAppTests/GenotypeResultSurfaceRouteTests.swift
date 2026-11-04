@@ -172,6 +172,67 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(saved.matrixComments.contains { $0.body == body }, "a window close lost the edit")
     }
 
+    /// A window close takes the split with it. The window, the edit and the close all happen inside one closure, so
+    /// nothing in this test holds the split, the viewer or the controller afterwards, and the split is shown to be gone
+    /// before the edit is read back. A controller that is alive for another reason cannot hide a lost edit.
+    func testAWindowCloseKeepsTheQueuedEditAfterTheSplitIsReleased() async throws {
+        let row = try await buildRow(of: "Genotype")
+        let body = "survive a window close and a released split"
+        weak var weakSplit: MainSplitViewController?
+        weak var weakController: GenotypeResultViewController?
+        var controllerID: ObjectIdentifier?
+        let queued = try await { () async throws -> (bundleURL: URL, lock: ONTGenotypeBundlePublicationLock, scheduler: HeldRetryScheduler) in
+            let harness = try ViewSwitchWindowHarness()
+            let edit = try await self.holdAnEdit(in: harness, row: row, body: body)
+            weakSplit = harness.split
+            weakController = edit.controller
+            controllerID = edit.controllerID
+            harness.controller.close()
+            // Not `harness.close()`: it clears the viewport through the host, which runs the same removal, so a window
+            // close whose own removal had been lost would still look kept.
+            harness.split.invalidateDisplayRequest()
+            harness.split.inspectorController.clearSelection()
+            return (edit.bundleURL, edit.lock, edit.scheduler)
+        }()
+
+        let gone = await waitUntil(budget: .lookup) { weakSplit == nil }
+        XCTAssertTrue(gone, "the split is still alive, so this test cannot tell a lost edit from a kept one")
+        XCTAssertNotNil(weakController, "the queued edit's controller went with the split")
+        XCTAssertNotNil(
+            controllerID.flatMap { MainSplitViewController.retainedDeferredGenotypeResultControllers[$0] },
+            "a window close did not keep the controller in the store"
+        )
+        queued.lock.release()
+        queued.scheduler.fire()
+        await waitForAnnotationEdits()
+        let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: queued.bundleURL)
+        XCTAssertTrue(
+            saved.matrixComments.contains { $0.body == body },
+            "a window close lost the edit: \(saved.matrixComments.map(\.body))"
+        )
+    }
+
+    /// The app's own close handler drops the window's controller from its list. It removes the genotype viewer first,
+    /// with no call of the window's delegate before it, so the order of the two notifications cannot lose the edit.
+    func testTheAppsCloseHandlerRunsTheGenotypeRemovalBeforeItDropsTheController() async throws {
+        let app = makeAppDelegateWithTemporaryState()
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        app.testingSetMainWindowControllers([harness.controller])
+        let viewer = harness.split.viewerController!
+        let edit = try await holdAnEdit(in: harness, row: try await buildRow(of: "Genotype"), body: "survive the app's close handler")
+
+        _ = app.perform(
+            NSSelectorFromString("windowWillClose:"),
+            with: Notification(name: NSWindow.willCloseNotification, object: harness.window)
+        )
+
+        XCTAssertNil(viewer.genotypeResultViewController, "the app's close handler left the viewer in place")
+        XCTAssertFalse(edit.undoManager.canUndo, "the app's close handler left an Undo that targets the controller")
+        XCTAssertTrue(app.testingMainWindowControllers.isEmpty, "the app's close handler kept the window's controller")
+        try await assertTheEditIsSaved(edit, leftBy: "the app's close handler")
+    }
+
     // MARK: - A refusal of the next surface
 
     /// The removal runs before the next surface loads, so a load that throws finds the edit already kept.

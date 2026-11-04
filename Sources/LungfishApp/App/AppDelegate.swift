@@ -2091,11 +2091,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc private func windowWillClose(_ notification: Notification) {
         guard let closedWindow = notification.object as? NSWindow else { return }
-
         let closedControllers = mainWindowControllers.filter { controller in
             controller.window === closedWindow
         }
         for controller in closedControllers {
+            controller.mainSplitViewController?.viewerController?.hideGenotypeResultView()
             invalidateProjectStorage(for: controller)
         }
         projectStorageBindingGenerations.removeValue(
