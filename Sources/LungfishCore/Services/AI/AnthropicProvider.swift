@@ -62,6 +62,11 @@ public actor AnthropicProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
+            if isAnthropicSpendLimitError(data) {
+                throw AIProviderError.quotaExceeded(
+                    parseErrorMessage(data) ?? "Anthropic reported that the spend limit is reached."
+                )
+            }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             throw AIProviderError.rateLimited(retryAfter: retryAfter)
         case 400:
@@ -94,6 +99,11 @@ public actor AnthropicProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
+            if isAnthropicSpendLimitError(data) {
+                throw AIProviderError.quotaExceeded(
+                    parseErrorMessage(data) ?? "Anthropic reported that the spend limit is reached."
+                )
+            }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
             throw AIProviderError.rateLimited(retryAfter: retryAfter)
         case 400:

@@ -179,3 +179,15 @@ func isOpenAIQuotaError(_ data: Data) -> Bool {
     guard let code = error["code"] as? String else { return false }
     return openAIQuotaErrorCodes.contains(code)
 }
+
+/// Returns whether an Anthropic 429 response body reports the tier's monthly spend
+/// cap, which is `error.details.error_code` of `enforced_spend_limit_reached`.
+///
+/// That response carries no `retry-after` header and a retry fails until access
+/// resumes, so it is quota. A true rate limit has no such detail.
+///
+/// - Parameter data: The raw HTTP response body.
+func isAnthropicSpendLimitError(_ data: Data) -> Bool {
+    guard let details = parseErrorObject(data)?["details"] as? [String: Any] else { return false }
+    return (details["error_code"] as? String) == "enforced_spend_limit_reached"
+}
