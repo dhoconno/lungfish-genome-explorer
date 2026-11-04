@@ -45,6 +45,43 @@ extension TaxTriageSample {
         return String(scalars)
     }
 
+    /// Sample names that the pipeline turns into one name.
+    public struct MeetingNames: Sendable, Equatable {
+        /// The name the pipeline gives them.
+        public let resultsName: String
+        /// The names as typed, each once, in order of first appearance.
+        public let typedNames: [String]
+    }
+
+    /// The sample names in `names` that the pipeline turns into one name, such as `A (1)` and `A_1`, which both become
+    /// `A_1`, in order of that name. A name typed twice counts once, since a run refuses an exact duplicate with its own
+    /// words. A name that becomes the empty string claims nothing and is left out, as ``TaxTriageControlMatch`` reads it
+    /// (lane TTCONTROLS, row TAXTRIAGE-NAMES-THAT-MEET-LOSE-ROWS).
+    public static func namesThatMeet(in names: [String]) -> [MeetingNames] {
+        var typedByResultsName: [String: [String]] = [:]
+        for name in names {
+            let resultsName = pipelineName(of: name)
+            guard !resultsName.isEmpty, !(typedByResultsName[resultsName]?.contains(name) ?? false) else { continue }
+            typedByResultsName[resultsName, default: []].append(name)
+        }
+        return typedByResultsName.keys.sorted().compactMap { key in
+            guard let typed = typedByResultsName[key], typed.count > 1 else { return nil }
+            return MeetingNames(resultsName: key, typedNames: typed)
+        }
+    }
+
+    /// What a person reads when a run lists names that meet, and what to do. Nil when no names meet. The run's refusal
+    /// and the dialog say these words, so the rule has one voice.
+    public static func namesThatMeetWords(in names: [String]) -> String? {
+        let meeting = namesThatMeet(in: names)
+        guard !meeting.isEmpty else { return nil }
+        let sentences = meeting.map { group in
+            "\(TaxTriageControlMatch.listing(group.typedNames)) become the same name, \(group.resultsName), once the "
+                + "pipeline removes spaces and symbols, so the results could keep only one of them."
+        }
+        return sentences.joined(separator: " ") + " Rename them so that the names stay different, then run again."
+    }
+
     /// Python's `str.strip()` removes the characters for which `str.isspace()` holds. They are the Unicode
     /// White_Space characters and the four information separators U+001C to U+001F.
     private static func isPipelineWhitespace(_ scalar: Unicode.Scalar) -> Bool {

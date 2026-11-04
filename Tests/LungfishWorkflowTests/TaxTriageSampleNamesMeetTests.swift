@@ -32,6 +32,28 @@ final class TaxTriageSampleNamesMeetTests: XCTestCase {
         }
     }
 
+    // MARK: - The rule
+
+    func testRuleListsTheNamesThatMeetAndTheNameTheyBecome() {
+        let meeting = TaxTriageSample.namesThatMeet(in: ["A (1)", "A 1", "A_1", "B"])
+        XCTAssertEqual(meeting.map(\.resultsName), ["A_1"])
+        XCTAssertEqual(meeting.first?.typedNames, ["A (1)", "A 1", "A_1"])
+    }
+
+    func testRuleLeavesOutExactDuplicatesAndNamesThatBecomeEmpty() {
+        XCTAssertEqual(TaxTriageSample.namesThatMeet(in: ["A", "A", "()", "[]"]), [])
+    }
+
+    func testWordsNameTheNamesAndSayWhatToDo() throws {
+        let words = try XCTUnwrap(TaxTriageSample.namesThatMeetWords(in: ["A (1)", "A_1"]))
+        XCTAssertEqual(
+            words,
+            "A (1) and A_1 become the same name, A_1, once the pipeline removes spaces and symbols, so the results could "
+                + "keep only one of them. Rename them so that the names stay different, then run again."
+        )
+        XCTAssertNil(TaxTriageSample.namesThatMeetWords(in: ["A", "B"]))
+    }
+
     // MARK: - Guards, true at the base and after
 
     func testRunKeepsRefusingExactlyEqualNames() throws {

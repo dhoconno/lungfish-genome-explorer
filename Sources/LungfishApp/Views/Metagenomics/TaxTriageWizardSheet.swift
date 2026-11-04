@@ -184,6 +184,7 @@ struct TaxTriageWizardSheet: View {
         && samples.allSatisfy { !$0.sampleId.trimmingCharacters(in: .whitespaces).isEmpty }
         && advancedArgumentsParseError == nil
         && Self.removeTaxidsValidationMessage(removeTaxidsText) == nil
+        && Self.sampleNamesValidationMessage(samples.map(\.sampleId)) == nil
     }
 
     /// Pure, testable helper: non-nil when the "Exclude host taxa" text holds
@@ -376,10 +377,7 @@ struct TaxTriageWizardSheet: View {
         if let advancedArgumentsParseError {
             return advancedArgumentsParseError
         }
-        if let removeTaxidsError = Self.removeTaxidsValidationMessage(removeTaxidsText) {
-            return removeTaxidsError
-        }
-        return nil
+        return Self.sampleNamesValidationMessage(samples.map(\.sampleId)) ?? Self.removeTaxidsValidationMessage(removeTaxidsText)
     }
 
     // MARK: - Prerequisites

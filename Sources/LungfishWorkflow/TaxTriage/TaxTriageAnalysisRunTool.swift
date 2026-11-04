@@ -399,6 +399,10 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         guard duplicates.isEmpty else {
             throw refusal(.duplicateSampleIds(duplicates))
         }
+        // Two names the pipeline turns into one write two reports of one name, and the index keeps one of them.
+        if let words = TaxTriageSample.namesThatMeetWords(in: ids) {
+            throw TaxTriageRunRefusal.input(words)
+        }
         guard config.k2Confidence >= 0.0 && config.k2Confidence <= 1.0 else {
             throw refusal(.invalidK2Confidence(config.k2Confidence))
         }
