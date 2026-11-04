@@ -90,7 +90,7 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         return BlastSearchClock(environment: environment(origin), sharedFolder: stateFolder)
     }
 
-    private func makePlan() throws -> BlastSubmitPlan {
+    private func makePlan(judgedAt: String? = nil) throws -> BlastSubmitPlan {
         let project = folder.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         return try BlastSubmitPlan.make(
@@ -98,7 +98,8 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
             label: "Severe acute respiratory syndrome coronavirus 2",
             projectURL: project,
             taxId: Self.species,
-            acceptedTaxIds: [Self.species]
+            acceptedTaxIds: [Self.species],
+            judgedAt: judgedAt
         )
     }
 
@@ -156,6 +157,38 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
 
         let afterReady = server.arrivals.drop { $0.contact != .result }
         XCTAssertFalse(afterReady.contains { $0.contact == .status }, "no send is checked again once one has come back")
+    }
+
+    /// BIO review 2, B1. The record a viewer run writes says what the verdicts were judged at, from the `--judged-at` the plan
+    /// sends. This stage's run is answered by the send it makes itself, and its record had the basis at the base, so it does
+    /// not cross the resume's request. `BlastSearchFileFactsTests` holds that half, which failed at the base.
+    func testASentSearchRecordKeepsWhatItWasJudgedAt() async throws {
+        let server = try BlastFaultStandIn.start(scripts: [
+            BlastFaultScript(search: .held, thereAreHits: true, body: try Self.reply("sars-cov-2-one-read-send-a")),
+            BlastFaultScript(search: .readyAtOnce, thereAreHits: true, body: try Self.reply("sars-cov-2-one-read-send-b")),
+        ])
+        defer { server.stop() }
+        let cli = try wrappedCLI(server.baseURL)
+        let clock = try searchClock(server.baseURL)
+        let monitor = BlastInFlightMonitor(worker: .cli(cliURLOverride: cli), now: clock.now)
+        let plan = try makePlan(judgedAt: "names")
+        let row = OperationCenter.shared.begin(
+            title: "BLAST held", detail: "Running", operationType: .blastVerification, cliCommand: plan.cliCommand
+        ).rowID
+        rows.append(row)
+        let spy = HeldDrawerSpy()
+
+        let task = ViewerViewController.launchBlastSubmit(
+            plan, operationID: row, runner: CLIBlastSubmitRunner(cliURLOverride: cli), drawer: spy.drawer, monitor: monitor
+        ) { result in "\(result.verifiedCount)/\(result.readResults.count) verified" }
+        await task.value
+
+        XCTAssertEqual(item(row)?.state, .completed, item(row)?.errorMessage ?? "")
+        let data = try Data(contentsOf: plan.request.outputURL.appendingPathComponent("blast-result.json"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let taxonomy = (json["search"] as? [String: Any])?["taxonomy"] as? [String: Any]
+        XCTAssertEqual(taxonomy?["basis"] as? String, "names", "the record says what the verdicts were judged at")
+        XCTAssertEqual(try record(in: plan.request.outputURL).result.judgedAt, .names)
     }
 
     func testAllCopiesHeldReadsWaitingAndComesBackAfterARelaunch() async throws {

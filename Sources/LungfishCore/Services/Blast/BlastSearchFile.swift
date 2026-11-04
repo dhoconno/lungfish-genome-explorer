@@ -75,6 +75,9 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
         package var acceptedTaxonNames: [String]
         package var relatedTaxIds: [Int]
         package var relatedTaxonNames: [String]
+        /// What the verdicts were judged at, so a resume stamps its result as the first process did
+        /// (BLAST-ESVIRITU-FIRST-WORD). Nil on a file from before the field.
+        package var judgedAt: BlastTaxonomyContext.Basis?
 
         package init(_ request: BlastVerificationRequest) {
             self.taxonName = request.taxonName
@@ -91,6 +94,7 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
             self.acceptedTaxonNames = request.acceptedTaxonNames
             self.relatedTaxIds = request.relatedTaxIds.sorted()
             self.relatedTaxonNames = request.relatedTaxonNames
+            self.judgedAt = request.judgedAt
         }
 
         /// The request these facts made, with the sequences of the folder's `query.fasta`.
@@ -110,7 +114,8 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
                 acceptedTaxIds: Set(acceptedTaxIds),
                 acceptedTaxonNames: acceptedTaxonNames,
                 relatedTaxIds: Set(relatedTaxIds),
-                relatedTaxonNames: relatedTaxonNames
+                relatedTaxonNames: relatedTaxonNames,
+                judgedAt: judgedAt
             )
         }
     }

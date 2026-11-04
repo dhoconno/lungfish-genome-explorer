@@ -313,7 +313,8 @@ extension BlastCommand {
                 acceptedTaxIds: built.acceptedTaxIds,
                 acceptedTaxonNames: built.acceptedTaxonNames,
                 relatedTaxIds: built.relatedTaxIds,
-                relatedTaxonNames: built.relatedTaxonNames
+                relatedTaxonNames: built.relatedTaxonNames,
+                judgedAt: built.judgedAt
             )
             _ = request.blastURLAPIExtraParameters
 
